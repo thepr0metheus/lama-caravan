@@ -114,39 +114,38 @@ function toggle(side, accent) {
   else px.push([18, 9, CRATE], [19, 8, CRATE], [20, 7, accent], [19, 7, accent], [20, 8, accent]);
   return px;
 }
-// create scene: egg → crack → hatched mini-llama that hops beside the parent
-const EGG = "#e8e2d4", EGGSPOT = "#cbb188", CRACK = "#141c20";
-function egg(state, miniColor) {
-  if (state === "whole" || state === "crack") {
-    const px = [[16, 8, EGG], [15, 9, EGG], [16, 9, EGGSPOT], [17, 9, EGG],
-                [15, 10, EGG], [16, 10, EGG], [17, 10, EGG], [16, 11, EGG]];
-    if (state === "crack") px.push([16, 8, CRACK], [17, 9, CRACK], [15, 10, CRACK]);
-    return px;
+// create scene: the llama STACKS crates (the delete scene's counterpart —
+// there it stomps one flat, here it builds a tower and tops it with a flag).
+function smallCrate(x0, y0) {
+  const px = [];
+  for (let y = y0; y <= y0 + 2; y += 1) for (let x = x0; x <= x0 + 3; x += 1) {
+    const edge = y === y0 || y === y0 + 2 || x === x0 || x === x0 + 3;
+    px.push([x, y, edge ? CRATE2 : CRATE]);
   }
-  // hatched: bottom shell cup + the newborn standing in/beside it
-  const shell = [[14, 11, EGG], [15, 11, EGG], [17, 11, EGG], [18, 11, EGG], [14, 10, EGG], [18, 10, EGG]];
-  const dx = state === "hop" ? 2 : 0, dy = state === "hop" ? -1 : 0;
-  const mini = [
-    [15 + dx, 9 + dy, miniColor], [16 + dx, 9 + dy, miniColor],
-    [15 + dx, 10 + dy, miniColor], [16 + dx, 10 + dy, miniColor],
-    [17 + dx, 8 + dy, miniColor], [17 + dx, 7 + dy, miniColor], [18 + dx, 7 + dy, miniColor],
-    [17 + dx, 6 + dy, miniColor],
-    [15 + dx, 11 + dy, miniColor], [16 + dx, 11 + dy, miniColor],
-  ];
-  return state === "hop" ? shell.concat(mini) : shell.concat(mini);
+  px.push([x0 + 1, y0 + 1, ROPE], [x0 + 2, y0 + 1, ROPE]);
+  return px;
+}
+function tower(stage, accent) {
+  const px = [];
+  if (stage >= 1) px.push(...smallCrate(14, 9));            // first crate on the ground
+  if (stage === 1.5) px.push(...smallCrate(15, 4));         // second crate mid-air
+  if (stage >= 2) px.push(...smallCrate(14, 6));            // ...landed on top
+  if (stage >= 3) px.push([15, 4, CRATE2], [15, 5, CRATE2], // flag pole
+                          [16, 4, accent], [17, 4, accent], [16, 5, accent]); // banner
+  return px;
 }
 const propShadow = (px) => px.map(([x, y, c]) => `${x}em ${y}em 0 0 ${c}`).join(", ");
 
 // ── scene timelines: [pose, propShadow, llamaShiftEm, propSlide] per tick ────
-function timeline(kind, accent, miniColor) {
+function timeline(kind, accent) {
   if (kind === "create") {
     return [
-      ["standA", propShadow(egg("whole", miniColor)), 0, false],
-      ["standB", propShadow(egg("whole", miniColor)), 1, false],   // nudges the egg
-      ["standA", propShadow(egg("crack", miniColor)), 0, false],
-      ["standA", propShadow(egg("hatched", miniColor)), 0, false], // a newborn!
-      ["standB", propShadow(egg("hop", miniColor)), 0, false],     // first hop
-      ["standA", propShadow(egg("hatched", miniColor)), 0, false],
+      ["standA", propShadow(tower(0, accent)), 0, false],
+      ["standB", propShadow(tower(1, accent)), 1, true],    // first crate slides in
+      ["rear", propShadow(tower(1.5, accent)), 1, false],   // hoists the second one
+      ["standA", propShadow(tower(2, accent)), 0, false],   // stacked!
+      ["standB", propShadow(tower(3, accent)), 1, false],   // plants the flag
+      ["standA", propShadow(tower(3, accent)), 0, false],
     ];
   }
   if (kind === "delete") {
@@ -202,8 +201,7 @@ function mountScene(overlay) {
     blanket = BLANKETS[Math.floor(Math.random() * BLANKETS.length)];
   }
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#4da392";
-  const miniColor = BODIES.filter((c) => c !== body)[Math.floor(Math.random() * (BODIES.length - 1))];
-  const frames = timeline(kind, accent, miniColor);
+  const frames = timeline(kind, accent);
   modal.classList.add("dlg-staged");   // hides the small header tile
   const stage = document.createElement("div");
   stage.className = "dlg-stage";
