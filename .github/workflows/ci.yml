@@ -19,6 +19,9 @@ jobs:
       - name: queue node unit test
         run: python3 scripts/test_queue_node.py
 
+      - name: tour i18n coverage
+        run: python3 scripts/check_tour_i18n.py
+
       - name: JS syntax (ES modules)
         run: |
           set -e

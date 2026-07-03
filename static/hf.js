@@ -1471,8 +1471,8 @@ if (_urlQ) {
 
 // ── onboarding tour (?) ───────────────────────────────────────────────────────
 // The engine is dependency-free; strings live here so this page keeps NOT
-// importing the big i18n dictionary. RU + EN; the language follows the main
-// app's localStorage key.
+// importing the big i18n dictionary. All 20 app languages; the language
+// follows the main app's localStorage key.
 import { autoStartOnce, createTour, initTourButtons } from "/js/onboarding.js";
 
 const HF_TOUR = {
@@ -1512,7 +1512,341 @@ const HF_TOUR = {
        "Нужен только для gated/приватных репозиториев. Хранится на контроллере, не в браузере."],
     ],
   },
+  zh: {
+    btn: "如何使用此页面",
+    label: "导览",
+    langPick: "语言",
+    next: "下一步 →", back: "← 上一步", done: "完成", skip: "关闭",
+    steps: [
+      [null, "HuggingFace 模型浏览器",
+       "在 HuggingFace 搜索 <b>GGUF</b> 模型并直接下载到控制器的模型目录 — 所有 llama 服务器单元都能使用。<br><br>用 <b>→</b>/<b>←</b> 导航，<b>Esc</b> 关闭。"],
+      [".hf-search", "搜索",
+       "输入仓库名（<code>bartowski/Qwen3-…-GGUF</code>）或任意关键词。只显示 GGUF 仓库。"],
+      ["#hfRepoCol", "仓库",
+       "选择一个仓库 — 星标、下载量和基准徽章帮你挑选。★ 收藏始终置顶。"],
+      ["#hfFileCol", "文件与量化",
+       "仓库中所有 GGUF 及其大小。选择适合你 VRAM 的量化（看板编辑器会估算能否放下）并点击下载；多分卷文件自动处理。文件按 <code>&lt;模型&gt;/&lt;作者&gt;/&lt;量化&gt;/file.gguf</code> 存放 — 手动添加模型请沿用同一结构。"],
+      [".hf-token-row", "HF 令牌",
+       "仅 gated/私有仓库需要。保存在控制器上，绝不留在浏览器里。"],
+    ],
+  },
+  hi: {
+    btn: "इस पेज का उपयोग कैसे करें",
+    label: "टूर",
+    langPick: "भाषा",
+    next: "आगे →", back: "← पीछे", done: "हो गया", skip: "बंद करें",
+    steps: [
+      [null, "HuggingFace मॉडल ब्राउज़र",
+       "HuggingFace पर <b>GGUF</b> मॉडल खोजें और सीधे कंट्रोलर की मॉडल डायरेक्टरी में डाउनलोड करें — वे हर llama सर्वर सेल को उपलब्ध हो जाते हैं।<br><br><b>→</b>/<b>←</b> से चलें, <b>Esc</b> से बंद करें।"],
+      [".hf-search", "खोज",
+       "रेपो का नाम लिखें (<code>bartowski/Qwen3-…-GGUF</code>) या कोई भी शब्द। केवल GGUF रिपॉज़िटरी दिखती हैं।"],
+      ["#hfRepoCol", "रिपॉज़िटरी",
+       "एक रिपॉज़िटरी चुनें — स्टार, डाउनलोड और बेंचमार्क बैज चुनने में मदद करते हैं। ★ पसंदीदा हमेशा ऊपर रहते हैं।"],
+      ["#hfFileCol", "फ़ाइलें और क्वांट",
+       "रेपो के सभी GGUF अपने आकार के साथ। अपनी VRAM में समाने वाला क्वांटाइज़ेशन चुनें (बोर्ड का एडिटर फ़िट का अनुमान दिखाता है) और डाउनलोड दबाएँ; बहु-भाग फ़ाइलें अपने आप संभल जाती हैं। फ़ाइलें <code>&lt;मॉडल&gt;/&lt;लेखक&gt;/&lt;क्वांट&gt;/file.gguf</code> के रूप में रखी जाती हैं — हाथ से मॉडल जोड़ते समय भी यही संरचना रखें।"],
+      [".hf-token-row", "HF टोकन",
+       "केवल gated या निजी रेपो के लिए चाहिए। कंट्रोलर पर संग्रहीत, ब्राउज़र में कभी नहीं।"],
+    ],
+  },
+  es: {
+    btn: "Cómo usar esta página",
+    label: "Guía",
+    langPick: "Idioma",
+    next: "Siguiente →", back: "← Atrás", done: "Listo", skip: "Cerrar",
+    steps: [
+      [null, "Navegador de modelos de HuggingFace",
+       "Busca modelos <b>GGUF</b> en HuggingFace y descárgalos directo al directorio de modelos del controlador — quedan disponibles para todas las celdas de servidor llama.<br><br>Navega con <b>→</b>/<b>←</b>, cierra con <b>Esc</b>."],
+      [".hf-search", "Búsqueda",
+       "Escribe el nombre de un repo (<code>bartowski/Qwen3-…-GGUF</code>) o palabras sueltas. Solo se muestran repositorios GGUF."],
+      ["#hfRepoCol", "Repositorios",
+       "Elige un repositorio — estrellas, descargas e insignias de benchmarks ayudan a decidir. Los favoritos ★ quedan arriba."],
+      ["#hfFileCol", "Archivos y cuantizaciones",
+       "Todos los GGUF del repo con su tamaño. Elige una cuantización que quepa en tu VRAM (el editor del tablero estima si cabe) y pulsa descargar; los archivos multiparte se manejan solos. Los archivos quedan como <code>&lt;modelo&gt;/&lt;autor&gt;/&lt;cuant&gt;/file.gguf</code> — usa la misma estructura al añadir modelos a mano."],
+      [".hf-token-row", "Token de HF",
+       "Solo hace falta para repos gated o privados. Se guarda en el controlador, nunca en el navegador."],
+    ],
+  },
+  fr: {
+    btn: "Comment utiliser cette page",
+    label: "Visite",
+    langPick: "Langue",
+    next: "Suivant →", back: "← Retour", done: "Terminé", skip: "Fermer",
+    steps: [
+      [null, "Navigateur de modèles HuggingFace",
+       "Cherchez des modèles <b>GGUF</b> sur HuggingFace et téléchargez-les droit dans le répertoire de modèles du contrôleur — ils deviennent disponibles pour toutes les cellules de serveur llama.<br><br>Naviguez avec <b>→</b>/<b>←</b>, fermez avec <b>Esc</b>."],
+      [".hf-search", "Recherche",
+       "Tapez un nom de dépôt (<code>bartowski/Qwen3-…-GGUF</code>) ou des mots libres. Seuls les dépôts GGUF s'affichent."],
+      ["#hfRepoCol", "Dépôts",
+       "Choisissez un dépôt — étoiles, téléchargements et badges de benchmarks aident à trancher. Les favoris ★ restent en haut."],
+      ["#hfFileCol", "Fichiers et quantifications",
+       "Tous les GGUF du dépôt avec leur taille. Choisissez une quantification qui tient dans votre VRAM (l'éditeur du tableau estime si ça rentre) et lancez le téléchargement ; les fichiers multi-parties sont gérés automatiquement. Les fichiers arrivent en <code>&lt;modèle&gt;/&lt;auteur&gt;/&lt;quant&gt;/file.gguf</code> — gardez la même structure pour vos ajouts manuels."],
+      [".hf-token-row", "Jeton HF",
+       "Nécessaire seulement pour les dépôts gated ou privés. Stocké sur le contrôleur, jamais dans le navigateur."],
+    ],
+  },
+  ar: {
+    btn: "كيف تستخدم هذه الصفحة",
+    label: "جولة",
+    langPick: "اللغة",
+    next: "التالي ←", back: "→ رجوع", done: "تم", skip: "إغلاق",
+    steps: [
+      [null, "متصفح نماذج HuggingFace",
+       "ابحث في HuggingFace عن نماذج <b>GGUF</b> ونزّلها مباشرة إلى مجلد النماذج في وحدة التحكم — فتصبح متاحة لكل خلايا خوادم llama.<br><br>تنقّل بـ <b>→</b>/<b>←</b>، وأغلق بـ <b>Esc</b>."],
+      [".hf-search", "البحث",
+       "اكتب اسم المستودع (<code>bartowski/Qwen3-…-GGUF</code>) أو كلمات حرة. تُعرض مستودعات GGUF فقط."],
+      ["#hfRepoCol", "المستودعات",
+       "اختر مستودعًا — تساعدك النجوم والتنزيلات وشارات الاختبارات في الاختيار. المفضلة ★ تبقى في الأعلى."],
+      ["#hfFileCol", "الملفات والتكميمات",
+       "كل ملفات GGUF في المستودع مع أحجامها. اختر تكميمًا يناسب ذاكرة VRAM لديك (محرر اللوحة يقدّر إن كان يتسع) واضغط تنزيل؛ الملفات متعددة الأجزاء تُعالج تلقائيًا. تُحفظ الملفات بالشكل <code>&lt;النموذج&gt;/&lt;المؤلف&gt;/&lt;التكميم&gt;/file.gguf</code> — التزم بالبنية نفسها عند إضافة النماذج يدويًا."],
+      [".hf-token-row", "رمز HF",
+       "مطلوب فقط للمستودعات المقيدة أو الخاصة. يُخزن على وحدة التحكم، ولا يبقى في المتصفح أبدًا."],
+    ],
+  },
+  bn: {
+    btn: "এই পেজটি কীভাবে ব্যবহার করবেন",
+    label: "ট্যুর",
+    langPick: "ভাষা",
+    next: "পরবর্তী →", back: "← পিছনে", done: "সম্পন্ন", skip: "বন্ধ করুন",
+    steps: [
+      [null, "HuggingFace মডেল ব্রাউজার",
+       "HuggingFace-এ <b>GGUF</b> মডেল খুঁজুন এবং সরাসরি কন্ট্রোলারের মডেল ডিরেক্টরিতে নামান — সেগুলি প্রতিটি llama সার্ভার সেলের জন্য উপলব্ধ হয়ে যায়।<br><br><b>→</b>/<b>←</b> দিয়ে চলুন, <b>Esc</b> দিয়ে বন্ধ করুন।"],
+      [".hf-search", "খোঁজ",
+       "রিপোর নাম লিখুন (<code>bartowski/Qwen3-…-GGUF</code>) বা যেকোনো শব্দ। শুধু GGUF রিপোজিটরি দেখানো হয়।"],
+      ["#hfRepoCol", "রিপোজিটরি",
+       "একটি রিপোজিটরি বেছে নিন — তারা, ডাউনলোড ও বেঞ্চমার্ক ব্যাজ বাছাইয়ে সাহায্য করে। ★ প্রিয়গুলি সবসময় উপরে থাকে।"],
+      ["#hfFileCol", "ফাইল ও কোয়ান্ট",
+       "রিপোর সব GGUF তাদের আকারসহ। আপনার VRAM-এ ধরে এমন কোয়ান্টাইজেশন বেছে নিন (বোর্ডের এডিটর আঁটবে কিনা অনুমান দেখায়) এবং ডাউনলোড চাপুন; বহু-খণ্ড ফাইল নিজে নিজেই সামলানো হয়। ফাইল রাখা হয় <code>&lt;মডেল&gt;/&lt;লেখক&gt;/&lt;কোয়ান্ট&gt;/file.gguf</code> আকারে — হাতে মডেল যোগ করলেও একই কাঠামো রাখুন।"],
+      [".hf-token-row", "HF টোকেন",
+       "শুধু gated বা প্রাইভেট রিপোর জন্য দরকার। কন্ট্রোলারে সংরক্ষিত, ব্রাউজারে কখনও নয়।"],
+    ],
+  },
+  pt: {
+    btn: "Como usar esta página",
+    label: "Tour",
+    langPick: "Idioma",
+    next: "Avançar →", back: "← Voltar", done: "Concluir", skip: "Fechar",
+    steps: [
+      [null, "Navegador de modelos HuggingFace",
+       "Pesquise modelos <b>GGUF</b> no HuggingFace e baixe-os direto para o diretório de modelos do controlador — ficam disponíveis para todas as células de servidor llama.<br><br>Navegue com <b>→</b>/<b>←</b>, feche com <b>Esc</b>."],
+      [".hf-search", "Busca",
+       "Digite o nome de um repositório (<code>bartowski/Qwen3-…-GGUF</code>) ou palavras livres. Só repositórios GGUF são exibidos."],
+      ["#hfRepoCol", "Repositórios",
+       "Escolha um repositório — estrelas, downloads e selos de benchmark ajudam na escolha. Os favoritos ★ ficam no topo."],
+      ["#hfFileCol", "Arquivos e quantizações",
+       "Todos os GGUF do repositório com seus tamanhos. Escolha uma quantização que caiba na sua VRAM (o editor do quadro estima se cabe) e clique em baixar; arquivos multipartes são tratados automaticamente. Os arquivos ficam como <code>&lt;modelo&gt;/&lt;autor&gt;/&lt;quant&gt;/file.gguf</code> — mantenha a mesma estrutura ao adicionar modelos à mão."],
+      [".hf-token-row", "Token HF",
+       "Necessário só para repositórios gated ou privados. Guardado no controlador, nunca no navegador."],
+    ],
+  },
+  ja: {
+    btn: "このページの使い方",
+    label: "ツアー",
+    langPick: "言語",
+    next: "次へ →", back: "← 戻る", done: "完了", skip: "閉じる",
+    steps: [
+      [null, "HuggingFace モデルブラウザ",
+       "HuggingFace で <b>GGUF</b> モデルを検索し、コントローラのモデルディレクトリへ直接ダウンロード — すべての llama サーバーセルで使えるようになります。<br><br><b>→</b>/<b>←</b> で移動、<b>Esc</b> で閉じます。"],
+      [".hf-search", "検索",
+       "リポジトリ名（<code>bartowski/Qwen3-…-GGUF</code>）か自由な語句を入力。GGUF リポジトリだけが表示されます。"],
+      ["#hfRepoCol", "リポジトリ",
+       "リポジトリを選択 — スター数、ダウンロード数、ベンチマークバッジが選定の助けになります。★ お気に入りは常に上部に。"],
+      ["#hfFileCol", "ファイルと量子化",
+       "リポジトリ内の全 GGUF とサイズ。VRAM に収まる量子化を選び（ボードのエディタが収まるか推定します）、ダウンロードを押すだけ。分割ファイルは自動処理。ファイルは <code>&lt;モデル&gt;/&lt;作者&gt;/&lt;量子化&gt;/file.gguf</code> の形で保存 — 手動でモデルを置くときも同じ構成で。"],
+      [".hf-token-row", "HF トークン",
+       "gated・プライベートリポジトリにのみ必要。コントローラに保存され、ブラウザには残りません。"],
+    ],
+  },
+  de: {
+    btn: "So benutzt du diese Seite",
+    label: "Tour",
+    langPick: "Sprache",
+    next: "Weiter →", back: "← Zurück", done: "Fertig", skip: "Schließen",
+    steps: [
+      [null, "HuggingFace-Modellbrowser",
+       "Suche auf HuggingFace nach <b>GGUF</b>-Modellen und lade sie direkt ins Modellverzeichnis des Controllers — sie stehen sofort jeder llama-Serverzelle zur Verfügung.<br><br>Navigieren mit <b>→</b>/<b>←</b>, schließen mit <b>Esc</b>."],
+      [".hf-search", "Suche",
+       "Repo-Namen eingeben (<code>bartowski/Qwen3-…-GGUF</code>) oder freie Begriffe. Es werden nur GGUF-Repositories angezeigt."],
+      ["#hfRepoCol", "Repositories",
+       "Wähle ein Repository — Sterne, Downloads und Benchmark-Badges helfen bei der Wahl. ★-Favoriten bleiben oben."],
+      ["#hfFileCol", "Dateien & Quantisierungen",
+       "Alle GGUF des Repos mit Größe. Wähle eine Quantisierung, die in deinen VRAM passt (der Editor auf dem Board schätzt, ob es passt), und starte den Download; mehrteilige Dateien werden automatisch behandelt. Dateien landen als <code>&lt;Modell&gt;/&lt;Autor&gt;/&lt;Quant&gt;/file.gguf</code> — nutze dieselbe Struktur, wenn du Modelle von Hand ablegst."],
+      [".hf-token-row", "HF-Token",
+       "Nur für gated oder private Repos nötig. Liegt auf dem Controller, nie im Browser."],
+    ],
+  },
+  id: {
+    btn: "Cara memakai halaman ini",
+    label: "Tur",
+    langPick: "Bahasa",
+    next: "Lanjut →", back: "← Kembali", done: "Selesai", skip: "Tutup",
+    steps: [
+      [null, "Peramban model HuggingFace",
+       "Cari model <b>GGUF</b> di HuggingFace dan unduh langsung ke direktori model controller — langsung tersedia untuk semua sel server llama.<br><br>Navigasi dengan <b>→</b>/<b>←</b>, tutup dengan <b>Esc</b>."],
+      [".hf-search", "Pencarian",
+       "Ketik nama repo (<code>bartowski/Qwen3-…-GGUF</code>) atau kata bebas. Hanya repositori GGUF yang ditampilkan."],
+      ["#hfRepoCol", "Repositori",
+       "Pilih repositori — bintang, unduhan, dan lencana benchmark membantu memilih. Favorit ★ selalu di atas."],
+      ["#hfFileCol", "Berkas & kuantisasi",
+       "Semua GGUF dalam repo beserta ukurannya. Pilih kuantisasi yang muat di VRAM Anda (editor papan menampilkan perkiraan muat) lalu tekan unduh; berkas multi-bagian ditangani otomatis. Berkas tersimpan sebagai <code>&lt;model&gt;/&lt;penulis&gt;/&lt;kuant&gt;/file.gguf</code> — pakai struktur yang sama saat menaruh model secara manual."],
+      [".hf-token-row", "Token HF",
+       "Hanya perlu untuk repo gated atau privat. Disimpan di controller, tidak pernah di peramban."],
+    ],
+  },
+  ur: {
+    btn: "یہ صفحہ کیسے استعمال کریں",
+    label: "ٹور",
+    langPick: "زبان",
+    next: "اگلا ←", back: "→ پیچھے", done: "مکمل", skip: "بند کریں",
+    steps: [
+      [null, "HuggingFace ماڈل براؤزر",
+       "HuggingFace پر <b>GGUF</b> ماڈل تلاش کریں اور سیدھا کنٹرولر کی ماڈل ڈائریکٹری میں ڈاؤن لوڈ کریں — وہ ہر llama سرور سیل کو دستیاب ہو جاتے ہیں۔<br><br><b>→</b>/<b>←</b> سے چلیں، <b>Esc</b> سے بند کریں۔"],
+      [".hf-search", "تلاش",
+       "ریپو کا نام لکھیں (<code>bartowski/Qwen3-…-GGUF</code>) یا کوئی بھی الفاظ۔ صرف GGUF ریپوزٹریاں دکھائی جاتی ہیں۔"],
+      ["#hfRepoCol", "ریپوزٹریاں",
+       "کوئی ریپوزٹری چنیں — ستارے، ڈاؤن لوڈ اور بینچ مارک بیجز انتخاب میں مدد دیتے ہیں۔ ★ پسندیدہ ہمیشہ اوپر رہتے ہیں۔"],
+      ["#hfFileCol", "فائلیں اور کوانٹ",
+       "ریپو کی تمام GGUF فائلیں مع سائز۔ اپنی VRAM میں سمانے والی کوانٹائزیشن چنیں (بورڈ کا ایڈیٹر اندازہ دکھاتا ہے) اور ڈاؤن لوڈ دبائیں؛ کثیر حصہ فائلیں خود سنبھل جاتی ہیں۔ فائلیں <code>&lt;ماڈل&gt;/&lt;مصنف&gt;/&lt;کوانٹ&gt;/file.gguf</code> کی صورت رکھی جاتی ہیں — ہاتھ سے ماڈل رکھتے وقت بھی یہی ساخت رکھیں۔"],
+      [".hf-token-row", "HF ٹوکن",
+       "صرف gated یا نجی ریپوز کے لیے درکار۔ کنٹرولر پر محفوظ، براؤزر میں کبھی نہیں۔"],
+    ],
+  },
+  tr: {
+    btn: "Bu sayfa nasıl kullanılır",
+    label: "Tur",
+    langPick: "Dil",
+    next: "İleri →", back: "← Geri", done: "Bitti", skip: "Kapat",
+    steps: [
+      [null, "HuggingFace model tarayıcısı",
+       "HuggingFace'te <b>GGUF</b> modelleri arayın ve doğrudan denetleyicinin model dizinine indirin — tüm llama sunucu hücrelerine açılırlar.<br><br><b>→</b>/<b>←</b> ile gezinin, <b>Esc</b> ile kapatın."],
+      [".hf-search", "Arama",
+       "Depo adı yazın (<code>bartowski/Qwen3-…-GGUF</code>) ya da serbest sözcükler. Yalnızca GGUF depoları gösterilir."],
+      ["#hfRepoCol", "Depolar",
+       "Bir depo seçin — yıldızlar, indirmeler ve benchmark rozetleri seçime yardım eder. ★ favoriler hep üstte."],
+      ["#hfFileCol", "Dosyalar ve kuantlar",
+       "Depodaki tüm GGUF'lar boyutlarıyla. VRAM'inize sığan bir kuantizasyon seçin (panodaki düzenleyici sığar mı tahmin eder) ve indir'e basın; çok parçalı dosyalar kendiliğinden halledilir. Dosyalar <code>&lt;model&gt;/&lt;yazar&gt;/&lt;kuant&gt;/file.gguf</code> düzeninde durur — elle model eklerken de aynı yapıyı koruyun."],
+      [".hf-token-row", "HF belirteci",
+       "Yalnızca gated veya özel depolar için gerekir. Denetleyicide saklanır, asla tarayıcıda değil."],
+    ],
+  },
+  ko: {
+    btn: "이 페이지 사용법",
+    label: "투어",
+    langPick: "언어",
+    next: "다음 →", back: "← 이전", done: "완료", skip: "닫기",
+    steps: [
+      [null, "HuggingFace 모델 브라우저",
+       "HuggingFace에서 <b>GGUF</b> 모델을 검색해 컨트롤러의 모델 디렉터리로 바로 내려받으세요 — 모든 llama 서버 셀에서 쓸 수 있게 됩니다.<br><br><b>→</b>/<b>←</b>로 이동, <b>Esc</b>로 닫기."],
+      [".hf-search", "검색",
+       "저장소 이름(<code>bartowski/Qwen3-…-GGUF</code>)이나 자유 검색어를 입력하세요. GGUF 저장소만 표시됩니다."],
+      ["#hfRepoCol", "저장소",
+       "저장소를 고르세요 — 별, 다운로드 수, 벤치마크 배지가 선택을 돕습니다. ★ 즐겨찾기는 항상 맨 위에."],
+      ["#hfFileCol", "파일과 양자화",
+       "저장소의 모든 GGUF와 크기. VRAM에 맞는 양자화를 고르고(보드의 편집기가 들어갈지 추정해 줍니다) 다운로드를 누르세요; 분할 파일은 자동 처리됩니다. 파일은 <code>&lt;모델&gt;/&lt;작성자&gt;/&lt;양자화&gt;/file.gguf</code> 구조로 저장됩니다 — 직접 모델을 넣을 때도 같은 구조를 지키세요."],
+      [".hf-token-row", "HF 토큰",
+       "gated·비공개 저장소에만 필요합니다. 컨트롤러에 저장되며 브라우저에는 남지 않습니다."],
+    ],
+  },
+  vi: {
+    btn: "Cách dùng trang này",
+    label: "Tour",
+    langPick: "Ngôn ngữ",
+    next: "Tiếp →", back: "← Lùi", done: "Xong", skip: "Đóng",
+    steps: [
+      [null, "Trình duyệt mô hình HuggingFace",
+       "Tìm mô hình <b>GGUF</b> trên HuggingFace và tải thẳng vào thư mục mô hình của bộ điều khiển — chúng lập tức sẵn sàng cho mọi ô máy chủ llama.<br><br>Di chuyển bằng <b>→</b>/<b>←</b>, đóng bằng <b>Esc</b>."],
+      [".hf-search", "Tìm kiếm",
+       "Gõ tên kho (<code>bartowski/Qwen3-…-GGUF</code>) hoặc từ khóa tự do. Chỉ hiển thị các kho GGUF."],
+      ["#hfRepoCol", "Kho mô hình",
+       "Chọn một kho — sao, lượt tải và huy hiệu benchmark giúp bạn quyết định. Mục ★ yêu thích luôn ở trên cùng."],
+      ["#hfFileCol", "Tệp & lượng tử hóa",
+       "Mọi GGUF trong kho kèm kích thước. Chọn mức lượng tử hóa vừa với VRAM của bạn (trình soạn trên bảng ước tính có vừa không) rồi bấm tải; tệp nhiều phần được xử lý tự động. Tệp nằm theo dạng <code>&lt;mô hình&gt;/&lt;tác giả&gt;/&lt;quant&gt;/file.gguf</code> — thêm mô hình thủ công cũng giữ đúng cấu trúc này."],
+      [".hf-token-row", "Token HF",
+       "Chỉ cần cho kho gated hoặc riêng tư. Lưu trên bộ điều khiển, không bao giờ ở trình duyệt."],
+    ],
+  },
+  it: {
+    btn: "Come usare questa pagina",
+    label: "Tour",
+    langPick: "Lingua",
+    next: "Avanti →", back: "← Indietro", done: "Fatto", skip: "Chiudi",
+    steps: [
+      [null, "Browser dei modelli HuggingFace",
+       "Cerca modelli <b>GGUF</b> su HuggingFace e scaricali direttamente nella directory dei modelli del controller — diventano disponibili a ogni cella server llama.<br><br>Naviga con <b>→</b>/<b>←</b>, chiudi con <b>Esc</b>."],
+      [".hf-search", "Ricerca",
+       "Digita il nome di un repo (<code>bartowski/Qwen3-…-GGUF</code>) o parole libere. Vengono mostrati solo repository GGUF."],
+      ["#hfRepoCol", "Repository",
+       "Scegli un repository — stelle, download e badge dei benchmark aiutano nella scelta. I preferiti ★ restano in cima."],
+      ["#hfFileCol", "File e quantizzazioni",
+       "Tutti i GGUF del repo con le dimensioni. Scegli una quantizzazione che stia nella tua VRAM (l'editor della board stima se ci sta) e premi download; i file multi-parte sono gestiti da soli. I file finiscono come <code>&lt;modello&gt;/&lt;autore&gt;/&lt;quant&gt;/file.gguf</code> — mantieni la stessa struttura quando aggiungi modelli a mano."],
+      [".hf-token-row", "Token HF",
+       "Serve solo per repo gated o privati. Conservato sul controller, mai nel browser."],
+    ],
+  },
+  te: {
+    btn: "ఈ పేజీని ఎలా వాడాలి",
+    label: "టూర్",
+    langPick: "భాష",
+    next: "తర్వాత →", back: "← వెనుకకు", done: "పూర్తయింది", skip: "మూసివేయి",
+    steps: [
+      [null, "HuggingFace మోడల్ బ్రౌజర్",
+       "HuggingFace లో <b>GGUF</b> మోడళ్లను వెతికి నేరుగా కంట్రోలర్ మోడల్ డైరెక్టరీలోకి దించుకోండి — అవి ప్రతి llama సర్వర్ సెల్‌కు అందుబాటులోకి వస్తాయి.<br><br><b>→</b>/<b>←</b> తో కదలండి, <b>Esc</b> తో మూసేయండి."],
+      [".hf-search", "వెతుకులాట",
+       "రిపో పేరు టైప్ చేయండి (<code>bartowski/Qwen3-…-GGUF</code>) లేదా ఏవైనా పదాలు. GGUF రిపోజిటరీలు మాత్రమే కనిపిస్తాయి."],
+      ["#hfRepoCol", "రిపోజిటరీలు",
+       "ఒక రిపోజిటరీ ఎంచుకోండి — నక్షత్రాలు, డౌన్‌లోడ్‌లు, బెంచ్‌మార్క్ బ్యాడ్జీలు ఎంపికకు సాయపడతాయి. ★ ఇష్టమైనవి ఎప్పుడూ పైనే."],
+      ["#hfFileCol", "ఫైళ్లు & క్వాంట్‌లు",
+       "రిపోలోని అన్ని GGUF లు వాటి పరిమాణాలతో. మీ VRAM లో పట్టే క్వాంటైజేషన్ ఎంచుకుని (బోర్డు ఎడిటర్ పడుతుందో లేదో అంచనా చూపుతుంది) డౌన్‌లోడ్ నొక్కండి; బహుళ-భాగ ఫైళ్లు వాటంతటవే సర్దుకుంటాయి. ఫైళ్లు <code>&lt;మోడల్&gt;/&lt;రచయిత&gt;/&lt;క్వాంట్&gt;/file.gguf</code> గా పడతాయి — చేతితో మోడళ్లు పెట్టేటప్పుడూ ఇదే అమరిక పాటించండి."],
+      [".hf-token-row", "HF టోకెన్",
+       "gated లేదా ప్రైవేటు రిపోలకు మాత్రమే అవసరం. కంట్రోలర్‌పై నిల్వ, బ్రౌజర్‌లో ఎప్పటికీ కాదు."],
+    ],
+  },
+  mr: {
+    btn: "हे पान कसे वापरावे",
+    label: "टूर",
+    langPick: "भाषा",
+    next: "पुढे →", back: "← मागे", done: "झाले", skip: "बंद करा",
+    steps: [
+      [null, "HuggingFace मॉडेल ब्राउझर",
+       "HuggingFace वर <b>GGUF</b> मॉडेल शोधा आणि थेट कंट्रोलरच्या मॉडेल डिरेक्टरीत उतरवा — ती प्रत्येक llama सर्व्हर सेलला उपलब्ध होतात.<br><br><b>→</b>/<b>←</b> ने फिरा, <b>Esc</b> ने बंद करा."],
+      [".hf-search", "शोध",
+       "रेपोचे नाव लिहा (<code>bartowski/Qwen3-…-GGUF</code>) किंवा कोणतेही शब्द. फक्त GGUF रिपॉझिटरी दाखवल्या जातात."],
+      ["#hfRepoCol", "रिपॉझिटरी",
+       "एक रिपॉझिटरी निवडा — तारे, डाउनलोड व बेंचमार्क बिल्ले निवडीस मदत करतात. ★ आवडते नेहमी वर राहतात."],
+      ["#hfFileCol", "फायली व क्वांट",
+       "रेपोतील सर्व GGUF त्यांच्या आकारासह. तुमच्या VRAM मध्ये मावणारे क्वांटायझेशन निवडा (फलकावरील एडिटर मावेल का याचा अंदाज दाखवतो) आणि डाउनलोड दाबा; बहु-भाग फायली आपोआप हाताळल्या जातात. फायली <code>&lt;मॉडेल&gt;/&lt;लेखक&gt;/&lt;क्वांट&gt;/file.gguf</code> अशा ठेवल्या जातात — हाताने मॉडेल ठेवतानाही हीच रचना पाळा."],
+      [".hf-token-row", "HF टोकन",
+       "फक्त gated वा खासगी रेपोंसाठी लागते. कंट्रोलरवर साठवले जाते, ब्राउझरमध्ये कधीही नाही."],
+    ],
+  },
+  ta: {
+    btn: "இந்தப் பக்கத்தை எப்படி பயன்படுத்துவது",
+    label: "சுற்று",
+    langPick: "மொழி",
+    next: "அடுத்து →", back: "← பின்", done: "முடிந்தது", skip: "மூடு",
+    steps: [
+      [null, "HuggingFace மாதிரி உலாவி",
+       "HuggingFace இல் <b>GGUF</b> மாதிரிகளைத் தேடி நேரடியாக கட்டுப்படுத்தியின் மாதிரி அடைவில் பதிவிறக்குங்கள் — அவை எல்லா llama சேவையக செல்களுக்கும் கிடைக்கும்.<br><br><b>→</b>/<b>←</b> மூலம் நகருங்கள், <b>Esc</b> மூலம் மூடுங்கள்."],
+      [".hf-search", "தேடல்",
+       "ரெப்போ பெயரை உள்ளிடுங்கள் (<code>bartowski/Qwen3-…-GGUF</code>) அல்லது எந்த சொற்களும். GGUF களஞ்சியங்கள் மட்டுமே காட்டப்படும்."],
+      ["#hfRepoCol", "களஞ்சியங்கள்",
+       "ஒரு களஞ்சியத்தைத் தேர்வு செய்யுங்கள் — நட்சத்திரங்கள், பதிவிறக்கங்கள், பெஞ்ச்மார்க் பேட்ஜ்கள் தேர்வுக்கு உதவும். ★ பிடித்தவை எப்போதும் மேலே."],
+      ["#hfFileCol", "கோப்புகள் & குவாண்ட்கள்",
+       "களஞ்சியத்தின் எல்லா GGUF களும் அளவுகளுடன். உங்கள் VRAM இல் பொருந்தும் குவாண்டைசேஷனைத் தேர்ந்து (பலகையின் திருத்தி பொருந்துமா என மதிப்பிடும்) பதிவிறக்கத்தை அழுத்துங்கள்; பல-பகுதி கோப்புகள் தானாக கையாளப்படும். கோப்புகள் <code>&lt;மாதிரி&gt;/&lt;ஆசிரியர்&gt;/&lt;குவாண்ட்&gt;/file.gguf</code> ஆக வைக்கப்படும் — கைமுறையாக மாதிரி சேர்க்கும்போதும் இதே அமைப்பைப் பின்பற்றுங்கள்."],
+      [".hf-token-row", "HF டோக்கன்",
+       "gated அல்லது தனியார் களஞ்சியங்களுக்கு மட்டுமே தேவை. கட்டுப்படுத்தியில் சேமிக்கப்படும், உலாவியில் ஒருபோதும் இல்லை."],
+    ],
+  },
 };
+
+// Mirrors LANGS in i18n-data.js (kept inline so this page stays independent of
+// the big dictionary); scripts/check_tour_i18n.py enforces the mirror.
+const HF_LANGS = [
+  ["en", "☕ English"], ["zh", "🐼 中文"], ["hi", "🪷 हिन्दी"], ["es", "🥘 Español"],
+  ["fr", "🥐 Français"], ["ar", "🕌 العربية"], ["bn", "🐅 বাংলা"], ["pt", "⚽ Português"],
+  ["ru", "🪆 Русский"], ["ja", "🗻 日本語"], ["de", "🥨 Deutsch"], ["id", "🦎 Bahasa Indonesia"],
+  ["ur", "🌙 اردو"], ["tr", "🧿 Türkçe"], ["ko", "🥋 한국어"], ["vi", "🛵 Tiếng Việt"],
+  ["it", "🍕 Italiano"], ["te", "🪔 తెలుగు"], ["mr", "🥭 मराठी"], ["ta", "🐘 தமிழ்"],
+];
 
 function hfTourStrings() {
   const lang = localStorage.getItem("llamacppAdminLang") || "en";
@@ -1524,15 +1858,15 @@ function hfTourBtnLabel() {
   if (el) el.textContent = hfTourStrings().label;
 }
 
-// The tour dictionary here is EN/RU only, so the welcome step offers exactly
-// those two; the choice is written to the shared app language key.
+// Every app language is offered; the choice is written to the shared app
+// language key, so the main pages pick it up too.
 function hfLangPicker(body, api) {
   const s = hfTourStrings();
   const cur = localStorage.getItem("llamacppAdminLang") || "en";
   const wrap = document.createElement("div");
   wrap.className = "ob-langs";
   wrap.innerHTML = `<div class="ob-langs-head">${s.langPick}</div><div class="ob-langs-grid">`
-    + [["en", "☕ English"], ["ru", "🪆 Русский"]].map(([code, label]) =>
+    + HF_LANGS.map(([code, label]) =>
       `<button type="button" class="ob-lang${code === cur ? " selected" : ""}" data-ob-lang="${code}">${label}</button>`).join("")
     + `</div>`;
   wrap.addEventListener("click", (ev) => {

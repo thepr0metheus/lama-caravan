@@ -4,11 +4,12 @@
 import { LANGS, messages } from "./i18n-data.js";
 import { lang, setLang, t } from "./i18n.js";
 import { autoStartOnce, createTour, initTourButtons } from "./onboarding.js";
-import { TOUR_EN, TOUR_RU } from "./onboarding-strings.js";
+import { TOUR_STRINGS } from "./onboarding-strings.js";
 
-// Merge tour strings into the shared dictionary (en/ru; others fall back to en).
-Object.assign(messages.en, TOUR_EN);
-if (messages.ru) Object.assign(messages.ru, TOUR_RU);
+// Merge tour strings into the shared dictionary for every language present.
+Object.entries(TOUR_STRINGS).forEach(([code, dict]) => {
+  if (messages[code]) Object.assign(messages[code], dict);
+});
 
 // Interface-language picker embedded into the welcome step: switches the
 // whole app language (setLang) and re-renders the tour in place.
