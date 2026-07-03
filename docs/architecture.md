@@ -1,5 +1,12 @@
 # Architecture
 
+> **Purpose.** LAMA CARAVAN routes AI agents' token traffic between local
+> llama.cpp servers and cloud providers: stable per-agent proxy ports on the
+> controller, visual routing pipelines (queues, schedules, spill, size forks),
+> remote server cells on client hosts via caravan-scout, an HF model browser,
+> and usage/spend accounting. The "why" in detail: see README → *Why LAMA
+> CARAVAN*.
+
 LAMA CARAVAN is a control plane for a fleet of `llama.cpp` servers: one
 controller host runs the admin UI and the routing proxy, client
 hosts run their own llama servers behind a small route-agent, and coding

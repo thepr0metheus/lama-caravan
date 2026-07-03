@@ -36,6 +36,7 @@ function labels() {
 function indexSteps() {
   return [
     { center: true, title: t("tourIxWelcomeT"), body: t("tourIxWelcomeB"), onRender: langPicker },
+    { center: true, title: t("tourIxWhyT"), body: t("tourIxWhyB") },
     { anchor: ".topology-board", title: t("tourIxBoardT"), body: t("tourIxBoardB") },
     { anchor: "#topologyClients", title: t("tourIxClientsT"), body: t("tourIxClientsB") },
     { anchor: "#topologyProxies", title: t("tourIxProxiesT"), body: t("tourIxProxiesB") },

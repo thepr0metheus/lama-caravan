@@ -8,6 +8,56 @@ per-host `llama.cpp` server cells.
 The app is intentionally dependency-light: it uses Python standard library
 HTTP handling and static HTML/CSS/JS.
 
+## Why LAMA CARAVAN
+
+The problem it solves: you have AI agents (OpenClaw, Hermes, anything speaking
+the OpenAI API) burning tokens all day, a couple of machines with GPUs standing
+mostly idle, and cloud subscriptions that are metered, rate-limited and see
+your prompts. LAMA CARAVAN glues that into one system where **tokens are
+processed wherever it makes sense right now** — locally when your hardware can
+take it, in the cloud when it can't.
+
+What that gives you in practice:
+
+- **Stable endpoints for agents.** Every agent points at its own fixed proxy
+  port on the controller — and never needs reconfiguring again. Swap the model,
+  move it to another machine, reroute to the cloud: the agent doesn't notice.
+- **Local ⇄ cloud routing you can draw.** Each port has a visual pipeline (the
+  kanban): queue nodes with priorities and admission limits, **schedule nodes**
+  (nights on the big GPU, work hours to the cloud), weighted splits,
+  round-robin, failover/spill when a server is busy or down, request-size
+  forks (small prompts → small local model, huge contexts → cloud), content
+  rules. Changes hot-reload in ~2 s, no restarts.
+- **Queues instead of timeouts.** One GPU shared by five agents stops being a
+  free-for-all: requests line up with priorities and per-route limits instead
+  of stepping on each other.
+- **Money and privacy.** Local tokens cost electricity; the cloud is used only
+  where you routed it. Usage & spend statistics show tokens/requests/costs per
+  agent and per backend, so the routing pays for itself visibly. Sensitive
+  agents can be pinned to local-only routes — those prompts never leave the LAN.
+- **Your whole zoo of hardware as one fleet.** The
+  [caravan-scout](https://github.com/thepr0metheus/caravan-scout) sidecar turns
+  any Linux/macOS box into a fleet member: its GPUs and running agents appear
+  on the board, and you can launch llama.cpp server cells there remotely —
+  models are cached and shipped from the controller, with a "will it fit"
+  VRAM/RAM estimate before starting.
+- **Models from HuggingFace in two clicks.** The built-in HF browser searches
+  GGUF repos, shows quants with sizes and benchmark badges, downloads
+  multi-part files straight into the controller's model directory.
+- **You see everything.** A live topology board (cables light up with real
+  traffic), per-request history with timings and error kinds, incident badges,
+  GPU/CPU/token-speed monitors.
+- **Nothing to install but Python.** Controller and agent are stdlib-only; no
+  Docker, no database, no external services. Everything is plain JSON files
+  and systemd/launchd units on your own machines.
+
+A concrete day with it: your coding agents hammer a local Qwen on the desktop
+GPU all night on a schedule window; in the morning the schedule flips them to
+a subscription provider while the GPU serves a bigger model for a research
+agent; one agent with confidential data stays pinned to the local route; a
+whisper cell transcribes on a spare box; and the spend chart shows what all of
+that would have cost in cloud tokens.
+
 ## Documentation
 
 | Doc | Covers |
