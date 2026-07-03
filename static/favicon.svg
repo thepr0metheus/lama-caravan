@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Llama.cpp Easy Admin">
+  <rect width="64" height="64" rx="14" fill="#11171a"/>
+  <rect x="8" y="10" width="48" height="42" rx="9" fill="#182125" stroke="#4da392" stroke-width="3"/>
+  <path d="M16 22h32" stroke="#2a3a40" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="18" cy="17" r="2" fill="#ff8585"/>
+  <circle cx="25" cy="17" r="2" fill="#e4ad53"/>
+  <circle cx="32" cy="17" r="2" fill="#69d090"/>
+  <text x="15" y="39" fill="#e7eef1" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" font-weight="800">ll</text>
+  <text x="33" y="39" fill="#69d090" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10" font-weight="800">.cpp</text>
+  <circle cx="47" cy="46" r="9" fill="#246b5f" stroke="#e7eef1" stroke-width="2"/>
+  <path d="M47 40v12M41 46h12M42.8 41.8l8.4 8.4M51.2 41.8l-8.4 8.4" stroke="#e7eef1" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="47" cy="46" r="3" fill="#11171a"/>
+</svg>

@@ -1,0 +1,25 @@
+.claude/
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store
+agent-proxy-state.json
+# agent-proxies.json НЕ хранится в git — живая конфигурация, управляется
+# только сервисом. Граф канбана защищён автобэкапом в write_agent_proxy_payload.
+agent-proxies.json
+client-labels.json
+cloud-providers.json
+token-history.json
+provider-secrets.json
+*.secret.json
+*-secrets.json
+# OpenClaw config cache (may contain provider credentials); normally lives in
+# ~/.config, but ignore it defensively in case OPENCLAW_CONFIG_CACHE_FILE points here.
+openclaw-config-cache.json
+*-cache.json
+logs/
+*.bak
+*.bak-*
+*.preredesign-*
+.bench_cache/
+var/

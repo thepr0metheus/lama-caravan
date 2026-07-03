@@ -1,0 +1,14 @@
+[Unit]
+Description=LAMA CARAVAN admin UI + API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/lama-caravan
+ExecStart=%h/lama-caravan/.venv/bin/python %h/lama-caravan/app.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

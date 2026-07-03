@@ -1,0 +1,723 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LAMA CARAVAN</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/topology-board.css">
+  <link rel="stylesheet" href="/css/canvas.css">
+  <link rel="stylesheet" href="/css/modals.css">
+  <link rel="stylesheet" href="/css/cards.css">
+  <link rel="stylesheet" href="/css/form.css">
+  <link rel="stylesheet" href="/css/monitor.css">
+  <link rel="stylesheet" href="/css/nodes.css">
+  <link rel="stylesheet" href="/css/hf.css">
+</head>
+<body>
+  <div id="appLoader" aria-hidden="true">
+    <style>
+      #appLoader { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 26px; background: #11171a;
+        transition: opacity .35s ease; image-rendering: pixelated; }
+      #appLoader.pl-done { opacity: 0; pointer-events: none; }
+      #appLoader .pl-title { color: #e7eef1; font: 800 15px/1 -apple-system, "Segoe UI", sans-serif;
+        letter-spacing: .42em; text-indent: .42em; opacity: .85; }
+      #appLoader .pl-strip { position: relative; width: min(340px, 78vw); height: 84px; overflow: hidden; }
+      #appLoader .pl-strip::after { content: ""; position: absolute; left: 0; right: 0; bottom: 8px;
+        height: 2px; background: rgba(160,180,185,.25); }
+      #appLoader .pl-llama { position: absolute; bottom: 10px; left: -110px; width: 1em; height: 1em;
+        font-size: 5px; animation: pl-walk 7s linear infinite, pl-gait .45s steps(1, end) infinite; }
+      #appLoader .pl-llama::before { content: ""; position: absolute; width: 1em; height: 1em;
+        transform: translateY(-12em); }
+      #appLoader .pl-llama.pl-b { animation-delay: -2.4s, -.15s; font-size: 4.2px; opacity: .9; }
+      #appLoader .pl-llama.pl-c { animation-delay: -4.9s, -.3s; font-size: 3.5px; opacity: .8; }
+      @keyframes pl-walk { from { transform: translateX(0); } to { transform: translateX(calc(min(340px, 78vw) + 220px)); } }
+      @keyframes pl-gait { 0%, 100% { margin-bottom: 0; } 50% { margin-bottom: 1px; } }
+      #appLoader .pl-s1::before { box-shadow: 11em 0em 0 0 var(--pl-body), 13em 0em 0 0 var(--pl-body), 11em 1em 0 0 var(--pl-body), 12em 1em 0 0 var(--pl-body), 13em 1em 0 0 #2b2118, 14em 1em 0 0 var(--pl-body), 11em 2em 0 0 var(--pl-body), 12em 2em 0 0 var(--pl-body), 13em 2em 0 0 var(--pl-body), 14em 2em 0 0 var(--pl-body), 15em 2em 0 0 #6e5137, 10em 3em 0 0 var(--pl-body), 11em 3em 0 0 var(--pl-body), 10em 4em 0 0 var(--pl-body), 11em 4em 0 0 var(--pl-body), 10em 5em 0 0 var(--pl-body), 11em 5em 0 0 var(--pl-body), 2em 6em 0 0 var(--pl-body), 3em 6em 0 0 var(--pl-body), 4em 6em 0 0 var(--pl-blanket), 5em 6em 0 0 var(--pl-blanket), 6em 6em 0 0 var(--pl-blanket), 7em 6em 0 0 var(--pl-blanket), 8em 6em 0 0 var(--pl-blanket), 9em 6em 0 0 var(--pl-body), 10em 6em 0 0 var(--pl-body), 11em 6em 0 0 var(--pl-body), 2em 7em 0 0 var(--pl-body), 3em 7em 0 0 var(--pl-body), 4em 7em 0 0 var(--pl-blanket), 5em 7em 0 0 var(--pl-blanket), 6em 7em 0 0 var(--pl-blanket), 7em 7em 0 0 var(--pl-blanket), 8em 7em 0 0 var(--pl-blanket), 9em 7em 0 0 var(--pl-body), 10em 7em 0 0 var(--pl-body), 11em 7em 0 0 var(--pl-body), 2em 8em 0 0 var(--pl-body), 3em 8em 0 0 var(--pl-body), 4em 8em 0 0 var(--pl-blanket), 5em 8em 0 0 var(--pl-blanket), 6em 8em 0 0 var(--pl-blanket), 7em 8em 0 0 var(--pl-blanket), 8em 8em 0 0 var(--pl-blanket), 9em 8em 0 0 var(--pl-body), 10em 8em 0 0 var(--pl-body), 11em 8em 0 0 var(--pl-body), 2em 9em 0 0 var(--pl-body), 3em 9em 0 0 var(--pl-body), 4em 9em 0 0 var(--pl-body), 5em 9em 0 0 var(--pl-body), 6em 9em 0 0 var(--pl-body), 7em 9em 0 0 var(--pl-body), 8em 9em 0 0 var(--pl-body), 9em 9em 0 0 var(--pl-body), 10em 9em 0 0 var(--pl-body), 11em 9em 0 0 var(--pl-body), 1em 6em 0 0 var(--pl-body), 1em 7em 0 0 var(--pl-body), 3em 10em 0 0 var(--pl-body), 3em 11em 0 0 var(--pl-body), 3em 12em 0 0 #6e5137, 10em 10em 0 0 var(--pl-body), 10em 11em 0 0 var(--pl-body), 10em 12em 0 0 #6e5137, 5em 10em 0 0 var(--pl-body), 5em 11em 0 0 var(--pl-body), 8em 10em 0 0 var(--pl-body), 8em 11em 0 0 var(--pl-body); }
+      #appLoader .pl-s1.pl-gaitb::before { box-shadow: 11em 0em 0 0 var(--pl-body), 13em 0em 0 0 var(--pl-body), 11em 1em 0 0 var(--pl-body), 12em 1em 0 0 var(--pl-body), 13em 1em 0 0 #2b2118, 14em 1em 0 0 var(--pl-body), 11em 2em 0 0 var(--pl-body), 12em 2em 0 0 var(--pl-body), 13em 2em 0 0 var(--pl-body), 14em 2em 0 0 var(--pl-body), 15em 2em 0 0 #6e5137, 10em 3em 0 0 var(--pl-body), 11em 3em 0 0 var(--pl-body), 10em 4em 0 0 var(--pl-body), 11em 4em 0 0 var(--pl-body), 10em 5em 0 0 var(--pl-body), 11em 5em 0 0 var(--pl-body), 2em 6em 0 0 var(--pl-body), 3em 6em 0 0 var(--pl-body), 4em 6em 0 0 var(--pl-blanket), 5em 6em 0 0 var(--pl-blanket), 6em 6em 0 0 var(--pl-blanket), 7em 6em 0 0 var(--pl-blanket), 8em 6em 0 0 var(--pl-blanket), 9em 6em 0 0 var(--pl-body), 10em 6em 0 0 var(--pl-body), 11em 6em 0 0 var(--pl-body), 2em 7em 0 0 var(--pl-body), 3em 7em 0 0 var(--pl-body), 4em 7em 0 0 var(--pl-blanket), 5em 7em 0 0 var(--pl-blanket), 6em 7em 0 0 var(--pl-blanket), 7em 7em 0 0 var(--pl-blanket), 8em 7em 0 0 var(--pl-blanket), 9em 7em 0 0 var(--pl-body), 10em 7em 0 0 var(--pl-body), 11em 7em 0 0 var(--pl-body), 2em 8em 0 0 var(--pl-body), 3em 8em 0 0 var(--pl-body), 4em 8em 0 0 var(--pl-blanket), 5em 8em 0 0 var(--pl-blanket), 6em 8em 0 0 var(--pl-blanket), 7em 8em 0 0 var(--pl-blanket), 8em 8em 0 0 var(--pl-blanket), 9em 8em 0 0 var(--pl-body), 10em 8em 0 0 var(--pl-body), 11em 8em 0 0 var(--pl-body), 2em 9em 0 0 var(--pl-body), 3em 9em 0 0 var(--pl-body), 4em 9em 0 0 var(--pl-body), 5em 9em 0 0 var(--pl-body), 6em 9em 0 0 var(--pl-body), 7em 9em 0 0 var(--pl-body), 8em 9em 0 0 var(--pl-body), 9em 9em 0 0 var(--pl-body), 10em 9em 0 0 var(--pl-body), 11em 9em 0 0 var(--pl-body), 1em 6em 0 0 var(--pl-body), 1em 7em 0 0 var(--pl-body), 4em 10em 0 0 var(--pl-body), 4em 11em 0 0 var(--pl-body), 4em 12em 0 0 #6e5137, 9em 10em 0 0 var(--pl-body), 9em 11em 0 0 var(--pl-body), 9em 12em 0 0 #6e5137, 2em 10em 0 0 var(--pl-body), 2em 11em 0 0 var(--pl-body), 11em 10em 0 0 var(--pl-body), 11em 11em 0 0 var(--pl-body); }
+      #appLoader .pl-s2::before { box-shadow: 11em 0em 0 0 var(--pl-body), 13em 0em 0 0 var(--pl-body), 11em 1em 0 0 var(--pl-body), 12em 1em 0 0 var(--pl-body), 13em 1em 0 0 #2b2118, 14em 1em 0 0 var(--pl-body), 11em 2em 0 0 var(--pl-body), 12em 2em 0 0 var(--pl-body), 13em 2em 0 0 var(--pl-body), 14em 2em 0 0 var(--pl-body), 15em 2em 0 0 #6e5137, 10em 3em 0 0 var(--pl-body), 11em 3em 0 0 var(--pl-body), 10em 4em 0 0 var(--pl-body), 11em 4em 0 0 var(--pl-body), 10em 5em 0 0 var(--pl-body), 11em 5em 0 0 var(--pl-body), 2em 6em 0 0 var(--pl-body), 3em 6em 0 0 var(--pl-body), 4em 6em 0 0 var(--pl-blanket), 5em 6em 0 0 var(--pl-blanket), 6em 6em 0 0 var(--pl-blanket), 7em 6em 0 0 var(--pl-blanket), 8em 6em 0 0 var(--pl-blanket), 9em 6em 0 0 var(--pl-body), 10em 6em 0 0 var(--pl-body), 11em 6em 0 0 var(--pl-body), 2em 7em 0 0 var(--pl-body), 3em 7em 0 0 var(--pl-body), 4em 7em 0 0 var(--pl-blanket), 5em 7em 0 0 var(--pl-blanket), 6em 7em 0 0 var(--pl-blanket), 7em 7em 0 0 var(--pl-blanket), 8em 7em 0 0 var(--pl-blanket), 9em 7em 0 0 var(--pl-body), 10em 7em 0 0 var(--pl-body), 11em 7em 0 0 var(--pl-body), 2em 8em 0 0 var(--pl-body), 3em 8em 0 0 var(--pl-body), 4em 8em 0 0 var(--pl-blanket), 5em 8em 0 0 var(--pl-blanket), 6em 8em 0 0 var(--pl-blanket), 7em 8em 0 0 var(--pl-blanket), 8em 8em 0 0 var(--pl-blanket), 9em 8em 0 0 var(--pl-body), 10em 8em 0 0 var(--pl-body), 11em 8em 0 0 var(--pl-body), 2em 9em 0 0 var(--pl-body), 3em 9em 0 0 var(--pl-body), 4em 9em 0 0 var(--pl-body), 5em 9em 0 0 var(--pl-body), 6em 9em 0 0 var(--pl-body), 7em 9em 0 0 var(--pl-body), 8em 9em 0 0 var(--pl-body), 9em 9em 0 0 var(--pl-body), 10em 9em 0 0 var(--pl-body), 11em 9em 0 0 var(--pl-body), 1em 6em 0 0 var(--pl-body), 1em 7em 0 0 var(--pl-body), 4em 4em 0 0 var(--pl-cargo), 4em 5em 0 0 var(--pl-cargo), 5em 4em 0 0 var(--pl-rope), 5em 5em 0 0 var(--pl-cargo), 6em 4em 0 0 var(--pl-cargo), 6em 5em 0 0 var(--pl-cargo), 7em 4em 0 0 var(--pl-cargo), 7em 5em 0 0 var(--pl-rope), 8em 4em 0 0 var(--pl-cargo), 8em 5em 0 0 var(--pl-cargo), 5em 3em 0 0 var(--pl-rope), 6em 3em 0 0 var(--pl-rope), 7em 3em 0 0 var(--pl-rope), 3em 10em 0 0 var(--pl-body), 3em 11em 0 0 var(--pl-body), 3em 12em 0 0 #6e5137, 10em 10em 0 0 var(--pl-body), 10em 11em 0 0 var(--pl-body), 10em 12em 0 0 #6e5137, 5em 10em 0 0 var(--pl-body), 5em 11em 0 0 var(--pl-body), 8em 10em 0 0 var(--pl-body), 8em 11em 0 0 var(--pl-body); }
+      #appLoader .pl-s2.pl-gaitb::before { box-shadow: 11em 0em 0 0 var(--pl-body), 13em 0em 0 0 var(--pl-body), 11em 1em 0 0 var(--pl-body), 12em 1em 0 0 var(--pl-body), 13em 1em 0 0 #2b2118, 14em 1em 0 0 var(--pl-body), 11em 2em 0 0 var(--pl-body), 12em 2em 0 0 var(--pl-body), 13em 2em 0 0 var(--pl-body), 14em 2em 0 0 var(--pl-body), 15em 2em 0 0 #6e5137, 10em 3em 0 0 var(--pl-body), 11em 3em 0 0 var(--pl-body), 10em 4em 0 0 var(--pl-body), 11em 4em 0 0 var(--pl-body), 10em 5em 0 0 var(--pl-body), 11em 5em 0 0 var(--pl-body), 2em 6em 0 0 var(--pl-body), 3em 6em 0 0 var(--pl-body), 4em 6em 0 0 var(--pl-blanket), 5em 6em 0 0 var(--pl-blanket), 6em 6em 0 0 var(--pl-blanket), 7em 6em 0 0 var(--pl-blanket), 8em 6em 0 0 var(--pl-blanket), 9em 6em 0 0 var(--pl-body), 10em 6em 0 0 var(--pl-body), 11em 6em 0 0 var(--pl-body), 2em 7em 0 0 var(--pl-body), 3em 7em 0 0 var(--pl-body), 4em 7em 0 0 var(--pl-blanket), 5em 7em 0 0 var(--pl-blanket), 6em 7em 0 0 var(--pl-blanket), 7em 7em 0 0 var(--pl-blanket), 8em 7em 0 0 var(--pl-blanket), 9em 7em 0 0 var(--pl-body), 10em 7em 0 0 var(--pl-body), 11em 7em 0 0 var(--pl-body), 2em 8em 0 0 var(--pl-body), 3em 8em 0 0 var(--pl-body), 4em 8em 0 0 var(--pl-blanket), 5em 8em 0 0 var(--pl-blanket), 6em 8em 0 0 var(--pl-blanket), 7em 8em 0 0 var(--pl-blanket), 8em 8em 0 0 var(--pl-blanket), 9em 8em 0 0 var(--pl-body), 10em 8em 0 0 var(--pl-body), 11em 8em 0 0 var(--pl-body), 2em 9em 0 0 var(--pl-body), 3em 9em 0 0 var(--pl-body), 4em 9em 0 0 var(--pl-body), 5em 9em 0 0 var(--pl-body), 6em 9em 0 0 var(--pl-body), 7em 9em 0 0 var(--pl-body), 8em 9em 0 0 var(--pl-body), 9em 9em 0 0 var(--pl-body), 10em 9em 0 0 var(--pl-body), 11em 9em 0 0 var(--pl-body), 1em 6em 0 0 var(--pl-body), 1em 7em 0 0 var(--pl-body), 4em 4em 0 0 var(--pl-cargo), 4em 5em 0 0 var(--pl-cargo), 5em 4em 0 0 var(--pl-rope), 5em 5em 0 0 var(--pl-cargo), 6em 4em 0 0 var(--pl-cargo), 6em 5em 0 0 var(--pl-cargo), 7em 4em 0 0 var(--pl-cargo), 7em 5em 0 0 var(--pl-rope), 8em 4em 0 0 var(--pl-cargo), 8em 5em 0 0 var(--pl-cargo), 5em 3em 0 0 var(--pl-rope), 6em 3em 0 0 var(--pl-rope), 7em 3em 0 0 var(--pl-rope), 4em 10em 0 0 var(--pl-body), 4em 11em 0 0 var(--pl-body), 4em 12em 0 0 #6e5137, 9em 10em 0 0 var(--pl-body), 9em 11em 0 0 var(--pl-body), 9em 12em 0 0 #6e5137, 2em 10em 0 0 var(--pl-body), 2em 11em 0 0 var(--pl-body), 11em 10em 0 0 var(--pl-body), 11em 11em 0 0 var(--pl-body); }
+      #appLoader .pl-s3::before { box-shadow: 11em 0em 0 0 var(--pl-body), 13em 0em 0 0 var(--pl-body), 11em 1em 0 0 var(--pl-body), 12em 1em 0 0 var(--pl-body), 13em 1em 0 0 #2b2118, 14em 1em 0 0 var(--pl-body), 11em 2em 0 0 var(--pl-body), 12em 2em 0 0 var(--pl-body), 13em 2em 0 0 var(--pl-body), 14em 2em 0 0 var(--pl-body), 15em 2em 0 0 #6e5137, 10em 3em 0 0 var(--pl-body), 11em 3em 0 0 var(--pl-body), 10em 4em 0 0 var(--pl-body), 11em 4em 0 0 var(--pl-body), 10em 5em 0 0 var(--pl-body), 11em 5em 0 0 var(--pl-body), 2em 6em 0 0 var(--pl-body), 3em 6em 0 0 var(--pl-body), 4em 6em 0 0 var(--pl-blanket), 5em 6em 0 0 var(--pl-blanket), 6em 6em 0 0 var(--pl-blanket), 7em 6em 0 0 var(--pl-blanket), 8em 6em 0 0 var(--pl-blanket), 9em 6em 0 0 var(--pl-body), 10em 6em 0 0 var(--pl-body), 11em 6em 0 0 var(--pl-body), 2em 7em 0 0 var(--pl-body), 3em 7em 0 0 var(--pl-body), 4em 7em 0 0 var(--pl-blanket), 5em 7em 0 0 var(--pl-blanket), 6em 7em 0 0 var(--pl-blanket), 7em 7em 0 0 var(--pl-blanket), 8em 7em 0 0 var(--pl-blanket), 9em 7em 0 0 var(--pl-body), 10em 7em 0 0 var(--pl-body), 11em 7em 0 0 var(--pl-body), 2em 8em 0 0 var(--pl-body), 3em 8em 0 0 var(--pl-body), 4em 8em 0 0 var(--pl-blanket), 5em 8em 0 0 var(--pl-blanket), 6em 8em 0 0 var(--pl-blanket), 7em 8em 0 0 var(--pl-blanket), 8em 8em 0 0 var(--pl-blanket), 9em 8em 0 0 var(--pl-body), 10em 8em 0 0 var(--pl-body), 11em 8em 0 0 var(--pl-body), 2em 9em 0 0 var(--pl-body), 3em 9em 0 0 var(--pl-body), 4em 9em 0 0 var(--pl-body), 5em 9em 0 0 var(--pl-body), 6em 9em 0 0 var(--pl-body), 7em 9em 0 0 var(--pl-body), 8em 9em 0 0 var(--pl-body), 9em 9em 0 0 var(--pl-body), 10em 9em 0 0 var(--pl-body), 11em 9em 0 0 var(--pl-body), 1em 6em 0 0 var(--pl-body), 1em 7em 0 0 var(--pl-body), 4em 5em 0 0 var(--pl-cargo), 5em 5em 0 0 var(--pl-cargo), 6em 5em 0 0 var(--pl-cargo), 7em 5em 0 0 var(--pl-cargo), 8em 5em 0 0 var(--pl-cargo), 3em 5em 0 0 var(--pl-rope), 3em 10em 0 0 var(--pl-body), 3em 11em 0 0 var(--pl-body), 3em 12em 0 0 #6e5137, 10em 10em 0 0 var(--pl-body), 10em 11em 0 0 var(--pl-body), 10em 12em 0 0 #6e5137, 5em 10em 0 0 var(--pl-body), 5em 11em 0 0 var(--pl-body), 8em 10em 0 0 var(--pl-body), 8em 11em 0 0 var(--pl-body); }
+      #appLoader .pl-s3.pl-gaitb::before { box-shadow: 11em 0em 0 0 var(--pl-body), 13em 0em 0 0 var(--pl-body), 11em 1em 0 0 var(--pl-body), 12em 1em 0 0 var(--pl-body), 13em 1em 0 0 #2b2118, 14em 1em 0 0 var(--pl-body), 11em 2em 0 0 var(--pl-body), 12em 2em 0 0 var(--pl-body), 13em 2em 0 0 var(--pl-body), 14em 2em 0 0 var(--pl-body), 15em 2em 0 0 #6e5137, 10em 3em 0 0 var(--pl-body), 11em 3em 0 0 var(--pl-body), 10em 4em 0 0 var(--pl-body), 11em 4em 0 0 var(--pl-body), 10em 5em 0 0 var(--pl-body), 11em 5em 0 0 var(--pl-body), 2em 6em 0 0 var(--pl-body), 3em 6em 0 0 var(--pl-body), 4em 6em 0 0 var(--pl-blanket), 5em 6em 0 0 var(--pl-blanket), 6em 6em 0 0 var(--pl-blanket), 7em 6em 0 0 var(--pl-blanket), 8em 6em 0 0 var(--pl-blanket), 9em 6em 0 0 var(--pl-body), 10em 6em 0 0 var(--pl-body), 11em 6em 0 0 var(--pl-body), 2em 7em 0 0 var(--pl-body), 3em 7em 0 0 var(--pl-body), 4em 7em 0 0 var(--pl-blanket), 5em 7em 0 0 var(--pl-blanket), 6em 7em 0 0 var(--pl-blanket), 7em 7em 0 0 var(--pl-blanket), 8em 7em 0 0 var(--pl-blanket), 9em 7em 0 0 var(--pl-body), 10em 7em 0 0 var(--pl-body), 11em 7em 0 0 var(--pl-body), 2em 8em 0 0 var(--pl-body), 3em 8em 0 0 var(--pl-body), 4em 8em 0 0 var(--pl-blanket), 5em 8em 0 0 var(--pl-blanket), 6em 8em 0 0 var(--pl-blanket), 7em 8em 0 0 var(--pl-blanket), 8em 8em 0 0 var(--pl-blanket), 9em 8em 0 0 var(--pl-body), 10em 8em 0 0 var(--pl-body), 11em 8em 0 0 var(--pl-body), 2em 9em 0 0 var(--pl-body), 3em 9em 0 0 var(--pl-body), 4em 9em 0 0 var(--pl-body), 5em 9em 0 0 var(--pl-body), 6em 9em 0 0 var(--pl-body), 7em 9em 0 0 var(--pl-body), 8em 9em 0 0 var(--pl-body), 9em 9em 0 0 var(--pl-body), 10em 9em 0 0 var(--pl-body), 11em 9em 0 0 var(--pl-body), 1em 6em 0 0 var(--pl-body), 1em 7em 0 0 var(--pl-body), 4em 5em 0 0 var(--pl-cargo), 5em 5em 0 0 var(--pl-cargo), 6em 5em 0 0 var(--pl-cargo), 7em 5em 0 0 var(--pl-cargo), 8em 5em 0 0 var(--pl-cargo), 3em 5em 0 0 var(--pl-rope), 4em 10em 0 0 var(--pl-body), 4em 11em 0 0 var(--pl-body), 4em 12em 0 0 #6e5137, 9em 10em 0 0 var(--pl-body), 9em 11em 0 0 var(--pl-body), 9em 12em 0 0 #6e5137, 2em 10em 0 0 var(--pl-body), 2em 11em 0 0 var(--pl-body), 11em 10em 0 0 var(--pl-body), 11em 11em 0 0 var(--pl-body); }
+      #appLoader .pl-s4::before { box-shadow: 11em 0em 0 0 var(--pl-body), 13em 0em 0 0 var(--pl-body), 11em 1em 0 0 var(--pl-body), 12em 1em 0 0 var(--pl-body), 13em 1em 0 0 #2b2118, 14em 1em 0 0 var(--pl-body), 11em 2em 0 0 var(--pl-body), 12em 2em 0 0 var(--pl-body), 13em 2em 0 0 var(--pl-body), 14em 2em 0 0 var(--pl-body), 15em 2em 0 0 #6e5137, 10em 3em 0 0 var(--pl-body), 11em 3em 0 0 var(--pl-body), 10em 4em 0 0 var(--pl-body), 11em 4em 0 0 var(--pl-body), 10em 5em 0 0 var(--pl-body), 11em 5em 0 0 var(--pl-body), 2em 6em 0 0 var(--pl-body), 3em 6em 0 0 var(--pl-body), 4em 6em 0 0 var(--pl-blanket), 5em 6em 0 0 var(--pl-blanket), 6em 6em 0 0 var(--pl-blanket), 7em 6em 0 0 var(--pl-blanket), 8em 6em 0 0 var(--pl-blanket), 9em 6em 0 0 var(--pl-body), 10em 6em 0 0 var(--pl-body), 11em 6em 0 0 var(--pl-body), 2em 7em 0 0 var(--pl-body), 3em 7em 0 0 var(--pl-body), 4em 7em 0 0 var(--pl-blanket), 5em 7em 0 0 var(--pl-blanket), 6em 7em 0 0 var(--pl-blanket), 7em 7em 0 0 var(--pl-blanket), 8em 7em 0 0 var(--pl-blanket), 9em 7em 0 0 var(--pl-body), 10em 7em 0 0 var(--pl-body), 11em 7em 0 0 var(--pl-body), 2em 8em 0 0 var(--pl-body), 3em 8em 0 0 var(--pl-body), 4em 8em 0 0 var(--pl-blanket), 5em 8em 0 0 var(--pl-blanket), 6em 8em 0 0 var(--pl-blanket), 7em 8em 0 0 var(--pl-blanket), 8em 8em 0 0 var(--pl-blanket), 9em 8em 0 0 var(--pl-body), 10em 8em 0 0 var(--pl-body), 11em 8em 0 0 var(--pl-body), 2em 9em 0 0 var(--pl-body), 3em 9em 0 0 var(--pl-body), 4em 9em 0 0 var(--pl-body), 5em 9em 0 0 var(--pl-body), 6em 9em 0 0 var(--pl-body), 7em 9em 0 0 var(--pl-body), 8em 9em 0 0 var(--pl-body), 9em 9em 0 0 var(--pl-body), 10em 9em 0 0 var(--pl-body), 11em 9em 0 0 var(--pl-body), 1em 6em 0 0 var(--pl-body), 1em 7em 0 0 var(--pl-body), 3em 7em 0 0 var(--pl-cargo), 3em 8em 0 0 var(--pl-cargo), 3em 9em 0 0 var(--pl-cargo), 3em 10em 0 0 var(--pl-cargo), 2em 7em 0 0 var(--pl-cargo), 2em 8em 0 0 var(--pl-cargo), 2em 9em 0 0 var(--pl-cargo), 2em 7em 0 0 var(--pl-rope), 3em 10em 0 0 var(--pl-body), 3em 11em 0 0 var(--pl-body), 3em 12em 0 0 #6e5137, 10em 10em 0 0 var(--pl-body), 10em 11em 0 0 var(--pl-body), 10em 12em 0 0 #6e5137, 5em 10em 0 0 var(--pl-body), 5em 11em 0 0 var(--pl-body), 8em 10em 0 0 var(--pl-body), 8em 11em 0 0 var(--pl-body); }
+      #appLoader .pl-s4.pl-gaitb::before { box-shadow: 11em 0em 0 0 var(--pl-body), 13em 0em 0 0 var(--pl-body), 11em 1em 0 0 var(--pl-body), 12em 1em 0 0 var(--pl-body), 13em 1em 0 0 #2b2118, 14em 1em 0 0 var(--pl-body), 11em 2em 0 0 var(--pl-body), 12em 2em 0 0 var(--pl-body), 13em 2em 0 0 var(--pl-body), 14em 2em 0 0 var(--pl-body), 15em 2em 0 0 #6e5137, 10em 3em 0 0 var(--pl-body), 11em 3em 0 0 var(--pl-body), 10em 4em 0 0 var(--pl-body), 11em 4em 0 0 var(--pl-body), 10em 5em 0 0 var(--pl-body), 11em 5em 0 0 var(--pl-body), 2em 6em 0 0 var(--pl-body), 3em 6em 0 0 var(--pl-body), 4em 6em 0 0 var(--pl-blanket), 5em 6em 0 0 var(--pl-blanket), 6em 6em 0 0 var(--pl-blanket), 7em 6em 0 0 var(--pl-blanket), 8em 6em 0 0 var(--pl-blanket), 9em 6em 0 0 var(--pl-body), 10em 6em 0 0 var(--pl-body), 11em 6em 0 0 var(--pl-body), 2em 7em 0 0 var(--pl-body), 3em 7em 0 0 var(--pl-body), 4em 7em 0 0 var(--pl-blanket), 5em 7em 0 0 var(--pl-blanket), 6em 7em 0 0 var(--pl-blanket), 7em 7em 0 0 var(--pl-blanket), 8em 7em 0 0 var(--pl-blanket), 9em 7em 0 0 var(--pl-body), 10em 7em 0 0 var(--pl-body), 11em 7em 0 0 var(--pl-body), 2em 8em 0 0 var(--pl-body), 3em 8em 0 0 var(--pl-body), 4em 8em 0 0 var(--pl-blanket), 5em 8em 0 0 var(--pl-blanket), 6em 8em 0 0 var(--pl-blanket), 7em 8em 0 0 var(--pl-blanket), 8em 8em 0 0 var(--pl-blanket), 9em 8em 0 0 var(--pl-body), 10em 8em 0 0 var(--pl-body), 11em 8em 0 0 var(--pl-body), 2em 9em 0 0 var(--pl-body), 3em 9em 0 0 var(--pl-body), 4em 9em 0 0 var(--pl-body), 5em 9em 0 0 var(--pl-body), 6em 9em 0 0 var(--pl-body), 7em 9em 0 0 var(--pl-body), 8em 9em 0 0 var(--pl-body), 9em 9em 0 0 var(--pl-body), 10em 9em 0 0 var(--pl-body), 11em 9em 0 0 var(--pl-body), 1em 6em 0 0 var(--pl-body), 1em 7em 0 0 var(--pl-body), 3em 7em 0 0 var(--pl-cargo), 3em 8em 0 0 var(--pl-cargo), 3em 9em 0 0 var(--pl-cargo), 3em 10em 0 0 var(--pl-cargo), 2em 7em 0 0 var(--pl-cargo), 2em 8em 0 0 var(--pl-cargo), 2em 9em 0 0 var(--pl-cargo), 2em 7em 0 0 var(--pl-rope), 4em 10em 0 0 var(--pl-body), 4em 11em 0 0 var(--pl-body), 4em 12em 0 0 #6e5137, 9em 10em 0 0 var(--pl-body), 9em 11em 0 0 var(--pl-body), 9em 12em 0 0 #6e5137, 2em 10em 0 0 var(--pl-body), 2em 11em 0 0 var(--pl-body), 11em 10em 0 0 var(--pl-body), 11em 11em 0 0 var(--pl-body); }
+      #appLoader .pl-t::before { box-shadow: 5em 7em 0 0 #4d8f5c, 6em 7em 0 0 #4d8f5c, 7em 7em 0 0 #4d8f5c, 8em 7em 0 0 #4d8f5c, 9em 7em 0 0 #4d8f5c, 4em 8em 0 0 #4d8f5c, 5em 8em 0 0 #4d8f5c, 6em 8em 0 0 #66ab72, 7em 8em 0 0 #4d8f5c, 8em 8em 0 0 #66ab72, 9em 8em 0 0 #4d8f5c, 10em 8em 0 0 #4d8f5c, 3em 9em 0 0 #4d8f5c, 4em 9em 0 0 #4d8f5c, 5em 9em 0 0 #66ab72, 6em 9em 0 0 #4d8f5c, 7em 9em 0 0 #66ab72, 8em 9em 0 0 #4d8f5c, 9em 9em 0 0 #66ab72, 10em 9em 0 0 #4d8f5c, 11em 9em 0 0 #4d8f5c, 3em 10em 0 0 #3a6f47, 4em 10em 0 0 #3a6f47, 5em 10em 0 0 #3a6f47, 6em 10em 0 0 #3a6f47, 7em 10em 0 0 #3a6f47, 8em 10em 0 0 #3a6f47, 9em 10em 0 0 #3a6f47, 10em 10em 0 0 #3a6f47, 11em 10em 0 0 #3a6f47, 2em 10em 0 0 #9cbd72, 12em 8em 0 0 #9cbd72, 13em 8em 0 0 #22301f, 12em 9em 0 0 #9cbd72, 13em 9em 0 0 #9cbd72, 12em 10em 0 0 #9cbd72, 4em 11em 0 0 #9cbd72, 4em 12em 0 0 #9cbd72, 9em 11em 0 0 #9cbd72, 9em 12em 0 0 #9cbd72; }
+      #appLoader .pl-t.pl-gaitb::before { box-shadow: 5em 7em 0 0 #4d8f5c, 6em 7em 0 0 #4d8f5c, 7em 7em 0 0 #4d8f5c, 8em 7em 0 0 #4d8f5c, 9em 7em 0 0 #4d8f5c, 4em 8em 0 0 #4d8f5c, 5em 8em 0 0 #4d8f5c, 6em 8em 0 0 #66ab72, 7em 8em 0 0 #4d8f5c, 8em 8em 0 0 #66ab72, 9em 8em 0 0 #4d8f5c, 10em 8em 0 0 #4d8f5c, 3em 9em 0 0 #4d8f5c, 4em 9em 0 0 #4d8f5c, 5em 9em 0 0 #66ab72, 6em 9em 0 0 #4d8f5c, 7em 9em 0 0 #66ab72, 8em 9em 0 0 #4d8f5c, 9em 9em 0 0 #66ab72, 10em 9em 0 0 #4d8f5c, 11em 9em 0 0 #4d8f5c, 3em 10em 0 0 #3a6f47, 4em 10em 0 0 #3a6f47, 5em 10em 0 0 #3a6f47, 6em 10em 0 0 #3a6f47, 7em 10em 0 0 #3a6f47, 8em 10em 0 0 #3a6f47, 9em 10em 0 0 #3a6f47, 10em 10em 0 0 #3a6f47, 11em 10em 0 0 #3a6f47, 2em 10em 0 0 #9cbd72, 12em 8em 0 0 #9cbd72, 13em 8em 0 0 #22301f, 12em 9em 0 0 #9cbd72, 13em 9em 0 0 #9cbd72, 12em 10em 0 0 #9cbd72, 5em 11em 0 0 #9cbd72, 5em 12em 0 0 #9cbd72, 10em 11em 0 0 #9cbd72, 10em 12em 0 0 #9cbd72; }
+      #appLoader .pl-llama.pl-t-hop { animation: pl-walk 7s linear infinite, pl-hop .6s ease-in-out infinite; }
+      #appLoader .pl-llama.pl-t-hop.pl-b { animation-delay: -2.4s, 0s; }
+      #appLoader .pl-llama.pl-t-hop.pl-c { animation-delay: -4.9s, 0s; }
+      @keyframes pl-hop { 0%, 20%, 100% { margin-bottom: 0; } 55% { margin-bottom: 6px; } }
+      #appLoader .pl-llama.pl-t-hop.pl-gaitb::before { box-shadow: 5em 7em 0 0 #4d8f5c, 6em 7em 0 0 #4d8f5c, 7em 7em 0 0 #4d8f5c, 8em 7em 0 0 #4d8f5c, 9em 7em 0 0 #4d8f5c, 4em 8em 0 0 #4d8f5c, 5em 8em 0 0 #4d8f5c, 6em 8em 0 0 #66ab72, 7em 8em 0 0 #4d8f5c, 8em 8em 0 0 #66ab72, 9em 8em 0 0 #4d8f5c, 10em 8em 0 0 #4d8f5c, 3em 9em 0 0 #4d8f5c, 4em 9em 0 0 #4d8f5c, 5em 9em 0 0 #66ab72, 6em 9em 0 0 #4d8f5c, 7em 9em 0 0 #66ab72, 8em 9em 0 0 #4d8f5c, 9em 9em 0 0 #66ab72, 10em 9em 0 0 #4d8f5c, 11em 9em 0 0 #4d8f5c, 3em 10em 0 0 #3a6f47, 4em 10em 0 0 #3a6f47, 5em 10em 0 0 #3a6f47, 6em 10em 0 0 #3a6f47, 7em 10em 0 0 #3a6f47, 8em 10em 0 0 #3a6f47, 9em 10em 0 0 #3a6f47, 10em 10em 0 0 #3a6f47, 11em 10em 0 0 #3a6f47, 2em 10em 0 0 #9cbd72, 12em 8em 0 0 #9cbd72, 13em 8em 0 0 #22301f, 12em 9em 0 0 #9cbd72, 13em 9em 0 0 #9cbd72, 12em 10em 0 0 #9cbd72, 4em 11em 0 0 #9cbd72, 4em 12em 0 0 #9cbd72, 9em 11em 0 0 #9cbd72, 9em 12em 0 0 #9cbd72; }
+      #appLoader .pl-hint { color: rgba(160,180,185,.6); font: 500 11px/1 -apple-system, "Segoe UI", sans-serif;
+        letter-spacing: .18em; }
+    </style>
+    <div class="pl-title">LAMA CARAVAN</div>
+    <div class="pl-strip">
+      <span class="pl-llama"></span>
+      <span class="pl-llama pl-b"></span>
+      <span class="pl-llama pl-c"></span>
+    </div>
+    <div class="pl-hint">loading…</div>
+    <script>
+      (() => {
+        const l = document.getElementById("appLoader");
+        // подпись — на языке сохранённого интерфейса (по умолчанию английский)
+        const lang = (localStorage.getItem("llamacppAdminLang") || "en").toLowerCase();
+        const hints = { en: "loading…", ru: "загружается…", zh: "加载中…", es: "cargando…",
+          fr: "chargement…", de: "lädt…", ja: "読み込み中…", pt: "carregando…", it: "caricamento…",
+          ko: "로딩 중…", tr: "yükleniyor…", vi: "đang tải…" };
+        l.querySelector(".pl-hint").textContent = hints[lang] || hints.en;
+        // случайный караван: форма груза × цвет тела × попона × цвет груза —
+        // формы задают пиксельную сетку (.pl-s1..s4), цвета миксуются переменными;
+        // с шансом 1/10 одно место в караване занимает черепашка
+        const BODIES = ["#d9c29a", "#e8e2d4", "#a97e4f", "#b9b3a7", "#8a6f52", "#cbb188"];
+        const BLANKETS = ["#43b3a4", "#d98c4a", "#9a7bd0", "#c4574e", "#4f8fd0", "#c9a83b", null];
+        const CARGOS = ["#6e5137", "#8a7351", "#5d6657", "#7a4a41"];
+        const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+        const walkers = l.querySelectorAll(".pl-llama");
+        const turtleAt = Math.random() < 0.1 ? Math.floor(Math.random() * walkers.length) : -1;
+        walkers.forEach((el, i) => {
+          if (i === turtleAt) {
+            el.classList.add("pl-t");
+            if (Math.random() < 0.5) el.classList.add("pl-t-hop");
+            return;
+          }
+          el.classList.add("pl-s" + (1 + Math.floor(Math.random() * 4)));
+          const body = pick(BODIES);
+          el.style.setProperty("--pl-body", body);
+          const blanket = pick(BLANKETS);
+          el.style.setProperty("--pl-blanket", blanket || body);
+          el.style.setProperty("--pl-cargo", pick(CARGOS));
+          el.style.setProperty("--pl-rope", "#c8a06c");
+        });
+        // 2-кадровая походка
+        const gait = setInterval(() => l && l.querySelectorAll(".pl-llama").forEach(el => el.classList.toggle("pl-gaitb")), 220);
+        window.__plHide = () => { if (!l || l.classList.contains("pl-done")) return; l.classList.add("pl-done");
+          setTimeout(() => { clearInterval(gait); l.remove(); }, 400); };
+        setTimeout(window.__plHide, 20000);  // страховка, если инициализация зависла
+      })();
+    </script>
+  </div>
+
+  <header class="topbar">
+    <div class="topbar-brand">
+      <h1 class="brand-title">
+        <img src="/favicon.svg?v=2" alt="" aria-hidden="true">
+        <span class="brand-name-wrap">
+          <span data-i18n="appTitle">LAMA CARAVAN</span>
+          <span class="brand-acronym" data-i18n="appAcronym">Local And Multi-backend Adaptive Computation And Routing Across Various AI Nodes</span>
+        </span>
+        <span id="projectGitBranch" class="project-git-branch" title="Project git branch">branch n/a</span>
+      </h1>
+    </div>
+    <div class="actions">
+      <div class="lang-select" id="langSelect">
+        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Language">
+          <span class="lang-emoji" id="langTriggerEmoji">☕</span>
+          <span class="lang-code" id="langTriggerCode">EN</span>
+          <span class="lang-caret" aria-hidden="true">▾</span>
+        </button>
+        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden></ul>
+      </div>
+    </div>
+  </header>
+
+  <main id="classicView" class="app-view" data-view="classic" hidden>
+    <section class="status-grid">
+      <article class="panel service-panel">
+        <h2 class="title-with-tip"><span data-i18n="service">Service</span><span id="serviceTip"></span></h2>
+        <div id="serviceSummary" class="summary"></div>
+        <div class="button-row service-actions">
+          <button class="icon-button" data-action="start" type="button" data-title-i18n="start" aria-label="Start">▶</button>
+          <button class="icon-button" data-action="restart" type="button" data-title-i18n="restart" aria-label="Restart">↻</button>
+          <button class="icon-button" data-action="stop" type="button" data-title-i18n="stop" aria-label="Stop">■</button>
+        </div>
+      </article>
+
+      <article class="panel">
+        <h2>OpenClaw Links</h2>
+        <div id="openclawLinksSummary" class="summary"></div>
+      </article>
+    </section>
+
+    <section class="workspace">
+      <form id="configForm" class="panel config-panel">
+        <div class="section-title">
+          <h2 class="title-with-tip"><span data-i18n="config">Config</span><span id="configTip"></span></h2>
+          <div class="button-row">
+            <span class="button-with-tip"><button id="gemmaTextBoostBtn" type="button" data-i18n="gemmaTextBoost">Gemma Text MTP</button><span id="gemmaTextBoostTip"></span></span>
+            <span class="button-with-tip"><button id="gemmaVisionBtn" type="button" data-i18n="gemmaVision">Gemma Vision</button><span id="gemmaVisionTip"></span></span>
+            <span class="button-with-tip"><button id="textOnlyBtn" type="button" data-i18n="textOnly">Text Only</button><span id="textOnlyTip"></span></span>
+            <span class="button-with-tip"><button id="revertBtn" type="button" data-i18n="revertLatest">Revert Latest</button><span id="revertLatestTip"></span></span>
+          </div>
+        </div>
+
+        <details class="models-dir-panel span-2">
+          <summary>
+            <span class="summary-title">LLAMA_MODELS_DIR</span>
+            <code id="modelsDirPreview"></code>
+            <span class="summary-badge" data-i18n="editPath">Edit path</span>
+          </summary>
+          <div class="field models-dir-field">
+            <label for="LLAMA_MODELS_DIR">LLAMA_MODELS_DIR</label>
+            <input id="LLAMA_MODELS_DIR" name="LLAMA_MODELS_DIR">
+            <p data-help="LLAMA_MODELS_DIR"></p>
+          </div>
+        </details>
+
+        <div class="field span-2 model-file-field">
+          <label for="MODEL_FILE">MODEL_FILE</label>
+          <select id="MODEL_FILE" name="MODEL_FILE"></select>
+          <p data-help="MODEL_FILE"></p>
+        </div>
+
+        <div class="field span-2 companion-field">
+          <div class="companion-row">
+            <label for="MMPROJ_FILE" class="companion-label">MMPROJ</label>
+            <label class="check-row companion-check" for="OFFLOAD_MMPROJ">
+              <input id="OFFLOAD_MMPROJ" name="OFFLOAD_MMPROJ" type="checkbox">
+              <span></span>
+            </label>
+            <span class="companion-hint">offload to GPU</span>
+          </div>
+          <select id="MMPROJ_FILE" name="MMPROJ_FILE"></select>
+        </div>
+
+        <div class="field span-2 companion-field">
+          <div class="companion-row">
+            <label for="SPEC_DRAFT_MODEL_FILE" class="companion-label">SPEC DRAFT</label>
+            <label class="check-row companion-check" for="SPEC_ENABLED">
+              <input id="SPEC_ENABLED" type="checkbox">
+              <span></span>
+            </label>
+            <span class="companion-hint">draft-mtp</span>
+          </div>
+          <select id="SPEC_DRAFT_MODEL_FILE" name="SPEC_DRAFT_MODEL_FILE"></select>
+        </div>
+
+        <div class="chat-template-panel" id="chatTemplatePanel">
+          <div class="chat-template-head">Chat template</div>
+          <label for="CHAT_TEMPLATE_FILE">CHAT_TEMPLATE_FILE</label>
+          <input id="CHAT_TEMPLATE_FILE" name="CHAT_TEMPLATE_FILE" list="chatTemplateFileOptions">
+          <datalist id="chatTemplateFileOptions"></datalist>
+          <p data-help="CHAT_TEMPLATE_FILE"></p>
+          <div id="chatTemplateHint" class="field-note"></div>
+        </div>
+
+        <div id="modelInsight" class="model-insight span-2"></div>
+
+        <div id="dynamicFields" class="field-grid"></div>
+      </form>
+
+      <aside class="side">
+        <article class="panel">
+          <h2 class="title-with-tip"><span data-i18n="command">Command</span><span id="commandTip"></span></h2>
+          <pre id="cmdline"></pre>
+        </article>
+        <article class="panel">
+          <h2 class="title-with-tip"><span data-i18n="previewCommand">New Command</span><span id="previewCommandTip"></span></h2>
+          <pre id="previewCmdline" class="command-preview"></pre>
+        </article>
+        <article class="panel">
+          <h2 class="title-with-tip"><span data-i18n="backups">Backups</span><span id="backupsTip"></span></h2>
+          <div id="backupInfo" class="backup-info"></div>
+          <div id="backups" class="backup-list"></div>
+        </article>
+      </aside>
+    </section>
+
+  </main>
+
+  <main id="topologyView" class="app-view topology-view active" data-view="topology">
+    <section class="topology-board">
+      <svg id="topologyCables" class="topology-cables" aria-hidden="true"></svg>
+      <div class="topology-column">
+        <div class="section-title topology-title">
+          <h2 class="title-with-tip"><span data-i18n="topologyClientsSection">Clients with llm-easy-route-agent</span><span id="topologyClientsTip"></span></h2>
+        </div>
+        <div id="topologyClients" class="topology-stack"></div>
+      </div>
+
+      <div class="topology-column topology-server-column">
+        <div class="section-title topology-title">
+          <h2 class="title-with-tip"><span data-i18n="topologyServerSection">LAMA CARAVAN Server</span><span id="topologyServerTip"></span></h2>
+          <span id="topologyUpdated" class="muted"></span>
+          <button id="usageStatsBtn" type="button" class="icon-action prominent" data-title-i18n="usageStatsBtn" aria-label="Usage &amp; spend statistics">📊</button>
+        </div>
+        <div class="topology-lanes nodes-on">
+          <section>
+            <div id="topologyProxies" class="topology-stack"></div>
+          </section>
+          <section class="topology-divider-lane" aria-hidden="true">
+            <div class="topology-divider-head"></div>
+          </section>
+          <section class="lane-servers">
+            <div class="topology-lane-head">
+              <h2 class="title-with-tip"><span data-i18n="topologyLlamaServersSection">Llama Servers</span><span id="topologyLlamaServersTip"></span></h2>
+              <button id="topologyRequestHistoryBtn" type="button" class="icon-action prominent" title="Request history" aria-label="Request history">
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              </button>
+              <button id="systemInfoBtn" type="button" class="icon-action prominent" title="System info — llama.cpp build &amp; known problems" aria-label="System info">🛠</button>
+            </div>
+            <div id="topologyModelsBar" class="topology-models-bar"></div>
+            <div id="topologyLlamaServers" class="topology-stack nodes-mode"></div>
+            <div class="topology-lane-head topology-cloud-head">
+              <h2 class="title-with-tip"><span data-i18n="topologyCloudSection">Cloud Providers</span><span id="topologyCloudTip"></span></h2>
+            </div>
+            <div id="topologyCloudProviders" class="topology-stack"></div>
+          </section>
+          <section class="lane-stats">
+            <details class="topology-card topology-server-stats-card">
+              <summary class="topology-card-head topology-server-stats-summary">
+                <strong>Server</strong>
+                <span id="topologyServerStatsMeta" class="topology-history-meta">—</span>
+              </summary>
+              <div class="topology-stat-row">
+                <div class="topology-stat-head">
+                  <span class="topology-stat-label">CPU</span>
+                  <span id="topologyCpuValue" class="topology-stat-value">—</span>
+                </div>
+                <canvas id="topologyCpuChart" class="topology-stat-chart" width="320" height="44"></canvas>
+              </div>
+              <div class="topology-stat-row">
+                <div class="topology-stat-head">
+                  <span class="topology-stat-label">RAM</span>
+                  <span id="topologyMemValue" class="topology-stat-value">—</span>
+                </div>
+                <canvas id="topologyMemChart" class="topology-stat-chart" width="320" height="44"></canvas>
+              </div>
+              <div class="topology-stat-row">
+                <div class="topology-stat-head">
+                  <span class="topology-stat-label">Network</span>
+                  <span id="topologyNetValue" class="topology-stat-value">—</span>
+                </div>
+                <canvas id="topologyNetChart" class="topology-stat-chart" width="320" height="44"></canvas>
+              </div>
+              <div class="topology-stat-row">
+                <div class="topology-stat-head">
+                  <span class="topology-stat-label">Disk IO</span>
+                  <span id="topologyDiskValue" class="topology-stat-value">—</span>
+                </div>
+                <canvas id="topologyDiskChart" class="topology-stat-chart" width="320" height="44"></canvas>
+              </div>
+              <details class="topology-processes-details">
+                <summary class="topology-stat-head">
+                  <span class="topology-stat-label">Processes</span>
+                  <span id="topologyProcessValue" class="topology-stat-value">—</span>
+                </summary>
+                <div id="topologyProcesses" class="topology-processes-list"></div>
+              </details>
+            </details>
+            <article class="topology-card topology-gpu-history-card">
+              <div id="topologyGpus" class="topology-gpu-inline"></div>
+              <div class="gpu-metric">
+                <div class="topology-card-head topology-gpu-history-subhead">
+                  <strong class="topology-expand-trigger" data-open-chart="gpu"><span data-i18n="topologyGpuHistoryHead">GPU History</span> <span class="topology-expand-hint">⤢</span></strong>
+                  <span id="topologyGpuHistoryMeta" class="topology-history-meta">waiting</span>
+                  <span class="gpu-metric-spark" data-metric-spark="gpu"></span>
+                </div>
+                <canvas id="topologyGpuHistoryChart" class="topology-gpu-history-chart" data-open-chart="gpu" width="320" height="86"></canvas>
+              </div>
+              <div id="topologyGpuHistoryLegend" class="topology-history-legend"></div>
+              <div class="gpu-metric">
+                <div class="topology-history-subhead topology-history-subhead--expand" data-open-chart="tokens"><span data-i18n="topologyTokenSpeedHead">Token Speed</span> <span class="topology-expand-hint">⤢</span></div>
+                <div class="topology-card-head compact">
+                  <span class="topology-history-meta" data-i18n="topologyPromptGen">prompt / gen</span>
+                  <span id="topologyTokenSpeedMeta" class="topology-history-meta">waiting</span>
+                  <span class="gpu-metric-spark" data-metric-spark="tokens"></span>
+                </div>
+                <canvas id="topologyTokenSpeedChart" class="topology-token-speed-chart" data-open-chart="tokens" width="320" height="74"></canvas>
+                <div id="topologyTokenSpeedLegend" class="topology-history-legend"></div>
+              </div>
+              <div class="gpu-metric">
+                <div class="topology-history-subhead topology-history-subhead--expand" data-open-chart="vram"><span data-i18n="vram">VRAM</span> <span class="topology-expand-hint">⤢</span></div>
+                <div class="topology-card-head compact">
+                  <span class="topology-history-meta" data-i18n="topologyUsedTotal">used / total</span>
+                  <span id="topologyVramMeta" class="topology-history-meta">—</span>
+                  <span class="gpu-metric-spark" data-metric-spark="vram"></span>
+                </div>
+                <canvas id="topologyVramChart" class="topology-stat-chart" data-open-chart="vram" width="320" height="56"></canvas>
+              </div>
+              <div class="gpu-metric">
+                <div class="topology-history-subhead topology-history-subhead--expand" data-open-chart="power"><span data-i18n="power">Power</span> <span class="topology-expand-hint">⤢</span></div>
+                <div class="topology-card-head compact">
+                  <span class="topology-history-meta" data-i18n="topologyGpuPowerDraw">GPU power draw</span>
+                  <span id="topologyPowerMeta" class="topology-history-meta">—</span>
+                  <span class="gpu-metric-spark" data-metric-spark="power"></span>
+                </div>
+                <canvas id="topologyPowerChart" class="topology-stat-chart topology-power-chart" data-open-chart="power" width="320" height="160"></canvas>
+              </div>
+              <div class="topology-history-subhead topology-history-subhead--expand" data-open-route-activity><span data-i18n="topologyTraffic">Traffic</span> <span class="topology-expand-hint">⤢</span></div>
+              <canvas id="topologyRouteHistoryChart" class="topology-route-history-chart" data-open-route-activity width="320" height="74"></canvas>
+            </article>
+            <article class="topology-card topology-incidents-card">
+              <div class="topology-card-head">
+                <strong>Incidents</strong>
+                <span id="topologyIncidentsMeta" class="topology-history-meta">waiting</span>
+              </div>
+              <div id="topologyIncidents" class="topology-incidents-list"></div>
+            </article>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Remote Llama Server Add Modal (same structure as Edit, tr- prefix) -->
+  <div id="llamaRemoteEditOverlay" class="topology-llama-edit-overlay" hidden role="dialog" aria-modal="true">
+    <div class="topology-llama-edit-modal">
+      <div class="topo-edit-header">
+        <h2 id="llamaRemoteEditTitle">Add llama server — remote</h2>
+        <div class="topo-edit-header-actions">
+          <button id="llamaRemoteEditStart" type="button" class="topo-ok-btn">Применить</button>
+          <button class="topo-cancel-btn" type="button" id="llamaRemoteEditClose">Отмена</button>
+        </div>
+      </div>
+      <div class="topo-edit-body">
+        <div class="topo-edit-main">
+          <form id="llamaRemoteEditForm" class="topo-edit-form">
+            <!-- Hidden: resolved on remote host — used only to fix command preview path -->
+            <input id="tr-LLAMA_MODELS_DIR" type="hidden" value="">
+            <!-- Cell type: llama-server vs generic managed command (e.g. whisper) -->
+            <div class="field cell-kind-row">
+              <div class="label-row"><label>Cell type</label></div>
+              <div class="cell-kind-toggle" style="display:flex;gap:6px">
+                <button type="button" class="cell-kind-btn is-active" data-cell-kind="" style="flex:1;padding:6px 10px;cursor:pointer">llama-server</button>
+                <button type="button" class="cell-kind-btn" data-cell-kind="command" style="flex:1;padding:6px 10px;cursor:pointer">Command</button>
+              </div>
+              <input id="tr-CELL_KIND" name="CELL_KIND" type="hidden" value="">
+            </div>
+            <div class="field command-cell-fields" id="tr-commandFields" style="display:none">
+              <div class="label-row"><label for="tr-CMD_PRESET">Preset</label></div>
+              <select id="tr-CMD_PRESET" class="cmd-preset" style="width:100%"></select>
+              <div class="label-row" style="margin-top:8px"><label for="tr-COMMAND">COMMAND</label></div>
+              <input id="tr-COMMAND" name="COMMAND" type="text" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%">
+              <p class="field-note">Runs on the client host. <code>$PORT</code> is exported to the cell's reserved port; the command is <code>exec</code>'d. Don't prefix with <code>exec</code> — it's added.</p>
+              <div class="label-row" style="margin-top:8px"><label for="tr-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
+              <textarea id="tr-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace"></textarea>
+              <p class="field-note">One <code>KEY=VALUE</code> per line → <code>export</code>ed before the command.</p>
+              <div class="label-row" style="margin-top:8px"><label for="tr-WORKDIR">WORKDIR <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
+              <input id="tr-WORKDIR" name="WORKDIR" type="text" placeholder="~/whisper — cd before exec" style="width:100%">
+              <div class="label-row" style="margin-top:8px"><label for="tr-HEALTH_PATH">HEALTH_PATH <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
+              <input id="tr-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health — empty = TCP port probe" style="width:100%">
+            </div>
+            <div id="tr-llamaFields">
+            <div class="field model-file-field">
+              <div class="label-row"><label for="tr-MODEL_FILE">MODEL_FILE</label></div>
+              <select id="tr-MODEL_FILE" name="MODEL_FILE"></select>
+            </div>
+
+            <div class="field companion-field">
+              <div class="companion-row">
+                <label for="tr-MMPROJ_FILE" class="companion-label">MMPROJ</label>
+                <label class="check-row companion-check" for="tr-OFFLOAD_MMPROJ">
+                  <input id="tr-OFFLOAD_MMPROJ" name="OFFLOAD_MMPROJ" type="checkbox">
+                  <span></span>
+                </label>
+                <span class="companion-hint">offload to GPU</span>
+              </div>
+              <select id="tr-MMPROJ_FILE" name="MMPROJ_FILE"></select>
+            </div>
+
+            <div class="field companion-field">
+              <div class="companion-row">
+                <label for="tr-SPEC_DRAFT_MODEL_FILE" class="companion-label">SPEC DRAFT</label>
+                <label class="check-row companion-check" for="tr-SPEC_ENABLED">
+                  <input id="tr-SPEC_ENABLED" type="checkbox">
+                  <span></span>
+                </label>
+                <span class="companion-hint">draft-mtp</span>
+              </div>
+              <select id="tr-SPEC_DRAFT_MODEL_FILE" name="SPEC_DRAFT_MODEL_FILE"></select>
+            </div>
+
+            <div class="chat-template-panel" id="tr-chatTemplatePanel">
+              <div class="chat-template-head">Chat template</div>
+              <input id="tr-CHAT_TEMPLATE_FILE" name="CHAT_TEMPLATE_FILE" list="tr-chatTemplateFileOptions">
+              <datalist id="tr-chatTemplateFileOptions"></datalist>
+              <div id="tr-chatTemplateHint" class="field-note"></div>
+            </div>
+            <div id="tr-modelInsight" class="model-insight"></div>
+            <div id="tr-computeTarget" class="compute-target"></div>
+            <!-- Route-agent behaviour — not llama.cpp flags -->
+            <div class="cache-toggle-row">
+              <input type="checkbox" id="tr-cacheModels" checked>
+              <label for="tr-cacheModels" class="cache-toggle-label" style="cursor:pointer">
+                <strong>Cache model on host disk</strong> — keep the downloaded <code>.gguf</code> in
+                <code>~/llama-model-cache</code> and reuse it on next start (keeps only the active model,
+                old ones are removed). <em>Off: re-download every start and delete on stop — nothing persists on the client.</em>
+              </label>
+            </div>
+            <div id="tr-dynamicFields" class="field-grid"></div>
+            </div><!-- /tr-llamaFields -->
+          </form>
+        </div>
+        <aside class="topo-edit-aside">
+          <div id="tr-llamaAside">
+          <article class="panel">
+            <h2 class="topo-aside-title">Remote GPU</h2>
+            <div id="tr-remoteGpuInfo" style="font-size:13px"></div>
+          </article>
+          <article class="panel">
+            <h2 class="topo-aside-title">Memory estimate</h2>
+            <div id="tr-asideVramBar"><span class="aside-vram-empty">Select a model to see estimate</span></div>
+          </article>
+          <article class="panel">
+            <h2 class="topo-aside-title">Backups</h2>
+            <div id="tr-backupInfo" class="backup-info"></div>
+            <div id="tr-backups" class="backup-list"></div>
+          </article>
+          <article class="panel">
+            <h2 class="topo-aside-title">Model cache</h2>
+            <div id="tr-cacheList" style="margin-bottom:8px"></div>
+            <button type="button" id="tr-purgeCache" class="muted" style="width:100%">Clear model cache on host</button>
+            <div id="tr-purgeCacheInfo" style="font-size:11px;color:var(--muted,#888);margin-top:6px">Deletes downloaded .gguf from <code>~/llama-model-cache</code> (a running model is kept).</div>
+          </article>
+          <article class="panel">
+            <h2 class="topo-aside-title">Command (on remote)</h2>
+            <div style="font-size:10px;opacity:.6;margin-bottom:4px">Binary and model paths resolved on remote host</div>
+            <pre id="tr-currentCmdline" class="command-preview"></pre>
+          </article>
+          <article class="panel">
+            <h2 class="topo-aside-title">New command (on remote)</h2>
+            <pre id="tr-previewCmdline" class="command-preview"></pre>
+          </article>
+          </div><!-- /tr-llamaAside -->
+          <div id="tr-commandAside" style="display:none">
+            <article class="panel">
+              <h2 class="topo-aside-title">New command (start.sh)</h2>
+              <pre id="tr-cmdPreview" class="command-preview"></pre>
+            </article>
+            <article class="panel">
+              <h2 class="topo-aside-title">Current command</h2>
+              <pre id="tr-cmdCurrent" class="command-preview">—</pre>
+            </article>
+            <article class="panel">
+              <h2 class="topo-aside-title">History</h2>
+              <div id="tr-cmdHistory" class="cmd-history"></div>
+            </article>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- Topology Llama Server Edit Modal -->
+  <div id="topologyLlamaEditOverlay" class="topology-llama-edit-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="topologyLlamaEditTitle">
+    <div class="topology-llama-edit-modal">
+      <div class="topo-edit-header">
+        <h2 id="topologyLlamaEditTitle">Edit Llama Server</h2>
+        <div class="topo-edit-header-actions">
+          <button id="topologyLlamaEditSaveRestart" type="button" class="danger">Start</button>
+          <button class="topo-cancel-btn" type="button" data-topo-edit-close>Отмена</button>
+        </div>
+      </div>
+      <div class="topo-edit-body">
+        <!-- Config (left) -->
+        <div class="topo-edit-main">
+          <form id="topologyLlamaEditForm" class="topo-edit-form">
+            <input id="te-LLAMA_MODELS_DIR" name="LLAMA_MODELS_DIR" type="hidden">
+            <!-- Cell type: llama-server vs generic managed command (e.g. whisper) -->
+            <div class="field cell-kind-row">
+              <div class="label-row"><label>Cell type</label></div>
+              <div class="cell-kind-toggle" style="display:flex;gap:6px">
+                <button type="button" class="cell-kind-btn is-active" data-cell-kind="" style="flex:1;padding:6px 10px;cursor:pointer">llama-server</button>
+                <button type="button" class="cell-kind-btn" data-cell-kind="command" style="flex:1;padding:6px 10px;cursor:pointer">Command</button>
+              </div>
+              <input id="te-CELL_KIND" name="CELL_KIND" type="hidden" value="">
+            </div>
+            <div class="field command-cell-fields" id="te-commandFields" style="display:none">
+              <div class="label-row"><label for="te-CMD_PRESET">Preset</label></div>
+              <select id="te-CMD_PRESET" class="cmd-preset" style="width:100%"></select>
+              <div class="label-row" style="margin-top:8px"><label for="te-COMMAND">COMMAND</label></div>
+              <input id="te-COMMAND" name="COMMAND" type="text" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%">
+              <p class="field-note"><code>$PORT</code> is exported to the cell's reserved port; the command is <code>exec</code>'d. Don't prefix with <code>exec</code> — it's added.</p>
+              <div class="label-row" style="margin-top:8px"><label for="te-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
+              <textarea id="te-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace"></textarea>
+              <p class="field-note">One <code>KEY=VALUE</code> per line → <code>export</code>ed before the command.</p>
+              <div class="label-row" style="margin-top:8px"><label for="te-WORKDIR">WORKDIR <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
+              <input id="te-WORKDIR" name="WORKDIR" type="text" placeholder="~/whisper — cd before exec" style="width:100%">
+              <div class="label-row" style="margin-top:8px"><label for="te-HEALTH_PATH">HEALTH_PATH <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
+              <input id="te-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health — empty = TCP port probe" style="width:100%">
+            </div>
+            <div id="te-llamaFields">
+            <div class="field model-file-field">
+              <div class="label-row"><label for="te-MODEL_FILE">MODEL_FILE</label></div>
+              <select id="te-MODEL_FILE" name="MODEL_FILE"></select>
+              <p id="te-modelFileDirHint" class="field-note te-models-dir-hint" hidden></p>
+            </div>
+
+            <div class="field companion-field">
+              <div class="companion-row">
+                <label for="te-MMPROJ_FILE" class="companion-label">MMPROJ</label>
+                <label class="check-row companion-check" for="te-OFFLOAD_MMPROJ">
+                  <input id="te-OFFLOAD_MMPROJ" name="OFFLOAD_MMPROJ" type="checkbox">
+                  <span></span>
+                </label>
+                <span class="companion-hint">offload to GPU</span>
+              </div>
+              <select id="te-MMPROJ_FILE" name="MMPROJ_FILE"></select>
+            </div>
+
+            <div class="field companion-field">
+              <div class="companion-row">
+                <label for="te-SPEC_DRAFT_MODEL_FILE" class="companion-label">SPEC DRAFT</label>
+                <label class="check-row companion-check" for="te-SPEC_ENABLED">
+                  <input id="te-SPEC_ENABLED" type="checkbox">
+                  <span></span>
+                </label>
+                <span class="companion-hint">draft-mtp</span>
+              </div>
+              <select id="te-SPEC_DRAFT_MODEL_FILE" name="SPEC_DRAFT_MODEL_FILE"></select>
+            </div>
+
+            <div class="chat-template-panel" id="te-chatTemplatePanel">
+              <div class="chat-template-head">Chat template</div>
+              <input id="te-CHAT_TEMPLATE_FILE" name="CHAT_TEMPLATE_FILE" list="te-chatTemplateFileOptions">
+              <datalist id="te-chatTemplateFileOptions"></datalist>
+              <div id="te-chatTemplateHint" class="field-note"></div>
+            </div>
+            <div id="te-modelInsight" class="model-insight"></div>
+            <div id="te-computeTarget" class="compute-target"></div>
+            <div id="te-dynamicFields" class="field-grid"></div>
+            </div><!-- /te-llamaFields -->
+          </form>
+        </div>
+        <!-- Command + Backups (right) -->
+        <aside class="topo-edit-aside">
+          <div id="te-llamaAside">
+          <details class="panel topo-backups-panel">
+            <summary class="topo-aside-title">Backups</summary>
+            <div id="te-backupInfo" class="backup-info"></div>
+            <div id="te-backups" class="backup-list"></div>
+          </details>
+          <article class="panel">
+            <h2 class="topo-aside-title">Memory estimate</h2>
+            <div id="te-asideVramBar"><span class="aside-vram-empty">Select a model to see estimate</span></div>
+          </article>
+          <article class="panel">
+            <h2 class="topo-aside-title">Command</h2>
+            <pre id="te-currentCmdline" class="command-preview"></pre>
+          </article>
+          <article class="panel">
+            <h2 class="topo-aside-title">New Command</h2>
+            <pre id="te-previewCmdline" class="command-preview"></pre>
+          </article>
+          </div><!-- /te-llamaAside -->
+          <div id="te-commandAside" style="display:none">
+            <article class="panel">
+              <h2 class="topo-aside-title">New command (start.sh)</h2>
+              <pre id="te-cmdPreview" class="command-preview"></pre>
+            </article>
+            <article class="panel">
+              <h2 class="topo-aside-title">Current command</h2>
+              <pre id="te-cmdCurrent" class="command-preview">—</pre>
+            </article>
+            <article class="panel">
+              <h2 class="topo-aside-title">History</h2>
+              <div id="te-cmdHistory" class="cmd-history"></div>
+            </article>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirmOverlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" data-tone="danger">
+      <header class="dlg-head">
+        <span class="dlg-ico" aria-hidden="true"></span>
+        <h2 id="confirmTitle" data-i18n="deleteBackup">Delete backup?</h2>
+      </header>
+      <p id="confirmText"></p>
+      <div id="confirmMeta" class="modal-meta" hidden></div>
+      <code id="confirmPath"></code>
+      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden>
+      <div class="modal-actions">
+        <button id="confirmCancel" type="button" data-i18n="cancel">Cancel</button>
+        <button id="confirmDelete" type="button" class="danger" data-i18n="deleteAction">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <aside class="edge-drawer monitor-drawer" aria-label="Live monitors">
+    <section class="edge-tab monitor-tab" tabindex="0" data-monitor-kind="nvidia-smi">
+      <div class="edge-label"><span>nvidia-smi</span></div>
+      <div class="edge-panel monitor-panel">
+        <div class="monitor-head">
+          <h2 class="title-with-tip"><span>watch nvidia-smi</span><span id="nvidiaMonitorTip"></span></h2>
+          <label class="label-with-tip">Interval <span id="nvidiaIntervalTip"></span><input id="monitorIntervalNvidia" type="number" min="1" max="30" value="1">s</label>
+        </div>
+        <div id="nvidiaSmiSources" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px"></div>
+        <pre id="monitorNvidia" class="terminal-monitor">hover to start</pre>
+      </div>
+    </section>
+  </aside>
+
+  <div id="toast" role="status"></div>
+  <script type="module" src="/js/main.js"></script>
+
+<div id="routeActivityTooltip" class="route-activity-tooltip" hidden></div>
+<div id="routeActivityOverlay" class="modal-overlay" hidden>
+  <div class="modal route-activity-modal" role="dialog" aria-modal="true" aria-label="Traffic">
+    <div class="modal-head-row">
+      <strong>Traffic</strong>
+      <button class="icon-action compact" id="routeActivityClose" aria-label="Close">✕</button>
+    </div>
+    <canvas id="routeActivityModalCanvas" class="route-activity-modal-canvas" width="800" height="300"></canvas>
+    <div id="routeActivityLegend" class="route-activity-legend"></div>
+  </div>
+</div>
+<div id="chartExpandOverlay" class="modal-overlay" hidden>
+  <div class="modal chart-expand-modal" role="dialog" aria-modal="true">
+    <div class="modal-head-row">
+      <strong id="chartExpandTitle"></strong>
+      <button class="icon-action compact" id="chartExpandClose" aria-label="Close">✕</button>
+    </div>
+    <canvas id="chartExpandCanvas" class="chart-expand-canvas" width="800" height="220"></canvas>
+    <div id="chartExpandLegend" class="route-activity-legend"></div>
+  </div>
+</div>
+<div id="incidentsModalOverlay" class="modal-overlay" hidden>
+  <div class="modal incidents-modal" role="dialog" aria-modal="true" aria-label="Incidents">
+    <div class="modal-head-row">
+      <strong data-i18n="topologyIncidentsTitle">Incidents</strong>
+      <button class="icon-action compact" id="incidentsModalClose" aria-label="Close">✕</button>
+    </div>
+    <div id="incidentsModalBody" class="incidents-modal-body"></div>
+  </div>
+</div>
+<div id="systemInfoOverlay" class="modal-overlay" hidden>
+  <div class="modal system-info-modal" role="dialog" aria-modal="true" aria-label="System info">
+    <div class="modal-head-row">
+      <strong data-i18n="systemInfoTitle">System</strong>
+      <button class="icon-action compact" id="systemInfoClose" aria-label="Close">✕</button>
+    </div>
+    <div class="system-info-body">
+      <section class="panel llama-panel">
+        <div class="section-title">
+          <h2 class="title-with-tip"><span data-i18n="llamaCpp">llama.cpp</span><span id="llamaCppTip"></span></h2>
+          <div class="button-row">
+            <span class="button-with-tip"><button id="checkLlamaBtn" type="button" data-i18n="checkVersions">Check Versions</button><span id="checkVersionsTip"></span></span>
+            <span class="button-with-tip"><button id="updateLlamaBtn" type="button" class="danger" data-i18n="updateBuild">Update Build</button><span id="updateBuildTip"></span></span>
+          </div>
+        </div>
+        <div id="llamaCppSummary" class="llama-summary"></div>
+        <pre id="llamaUpdateLog" class="llama-update-log"></pre>
+      </section>
+      <section class="panel problems-panel">
+        <div class="section-title">
+          <h2 class="title-with-tip"><span data-i18n="knownProblems">Встреченные проблемы</span><span id="knownProblemsTip"></span></h2>
+          <div class="button-row">
+            <span class="button-with-tip"><button id="repairUserServiceBtn" type="button" data-i18n="repairUserService">Repair user service</button><span id="repairUserServiceTip"></span></span>
+          </div>
+        </div>
+        <div id="knownProblems" class="known-problems"></div>
+      </section>
+    </div>
+  </div>
+</div>
+</body>
+</html>

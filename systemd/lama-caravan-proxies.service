@@ -1,0 +1,14 @@
+[Unit]
+Description=LAMA CARAVAN per-agent proxy ports
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/lama-caravan
+ExecStart=%h/lama-caravan/.venv/bin/python %h/lama-caravan/agent-proxies.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

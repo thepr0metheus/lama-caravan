@@ -1,0 +1,1183 @@
+// Launch-config form: fields, comboboxes, model insight, autofill, readConfigForm.
+import { effectiveModelsDir, renderCommandPreview } from "./command-preview.js";
+import {
+  advancedGroups,
+  advancedTabDefs,
+  basicFields,
+  defaultOnOptionalToggles,
+  dirtyOptionalToggles,
+  gemma4DefaultMmproj,
+  gemma4DraftModel,
+  modelFields,
+  numericFields,
+  optionalToggleFields,
+  toggleFields,
+} from "./constants.js";
+import {
+  attachFavStar,
+  getFavFields,
+  refreshFavoritesPanel,
+  syncFavoriteMirrors,
+  updateStarStates,
+} from "./favorites.js";
+import { fieldHelp, labelWithTip, t } from "./i18n.js";
+import { renderBackups } from "./llama-edit.js";
+import {
+  applyComputeTarget,
+  computeIsCpu,
+  computeSelectedGpuIdx,
+  computeTargetGpus,
+  estimateRuntimeMemoryGb,
+  formatSizeGb,
+  gpuFreeMiB,
+  ramFit,
+  ramFitForPfx,
+  refreshComputeTarget,
+  selectedModelRows,
+  vramFit,
+  vramFitForPfx,
+} from "./memory.js";
+import { _modelBenchKey, fetchPickerBenchBatch, serverBenchCache } from "./model-meta.js";
+import { saveConfig } from "./polling.js";
+import { _trCachedModels, _trClientCpu } from "./remote-cells.js";
+import { state } from "./state.js";
+import { renderRuntime } from "./system-panels.js";
+import { $, api, escapeHtml, formatBool, toast } from "./utils.js";
+
+export function syncToggleLabel(input) {
+  const span = input?.closest(".check-row")?.querySelector("span");
+  if (span) span.textContent = input.checked ? t("enabled") : t("disabled");
+}
+
+export function syncCompanionMuting(pfx = "") {
+  const mmprojOn = $(pfx + "OFFLOAD_MMPROJ")?.checked;
+  const specOn   = $(pfx + "SPEC_ENABLED")?.checked;
+  const mmprojWrap = $(pfx + "MMPROJ_FILE")?.previousElementSibling;
+  if (mmprojWrap?.classList.contains("mc-wrap"))
+    mmprojWrap.classList.toggle("is-muted", !mmprojOn);
+  const draftWrap = $(pfx + "SPEC_DRAFT_MODEL_FILE")?.previousElementSibling;
+  if (draftWrap?.classList.contains("mc-wrap"))
+    draftWrap.classList.toggle("is-muted", !specOn);
+}
+
+export function toggleChecked(field, config = state.config) {
+  const value = config?.[field];
+  if (value === undefined || value === null || String(value).trim() === "") {
+    return defaultOnOptionalToggles.includes(field);
+  }
+  return formatBool(value);
+}
+
+export function syncAllToggleLabels(pfx = "") {
+  toggleFields.forEach((field) => {
+    const input = $(pfx + field);
+    if (input) syncToggleLabel(input);
+  });
+}
+
+export function option(path, label, selected) {
+  const opt = document.createElement("option");
+  opt.value = path;
+  opt.textContent = label || path;
+  opt.selected = selected;
+  return opt;
+}
+
+export function modelsByPath() {
+  return new Map((state.models || []).map((row) => [row.path, row]));
+}
+
+export function isQwenModelPath(path) {
+  return /qwen/i.test(String(path || ""));
+}
+
+export function openClawQwenTemplatePath() {
+  const templates = state.chatTemplates || [];
+  const exact = templates.find((row) => /openclaw.*qwen|qwen.*openclaw/i.test(row.name || row.path));
+  if (exact) return exact.path;
+  return `${state.paths?.llamaHome || "~/llama.cpp"}/models/templates/openclaw-qwen.jinja`;
+}
+
+export function openClawQwenTemplateExists() {
+  const wanted = openClawQwenTemplatePath();
+  return (state.chatTemplates || []).some((row) => row.path === wanted);
+}
+
+export function isGemma4ModelPath(path) {
+  return /gemma-4/i.test(String(path || ""));
+}
+
+export function selectedGemma4Mmproj() {
+  const { selected } = selectedModelRows();
+  return selected?.suggestedMmproj || gemma4DefaultMmproj;
+}
+
+export function badge(text, kind) {
+  return `<span class="badge ${kind || ""}">${text}</span>`;
+}
+
+export function mbadge(type, text, title) {
+  return `<span class="mbadge mbadge-${type}"${title ? ` title="${escapeHtml(title)}"` : ""}>${text}</span>`;
+}
+
+// Format a model file's on-disk mtime (epoch seconds) as a short, locale-aware date.
+// Returns "" when unknown so callers can skip rendering.
+export function mcFormatMtime(mtime) {
+  const sec = Number(mtime);
+  if (!sec || sec <= 0) return "";
+  try {
+    return new Date(sec * 1000).toLocaleDateString(undefined, {
+      year: "numeric", month: "short", day: "numeric",
+    });
+  } catch {
+    return "";
+  }
+}
+
+export function modelOptionLabel(row) {
+  const tags = [];
+  if (row.capability === "vision_likely") tags.push(t("visionLikelyBadge"));
+  else tags.push(t("textBadge"));
+  if (row.suggestedMmproj) tags.push(t("projectorFoundBadge"));
+  return `${row.path} (${row.sizeGb} GB) - ${tags.join(" / ")}`;
+}
+
+// ── Model combobox ────────────────────────────────────────────────────────────
+// Replaces native <select> for MODEL_FILE / MMPROJ_FILE with a searchable
+// custom dropdown showing filename prominently, path dimmed, and status badges.
+
+export function makeModelCombobox(selectEl) {
+  if (!selectEl || selectEl.previousElementSibling?.classList.contains("mc-wrap")) return;
+
+  const wrap = document.createElement("div");
+  wrap.className = "mc-wrap";
+
+  const trigger = document.createElement("div");
+  trigger.className = "mc-trigger";
+  trigger.tabIndex = 0;
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+
+  const panel = document.createElement("div");
+  panel.className = "mc-panel";
+  panel.hidden = true;
+
+  const search = document.createElement("input");
+  search.type = "text";
+  search.className = "mc-search";
+  search.placeholder = "Filter…";
+  search.setAttribute("autocomplete", "off");
+
+  const list = document.createElement("div");
+  list.className = "mc-list";
+  list.setAttribute("role", "listbox");
+
+  panel.appendChild(search);
+  panel.appendChild(list);
+  wrap.appendChild(trigger);
+  wrap.appendChild(panel);
+  selectEl.parentNode.insertBefore(wrap, selectEl);
+  selectEl.style.display = "none";
+
+  const openPanel = () => {
+    panel.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+    search.value = "";
+    mcFilterList(list, "");
+    const sel = list.querySelector(".mc-item.selected");
+    if (sel) requestAnimationFrame(() => sel.scrollIntoView({ block: "nearest" }));
+    requestAnimationFrame(() => search.focus());
+  };
+  const closePanel = () => {
+    panel.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+  };
+
+  trigger.addEventListener("click", () => (panel.hidden ? openPanel() : closePanel()));
+  trigger.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); panel.hidden ? openPanel() : closePanel(); }
+    if (e.key === "ArrowDown") { e.preventDefault(); openPanel(); }
+    if (e.key === "Escape") closePanel();
+  });
+  search.addEventListener("input", () => mcFilterList(list, search.value));
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { closePanel(); trigger.focus(); }
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      Array.from(list.children).find((el) => !el.hidden)?.focus();
+    }
+  });
+  list.addEventListener("keydown", (e) => {
+    const items = Array.from(list.children).filter((el) => !el.hidden);
+    const idx = items.indexOf(document.activeElement);
+    if (e.key === "ArrowDown") { e.preventDefault(); items[idx + 1]?.focus(); }
+    if (e.key === "ArrowUp") { e.preventDefault(); idx > 0 ? items[idx - 1].focus() : search.focus(); }
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); document.activeElement?.click(); }
+    if (e.key === "Escape") { closePanel(); trigger.focus(); }
+  });
+  document.addEventListener("click", (e) => { if (!wrap.contains(e.target) && !panel.hidden) closePanel(); }, true);
+}
+
+export function mcFilterList(list, query) {
+  const q = (query || "").toLowerCase();
+  Array.from(list.children).forEach((item) => {
+    item.hidden = !!q && !(item.dataset.search || "").toLowerCase().includes(q);
+  });
+}
+
+export function mcSelectItem(selectEl, value) {
+  if (!selectEl) return;
+  selectEl.value = value;
+  selectEl.dispatchEvent(new Event("change", { bubbles: true }));
+  const wrap = selectEl.previousElementSibling;
+  if (!wrap?.classList.contains("mc-wrap")) return;
+  wrap.querySelector(".mc-panel").hidden = true;
+  wrap.querySelector(".mc-trigger").setAttribute("aria-expanded", "false");
+  wrap.querySelectorAll(".mc-item").forEach((el) => el.classList.toggle("selected", el.dataset.value === value));
+  mcUpdateTrigger(selectEl);
+}
+
+export function mcUpdateTrigger(selectEl) {
+  if (!selectEl) return;
+  const wrap = selectEl.previousElementSibling;
+  if (!wrap?.classList.contains("mc-wrap")) return;
+  const trigger = wrap.querySelector(".mc-trigger");
+  const value = selectEl.value;
+  const itemEl = value ? wrap.querySelector(`.mc-item[data-value="${CSS.escape(value)}"]`) : null;
+
+  trigger.innerHTML = "";
+  const inner = document.createElement("span");
+  inner.className = "mc-trigger-inner";
+
+  if (!value) {
+    const emptyItem = wrap.querySelector(".mc-item[data-value='']");
+    const txt = emptyItem?.querySelector(".mc-item-name")?.textContent || "—";
+    inner.innerHTML = `<span class="mc-item-name muted">${escapeHtml(txt)}</span>`;
+  } else if (itemEl) {
+    const main = itemEl.querySelector(".mc-item-main");
+    const path = itemEl.querySelector(".mc-item-path");
+    if (main) inner.appendChild(main.cloneNode(true));
+    if (path) { const p2 = path.cloneNode(true); p2.style.display = "block"; inner.appendChild(p2); }
+  } else {
+    const fname = value.split("/").pop();
+    inner.innerHTML = `<span class="mc-item-name">${escapeHtml(fname)}</span>`;
+  }
+
+  const caret = document.createElement("span");
+  caret.className = "mc-caret";
+  caret.textContent = "▾";
+  trigger.appendChild(inner);
+  trigger.appendChild(caret);
+
+  if (value && selectEl.id?.endsWith("MODEL_FILE")) {
+    const parts = value.split("/");
+    if (parts.length >= 2) {
+      const repoId = parts[1] + "/" + parts[0];
+      const hfBtn = document.createElement("a");
+      hfBtn.className = "mc-hf-link";
+      hfBtn.href = `/hf?q=${encodeURIComponent(repoId)}`;
+      hfBtn.target = "_blank";
+      hfBtn.title = `Open ${repoId} in HF Browser`;
+      hfBtn.textContent = "HF ↗";
+      hfBtn.addEventListener("click", e => e.stopPropagation());
+      trigger.appendChild(hfBtn);
+    }
+  }
+}
+
+export function updateModelComboboxItems(selectEl, items, currentValue) {
+  const wrap = selectEl?.previousElementSibling;
+  if (!wrap?.classList.contains("mc-wrap")) return;
+  const list = wrap.querySelector(".mc-list");
+  list.innerHTML = "";
+
+  items.forEach((item) => {
+    const el = document.createElement("div");
+    el.className = "mc-item" + (item.value === currentValue ? " selected" : "");
+    el.dataset.value = item.value ?? "";
+    el.dataset.search = (item.value || "") + " " + (item.label || "");
+    el.tabIndex = -1;
+    el.setAttribute("role", "option");
+
+    if (!item.value) {
+      el.innerHTML = `<div class="mc-item-main"><span class="mc-item-name muted">${escapeHtml(item.label || "—")}</span></div>`;
+    } else {
+      const parts = (item.value || "").split("/");
+      const fname = parts.pop();
+      const dir = parts.join("/");
+      let badges = "";
+      if (item.cached) badges += mbadge("cached", t("cachedOnHost"));
+      if (item.missing) {
+        el.dataset.missing = "1";
+        badges += mbadge("missing", "⚠ not found");
+      } else if (item.kind === "model") {
+        if (/[_-](it|instruct|chat|instruction)(?:[_-]|$)/i.test(fname)) badges += mbadge("it", "🤖 it");
+        if (item.capability === "vision_likely" || item.suggestedMmproj) badges += mbadge("mmproj", "📷 mmproj");
+        if (item.suggestedDraft || item.hasMtpBuiltin) badges += mbadge("mtp", "⚡ mtp");
+        if (item.aaScore != null) badges += mbadge("bench", `🧠 ${item.aaScore}`);
+      }
+      const dateStr = mcFormatMtime(item.mtime);
+      el.innerHTML = `
+        <div class="mc-item-main">
+          <span class="mc-item-name">${escapeHtml(fname)}</span>
+          ${item.sizeGb ? `<span class="mc-item-size">${item.sizeGb} GB</span>` : ""}
+          ${badges}
+          ${dateStr ? `<span class="mc-item-date" title="${t("addedOnDisk")}">${dateStr}</span>` : ""}
+        </div>
+        ${dir ? `<div class="mc-item-path">${escapeHtml(dir)}/</div>` : ""}`;
+    }
+
+    el.addEventListener("mousedown", (e) => e.preventDefault()); // keep search focused
+    el.addEventListener("click", () => mcSelectItem(selectEl, item.value ?? ""));
+    list.appendChild(el);
+  });
+
+  mcUpdateTrigger(selectEl);
+}
+// ── End model combobox ────────────────────────────────────────────────────────
+
+export function renderModelSelects(pfx = "") {
+  const models = state.models || [];
+  // Preserve the form's current selection if the element already has a value (e.g. after
+  // cache-list arrives and we re-render without losing what the user picked).
+  const modelEl = $(pfx + "MODEL_FILE");
+  const mmprojEl = $(pfx + "MMPROJ_FILE");
+  const draftEl = $(pfx + "SPEC_DRAFT_MODEL_FILE");
+  const currentModel = modelEl?.value || state.config.MODEL_FILE || "";
+  let currentMmproj = mmprojEl?.value || state.config.MMPROJ_FILE || "";
+  let currentDraft = draftEl?.value || state.config.SPEC_DRAFT_MODEL_FILE || "";
+  if (!modelEl || !mmprojEl) return;
+
+  // Init custom dropdowns (idempotent — wraps once, updates on subsequent calls)
+  makeModelCombobox(modelEl);
+  makeModelCombobox(mmprojEl);
+  if (draftEl) makeModelCombobox(draftEl);
+
+  // Model items
+  const modelItems = models
+    .filter((row) => row.kind === "model")
+    .map((row) => ({
+      value: row.path,
+      sizeGb: row.sizeGb,
+      mtime: row.mtime,
+      kind: row.kind,
+      capability: row.capability,
+      suggestedMmproj: row.suggestedMmproj,
+      suggestedDraft: row.suggestedDraft,
+      hasMtpBuiltin: row.hasMtpBuiltin,
+      detectedFamily: row.detectedFamily,
+      familyDefaults: row.familyDefaults,
+      cached: pfx === "tr-" && _trCachedModels.has(row.path),
+    }));
+  if (currentModel && !modelItems.find((i) => i.value === currentModel)) {
+    modelItems.unshift({ value: currentModel, kind: "model", label: currentModel, missing: true });
+  }
+  // Attach cached bench scores and trigger background fetch for the rest
+  modelItems.forEach(item => {
+    if (item.kind !== "model" || !item.value) return;
+    const key = _modelBenchKey(item.value);
+    if (!key) return;
+    const cached = serverBenchCache.get(key);
+    if (cached?.scores?.aa_intelligence != null) item.aaScore = cached.scores.aa_intelligence;
+  });
+  fetchPickerBenchBatch(modelItems, pfx);
+  // Keep hidden <select> in sync for .value reads and option checks elsewhere
+  modelEl.innerHTML = "";
+  modelItems.forEach((item) => modelEl.appendChild(option(item.value, item.value, item.value === currentModel)));
+  updateModelComboboxItems(modelEl, modelItems, currentModel);
+
+  // Same-folder filter: companion files must live in the exact same directory as the model
+  const _modelParts = currentModel.split("/");
+  const repoPrefix = _modelParts.length >= 2 ? _modelParts.slice(0, -1).join("/") + "/" : "";
+
+  // Auto-correct stale companions that don't belong to the selected model's folder
+  if (repoPrefix) {
+    const _selectedRow = (state.models || []).find(m => m.path === currentModel);
+    if (currentMmproj && !currentMmproj.startsWith(repoPrefix)) {
+      currentMmproj = _selectedRow?.suggestedMmproj || "";
+      if (mmprojEl) mmprojEl.value = currentMmproj;
+    }
+    if (currentDraft && !currentDraft.startsWith(repoPrefix)) {
+      currentDraft = _selectedRow?.suggestedDraft || "";
+      if (draftEl) draftEl.value = currentDraft;
+    }
+  }
+
+  // Mmproj items
+  const mmprojItems = [
+    { value: "", label: t("textOnlyOption"), kind: "mmproj" },
+    ...models
+      .filter((row) => row.kind === "mmproj" && (!repoPrefix || row.path.startsWith(repoPrefix)))
+      .map((row) => ({ value: row.path, sizeGb: row.sizeGb, kind: "mmproj" })),
+  ];
+  if (currentMmproj && !mmprojItems.find((i) => i.value === currentMmproj)) {
+    mmprojItems.push({ value: currentMmproj, kind: "mmproj", label: `${currentMmproj} (${t("currentNotFiltered")})` });
+  }
+  mmprojEl.innerHTML = "";
+  mmprojItems.forEach((item) =>
+    mmprojEl.appendChild(option(item.value, item.label || item.value || t("textOnlyOption"), item.value === currentMmproj))
+  );
+  updateModelComboboxItems(mmprojEl, mmprojItems, currentMmproj);
+
+  // Spec draft items
+  if (draftEl) {
+    const draftItems = [
+      { value: "", label: t("textOnlyOption"), kind: "draft" },
+      ...models
+        .filter((row) => row.kind === "draft" && (!repoPrefix || row.path.startsWith(repoPrefix)))
+        .map((row) => ({ value: row.path, sizeGb: row.sizeGb, kind: "draft" })),
+    ];
+    if (currentDraft && !draftItems.find((i) => i.value === currentDraft)) {
+      draftItems.push({ value: currentDraft, kind: "draft", label: `${currentDraft} (${t("currentNotFiltered")})` });
+    }
+    draftEl.innerHTML = "";
+    draftItems.forEach((item) =>
+      draftEl.appendChild(option(item.value, item.label || item.value || "—", item.value === currentDraft))
+    );
+    updateModelComboboxItems(draftEl, draftItems, currentDraft);
+  }
+
+  renderChatTemplateOptions(pfx);
+  renderChatTemplateHint(pfx);
+  syncCompanionMuting(pfx);
+
+  renderModelInsight(pfx);
+}
+
+export function renderChatTemplateOptions(pfx = "") {
+  const datalist = $(pfx + "chatTemplateFileOptions");
+  if (!datalist) return;
+  const current = $(pfx + "CHAT_TEMPLATE_FILE")?.value || state.config.CHAT_TEMPLATE_FILE || "";
+  const suggested = openClawQwenTemplatePath();
+  const paths = [suggested, ...(state.chatTemplates || []).map((row) => row.path)].filter(Boolean);
+  const unique = [...new Set(paths)];
+  datalist.innerHTML = unique.map((path) => `<option value="${escapeHtml(path)}">${escapeHtml(path === current ? `${path} (${t("currentNotFiltered")})` : path)}</option>`).join("");
+}
+
+
+export function renderChatTemplateHint(pfx = "") {
+  const box = $(pfx + "chatTemplateHint");
+  if (!box) return;
+  const { selected } = selectedModelRows(pfx);
+  if (!selected || !isQwenModelPath(selected.path)) {
+    box.innerHTML = "";
+    return;
+  }
+  const suggested = openClawQwenTemplatePath();
+  const missing = openClawQwenTemplateExists() ? "" : `<span class="insight-warn">${t("templateMissing")}</span>`;
+  box.innerHTML = `
+    <span>${t("templateSuggestion")}:</span>
+    <button class="link-button" type="button">${escapeHtml(suggested)}</button>
+    ${missing}
+  `;
+  box.querySelector("button.link-button")?.addEventListener("click", () => {
+    $(pfx + "CHAT_TEMPLATE_FILE").value = suggested;
+    renderChatTemplateOptions(pfx);
+    renderChatTemplateHint(pfx);
+    renderCommandPreview(pfx);
+  });
+}
+
+export function renderAsideVramBar(pfx, runtimeSizeGb) {
+  const el = $(pfx + "asideVramBar");
+  if (!el) return;
+  if (!runtimeSizeGb) {
+    el.innerHTML = `<span class="aside-vram-empty">Select a model to see estimate</span>`;
+    return;
+  }
+  const cpuMode = computeIsCpu(pfx);
+  let totalGb = 0, freeGb = 0, poolLabel = "VRAM";
+  if (cpuMode) {
+    poolLabel = "RAM";
+    if (pfx === "tr-") {
+      const ram = (_trClientCpu && _trClientCpu.ram) || {};
+      totalGb = Number(ram.totalGb || 0);
+      freeGb = Math.max(0, totalGb - Number(ram.usedGb || 0));
+    } else {
+      totalGb = Number(state.memory?.totalMiB || 0) / 1024;
+      freeGb = Number(state.memory?.availableMiB || 0) / 1024;
+    }
+  } else {
+    const all = computeTargetGpus(pfx);
+    const sel = computeSelectedGpuIdx(pfx);
+    const gs = (sel && sel.length) ? all.filter((g) => sel.includes(Number(g.index))) : all;
+    totalGb = gs.reduce((sum, g) => sum + Number(g.memoryTotalMiB || 0) / 1024, 0);
+    freeGb = gs.reduce((sum, g) => sum + gpuFreeMiB(g) / 1024, 0);
+  }
+  // Stacked segments over TOTAL: [already in use] + [this model] + [free].
+  const usedGb = Math.max(0, totalGb - freeGb);
+  const overflow = totalGb && runtimeSizeGb > freeGb + 1;
+  const usedPct = totalGb ? Math.min(100, (usedGb / totalGb) * 100) : 0;
+  const runPct = totalGb ? Math.min(100 - usedPct, (runtimeSizeGb / totalGb) * 100) : 0;
+  const kind = !totalGb ? "good" : overflow ? "bad" : (freeGb - runtimeSizeGb < 1 ? "warn" : "good");
+  el.innerHTML = `
+    <div class="aside-vram-track" title="${formatSizeGb(usedGb)} already in use · ${formatSizeGb(runtimeSizeGb)} this model · ${formatSizeGb(totalGb)} total ${poolLabel}">
+      <div class="aside-vram-fill used" style="width:${usedPct.toFixed(1)}%"></div>
+      <div class="aside-vram-fill ${kind}" style="width:${runPct.toFixed(1)}%"></div>
+    </div>
+    <div class="aside-vram-label">
+      <span>Runtime ≈ <strong>${formatSizeGb(runtimeSizeGb)}</strong>${overflow ? `<span class="aside-vram-overflow"> ✗ won't fit</span>` : ""}</span>
+      ${totalGb ? `<span>${usedGb > 0.05 ? `${formatSizeGb(usedGb)} used · ` : ""}${formatSizeGb(freeGb)} free / ${formatSizeGb(totalGb)} ${poolLabel}</span>` : ""}
+    </div>
+  `;
+}
+
+// Returns family default fields that differ from current form / saved config values.
+// SPEC_* fields are only included when the model has a draft or built-in MTP.
+export function getFamilyRecommendations(selected, pfx) {
+  const defaults = selected?.familyDefaults || {};
+  if (!Object.keys(defaults).length) return {};
+  const hasMtp = !!(selected.suggestedDraft || selected.hasMtpBuiltin);
+  const specFields = new Set(["SPEC_TYPE", "SPEC_DRAFT_N_MAX", "SPEC_DRAFT_N_MIN", "SPEC_DRAFT_N_GPU_LAYERS"]);
+  const result = {};
+  for (const [key, recommended] of Object.entries(defaults)) {
+    // Hide SPEC_* recommendations for non-MTP models — but only when ENABLING them.
+    // A "clear" rec (e.g. embed wants SPEC_TYPE off) must still show so leaked spec
+    // flags can be removed.
+    if (specFields.has(key) && !hasMtp && String(recommended).trim() !== "") continue;
+    const el = $(pfx + key);
+    const current = el
+      ? (el.type === "checkbox" ? (el.checked ? "1" : "0") : el.value)
+      : (state.config[key] ?? "");
+    if (String(current).trim() !== String(recommended).trim()) {
+      result[key] = recommended;
+    }
+  }
+  return result;
+}
+
+// Render one family-recommendation chip. A toggle recommended "1"/"true" reads
+// "on", "0"/"false" reads "off"; a value field recommended "" reads "remove".
+// off/remove get a distinct style so the panel can recommend DISABLING or
+// dropping flags (e.g. chat-only cruft on an embed server), not only setting them.
+export function familyRecChipHtml(key, val) {
+  let label, kind;
+  if (toggleFields.includes(key)) {
+    const on = val === "1" || val === "true";
+    label = on ? t("recOn") : t("recOff");
+    kind = on ? "set" : "off";
+  } else if (String(val).trim() === "") {
+    label = t("recRemove");
+    kind = "off";
+  } else {
+    label = val;
+    kind = "set";
+  }
+  return `<span class="insight-family-item ${kind}"><span class="insight-family-key">${escapeHtml(key)}</span><span class="insight-family-val">${escapeHtml(label)}</span></span>`;
+}
+
+export function renderModelInsight(pfx = "") {
+  const box = $(pfx + "modelInsight");
+  if (!box) return;
+  const selectedMmproj = $(pfx + "MMPROJ_FILE")?.value;
+  const { selected, selectedMmprojRow } = selectedModelRows(pfx);
+  if (!selected) {
+    box.innerHTML = "";
+    return;
+  }
+
+  const hasDraft = !!(selected.suggestedDraft || selected.hasMtpBuiltin);
+  const badges = [];
+  if (selected.capability === "vision_likely" || selected.suggestedMmproj) badges.push(mbadge("mmproj", "📷 mmproj"));
+  if (selected.suggestedDraft || selected.hasMtpBuiltin) badges.push(mbadge("mtp", "⚡ mtp"));
+  if (selected.capability === "embedding_likely") badges.push(mbadge("embed", "🧬 embed"));
+
+  const { modelSize, mmprojSize, fileTotalSize, kvSize, batchSize, runtimeSize } = estimateRuntimeMemoryGb(pfx);
+  const cpuMode = computeIsCpu(pfx);
+  const fit = cpuMode
+    ? ramFitForPfx(runtimeSize, pfx)
+    : (pfx ? vramFitForPfx(runtimeSize, pfx) : vramFit(runtimeSize));
+  const ram = ramFit(runtimeSize);
+  const sizeChips = `
+    <div class="size-grid">
+      <div class="size-chip"><span>${t("modelSize")}</span><strong>${formatSizeGb(modelSize)}</strong></div>
+      <div class="size-chip"><span>${t("mmprojSize")}</span><strong>${selectedMmprojRow ? formatSizeGb(mmprojSize) : "none"}</strong></div>
+      <div class="size-chip"><span>${t("fileTotalSize")}</span><strong>${formatSizeGb(fileTotalSize)}</strong></div>
+      <div class="size-chip estimate"><span>${t("kvCacheSize")}</span><strong>${kvSize ? formatSizeGb(kvSize) : "n/a"}</strong></div>
+      <div class="size-chip estimate"><span>${t("batchBufferSize")}</span><strong>${batchSize ? formatSizeGb(batchSize) : "n/a"}</strong></div>
+      <div class="size-chip estimate runtime-total ${fit.kind}"><span>${t("runtimeSize")}</span><strong>${kvSize ? formatSizeGb(runtimeSize) : "n/a"}</strong></div>
+      <div class="size-chip estimate ${fit.kind}"><span>${cpuMode ? t("ramFit") : t("vramFit")}</span><strong>${fit.html}</strong></div>
+      <div class="size-chip estimate ram-fit ${ram.kind}"><span>${t("ramFit")}</span><strong>${ram.html}</strong></div>
+    </div>
+  `;
+
+  const warning = selected.capability === "vision_likely" && !selectedMmproj
+    ? `<div class="insight-warn">${t("chooseProjectorHint")}</div>`
+    : "";
+
+  const mtpBuiltinLine = (selected.hasMtpBuiltin && !selected.suggestedDraft)
+    ? `<div class="insight-mtp-builtin">${t("mtpBuiltinBadge")} — ${t("mtpBuiltinExplain")}</div>`
+    : "";
+
+  const familyRecs = getFamilyRecommendations(selected, pfx);
+  const familyRecKeys = Object.keys(familyRecs);
+  const familyBox = familyRecKeys.length
+    ? `<div class="insight-family-recs">
+        <span class="insight-family-label">${t("familyRecommends")} <strong>${selected.detectedFamily}</strong>:</span>
+        ${familyRecKeys.map((k) => familyRecChipHtml(k, familyRecs[k])).join("")}
+        <button class="link-button apply-family-defaults" type="button">${t("applyFamilyDefaults")}</button>
+       </div>`
+    : "";
+
+  if (pfx) {
+    // Compact layout for edit modals (te-, tr-)
+    const fmt = (v) => v ? formatSizeGb(v) : "n/a";
+    const vramPill = fit.kind ? `<span class="size-chip-inline ${fit.kind}">${fit.html}</span>` : "";
+    const ramPill = (pfx !== "tr-" && ram.kind)
+      ? `<span class="size-chip-inline ${ram.kind}" style="border-style:dashed">${ram.html}</span>`
+      : "";
+    const warnLine = warning ? `<div class="insight-warn" style="font-size:11px">${t("chooseProjectorHint")}</div>` : "";
+    const mtpBuiltinCompact = (selected.hasMtpBuiltin && !selected.suggestedDraft)
+      ? `<div style="font-size:11px;color:var(--muted)">${t("mtpBuiltinBadge")} — ${t("mtpBuiltinExplain")}</div>`
+      : "";
+    const familyBoxCompact = familyRecKeys.length
+      ? `<div class="insight-family-recs" style="font-size:11px">
+          <span class="insight-family-label">${t("familyRecommends")} <strong>${selected.detectedFamily}</strong>:</span>
+          ${familyRecKeys.map((k) => familyRecChipHtml(k, familyRecs[k])).join("")}
+          <button class="link-button apply-family-defaults" type="button" style="font-size:11px">${t("applyFamilyDefaults")}</button>
+         </div>`
+      : "";
+
+    box.innerHTML = `
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px">
+        ${badges.join("")}
+      </div>
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px 10px;font-size:12px;color:var(--muted)">
+        <span>${t("modelSize")} <strong style="color:var(--text)">${fmt(modelSize)}</strong></span>
+        ${selectedMmprojRow ? `<span style="color:var(--line)">+</span>
+        <span>${t("mmprojSize")} <strong style="color:var(--text)">${fmt(mmprojSize)}</strong></span>
+        <span style="color:var(--line)">=</span>
+        <span>${t("fileTotalSize")} <strong style="color:var(--text)">${fmt(fileTotalSize)}</strong></span>` : ""}
+        <span style="color:var(--line)">|</span>
+        <span>KV≈<strong style="color:var(--text)">${fmt(kvSize)}</strong></span>
+        <span>Batch≈<strong style="color:var(--text)">${fmt(batchSize)}</strong></span>
+        <span style="color:var(--line)">|</span>
+        <span>${t("runtimeSize")} <strong style="color:var(--text);font-size:13px">${fmt(runtimeSize)}</strong></span>
+        ${vramPill}
+        ${ramPill}
+      </div>
+      ${mtpBuiltinCompact}
+      ${warnLine}
+      ${familyBoxCompact}
+    `;
+    renderAsideVramBar(pfx, runtimeSize);
+  } else {
+    // Full tile layout
+    box.innerHTML = `
+      <div class="badge-row">${badges.join("")}</div>
+      ${sizeChips}
+      ${mtpBuiltinLine}
+      ${warning}
+      ${familyBox}
+    `;
+  }
+
+  box.querySelector(".apply-family-defaults")?.addEventListener("click", () => {
+    const recs = getFamilyRecommendations(selected, pfx);
+    for (const [key, val] of Object.entries(recs)) {
+      const el = $(pfx + key);
+      if (!el) continue;
+      if (el.type === "checkbox") {
+        // Toggle fields use checked, not value
+        el.checked = val === "1" || val === "true";
+        syncToggleLabel(el);
+      } else {
+        el.value = val;
+      }
+    }
+    // Fill draft path: replace if empty or if it was auto-set for a different model
+    const specDraftEl = $(pfx + "SPEC_DRAFT_MODEL_FILE");
+    if (specDraftEl && selected.suggestedDraft) {
+      const curDraft = specDraftEl.value || "";
+      const curDraftRow = modelsByPath().get(curDraft);
+      const looksLikeDraft = curDraft.toLowerCase().includes("/mtp/") ||
+                             curDraft.toLowerCase().includes("-mtp") ||
+                             curDraft.toLowerCase().includes("draft");
+      if (!curDraft || curDraft !== selected.suggestedDraft &&
+          (curDraftRow?.kind === "draft" || looksLikeDraft)) {
+        specDraftEl.value = selected.suggestedDraft;
+      }
+    }
+    syncFavoriteMirrors(pfx);
+    renderModelInsight(pfx);
+    renderCommandPreview(pfx);
+  });
+}
+
+export function syncPortChipsEl(chips, value) {
+  chips.forEach((chip) => chip.classList.toggle("active", chip.dataset.port === String(value)));
+}
+
+export function renderField(field, pfx = "") {
+  const div = document.createElement("div");
+  div.className = "field";
+  const help = fieldHelp(field);
+  const fid = pfx + field;
+  const labelRow = pfx
+    ? `<div class="label-row"><label for="${fid}">${field}</label><button class="tip-trigger" type="button" aria-label="${field}: ${escapeHtml(help)}">?<span class="tooltip" role="tooltip">${escapeHtml(help)}</span></button></div>`
+    : labelWithTip(field);
+
+  if (field === "PORT") {
+    const currentPort = String(state.config.PORT || "8080");
+    if (!pfx) {
+      // Main config form: full port picker with chips
+      const portOptions = Array.from({ length: 10 }, (_, i) => 8080 + i);
+      const chipsHtml = portOptions.map((p) =>
+        `<button class="port-chip${String(p) === currentPort ? " active" : ""}" type="button" data-port="${p}">${p}</button>`
+      ).join("");
+      div.innerHTML = `
+        ${labelRow}
+        <div class="port-combo">
+          <input id="${fid}" name="${field}" type="number" min="1024" max="65535"
+            value="${escapeHtml(currentPort)}" autocomplete="off">
+          <button class="port-dropdown-btn" type="button" tabindex="-1" aria-haspopup="true" title="Выбрать порт">▾</button>
+          <div class="port-dropdown" hidden>${chipsHtml}</div>
+        </div>
+        <p>${escapeHtml(help)}</p>
+      `;
+      const input = div.querySelector("input");
+      const dropdown = div.querySelector(".port-dropdown");
+      const toggleBtn = div.querySelector(".port-dropdown-btn");
+      const chips = div.querySelectorAll(".port-chip");
+      toggleBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        dropdown.hidden = !dropdown.hidden;
+      });
+      chips.forEach((chip) => chip.addEventListener("click", () => {
+        input.value = chip.dataset.port;
+        dropdown.hidden = true;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      }));
+      input.addEventListener("input", () => syncPortChipsEl(chips, input.value));
+    } else {
+      // Topology modal forms (te-, tr-): plain readonly input, no dropdown
+      div.innerHTML = `
+        ${labelRow}
+        <input id="${fid}" name="${field}" type="number" min="1024" max="65535"
+          value="${escapeHtml(currentPort)}" autocomplete="off">
+        <p>${escapeHtml(help)}</p>
+      `;
+    }
+    return div;
+  }
+
+  if (toggleFields.includes(field)) {
+    const checked = toggleChecked(field);
+    div.innerHTML = `
+      ${labelRow}
+      <label class="check-row" for="${fid}">
+        <input id="${fid}" name="${field}" type="checkbox" ${checked ? "checked" : ""}>
+        <span>${checked ? t("enabled") : t("disabled")}</span>
+      </label>
+      <p>${help}</p>
+    `;
+    const input = div.querySelector("input");
+    syncToggleLabel(input);
+    input.addEventListener("change", () => {
+      if (optionalToggleFields.includes(field)) dirtyOptionalToggles.add(field);
+      syncToggleLabel(input);
+      renderModelInsight(pfx);
+    });
+  } else if (field === "BATCH_SIZE" || field === "UBATCH_SIZE") {
+    div.innerHTML = `
+      ${labelRow}
+      <div class="batch-combo">
+        <input id="${fid}" name="${field}" type="number" min="1" value="${escapeHtml(state.config[field] || "")}">
+        <button class="batch-scale-btn" type="button" data-scale="0.5">÷2</button>
+        <button class="batch-scale-btn" type="button" data-scale="2">×2</button>
+      </div>
+      <p>${help}</p>
+    `;
+    const input = div.querySelector("input");
+    input.addEventListener("input", () => renderModelInsight(pfx));
+    div.querySelectorAll(".batch-scale-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const v = Math.max(1, Math.round(Number(input.value || 0) * Number(btn.dataset.scale)));
+        input.value = v;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    });
+  } else {
+    div.innerHTML = `
+      ${labelRow}
+      <input id="${fid}" name="${field}" value="${escapeHtml(state.config[field] || "")}">
+      <p>${help}</p>
+    `;
+    div.querySelector("input")?.addEventListener("input", () => renderModelInsight(pfx));
+  }
+  attachFavStar(div, field, pfx);
+  return div;
+}
+
+export function maybeAutofillChatTemplate() {
+  const selected = modelsByPath().get($("MODEL_FILE").value);
+  const current = $("CHAT_TEMPLATE_FILE").value.trim();
+  if (!selected || !isQwenModelPath(selected.path) || current || !openClawQwenTemplateExists()) return;
+  $("CHAT_TEMPLATE_FILE").value = openClawQwenTemplatePath();
+  toast(t("templateAutoFilled"));
+}
+
+export function maybeAutofillModelHelpers() {
+  maybeAutofillModelHelpersPfx("");
+  renderRuntime();
+  maybeAutofillChatTemplate();
+}
+
+/**
+ * Prefixed version — works for any form prefix (e.g. "tr-" for remote modal).
+ * Always rewrites all companion fields to match the selected model.
+ * Called on MODEL_FILE change and on form open.
+ */
+export function maybeAutofillModelHelpersPfx(pfx) {
+  const modelVal = $(pfx + "MODEL_FILE")?.value || "";
+  const selected = modelsByPath().get(modelVal);
+
+  // MMPROJ — always overwrite (clear if none found).
+  const mmprojEl = $(pfx + "MMPROJ_FILE");
+  if (mmprojEl) {
+    const wanted = selected?.suggestedMmproj || "";
+    if (mmprojEl.value !== wanted) { mmprojEl.value = wanted; mcUpdateTrigger(mmprojEl); }
+  }
+
+  // OFFLOAD_MMPROJ — enable when a projector is available, disable otherwise.
+  const offloadEl = $(pfx + "OFFLOAD_MMPROJ");
+  if (offloadEl) {
+    const wantOffload = !!(selected?.suggestedMmproj);
+    if (offloadEl.type === "checkbox") {
+      if (offloadEl.checked !== wantOffload) { offloadEl.checked = wantOffload; syncToggleLabel(offloadEl); }
+    } else {
+      offloadEl.value = wantOffload ? "1" : "0";
+    }
+  }
+
+  // SPEC_DRAFT_MODEL_FILE + SPEC_TYPE — always overwrite together.
+  const draftEl = $(pfx + "SPEC_DRAFT_MODEL_FILE");
+  const specTypeEl = $(pfx + "SPEC_TYPE");
+  if (draftEl) {
+    const wantedDraft = selected?.suggestedDraft || "";
+    if (draftEl.value !== wantedDraft) { draftEl.value = wantedDraft; mcUpdateTrigger(draftEl); }
+    if (specTypeEl) {
+      const hasMtp = !!(wantedDraft || selected?.hasMtpBuiltin);
+      const wantedSpec = hasMtp ? (selected?.familyDefaults?.SPEC_TYPE || "draft-mtp") : "";
+      if (specTypeEl.value !== wantedSpec) specTypeEl.value = wantedSpec;
+      const specEnabledEl = $(pfx + "SPEC_ENABLED");
+      if (specEnabledEl) { specEnabledEl.checked = !!hasMtp; syncToggleLabel(specEnabledEl); }
+    }
+  }
+
+  // Embedding models default to CPU (light & bursty — keep VRAM for chat);
+  // otherwise just sync the compute-target cards to the current fields.
+  if (selected?.capability === "embedding_likely" && computeTargetGpus(pfx).length) {
+    applyComputeTarget(pfx, { mode: "cpu" });
+  } else {
+    refreshComputeTarget(pfx);
+  }
+
+  renderModelSelects(pfx); // re-filter companion dropdowns for the newly selected model
+  renderChatTemplateHint(pfx);
+  syncFavoriteMirrors(pfx);
+  renderModelInsight(pfx);
+  renderCommandPreview(pfx);
+}
+
+export function setInputValue(id, value) {
+  const input = $(id);
+  if (!input) return;
+  input.value = value;
+  // Keep model combobox trigger in sync when value is set programmatically
+  if (input.tagName === "SELECT") mcUpdateTrigger(input);
+}
+
+export function ensureGemma4MtpFields() {
+  setInputValue("SPEC_DRAFT_MODEL_FILE", $("SPEC_DRAFT_MODEL_FILE")?.value || gemma4DraftModel);
+  setInputValue("SPEC_TYPE", $("SPEC_TYPE")?.value || "draft-mtp");
+  setInputValue("SPEC_DRAFT_N_GPU_LAYERS", $("SPEC_DRAFT_N_GPU_LAYERS")?.value || "999");
+  setInputValue("SPEC_DRAFT_N_MAX", $("SPEC_DRAFT_N_MAX")?.value || "16");
+  setInputValue("SPEC_DRAFT_N_MIN", $("SPEC_DRAFT_N_MIN")?.value || "0");
+  setInputValue("SPEC_DRAFT_CACHE_TYPE_K", $("SPEC_DRAFT_CACHE_TYPE_K")?.value || "q8_0");
+  setInputValue("SPEC_DRAFT_CACHE_TYPE_V", $("SPEC_DRAFT_CACHE_TYPE_V")?.value || "q8_0");
+}
+
+export async function setGemma4Mode(mode) {
+  if (!isGemma4ModelPath($("MODEL_FILE")?.value || state.config.MODEL_FILE)) {
+    toast(t("gemmaModeNeedsGemma"));
+    return;
+  }
+  ensureGemma4MtpFields();
+  if (mode === "vision") {
+    const projector = selectedGemma4Mmproj();
+    if (!projector) {
+      toast(t("gemmaVisionNeedsProjector"));
+      return;
+    }
+    setInputValue("MMPROJ_FILE", projector);
+  } else {
+    setInputValue("MMPROJ_FILE", "");
+  }
+  renderModelInsight();
+  renderRuntime();
+  renderCommandPreview();
+  await saveConfig(true);
+  toast(mode === "vision" ? t("gemmaVisionApplied") : t("gemmaTextBoostApplied"));
+}
+
+// Auto-parse EXTRA_ARGS: pull any flag that has a dedicated form field out of the
+// raw box and into its field, leaving only truly-extra flags. The flag→field map
+// lives on the controller (single source of truth, inverse of build_llama_args).
+export async function hoistExtraArgs(pfx = "") {
+  const el = $(pfx + "EXTRA_ARGS");
+  if (!el) return;
+  const text = (el.value || "").trim();
+  if (!text) return;
+  let res;
+  try {
+    res = await api("/api/parse-extra-args", { method: "POST", body: JSON.stringify({ extraArgs: text }) });
+  } catch { return; }
+  const rec = res.recognized || {};
+  const applied = [];
+  for (const [field, value] of Object.entries(rec)) {
+    const f = $(pfx + field);
+    if (!f || f.readOnly || f.disabled) continue;  // can't touch locked fields (e.g. a cell's PORT)
+    if (f.type === "checkbox") {
+      f.checked = (String(value) === "1");
+      if (optionalToggleFields.includes(field)) dirtyOptionalToggles.add(field);
+      syncToggleLabel(f);
+    } else {
+      f.value = value;
+      if (f.tagName === "SELECT") mcUpdateTrigger(f);
+    }
+    applied.push(field);
+  }
+  if (!applied.length) return;  // nothing we could hoist → leave EXTRA_ARGS as typed
+  el.value = res.remaining || "";
+  try { syncCompanionMuting(pfx); } catch {}
+  renderModelInsight(pfx);
+  refreshComputeTarget(pfx);
+  renderCommandPreview(pfx);
+  toast(`EXTRA_ARGS → ${applied.join(", ")}`);
+}
+
+export function renderFields(pfx = "") {
+  const wrap = $(pfx + "dynamicFields");
+  if (!wrap) return;
+  // Save panels before clearing (they may already live inside dynamicFields from a previous call)
+  const ctPanel = document.getElementById((pfx || "") + "chatTemplatePanel");
+  wrap.innerHTML = "";
+
+  const tabsEl = document.createElement("div");
+  tabsEl.className = "advanced-tabs";
+
+  const bar = document.createElement("div");
+  bar.className = "advanced-tab-bar";
+
+  const body = document.createElement("div");
+  body.className = "advanced-tab-body";
+
+  // Favorites tab (first): aggregates the fields the user starred elsewhere.
+  // Active by default only when non-empty, so an empty Favorites doesn't hijack
+  // the form. Uses the panel id "fav" (not a number) so the numeric indices of
+  // the other tabs — and the chat-template transplant into panel "3" — are
+  // unaffected.
+  const favActive = getFavFields().filter((f) => f !== "EXTRA_ARGS").length > 0;
+  const favBtn = document.createElement("button");
+  favBtn.className = "advanced-tab-btn" + (favActive ? " active" : "");
+  favBtn.type = "button";
+  favBtn.textContent = t("tabFavorites");
+  favBtn.dataset.advTab = "fav";
+  bar.appendChild(favBtn);
+
+  const favPanel = document.createElement("div");
+  favPanel.className = "advanced-tab-panel" + (favActive ? " active" : "");
+  favPanel.dataset.advPanel = "fav";
+  // Pinned first row: the manual extra-args box lives here (its canonical input,
+  // full-width). It is always present and cannot be un-starred.
+  const favExtraSection = document.createElement("section");
+  favExtraSection.className = "advanced-group extra-args-group";
+  favExtraSection.innerHTML = `<h3>${t("advancedExtraArgs")}</h3><div class="advanced-grid extra-args-grid"></div>`;
+  const favExtraField = renderField("EXTRA_ARGS", pfx);
+  favExtraField.querySelector(".fav-star")?.remove();
+  // Auto-hoist known flags into their fields on blur / paste.
+  const extraInput = favExtraField.querySelector("input, textarea");
+  if (extraInput) {
+    extraInput.addEventListener("blur", () => hoistExtraArgs(pfx));
+    extraInput.addEventListener("paste", () => setTimeout(() => hoistExtraArgs(pfx), 0));
+  }
+  favExtraSection.querySelector(".advanced-grid").appendChild(favExtraField);
+  favPanel.appendChild(favExtraSection);
+  // Dynamic area for the starred field mirrors.
+  const favMirrors = document.createElement("div");
+  favMirrors.className = "fav-mirrors";
+  favPanel.appendChild(favMirrors);
+  body.appendChild(favPanel);
+
+  // Tab 0: Params — basic launch fields
+  const paramsBtn = document.createElement("button");
+  paramsBtn.className = "advanced-tab-btn" + (favActive ? "" : " active");
+  paramsBtn.type = "button";
+  paramsBtn.textContent = t("tabParams");
+  paramsBtn.dataset.advTab = "0";
+  bar.appendChild(paramsBtn);
+
+  const paramsPanel = document.createElement("div");
+  paramsPanel.className = "advanced-tab-panel" + (favActive ? "" : " active");
+  paramsPanel.dataset.advPanel = "0";
+  const paramsGrid = document.createElement("div");
+  paramsGrid.className = "advanced-grid";
+  basicFields.forEach((field) => paramsGrid.appendChild(renderField(field, pfx)));
+  paramsPanel.appendChild(paramsGrid);
+  // EXTRA_ARGS now lives pinned at the top of the Favorites tab (built above).
+  body.appendChild(paramsPanel);
+
+  // Tabs 1-3: Inference / Hardware / Server
+  advancedTabDefs.forEach((tab, i) => {
+    const idx = i + 1;
+    const btn = document.createElement("button");
+    btn.className = "advanced-tab-btn";
+    btn.type = "button";
+    btn.textContent = t(tab.key);
+    btn.dataset.advTab = String(idx);
+    bar.appendChild(btn);
+
+    const panel = document.createElement("div");
+    panel.className = "advanced-tab-panel";
+    panel.dataset.advPanel = String(idx);
+
+    tab.groups.forEach((groupKey) => {
+      const group = advancedGroups.find((g) => g.titleKey === groupKey);
+      if (!group) return;
+      const section = document.createElement("section");
+      section.className = "advanced-group";
+      section.innerHTML = `<h3>${t(group.titleKey)}</h3><div class="advanced-grid"></div>`;
+      const grid = section.querySelector(".advanced-grid");
+      group.fields.forEach((field) => grid.appendChild(renderField(field, pfx)));
+      panel.appendChild(section);
+    });
+
+    body.appendChild(panel);
+  });
+
+  bar.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-adv-tab]");
+    if (!btn) return;
+    const idx = btn.dataset.advTab;
+    bar.querySelectorAll(".advanced-tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.advTab === idx));
+    body.querySelectorAll(".advanced-tab-panel").forEach((p) => p.classList.toggle("active", p.dataset.advPanel === idx));
+    // Refresh the favorite mirrors from their canonical inputs when shown.
+    if (idx === "fav") syncFavoriteMirrors(pfx);
+  });
+
+  tabsEl.appendChild(bar);
+  tabsEl.appendChild(body);
+  wrap.appendChild(tabsEl);
+
+  // Fill the Favorites panel now that the canonical inputs exist in the DOM
+  // (the mirrors bind to them by id).
+  refreshFavoritesPanel(pfx);
+
+  // Transplant the chat-template panel into the Server tab (last panel) and
+  // give its field the same label-row treatment as the rest (? help + ★ star).
+  if (ctPanel) {
+    const serverPanel = body.querySelector('[data-adv-panel="3"]');
+    if (serverPanel) serverPanel.appendChild(ctPanel);
+    enhanceChatTemplatePanel(ctPanel, pfx);
+  }
+  // The chat-template star is built once (panel persists across renders), so
+  // re-sync all canonical stars to the current favorite set after each render.
+  updateStarStates(pfx);
+
+  if (!pfx) {
+    document.querySelector('[data-help="MODEL_FILE"]').innerHTML = `${fieldHelp("MODEL_FILE")}<span class="inline-tip" tabindex="0">?<span class="tooltip" role="tooltip">${fieldHelp("MODEL_FILE")}</span></span>`;
+    document.querySelector('[data-help="LLAMA_MODELS_DIR"]').innerHTML = `${fieldHelp("LLAMA_MODELS_DIR")}<span class="inline-tip" tabindex="0">?<span class="tooltip" role="tooltip">${fieldHelp("LLAMA_MODELS_DIR")}</span></span>`;
+  }
+}
+
+// Give the custom chat-template panel the same label-row as renderField fields:
+// a "?" help tip and a ★ favorite star, plus a plain help line below. Works for
+// all form prefixes and is idempotent.
+export function enhanceChatTemplatePanel(panel, pfx = "") {
+  if (!panel || panel.querySelector(".label-row")) return;
+  const field = "CHAT_TEMPLATE_FILE";
+  const help = fieldHelp(field);
+  const input = panel.querySelector("input");
+  if (!input) return;
+  // Drop any pre-existing bare label (main form had one).
+  panel.querySelectorAll("label").forEach((l) => {
+    if (l.getAttribute("for") === input.id) l.remove();
+  });
+  const row = document.createElement("div");
+  row.className = "label-row";
+  row.innerHTML = `<label for="${input.id}">${field}</label>` +
+    `<button class="tip-trigger" type="button" aria-label="${field}: ${escapeHtml(help)}">?<span class="tooltip" role="tooltip">${escapeHtml(help)}</span></button>`;
+  input.parentNode.insertBefore(row, input);
+  attachFavStar(panel, field, pfx);
+  // Help line below the input, matching other fields.
+  let p = panel.querySelector('p[data-help], p.ct-help');
+  if (!p) {
+    p = document.createElement("p");
+    p.className = "ct-help";
+    input.insertAdjacentElement("afterend", p);
+  }
+  p.textContent = help;
+}
+
+export function renderStaticConfigFields() {
+  const modelsDir = $("LLAMA_MODELS_DIR");
+  if (modelsDir && !modelsDir.value) {
+    modelsDir.value = effectiveModelsDir(state.config);
+  }
+  const preview = $("modelsDirPreview");
+  if (preview && modelsDir) {
+    preview.textContent = modelsDir.value || effectiveModelsDir(state.config);
+    preview.title = preview.textContent;
+  }
+}
+
+export function renderRaw() {
+  const summary = {
+    paths: state.paths,
+    config: state.config,
+    runtime: {
+      models: state.runtime?.models,
+      props: {
+        n_ctx: state.runtime?.props?.default_generation_settings?.n_ctx,
+        modalities: state.runtime?.props?.modalities,
+        model_path: state.runtime?.props?.model_path,
+      },
+      metrics: state.runtime?.metrics,
+    },
+    cpu: state.cpu,
+    gpu: state.gpu,
+    memory: state.memory,
+  };
+  renderBackups();
+}
+
+export function readConfigForm(pfx = "") {
+  const config = {};
+  modelFields.forEach((field) => {
+    config[field] = $(pfx + field)?.value || "";
+  });
+  config.LLAMA_MODELS_DIR = effectiveModelsDir(config);
+  numericFields.forEach((field) => config[field] = $(pfx + field)?.value?.trim() || "");
+  toggleFields.forEach((field) => {
+    if (optionalToggleFields.includes(field) && !dirtyOptionalToggles.has(field) && !state.config[field]) {
+      config[field] = "";
+    } else {
+      config[field] = $(pfx + field)?.checked ? "1" : "0";
+    }
+  });
+  // Generic command cell (CELL_KIND="command"): raw COMMAND instead of a model.
+  config.CELL_KIND = $(pfx + "CELL_KIND")?.value || "";
+  config.COMMAND = ($(pfx + "COMMAND")?.value || "").trim();
+  config.HEALTH_PATH = ($(pfx + "HEALTH_PATH")?.value || "").trim();
+  config.ENV = $(pfx + "ENV")?.value || "";
+  config.WORKDIR = ($(pfx + "WORKDIR")?.value || "").trim();
+  if (config.CELL_KIND === "command") {
+    // Not a llama-server — don't carry a stale model/mmproj/draft into the slot.
+    config.MODEL_FILE = "";
+    config.MMPROJ_FILE = "";
+    config.SPEC_DRAFT_MODEL_FILE = "";
+  }
+  return config;
+}
+

@@ -1,0 +1,1289 @@
+.monitor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.monitor-head h2 {
+  margin-bottom: 0;
+}
+
+.monitor-head label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.monitor-head input {
+  width: 58px;
+  height: 32px;
+  min-height: 32px;
+  padding: 4px 7px;
+}
+
+.terminal-monitor {
+  min-height: 420px;
+  max-height: min(620px, calc(100vh - 265px));
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+  overflow: auto;
+  tab-size: 1;
+  background: #050607;
+  color: #dce9e9;
+  font: 11px/1.18 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  font-variant-ligatures: none;
+  letter-spacing: 0;
+}
+
+.terminal-monitor span {
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: inherit;
+}
+
+
+.monitor-stamp {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.system-monitor {
+  display: grid;
+  gap: 10px;
+}
+
+.system-monitor-status {
+  min-height: 20px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.system-monitor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.system-card {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
+}
+
+.system-card.span-wide {
+  grid-column: 1 / -1;
+}
+
+.system-collapsed-card {
+  gap: 6px;
+}
+
+.system-collapsed-card > summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.system-collapsed-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.system-collapsed-card > summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-size: 11px;
+  margin-right: 4px;
+}
+
+.system-collapsed-card[open] > summary::before {
+  content: "▾";
+}
+
+.system-card-note {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.system-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 22px;
+}
+
+.system-card-head strong {
+  font-size: 13px;
+}
+
+.system-card-head > span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-card canvas {
+  display: block;
+  width: 100%;
+  height: 116px;
+  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+  border-radius: 6px;
+  background: #050607;
+}
+
+.system-card.span-wide canvas {
+  height: 140px;
+}
+
+.system-processes {
+  display: grid;
+  overflow: auto;
+  max-height: 220px;
+  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+  border-radius: 6px;
+  background: #050607;
+  color: #dce9e9;
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.system-clients {
+  display: grid;
+  gap: 6px;
+  overflow: auto;
+  max-height: 140px;
+  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+  border-radius: 6px;
+  background: #050607;
+  padding: 8px;
+  color: #dce9e9;
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.system-activity {
+  display: grid;
+  gap: 6px;
+  overflow: auto;
+  max-height: 220px;
+  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+  border-radius: 6px;
+  background: #050607;
+  padding: 8px;
+  color: #dce9e9;
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.system-gpu-users {
+  display: grid;
+  gap: 6px;
+  overflow: auto;
+  max-height: 230px;
+  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
+  border-radius: 6px;
+  background: #050607;
+  padding: 8px;
+  color: #dce9e9;
+  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.system-client-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.7fr) minmax(140px, 1fr) 70px minmax(130px, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 7px 8px;
+  border: 1px solid rgba(105, 208, 144, 0.22);
+  border-radius: 6px;
+  background: rgba(105, 208, 144, 0.08);
+}
+
+.system-user-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.7fr) minmax(180px, 1fr) 84px minmax(180px, 1.2fr);
+  gap: 8px;
+  align-items: center;
+  padding: 7px 8px;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 6px;
+  background: rgba(125, 211, 252, 0.07);
+}
+
+.system-user-row.active {
+  border-color: rgba(105, 208, 144, 0.35);
+  background: rgba(105, 208, 144, 0.1);
+}
+
+.system-user-row.recent {
+  border-color: rgba(244, 191, 79, 0.24);
+  background: rgba(244, 191, 79, 0.08);
+}
+
+.system-user-row.detailed {
+  grid-template-columns: 1fr;
+  align-items: stretch;
+}
+
+.system-user-main {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(170px, 1fr) minmax(170px, 0.9fr);
+  gap: 8px;
+  min-width: 0;
+  align-items: center;
+}
+
+.system-user-row.proxy {
+  gap: 6px;
+}
+
+.system-user-row.proxy .system-user-main {
+  grid-template-columns: minmax(150px, 0.7fr) minmax(120px, 0.55fr) minmax(220px, 1fr);
+}
+
+.system-user-detail {
+  display: grid;
+  grid-template-columns: 84px minmax(220px, 1fr) minmax(140px, 0.6fr);
+  gap: 8px;
+  min-width: 0;
+  align-items: center;
+}
+
+.system-client-row strong {
+  color: #69d090;
+}
+
+.system-user-row strong {
+  color: #7dd3fc;
+}
+
+.system-user-row.active strong {
+  color: #69d090;
+}
+
+.mini-link {
+  margin-left: 8px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: #7dd3fc;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.danger-link {
+  color: #fca5a5;
+}
+
+.primary-mini-action {
+  border: 1px solid rgba(94, 234, 212, 0.45);
+  border-radius: 7px;
+  padding: 6px 10px;
+  background: rgba(45, 212, 191, 0.16);
+  color: #bffaf2;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.primary-mini-action:hover,
+.primary-mini-action:focus {
+  border-color: rgba(94, 234, 212, 0.75);
+  background: rgba(45, 212, 191, 0.26);
+}
+
+.proxy-route-form {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 120px minmax(170px, 1fr) 130px auto;
+  gap: 8px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid rgba(94, 234, 212, 0.35);
+  border-radius: 7px;
+  background: rgba(45, 212, 191, 0.08);
+}
+
+.proxy-route-form label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.proxy-route-form input {
+  min-height: 36px;
+}
+
+.proxy-route-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+@media (max-width: 1100px) {
+  .proxy-route-form {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .proxy-route-actions {
+    justify-content: flex-start;
+  }
+}
+
+.system-activity-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.6fr) 90px minmax(180px, 1.2fr) minmax(160px, 1fr) minmax(170px, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 7px 8px;
+  border: 1px solid rgba(125, 211, 252, 0.2);
+  border-radius: 6px;
+  background: rgba(125, 211, 252, 0.07);
+}
+
+.system-activity-row.active {
+  border-color: rgba(105, 208, 144, 0.35);
+  background: rgba(105, 208, 144, 0.1);
+}
+
+.system-activity-row.request {
+  border-color: rgba(244, 191, 79, 0.24);
+  background: rgba(244, 191, 79, 0.08);
+}
+
+.system-activity-row strong {
+  color: #7dd3fc;
+}
+
+.system-activity-row.active strong {
+  color: #69d090;
+}
+
+.system-activity-title {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.system-activity-help {
+  padding: 7px 8px;
+  border: 1px solid rgba(160, 180, 185, 0.14);
+  border-radius: 6px;
+  background: rgba(160, 180, 185, 0.06);
+  color: var(--muted);
+  font: 12px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.system-activity-help.warning {
+  border-color: rgba(226, 178, 82, 0.34);
+  background: rgba(226, 178, 82, 0.08);
+  color: #d8c59d;
+}
+
+.system-client-row code,
+.system-client-row span,
+.system-client-row small,
+.system-user-row code,
+.system-user-row span,
+.system-user-detail small,
+.system-activity-row code,
+.system-activity-row span,
+.system-activity-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-user-row small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+@media (max-width: 900px) {
+  .system-user-row.proxy .system-user-main,
+  .system-user-detail {
+    grid-template-columns: 1fr;
+  }
+}
+
+.system-client-row small {
+  color: var(--muted);
+}
+
+.system-process-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px 90px 70px 90px;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(160, 180, 185, 0.12);
+}
+
+.system-process-row:last-child {
+  border-bottom: 0;
+}
+
+.system-process-row span,
+.system-process-row code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.system-process-row strong {
+  color: #69d090;
+  text-align: right;
+}
+
+.system-process-empty {
+  padding: 10px;
+  color: var(--muted);
+}
+
+/* ── Topology Llama Edit Modal ──────────────────────────────────────────────── */
+
+.topology-llama-edit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 8, 12, 0.62);
+  backdrop-filter: blur(4px);
+  padding: 16px;
+}
+.topology-llama-edit-overlay[hidden] {
+  display: none !important;
+}
+
+.topology-llama-edit-modal {
+  width: min(1520px, calc(100vw - 32px));
+  height: min(92vh, 960px);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  box-shadow: 0 24px 72px rgba(0, 0, 0, 0.48);
+}
+
+.topo-edit-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 10px 16px;
+  border-bottom: 1px solid var(--line);
+  border-radius: 10px 10px 0 0;
+  flex-shrink: 0;
+  gap: 12px;
+}
+.topo-edit-header h2 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+  flex: 1;
+  min-width: 0;
+}
+.topo-edit-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* 2-column body: Config (left) + Command/Backups (right) */
+.topo-edit-body {
+  flex: 1;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 1fr 440px;
+}
+
+.topo-edit-main {
+  overflow-y: auto;
+  padding: 16px;
+  border-right: 1px solid var(--line);
+}
+/* ── Compact overrides for the Edit/Add Llama Server modal ─────────────────── */
+
+/* Remove the 78px minimum on the description row — let it shrink naturally */
+/* 3rd row (field-note/hint) shrinks to content; descriptions are hidden */
+.topo-edit-form .field {
+  /* Input row grows for the tall 2-line model comboboxes (MODEL_FILE / MMPROJ /
+     SPEC) so they don't overflow their 34px cell onto the next field; plain
+     single-line inputs still sit at 34px. */
+  grid-template-rows: 20px minmax(34px, auto) auto;
+  gap: 3px;
+}
+
+/* field-note (hints like "Optional OpenClaw...") — compact */
+.topo-edit-form .field-note {
+  font-size: 10px;
+  line-height: 1.3;
+  opacity: 0.75;
+}
+
+/* Smaller label */
+.topo-edit-form .label-row {
+  min-height: 20px;
+}
+.topo-edit-form .label-row label,
+.topo-edit-form .label-row > label {
+  font-size: 11px;
+}
+
+/* Description text: hidden in edit form — info is in the ? tooltips */
+.topo-edit-form .field p {
+  display: none;
+}
+
+/* Tighter grid: less row gap, less top margin */
+.topo-edit-form .field-grid {
+  row-gap: 8px;
+  margin-top: 6px;
+}
+
+/* Compact advanced-grid inside tabs — fix default 18px gap */
+.topo-edit-form .advanced-grid {
+  gap: 8px 10px;
+}
+
+/* All tabs: 4 columns */
+.advanced-tab-panel .advanced-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+/* Compact field rows inside all tab panels */
+.topo-edit-form .advanced-tab-panel .field {
+  grid-template-rows: 16px 28px 0;
+  gap: 2px;
+}
+.topo-edit-form .advanced-tab-panel input:not([type="checkbox"]),
+.topo-edit-form .advanced-tab-panel select {
+  height: 28px;
+  padding: 3px 7px;
+  font-size: 11px;
+}
+.topo-edit-form .advanced-tab-panel .label-row {
+  min-height: 16px;
+}
+.topo-edit-form .advanced-tab-panel .label-row label {
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+.topo-edit-form .advanced-tab-panel .check-row {
+  height: 28px;
+  min-height: 28px;
+}
+
+/* Advanced section: smaller header + tighter grid */
+.topo-edit-form .advanced-group h3 {
+  font-size: 10px;
+  margin-bottom: 6px;
+  padding-top: 4px;
+}
+
+/* Top-level standalone fields (MODEL_FILE, MMPROJ_FILE, CHAT_TEMPLATE_FILE)
+   get breathing room between each other */
+.topo-edit-form > .field {
+  margin-bottom: 10px;
+}
+.topo-edit-form > .field:last-of-type {
+  margin-bottom: 0;
+}
+
+/* The Advanced <details> section: reduce top gap */
+.topo-edit-form .advanced-fields {
+  margin-top: 4px;
+}
+.topo-edit-form .advanced-fields summary {
+  font-size: 12px;
+  padding: 4px 0;
+}
+
+.topo-edit-form .model-insight {
+  margin: 20px 0 6px;
+  padding: 6px 10px;
+  gap: 4px;
+}
+
+/* Compact VRAM/RAM fit pills used inside the one-row insight layout */
+.size-chip-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  font-size: 11px;
+  background: color-mix(in srgb, var(--panel) 86%, var(--accent) 14%);
+}
+.size-chip-inline.good { border-color: color-mix(in srgb, var(--good) 50%, var(--line)); background: color-mix(in srgb, var(--panel) 80%, var(--good) 20%); }
+.size-chip-inline.warn { border-color: color-mix(in srgb, var(--warn) 50%, var(--line)); background: color-mix(in srgb, var(--panel) 80%, var(--warn) 20%); }
+.size-chip-inline.bad  { border-color: color-mix(in srgb, var(--bad)  50%, var(--line)); background: color-mix(in srgb, var(--panel) 80%, var(--bad)  20%); }
+
+.topo-edit-aside {
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.topo-aside-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 6px;
+}
+.topo-edit-aside .panel {
+  padding: 10px 12px;
+}
+
+.te-models-dir-hint {
+  color: var(--accent);
+  font-size: 12px;
+  margin-top: 5px;
+}
+.te-models-dir-hint::before {
+  content: "↑ ";
+}
+.te-models-dir-hint[hidden] { display: none !important; }
+
+/* ── Server edit/add modal — visual redesign ─────────────────────────────── */
+
+/* Input & select: use design-system vars, proper height, focus ring */
+.topo-edit-form input:not([type="checkbox"]),
+.topo-edit-form select {
+  height: 34px;
+  border-color: var(--line);
+  border-radius: 5px;
+  padding: 5px 8px;
+  font-size: 12px;
+  background: var(--field);
+  color: var(--text);
+  transition: border-color 0.14s, box-shadow 0.14s;
+}
+.topo-edit-form input:not([type="checkbox"]):focus,
+.topo-edit-form select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.topo-edit-form input[readonly] {
+  background: color-mix(in srgb, var(--field) 60%, transparent);
+  color: var(--muted, #888);
+  cursor: default;
+  border-color: color-mix(in srgb, var(--line) 50%, transparent);
+}
+.topo-edit-form input[readonly]:focus {
+  border-color: color-mix(in srgb, var(--line) 50%, transparent);
+  box-shadow: none;
+}
+
+/* ── Custom toggle switch ─────────────────────────────────────────────────── */
+.topo-edit-form .check-row {
+  height: 34px;
+  min-height: 34px;
+  gap: 10px;
+}
+.topo-edit-form .check-row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 36px;
+  height: 20px;
+  min-height: 20px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: none;
+  background: color-mix(in srgb, var(--line) 180%, transparent);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.topo-edit-form .check-row input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--muted);
+  top: 3px;
+  left: 3px;
+  transition: transform 0.2s, background 0.2s;
+}
+.topo-edit-form .check-row input[type="checkbox"]:checked {
+  background: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+.topo-edit-form .check-row input[type="checkbox"]:checked::before {
+  transform: translateX(16px);
+  background: var(--accent);
+}
+.topo-edit-form .check-row span {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+/* ── Advanced section group headers — ruled divider style ─────────────────── */
+.topo-edit-form .advanced-group h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+.topo-edit-form .advanced-group h3::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+  opacity: 0.7;
+}
+
+/* ── Controller (local) vs Remote visual distinction ─────────────────────── */
+
+/* Controller: teal/accent accent strip on left + subtle header tint */
+#topologyLlamaEditOverlay .topology-llama-edit-modal {
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+#topologyLlamaEditOverlay .topo-edit-header {
+  background: color-mix(in srgb, var(--accent) 5%, var(--panel));
+}
+
+/* Remote/client: fallback (blue) accent strip on left + subtle header tint */
+#llamaRemoteEditOverlay .topology-llama-edit-modal {
+  border-left: 3px solid color-mix(in srgb, var(--fallback) 50%, var(--line));
+}
+#llamaRemoteEditOverlay .topo-edit-header {
+  background: color-mix(in srgb, var(--fallback) 5%, var(--panel));
+}
+
+/* Aside section titles — keep parity with the rest of the app */
+.topo-edit-aside .topo-aside-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.topo-edit-aside .topo-aside-title::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+  opacity: 0.5;
+}
+
+/* ── Backups collapsible panel ───────────────────────────────────────────── */
+.topo-backups-panel { cursor: default; }
+.topo-backups-panel summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 0 0 0;
+  user-select: none;
+}
+.topo-backups-panel summary::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+  opacity: 0.5;
+}
+.topo-backups-panel summary::before {
+  content: "▸";
+  font-size: 10px;
+  color: var(--muted);
+  transition: transform 120ms;
+  order: -1;
+}
+.topo-backups-panel[open] summary::before { transform: rotate(90deg); }
+.topo-backups-panel summary::-webkit-details-marker { display: none; }
+.topo-backups-panel[open] summary { margin-bottom: 8px; }
+
+/* ── Aside panel depth ────────────────────────────────────────────────────── */
+.topo-edit-aside .panel {
+  background: color-mix(in srgb, var(--bg) 40%, var(--panel));
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+/* ── LOCAL / REMOTE header badge ─────────────────────────────────────────── */
+.topo-edit-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  flex-shrink: 0;
+}
+.topo-edit-mode-badge.local {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+.topo-edit-mode-badge.remote {
+  background: color-mix(in srgb, var(--fallback) 14%, var(--panel));
+  color: var(--fallback);
+  border: 1px solid color-mix(in srgb, var(--fallback) 30%, var(--line));
+}
+
+/* ── Advanced tabs ───────────────────────────────────────────────────────── */
+.advanced-tabs {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  overflow: hidden;
+}
+.advanced-tab-bar {
+  display: flex;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 60%, var(--panel));
+  padding: 0 4px;
+  gap: 0;
+}
+.advanced-tab-btn {
+  padding: 7px 13px;
+  font-size: 11px;
+  font-weight: 600;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+  white-space: nowrap;
+}
+.advanced-tab-btn:hover { color: var(--text); }
+.advanced-tab-btn.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+.advanced-tab-panel { display: none; padding: 12px; }
+.advanced-tab-panel.active { display: block; }
+
+/* ── Aside VRAM memory bar ───────────────────────────────────────────────── */
+.aside-vram-track {
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+  overflow: hidden;
+  margin: 6px 0 4px;
+  display: flex;                 /* stacked segments: already-used + this model */
+}
+.aside-vram-fill {
+  height: 100%;
+  flex: none;
+  transition: width 0.3s;
+  background: var(--muted);
+}
+.aside-vram-fill.used { background: var(--muted); opacity: 0.5; }
+.aside-vram-fill.good { background: var(--good); }
+.aside-vram-fill.warn { background: var(--warn); }
+.aside-vram-fill.bad  { background: var(--bad); }
+.aside-vram-label {
+  font-size: 11px;
+  color: var(--muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.aside-vram-label strong { color: var(--text); }
+.aside-vram-empty { font-size: 11px; color: var(--muted); font-style: italic; }
+.aside-vram-overflow { color: var(--bad); font-size: 10px; font-weight: 700; margin-left: 4px; }
+
+/* ── Remote "Cache model" toggle row ─────────────────────────────────────── */
+.cache-toggle-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--panel) 90%, var(--accent) 8%);
+}
+.cache-toggle-row input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 36px;
+  height: 20px;
+  min-width: 36px;
+  min-height: 20px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  border-radius: 10px;
+  border: none;
+  background: color-mix(in srgb, var(--line) 180%, transparent);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.cache-toggle-row input[type="checkbox"]::before {
+  content: "";
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--muted);
+  top: 3px;
+  left: 3px;
+  transition: transform 0.2s, background 0.2s;
+}
+.cache-toggle-row input[type="checkbox"]:checked {
+  background: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+.cache-toggle-row input[type="checkbox"]:checked::before {
+  transform: translateX(16px);
+  background: var(--accent);
+}
+.cache-toggle-label { font-size: 12px; line-height: 1.45; }
+.cache-toggle-label strong { font-size: 12px; }
+
+/* Wide add-item buttons (Add Server, Add Cloud Provider) */
+.topology-add-wide-btn {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  margin-top: 6px;
+  background: none;
+  border: 1px dashed var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
+}
+.topology-add-wide-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* ── Pending remote llama-server start (loading placeholder) ──────────────── */
+.topology-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border: 2px solid color-mix(in srgb, var(--accent, #6ea8fe) 35%, transparent);
+  border-top-color: var(--accent, #6ea8fe);
+  border-radius: 50%;
+  animation: topology-spinner-rot 0.7s linear infinite;
+}
+@keyframes topology-spinner-rot {
+  to { transform: rotate(360deg); }
+}
+.topology-card.llama-card.loading {
+  border-color: color-mix(in srgb, var(--warn, #f59e0b) 55%, var(--line));
+  background:
+    linear-gradient(100deg,
+      transparent 30%,
+      color-mix(in srgb, var(--warn, #f59e0b) 8%, transparent) 50%,
+      transparent 70%) 0 0 / 220% 100%,
+    var(--panel);
+  animation: topology-loading-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes topology-loading-shimmer {
+  from { background-position: 120% 0, 0 0; }
+  to   { background-position: -120% 0, 0 0; }
+}
+
+/* Remote model download progress bar (startup phase on a client llama-server) */
+.remote-dl-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--line) 60%, transparent);
+  overflow: hidden;
+  margin: 6px 0 2px;
+}
+.remote-dl-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent, #6ea8fe);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+/* Indeterminate variant — model is loading into VRAM, no measurable progress.
+   A slice slides back and forth instead of filling to a percentage. */
+.remote-dl-bar.indeterminate > span {
+  width: 35%;
+  transition: none;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent, #6ea8fe) 30%, transparent),
+    var(--accent, #6ea8fe),
+    color-mix(in srgb, var(--accent, #6ea8fe) 30%, transparent));
+  animation: remote-dl-indeterminate 1.1s ease-in-out infinite;
+}
+@keyframes remote-dl-indeterminate {
+  0%   { transform: translateX(-110%); }
+  100% { transform: translateX(320%); }
+}
+
+/* Clickable host:port on remote llama-server cards */
+.topology-addr-link {
+  color: var(--muted, #888);
+  text-decoration: none;
+  font-size: 11px;
+  border-bottom: 1px dotted color-mix(in srgb, var(--muted, #888) 45%, transparent);
+}
+.topology-addr-link:hover {
+  text-decoration: none;
+  color: var(--accent, #6ea8fe);
+  border-bottom-color: var(--accent, #6ea8fe);
+}
+/* Inside server card head the addr is a subtitle — keep it compact */
+.node-server-head > .topology-addr-link { font-size: 11px; }
+
+/* Remote llama-server port-unreachable warning (host firewall) */
+.topology-remote-unreachable {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.3;
+  padding: 4px 7px;
+  border-radius: 4px;
+  color: var(--warn, #f59e0b);
+  background: color-mix(in srgb, var(--warn, #f59e0b) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn, #f59e0b) 40%, transparent);
+  display: flex; flex-direction: column; gap: 4px;
+}
+.firewall-cmd {
+  display: block;
+  font-size: 10px;
+  font-family: monospace;
+  background: color-mix(in srgb, var(--warn, #f59e0b) 10%, var(--bg, #111));
+  padding: 3px 6px;
+  border-radius: 3px;
+  user-select: all;
+  cursor: text;
+  opacity: .85;
+}
+
+/* Structured error block (llama-server load failures) */
+.llama-err-block {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 6px 8px;
+}
+.llama-err-icon { flex-shrink: 0; font-size: 13px; margin-top: 1px; }
+.llama-err-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.llama-err-friendly {
+  font-size: 12px;
+  font-weight: 600;
+  color: #fca5a5;
+}
+.llama-err-hint {
+  font-size: 11px;
+  color: #fcd34d;
+  opacity: .85;
+}
+.llama-err-raw {
+  font-size: 10px;
+  opacity: .45;
+  font-family: var(--font-mono, monospace);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-width: 100%;
+  cursor: default;
+}
+
+/* ── Host-centric node view (Stage 3a) ───────────────────────────────────── */
+.topology-viewmode { display:flex; justify-content:flex-end; padding:0 12px 8px; }
+#topologyNodesToggle.active { background: color-mix(in srgb, var(--accent,#6ea8fe) 18%, transparent); border-color: var(--accent,#6ea8fe); color: var(--accent,#6ea8fe); }
+.topology-nodes-view { padding: 4px 12px 24px; display:flex; flex-direction:column; gap:14px; }
+.fleet-overview { display:flex; gap:18px; flex-wrap:wrap; padding:10px 14px; border:1px solid var(--line); border-radius:8px; background:var(--panel); font-size:13px; color:var(--muted,#888); }
+.fleet-overview b { color: var(--text, #e6e6e6); font-size:15px; }
+.node-card { border:1px solid var(--line); border-radius:10px; background:var(--panel); overflow:visible; }
+.node-card.offline { opacity:.6; }
+.node-head { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line); background:color-mix(in srgb,var(--panel) 85%, var(--bg,#111) 15%); border-radius:10px 10px 0 0; }
+.node-head strong { font-size:15px; }
+.node-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }
+.node-dot.on { background:#3fb950; box-shadow:0 0 6px #3fb95088; }
+.node-dot.off { background:#6e7681; }
+.node-role { font-size:10px; text-transform:uppercase; letter-spacing:.5px; padding:1px 6px; border-radius:3px; background:var(--bg,#222); color:var(--muted,#888); }
+.node-meta { font-size:12px; color:var(--muted,#888); }
+/* Body split in two halves by a full-height divider; Servers half is flush to
+   the node's left edge so each server's left border lines up with the card edge
+   (cable anchors then sit cleanly in the gutter). */
+.node-body { position:relative; display:grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap:0; padding:0; }
+.node-body::before { content:""; position:absolute; left:50%; top:0; bottom:0; border-left:1px solid var(--line); }
+@media (max-width: 900px){
+  .node-body{ grid-template-columns:1fr; }
+  .node-body::before{ display:none; }
+}
+/* Flat rows like Cloud Providers — no nested card edges; anchor on the block's
+   left edge. Subtitle + rows are flush to the half's left border. */
+.node-subtitle { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted,#888); padding:10px 14px 6px 16px; }
+.node-servers { display:flex; flex-direction:column; gap:8px; padding:8px 10px; }
+.node-gpus { display:flex; flex-direction:column; gap:0; padding:0; }
+.node-server {
+  position:relative; display:block; padding:9px 12px 10px 16px;
+  border:1px solid var(--line);
+  border-left:3px solid color-mix(in srgb, var(--accent,#6ea8fe) 55%, var(--line));
+  border-radius:8px;
+  background: color-mix(in srgb, var(--accent,#6ea8fe) 4%, transparent);
+}
+.node-server.running {
+  border-left-color: var(--ok,#3fb950);
+  background: color-mix(in srgb, var(--ok,#3fb950) 6%, transparent);
+}
+.node-server.stopped { border-left-color: var(--muted,#6e7681); background:transparent; }
+.node-server.configured-cell {
+  border-left-color: var(--yellow,#d4b520);
+  background: color-mix(in srgb, var(--yellow,#d4b520) 6%, transparent);
+}
+.node-server.loading { border-left-color: var(--warn,#f59e0b); }
+.node-server.reserved-cell {
+  border-left-color: color-mix(in srgb, var(--accent,#6ea8fe) 65%, var(--muted,#888));
+}
+.node-server.reserved-new {
+  animation: node-reserved-arrive 1.25s ease-out both;
+}
+.node-server.deleting {
+  pointer-events: none;
+  opacity: .68;
+  border-left-color: #f85149;
+  background: color-mix(in srgb, #f85149 7%, transparent);
+  animation: node-deleting-pulse 1.1s ease-in-out infinite;
+}
+.node-server.stopping {
+  border-left-color: #f85149;
+  background: color-mix(in srgb, #f85149 6%, transparent);
+  animation: node-stopping-pulse 1.4s ease-in-out infinite;
+}
+@keyframes node-reserved-arrive {
+  0% {
+    opacity: .15;
+    transform: translateY(-5px) scale(.985);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent,#6ea8fe) 0%, transparent);
+  }
+  34% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent,#6ea8fe) 18%, transparent);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+    box-shadow: none;
+  }
+}
+@keyframes node-deleting-pulse {
+  0%, 100% { filter: saturate(1); }
+  50% { filter: saturate(.55); }
+}
+@keyframes node-stopping-pulse {
+  0%, 100% { border-left-color: #f85149; }
+  50%       { border-left-color: color-mix(in srgb, #f85149 40%, transparent); }
+}
+
+/* Ghost card — placeholder for "no server yet" state */
+.node-server.ghost-server {
+  border-style: dashed;
+  border-left-style: dashed;
+  border-left-color: color-mix(in srgb, var(--muted,#888) 35%, transparent);
+  border-color: color-mix(in srgb, var(--muted,#888) 25%, transparent);
+  background: transparent;
+  opacity: .7;
+  transition: opacity .15s, border-color .15s;
+}
+.node-server.ghost-server:hover { opacity: 1; border-color: color-mix(in srgb, var(--accent,#6ea8fe) 45%, transparent); }
+.node-server.ghost-server.reserving {
+  opacity: 1;
+  border-color: color-mix(in srgb, var(--accent,#6ea8fe) 55%, transparent);
+  background: color-mix(in srgb, var(--accent,#6ea8fe) 7%, transparent);
+  animation: ghost-reserving 1.05s ease-in-out infinite;
+}
+@keyframes ghost-reserving {
+  0%, 100% { box-shadow: inset 0 0 0 0 color-mix(in srgb, var(--accent,#6ea8fe) 0%, transparent); }
+  50% { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent,#6ea8fe) 22%, transparent); }
+}
+.ghost-server-body { display:flex; justify-content:center; padding: 6px 4px 4px; }
+.ghost-start-btn {
+  padding: 5px 14px; text-align: center;
+  background: none; border: 1px dashed color-mix(in srgb, var(--muted,#888) 35%, transparent);
+  cursor: pointer; font-size: 12px; color: var(--muted,#888);
+  border-radius: 5px; transition: color .12s, background .12s, border-color .12s;
+}
+.ghost-start-btn:hover { color: var(--accent,#6ea8fe); border-color: color-mix(in srgb, var(--accent,#6ea8fe) 55%, transparent); background: color-mix(in srgb, var(--accent,#6ea8fe) 6%, transparent); }
+.ghost-start-btn:disabled {
+  cursor: wait;
+  color: var(--accent,#6ea8fe);
+  border-color: color-mix(in srgb, var(--accent,#6ea8fe) 55%, transparent);
+}
+.ghost-start-btn .topology-spinner {
+  width: 11px;
+  height: 11px;
+  margin-right: 7px;
+  vertical-align: -1px;
+}
+.node-add-btn { text-align:left; padding-left:16px; }
+.node-servers > .topology-muted, .node-gpus > .topology-muted { padding:8px 16px 12px; }
+.node-server-head { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
+.node-server-model { font-size:12px; color:var(--muted,#aaa); margin-top:4px; word-break:break-all; }
+.node-gpu-badge { font-size:10px; padding:1px 5px; border-radius:3px; white-space:nowrap; background:color-mix(in srgb,var(--accent,#6ea8fe) 18%, transparent); color:var(--accent,#6ea8fe); }
+.node-gpu-row { padding:8px 14px; border-bottom:1px solid var(--line); }
+.node-gpus > .node-gpu-row:last-child { border-bottom:none; }
+.node-gpu-head { display:flex; align-items:center; gap:8px; font-size:13px; }
+.node-gpu-name { color:var(--muted,#aaa); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.node-gpu-util { margin-left:auto; font-size:11px; color:var(--muted,#888); }
+.node-vram-bar { height:6px; border-radius:3px; background:color-mix(in srgb,var(--line) 60%, transparent); overflow:hidden; margin:6px 0; }
+.node-vram-bar > span { display:block; height:100%; background:var(--accent,#6ea8fe); }
+.node-gpu-meta { display:flex; align-items:center; gap:10px; font-size:11px; color:var(--muted,#888); }
+.node-gpu-ports { color:#3fb950; }
+.node-spark { margin-left:auto; opacity:.8; }
+
+/* Stopped remote server (persistent slot) in the classic Llama Servers column */
+.topology-card.llama-card.stopped { opacity:.7; border-style:dashed; }
+.topology-card.llama-card.stopped .topology-handle.server-input { background: var(--muted,#6e7681); }
+
+/* [hidden] must win over the board/nodes display rules */
+.topology-board[hidden] { display: none !important; }
+.topology-nodes-view[hidden] { display: none !important; }
+
+/* Node cards rendered inside the Llama Servers lane (cable targets) */

@@ -1,0 +1,858 @@
+// Host-centric nodes view: server cards, telemetry mounts, incidents, models bar.
+import { drawTopologyCables } from "./cables.js";
+import { nodeTelemetryRowsHtml, renderTopologyIncidents } from "./charts.js";
+import { effectiveModelsDir } from "./command-preview.js";
+import { badge, mbadge, renderModelSelects } from "./form.js";
+import { t } from "./i18n.js";
+import {
+  _modelBenchKey,
+  fetchServerBenchIfNeeded,
+  parseModelName,
+  serverBenchCache,
+  topologyModelIcon,
+} from "./model-meta.js";
+import { action, formatCtxTokens, formatTps } from "./polling.js";
+import {
+  _deletingSlots,
+  _newReservedCells,
+  _pendingRemoteStarts,
+  _reservingCells,
+  _pendingCellActions,
+  _stoppingCells,
+  _stoppingHosts,
+  nextTopologyCellPort,
+  nodeStartingCardHtml,
+} from "./remote-cells.js";
+import { setState, state, topology } from "./state.js";
+import {
+  topologyLlamaActivity,
+  topologyRuntimePanelHtml,
+  topologyServerGroup,
+  topologyStatusPill,
+} from "./topology-activity.js";
+import { topologyLlamaDetailOpen } from "./topology-dnd.js";
+import { topologyServerUpstreamHost } from "./topology-proxies.js";
+import { renderTopology } from "./topology-render.js";
+import { $, api, escapeHtml, toast } from "./utils.js";
+
+// ── Host-centric node view (Stage 3a) ────────────────────────────────────────
+export const topologyNodesViewOn = true;  // node view is the only mode (flat list retired)
+export const _collapsedNodes = new Set(
+  (() => { try { return JSON.parse(localStorage.getItem("topologyCollapsedNodes") || "[]"); } catch { return []; } })()
+);
+export function persistCollapsedNodes() {
+  localStorage.setItem("topologyCollapsedNodes", JSON.stringify([..._collapsedNodes]));
+}
+export function toggleNodeCollapsed(nodeId) {
+  if (_collapsedNodes.has(nodeId)) _collapsedNodes.delete(nodeId);
+  else _collapsedNodes.add(nodeId);
+  persistCollapsedNodes();
+  renderTopology();
+  requestAnimationFrame(drawTopologyCables); // anchors moved (card ↔ rail)
+}
+
+export function applyNodesViewMode() {
+  // Node view renders INTO the Llama Servers lane (so the Proxy column + SVG
+  // cables stay intact). Here we only reflect the toggle's pressed state.
+  const lane = $("topologyLlamaServers");
+  if (lane) lane.classList.toggle("nodes-mode", topologyNodesViewOn);
+  // Widen the servers lane over the stats column (col3+col4) in node mode.
+  const lanes = document.querySelector(".topology-lanes");
+  if (lanes) lanes.classList.toggle("nodes-on", topologyNodesViewOn);
+}
+
+// Tiny inline SVG sparkline from history rows [t, mem, util, power].
+export function nodeSparklineSvg(history, idx, color, max) {
+  const pts = (history || []).map((r) => r[idx]).filter((v) => v !== null && v !== undefined);
+  if (pts.length < 2) return "";
+  const w = 120, h = 28;
+  const hi = max || Math.max(...pts, 1);
+  const step = w / (pts.length - 1);
+  const d = pts.map((v, i) => `${(i * step).toFixed(1)},${(h - (v / hi) * h).toFixed(1)}`).join(" ");
+  return `<svg class="node-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <polyline points="${d}" fill="none" stroke="${color}" stroke-width="1.5"/></svg>`;
+}
+
+export function nodeGpuRowHtml(node, g) {
+  const used = Number(g.memoryUsedMiB || 0), total = Number(g.memoryTotalMiB || 0);
+  const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
+  const usedGb = (used / 1024).toFixed(1), totalGb = (total / 1024).toFixed(1);
+  const util = g.utilizationGpuPct ?? "?", temp = g.temperatureC ?? "?", power = g.powerDrawW ?? "?";
+  const ports = (g.serverPorts || []).filter((p) => p != null);
+  return `
+    <div class="node-gpu-row" data-gpu-row="${escapeHtml(`${node.id}:${g.index}`)}">
+      <div class="node-gpu-head">
+        <strong>GPU ${escapeHtml(String(g.index ?? "?"))}</strong>
+        <span class="node-gpu-name">${escapeHtml(g.name || "GPU")}</span>
+        <span class="node-gpu-util" data-live-gpuutil>${escapeHtml(String(util))}% · ${escapeHtml(String(temp))}°C · ${escapeHtml(String(power))}W</span>
+      </div>
+      <div class="node-vram-bar" data-live-gpuvrambar title="${usedGb} / ${totalGb} GB"><span style="width:${pct}%"></span></div>
+      <div class="node-gpu-meta">
+        <span data-live-gpuvram>VRAM ${usedGb} / ${totalGb} GB</span>
+        ${ports.length ? `<span class="node-gpu-ports">▶ ${ports.map((p) => escapeHtml(String(p))).join(", ")}</span>` : `<span class="topology-muted">idle</span>`}
+        <span data-live-gpuspark>${nodeSparklineSvg(g.history, 1, "var(--accent,#6ea8fe)", total)}</span>
+      </div>
+    </div>`;
+}
+
+// Small firewall-access badge (icon + tooltip) for a server's port.
+export function firewallBadge(fw) {
+  if (!fw || !fw.state || fw.state === "unknown") return "";
+  const from = (fw.allowedFrom || []).join(", ");
+  const map = {
+    all:        ["🌐", "Port open to all (Anywhere)"],
+    open:       ["🔓", "ufw inactive — port open to all"],
+    restricted: ["🔒", `Restricted: ${from} + localhost`],
+    blocked:    ["⛔", "Blocked — no firewall rule allows this port"],
+  };
+  const [icon, tip] = map[fw.state] || ["", ""];
+  if (!icon) return "";
+  return `<span class="node-fw-badge fw-${escapeHtml(fw.state)}" title="${escapeHtml(tip)}">${icon}</span>`;
+}
+
+export function formatUptime(sec) {
+  const s = Math.floor(sec || 0);
+  if (s < 60) return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+// Parse lastError string from llama-server log into a friendly human-readable message.
+// Returns { friendly, hint, raw } where friendly is the short translated reason.
+export function classifyLlamaError(raw) {
+  if (!raw) return null;
+  const r = raw.toLowerCase();
+  // Corrupted / incomplete file
+  if (r.includes("not within the file bounds") || r.includes("corrupted or incomplete") || r.includes("unexpected end of file")) {
+    return { friendly: t("llamaErrCorrupted"), hint: t("llamaErrCorruptedHint"), raw };
+  }
+  // VRAM / memory OOM
+  if (r.includes("out of memory") || r.includes("cudaerroromemoryallocation") || r.includes("failed to allocate") || r.includes("not enough memory")) {
+    return { friendly: t("llamaErrOOM"), hint: t("llamaErrOOMHint"), raw };
+  }
+  // Wrong mmproj
+  if (r.includes("mismatch between text model") || r.includes("wrong mmproj") || r.includes("mtmd_init_from_file")) {
+    return { friendly: t("llamaErrMmproj"), hint: t("llamaErrMmprojHint"), raw };
+  }
+  // Model file not found
+  if (r.includes("no such file") || r.includes("failed to open") || r.includes("failed to load model")) {
+    return { friendly: t("llamaErrNotFound"), hint: "", raw };
+  }
+  // Generic
+  return { friendly: t("llamaErrGeneric"), hint: "", raw };
+}
+
+// Shared lifecycle breadcrumb bar used by real server cards and the ghost "no server" card.
+// lcIdx: 0=reserved, 1=stopped, 2=starting, 3=running; -1 = all future (ghost card)
+// lcActiveStep: key for CSS colour class on the active dot (stopped/error/loading/running)
+export function serverLifecycleBar(lcIdx, lcActiveStep, uptimeTxt = "", cfgAttrs = "", reservedPort = "") {
+  const steps = ["reserved", "configured", "starting", "running"];
+  const stepLabels = { reserved: t("lcReserved"), configured: t("lcConfigured"), starting: t("lcStarting"), running: t("lcRunning") };
+  return `<div class="node-server-lc">${
+    steps.map((lbl, i) => {
+      const nodeState = i < lcIdx ? "done" : i === lcIdx ? "active" : "future";
+      const railCls   = i > 0 ? (i <= lcIdx ? "done" : "future") : "";
+      const colorKey  = i === lcIdx ? lcActiveStep : (i < lcIdx ? "done" : "future");
+      // Once the "configured" step is behind us, tint it green like the AUTOSTART
+      // button: pulsing while the server is still coming up (lcIdx 2 = starting),
+      // solid green once running (lcIdx ≥ 3).
+      const cfgLive = (i === 1 && nodeState === "done")
+        ? (lcIdx < 3 ? " lc-cfg-live lc-cfg-starting" : " lc-cfg-live")
+        : "";
+      const label = escapeHtml(stepLabels[lbl] || lbl)
+        + (i === 2 && uptimeTxt ? `<span class="lc-uptime">${escapeHtml(uptimeTxt)}</span>` : "")
+        + (i === 0 && reservedPort ? `<span class="lc-port">:${escapeHtml(String(reservedPort))}</span>` : "");
+      // Reserved step carries the :port now — drop its redundant dot (the ghost
+      // card, which has no port, keeps the dot for symmetry).
+      const inner = `${(i === 0 && reservedPort) ? "" : `<span class="lc-dot"></span>`}<span class="lc-lbl">${label}</span>`;
+      const node = (i === 1 && cfgAttrs)
+        ? `<button class="lc-node lc-cfg-btn ${nodeState} lc-${colorKey}${cfgLive}" type="button" ${cfgAttrs} title="Configure">${inner}</button>`
+        : `<span class="lc-node ${nodeState} lc-${colorKey}${cfgLive}">${inner}</span>`;
+      return `${i > 0 ? `<span class="lc-rail ${railCls}"></span>` : ""}${node}`;
+    }).join("")
+  }</div>`;
+}
+
+export function nodeServerCardHtml(node, s) {
+  const isStopping = !s.isController && _stoppingHosts.has(node.id);
+  const port = s.port;
+  const slotHostId = s.isController ? "skynet" : node.id;
+  const slotKey = `${slotHostId}:${port}`;
+  const cellKey = slotKey;  // alias used in controls + config block
+  const isDeleting = _deletingSlots.has(slotKey);
+  const pendingCellAction = _pendingCellActions.get(cellKey) || "";
+  const isCellStopping = (s.isSlot && _stoppingCells.has(cellKey)) || pendingCellAction === "stop";
+  const isNewReserved = _newReservedCells.has(slotKey);
+  // If a start was just submitted for this host and the slot still shows "stopped",
+  // treat it as "starting" so the user can't accidentally click Start again.
+  const hasPendingStart = (!s.isController && _pendingRemoteStarts.has(String(node.id))) || pendingCellAction === "start";
+  const rawPhase = isStopping ? "stopping" : (s.phase || (s.status && s.status.phase) || (s.isController ? "running" : "stopped"));
+  const phase = (rawPhase === "stopped" && hasPendingStart) ? "starting" : rawPhase;
+  const running = phase === "running";
+  const isReserved = phase === "reserved";
+  const isError = phase === "error";
+  const isStopped = phase === "stopped" || isReserved || isError;  // error behaves like stopped for controls
+  const isDownloading = phase === "downloading";
+  const isWarming = phase === "warming";  // process up, model still loading into VRAM
+  const addr = `${s.clientIp || node.ip || ""}:${port}`;
+  const nodeGpus = node.gpus || [];
+  const gpuBadges = (s.gpuIndexes || []).map((i) => {
+    const usedMib = (s.gpuMem || {})[String(i)];
+    const usedGb = usedMib ? (usedMib / 1024).toFixed(1) : null;
+    const gpuMeta = nodeGpus.find((g) => g.index === i);
+    const totalMib = gpuMeta ? Number(gpuMeta.memoryTotalMiB || 0) : 0;
+    const totalGb = totalMib > 0 ? Math.round(totalMib / 1024) : null;
+    const memLabel = usedGb ? (totalGb ? `${usedGb}/${totalGb}G` : `${usedGb}G`) : "";
+    return `<span class="node-gpu-badge">GPU${escapeHtml(String(i))}${memLabel ? " " + escapeHtml(memLabel) : ""}</span>`;
+  }).join("");
+  // Transient status (stopping / downloading / warming / starting) renders as a
+  // compact line INSIDE the model block, replacing the chips row — the card
+  // keeps its height instead of growing extra rows at the bottom.
+  const _msl = (cls, inner) => `<div class="node-model-row2 model-status-line${cls ? " " + cls : ""}">${inner}</div>`;
+  const _mslSpin = (stop) => `<span class="topology-spinner${stop ? " stopping-spinner" : ""}" aria-hidden="true"></span>`;
+  let statusRow = "";
+  if (isDeleting) {
+    statusRow = _msl("msl-stop", `${_mslSpin(true)}<span class="msl-bar indeterminate msl-bar-stop"><span></span></span><span class="msl-text">${escapeHtml(t("removingSlotLabel"))}</span>`);
+  } else if (isStopping || isCellStopping) {
+    statusRow = _msl("msl-stop", `${_mslSpin(true)}<span class="msl-bar indeterminate msl-bar-stop"><span></span></span><span class="msl-text">${escapeHtml(t("stoppingLabel"))}</span>`);
+  } else if (isDownloading) {
+    const done = Number(s.downloadedBytes || 0), tot = Number(s.totalBytes || 0);
+    const p = tot > 0 ? Math.round((done / tot) * 100) : null;
+    const dlFile = s.downloadingFile ? escapeHtml(s.downloadingFile) : escapeHtml(t("topologyRemoteDownloading"));
+    statusRow = _msl("", `<span class="msl-bar"><span style="width:${p ?? 0}%"></span></span><span class="msl-text" data-live-dl>${dlFile} · ${(done/1e9).toFixed(1)}/${(tot/1e9).toFixed(1)} GB${p!=null?` · ${p}%`:""}</span>`);
+  } else if (isWarming) {
+    statusRow = _msl("", `${_mslSpin(false)}<span class="msl-bar indeterminate"><span></span></span><span class="msl-text">${escapeHtml(t("topologyRemoteWarming"))}</span>`);
+  } else if (!running && !isStopped) {
+    statusRow = _msl("", `${_mslSpin(false)}<span class="msl-text">${escapeHtml(phase === "loading" ? t("topologyRemoteLoading") : t("topologyRemoteStarting"))}</span>`);
+  }
+  const healthCls = running ? "running" : (isStopped ? "" : "loading");
+  // Compact model block (name + quant/size/vision chips) — click to drill in.
+  const parsed = parseModelName(s.model) || {};
+  const hasVision = !!s.mmproj;
+  // Authoritative input modalities from the running server's /props, when known.
+  const mods = s.modalities || null;
+  // Detect built-in MTP: path component ends with "-mtp" (e.g. "qwen3.6-27b-mtp/...")
+  const _mtpRe = /-mtp(?:[^a-z0-9]|$)/i;
+  const hasMtpBuiltin = _mtpRe.test(s.model || "") || _mtpRe.test(s.modelPath || "");
+  const hasMtp = !!s.specDraft || hasMtpBuiltin || (s.specType || "").toLowerCase() === "draft-mtp";
+  const ctxChip = s.ctxMax
+    ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(s.ctxMax || 0))}`, t("topologyCtxUsageTip") || "Context window")
+    : "";
+  // For configured (stopped) slot cells pull key params from slotConfig as fallback chips
+  const _scfg = s.slotConfig || {};
+  const slotCtxChip = (!s.ctxMax && _scfg.CTX_SIZE)
+    ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.CTX_SIZE)))}`) : "";
+  const _benchKey = s.model ? (_modelBenchKey(s.model) || "") : "";
+  const _bdata = _benchKey ? serverBenchCache.get(_benchKey) : null;
+  const _aaScore = _bdata?.scores?.aa_intelligence;
+  const benchChip = _aaScore != null ? mbadge("bench", `🧠 ${_aaScore}`) : "";
+  if (s.model) fetchServerBenchIfNeeded(s.model);
+  const chips = [
+    parsed.quant ? mbadge("quant", `🎛 ${escapeHtml(parsed.quant)}`) : "",
+    parsed.size ? mbadge("size", `⚖ ${escapeHtml(parsed.size)}`) : "",
+    parsed.variant ? mbadge("it", `🤖 ${escapeHtml(parsed.variant)}`) : "",
+    // Prefer real /props modalities; fall back to the mmproj-presence heuristic.
+    mods ? [
+      mods.vision ? mbadge("vision", "👁 vision") : "",
+      mods.audio ? mbadge("audio", "🎙 audio") : "",
+      mods.video ? mbadge("video", "🎬 video") : "",
+    ].join("") : (hasVision ? mbadge("mmproj", "📷 mmproj") : ""),
+    hasMtp ? mbadge("mtp", "⚡ mtp") : "",
+    ctxChip || slotCtxChip,
+    benchChip,
+  ].filter(Boolean).join("");
+  const modelBlock = s.model ? `
+    <div class="node-model-block" role="button" tabindex="0"
+         data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
+      <div class="node-model-row1">
+        ${topologyModelIcon()}
+        <strong class="node-model-name" title="${escapeHtml(s.modelPath || s.model)}">${escapeHtml(parsed.label || s.model)}</strong>
+      </div>
+      ${statusRow || (chips ? `<div class="node-model-row2"><span class="model-chips">${chips}</span></div>` : "")}
+    </div>` : "";
+  const emptyCellBlock = isReserved ? `
+    <div class="node-model-block node-model-block-empty">
+      <div class="node-model-row1">
+        ${topologyModelIcon()}
+        <strong class="node-model-name">:${escapeHtml(String(port))}</strong>
+        <span class="node-reserved-tag">${escapeHtml(t("topologyReservedCellLabel"))}</span>
+      </div>
+      ${statusRow}
+    </div>` : "";
+  const isCmdCell = String(_scfg.CELL_KIND || "").toLowerCase() === "command";
+  const cmdText = String(_scfg.COMMAND || "").replace(/^\s*exec\s+/, "").trim();
+  const commandBlock = isCmdCell ? `
+    <div class="node-model-block" role="button" tabindex="0"
+         data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
+      <div class="node-model-row1">
+        <span class="node-cmd-icon" aria-hidden="true">⌘</span>
+        <strong class="node-model-name" title="${escapeHtml(cmdText)}">${escapeHtml(cmdText || "command cell")}</strong>
+      </div>
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${mbadge("cmd", "⌘ command")}${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}</span></div>`}
+    </div>` : "";
+  const bodyBlock = modelBlock || commandBlock || emptyCellBlock;
+  // No model/command block to host the status (e.g. a bare stopped server) —
+  // fall back to the old below-the-body progress panel.
+  const progressPanel = (!bodyBlock && statusRow)
+    ? `<div class="topology-runtime-panel node-progress-panel">${statusRow}</div>`
+    : "";
+  const isConfiguredCell = phase === "stopped" && !isReserved && !isError;
+  const cardCls = [
+    isStopping ? "stopping" : (isDeleting ? "deleting" : (running ? "running" : (isError ? "error" : (isStopped ? (isConfiguredCell ? "configured-cell" : "stopped") : "loading")))),
+    isReserved ? "reserved-cell" : "",
+    isNewReserved ? "reserved-new" : "",
+  ].filter(Boolean).join(" ");
+  const pillPhase = isStopping ? "stopping" : (running ? "running" : (isError ? "failed" : (phase === "stopped" ? "stopped" : (isWarming ? "warming" : "loading"))));
+  // Lifecycle breadcrumb — reserved(0) → configured(1) → starting(2) → running(3)
+  const lcIdx = (running || isStopping) ? 3 : (isReserved ? 0 : (isStopped || isError ? 1 : 2));
+  const lcActiveStep = isStopping ? "stopping" : (isError ? "error" : (running ? "running" : (isReserved ? "reserved" : (phase === "stopped" ? "configured" : "loading"))));
+  let lifecycleBar = serverLifecycleBar(lcIdx, lcActiveStep, "", "", port);
+  // Controls differ by role/phase. Controller (controller) is read-only here.
+  let controls = "";
+  // Client cells (isRemote) render with the same unified card as controller
+  // slots so the two look identical. Their config lives on the route-agent,
+  // so the ▶ button opens the remote form instead of launching a
+  // controller-side slot directly (which they don't have).
+  if (s.isSlot || !s.isController) {
+    const cellHostId = slotHostId;
+    const isCellStopping = _stoppingCells.has(cellKey) || pendingCellAction === "stop";
+    const isCellBusy = isCellStopping || !!pendingCellAction;
+    const cfgAttrs = `data-node-cell-start="${escapeHtml(s.isController ? "skynet" : node.id)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-role="${escapeHtml(node.role)}"`;
+
+    // ✕ delete — active only when reserved / stopped / error
+    const canDelete = (isReserved || phase === "stopped" || isError) && !isDeleting && !isCellBusy;
+    const delBtn = isDeleting
+      ? `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("removingSlotLabel"))}"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("deleteAction"))}</span></button>`
+      : `<button class="node-action-btn ${canDelete ? "del" : "muted"}" type="button"
+           ${canDelete ? `data-node-slot-del="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}"` : "disabled"}
+           title="${canDelete ? "Remove cell" : "Cannot remove while active"}">✕<span class="nab-lbl">${escapeHtml(t("deleteAction"))}</span></button>`;
+
+    // ⚙ Configure — disabled only during starting / stopping / deleting
+    const canConfigure = !isDeleting && !isCellBusy && phase !== "starting";
+    lifecycleBar = serverLifecycleBar(lcIdx, lcActiveStep, "", canConfigure ? cfgAttrs : "", port);
+
+    // ▶ start — active when stopped or error (model already configured).
+    // Launches the saved slot directly; server-cell/action handles both
+    // controller and client hosts (for a client it forwards to the route-agent
+    // via client_llama_start). Reserved cells (no model yet) are configured via
+    // the lifecycle-bar ⚙ (cfgAttrs → remote form for clients), not this button.
+    const canPlay = (phase === "stopped" || isError) && !isCellBusy && !isDeleting;
+    const playBtn = `<button class="node-action-btn ${canPlay ? "ok" : "muted"}" type="button"
+        ${canPlay ? `data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"` : "disabled"}
+        title="${canPlay ? "Start server" : (isReserved ? "Configure first" : "Server not stopped")}">▶<span class="nab-lbl">${escapeHtml(t("start"))}</span></button>`;
+
+    // ⏹ stop — active when starting or running; spinner while stopping
+    const canStop = !isStopped && !isDeleting && !isCellBusy;
+    const stopBtn = isCellStopping
+      ? `<button class="node-action-btn muted" type="button" disabled title="Stopping…"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`
+      : `<button class="node-action-btn ${canStop ? "warn" : "muted"}" type="button"
+           ${canStop ? `data-node-cell-stop="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"` : "disabled"}
+           title="${canStop ? "Stop server" : "Server not running"}">⏹<span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`;
+
+    // ↑ autostart — controller only for now; shown on both but disabled on client
+    const bootSupported = s.isController;
+    const canBoot = bootSupported && (phase === "stopped" || running) && !isDeleting && !isCellBusy;
+    const bootBtn = `<button class="node-action-btn${bootSupported && s.bootEnabled ? " ok" : " muted"}" type="button"
+        ${canBoot ? `data-node-cell-boot="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-boot-action="${s.bootEnabled ? "disable" : "enable"}"` : "disabled"}
+        title="${bootSupported ? (s.bootEnabled ? "Disable autostart on boot" : "Enable autostart on boot") : "Autostart not supported for remote hosts"}">${bootSupported && s.bootEnabled ? "↟" : "↥"}<span class="nab-lbl">${escapeHtml(t("topologyAutostart"))}</span></button>`;
+
+    return `
+      <article class="node-server ${cardCls}"
+               data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}">
+        <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
+              data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="Proxy upstream target"></span>
+        <div class="node-ctrl-row">
+          ${playBtn}${stopBtn}${bootBtn}${delBtn}
+        </div>
+        ${lifecycleBar}
+        ${bodyBlock
+          ? (isReserved
+              ? `<div class="node-server-body">${bodyBlock}</div>${progressPanel}`
+              : `<div class="node-server-body">${bodyBlock}${topologyRuntimePanelHtml(topologyServerGroup(s))}</div>${progressPanel}`)
+          : progressPanel}
+        ${isError && s.lastError ? (() => {
+          const err = classifyLlamaError(s.lastError);
+          return `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(s.lastError)}">
+            <span class="llama-err-icon">⚠</span>
+            <span class="llama-err-body">
+              <span class="llama-err-friendly">${escapeHtml(err.friendly)}</span>
+              ${err.hint ? `<span class="llama-err-hint">${escapeHtml(err.hint)}</span>` : ""}
+              <span class="llama-err-raw">${escapeHtml(s.lastError)}</span>
+            </span>
+          </div>`;
+        })() : ""}
+        ${running && s.reachable === false ? (() => {
+          const fw = s.firewall || {};
+          const isBlocked = fw.state === "blocked";
+          const ufwCmd = isBlocked ? `sudo ufw allow ${port}` : "";
+          return `<div class="topology-remote-unreachable">
+            <span>${escapeHtml(t("topologyRemoteUnreachable"))}</span>
+            ${ufwCmd ? `<code class="firewall-cmd" title="Run on ${escapeHtml(node.name || node.id)}">${escapeHtml(ufwCmd)}</code>` : ""}
+          </div>`;
+        })() : ""}
+      </article>`;
+  } else if (s.isController) {
+    // Controller's legacy single "current" llama server (not a reserved slot).
+    const editBtn = `<button class="node-icon-btn" type="button" data-node-ctrl-edit title="Edit server config">✎</button>`;
+    if (!isStopped) {
+      controls = editBtn + `<button class="node-icon-btn warn" type="button" data-node-ctrl-stop title="Stop llama server">⏹</button>`;
+    } else {
+      controls = editBtn + `<button class="node-icon-btn ok" type="button" data-node-ctrl-start title="Start llama server">▶</button>`;
+    }
+  }
+  if (controls) controls = `<span class="node-server-ctl">${controls}</span>`;
+  return `
+    <article class="node-server ${cardCls}"
+             data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}">
+      <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
+            data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="Proxy upstream target"></span>
+      ${lifecycleBar}
+      <div class="node-server-head">
+        <a href="http://${escapeHtml(addr)}" target="_blank" rel="noopener" class="topology-addr-link" onclick="event.stopPropagation()">${escapeHtml(addr)}</a>
+        ${firewallBadge(s.firewall)}
+        ${gpuBadges}
+        <span style="flex:1"></span>
+        ${controls}
+      </div>
+      ${bodyBlock
+        ? (isReserved
+            ? `<div class="node-server-body">${bodyBlock}</div>${progressPanel}`
+            : `<div class="node-server-body">${bodyBlock}${topologyRuntimePanelHtml(topologyServerGroup(s))}</div>${progressPanel}`)
+        : progressPanel}
+      ${isError && s.lastError ? (() => {
+        const err = classifyLlamaError(s.lastError);
+        return `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(s.lastError)}">
+          <span class="llama-err-icon">⚠</span>
+          <span class="llama-err-body">
+            <span class="llama-err-friendly">${escapeHtml(err.friendly)}</span>
+            ${err.hint ? `<span class="llama-err-hint">${escapeHtml(err.hint)}</span>` : ""}
+            <span class="llama-err-raw">${escapeHtml(s.lastError)}</span>
+          </span>
+        </div>`;
+      })() : ""}
+      ${running && s.reachable === false ? (() => {
+        const fw = s.firewall || {};
+        const isBlocked = fw.state === "blocked";
+        const ufwCmd = isBlocked ? `sudo ufw allow ${port}` : "";
+        return `<div class="topology-remote-unreachable">
+          <span>${escapeHtml(t("topologyRemoteUnreachable"))}</span>
+          ${ufwCmd ? `<code class="firewall-cmd" title="Run on ${escapeHtml(node.name || node.id)}">${escapeHtml(ufwCmd)}</code>` : ""}
+        </div>`;
+      })() : ""}
+    </article>`;
+}
+
+// Drill-in detail modal for a node server (full info that the compact card omits).
+export function openNodeServerDetail(nodeId, port) {
+  const node = (topology?.nodes || []).find((n) => String(n.id) === String(nodeId));
+  const s = node && (node.servers || []).find((x) => String(x.port) === String(port));
+  if (!s) return;
+  document.getElementById("nodeServerDetailOverlay")?.remove();
+  const phase = s.phase || (s.status && s.status.phase) || (s.isController ? "running" : "stopped");
+  const running = phase === "running";
+  const parsed = parseModelName(s.model) || {};
+  const fw = s.firewall || {};
+  const activity = running ? (topologyLlamaActivity(s.port) || {}) : {};
+  const _mtpRe = /-mtp(?:[^a-z0-9]|$)/i;
+  const hasMtpBuiltin = _mtpRe.test(s.model || "") || _mtpRe.test(s.modelPath || "");
+  const hasMtp = !!s.specDraft || hasMtpBuiltin || (s.specType || "").toLowerCase() === "draft-mtp";
+  const _scfg = s.slotConfig || {};
+  const isCmd = String(_scfg.CELL_KIND || "").toLowerCase() === "command";
+  const nsdCtxChip = s.ctxMax
+    ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(s.ctxMax))}`, t("topologyCtxUsageTip") || "Context window")
+    : (_scfg.CTX_SIZE ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.CTX_SIZE)))}`) : "");
+  const addr = `${s.clientIp || node.ip || ""}:${s.port}`;
+  const gpuLines = (s.gpuIndexes || []).map((i) => {
+    const mib = (s.gpuMem || {})[String(i)];
+    return `GPU${i}${mib ? ` · ${(mib / 1024).toFixed(1)} GB` : ""}`;
+  }).join(", ");
+
+  // GPU badges for the status row
+  const nodeGpusList = node.gpus || [];
+  const statusGpuBadges = (s.gpuIndexes || []).map((i) => {
+    const mib = (s.gpuMem || {})[String(i)];
+    const usedGb = mib ? (mib / 1024).toFixed(1) : null;
+    const gpuMeta = nodeGpusList.find((g) => g.index === i);
+    const totalMib = gpuMeta ? Number(gpuMeta.memoryTotalMiB || 0) : 0;
+    const totalGb = totalMib > 0 ? Math.round(totalMib / 1024) : null;
+    const memLabel = usedGb ? (totalGb ? `${usedGb}/${totalGb}G` : `${usedGb}G`) : "";
+    return `<span class="node-gpu-badge">GPU${escapeHtml(String(i))}${memLabel ? " " + escapeHtml(memLabel) : ""}</span>`;
+  }).join(" ");
+
+  const row = (k, v) => v ? `<div class="nsd-row"><span class="nsd-k">${escapeHtml(k)}</span><span class="nsd-v">${v}</span></div>` : "";
+
+  // Build formatted command block from slotConfig
+  const cmdBlockHtml = (() => {
+    const cfg = s.slotConfig || {};
+    if (isCmd) {
+      const port = cfg.PORT || s.port || "";
+      const lines = [`export PORT=${port}`];
+      String(cfg.ENV || "").split(/[\n,]/).forEach((raw) => {
+        const it = raw.trim(); if (!it || it.startsWith("#") || !it.includes("=")) return;
+        const i = it.indexOf("="); const k = it.slice(0, i).trim();
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) return;
+        lines.push(`export ${k}="${it.slice(i + 1).trim()}"`);
+      });
+      if (cfg.WORKDIR) lines.push(`cd ${cfg.WORKDIR}`);
+      const c = String(cfg.COMMAND || "").trim().replace(/^\s*exec\s+/, "");
+      lines.push(`exec ${c || "…"}`);
+      const cmdText = lines.join("\n");
+      const pre = lines.map((l) => `<span class="cmd-token">${escapeHtml(l)}</span>`).join("\n");
+      return `<div class="nsd-cfg-section"><div class="nsd-cfg-head">COMMAND <button class="nsd-copy-btn" type="button" data-copy="${escapeHtml(cmdText)}" title="Copy">⎘</button></div><pre class="command-preview nsd-cmd-pre">${pre}</pre></div>`;
+    }
+    if (!Object.keys(cfg).length) return "";
+    const tokens = [];
+    const add = (flag, val) => { if (val != null && String(val).trim() !== "") tokens.push(flag, String(val).trim()); };
+    const llamaBin = state?.paths?.llamaHome ? `${state.paths.llamaHome}/build/bin/llama-server` : null;
+    if (llamaBin) tokens.push(llamaBin);
+    add("--host", cfg.HOST);
+    add("--port", cfg.PORT);
+    const modelPath = s.modelPath || [cfg.LLAMA_MODELS_DIR, cfg.MODEL_FILE].filter(Boolean).join("/");
+    if (modelPath) add("--model", modelPath);
+    add("--ctx-size", cfg.CTX_SIZE);
+    add("--threads", cfg.THREADS);
+    add("--threads-batch", cfg.THREADS_BATCH);
+    add("--batch-size", cfg.BATCH_SIZE);
+    add("--ubatch-size", cfg.UBATCH_SIZE);
+    add("--parallel", cfg.PARALLEL);
+    add("--n-gpu-layers", cfg.N_GPU_LAYERS);
+    add("--cache-type-k", cfg.CACHE_TYPE_K);
+    add("--cache-type-v", cfg.CACHE_TYPE_V);
+    const mmproj = s.mmproj || [cfg.LLAMA_MODELS_DIR, cfg.MMPROJ_FILE].filter(Boolean).join("/");
+    if (mmproj) {
+      add("--mmproj", mmproj);
+      if (String(cfg.OFFLOAD_MMPROJ || "").toLowerCase() === "true") tokens.push("--mmproj-offload");
+    }
+    const specTypeRaw = (cfg.SPEC_TYPE || "").trim().toLowerCase();
+    const specType = specTypeRaw === "mtp" ? "draft-mtp" : specTypeRaw;
+    if (specType && specType !== "none") {
+      add("--spec-type", specType);
+      if (cfg.SPEC_DRAFT_MODEL_FILE) {
+        add("--model-draft", [cfg.LLAMA_MODELS_DIR, cfg.SPEC_DRAFT_MODEL_FILE].filter(Boolean).join("/"));
+        add("--gpu-layers-draft", cfg.SPEC_DRAFT_N_GPU_LAYERS);
+      }
+      add("--spec-draft-n-max", cfg.SPEC_DRAFT_N_MAX);
+    }
+    if (!tokens.length) return "";
+    const parts = [];
+    let ti = 0;
+    while (ti < tokens.length) {
+      const tok = tokens[ti];
+      if (tok.startsWith("--") && ti + 1 < tokens.length && !tokens[ti + 1].startsWith("-")) {
+        parts.push(`<span class="cmd-token">${escapeHtml(tok)} <span class="cmd-value">${escapeHtml(tokens[ti + 1])}</span></span>`);
+        ti += 2;
+      } else {
+        parts.push(`<span class="cmd-token">${escapeHtml(tok)}</span>`);
+        ti += 1;
+      }
+    }
+    const cmdText = tokens.join(" ");
+    return `<div class="nsd-cfg-section">
+      <div class="nsd-cfg-head">COMMAND <button class="nsd-copy-btn" type="button" data-copy="${escapeHtml(cmdText)}" title="Copy command">⎘</button></div>
+      <pre class="command-preview nsd-cmd-pre">${parts.join("\n")}</pre>
+    </div>`;
+  })();
+
+  const html = `
+    <div class="modal-overlay" id="nodeServerDetailOverlay">
+      <div class="modal node-detail-modal" role="dialog" aria-modal="true">
+        <div class="modal-head-row">
+          <strong>${escapeHtml(node.name || node.id)}</strong>
+          <button class="icon-action compact" id="nodeServerDetailClose" aria-label="Close">✕</button>
+        </div>
+        <div class="nsd-body">
+          ${row("Status", `${topologyStatusPill(running ? "running" : (phase === "error" ? "failed" : phase))} ${firewallBadge(fw)} ${statusGpuBadges}`)}
+          ${row("Address", `<a href="http://${escapeHtml(addr)}" target="_blank" rel="noopener" class="topology-addr-link nsd-addr-link" onclick="event.stopPropagation()">${escapeHtml(addr)} ↗</a>`)}
+          ${isCmd
+            ? row("Command", `<code class="nsd-cmd-inline">${escapeHtml(String(_scfg.COMMAND || "").replace(/^\s*exec\s+/, "") || "—")}</code>`)
+            : row("Model", escapeHtml(parsed.label || s.model || ""))}
+          ${isCmd
+            ? (row("Health", _scfg.HEALTH_PATH ? `<code>${escapeHtml(_scfg.HEALTH_PATH)}</code>` : "") + row("Workdir", _scfg.WORKDIR ? `<code>${escapeHtml(_scfg.WORKDIR)}</code>` : ""))
+            : (() => { const chips = [parsed.quant ? mbadge("quant", `🎛 ${escapeHtml(parsed.quant)}`) : "", parsed.size ? mbadge("size", `⚖ ${escapeHtml(parsed.size)}`) : "", parsed.variant ? mbadge("it", `🤖 ${escapeHtml(parsed.variant)}`) : "", s.mmproj ? mbadge("mmproj", "📷 mmproj") : "", hasMtp ? mbadge("mtp", "⚡ mtp") : "", nsdCtxChip].filter(Boolean).join(""); return chips ? `<div class="nsd-row"><span class="nsd-k"></span><span class="nsd-v"><span class="model-chips">${chips}</span></span></div>` : ""; })()}
+          ${row("GPU", escapeHtml(gpuLines))}
+          ${row(t("topologyTokenSpeedHead"), (s.promptTps != null || s.genTps != null) ? `${formatTps(s.promptTps || 0)} / ${formatTps(s.genTps || 0)} t/s (${t("topologyPromptGen")})` : "")}
+          ${row("Context", s.ctxMax ? `${s.ctxUsed != null ? escapeHtml(formatCtxTokens(s.ctxUsed)) : "—"} / ${escapeHtml(formatCtxTokens(s.ctxMax))} ${escapeHtml(t("topologyLlamaContextWindow").toLowerCase())}` : "")}
+          ${row("Activity", [activity.label, activity.summary].filter(Boolean).map(escapeHtml).join(" · "))}
+          ${(s.isController || s.isSlot) ? row("Service", escapeHtml([s.service, s.pid ? `PID ${s.pid}` : ""].filter(Boolean).join(" · "))) : ""}
+          ${s.reachable === false ? row("Reachable", "<span style='color:var(--warn,#f59e0b)'>no — port blocked?</span>") : ""}
+          ${phase === "error" && s.lastError ? row("Error", `<code>${escapeHtml(s.lastError)}</code>`) : ""}
+          ${cmdBlockHtml}
+        </div>
+      </div>
+    </div>`;
+  const tmp = document.createElement("div");
+  tmp.innerHTML = html;
+  const overlay = tmp.firstElementChild;
+  document.body.appendChild(overlay);
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  overlay.querySelector("#nodeServerDetailClose")?.addEventListener("click", close);
+  overlay.querySelectorAll("[data-copy]").forEach((b) => {
+    b.addEventListener("click", () => {
+      navigator.clipboard?.writeText(b.dataset.copy).then(() => {
+        const orig = b.textContent;
+        b.textContent = "✓";
+        setTimeout(() => { b.textContent = orig; }, 1200);
+      });
+    });
+  });
+}
+
+// Parse "version: 362 (3ac3c20)" → { build: 362, commit: "3ac3c20" }
+export function parseLlamaBuildVersion(vstr) {
+  if (!vstr) return null;
+  const m = String(vstr).match(/version:\s*(\d+)\s*\(([0-9a-f]+)\)/i);
+  if (!m) return null;
+  return { build: parseInt(m[1], 10), commit: m[2] };
+}
+
+// Returns the node-grouped HTML for the Llama Servers lane.
+export function nodesLaneHtml() {
+  if (!topology) return "";
+  // Only show the controller and client nodes that actually have a GPU (or a
+  // declared server). GPU-less clients live in the Clients column instead.
+  const nodes = (topology.nodes || []).filter((n) =>
+    n.role === "controller" || (n.gpus || []).length > 0 || (n.servers || []).length > 0);
+  // Determine controller build number for "outdated" comparison
+  const ctrlVersionStr = state.llamaCpp?.version || "";
+  const ctrlBuild = parseLlamaBuildVersion(ctrlVersionStr);
+  const ctrlMtime = state.llamaCpp?.binaryMtime || "";
+  const ctrlUpstreamBuild = state.llamaCpp?.git?.upstreamBuild || 0;
+  const ctrlUpstreamChecked = state.llamaCpp?.git?.upstreamChecked || false;
+
+  const sections = nodes.map((n) => {
+    const cpu = n.cpu || {}, ram = cpu.ram || {};
+    const cpuTxt = cpu.loadPct != null ? `CPU ${cpu.loadPct}%` : "";
+    const ramTxt = ram.usedGb != null ? `RAM ${ram.usedGb}/${ram.totalGb} GB` : (ram.totalGb != null ? `RAM ${ram.totalGb} GB` : "");
+    // llama.cpp version chip
+    const nodeVerStr = n.role === "controller" ? ctrlVersionStr : (n.llamaBinaryVersion || "");
+    const nodeMtime = n.role === "controller" ? ctrlMtime : (n.llamaBinaryMtime || "");
+    const nodeBuild = parseLlamaBuildVersion(nodeVerStr);
+    const verLabel = nodeBuild ? `b${nodeBuild.build}` : "";
+    // Дата сборки: берём только дату (первые 10 символов ISO, без времени)
+    const verDate = nodeMtime ? nodeMtime.slice(0, 10) : "";
+    // Outdated = different commit hash (most reliable) OR lower build number when
+    // commits are unavailable. Same commit hash → in sync regardless of build number
+    // (happens when one clone is shallow and the other is full).
+    const verOutdated = nodeBuild && ctrlBuild && n.role !== "controller" && (
+      (nodeBuild.commit && ctrlBuild.commit)
+        ? nodeBuild.commit !== ctrlBuild.commit   // commit hash mismatch = truly different code
+        : nodeBuild.build < ctrlBuild.build       // fallback: numeric comparison
+    );
+    const verChipTitle = [nodeVerStr, nodeMtime].filter(Boolean).join(" · ");
+    // For the controller: show upstream build arrow if upstream is known and newer
+    const isCtrlNode = n.role === "controller";
+    const upstreamArrow = isCtrlNode && ctrlUpstreamChecked && ctrlUpstreamBuild > 0 && nodeBuild && ctrlUpstreamBuild > nodeBuild.build
+      ? `<span class="llama-ver-upstream"> → b${ctrlUpstreamBuild} ⬆</span>`
+      : "";
+    const refreshBtn = isCtrlNode
+      ? `<button class="llama-ver-refresh" type="button" data-check-llama-ver title="Check upstream version" aria-label="Refresh llama.cpp version">↻</button>`
+      : "";
+    const verChip = verLabel
+      ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${upstreamArrow}${verOutdated ? " ⬆" : ""}</span>${refreshBtn}`
+      : refreshBtn || "";
+    const servers = (n.servers || []);
+    const collapsed = _collapsedNodes.has(n.id);
+    const nextCellPort = nextTopologyCellPort();
+    const reservePending = _reservingCells.get(String(n.id));
+    const reservePort = reservePending?.port || nextCellPort;
+    const reserveBusy = !!reservePending;
+    const addBtn = `<article class="node-server ghost-server${reserveBusy ? " reserving" : ""}">
+      ${serverLifecycleBar(-1, "none")}
+      <div class="ghost-server-body">
+        <button class="ghost-start-btn" type="button"
+          data-node-reserve="${escapeHtml(n.id)}"
+          data-node-reserve-port="${escapeHtml(String(reservePort))}"
+          data-node-role="${escapeHtml(n.role)}"
+          ${reserveBusy ? "disabled" : ""}>${reserveBusy ? `<span class="topology-spinner" aria-hidden="true"></span> ${escapeHtml(t("topologyReservingCellLabel"))} :${escapeHtml(String(reservePort))}` : `＋ ${escapeHtml(t("topologyReserveCellLabel"))} :${escapeHtml(String(reservePort))}`}</button>
+      </div>
+    </article>`;
+    // When collapsed, keep a left-edge rail of cable anchors (one per server)
+    // so proxy cables stay attached.
+    let bodyHtml;
+    if (collapsed) {
+      const rail = servers.map((s) => {
+        const phase = s.phase || (s.status && s.status.phase) || "running";
+        const cls = phase === "running" ? "running" : (phase === "stopped" || phase === "reserved" ? "" : "loading");
+        return `<span class="node-rail-input" title="${escapeHtml(`${s.clientIp || n.ip || ""}:${s.port}`)}">
+            <span class="topology-handle server-input ${cls}" data-topology-llama-input="1" data-llama-port="${escapeHtml(String(s.port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, n))}"></span>
+            <code>${escapeHtml(String(s.port))}</code></span>`;
+      }).join("");
+      bodyHtml = `<div class="node-rail">${rail || `<span class="topology-muted" style="font-size:11px">${escapeHtml(t("topologyNoServers"))}</span>`}</div>`;
+    } else {
+      const startingCard = nodeStartingCardHtml(n);
+      const serversHtml = servers.length
+        ? servers.map((s) => nodeServerCardHtml(n, s)).join("")
+        : "";
+      const gpusHtml = (n.gpus || []).length
+        ? n.gpus.map((g) => nodeGpuRowHtml(n, g)).join("")
+        : `<div class="topology-muted" style="font-size:12px">${escapeHtml(t("topologyNoGpu"))}</div>`;
+      // Controller node hosts the deep controller telemetry (mounted, not rebuilt):
+      // Server charts toggle under the "Servers" header; GPU charts live in the
+      // GPUs column; Incidents open in a modal from the header button.
+      const isCtrl = n.role === "controller";
+      const statsOpen = localStorage.getItem("topologyCtrlServerStatsOpen") === "1";
+      const serversSubtitle = isCtrl
+        ? `<button class="node-subtitle node-subtitle-toggle" type="button" data-ctrl-stats-toggle aria-expanded="${statsOpen ? "true" : "false"}">${escapeHtml(t("topologyServersHead"))} <span class="node-subtitle-caret">${statsOpen ? "▾" : "▸"}</span><span class="node-subtitle-hint">${escapeHtml(t("topologyNodeServerCharts"))}</span></button>`
+        : `<div class="node-subtitle">${escapeHtml(t("topologyServersHead"))}</div>`;
+      const serverStatsSlot = isCtrl ? `<div class="node-ctrl-server-stats" data-ctrl-server-stats${statsOpen ? "" : " hidden"}></div>` : "";
+      // Controller mounts the rich controller canvas widget; client nodes get the
+      // same-looking telemetry rows built from per-node history.
+      const gpuTelemetrySlot = isCtrl ? `<div class="node-ctrl-gpu-telemetry" data-ctrl-gpu-telemetry></div>` : nodeTelemetryRowsHtml(n);
+      bodyHtml = `<div class="node-body">
+          <div class="node-servers">${serversSubtitle}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
+          <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${gpuTelemetrySlot}</div>
+        </div>`;
+    }
+    return `
+      <section class="node-card ${n.online ? "online" : "offline"} ${collapsed ? "collapsed" : ""}" data-node-id="${escapeHtml(n.id)}">
+        <header class="node-head">
+          <button class="node-collapse" type="button" data-node-collapse="${escapeHtml(n.id)}" title="${collapsed ? "Expand" : "Collapse"}" aria-expanded="${collapsed ? "false" : "true"}">${collapsed ? "▸" : "▾"}</button>
+          <span class="node-dot ${n.online ? "on" : "off"}"></span>
+          <strong>${escapeHtml(n.name || n.id)}</strong>
+          <span class="node-role">${escapeHtml(n.role === "controller" ? t("nodeRoleController") : n.role === "client" ? t("nodeRoleClient") : n.role)}</span>
+          ${n.ip ? `<span class="topology-muted">${escapeHtml(n.ip)}</span>` : ""}
+          ${verChip}
+          ${collapsed ? `<span class="node-meta">${servers.length} srv · ${(n.gpus||[]).length} GPU</span>` : ""}
+          <span style="flex:1"></span>
+          ${(n.role === "controller")
+            ? `<button class="node-incidents-btn" type="button" data-ctrl-incidents title="${escapeHtml(t("topologyIncidentsOpen"))}">⚠ <span data-ctrl-incidents-count>0</span></button>` : ""}
+          <span class="node-meta" data-live-nodemeta>${escapeHtml([cpuTxt, ramTxt, n.platform].filter(Boolean).join(" · "))}</span>
+        </header>
+        ${bodyHtml}
+      </section>`;
+  }).join("");
+
+  return sections || `<div class="topology-muted">${escapeHtml(t("topologyNoNodes"))}</div>`;
+}
+
+// Move the live controller stats/charts elements back to their home .lane-stats
+// section (called before every lane rebuild so innerHTML doesn't destroy them).
+export const _LANE_STATS_CARDS = ["topology-server-stats-card", "topology-gpu-history-card", "topology-incidents-card"];
+export let _incidentsModalOpen = false;
+export function parkLaneStats() {
+  const home = document.querySelector(".lane-stats");
+  if (!home) return;
+  _LANE_STATS_CARDS.forEach((cls) => {
+    // Keep the incidents card in its modal while it's open — don't yank it home.
+    if (cls === "topology-incidents-card" && _incidentsModalOpen) return;
+    const el = document.querySelector("." + cls);
+    if (el && el.parentElement !== home) home.appendChild(el);
+  });
+}
+// After a node-mode render, relocate the live telemetry cards (canvases, so we
+// move the DOM rather than rebuild it) into their slots in the controller node:
+// Server charts under the Servers toggle, GPU charts in the GPUs column. The
+// incidents card stays parked until its modal is opened.
+export function mountNodeTelemetry() {
+  const root = $("topologyLlamaServers");
+  if (!root) return;
+  const statsSlot = root.querySelector("[data-ctrl-server-stats]");
+  const serverCard = document.querySelector(".topology-server-stats-card");
+  if (statsSlot && serverCard) {
+    if (serverCard.tagName === "DETAILS") serverCard.open = true;  // show charts, not just the summary
+    statsSlot.appendChild(serverCard);
+  }
+  const gpuSlot = root.querySelector("[data-ctrl-gpu-telemetry]");
+  const gpuCard = document.querySelector(".topology-gpu-history-card");
+  if (gpuSlot && gpuCard) gpuSlot.appendChild(gpuCard);
+}
+
+// Show/hide the mounted Server-telemetry charts under the controller's
+// "Servers" header (state persisted so it survives re-renders).
+export function toggleCtrlServerStats(btn) {
+  const slot = $("topologyLlamaServers")?.querySelector("[data-ctrl-server-stats]");
+  if (!slot) return;
+  const willOpen = slot.hasAttribute("hidden");
+  if (willOpen) slot.removeAttribute("hidden"); else slot.setAttribute("hidden", "");
+  btn.setAttribute("aria-expanded", willOpen ? "true" : "false");
+  const caret = btn.querySelector(".node-subtitle-caret");
+  if (caret) caret.textContent = willOpen ? "▾" : "▸";
+  localStorage.setItem("topologyCtrlServerStatsOpen", willOpen ? "1" : "0");
+  requestAnimationFrame(drawTopologyCables);  // node height changed → reattach cables
+}
+
+// Incidents open in a modal: relocate the live incidents card into the modal
+// body (it keeps updating — renderTopologyIncidents targets it by id), park it
+// back home on close.
+export function openIncidentsModal() {
+  const overlay = $("incidentsModalOverlay");
+  const body = $("incidentsModalBody");
+  const card = document.querySelector(".topology-incidents-card");
+  if (!overlay || !body || !card) return;
+  _incidentsModalOpen = true;
+  body.appendChild(card);
+  overlay.hidden = false;
+  renderTopologyIncidents();
+}
+export function closeIncidentsModal() {
+  _incidentsModalOpen = false;
+  const overlay = $("incidentsModalOverlay");
+  if (overlay) overlay.hidden = true;
+  const home = document.querySelector(".lane-stats");
+  const card = document.querySelector(".topology-incidents-card");
+  if (home && card) home.appendChild(card);
+}
+
+// ── Models directory bar ──────────────────────────────────────────────────────
+export let _modelsDirEditing = false;
+
+export function renderModelsBar() {
+  const el = $("topologyModelsBar");
+  if (!el) return;
+  const dir = effectiveModelsDir(state?.config || {});
+  if (_modelsDirEditing) {
+    el.innerHTML = `
+      <span class="models-bar-icon" aria-hidden="true">📁</span>
+      <input id="modelsDirEditInput" class="models-bar-input" value="${escapeHtml(dir)}" placeholder="/path/to/models" autocomplete="off" spellcheck="false">
+      <button class="models-bar-btn models-bar-save" type="button" title="Save path">Save</button>
+      <button class="models-bar-btn models-bar-cancel" type="button" title="Cancel">✕</button>`;
+    const input = el.querySelector("#modelsDirEditInput");
+    input?.focus();
+    input?.select();
+    el.querySelector(".models-bar-save")?.addEventListener("click", async () => {
+      const newVal = input?.value?.trim() || "";
+      _modelsDirEditing = false;
+      await saveModelsDir(newVal);
+    });
+    el.querySelector(".models-bar-cancel")?.addEventListener("click", () => {
+      _modelsDirEditing = false;
+      renderModelsBar();
+    });
+    input?.addEventListener("keydown", async (e) => {
+      if (e.key === "Enter") { e.preventDefault(); el.querySelector(".models-bar-save")?.click(); }
+      if (e.key === "Escape") { e.preventDefault(); el.querySelector(".models-bar-cancel")?.click(); }
+    });
+  } else {
+    const dirDisplay = dir || "(not set)";
+    el.innerHTML = `
+      <span class="models-bar-icon" aria-hidden="true">📁</span>
+      <span class="models-bar-label">${escapeHtml(t("topologyModelsLabel"))}</span>
+      <code class="models-bar-path${dir ? "" : " models-bar-empty"}" title="${escapeHtml(dir)}">${escapeHtml(dirDisplay)}</code>
+      <button class="models-bar-btn models-bar-edit" type="button" title="Edit models directory">✎</button>
+      <a class="models-bar-btn models-bar-hf" href="/hf" target="_blank" rel="noopener" title="HuggingFace Model Browser">HF ↗</a>`;
+    el.querySelector(".models-bar-edit")?.addEventListener("click", () => {
+      _modelsDirEditing = true;
+      renderModelsBar();
+    });
+  }
+}
+
+export async function saveModelsDir(newPath) {
+  try {
+    const config = Object.assign({}, state?.config || {}, { LLAMA_MODELS_DIR: newPath });
+    const data = await api("/api/config", {
+      method: "POST",
+      body: JSON.stringify({ config, restart: false }),
+    });
+    setState(data.state);
+    renderModelsBar();
+    // Refresh model dropdowns everywhere since dir changed
+    renderModelSelects("");
+  } catch (e) {
+    toast(String(e));
+    renderModelsBar();
+  }
+}
+

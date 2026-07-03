@@ -1,0 +1,125 @@
+// Language + theme: t(), applyLanguage/applyTheme, the language dropdown.
+import { option } from "./form.js";
+import { LANGS, messages } from "./i18n-data.js";
+import { renderAll } from "./topology-render.js";
+import { $, escapeHtml } from "./utils.js";
+
+// Language options for the dropdown. `emoji` is a country-flavoured glyph
+// (not a flag) — swap these freely; add a new entry to support more languages.
+// Strings without a translation in `messages` fall back to English (see t()).
+// Order: the 20 most-spoken languages worldwide.
+export let lang = localStorage.getItem("llamacppAdminLang") || "en";
+export let theme = localStorage.getItem("llamacppAdminTheme") || "dark";
+export function t(key, vars = {}) {
+  let text = messages[lang]?.[key] || messages.en[key] || key;
+  Object.entries(vars).forEach(([name, value]) => {
+    text = text.replace(`{${name}}`, value);
+  });
+  return text;
+}
+
+export function fieldHelp(field) {
+  return messages[lang]?.fieldHelp?.[field] || messages.en.fieldHelp[field] || "";
+}
+
+export function labelWithTip(field) {
+  const help = fieldHelp(field);
+  return `
+    <div class="label-row">
+      <label for="${field}">${field}</label>
+      <button class="tip-trigger" type="button" aria-label="${field}: ${help}">
+        ?
+        <span class="tooltip" role="tooltip">${help}</span>
+      </button>
+    </div>
+  `;
+}
+
+export function applyTheme() {
+  document.documentElement.dataset.theme = theme;
+  document.querySelectorAll("[data-theme-choice]").forEach((button) => {
+    button.classList.toggle("active", button.dataset.themeChoice === theme);
+  });
+}
+
+export function applyLanguage() {
+  document.documentElement.lang = lang;
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  });
+  document.querySelectorAll("[data-title-i18n]").forEach((el) => {
+    const text = t(el.dataset.titleI18n);
+    el.title = text;
+    el.setAttribute("aria-label", text);
+  });
+  renderLangSelect();
+}
+
+// Build/refresh the language dropdown to reflect the current `lang`.
+export function renderLangSelect() {
+  const current = LANGS.find((l) => l.code === lang) || LANGS[0];
+  const emoji = document.getElementById("langTriggerEmoji");
+  const code = document.getElementById("langTriggerCode");
+  if (emoji) emoji.textContent = current.emoji;
+  if (code) code.textContent = current.code.toUpperCase();
+  const menu = document.getElementById("langMenu");
+  if (!menu) return;
+  menu.innerHTML = LANGS.map((l) => {
+    const selected = l.code === lang;
+    return `<li class="lang-option${selected ? " selected" : ""}" role="option"`
+      + ` data-lang="${l.code}" aria-selected="${selected}">`
+      + `<span class="lang-emoji">${l.emoji}</span>`
+      + `<span class="lang-name">${l.label}</span></li>`;
+  }).join("");
+}
+
+// Wire up the language dropdown: open/close, pick an option, dismiss on
+// outside-click or Escape.
+export function setupLangSelect() {
+  const root = document.getElementById("langSelect");
+  const trigger = document.getElementById("langTrigger");
+  const menu = document.getElementById("langMenu");
+  if (!root || !trigger || !menu) return;
+  const close = () => {
+    menu.hidden = true;
+    trigger.setAttribute("aria-expanded", "false");
+  };
+  const open = () => {
+    menu.hidden = false;
+    trigger.setAttribute("aria-expanded", "true");
+  };
+  trigger.addEventListener("click", (e) => {
+    e.stopPropagation();
+    menu.hidden ? open() : close();
+  });
+  menu.addEventListener("click", (e) => {
+    const option = e.target.closest(".lang-option");
+    if (!option) return;
+    close();
+    if (option.dataset.lang === lang) return;
+    lang = option.dataset.lang;
+    localStorage.setItem("llamacppAdminLang", lang);
+    renderAll();
+  });
+  document.addEventListener("click", (e) => {
+    if (!menu.hidden && !root.contains(e.target)) close();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !menu.hidden) close();
+  });
+  renderLangSelect();
+}
+
+export function helpTip(key) {
+  const text = t(key);
+  return `
+    <span class="inline-tip help-tip" tabindex="0" aria-label="${escapeHtml(text)}">
+      ?
+      <span class="tooltip" role="tooltip">${escapeHtml(text)}</span>
+    </span>
+  `;
+}
+

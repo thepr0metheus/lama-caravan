@@ -1,0 +1,14 @@
+[Unit]
+Description=LAMA CARAVAN server cell %i
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/lama-caravan
+ExecStart=%h/lama-caravan/var/server-cells/%i/start.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

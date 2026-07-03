@@ -1,0 +1,743 @@
+#topologyLlamaServers.nodes-mode { overflow: visible; }
+/* Widen the servers lane across the stats column (col3+col4) in node mode */
+.topology-lanes.nodes-on .lane-servers { grid-column: 3 / 5; }
+.topology-lanes.nodes-on .lane-stats { display: none; }
+.node-card { position: relative; }
+/* Anchor uses the same flat server-input tab as Cloud Providers rows (left:-24) */
+.node-server.stopped > .topology-handle.server-input { background: var(--muted,#6e7681); }
+#topologyLlamaServers.nodes-mode .fleet-overview { margin-bottom: 10px; }
+
+/* Node collapse + collapsed input rail */
+.node-collapse { background:none; border:none; color:var(--muted,#888); cursor:pointer; font-size:13px; padding:0 4px; line-height:1; }
+.node-collapse:hover { color:var(--accent,#6ea8fe); }
+.node-card.collapsed .node-head { border-bottom:none; }
+.node-rail { display:flex; flex-direction:column; gap:8px; padding:8px 14px 12px; }
+.node-rail-input { position:relative; display:flex; align-items:center; gap:8px; min-height:22px; padding-left:6px; }
+.node-rail-input > .topology-handle.server-input { left:-22px; height:22px; }
+.node-rail-input > code { font-size:11px; color:var(--muted,#888); }
+
+/* Per-node CPU sparkline in the node header */
+.node-cpu-spark { display:inline-flex; align-items:center; opacity:.85; }
+.node-cpu-spark .node-spark { width:80px; height:22px; }
+
+/* Per-server live activity / token-speed line in node view */
+.node-server-activity { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:5px; font-size:11px; }
+.node-activity-chip { padding:1px 6px; border-radius:3px; font-size:10px; background:color-mix(in srgb,var(--accent,#6ea8fe) 16%, transparent); color:var(--accent,#6ea8fe); }
+.node-activity-chip.activity-error, .node-activity-chip.health-failed { background:color-mix(in srgb,#f85149 18%, transparent); color:#f85149; }
+
+/* Controller node: relocated Skynet system charts (park/remount) */
+.node-ctrl-telemetry { border-top:1px solid var(--line); }
+.node-ctrl-telemetry > summary { padding:9px 16px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted,#888); cursor:pointer; list-style:none; }
+.node-ctrl-telemetry > summary::-webkit-details-marker { display:none; }
+.node-ctrl-telemetry > summary::before { content:"▸ "; }
+.node-ctrl-telemetry[open] > summary::before { content:"▾ "; }
+.node-ctrl-telemetry > [data-ctrl-telemetry] {
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));
+  gap:12px; padding:6px 16px 16px; align-items:start;
+}
+.node-ctrl-telemetry > [data-ctrl-telemetry] > * { min-width:0; }
+
+/* ── Deep telemetry mounted inside the controller node ─────────────────────── */
+/* "Servers" header becomes a toggle for the mounted Server charts. */
+.node-subtitle-toggle {
+  display:flex; align-items:center; gap:6px; width:100%;
+  background:none; border:none; cursor:pointer; text-align:left;
+  font:inherit; font-size:11px; text-transform:uppercase; letter-spacing:.5px;
+  color:var(--muted,#888); padding:10px 14px 6px 16px;
+}
+.node-subtitle-toggle:hover { color:var(--text,#ddd); }
+.node-subtitle-toggle .node-subtitle-caret { font-size:9px; }
+.node-subtitle-toggle .node-subtitle-hint {
+  margin-left:auto; font-size:10px; opacity:.65; text-transform:none; letter-spacing:0;
+}
+/* Mounted Server-stats + GPU-telemetry slots inside the node columns. */
+.node-ctrl-server-stats { padding:4px 10px 10px; }
+.node-ctrl-gpu-telemetry { padding:4px 10px 12px; min-width:0; }
+.node-ctrl-server-stats > .topology-card,
+.node-ctrl-gpu-telemetry > .topology-card {
+  margin:0; min-width:0; background:transparent; border:none; padding:0;
+}
+/* Server-stats charts keep their own (already compact, uniform) heights. */
+.node-ctrl-server-stats canvas { width:100%; max-width:100%; }
+.node-ctrl-gpu-telemetry canvas { width:100%; max-width:100%; }
+/* Route Activity stays always-visible and compact (not collapsible). */
+.node-ctrl-gpu-telemetry .topology-route-history-chart { height:48px; margin-top:4px; }
+/* The other GPU metrics collapse to just their value row; hovering the row
+   reveals the mini-chart. Click still opens the full chart in a modal. */
+.node-ctrl-gpu-telemetry .gpu-metric { padding:1px 0; }
+.node-ctrl-gpu-telemetry .gpu-metric canvas {
+  height:0; margin-top:0; border-width:0; opacity:0; pointer-events:none;
+  transition: height .18s ease, opacity .14s ease, margin .18s ease;
+}
+.node-ctrl-gpu-telemetry .gpu-metric:hover canvas,
+.node-ctrl-gpu-telemetry .gpu-metric:focus-within canvas {
+  height:48px; margin-top:4px; border-width:1px; opacity:1; pointer-events:auto;
+}
+/* Compact rows: drop legends (values are already in the row) and tighten heads. */
+.node-ctrl-gpu-telemetry .topology-history-legend { display:none; }
+.node-ctrl-gpu-telemetry .topology-history-subhead,
+.node-ctrl-gpu-telemetry .topology-gpu-history-subhead { margin-top:6px; }
+.node-ctrl-gpu-telemetry .topology-card-head.compact { margin:0; padding-top:0; }
+/* Hint that the row is hoverable. */
+.node-ctrl-gpu-telemetry .gpu-metric .topology-history-subhead,
+.node-ctrl-gpu-telemetry .gpu-metric .topology-gpu-history-subhead { cursor:pointer; }
+
+/* GPU History label uses a <strong> at card-head size — bring it in line with
+   the other metric labels (10px bold uppercase) inside the node previews. */
+.node-ctrl-gpu-telemetry .topology-gpu-history-subhead {
+  border-top:none; padding-top:0;
+}
+.node-ctrl-gpu-telemetry .topology-gpu-history-subhead .topology-expand-trigger {
+  font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:0; color:var(--muted);
+}
+
+/* Mini sparkline shown ONLY on a collapsed (not-hovered) metric row. Hidden
+   everywhere else (classic view + while the full chart is expanded). */
+.gpu-metric-spark { display:none; }
+.node-ctrl-gpu-telemetry .gpu-metric:not(:hover):not(:focus-within) .gpu-metric-spark {
+  display:inline-flex; align-items:center; margin-left:8px; width:72px; flex:0 0 auto;
+}
+.node-ctrl-gpu-telemetry .gpu-metric-spark svg { width:72px; height:14px; opacity:.8; }
+/* Group the value + sparkline on the right of the row, label on the left. */
+.node-ctrl-gpu-telemetry .gpu-metric .topology-card-head.compact,
+.node-ctrl-gpu-telemetry .gpu-metric .topology-gpu-history-subhead { justify-content:flex-start; gap:6px; }
+.node-ctrl-gpu-telemetry .gpu-metric .topology-card-head.compact > :first-child,
+.node-ctrl-gpu-telemetry .gpu-metric .topology-gpu-history-subhead > :first-child { margin-right:auto; }
+
+/* Per-node telemetry reuses the .node-ctrl-gpu-telemetry styles above (identical
+   look to the controller); only the outer padding differs. */
+.node-telemetry { padding:4px 10px 12px; }
+/* GPU mini-summary is redundant with the node's own GPU rows — hide it, keep charts. */
+.node-ctrl-gpu-telemetry .topology-gpu-inline { display:none; }
+
+/* Incidents button in the controller node header. */
+.node-incidents-btn {
+  display:inline-flex; align-items:center; gap:4px;
+  background:color-mix(in srgb,var(--panel) 70%, var(--bg,#111) 30%);
+  border:1px solid var(--line); border-radius:6px; cursor:pointer;
+  color:var(--muted,#888); font-size:11px; padding:2px 7px; line-height:1.4;
+}
+.node-incidents-btn:hover { color:var(--text,#ddd); border-color:color-mix(in srgb,var(--accent,#6ea8fe) 50%, var(--line)); }
+.node-incidents-btn.has-incidents { color:#f0a44a; border-color:color-mix(in srgb,#f0a44a 50%, var(--line)); }
+
+/* Incidents modal */
+.incidents-modal { width:min(680px, 92vw); max-height:82vh; display:flex; flex-direction:column; }
+.incidents-modal-body { overflow:auto; padding-top:6px; }
+.incidents-modal-body > .topology-card { background:transparent; border:none; padding:0; margin:0; }
+.incidents-modal-body > .topology-card > .topology-card-head { display:none; } /* modal already titled */
+
+/* System info modal (llama.cpp build + Known Problems, moved out of Classic) */
+.system-info-modal { width:min(720px, 94vw); max-height:86vh; display:flex; flex-direction:column; }
+.system-info-body { overflow:auto; display:flex; flex-direction:column; gap:14px; padding-top:6px; }
+.system-info-body > .panel { margin:0; }
+
+/* Keep server controls (Start / ✕) together on one line */
+.node-server-ctl { display:inline-flex; align-items:center; gap:8px; flex-shrink:0; white-space:nowrap; }
+.node-server-head > .topology-addr-link { flex-shrink:0; }
+
+/* Crashed remote server row in node view */
+.node-server.error { background: color-mix(in srgb, #f85149 8%, transparent); border-left-color:#f85149; }
+
+/* Firewall access badge on server cards */
+.node-fw-badge { font-size:12px; cursor:help; line-height:1; }
+.node-fw-badge.fw-blocked { filter:saturate(1.3); }
+
+/* CPU/RAM/platform line on the client card */
+.client-meta-line { font-size:11px; color:var(--muted,#888); margin:2px 0 6px; }
+
+/* ── 2-column body (running state): model left, slots right ─────────────── */
+.node-server-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+.node-server-body > .node-model-block { margin-top: 0; }
+.node-server-body > .topology-runtime-panel {
+  margin: 0; padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+}
+/* Progress/loading panel — below the model+slots row */
+.node-progress-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 4px 2px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
+  margin-top: 4px;
+}
+.node-progress-panel .remote-dl-bar { margin: 2px 0; }
+
+/* Compact clickable model block in node server cards */
+.node-model-block {
+  display:flex; flex-direction:column; gap:5px;
+  margin-top:5px; padding:5px 7px; border-radius:6px; cursor:pointer;
+  background: color-mix(in srgb, var(--panel) 80%, var(--bg,#111) 20%);
+  border:1px solid transparent; transition:border-color .12s, background .12s;
+}
+.node-model-block:hover { border-color: color-mix(in srgb, var(--accent,#6ea8fe) 45%, transparent); background: color-mix(in srgb, var(--accent,#6ea8fe) 7%, transparent); }
+/* Row 1: icon + name */
+.node-model-row1 { display:flex; align-items:center; gap:7px; min-width:0; }
+.node-model-name { font-size:12px; font-weight:500; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; word-break:break-word; }
+.node-model-block .model-ico { flex-shrink:0; opacity:.65; width:13px; height:13px; }
+/* Row 2: chips, left-aligned (override model-chips default margin-left:auto) */
+.node-model-row2 { display:flex; align-items:center; padding-left:2px; }
+.node-model-row2 .model-chips { flex-wrap:wrap; margin-left:0; }
+
+/* Transient cell status shown IN PLACE of the chips row (stopping / download /
+   warming / starting) — same slot, so the card never grows in height. */
+.model-status-line { gap: 7px; min-height: 18px; }
+.model-status-line .msl-text {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msl-bar {
+  flex: 0 0 64px;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--line) 72%, transparent);
+  overflow: hidden;
+}
+.msl-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+.msl-bar.indeterminate > span { width: 40%; animation: msl-slide 1.1s ease-in-out infinite; }
+@keyframes msl-slide {
+  0% { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
+.msl-bar-stop > span { background: var(--danger, #e05555); }
+.model-status-line.msl-stop .msl-text { color: color-mix(in srgb, var(--danger, #e05555) 65%, var(--text)); }
+
+.node-server-foot { font-size:11px; margin-top:4px; }
+
+/* Right column overrides: badges smaller in server cards, slots full-width rows */
+.node-server-body .mbadge { font-size: 9px; padding: 1px 4px; }
+.node-server-body .topology-runtime-slots-head strong { font-size: 9px; letter-spacing: .06em; opacity: .55; }
+.node-server-body .slot-chips-row { flex-direction: column; gap: 4px; }
+.node-server-body .slot-chip { width: 100%; min-width: 0; justify-content: flex-start; }
+.node-server-body .slot-chip-name { max-width: none; flex: 1; overflow: hidden; text-overflow: ellipsis; }
+
+/* ── Server lifecycle breadcrumb: stopped → starting → running ───────────── */
+/* Wrapper row: lifecycle bar + ✕ delete button in same row */
+.node-lc-row {
+  display: flex; align-items: flex-start; gap: 0;
+}
+.node-lc-row .node-server-lc { flex: 1; min-width: 0; }
+
+/* 4-button action row — flex:1 each, matches lifecycle bar width */
+.node-ctrl-row {
+  display: flex; align-items: stretch; gap: 3px;
+  margin: 0 0 4px;
+}
+.node-action-btn {
+  flex: 1; min-width: 0;
+  display: flex; align-items: center; justify-content: center; gap: 3px;
+  padding: 4px 2px; border-radius: 4px; font-size: 11px; line-height: 1;
+  border: 1px solid color-mix(in srgb, var(--muted,#888) 18%, transparent);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--text,#e7eef1) 6%, transparent) 0%,
+    color-mix(in srgb, var(--text,#e7eef1) 3%, transparent) 100%);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.07);
+  cursor: pointer;
+  transition: border-color .12s, background .12s, color .12s, box-shadow .12s, transform .08s;
+}
+.node-action-btn.ok  {
+  color: var(--ok,#3fb950);
+  border-color: color-mix(in srgb, var(--ok,#3fb950) 30%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ok,#3fb950) 12%, transparent) 0%, color-mix(in srgb, var(--ok,#3fb950) 6%, transparent) 100%);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+.node-action-btn.warn{
+  color: var(--warn,#f59e0b);
+  border-color: color-mix(in srgb, var(--warn,#f59e0b) 30%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--warn,#f59e0b) 14%, transparent) 0%, color-mix(in srgb, var(--warn,#f59e0b) 7%, transparent) 100%);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+.node-action-btn.del {
+  color: color-mix(in srgb, var(--muted,#888) 45%, transparent);
+  border-color: color-mix(in srgb, var(--muted,#888) 15%, transparent);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+.node-action-btn.muted{
+  color: color-mix(in srgb, var(--muted,#888) 28%, transparent);
+  border-color: color-mix(in srgb, var(--muted,#888) 10%, transparent);
+  background: color-mix(in srgb, var(--text,#e7eef1) 2%, transparent);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.45);
+  cursor: default;
+}
+.node-action-btn.ok:not(:disabled):hover  { background: linear-gradient(180deg, color-mix(in srgb, var(--ok,#3fb950) 16%, transparent) 0%, color-mix(in srgb, var(--ok,#3fb950) 9%, transparent) 100%); border-color: var(--ok,#3fb950); }
+.node-action-btn.warn:not(:disabled):hover{ background: linear-gradient(180deg, color-mix(in srgb, var(--warn,#f59e0b) 18%, transparent) 0%, color-mix(in srgb, var(--warn,#f59e0b) 10%, transparent) 100%); border-color: var(--warn,#f59e0b); }
+.node-action-btn.del:not(:disabled):hover { color: var(--bad,#ff8585); border-color: color-mix(in srgb, var(--bad,#ff8585) 45%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--bad,#ff8585) 12%, transparent) 0%, color-mix(in srgb, var(--bad,#ff8585) 6%, transparent) 100%); }
+.node-action-btn.ok:not(:disabled):active,
+.node-action-btn.warn:not(:disabled):active,
+.node-action-btn.del:not(:disabled):active {
+  transform: translateY(1px);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,0.55);
+}
+.node-action-btn:disabled { cursor: default; }
+.nab-lbl { font-size: 7px; text-transform: uppercase; letter-spacing: .05em; }
+.node-cell-right-btns {
+  display: flex; align-items: center; gap: 4px;
+  flex: 1; justify-content: flex-end; flex-wrap: nowrap;
+}
+
+/* Generic disabled state for icon buttons */
+.node-icon-btn:disabled { opacity: 0.25; cursor: default; }
+.node-icon-btn:disabled:hover { color: inherit; background: none; }
+
+.node-server-lc {
+  display: flex; align-items: center; gap: 0;
+  margin: 0 0 5px; padding: 0 1px;
+}
+.lc-node {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 1;
+  padding: 7px 2px; border-radius: 4px;
+  border: 1px solid transparent;
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--text,#e7eef1) 7%, transparent) 0%,
+    color-mix(in srgb, var(--text,#e7eef1) 4%, transparent) 100%);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.07);
+  transition: border-color .2s, background .2s, box-shadow .2s;
+  min-width: 0;
+}
+.lc-dot  { width: 10px; height: 10px; border-radius: 50%; transition: background .2s, box-shadow .2s; }
+.lc-lbl  { font-size: 7px; text-transform: uppercase; letter-spacing: .05em; white-space: nowrap; transition: color .2s; }
+
+/* "configured" step as a clickable configure trigger */
+.lc-cfg-btn {
+  appearance: none; font: inherit; cursor: pointer;
+}
+/* override state bg/border to always signal "this is clickable" */
+.lc-node.lc-cfg-btn:not(:disabled) {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--warn,#f59e0b) 14%, transparent) 0%, color-mix(in srgb, var(--warn,#f59e0b) 7%, transparent) 100%);
+  border-color: color-mix(in srgb, var(--warn,#f59e0b) 40%, transparent);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+.lc-cfg-btn:not(:disabled):hover {
+  border-color: var(--warn,#f59e0b) !important;
+  background: color-mix(in srgb, var(--warn,#f59e0b) 12%, transparent);
+}
+.lc-cfg-btn:not(:disabled):hover .lc-dot {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn,#f59e0b) 22%, transparent);
+}
+.lc-cfg-btn:not(:disabled):hover .lc-lbl { color: var(--warn,#f59e0b) !important; }
+.lc-cfg-btn:disabled { cursor: default; opacity: 0.4; }
+.lc-uptime { font-size: 7px; opacity: .65; text-transform: none; letter-spacing: 0; }
+/* fixed tiny connector — boxes take all the space, rails are just decoration */
+.lc-rail { flex: 0 0 6px; height: 2px; border-radius: 1px; transition: background .2s; }
+
+/* Rail colours */
+.lc-rail.done   { background: color-mix(in srgb, var(--ok,#3fb950) 55%, var(--line)); }
+.lc-rail.future { background: color-mix(in srgb, var(--muted,#888) 20%, transparent); }
+
+/* Completed step */
+.lc-node.done {
+  border-color: color-mix(in srgb, var(--ok,#3fb950) 22%, transparent);
+  background: color-mix(in srgb, var(--ok,#3fb950) 8%, transparent);
+}
+.lc-node.done .lc-dot { background: color-mix(in srgb, var(--ok,#3fb950) 65%, var(--muted)); }
+.lc-node.done .lc-lbl { color: color-mix(in srgb, var(--muted,#888) 55%, transparent); }
+
+/* Future step */
+.lc-node.future {
+  border-color: color-mix(in srgb, var(--muted,#888) 15%, transparent);
+  background: color-mix(in srgb, var(--text,#e7eef1) 3%, transparent);
+}
+.lc-node.future .lc-dot { background: none; border: 1.5px solid color-mix(in srgb, var(--muted,#888) 30%, transparent); }
+.lc-node.future .lc-lbl { color: color-mix(in srgb, var(--muted,#888) 35%, transparent); }
+
+/* Active — stopped */
+.lc-node.lc-stopped { border-color: color-mix(in srgb, var(--muted,#888) 30%, transparent); background: color-mix(in srgb, var(--muted,#888) 8%, transparent); }
+.lc-node.lc-stopped .lc-dot { background: var(--muted,#888); }
+.lc-node.lc-stopped .lc-lbl { color: var(--muted,#888); }
+
+/* Active — configured (has model, not running) */
+.lc-node.lc-configured { border-color: color-mix(in srgb, var(--warn,#f59e0b) 40%, transparent); background: color-mix(in srgb, var(--warn,#f59e0b) 10%, transparent); }
+.lc-node.lc-configured .lc-dot {
+  background: color-mix(in srgb, var(--warn,#f59e0b) 65%, var(--muted,#888));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn,#f59e0b) 18%, transparent);
+  animation: lc-pulse-configured 2.8s ease-in-out infinite;
+}
+.lc-node.lc-configured .lc-lbl { color: color-mix(in srgb, var(--warn,#f59e0b) 75%, var(--muted,#888)); font-weight: 600; }
+
+/* Active — reserved cell */
+.lc-node.lc-reserved { border-color: color-mix(in srgb, var(--accent,#6ea8fe) 45%, transparent); background: color-mix(in srgb, var(--accent,#6ea8fe) 10%, transparent); }
+.lc-node.lc-reserved .lc-dot {
+  background: var(--accent,#6ea8fe);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent,#6ea8fe) 18%, transparent);
+}
+.lc-node.lc-reserved .lc-lbl { color: var(--accent,#6ea8fe); font-weight: 600; }
+
+/* Active — loading/starting */
+.lc-node.lc-loading { border-color: color-mix(in srgb, var(--warn,#f59e0b) 45%, transparent); background: color-mix(in srgb, var(--warn,#f59e0b) 10%, transparent); }
+.lc-node.lc-loading .lc-dot {
+  background: var(--warn,#f59e0b);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn,#f59e0b) 25%, transparent);
+  animation: lc-pulse-amber 1.4s ease-in-out infinite;
+}
+.lc-node.lc-loading .lc-lbl { color: var(--warn,#f59e0b); }
+
+/* Active — running */
+.lc-node.lc-running {
+  border-color: color-mix(in srgb, var(--ok,#3fb950) 55%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ok,#3fb950) 18%, transparent) 0%, color-mix(in srgb, var(--ok,#3fb950) 10%, transparent) 100%);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--ok,#3fb950) 30%, transparent), 0 2px 4px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+.lc-node.lc-running .lc-dot {
+  background: var(--ok,#3fb950);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok,#3fb950) 28%, transparent);
+}
+.lc-node.lc-running .lc-lbl { color: var(--ok,#3fb950); font-weight: 600; }
+
+/* Active — error (mapped to stopped slot) */
+.lc-node.lc-error { border-color: color-mix(in srgb, #f85149 50%, transparent); background: color-mix(in srgb, #f85149 10%, transparent); }
+.lc-node.lc-error .lc-dot { background: #f85149; box-shadow: 0 0 0 3px color-mix(in srgb,#f85149 22%,transparent); }
+.lc-node.lc-error .lc-lbl { color: #f85149; }
+
+/* Active — stopping (pulsing red on the running dot) */
+.lc-node.lc-stopping { border-color: color-mix(in srgb, #f85149 40%, transparent); background: color-mix(in srgb, #f85149 8%, transparent); }
+.lc-node.lc-stopping .lc-dot {
+  background: #f85149;
+  animation: lc-pulse-stopping 1.4s ease-in-out infinite;
+}
+.lc-node.lc-stopping .lc-lbl { color: #f85149; font-weight: 600; }
+@keyframes lc-pulse-stopping {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb,#f85149 30%,transparent); }
+  50%       { box-shadow: 0 0 0 7px color-mix(in srgb,#f85149 0%,transparent); }
+}
+/* Indeterminate bar in stopping state — red tones */
+.remote-dl-bar.stopping-bar { background: color-mix(in srgb, #f85149 18%, transparent); }
+.remote-dl-bar.stopping-bar > span { background: #f85149; }
+.topology-spinner.stopping-spinner { border-top-color: #f85149 !important; }
+
+@keyframes lc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes lc-pulse-amber {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn,#f59e0b) 25%, transparent); }
+  50%       { box-shadow: 0 0 0 6px color-mix(in srgb, var(--warn,#f59e0b) 0%, transparent); }
+}
+@keyframes lc-pulse-configured {
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn,#f59e0b) 20%, transparent); }
+  50%       { box-shadow: 0 0 0 5px color-mix(in srgb, var(--warn,#f59e0b) 0%, transparent); }
+}
+
+/* ── State nodes (RESERVED, STARTING, RUNNING) — always dark inset box ──── */
+/* Box appearance is purely inset; state is communicated via dot+label only  */
+.lc-node:not(.lc-cfg-btn) {
+  background: color-mix(in srgb, var(--text,#e7eef1) 2%, transparent);
+  border-color: color-mix(in srgb, var(--muted,#888) 12%, transparent);
+  box-shadow: inset 0 1px 3px rgba(0,0,0,0.45);
+}
+/* Done state: dark box, bright green dot+label to show step was completed */
+.lc-node.done:not(.lc-cfg-btn) .lc-dot {
+  background: color-mix(in srgb, var(--ok,#3fb950) 80%, var(--muted));
+  border: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok,#3fb950) 22%, transparent);
+}
+.lc-node.done:not(.lc-cfg-btn) .lc-lbl {
+  color: color-mix(in srgb, var(--ok,#3fb950) 65%, var(--muted,#888));
+  font-weight: 600;
+}
+/* "configured" step turns green once the server leaves that stage — mirrors the */
+/* raised AUTOSTART (.node-action-btn.ok) button. Blinks green while STARTING,    */
+/* then settles to solid green once RUNNING. Covers both the clickable button     */
+/* (running/loading) and the plain span (starting) variants of the step.          */
+.lc-node.done.lc-cfg-live {
+  color: var(--ok,#3fb950);
+  border-color: color-mix(in srgb, var(--ok,#3fb950) 30%, transparent);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--ok,#3fb950) 12%, transparent) 0%,
+    color-mix(in srgb, var(--ok,#3fb950) 6%, transparent) 100%);
+  box-shadow: 0 2px 5px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+.lc-node.done.lc-cfg-live .lc-dot {
+  background: var(--ok,#3fb950);
+  border: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok,#3fb950) 22%, transparent);
+  animation: none;
+}
+.lc-node.done.lc-cfg-live .lc-lbl {
+  color: var(--ok,#3fb950);
+  font-weight: 600;
+}
+/* STARTING — blink the whole step until the server settles into RUNNING */
+.lc-node.done.lc-cfg-live.lc-cfg-starting {
+  animation: lc-cfg-blink 1.15s ease-in-out infinite;
+}
+@keyframes lc-cfg-blink {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: .4; }
+}
+/* Hover on the clickable configured step once it's green (server up) */
+.lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover {
+  border-color: var(--ok,#3fb950) !important;
+  background: color-mix(in srgb, var(--ok,#3fb950) 14%, transparent);
+}
+.lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover .lc-dot {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok,#3fb950) 22%, transparent);
+}
+.lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover .lc-lbl { color: var(--ok,#3fb950) !important; }
+
+/* Icon-only action buttons in server card header */
+.node-icon-btn {
+  background: none; border: none; cursor: pointer; padding: 2px 5px;
+  font-size: 14px; line-height: 1; border-radius: 4px;
+  color: var(--muted, #888); transition: color .12s, background .12s;
+}
+.node-icon-btn:hover { color: var(--fg, #eee); background: color-mix(in srgb, var(--muted) 18%, transparent); }
+.node-icon-btn.warn { color: color-mix(in srgb, var(--warn,#f59e0b) 55%, transparent); }
+.node-icon-btn.warn:hover { color: var(--warn,#f59e0b); background: color-mix(in srgb, var(--warn,#f59e0b) 10%, transparent); }
+.node-icon-btn.ok { color: color-mix(in srgb, var(--ok,#3fb950) 80%, transparent); }
+.node-icon-btn.ok:hover { color: var(--ok,#3fb950); }
+.node-icon-btn.muted { color: color-mix(in srgb, var(--muted,#888) 60%, transparent); }
+/* Start button in stopped state — shows text label, slightly more prominent */
+.node-btn-start { font-size:11px; padding: 2px 7px; gap:4px;
+  border: 1px solid color-mix(in srgb, var(--ok,#3fb950) 40%, transparent); border-radius:4px; }
+.node-btn-start:hover { border-color: var(--ok,#3fb950); }
+
+.node-btn-configure { font-size:11px; padding: 2px 7px; gap:4px;
+  color: var(--accent,#6ea8fe);
+  border: 1px solid color-mix(in srgb, var(--accent,#6ea8fe) 40%, transparent); border-radius:4px; }
+.node-btn-configure:hover { border-color: var(--accent,#6ea8fe); color: color-mix(in srgb, var(--accent,#6ea8fe) 90%, #fff); }
+
+/* Slot chips: compact squares (idle) → rectangles (active) */
+.slot-chips-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 2px 0; }
+.slot-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 20px; min-width: 28px; padding: 0 7px; border-radius: 5px;
+  background: color-mix(in srgb, var(--muted,#888) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--muted,#888) 25%, transparent);
+  overflow: hidden; white-space: nowrap;
+  transition: background .2s ease, border-color .2s ease;
+  flex-shrink: 0;
+}
+.slot-chip.running {
+  background: color-mix(in srgb, var(--ok,#3fb950) 22%, transparent);
+  border-color: color-mix(in srgb, var(--ok,#3fb950) 40%, transparent);
+  animation: slot-chip-pulse 1.8s ease-in-out infinite;
+}
+.slot-chip.queued {
+  background: color-mix(in srgb, var(--warn,#f59e0b) 20%, transparent);
+  border-color: color-mix(in srgb, var(--warn,#f59e0b) 40%, transparent);
+}
+.slot-chip.preempting {
+  background: color-mix(in srgb, var(--warn,#f59e0b) 14%, transparent);
+  border-color: color-mix(in srgb, var(--warn,#f59e0b) 28%, transparent);
+  opacity: .7;
+}
+.slot-chip.sticky-reserved {
+  padding: 0 8px; position: relative;
+  background: color-mix(in srgb, var(--accent,#6ea8fe) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent,#6ea8fe) 35%, transparent);
+}
+.slot-chip-name {
+  font-size: 11px; font-weight: 500;
+  color: var(--ok,#3fb950); overflow: hidden; text-overflow: ellipsis; max-width: 140px;
+}
+.slot-chip.queued .slot-chip-name,
+.slot-chip.preempting .slot-chip-name { color: var(--warn,#f59e0b); }
+.slot-chip.sticky-reserved .slot-chip-name { color: var(--accent,#6ea8fe); }
+.slot-chip-sub {
+  font-size: 10px; color: var(--muted,#888); flex-shrink: 0;
+}
+@keyframes slot-chip-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+
+/* Node server detail modal */
+.node-detail-modal { max-width:560px; width:90%; }
+.nsd-body { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
+.nsd-row { display:flex; gap:12px; font-size:13px; align-items:baseline; }
+.nsd-k { flex:0 0 110px; color:var(--muted,#888); font-size:11px; text-transform:uppercase; letter-spacing:.4px; }
+.nsd-v { flex:1; min-width:0; word-break:break-word; }
+.nsd-v code { font-size:11px; }
+.nsd-cfg-section { border-top: 1px solid color-mix(in srgb, var(--line) 40%, transparent); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.nsd-cfg-head { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted,#888); margin-bottom: 2px; display: flex; align-items: center; gap: 6px; }
+.nsd-cmd-pre { margin: 0; }
+.nsd-copy-btn { background: none; border: none; cursor: pointer; color: var(--muted,#888); font-size: 13px; padding: 0 3px; min-height: 0; line-height: 1; opacity: .7; }
+.nsd-copy-btn:hover { opacity: 1; color: var(--fg,#e8e8e8); }
+.nsd-addr-link { font-weight: 400; font-size: .9em; }
+
+/* ── Model combobox (mc-) ──────────────────────────────────────────────────── */
+.mc-wrap {
+  position: relative;
+  width: 100%;
+}
+.mc-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  min-height: 38px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  cursor: pointer;
+  gap: 8px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  user-select: none;
+  box-sizing: border-box;
+}
+.mc-trigger:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+}
+.mc-trigger:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.mc-trigger[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+.mc-trigger-inner {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.mc-caret {
+  color: var(--muted);
+  font-size: 11px;
+  flex-shrink: 0;
+  transition: transform 0.18s;
+}
+.mc-trigger[aria-expanded="true"] .mc-caret {
+  transform: rotate(180deg);
+}
+.mc-wrap.is-muted .mc-trigger {
+  opacity: 0.35;
+  pointer-events: none;
+}
+.mc-hf-link {
+  flex-shrink: 0;
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  text-decoration: none;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0.7;
+}
+.mc-hf-link:hover { opacity: 1; }
+/* Dropdown panel */
+.mc-panel {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  right: 0;
+  z-index: 9000;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+/* Search input */
+.mc-search {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg) 60%, var(--panel));
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+}
+.mc-search:focus { outline: none; }
+.mc-search::placeholder { color: var(--muted); }
+/* Scrollable list */
+.mc-list {
+  max-height: 260px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.mc-list::-webkit-scrollbar { width: 5px; }
+.mc-list::-webkit-scrollbar-track { background: transparent; }
+.mc-list::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+/* List items */
+.mc-item {
+  padding: 7px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 35%, transparent);
+  transition: background 0.1s;
+}
+.mc-item:last-child { border-bottom: none; }
+.mc-item:hover,
+.mc-item:focus {
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+  outline: none;
+}
+.mc-item.selected {
+  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+}
+.mc-item.selected .mc-item-name {
+  color: var(--accent);
+}
+.mc-item-main {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.mc-item-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  word-break: break-all;
+}
+.mc-item-name.muted {
+  color: var(--muted);
+  font-weight: 400;
+}
+.mc-item-path {
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.mc-item-size {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--line) 70%, transparent);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.mc-item-date {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  opacity: 0.8;
+}
+/* Status badges */
+/* Trigger display: show path compactly below filename */
+.mc-trigger-inner .mc-item-path {
+  font-size: 10px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  margin-top: 1px;
+}
+
+/* ── HuggingFace Browser ─────────────────────────────── */
+

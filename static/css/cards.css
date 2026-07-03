@@ -1,0 +1,1818 @@
+.qp-override-hint {
+  font-size: 9px;
+  color: var(--muted);
+  opacity: 0.7;
+}
+/* Compact per-proxy slider track */
+.qp-proxy-track {
+  height: 22px;
+  margin: 6px 14px 4px;
+}
+.qp-proxy-track .topology-pct-handle {
+  min-width: 30px;
+  padding: 1px 4px;
+}
+/* Time label inside per-proxy handle (shows computed seconds) */
+.qp-handle-time {
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--muted);
+  white-space: nowrap;
+}
+/* Inactive handle — feature not configured for this proxy (draggable to pre-set value) */
+.qp-handle-inactive {
+  opacity: 0.3;
+  filter: grayscale(1);
+}
+/* Footer row: hint + reset button */
+.qp-proxy-override-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.topology-queue-bar > i {
+  /* Full-width gradient pinned to the track; clip-path "eats" the elapsed (left) portion
+     so colors keep their true positions instead of compressing — the green edge is
+     consumed first, pacman-style, leaving no color behind in the passed path. */
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, #34d399 70%, transparent),
+    color-mix(in srgb, #f59e0b 80%, transparent),
+    color-mix(in srgb, #ef4444 90%, transparent));
+  border-radius: inherit;
+  clip-path: inset(0 0 0 calc(100% - var(--queue-start, 100%)));
+  animation-name: queue-eat;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+}
+
+@keyframes queue-grow {
+  to { width: 100%; }
+}
+
+/* Sticky slot reservation bar */
+.topology-runtime-entry.sticky-reserved {
+  flex-wrap: wrap;
+  align-items: baseline;
+  padding-bottom: 4px;
+}
+
+.topology-runtime-entry.sticky-reserved > b {
+  color: color-mix(in srgb, var(--accent) 85%, transparent);
+}
+
+.topology-sticky-meta {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--accent) 65%, transparent);
+  font-style: italic;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.topology-sticky-bar {
+  flex-basis: 100%;
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.topology-sticky-bar > i {
+  /* Full-width gradient pinned to the track; the clip-path is driven by
+     ensureStickyBarTicker() (rAF) from an absolute time anchor, eating the bar from the
+     right so the gradient never compresses — no CSS animation, no rebuild jitter. */
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--accent) 35%, transparent),
+    color-mix(in srgb, var(--accent) 70%, transparent));
+  border-radius: inherit;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topology-runtime-entry.running .topology-runtime-chevrons i,
+  .topology-runtime-entry.preempting .topology-runtime-dot {
+    animation: none;
+    opacity: 1;
+    transform: rotate(45deg);
+  }
+  .topology-queue-bar > i,
+  .topology-sticky-bar > i {
+    animation: none;
+    width: 100%;
+  }
+}
+
+.topology-proxy-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.icon-action {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--field) 84%, transparent);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.icon-action svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.icon-action.compact {
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.icon-action.compact svg {
+  width: 11px;
+  height: 11px;
+}
+
+.icon-action:hover,
+.icon-action:focus {
+  border-color: color-mix(in srgb, var(--accent) 68%, var(--line));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--field));
+}
+
+.icon-action.active {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, var(--field));
+}
+
+.icon-action[data-topology-proxy-priority].active {
+  border-color: color-mix(in srgb, var(--priority) 78%, var(--line));
+  color: var(--priority);
+  background: color-mix(in srgb, var(--priority) 18%, var(--field));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--priority) 14%, transparent);
+}
+
+.crown-button .crown-icon {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+  display: block;
+}
+
+.crown-button:not(.active) .crown-icon {
+  opacity: 0.55;
+}
+
+.cloud-fallback-button {
+  font-size: 9px;
+  letter-spacing: -0.5px;
+}
+
+.cloud-fallback-button:not(.active) {
+  opacity: 0.55;
+}
+
+.icon-action.cloud-fallback-button.active {
+  border-color: color-mix(in srgb, var(--fallback) 78%, var(--line));
+  color: var(--fallback);
+  background: color-mix(in srgb, var(--fallback) 18%, var(--field));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--fallback) 14%, transparent);
+  opacity: 1;
+}
+
+.pause-toggle-button {
+  font-size: 12px;
+}
+
+.pause-toggle-button:not(.active) {
+  opacity: 0.45;
+}
+
+.icon-action.pause-toggle-button.active {
+  border-color: color-mix(in srgb, var(--bad) 70%, var(--line));
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 14%, var(--field));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bad) 12%, transparent);
+  opacity: 1;
+}
+
+.icon-action.prominent {
+  width: 34px;
+  height: 34px;
+  border-color: rgba(94, 234, 212, 0.48);
+  background: rgba(45, 212, 191, 0.16);
+  color: #bffaf2;
+}
+
+.icon-action.danger:hover,
+.icon-action.danger:focus {
+  border-color: color-mix(in srgb, var(--bad) 70%, var(--line));
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 12%, var(--field));
+}
+
+.client-card {
+  padding: 10px;
+}
+
+.client-head {
+  align-items: flex-start;
+}
+
+.client-title-line,
+.client-state-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.client-title-line {
+  flex-wrap: wrap;
+}
+
+.client-title-line > span,
+.client-state-line > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.client-title-line .mini-link {
+  padding: 0;
+  min-height: 0;
+}
+.client-rename-btn {
+  background: none; border: none; cursor: pointer; padding: 0 2px;
+  color: var(--muted); font-size: 12px; opacity: .5; line-height: 1;
+  transition: opacity .15s, color .15s;
+}
+.client-rename-btn:hover { opacity: 1; color: var(--accent); }
+
+
+/* Stale client card — red accent stripe + faded body */
+.topology-card.client-card.client-stale {
+  border-color: color-mix(in srgb, var(--bad) 60%, var(--line));
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--bad) 10%, transparent), transparent 34%),
+    var(--panel);
+  opacity: .85;
+}
+.topology-card.client-card.client-stale::before {
+  background: var(--bad);
+}
+.client-stale-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px -10px -4px;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--bad) 14%, var(--field));
+  border-top: 1px solid color-mix(in srgb, var(--bad) 30%, var(--line));
+  border-radius: 0 0 6px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--bad);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.client-stale-banner span { flex: 1; }
+.client-delete-btn {
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line));
+  border-radius: 4px;
+  color: var(--bad);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 8px;
+  transition: background .15s, border-color .15s;
+}
+.client-delete-btn:hover {
+  background: color-mix(in srgb, var(--bad) 18%, transparent);
+  border-color: var(--bad);
+}
+/* Discovery hint: a running agent-* not yet in the fleet registry. */
+.client-discovery-banner {
+  margin: 6px -10px -4px;
+  padding: 5px 10px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--field));
+  border-top: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+  border-radius: 0 0 6px 6px;
+}
+.discovery-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: .03em;
+}
+.discovery-row + .discovery-row { margin-top: 4px; }
+.discovery-row span { flex: 1; }
+.client-discovery-btn {
+  background: none;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  border-radius: 4px;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 3px 8px;
+  white-space: nowrap;
+  transition: background .15s, border-color .15s;
+}
+.client-discovery-btn:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent);
+}
+
+.topology-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.topology-card-head strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topology-card-head-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+button.llama-edit-head {
+  width: 100%;
+  background: color-mix(in srgb, var(--line) 24%, transparent);
+  border: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  transition: border-color 0.15s, background 0.15s;
+}
+button.llama-edit-head:hover,
+button.llama-edit-head:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  outline: none;
+}
+button.llama-edit-head:hover .llama-edit-pencil {
+  opacity: 1;
+}
+.llama-edit-pencil {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 11px;
+  opacity: 0.35;
+  transition: opacity 0.12s;
+}
+
+.raw-config-modal {
+  max-width: 720px;
+  width: min(92vw, 720px);
+}
+
+.topology-raw-config {
+  margin: 10px 0 0;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--code-bg);
+  color: var(--code-text);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.topology-card-head.compact {
+  margin-top: 6px;
+  gap: 6px;
+}
+
+.topology-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.topology-activity-chip {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 36%, transparent);
+  background: color-mix(in srgb, var(--accent) 13%, transparent);
+  color: #bffaf2;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+
+.topology-activity-chip.recent {
+  color: var(--muted);
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.topology-activity-chip.error {
+  color: #fecaca;
+  border-color: color-mix(in srgb, var(--bad) 48%, transparent);
+  background: color-mix(in srgb, var(--bad) 13%, transparent);
+}
+
+.topology-activity-chip.compact {
+  width: 9px;
+  height: 9px;
+  min-width: 9px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+  font-size: 0;
+  line-height: 0;
+  transform: translateY(-1px);
+}
+
+.topology-activity-chip.compact.active {
+  animation: topologyActivityPulse 1.8s ease-in-out infinite;
+}
+
+.topology-activity-chip.compact.queued {
+  background: #60a5fa;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #60a5fa 18%, transparent);
+}
+
+.topology-activity-chip.compact.recent {
+  background: color-mix(in srgb, var(--accent) 74%, var(--muted));
+}
+
+.topology-activity-chip.compact.error {
+  background: var(--bad);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 18%, transparent);
+}
+
+.topology-activity-chip.compact.failed {
+  background: var(--bad);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--bad) 18%, transparent);
+}
+
+.topology-activity-chip.compact.degraded {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent);
+}
+
+.topology-activity-chip.compact.fallback {
+  background: var(--fallback);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fallback) 18%, transparent);
+}
+
+@keyframes topologyActivityPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+    transform: translateY(-1px) scale(0.9);
+  }
+  50% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 0%, transparent);
+    transform: translateY(-1px) scale(1.08);
+  }
+}
+
+.proxy-card .topology-meta {
+  gap: 4px 8px;
+  margin-top: 5px;
+}
+
+.proxy-card code {
+  font-size: 13px;
+  line-height: 1.25;
+}
+
+.topology-model {
+  margin-top: 8px;
+  color: var(--text);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.topology-muted,
+.muted {
+  color: var(--muted);
+}
+
+.topology-agents {
+  display: grid;
+  gap: 9px;
+  margin-top: 8px;
+}
+
+.topology-agent {
+  display: grid;
+  gap: 7px;
+  padding: 6px 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--field);
+  cursor: default;
+}
+
+.topology-agent.host,
+.topology-agent.vm {
+  background: color-mix(in srgb, var(--panel) 72%, var(--field));
+}
+
+/* Agent with no heartbeat — its own sub-client is stale */
+.topology-agent.agent-stale {
+  border-color: color-mix(in srgb, var(--bad) 55%, var(--line));
+  background: color-mix(in srgb, var(--bad) 7%, var(--field));
+}
+.topology-agent.agent-stale .topology-port-dot {
+  background: var(--bad);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bad) 25%, transparent);
+}
+.topology-agent.has-remove { position: relative; }
+.agent-remove-btn {
+  position: absolute; top: 4px; right: 6px; z-index: 2;
+  background: none; border: none; cursor: pointer; padding: 2px 4px;
+  color: var(--muted); font-size: 14px; line-height: 1; opacity: .25;
+  transition: opacity .15s, color .15s;
+}
+.agent-remove-btn:hover { opacity: 1; color: var(--bad); }
+.agent-remove-btn.stale { opacity: .75; color: var(--bad); }
+
+.topology-agent-group {
+  display: grid;
+  gap: 6px;
+}
+
+.topology-agent-group h3 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.topology-agent-list {
+  display: grid;
+  gap: 6px;
+}
+
+.topology-empty-group {
+  padding: 7px;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--field) 60%, transparent);
+  font-size: 12px;
+}
+
+.topology-agent-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.topology-agent strong,
+.topology-agent span {
+  display: block;
+}
+
+.topology-agent span:not(.topology-port-dot) {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.topology-agent code {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.topology-port-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: 0 0 auto;
+}
+
+.topology-agent-routes {
+  display: grid;
+  gap: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.topology-agent-route {
+  position: relative;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  padding-left: 18px;
+  border-left: 3px solid var(--accent);
+  min-height: 28px;
+}
+
+.topology-route-timeout {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 3px;
+  margin-top: -2px;
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.topology-route-timeout.waiting {
+  color: color-mix(in srgb, var(--warn) 80%, var(--text));
+}
+
+.topology-wait-bar {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--line) 35%, transparent);
+  overflow: hidden;
+}
+
+.topology-wait-bar > i {
+  /* Full-width gradient pinned to the track; clip-path eats the elapsed (left) portion,
+     so the green edge is consumed first and no color lingers in the passed path. */
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg,
+    color-mix(in srgb, #34d399 70%, transparent),
+    color-mix(in srgb, #f59e0b 80%, transparent),
+    color-mix(in srgb, #ef4444 90%, transparent));
+  clip-path: inset(0 0 0 calc(100% - var(--queue-start, 100%)));
+  animation-name: queue-eat;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+}
+
+@keyframes queue-eat {
+  to { clip-path: inset(0 0 0 100%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topology-wait-bar > i { animation: none; width: 100%; }
+}
+
+.topology-agent-route[data-topology-route-detail] {
+  cursor: pointer;
+}
+
+.topology-agent-route[data-topology-route-detail]:hover {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.topology-agent-route.fallback {
+  border-left-style: dashed;
+  border-left-color: var(--fallback);
+}
+
+.topology-agent-route.empty {
+  border-left-color: color-mix(in srgb, var(--muted) 45%, transparent);
+}
+
+.topology-agent-route.empty.fallback {
+  border-left-style: dashed;
+}
+
+.topology-agent-route span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.topology-agent-route code,
+.topology-card code {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.topology-agent-route code {
+  font-size: 13px;
+}
+
+.topology-handle {
+  position: absolute;
+  z-index: 4;
+  width: 20px;
+  height: 34px;
+  border: 1px solid var(--line);
+  background: var(--field);
+  box-shadow: var(--shadow);
+}
+
+.topology-agent-route > .topology-handle,
+.topology-proxy-row > .topology-handle,
+.topology-card > .topology-handle {
+  position: absolute !important;
+}
+
+.topology-handle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+}
+
+.topology-handle.output {
+  right: -24px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 0 8px 8px 0;
+}
+
+.topology-handle.input {
+  left: -24px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 8px 0 0 8px;
+}
+
+.topology-handle.proxy-output {
+  right: -24px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 0 8px 8px 0;
+}
+
+.topology-handle.server-input {
+  left: -24px;
+  top: 50%;
+  transform: translateY(-50%);
+  border-radius: 8px 0 0 8px;
+}
+
+.topology-handle.primary::after,
+.topology-cable.primary {
+  background: var(--accent);
+}
+
+.topology-handle.fallback::after {
+  background: var(--fallback);
+}
+
+.topology-handle.drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+.topology-handle.activity-active {
+  border-color: var(--accent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent),
+    0 0 18px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.topology-cable {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1;
+  stroke-linecap: round;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
+  opacity: 0.36;
+}
+
+.topology-cable.fallback {
+  stroke: var(--fallback);
+  stroke-width: 1;
+}
+
+.topology-cable.priority {
+  stroke: var(--priority);
+  opacity: 0.95;
+}
+
+.topology-cable.status-error {
+  stroke: var(--bad);
+}
+
+.topology-cable.status-warn {
+  opacity: 0.72;
+}
+
+.topology-cable.proxy {
+  stroke: color-mix(in srgb, var(--accent) 48%, var(--muted));
+  stroke-width: 0.8;
+  opacity: 0.28;
+}
+
+.topology-cable.activity-active {
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-dasharray: 10 7;
+  animation:
+    topologyCablePulse 2.2s ease-in-out infinite,
+    topologyCableFlow 100s ease-in-out infinite;
+}
+
+.topology-cable.priority.activity-active {
+  stroke: var(--priority);
+  filter:
+    drop-shadow(0 0 5px color-mix(in srgb, var(--priority) 42%, transparent))
+    drop-shadow(0 1px 1px rgba(0, 0, 0, 0.18));
+}
+
+.topology-cable.fallback.activity-active {
+  stroke: var(--fallback);
+  stroke-dasharray: 10 7;
+}
+
+.topology-cable.fallback.priority.activity-active {
+  stroke: var(--priority);
+}
+
+.topology-cable.proxy.activity-active {
+  stroke: color-mix(in srgb, var(--accent) 82%, #dbeafe);
+  stroke-width: 3.2;
+  stroke-dasharray: 12 9;
+}
+
+.topology-cable.proxy.priority,
+.topology-cable.proxy.priority.activity-active {
+  stroke: var(--priority);
+}
+
+.topology-cable.proxy.cloud {
+  stroke: #a78bfa;
+}
+
+.topology-cable.proxy.cloud.activity-active {
+  stroke: #c4b5fd;
+  stroke-width: 3.2;
+  stroke-dasharray: 12 9;
+  animation:
+    topologyCablePulse 2.2s ease-in-out infinite,
+    topologyCableFlow 100s ease-in-out infinite;
+}
+
+.topology-cable.activity-recent {
+  opacity: 0.82;
+}
+
+/* Idle client→router cables: many converge on one input, so dim them hard so
+   the one actually carrying a request (activity-active, width 4 + flow) stands out. */
+.topology-cable.primary.idle,
+.topology-cable.fallback.idle {
+  opacity: 0.13;
+  stroke-width: 1;
+}
+
+.topology-cable.health-degraded {
+  stroke: var(--warn);
+  stroke-width: 2.2;
+  opacity: 0.95;
+}
+
+.topology-cable.health-failed,
+.topology-cable.activity-error {
+  stroke: var(--bad);
+  stroke-width: 2.2;
+  opacity: 0.95;
+}
+
+.topology-handle.health-degraded::after {
+  background: var(--warn);
+}
+
+.topology-handle.health-failed::after {
+  background: var(--bad);
+}
+
+@keyframes topologyCablePulse {
+  0%, 100% {
+    opacity: 0.72;
+    stroke-width: 3.1;
+  }
+  50% {
+    opacity: 1;
+    stroke-width: 4.2;
+  }
+}
+
+@keyframes topologyCableFlow {
+  0%, 10%, 20%, 30%, 40%, 50%, 60%, 70%, 80%, 90%, 100% {
+    stroke-dashoffset: 0;
+  }
+  5%, 15%, 25%, 35%, 45%, 55%, 65%, 75%, 85%, 95% {
+    stroke-dashoffset: -70;
+  }
+}
+
+@keyframes topologyBlockPulse {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent),
+      0 0 10px color-mix(in srgb, var(--accent) 8%, transparent),
+      var(--shadow);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent),
+      0 0 24px color-mix(in srgb, var(--accent) 22%, transparent),
+      var(--shadow);
+  }
+}
+
+.topology-cable.live {
+  stroke: var(--accent-strong);
+  stroke-width: 3;
+  stroke-dasharray: 8 5;
+}
+
+.topology-cable.hovered {
+  stroke-width: 4;
+  opacity: 1;
+}
+
+.topology-cable.muted-by-hover {
+  opacity: 0.16;
+}
+
+.topology-cable-label {
+  fill: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+
+.config-panel {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.section-title {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.field-grid {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  column-gap: 14px;
+  row-gap: 18px;
+  align-items: stretch;
+}
+
+.models-dir-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 94%, var(--accent) 6%);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.models-dir-panel:hover,
+.models-dir-panel:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
+  background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%);
+}
+
+.models-dir-panel summary {
+  display: grid;
+  grid-template-columns: auto max-content minmax(0, 1fr) max-content;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.models-dir-panel summary::before,
+.advanced-fields summary::before {
+  content: "▸";
+  color: var(--accent);
+  transition: transform 120ms ease;
+}
+
+.models-dir-panel[open] summary::before,
+.advanced-fields[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.models-dir-panel summary code {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.summary-badge {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--button-bg);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.models-dir-field {
+  padding: 0 14px 12px;
+}
+
+.mmproj-hidden-select { display: none; }
+
+/* ── Companion rows (MMPROJ + SPEC DRAFT below MODEL_FILE) ── */
+.companion-field {
+  grid-template-rows: 26px 42px;
+  gap: 4px;
+}
+.companion-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 26px;
+  min-height: 26px;
+}
+.companion-label {
+  font-weight: 650;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  min-width: 90px;
+}
+.companion-check {
+  height: auto;
+  min-height: auto;
+  flex-shrink: 0;
+}
+.companion-hint {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ── Chat template collapsible panel ── */
+/* Chat template: rendered as a normal section (not a collapsible "advanced"
+   box) — header styled like the other group titles, always expanded. */
+.chat-template-panel {
+  display: block;          /* not a rigid .field grid — content flows naturally */
+  border: none;
+  background: none;
+}
+
+.chat-template-panel .chat-template-head {
+  margin: 0 0 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.chat-template-panel label,
+.chat-template-panel input,
+.chat-template-panel p,
+.chat-template-panel .field-note {
+  display: block;
+}
+
+.chat-template-panel input {
+  width: 100%;
+  margin-bottom: 6px;
+}
+
+.chat-template-panel p {
+  padding-bottom: 4px;
+}
+
+.chat-template-hint-label {
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+.advanced-fields {
+  grid-column: 1 / -1;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
+}
+
+.advanced-fields summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 12px 14px;
+  cursor: pointer;
+  font-weight: 750;
+}
+
+.advanced-fields summary small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.advanced-group {
+  padding: 0 14px 14px;
+}
+
+.advanced-group + .advanced-group {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.advanced-group h3 {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+
+.advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px 14px;
+}
+
+.field {
+  display: grid;
+  grid-template-rows: 26px 42px minmax(78px, auto);
+  gap: 6px;
+  align-content: start;
+}
+
+.span-2 {
+  grid-column: span 2;
+}
+
+label {
+  font-weight: 650;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  min-height: 26px;
+}
+
+.tip-trigger,
+.inline-tip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--button-bg);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: help;
+}
+
+.inline-tip {
+  margin-left: 6px;
+  vertical-align: text-bottom;
+}
+
+.help-tip {
+  margin-left: 0;
+  flex: 0 0 auto;
+}
+
+.tooltip {
+  position: fixed;
+  left: var(--tooltip-left, 50vw);
+  top: var(--tooltip-top, 0);
+  z-index: 90;
+  width: min(340px, calc(100vw - 24px));
+  transform: translateX(-50%) translateY(calc(-100% + 4px));
+  padding: 10px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.22);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.45;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.tooltip.below {
+  transform: translateX(-50%) translateY(4px);
+}
+
+.tip-trigger:hover .tooltip,
+.tip-trigger:focus .tooltip,
+.inline-tip:hover .tooltip,
+.inline-tip:focus .tooltip {
+  opacity: 1;
+  transform: translateX(-50%) translateY(-100%);
+}
+
+.tip-trigger:hover .tooltip.below,
+.tip-trigger:focus .tooltip.below,
+.inline-tip:hover .tooltip.below,
+.inline-tip:focus .tooltip.below {
+  transform: translateX(-50%) translateY(0);
+}
+
+input, select {
+  width: 100%;
+  height: 42px;
+  border: 1px solid #bfccd3;
+  border-radius: 6px;
+  padding: 7px 9px;
+  color: var(--text);
+  background: var(--field);
+  font: inherit;
+}
+
+input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  min-height: 22px;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  min-height: 42px;
+}
+
+.field p {
+  min-height: 78px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.42;
+}
+
+.batch-combo {
+  display: flex;
+}
+.batch-combo input {
+  flex: 1;
+  border-radius: 6px 0 0 6px !important;
+}
+.batch-scale-btn {
+  padding: 0 8px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-left: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.batch-scale-btn:last-child { border-radius: 0 6px 6px 0; }
+.batch-scale-btn:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 12%, var(--field)); }
+
+.port-combo {
+  position: relative;
+  display: flex;
+}
+.port-combo input {
+  flex: 1;
+  border-radius: 6px 0 0 6px !important;
+}
+.port-dropdown-btn {
+  padding: 0 10px;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-left: none;
+  border-radius: 0 6px 6px 0;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+  transition: color 0.1s, background 0.1s;
+}
+.port-dropdown-btn:hover {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--field));
+}
+.port-dropdown {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  z-index: 25;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 220px;
+}
+.port-dropdown[hidden] { display: none; }
+.port-chip {
+  padding: 5px 10px;
+  font-size: 12px;
+  font-family: ui-monospace, Menlo, monospace;
+  font-weight: 600;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--muted);
+  transition: border-color 0.1s, color 0.1s, background 0.1s;
+}
+.port-chip:hover {
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--line));
+  color: var(--accent);
+}
+.port-chip.active {
+  background: color-mix(in srgb, var(--accent) 16%, var(--field));
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.field-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  min-height: 22px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.field-note:empty {
+  display: none;
+}
+
+.model-insight {
+  display: grid;
+  gap: 12px;
+  min-height: 48px;
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--field) 86%, var(--accent) 14%);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: var(--panel);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.badge-detail { font-weight: 400; opacity: 0.7; margin-left: 3px; }
+
+.badge.text::before,
+.badge.vision::before,
+.badge.projector::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.badge.vision::before {
+  background: var(--accent);
+}
+
+.badge.projector::before {
+  background: var(--good);
+}
+
+.badge.mtp::before {
+  background: var(--good);
+}
+
+.size-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.size-chip {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--panel) 86%, var(--accent) 14%);
+}
+
+.size-chip span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.size-chip strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.size-chip.warn {
+  border-color: color-mix(in srgb, var(--warn) 55%, var(--line));
+  background: color-mix(in srgb, var(--panel) 78%, var(--warn) 22%);
+}
+
+.size-chip.bad {
+  border-color: color-mix(in srgb, var(--bad) 55%, var(--line));
+  background: color-mix(in srgb, var(--panel) 78%, var(--bad) 22%);
+}
+
+.size-chip.runtime-total {
+  grid-column: span 2;
+  padding: 10px 12px;
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
+  background: color-mix(in srgb, var(--panel) 72%, var(--accent) 28%);
+}
+
+.size-chip.runtime-total strong {
+  font-size: 20px;
+}
+
+.size-chip.ram-fit {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  border-style: dashed;
+  background: color-mix(in srgb, var(--panel) 90%, var(--muted) 10%);
+}
+
+.size-chip.ram-fit.warn {
+  background: color-mix(in srgb, var(--panel) 84%, var(--warn) 16%);
+}
+
+.size-chip.ram-fit.bad {
+  background: color-mix(in srgb, var(--panel) 84%, var(--bad) 16%);
+}
+
+.insight-warn {
+  color: var(--warn);
+  font-weight: 650;
+}
+
+.link-button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+}
+
+button {
+  border: 1px solid #b7c4ca;
+  background: var(--button-bg);
+  color: var(--text);
+  border-radius: 6px;
+  min-height: 34px;
+  padding: 7px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.segmented {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+
+.segmented button {
+  border: 0;
+  border-radius: 0;
+  min-height: 32px;
+}
+
+.segmented button + button {
+  border-left: 1px solid var(--line);
+}
+
+.segmented button.active {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Language dropdown */
+.lang-select {
+  position: relative;
+}
+
+.lang-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.lang-trigger:hover {
+  border-color: #82929b;
+}
+
+.lang-trigger .lang-emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.lang-trigger .lang-code {
+  font-weight: 750;
+}
+
+.lang-trigger .lang-caret {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.lang-trigger[aria-expanded="true"] .lang-caret {
+  transform: rotate(180deg);
+}
+
+.lang-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  min-width: 140px;
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.lang-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.lang-option:hover {
+  background: var(--line);
+}
+
+.lang-option.selected {
+  background: var(--accent);
+  color: #fff;
+}
+
+.lang-option .lang-emoji {
+  font-size: 16px;
+  line-height: 1;
+}
+
+button:hover {
+  border-color: #82929b;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+button.primary:hover {
+  background: var(--accent-strong);
+}
+
+button.danger {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #fff;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  font-weight: 750;
+}
+
+.icon-button.primary {
+  width: 44px;
+  min-width: 44px;
+}
+
+.actions, .button-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.topbar .actions {
+  flex-wrap: nowrap;
+}
+
+.summary {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+}
+
+.summary b {
+  color: var(--text);
+}
+
+.runtime-rate {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.runtime-rate span {
+  color: color-mix(in srgb, var(--muted) 70%, transparent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 650;
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  color: var(--text);
+}
+
+.pill.good {
+  background: color-mix(in srgb, var(--good) 18%, var(--panel));
+  color: var(--good);
+}
+
+.pill.bad {
+  background: color-mix(in srgb, var(--bad) 18%, var(--panel));
+  color: var(--bad);
+}
+
+.pill.warn {
+  background: color-mix(in srgb, var(--warn) 22%, var(--panel));
+  color: var(--warn);
+}
+
+pre {
+  overflow: auto;
+  max-height: 360px;
+  margin: 0;
+  padding: 12px;
+  border-radius: 6px;
+  background: var(--code-bg);
+  color: var(--code-text);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.command-preview {
+  line-height: 1.8;
+}
+
+.cmd-token {
+  display: inline;
+  padding: 1px 2px;
+  border-radius: 4px;
+}
+.cmd-value {
+  opacity: 0.72;
+}
+
+.cmd-token.changed {
+  background: color-mix(in srgb, var(--warn) 32%, transparent);
+  color: var(--text);
+  outline: 1px solid color-mix(in srgb, var(--warn) 58%, transparent);
+}
+
+.cmd-note {
+  display: inline-block;
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+/* Manual extra-args field on the Params tab — full width so it reads as a
+   command-line box, not a cramped single-column input. (Override the 4-column
