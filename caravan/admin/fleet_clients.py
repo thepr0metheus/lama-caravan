@@ -37,6 +37,13 @@ from caravan.admin.systemd_ctl import systemctl
 from caravan.admin.telemetry import _normalize_modalities
 from caravan.common.errors import AppError
 from caravan.common.fetch import fetch_json, post_json
+
+
+def _scout_headers():
+    """Fleet-token header for controller->scout calls (empty when auth off)."""
+    from caravan.admin import auth as _auth
+    token = _auth.fleet_token_get() if _auth.auth_enabled() else ""
+    return {"X-Caravan-Token": token} if token else {}
 from caravan.common.fsio import read_text
 
 
@@ -59,7 +66,7 @@ def client_monitor(host_id: str, kind: str) -> dict:
     if not agent_url:
         raise AppError(f"no agentUrl for client {host_id}", 400)
     try:
-        result = fetch_json(f"{agent_url}/api/monitor/{kind}", timeout=5)
+        result = fetch_json(f"{agent_url}/api/monitor/{kind}", timeout=5, headers=_scout_headers())
     except Exception as exc:
         raise AppError(f"client unreachable: {exc}", 502)
     return result
@@ -122,7 +129,7 @@ def client_llama_start(body: dict) -> dict:
         assert_server_cell_port_available(payload["port"], exclude_key=key if key in topology_store().get("serverSlots", {}) else None)
 
     try:
-        result = post_json(f"{agent_url}/api/llama-node/start", payload, timeout=10)
+        result = post_json(f"{agent_url}/api/llama-node/start", payload, timeout=10, headers=_scout_headers())
     except urllib.error.HTTPError as exc:
         # Surface the route-agent's own error message instead of a bare 500.
         detail = ""
@@ -240,7 +247,7 @@ def client_llama_list_cache(host_id: str) -> dict:
     """List cached .gguf model files on a client host's disk."""
     agent_url = _client_agent_url(host_id)
     try:
-        result = fetch_json(f"{agent_url}/api/llama-node/list-cache", timeout=5)
+        result = fetch_json(f"{agent_url}/api/llama-node/list-cache", timeout=5, headers=_scout_headers())
     except Exception as exc:
         raise AppError(f"client unreachable: {exc}", 502)
     return {"ok": True, "hostId": host_id, "models": result.get("models", [])}
@@ -285,7 +292,7 @@ def client_llama_stop(body: dict) -> dict:
     stop_body = {}
     if body.get("port"):
         stop_body["port"] = int(body["port"])
-    result = post_json(f"{agent_url}/api/llama-node/stop", stop_body, timeout=10)
+    result = post_json(f"{agent_url}/api/llama-node/stop", stop_body, timeout=10, headers=_scout_headers())
     return {"ok": result.get("ok", False), "hostId": host_id, "result": result}
 
 def topology_client_delete(body: dict) -> dict:
@@ -330,7 +337,7 @@ def topology_discover_add(body: dict) -> dict:
     entry.setdefault("placement", f"VM agent-{agent_id}")
     url = FLEET_REGISTRY_URL.rstrip("/") + "/api/agents"
     try:
-        result = post_json(url, entry, timeout=8)
+        result = post_json(url, entry, timeout=8, headers=_scout_headers())
     except Exception as exc:
         raise AppError(f"registry POST failed ({url}): {exc}", 502)
     return {"ok": True, "registered": entry, "registry": url, "result": result}
@@ -405,7 +412,7 @@ def client_llama_purge_cache(body: dict) -> dict:
     host_id = str(body.get("hostId") or "").strip()
     agent_url = _client_agent_url(host_id)
     try:
-        result = post_json(f"{agent_url}/api/llama-node/purge-cache", {}, timeout=30)
+        result = post_json(f"{agent_url}/api/llama-node/purge-cache", {}, timeout=30, headers=_scout_headers())
     except Exception as exc:
         raise AppError(f"client unreachable: {exc}", 502)
     return {"ok": result.get("ok", False), "hostId": host_id, "result": result}
@@ -753,7 +760,7 @@ def refresh_topology_clients_from_agents():
         if not agent_url:
             continue
         try:
-            state = fetch_json(f"{agent_url}/api/state", timeout=2)
+            state = fetch_json(f"{agent_url}/api/state", timeout=2, headers=_scout_headers())
             if not isinstance(state, dict):
                 continue
             # Map /api/state response into the heartbeat payload format so

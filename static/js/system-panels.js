@@ -190,6 +190,122 @@ export function openSystemInfoModal() {
     const el = $("controllerInfo");
     if (el) el.innerHTML = `<span class="muted">${escapeHtml(String(err.message || err))}</span>`;
   });
+  refreshSecurity();
+}
+
+// ── Security panel: accounts, sessions, fleet token ─────────────────────────
+
+export function refreshSecurity() {
+  api("/api/auth/overview").then(renderSecurity).catch(() => {
+    // Auth off → overview is still reachable; a failure here means no session
+    // on an auth-enabled instance, which the 401 handler already redirects.
+  });
+}
+
+function fmtWhen(ts) {
+  return ts ? new Date(ts * 1000).toLocaleString() : "—";
+}
+
+export function renderSecurity(sec) {
+  const el = $("securityInfo");
+  if (!el || !sec) return;
+  $("authLogoutBtn").hidden = !sec.user;
+  if (!sec.enabled) {
+    el.innerHTML = `
+      <p class="muted">${escapeHtml(t("authOffHint"))}</p>
+      <form id="authSetupForm" class="auth-form">
+        <input id="authSetupUser" placeholder="${escapeHtml(t("authUsername"))}" autocomplete="off">
+        <input id="authSetupPass" type="password" placeholder="${escapeHtml(t("authPassword"))}" autocomplete="new-password">
+        <button type="submit">${escapeHtml(t("authEnable"))}</button>
+      </form>
+      <p id="authSetupMsg" class="muted"></p>`;
+    $("authSetupForm").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      try {
+        const res = await api("/api/auth/setup", { method: "POST", body: JSON.stringify({
+          username: $("authSetupUser").value.trim(), password: $("authSetupPass").value }) });
+        $("authSetupMsg").innerHTML = `${escapeHtml(t("authFleetTokenIntro"))}<br>` +
+          `<code class="auth-token">${escapeHtml(res.fleetToken)}</code><br>` +
+          `<span class="muted">${escapeHtml(t("authFleetTokenHint"))}</span>`;
+        toast(t("authEnabled"));
+        refreshSecurity();
+      } catch (err) { toast(err.message); }
+    });
+    return;
+  }
+  const users = (sec.users || []).map((u) => `
+    <div class="diagnostic-row">
+      <span>${escapeHtml(u.username)}${u.username === sec.user ? " · " + escapeHtml(t("authYou")) : ""}</span>
+      <strong>
+        <button class="mini-btn" data-auth-passwd="${escapeHtml(u.username)}">${escapeHtml(t("authSetPassword"))}</button>
+        <button class="mini-btn danger" data-auth-del="${escapeHtml(u.username)}">✕</button>
+      </strong>
+    </div>`).join("");
+  const sessions = (sec.sessions || []).map((sess) => `
+    <div class="diagnostic-row">
+      <span>${escapeHtml(sess.username)} · ${escapeHtml(sess.ip || "?")}</span>
+      <strong>${escapeHtml(fmtWhen(sess.lastSeen))}
+        <button class="mini-btn danger" data-auth-revoke="${escapeHtml(sess.id)}">✕</button>
+      </strong>
+    </div>`).join("");
+  el.innerHTML = `
+    <div class="llama-chip good"><span>${escapeHtml(t("authStatus"))}</span><strong>${escapeHtml(t("authOn"))} · ${escapeHtml(sec.user || "")}</strong></div>
+    <h3 class="security-sub">${escapeHtml(t("authUsers"))}</h3>
+    <div class="diagnostic-list">${users}</div>
+    <form id="authAddForm" class="auth-form">
+      <input id="authAddUser" placeholder="${escapeHtml(t("authUsername"))}" autocomplete="off">
+      <input id="authAddPass" type="password" placeholder="${escapeHtml(t("authPassword"))}" autocomplete="new-password">
+      <button type="submit">${escapeHtml(t("authAddUser"))}</button>
+    </form>
+    <h3 class="security-sub">${escapeHtml(t("authSessions"))}</h3>
+    <div class="diagnostic-list">${sessions}</div>
+    <h3 class="security-sub">${escapeHtml(t("authFleetToken"))}</h3>
+    <p class="muted">${escapeHtml(t("authFleetTokenHint"))}</p>
+    <div class="button-row">
+      <button id="authShowToken" type="button">${escapeHtml(t("authShowToken"))}</button>
+      <button id="authRegenToken" type="button" class="danger">${escapeHtml(t("authRegenToken"))}</button>
+    </div>
+    <p id="authTokenOut" class="muted"></p>`;
+
+  $("authAddForm").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    try {
+      await api("/api/auth/users", { method: "POST", body: JSON.stringify({
+        action: "create", username: $("authAddUser").value.trim(), password: $("authAddPass").value }) });
+      toast(t("saved"));
+      refreshSecurity();
+    } catch (err) { toast(err.message); }
+  });
+  el.querySelectorAll("[data-auth-del]").forEach((b) => b.addEventListener("click", async () => {
+    try {
+      await api("/api/auth/users", { method: "POST", body: JSON.stringify({
+        action: "delete", username: b.dataset.authDel }) });
+      refreshSecurity();
+    } catch (err) { toast(err.message); }
+  }));
+  el.querySelectorAll("[data-auth-passwd]").forEach((b) => b.addEventListener("click", async () => {
+    const pass = prompt(t("authNewPasswordPrompt", { user: b.dataset.authPasswd }));
+    if (!pass) return;
+    try {
+      await api("/api/auth/users", { method: "POST", body: JSON.stringify({
+        action: "set-password", username: b.dataset.authPasswd, password: pass }) });
+      toast(t("saved"));
+    } catch (err) { toast(err.message); }
+  }));
+  el.querySelectorAll("[data-auth-revoke]").forEach((b) => b.addEventListener("click", async () => {
+    try {
+      await api("/api/auth/sessions/revoke", { method: "POST", body: JSON.stringify({ id: b.dataset.authRevoke }) });
+      refreshSecurity();
+    } catch (err) { toast(err.message); }
+  }));
+  $("authShowToken").addEventListener("click", async () => {
+    const res = await api("/api/auth/fleet-token", { method: "POST", body: JSON.stringify({}) });
+    $("authTokenOut").innerHTML = `<code class="auth-token">${escapeHtml(res.fleetToken)}</code>`;
+  });
+  $("authRegenToken").addEventListener("click", async () => {
+    const res = await api("/api/auth/fleet-token", { method: "POST", body: JSON.stringify({ regenerate: true }) });
+    $("authTokenOut").innerHTML = `<code class="auth-token">${escapeHtml(res.fleetToken)}</code> · ${escapeHtml(t("authRegenDone"))}`;
+  });
 }
 
 // The Controller card: what this host runs (admin/proxy services, cells),
@@ -262,7 +378,8 @@ export function renderProjectGitBranch() {
   const git = state.projectGit || {};
   const branch = git.branch || "n/a";
   const dirty = Number(git.dirtyCount || 0);
-  const label = `git: ${branch}${dirty ? ` +${dirty}` : ""}`;
+  const ver = state.appVersion ? `v${state.appVersion} · ` : "";
+  const label = `${ver}git: ${branch}${dirty ? ` +${dirty}` : ""}`;
   el.textContent = label;
   el.title = git.ok === false
     ? `Project git branch unavailable: ${git.error || "unknown error"}`

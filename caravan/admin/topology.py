@@ -645,7 +645,8 @@ def apply_topology_assignments(payload):
     client = store["clients"].get(host_id)
     if client and client.get("agentUrl"):
         try:
-            result = post_json(client["agentUrl"].rstrip("/") + "/api/routing/apply", {"assignments": normalized})
+            from caravan.admin.fleet_clients import _scout_headers
+            result = post_json(client["agentUrl"].rstrip("/") + "/api/routing/apply", {"assignments": normalized}, headers=_scout_headers())
             row["applyStatus"] = {"state": "ok" if result.get("ok") else "error", "result": result, "appliedAt": int(time.time())}
         except Exception as exc:
             row["applyStatus"] = {"state": "error", "error": str(exc), "appliedAt": int(time.time())}

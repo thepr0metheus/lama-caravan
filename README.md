@@ -61,6 +61,18 @@ that would have cost in cloud tokens.
 The long version of that day — with the kanban that implements it — lives in
 [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md).
 
+## Requirements
+
+| Component | Requirement |
+|---|---|
+| Controller OS | Linux with systemd (tested on Ubuntu 24.04; any systemd distro should work) |
+| Python | **3.10+**, standard library only — no pip packages (tested on 3.12) |
+| llama.cpp | a `llama-server` build **b400+** (needs `--chat-template-file`; tested with b422, 2026-06) |
+| GPU serving | NVIDIA driver + `nvidia-smi` for telemetry; CUDA build of llama.cpp (CPU-only also works) |
+| Client hosts | Linux (systemd --user) or macOS (launchd), Python 3.10+, [caravan-scout](https://github.com/thepr0metheus/caravan-scout) |
+| Browser | any modern browser — native ES modules, no build step |
+| Storage | plain JSON files; no database server required |
+
 ## Documentation
 
 | Doc | Covers |
@@ -72,6 +84,7 @@ The long version of that day — with the kanban that implements it — lives in
 | [docs/http-api.md](docs/http-api.md) | Every HTTP endpoint of the admin and the proxy surface |
 | [docs/operations.md](docs/operations.md) | Runbook: services, deploy, rollback, backups, local dev, quirks |
 | [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md) | A worked example: one day of hybrid local/cloud routing and the kanban behind it |
+| [docs/security.md](docs/security.md) | Accounts/sessions (SQLite), the fleet token for scouts, what stays open |
 
 Legacy single-server mode edits the marked config block in:
 
@@ -178,6 +191,8 @@ state and are not the source deployment path.
 - Explain what each parameter controls.
 - Show local llama.cpp version/build metadata and guarded update/build actions.
 - Switch between light, dark, and black LLM-focused themes.
+- Optional sign-in: SQLite accounts + sessions, a fleet token for the scouts
+  (open by default for homelab use — see [docs/security.md](docs/security.md)).
 - Built-in onboarding tours (the floating `?` button) on the board, the kanban
   and the HF browser — auto-run on the first visit, re-runnable anytime; with
   the server editor open the same button explains the llama.cpp config fields.

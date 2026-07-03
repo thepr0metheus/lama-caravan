@@ -73,6 +73,8 @@ from caravan.admin.paths import (
 )
 from caravan.admin.state import admin_state, load_admin_state, save_admin_state, topology_store
 from caravan.admin.backups import backup_config, backups, delete_backup, resolve_backup_path, revert_latest
+from caravan import __version__ as APP_VERSION
+from caravan.admin import auth as auth_mod
 from caravan.admin.status import controller_info, do_action, llama_cpp_info, state, update_llama_cpp
 from caravan.admin.cell_ops import (
     client_server_slot_add,
@@ -1119,8 +1121,166 @@ def _delete_api_hf_local_file(h, parsed):
 
 
 
+
+# ── Auth guard ────────────────────────────────────────────────────────────────
+# Open until the first user exists. Then: session cookie for humans, the fleet
+# token (X-Caravan-Token) for machine endpoints, and a small public allowlist.
+
+_AUTH_PUBLIC_GET = {"/login", "/favicon.svg", "/favicon.ico", "/api/auth/me"}
+_AUTH_PUBLIC_POST = {"/api/auth/login", "/api/auth/setup"}
+_AUTH_MACHINE_GET = {"/api/models/download"}
+_AUTH_MACHINE_POST = {"/api/topology/client-heartbeat"}
+
+
+def _auth_guard(h, path, method):
+    """Return True when the request may proceed; otherwise answer it and return False."""
+    if not auth_mod.auth_enabled():
+        return True
+    if method == "GET" and path in _AUTH_PUBLIC_GET:
+        return True
+    if method == "POST" and path in _AUTH_PUBLIC_POST:
+        return True
+    machine = (method == "GET" and path in _AUTH_MACHINE_GET) or \
+              (method == "POST" and path in _AUTH_MACHINE_POST)
+    if machine:
+        if auth_mod.fleet_token_verify(h.headers.get("X-Caravan-Token") or ""):
+            return True
+        h.send_json({"error": "fleet token required (X-Caravan-Token)"}, 401)
+        return False
+    if auth_mod.session_from_handler(h):
+        return True
+    if method == "GET" and (path == "/" or not path.startswith("/api/")):
+        # Pages redirect to the login form; API calls get a plain 401.
+        h.send_response(302)
+        h.send_header("Location", "/login")
+        h.send_header("Content-Length", "0")
+        h.end_headers()
+        return False
+    h.send_json({"error": "authentication required"}, 401)
+    return False
+
+
+@_route(GET_ROUTES, '/login')
+def _get_login(h, parsed):
+        data = auth_mod.LOGIN_PAGE.encode("utf-8")
+        h.send_response(200)
+        h.send_header("Content-Type", "text/html; charset=utf-8")
+        h.send_header("Content-Length", str(len(data)))
+        h.send_header("Cache-Control", "no-cache")
+        h.end_headers()
+        h.wfile.write(data)
+        return
+
+@_route(GET_ROUTES, '/api/auth/me')
+def _get_auth_me(h, parsed):
+        user = auth_mod.session_from_handler(h)
+        h.send_json({"enabled": auth_mod.auth_enabled(),
+                     "authenticated": bool(user), "user": user})
+        return
+
+@_route(POST_ROUTES, '/api/auth/login')
+def _post_auth_login(h, parsed, body):
+        user = auth_mod.verify_login(str(body.get("username") or ""),
+                                     str(body.get("password") or ""),
+                                     ip=h.client_address[0])
+        token = auth_mod.create_session(user["id"], ip=h.client_address[0],
+                                        ua=h.headers.get("User-Agent") or "")
+        data = json_bytes({"ok": True, "user": user["username"]})
+        h.send_response(200)
+        h.send_header("Content-Type", "application/json; charset=utf-8")
+        h.send_header("Set-Cookie", auth_mod.session_cookie_header(token))
+        h.send_header("Content-Length", str(len(data)))
+        h.end_headers()
+        h.wfile.write(data)
+        return
+
+@_route(POST_ROUTES, '/api/auth/setup')
+def _post_auth_setup(h, parsed, body):
+        # First-account bootstrap: only while auth is still off.
+        if auth_mod.auth_enabled():
+            raise AppError("auth is already enabled", 409)
+        user = auth_mod.create_user(str(body.get("username") or ""),
+                                    str(body.get("password") or ""))
+        fleet = auth_mod.fleet_token_ensure()
+        row = auth_mod.verify_login(user["username"], str(body.get("password") or ""),
+                                    ip=h.client_address[0])
+        token = auth_mod.create_session(row["id"], ip=h.client_address[0],
+                                        ua=h.headers.get("User-Agent") or "")
+        data = json_bytes({"ok": True, "user": user["username"], "fleetToken": fleet})
+        h.send_response(200)
+        h.send_header("Content-Type", "application/json; charset=utf-8")
+        h.send_header("Set-Cookie", auth_mod.session_cookie_header(token))
+        h.send_header("Content-Length", str(len(data)))
+        h.end_headers()
+        h.wfile.write(data)
+        return
+
+@_route(POST_ROUTES, '/api/auth/logout')
+def _post_auth_logout(h, parsed, body):
+        raw = h.headers.get("Cookie") or ""
+        from http import cookies as _ck
+        try:
+            jar = _ck.SimpleCookie(raw)
+            morsel = jar.get(auth_mod.SESSION_COOKIE)
+            if morsel:
+                auth_mod.delete_session(morsel.value)
+        except Exception:
+            pass
+        data = json_bytes({"ok": True})
+        h.send_response(200)
+        h.send_header("Content-Type", "application/json; charset=utf-8")
+        h.send_header("Set-Cookie", auth_mod.session_cookie_header("", clear=True))
+        h.send_header("Content-Length", str(len(data)))
+        h.end_headers()
+        h.wfile.write(data)
+        return
+
+@_route(GET_ROUTES, '/api/auth/overview')
+def _get_auth_overview(h, parsed):
+        h.send_json({
+            "enabled": auth_mod.auth_enabled(),
+            "user": auth_mod.session_from_handler(h),
+            "users": auth_mod.list_users(),
+            "sessions": auth_mod.list_sessions(),
+            "fleetTokenSet": bool(auth_mod.fleet_token_get()),
+        })
+        return
+
+@_route(POST_ROUTES, '/api/auth/users')
+def _post_auth_users(h, parsed, body):
+        action = str(body.get("action") or "create")
+        if action == "create":
+            h.send_json({"ok": True, **auth_mod.create_user(
+                str(body.get("username") or ""), str(body.get("password") or ""))})
+            return
+        if action == "delete":
+            auth_mod.delete_user(str(body.get("username") or ""))
+            h.send_json({"ok": True})
+            return
+        if action == "set-password":
+            auth_mod.set_password(str(body.get("username") or ""),
+                                  str(body.get("password") or ""))
+            h.send_json({"ok": True})
+            return
+        raise AppError("unknown action")
+
+@_route(POST_ROUTES, '/api/auth/sessions/revoke')
+def _post_auth_sessions_revoke(h, parsed, body):
+        auth_mod.revoke_session(str(body.get("id") or ""))
+        h.send_json({"ok": True})
+        return
+
+@_route(POST_ROUTES, '/api/auth/fleet-token')
+def _post_auth_fleet_token(h, parsed, body):
+        if body.get("regenerate"):
+            h.send_json({"ok": True, "fleetToken": auth_mod.fleet_token_regenerate()})
+            return
+        h.send_json({"ok": True, "fleetToken": auth_mod.fleet_token_ensure()})
+        return
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "lama-caravan/0.1"
+    server_version = f"lama-caravan/{APP_VERSION}"
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt % args}")
@@ -1166,6 +1326,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         try:
             parsed = urlparse(self.path)
+            if not _auth_guard(self, parsed.path, "GET"):
+                return
             for _prefix, _fn in GET_PREFIX_ROUTES:
                 if parsed.path.startswith(_prefix):
                     _fn(self, parsed)
@@ -1183,6 +1345,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             parsed = urlparse(self.path)
+            if not _auth_guard(self, parsed.path, "POST"):
+                return
             body = self.read_body()
             _fn = POST_ROUTES.get(parsed.path)
             if _fn is None:
@@ -1197,6 +1361,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         try:
             parsed = urlparse(self.path)
+            if not _auth_guard(self, parsed.path, "DELETE"):
+                return
             _fn = DELETE_ROUTES.get(parsed.path)
             if _fn is None:
                 self.send_json({"error": "Not found"}, 404)

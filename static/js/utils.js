@@ -21,6 +21,12 @@ export async function api(path, options = {}) {
   });
   const data = await response.json();
   if (!response.ok) {
+    // Session expired / auth just enabled: hand the user to the login page
+    // (auth endpoints handle their own errors inline).
+    if (response.status === 401 && !path.startsWith("/api/auth/")
+        && location.pathname !== "/login") {
+      window.location = "/login";
+    }
     throw new Error(data.error || response.statusText);
   }
   return data;

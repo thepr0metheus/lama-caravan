@@ -50,7 +50,7 @@ import {
 } from "./topology-dnd.js";
 import { activeView, refreshTopology, renderTopology, setActiveView } from "./topology-render.js";
 import { openUsageStatsModal } from "./usage-stats.js";
-import { $, bindTooltips, escapeHtml, toast } from "./utils.js";
+import { $, api, bindTooltips, escapeHtml, toast } from "./utils.js";
 
 // The pixel-llama page loader is inline in index.html/kanban.html so it shows
 // before the modules download; window.__plHide is defined there.
@@ -95,6 +95,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     initRouterStandalonePage();
     return;
   }
+
+  $("authLogoutBtn")?.addEventListener("click", async () => {
+    try { await api("/api/auth/logout", { method: "POST", body: "{}" }); } catch { /* ignore */ }
+    window.location = "/login";
+  });
 
   // Remote llama-server modal buttons
   $("llamaRemoteEditStart")?.addEventListener("click", submitRemoteLlamaStart);

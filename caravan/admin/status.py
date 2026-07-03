@@ -18,6 +18,7 @@ from caravan.admin.openclaw import notify_openclaw_config_managers, openclaw_con
 from caravan.admin.paths import ADMIN_SERVICE_NAME, AGENT_PROXY_SERVICE_NAME, LLAMA_HOME, PROJECT_ROOT, SERVER_CELLS_DIR, SERVICE_NAME, START_SCRIPT
 from caravan.admin.state import admin_state
 from caravan.admin.systemd_ctl import logs, service_status, systemctl, user_service_diagnostics
+from caravan import __version__ as APP_VERSION
 from caravan.common.errors import AppError
 from caravan.common.procs import run, run_in
 
@@ -64,6 +65,7 @@ def controller_info():
     models_dir = models_dir_from_config(config)
     info = {
         "ok": True,
+        "appVersion": APP_VERSION,
         "python": sys.version.split()[0],
         "projectGit": project_git_info(),
         "services": [_unit_brief(ADMIN_SERVICE_NAME), _unit_brief(AGENT_PROXY_SERVICE_NAME)],
@@ -102,6 +104,7 @@ def state():
     runtime = runtime_api(config)
     runtime["status"] = runtime_phase(service, runtime)
     return {
+        "appVersion": APP_VERSION,
         "config": config,
         "fields": CONFIG_FIELDS,
         "help": FIELD_HELP,
