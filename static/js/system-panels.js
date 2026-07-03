@@ -312,13 +312,15 @@ export function renderSecurity(sec) {
       </strong>
     </div>`;
   }).join("");
-  const sessions = (sec.sessions || []).map((sess) => `
+  const allSessions = sec.sessions || [];
+  const sessions = allSessions.slice(0, 5).map((sess) => `
     <div class="diagnostic-row">
       <span>${escapeHtml(sess.username)} · ${escapeHtml(sess.ip || "?")}</span>
       <strong>${escapeHtml(fmtWhen(sess.lastSeen))}
         <button class="mini-btn danger" data-auth-revoke="${escapeHtml(sess.id)}">✕</button>
       </strong>
-    </div>`).join("");
+    </div>`).join("")
+    + (allSessions.length > 5 ? `<p class="muted">+${allSessions.length - 5}</p>` : "");
   el.innerHTML = `
     <div class="llama-chip good"><span>${escapeHtml(t("authStatus"))}</span><strong>${escapeHtml(t("authOn"))} · ${escapeHtml(sec.user || "")}</strong></div>
     <h3 class="security-sub">${escapeHtml(t("authUsers"))}</h3>
@@ -332,7 +334,8 @@ export function renderSecurity(sec) {
       </select>
       <button type="submit">${escapeHtml(t("authAddUser"))}</button>
     </form>
-    <h3 class="security-sub">${escapeHtml(t("authSessions"))}</h3>
+    <h3 class="security-sub">${escapeHtml(t("authSessions"))}
+      <button class="mini-btn" id="authRevokeOthers">${escapeHtml(t("authRevokeOthers"))}</button></h3>
     <div class="diagnostic-list">${sessions}</div>
     <h3 class="security-sub">${escapeHtml(t("authFleetToken"))}</h3>
     <p class="muted">${escapeHtml(t("authFleetTokenHint"))}</p>
@@ -382,6 +385,12 @@ export function renderSecurity(sec) {
       refreshSecurity();
     } catch (err) { toast(err.message); }
   }));
+  $("authRevokeOthers")?.addEventListener("click", async () => {
+    try {
+      await api("/api/auth/sessions/revoke", { method: "POST", body: JSON.stringify({ others: true }) });
+      refreshSecurity();
+    } catch (err) { toast(err.message); }
+  });
   $("authShowToken").addEventListener("click", async () => {
     const res = await api("/api/auth/fleet-token", { method: "POST", body: JSON.stringify({}) });
     $("authTokenOut").innerHTML = `<code class="auth-token">${escapeHtml(res.fleetToken)}</code>`;
@@ -500,12 +509,17 @@ export function renderKnownProblems() {
          <summary>${escapeHtml(t("legacyProblems"))}</summary>
          ${legacyArticle}
        </details>`;
+  // All green → just the checks; the how-to prose appears only when a check
+  // is actually red/amber (the old always-on advice read as "known problems"
+  // even on a perfectly healthy install).
+  const unhealthy = checks.some((c) => !isLegacy(c) && (c.kind === "bad" || c.kind === "warn"));
+  const advice = unhealthy
+    ? `<p>${escapeHtml(diagnostics.summary || "")}</p><p>${escapeHtml(diagnostics.fix || "")}</p>`
+    : "";
   $("knownProblems").innerHTML = `
     <article class="problem-item">
-      <h3>${escapeHtml(t("diagnostics"))}</h3>
-      <p>${escapeHtml(diagnostics.summary || "")}</p>
       <div class="diagnostic-list">${mainRows}</div>
-      <p>${escapeHtml(diagnostics.fix || "")}</p>
+      ${advice}
     </article>
     ${legacyBlock}
   `;

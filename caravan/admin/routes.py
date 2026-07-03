@@ -1320,6 +1320,16 @@ def _post_auth_users(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/auth/sessions/revoke')
 def _post_auth_sessions_revoke(h, parsed, body):
+        if body.get("others"):
+            from http import cookies as _ck
+            token = ""
+            try:
+                morsel = _ck.SimpleCookie(h.headers.get("Cookie") or "").get(auth_mod.SESSION_COOKIE)
+                token = morsel.value if morsel else ""
+            except Exception:
+                pass
+            h.send_json({"ok": True, "revoked": auth_mod.revoke_other_sessions(token)})
+            return
         auth_mod.revoke_session(str(body.get("id") or ""))
         h.send_json({"ok": True})
         return

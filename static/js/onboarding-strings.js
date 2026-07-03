@@ -29,7 +29,7 @@ export const TOUR_EN = {
   tourIxCellNewB: "Press <b>＋ Reserve cell</b> on a machine's card — the next free port (8001, 8002, …) is reserved fleet-wide. Then click the new cell and configure it: the editor picks the model, estimates memory and builds the exact llama-server command (it has its own detailed <b>?</b> tour). On client machines the model is downloaded from the controller's cache automatically. A <b>Command</b> cell runs any script instead — whisper, embeddings, whatever listens on $PORT.",
 
   tourIxModelsT: "Models on disk",
-  tourIxModelsB: "GGUF files the controller can serve. The <b>HF ↗</b> button opens the HuggingFace browser to download more — that page has its own <b>?</b> tour.",
+  tourIxModelsB: "GGUF files the controller can serve. The <b>HF ↗</b> button opens the HuggingFace browser to download more — that page has its own <b>?</b> tour.<br><br>Dropping files in manually? Any subfolder works, but the caravan layout keeps things tidy: <code>&lt;model-name&gt;/&lt;author&gt;/&lt;quant&gt;/file.gguf</code> — e.g. <code>gemma-4-12B-it-GGUF/bartowski/Q8_0/…</code>",
   tourIxCloudT: "Cloud providers",
   tourIxCloudB: "API-backed fallbacks (subscriptions or keys). Routes can spill over to them by rule or schedule when local servers are busy or down.",
   tourIxStatsT: "Usage & spend",
@@ -102,7 +102,7 @@ export const TOUR_RU = {
   tourIxCellNewB: "Нажмите <b>＋ Reserve cell</b> на карточке машины — следующий свободный порт (8001, 8002, …) резервируется на весь флот. Затем кликните новую ячейку и настройте её: редактор выбирает модель, считает память и собирает точную команду llama-server (внутри него — свой подробный тур по <b>?</b>). На клиентских машинах модель скачается из кэша контроллера сама. Ячейка <b>Command</b> запускает вместо llama любой скрипт — whisper, эмбеддинги, что угодно на $PORT.",
 
   tourIxModelsT: "Модели на диске",
-  tourIxModelsB: "GGUF-файлы, которые контроллер может раздавать. Кнопка <b>HF ↗</b> открывает браузер HuggingFace для загрузки новых — у той страницы свой тур по кнопке <b>?</b>.",
+  tourIxModelsB: "GGUF-файлы, которые контроллер может раздавать. Кнопка <b>HF ↗</b> открывает браузер HuggingFace для загрузки новых — у той страницы свой тур по кнопке <b>?</b>.<br><br>Кладёте файлы руками? Любая подпапка сработает, но раскладка каравана держит порядок: <code>&lt;имя-модели&gt;/&lt;автор&gt;/&lt;квант&gt;/файл.gguf</code> — например <code>gemma-4-12B-it-GGUF/bartowski/Q8_0/…</code>",
   tourIxCloudT: "Облачные провайдеры",
   tourIxCloudB: "Запасные маршруты через API (подписки или ключи). Маршруты могут переливаться в них по правилам или расписанию, когда локальные серверы заняты или лежат.",
   tourIxStatsT: "Расход и статистика",

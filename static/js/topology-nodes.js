@@ -853,6 +853,7 @@ export function renderModelsBar() {
       <span class="models-bar-label">${escapeHtml(t("topologyModelsLabel"))}</span>
       <code class="models-bar-path${dir ? "" : " models-bar-empty"}" title="${escapeHtml(dir)}">${escapeHtml(dirDisplay)}</code>
       <button class="models-bar-btn models-bar-edit" type="button" title="Edit models directory">✎</button>
+      <span class="inline-tip help-tip models-bar-tip" tabindex="0" aria-label="${escapeHtml(t("modelsLayoutHint"))}">?<span class="tooltip" role="tooltip">${escapeHtml(t("modelsLayoutHint"))}</span></span>
       <a class="models-bar-btn models-bar-hf" href="/hf" target="_blank" rel="noopener" title="HuggingFace Model Browser">HF ↗</a>`;
     el.querySelector(".models-bar-edit")?.addEventListener("click", () => {
       _modelsDirEditing = true;

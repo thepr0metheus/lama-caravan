@@ -114,6 +114,15 @@
       </h1>
     </div>
     <div class="actions">
+      <div class="user-chip" id="userChip" hidden>
+        <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false">
+          <span class="user-chip-ico">👤</span><span id="userChipName"></span><span class="lang-caret" aria-hidden="true">▾</span>
+        </button>
+        <div id="userMenu" class="user-menu" hidden>
+          <button id="userMenuSecurity" type="button" data-i18n="securitySection">Security</button>
+          <button id="userMenuLogout" type="button" data-i18n="authLogout">Log out</button>
+        </div>
+      </div>
       <button type="button" class="ob-btn-head" data-ob-tour>
         <span class="ob-q">?</span><span data-i18n="tourBtnLabel">Tour</span>
       </button>
@@ -744,6 +753,15 @@
       <button class="icon-action compact" id="systemInfoClose" aria-label="Close">✕</button>
     </div>
     <div class="system-info-body">
+      <section class="panel controller-panel">
+        <div class="section-title">
+          <h2 class="title-with-tip"><span data-i18n="controllerSection">Controller</span><span id="controllerSectionTip"></span></h2>
+          <div class="button-row">
+            <button id="modelGcBtn" type="button" data-i18n="gcOpen">Free up space…</button>
+          </div>
+        </div>
+        <div id="controllerInfo" class="llama-summary"><span class="muted">…</span></div>
+      </section>
       <section class="panel llama-panel">
         <div class="section-title">
           <h2 class="title-with-tip"><span data-i18n="llamaCpp">llama.cpp</span><span id="llamaCppTip"></span></h2>
@@ -754,15 +772,6 @@
         </div>
         <div id="llamaCppSummary" class="llama-summary"></div>
         <pre id="llamaUpdateLog" class="llama-update-log"></pre>
-      </section>
-      <section class="panel controller-panel">
-        <div class="section-title">
-          <h2 class="title-with-tip"><span data-i18n="controllerSection">Controller</span><span id="controllerSectionTip"></span></h2>
-          <div class="button-row">
-            <button id="modelGcBtn" type="button" data-i18n="gcOpen">Free up space…</button>
-          </div>
-        </div>
-        <div id="controllerInfo" class="llama-summary"><span class="muted">…</span></div>
       </section>
       <section class="panel security-panel">
         <div class="section-title">
@@ -775,7 +784,7 @@
       </section>
       <section class="panel problems-panel">
         <div class="section-title">
-          <h2 class="title-with-tip"><span data-i18n="knownProblems">Встреченные проблемы</span><span id="knownProblemsTip"></span></h2>
+          <h2 class="title-with-tip"><span data-i18n="diagSection">Diagnostics</span><span id="knownProblemsTip"></span></h2>
           <div class="button-row">
             <span class="button-with-tip"><button id="repairUserServiceBtn" type="button" data-i18n="repairUserService">Repair user service</button><span id="repairUserServiceTip"></span></span>
           </div>

@@ -61,6 +61,14 @@ that would have cost in cloud tokens.
 The long version of that day — with the kanban that implements it — lives in
 [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md).
 
+## Models directory layout
+
+`/hf` downloads land as `<model-name>/<author>/<quant>/<file>.gguf`, e.g.
+`gemma-4-12B-it-GGUF/bartowski/Q8_0/gemma-4-12B-it-Q8_0.gguf`. When adding
+models by hand, any subfolder under the models dir is scanned — but following
+the same layout keeps the model pickers, the disk-cleanup modal and
+multi-part grouping tidy (parts `…-00001-of-00004.gguf` belong together).
+
 ## Screenshots
 
 The live topology board — clients on the left, kanban routing in the middle,

@@ -226,6 +226,21 @@ def list_sessions() -> list:
              "lastSeen": r[3], "ip": r[4] or "", "ua": (r[5] or "")[:60]} for r in rows]
 
 
+def revoke_other_sessions(current_token: str) -> int:
+    """Kill every session except the caller's own; returns how many died."""
+    keep = hashlib.sha256(current_token.encode()).hexdigest() if current_token else ""
+    with _db() as conn:
+        rows = conn.execute("SELECT token_hash FROM sessions").fetchall()
+        killed = 0
+        for (th,) in rows:
+            if th == keep:
+                continue
+            conn.execute("DELETE FROM sessions WHERE token_hash=?", (th,))
+            _SESSION_CACHE.pop(th, None)
+            killed += 1
+    return killed
+
+
 def revoke_session(short_id: str) -> None:
     with _db() as conn:
         rows = conn.execute("SELECT token_hash FROM sessions").fetchall()

@@ -97,10 +97,31 @@ document.addEventListener("DOMContentLoaded", async () => {
     return;
   }
 
-  $("authLogoutBtn")?.addEventListener("click", async () => {
+  const doLogout = async () => {
     try { await api("/api/auth/logout", { method: "POST", body: "{}" }); } catch { /* ignore */ }
     window.location = "/login";
-  });
+  };
+  $("authLogoutBtn")?.addEventListener("click", doLogout);
+  // Header account chip: shown when sign-in is enabled; menu = Security / Log out.
+  api("/api/auth/me").then((me) => {
+    if (!me.enabled || !me.authenticated) return;
+    $("userChipName").textContent = me.user + (me.role === "viewer" ? " · viewer" : "");
+    $("userChip").hidden = false;
+    const menu = $("userMenu");
+    const closeMenu = () => { menu.hidden = true; $("userChipBtn").setAttribute("aria-expanded", "false"); };
+    $("userChipBtn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      menu.hidden = !menu.hidden;
+      $("userChipBtn").setAttribute("aria-expanded", String(!menu.hidden));
+    });
+    document.addEventListener("click", (e) => { if (!$("userChip").contains(e.target)) closeMenu(); });
+    $("userMenuLogout").addEventListener("click", doLogout);
+    $("userMenuSecurity").addEventListener("click", () => {
+      closeMenu();
+      openSystemInfoModal();
+      setTimeout(() => document.querySelector(".security-panel")?.scrollIntoView({ block: "start", behavior: "smooth" }), 150);
+    });
+  }).catch(() => {});
 
   // Remote llama-server modal buttons
   $("llamaRemoteEditStart")?.addEventListener("click", submitRemoteLlamaStart);

@@ -274,10 +274,21 @@ export function nodeRouteLabels(nodeId) {
       if (node.role === "controller") endpoints.add(`127.0.0.1:${s.port}`);
     }
   });
+  // Routers whose kanban outputs point at this node's cells: their routes can
+  // land here even when the route's STATIC upstream says otherwise (the graph
+  // resolves per request) — this is what makes client cards show traffic.
+  const routersTouching = new Set();
+  (topology?.routers || []).forEach((r) => {
+    if ((r.outputs || []).some((o) => endpoints.has(`${o.upstreamHost}:${o.upstreamPort}`))) {
+      routersTouching.add(String(r.id));
+    }
+  });
   const out = [];
   (topology?.proxies || []).forEach((p) => {
     if (String(p.upstreamType || "llama") === "cloud") return;       // cloud routes don't use a GPU
-    if (!endpoints.has(`${p.upstreamHost}:${p.upstreamPort}`)) return;
+    const direct = endpoints.has(`${p.upstreamHost}:${p.upstreamPort}`);
+    const viaGraph = p.routerId && routersTouching.has(String(p.routerId));
+    if (!direct && !viaGraph) return;
     const lbl = String(p.label || "").trim();
     if (lbl && !out.includes(lbl)) out.push(lbl);
   });
