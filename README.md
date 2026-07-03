@@ -223,6 +223,8 @@ state and are not the source deployment path.
 - Start/stop the controller cells via `systemd --user` template units
   (`lama-cell@<port>.service`).
 - Keep reserved/stopped cells visible as stable proxy/router upstream targets.
+- Per-cell schedule windows: start/stop cells by time of day and weekday
+  (nights on the big GPU, off during work hours) — set in the cell editor.
 
 ## Gemma 4 MTP Text Boost
 

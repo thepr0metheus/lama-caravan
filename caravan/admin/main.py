@@ -3,6 +3,7 @@ import os
 import threading
 from http.server import ThreadingHTTPServer
 
+from caravan.admin.cell_schedule import start_scheduler_thread
 from caravan.admin.monitoring import monitor_sampler_loop
 from caravan.admin.openclaw import (
     _queue_thresholds_refresh_loop,
@@ -48,6 +49,9 @@ def main():
     # Background refresh every 6 hours
     threading.Thread(target=_queue_thresholds_refresh_loop, daemon=True).start()
 
+    # Per-cell start/stop schedule windows (see caravan/admin/cell_schedule.py).
+    start_scheduler_thread()
+
     server = ThreadingHTTPServer((HOST, PORT), Handler)
-    print(f"llamacpp-easy-admin listening on http://{HOST}:{PORT}")
+    print(f"lama-caravan listening on http://{HOST}:{PORT}")
     server.serve_forever()

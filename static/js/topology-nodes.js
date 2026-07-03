@@ -262,6 +262,11 @@ export function nodeServerCardHtml(node, s) {
     ctxChip || slotCtxChip,
     benchChip,
   ].filter(Boolean).join("");
+  // Schedule chip: the cell is started/stopped by a time window.
+  const schedChip = (s.schedule && s.schedule.enabled)
+    ? mbadge("sched", `⏱ ${escapeHtml(s.schedule.start)}–${escapeHtml(s.schedule.stop)}`,
+             t("schedChipTitle"))
+    : "";
   const modelBlock = s.model ? `
     <div class="node-model-block" role="button" tabindex="0"
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
@@ -269,14 +274,14 @@ export function nodeServerCardHtml(node, s) {
         ${topologyModelIcon()}
         <strong class="node-model-name" title="${escapeHtml(s.modelPath || s.model)}">${escapeHtml(parsed.label || s.model)}</strong>
       </div>
-      ${statusRow || (chips ? `<div class="node-model-row2"><span class="model-chips">${chips}</span></div>` : "")}
+      ${statusRow || (chips || schedChip ? `<div class="node-model-row2"><span class="model-chips">${chips}${schedChip}</span></div>` : "")}
     </div>` : "";
   const emptyCellBlock = isReserved ? `
     <div class="node-model-block node-model-block-empty">
       <div class="node-model-row1">
         ${topologyModelIcon()}
         <strong class="node-model-name">:${escapeHtml(String(port))}</strong>
-        <span class="node-reserved-tag">${escapeHtml(t("topologyReservedCellLabel"))}</span>
+        <span class="node-reserved-tag">${escapeHtml(t("topologyReservedCellLabel"))}</span>${schedChip}
       </div>
       ${statusRow}
     </div>` : "";
@@ -289,7 +294,7 @@ export function nodeServerCardHtml(node, s) {
         <span class="node-cmd-icon" aria-hidden="true">⌘</span>
         <strong class="node-model-name" title="${escapeHtml(cmdText)}">${escapeHtml(cmdText || "command cell")}</strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${mbadge("cmd", "⌘ command")}${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${mbadge("cmd", "⌘ command")}${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
     </div>` : "";
   const bodyBlock = modelBlock || commandBlock || emptyCellBlock;
   // No model/command block to host the status (e.g. a bare stopped server) —

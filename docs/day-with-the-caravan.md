@@ -76,6 +76,9 @@ One agent port, drawn on `/kanban`:
 ```
 
 Nodes used: **queue** (admission + priorities), **schedule** (time windows),
+and since v1.1 the cells themselves can carry start/stop windows (the cell
+editor's Schedule panel) — so the night model literally turns itself on.
+Also:
 **request-size** fork, **failover** spill. Every edit hot-reloads in ~2 s.
 
 ## What the numbers say

@@ -476,6 +476,17 @@
             <div id="tr-backupInfo" class="backup-info"></div>
             <div id="tr-backups" class="backup-list"></div>
           </article>
+          <article class="panel" id="tr-schedulePanel" hidden>
+            <h2 class="topo-aside-title"><span data-i18n="schedTitle">Schedule</span></h2>
+            <label class="sched-enable"><input id="tr-schedEnabled" type="checkbox"> <span data-i18n="schedEnable">start/stop by window</span></label>
+            <div class="sched-times">
+              <label><span data-i18n="schedStart">on at</span> <input id="tr-schedStart" type="time" value="22:00"></label>
+              <label><span data-i18n="schedStop">off at</span> <input id="tr-schedStop" type="time" value="08:00"></label>
+            </div>
+            <div id="tr-schedDays" class="sched-days"></div>
+            <p class="field-note" data-i18n="schedHint">Overnight windows belong to their start day. A manual stop inside a window sticks until the next window opens.</p>
+            <p id="tr-schedStatus" class="field-note muted"></p>
+          </article>
           <article class="panel">
             <h2 class="topo-aside-title">Model cache</h2>
             <div id="tr-cacheList" style="margin-bottom:8px"></div>
@@ -603,6 +614,17 @@
             <div id="te-backupInfo" class="backup-info"></div>
             <div id="te-backups" class="backup-list"></div>
           </details>
+          <article class="panel" id="te-schedulePanel" hidden>
+            <h2 class="topo-aside-title"><span data-i18n="schedTitle">Schedule</span></h2>
+            <label class="sched-enable"><input id="te-schedEnabled" type="checkbox"> <span data-i18n="schedEnable">start/stop by window</span></label>
+            <div class="sched-times">
+              <label><span data-i18n="schedStart">on at</span> <input id="te-schedStart" type="time" value="22:00"></label>
+              <label><span data-i18n="schedStop">off at</span> <input id="te-schedStop" type="time" value="08:00"></label>
+            </div>
+            <div id="te-schedDays" class="sched-days"></div>
+            <p class="field-note" data-i18n="schedHint">Overnight windows belong to their start day. A manual stop inside a window sticks until the next window opens.</p>
+            <p id="te-schedStatus" class="field-note muted"></p>
+          </article>
           <article class="panel">
             <h2 class="topo-aside-title">Memory estimate</h2>
             <div id="te-asideVramBar"><span class="aside-vram-empty">Select a model to see estimate</span></div>

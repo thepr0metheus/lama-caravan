@@ -516,6 +516,85 @@ export let _trClientCpu = {};
 export let _trPurging = false; // true while cache purge is in flight → blocks Start
 export let _trCellPort = "";
 
+// ── Per-cell schedule panel (right rail of the cell editor) ──────────────────
+const SCHED_DAY_KEYS = ["dayMo", "dayTu", "dayWe", "dayTh", "dayFr", "daySa", "daySu"];
+let _schedSaveTimer = 0;
+const _schedWired = new Set();
+let _schedCtx = { pfx: "tr", hostId: "", port: 0 };
+
+function _schedRead(pfx) {
+  const days = [...document.querySelectorAll(`#${pfx}-schedDays [data-day]`)]
+    .filter((b) => b.classList.contains("on"))
+    .map((b) => Number(b.dataset.day));
+  return {
+    enabled: $(`${pfx}-schedEnabled`).checked,
+    start: $(`${pfx}-schedStart`).value || "22:00",
+    stop: $(`${pfx}-schedStop`).value || "08:00",
+    days,
+  };
+}
+
+function _schedQueueSave() {
+  const { pfx, hostId, port } = _schedCtx;
+  clearTimeout(_schedSaveTimer);
+  _schedSaveTimer = setTimeout(async () => {
+    try {
+      const res = await api("/api/topology/server-cell/schedule", {
+        method: "POST",
+        body: JSON.stringify({ hostId, port, schedule: _schedRead(pfx) }),
+      });
+      const sc = res.schedule || {};
+      $(`${pfx}-schedStatus`).textContent = sc.enabled
+        ? t("schedSaved", { start: sc.start, stop: sc.stop })
+        : t("schedOff");
+      refreshTopology().catch(() => {});
+    } catch (e) { toast(String(e)); }
+  }, 450);
+}
+
+export function renderSchedulePanel(pfx, hostId, cellPort, schedule) {
+  const panel = $(`${pfx}-schedulePanel`);
+  if (!panel) return;
+  // Панель имеет смысл только для сохранённой ячейки (slot существует).
+  panel.hidden = !cellPort;
+  if (!cellPort) return;
+  _schedCtx = { pfx, hostId, port: parseInt(cellPort, 10) };
+  const sc = schedule || {};
+  $(`${pfx}-schedEnabled`).checked = !!sc.enabled;
+  $(`${pfx}-schedStart`).value = sc.start || "22:00";
+  $(`${pfx}-schedStop`).value = sc.stop || "08:00";
+  const daysOn = new Set((sc.days || []).map(Number));
+  $(`${pfx}-schedDays`).innerHTML = SCHED_DAY_KEYS.map((k, i) =>
+    `<button type="button" class="sched-day${daysOn.size === 0 || daysOn.has(i) ? " on" : ""}${daysOn.size === 0 ? " implicit" : ""}" data-day="${i}">${escapeHtml(t(k))}</button>`).join("");
+  $(`${pfx}-schedStatus`).textContent = sc.enabled ? t("schedSaved", { start: sc.start, stop: sc.stop }) : "";
+  if (!_schedWired.has(pfx)) {
+    _schedWired.add(pfx);
+    $(`${pfx}-schedEnabled`).addEventListener("change", _schedQueueSave);
+    $(`${pfx}-schedStart`).addEventListener("change", _schedQueueSave);
+    $(`${pfx}-schedStop`).addEventListener("change", _schedQueueSave);
+    $(`${pfx}-schedDays`).addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-day]");
+      if (!b) return;
+      // Первый клик по "неявным всем дням" фиксирует явный выбор одного дня.
+      const implicit = $(`${pfx}-schedDays`).querySelector(".implicit");
+      if (implicit) {
+        document.querySelectorAll(`#${pfx}-schedDays [data-day]`).forEach((x) => x.classList.remove("on", "implicit"));
+        b.classList.add("on");
+      } else {
+        b.classList.toggle("on");
+      }
+      _schedQueueSave();
+    });
+  }
+}
+
+// Слот из текущей топологии для (hostId, port) — источник schedule.
+export function findSlotEntry(hostId, port) {
+  return ((topology?.server || {}).llamaServers || [])
+    .find((sv) => String(sv.port) === String(port) &&
+                  ((sv.clientId || "") === (hostId === "skynet" ? "" : hostId)));
+}
+
 export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") {
   _trHostId = hostId;
   _trClientGpus = Array.isArray(clientGpus) ? clientGpus : [];
@@ -556,6 +635,8 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
     });
     _trFormReady = true;
   }
+
+  renderSchedulePanel("tr", hostId, cellPort, findSlotEntry(hostId, cellPort)?.schedule);
 
   // Populate model dropdowns (same models as the controller since admin serves them)
   _trCachedModels = new Set(); // reset until the async fetch arrives

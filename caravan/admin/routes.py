@@ -74,6 +74,7 @@ from caravan.admin.paths import (
 from caravan.admin.state import admin_state, load_admin_state, save_admin_state, topology_store
 from caravan.admin.backups import backup_config, backups, delete_backup, resolve_backup_path, revert_latest
 from caravan import __version__ as APP_VERSION
+from caravan.admin.cell_schedule import set_cell_schedule
 from caravan.admin import auth as auth_mod
 from caravan.admin.status import controller_info, do_action, llama_cpp_info, models_disk, state, update_llama_cpp
 from caravan.admin.cell_ops import (
@@ -1078,6 +1079,11 @@ def _post_api_topology_server_slot_delete(h, parsed, body):
 @_route(POST_ROUTES, '/api/topology/server-cell/action')
 def _post_api_topology_server_cell_action(h, parsed, body):
         h.send_json(server_cell_action(body))
+        return
+
+@_route(POST_ROUTES, '/api/topology/server-cell/schedule')
+def _post_api_topology_server_cell_schedule(h, parsed, body):
+        h.send_json(set_cell_schedule(body))
         return
 
 @_route(POST_ROUTES, '/api/topology/server-cell/save-config')

@@ -9,6 +9,7 @@ import {
 } from "./command-preview.js";
 import { dirtyOptionalToggles, modelFields, numericFields, toggleFields } from "./constants.js";
 import { refreshFavoritesPanel } from "./favorites.js";
+import { findSlotEntry, renderSchedulePanel } from "./remote-cells.js";
 import {
   badge,
   mcUpdateTrigger,
@@ -124,6 +125,7 @@ export function syncTeModelsDirPreview() {
 
 export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
   _teCellPort = cellPort ? String(cellPort) : "";
+  renderSchedulePanel("te", "skynet", _teCellPort, findSlotEntry("skynet", _teCellPort)?.schedule);
   if (!teLlamaFormReady) {
     renderFields("te-");
     wireCellKindToggle("te-");
