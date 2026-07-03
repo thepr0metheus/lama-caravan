@@ -1,0 +1,107 @@
+"""Model-cache GC: find GGUFs on the controller's models disk that no cell
+references, and delete the ones the user picked.
+
+"Referenced" = mentioned by any server slot's saved config (MODEL_FILE /
+MMPROJ_FILE / SPEC_DRAFT_MODEL_FILE) or by the legacy start-server.sh config.
+Multi-part files (…-00001-of-00004.gguf) are grouped: if any part is
+referenced, every part is.
+"""
+import re
+import time
+from pathlib import Path
+
+from caravan.admin.config_builder import models_dir_from_config, parse_config
+from caravan.admin.state import topology_store
+from caravan.common.errors import AppError
+
+_PART_RE = re.compile(r"^(?P<stem>.+)-\d{5}-of-(?P<n>\d{5})\.gguf$", re.I)
+
+
+def _part_group(rel_path):
+    """Group key for multi-part ggufs: siblings share the group."""
+    match = _PART_RE.match(rel_path)
+    return f"{match.group('stem')}-*-of-{match.group('n')}.gguf" if match else rel_path
+
+
+def _referenced_relpaths():
+    refs = set()
+
+    def add(value):
+        v = str(value or "").strip().lstrip("/")
+        if v:
+            refs.add(v)
+
+    config = parse_config()
+    for key in ("MODEL_FILE", "MMPROJ_FILE", "SPEC_DRAFT_MODEL_FILE"):
+        add(config.get(key))
+    for slot in topology_store().get("serverSlots", {}).values():
+        cfg = slot.get("config") or {}
+        add(slot.get("model"))
+        for key in ("MODEL_FILE", "MMPROJ_FILE", "SPEC_DRAFT_MODEL_FILE"):
+            add(cfg.get(key))
+    return refs
+
+
+def list_unused_models():
+    """Every GGUF under the models dir, flagged referenced/unused."""
+    models_dir = models_dir_from_config(parse_config())
+    if not models_dir.is_dir():
+        return {"ok": False, "path": str(models_dir), "error": "models dir not found", "files": []}
+    refs = _referenced_relpaths()
+    ref_groups = {_part_group(r) for r in refs}
+    now = time.time()
+    files = []
+    for f in sorted(models_dir.rglob("*.gguf")):
+        try:
+            stat = f.stat()
+        except OSError:
+            continue
+        rel = str(f.relative_to(models_dir))
+        referenced = rel in refs or _part_group(rel) in ref_groups
+        files.append({
+            "path": rel,
+            "sizeBytes": stat.st_size,
+            "sizeGb": round(stat.st_size / 2**30, 2),
+            "ageDays": int((now - stat.st_mtime) // 86400),
+            "referenced": referenced,
+            "group": _part_group(rel),
+        })
+    unused = [f for f in files if not f["referenced"]]
+    return {
+        "ok": True,
+        "path": str(models_dir),
+        "files": files,
+        "unusedCount": len(unused),
+        "unusedGb": round(sum(f["sizeBytes"] for f in unused) / 2**30, 1),
+    }
+
+
+def delete_models(body):
+    """Delete the given relative paths — refusing anything referenced or
+    outside the models dir."""
+    paths = body.get("files")
+    if not isinstance(paths, list) or not paths:
+        raise AppError("files must be a non-empty list")
+    models_dir = models_dir_from_config(parse_config()).resolve()
+    refs = _referenced_relpaths()
+    ref_groups = {_part_group(r) for r in refs}
+    deleted, freed = [], 0
+    for rel in paths:
+        rel = str(rel or "").strip().lstrip("/")
+        if not rel.endswith(".gguf"):
+            raise AppError(f"not a gguf: {rel}")
+        target = (models_dir / rel).resolve()
+        if models_dir not in target.parents and target != models_dir:
+            raise AppError(f"path escapes the models dir: {rel}", 400)
+        if rel in refs or _part_group(rel) in ref_groups:
+            raise AppError(f"refusing to delete a referenced model: {rel}", 409)
+        try:
+            size = target.stat().st_size
+            target.unlink()
+            deleted.append(rel)
+            freed += size
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            raise AppError(f"delete failed for {rel}: {exc}", 500)
+    return {"ok": True, "deleted": deleted, "freedGb": round(freed / 2**30, 2)}

@@ -52,6 +52,17 @@ stay open).
 Regenerating (Security panel) invalidates the old token immediately — update
 every scout after.
 
+## Prometheus
+
+`GET /metrics` works with the fleet token when sign-in is on:
+
+```yaml
+scrape_configs:
+  - job_name: caravan
+    static_configs: [{ targets: ["controller:8090"] }]
+    authorization: { type: Bearer, credentials: "<fleet token>" }
+```
+
 ## What this does NOT cover
 
 - **Proxy ports** (`:81xx`) stay open: they are the data plane your agents

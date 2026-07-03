@@ -75,6 +75,8 @@ from caravan.admin.state import admin_state, load_admin_state, save_admin_state,
 from caravan.admin.backups import backup_config, backups, delete_backup, resolve_backup_path, revert_latest
 from caravan import __version__ as APP_VERSION
 from caravan.admin.cell_schedule import set_cell_schedule
+from caravan.admin.metrics import build_metrics_text
+from caravan.admin.model_gc import delete_models, list_unused_models
 from caravan.admin import auth as auth_mod
 from caravan.admin.status import controller_info, do_action, llama_cpp_info, models_disk, state, update_llama_cpp
 from caravan.admin.cell_ops import (
@@ -697,6 +699,21 @@ def _get_api_models_disk(h, parsed):
         h.send_json(models_disk())
         return
 
+@_route(GET_ROUTES, '/metrics')
+def _get_metrics(h, parsed):
+        data = build_metrics_text().encode("utf-8")
+        h.send_response(200)
+        h.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+        h.send_header("Content-Length", str(len(data)))
+        h.end_headers()
+        h.wfile.write(data)
+        return
+
+@_route(GET_ROUTES, '/api/models/unused')
+def _get_api_models_unused(h, parsed):
+        h.send_json(list_unused_models())
+        return
+
 @_route(GET_ROUTES, '/api/llamacpp')
 def _get_api_llamacpp(h, parsed):
         h.send_json(llama_cpp_info(fetch_remote=True))
@@ -1081,6 +1098,11 @@ def _post_api_topology_server_cell_action(h, parsed, body):
         h.send_json(server_cell_action(body))
         return
 
+@_route(POST_ROUTES, '/api/models/gc')
+def _post_api_models_gc(h, parsed, body):
+        h.send_json(delete_models(body))
+        return
+
 @_route(POST_ROUTES, '/api/topology/server-cell/schedule')
 def _post_api_topology_server_cell_schedule(h, parsed, body):
         h.send_json(set_cell_schedule(body))
@@ -1153,6 +1175,14 @@ def _auth_guard(h, path, method):
         return True
     machine = (method == "GET" and path in _AUTH_MACHINE_GET) or \
               (method == "POST" and path in _AUTH_MACHINE_POST)
+    if method == "GET" and path == "/metrics":
+        # Prometheus can't do cookies: accept the fleet token via either
+        # X-Caravan-Token or Authorization: Bearer (falls through to the
+        # session check so a logged-in browser can peek too).
+        bearer = (h.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+        if auth_mod.fleet_token_verify(h.headers.get("X-Caravan-Token") or "") or \
+           auth_mod.fleet_token_verify(bearer):
+            return True
     if machine:
         if auth_mod.fleet_token_verify(h.headers.get("X-Caravan-Token") or ""):
             return True

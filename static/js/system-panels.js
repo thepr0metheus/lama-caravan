@@ -193,6 +193,71 @@ export function openSystemInfoModal() {
   refreshSecurity();
 }
 
+// ── Models-disk GC modal ─────────────────────────────────────────────────────
+
+export async function openModelGcModal() {
+  const overlay = $("modelGcOverlay");
+  overlay.hidden = false;
+  $("modelGcList").innerHTML = `<span class="muted">…</span>`;
+  $("modelGcSummary").textContent = "";
+  $("modelGcSelected").textContent = "";
+  try {
+    const data = await api("/api/models/unused");
+    const unused = (data.files || []).filter((f) => !f.referenced)
+      .sort((a, b) => b.sizeBytes - a.sizeBytes);
+    $("modelGcSummary").textContent = t("gcSummary", {
+      path: data.path, count: String(data.unusedCount), gb: String(data.unusedGb) });
+    if (!unused.length) {
+      $("modelGcList").innerHTML = `<p class="muted">${escapeHtml(t("gcNoUnused"))}</p>`;
+      return;
+    }
+    $("modelGcList").innerHTML = unused.map((f) => `
+      <label class="model-gc-row">
+        <input type="checkbox" data-gc-file="${escapeHtml(f.path)}" data-gc-size="${f.sizeBytes}">
+        <span class="model-gc-name" title="${escapeHtml(f.path)}">${escapeHtml(f.path)}</span>
+        <span class="model-gc-meta">${f.sizeGb} GB · ${f.ageDays}d</span>
+      </label>`).join("");
+    const updateSel = () => {
+      const picked = [...document.querySelectorAll("[data-gc-file]:checked")];
+      const gb = picked.reduce((a, el) => a + Number(el.dataset.gcSize), 0) / 2 ** 30;
+      $("modelGcSelected").textContent = picked.length
+        ? `${picked.length} · ${gb.toFixed(1)} GB` : "";
+    };
+    $("modelGcList").addEventListener("change", updateSel);
+  } catch (err) {
+    $("modelGcList").innerHTML = `<p class="muted">${escapeHtml(String(err.message || err))}</p>`;
+  }
+}
+
+export function bindModelGc() {
+  $("modelGcBtn")?.addEventListener("click", openModelGcModal);
+  $("modelGcClose")?.addEventListener("click", () => { $("modelGcOverlay").hidden = true; });
+  $("modelGcOverlay")?.addEventListener("click", (e) => {
+    if (e.target === $("modelGcOverlay")) $("modelGcOverlay").hidden = true;
+  });
+  $("modelGcSelectAll")?.addEventListener("click", () => {
+    document.querySelectorAll("[data-gc-file]").forEach((el) => { el.checked = true; });
+    $("modelGcList").dispatchEvent(new Event("change"));
+  });
+  $("modelGcDelete")?.addEventListener("click", async () => {
+    const files = [...document.querySelectorAll("[data-gc-file]:checked")].map((el) => el.dataset.gcFile);
+    if (!files.length) return;
+    if (!(await appConfirm(t("gcConfirm", { count: String(files.length) }), { confirmLabel: t("gcDelete") }))) return;
+    const btn = $("modelGcDelete");
+    btn.disabled = true; btn.classList.add("btn-busy");
+    try {
+      const res = await api("/api/models/gc", { method: "POST", body: JSON.stringify({ files }) });
+      toast(t("gcFreed", { gb: String(res.freedGb) }));
+      openModelGcModal();
+      api("/api/controller-info").then(renderControllerInfo).catch(() => {});
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      btn.disabled = false; btn.classList.remove("btn-busy");
+    }
+  });
+}
+
 // ── Security panel: accounts, sessions, fleet token ─────────────────────────
 
 export function refreshSecurity() {

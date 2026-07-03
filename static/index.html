@@ -721,6 +721,22 @@
     <div id="incidentsModalBody" class="incidents-modal-body"></div>
   </div>
 </div>
+<div id="modelGcOverlay" class="modal-overlay" hidden>
+  <div class="modal model-gc-modal" role="dialog" aria-modal="true" aria-label="Model cache cleanup">
+    <div class="modal-head-row">
+      <strong data-i18n="gcTitle">Models disk cleanup</strong>
+      <button class="icon-action compact" id="modelGcClose" aria-label="Close">✕</button>
+    </div>
+    <p class="muted" id="modelGcSummary">…</p>
+    <div id="modelGcList" class="model-gc-list"></div>
+    <div class="button-row model-gc-foot">
+      <button id="modelGcSelectAll" type="button" data-i18n="gcSelectAll">Select all unused</button>
+      <span id="modelGcSelected" class="muted"></span>
+      <button id="modelGcDelete" type="button" class="danger" data-i18n="gcDelete">Delete selected</button>
+    </div>
+  </div>
+</div>
+
 <div id="systemInfoOverlay" class="modal-overlay" hidden>
   <div class="modal system-info-modal" role="dialog" aria-modal="true" aria-label="System info">
     <div class="modal-head-row">
@@ -742,6 +758,9 @@
       <section class="panel controller-panel">
         <div class="section-title">
           <h2 class="title-with-tip"><span data-i18n="controllerSection">Controller</span><span id="controllerSectionTip"></span></h2>
+          <div class="button-row">
+            <button id="modelGcBtn" type="button" data-i18n="gcOpen">Free up space…</button>
+          </div>
         </div>
         <div id="controllerInfo" class="llama-summary"><span class="muted">…</span></div>
       </section>

@@ -35,6 +35,7 @@ import { purgeRemoteModelCache, submitRemoteLlamaStart } from "./remote-cells.js
 import { rebindProxyRouter } from "./routers.js";
 import { topology, ui } from "./state.js";
 import {
+  bindModelGc,
   checkLlamaCpp,
   closeSystemInfoModal,
   openRepairUserServiceModal,
@@ -120,6 +121,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("repairUserServiceBtn").addEventListener("click", () => openRepairUserServiceModal());
   // System info modal (llama.cpp build + Known Problems, moved out of Classic)
   $("systemInfoBtn")?.addEventListener("click", openSystemInfoModal);
+  bindModelGc();
   $("usageStatsBtn")?.addEventListener("click", openUsageStatsModal);
 
   $("systemInfoClose")?.addEventListener("click", closeSystemInfoModal);
