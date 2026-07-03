@@ -95,7 +95,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
             pass
         write_proxy_event("blocked", route_label=route.get("label") or "", request_id=request_id,
                           item={"id": request_id, "route": route.get("label") or "",
-                                "port": route.get("port"), "reason": "unauthorized:bad-api-key"})
+                                "port": route.get("port"), "reason": "unauthorized:bad-api-key",
+                                "client": self.client_address[0] if self.client_address else ""})
 
     def proxy(self):
         request_id = f"{time.time_ns()}-{threading.get_ident()}"
