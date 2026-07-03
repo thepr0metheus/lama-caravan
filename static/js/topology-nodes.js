@@ -389,7 +389,7 @@ export function nodeServerCardHtml(node, s) {
         ${lifecycleBar}
         ${bodyBlock
           ? (isReserved
-              ? `<div class="node-server-body">${bodyBlock}</div>${progressPanel}`
+              ? `<div class="node-server-body">${bodyBlock}${(() => `<div class="topology-runtime-panel llama ghost-slots"><div class="topology-runtime-slots-head"><strong>${escapeHtml(t("topologySlots"))} <span class="topology-muted">1</span></strong></div><div class="topology-runtime-slots slot-chips-row"><span class="slot-chip idle"></span></div></div>`)()}</div>${progressPanel}`
               : `<div class="node-server-body">${bodyBlock}${topologyRuntimePanelHtml(topologyServerGroup(s))}</div>${progressPanel}`)
           : progressPanel}
         ${isError && s.lastError ? (() => {
@@ -438,7 +438,7 @@ export function nodeServerCardHtml(node, s) {
       </div>
       ${bodyBlock
         ? (isReserved
-            ? `<div class="node-server-body">${bodyBlock}</div>${progressPanel}`
+            ? `<div class="node-server-body">${bodyBlock}${(() => `<div class="topology-runtime-panel llama ghost-slots"><div class="topology-runtime-slots-head"><strong>${escapeHtml(t("topologySlots"))} <span class="topology-muted">1</span></strong></div><div class="topology-runtime-slots slot-chips-row"><span class="slot-chip idle"></span></div></div>`)()}</div>${progressPanel}`
             : `<div class="node-server-body">${bodyBlock}${topologyRuntimePanelHtml(topologyServerGroup(s))}</div>${progressPanel}`)
         : progressPanel}
       ${isError && s.lastError ? (() => {

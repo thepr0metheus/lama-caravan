@@ -186,6 +186,8 @@ export function nextTopologyCellPort() {
 export async function reserveServerCell(hostId, portHint = "") {
   const hostKey = String(hostId || "");
   const pendingPort = Number(portHint || nextTopologyCellPort() || 0);
+  if (!(await appConfirm(t("dlgReserveCell", { port: String(pendingPort || "?") }),
+                         { danger: false, confirmLabel: t("topologyReserveCellLabel"), scene: "change" }))) return;
   if (hostKey && pendingPort) {
     _reservingCells.set(hostKey, { port: pendingPort, startedAt: Date.now() });
     renderTopology();
@@ -790,6 +792,10 @@ export async function submitRemoteLlamaStart() {
   const gpuLayers      = parseInt(config.N_GPU_LAYERS || "999", 10);
   const ctxSize        = parseInt(config.CTX_SIZE || "4096", 10);
   const cacheModels    = !!$("tr-cacheModels")?.checked;
+  const _startMsg = isCommand || !modelPath
+    ? t("dlgStartPort", { port: String(port) })
+    : t("dlgStartModel", { model: modelPath.split("/").pop(), port: String(port) });
+  if (!(await appConfirm(_startMsg, { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;
   if (isCommand) {
     if (!(config.COMMAND || "").trim()) { toast("Enter a command"); return; }
   } else if (!modelPath) { toast("Select a model"); return; }

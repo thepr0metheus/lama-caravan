@@ -179,7 +179,11 @@
      between models/states. Empty reserved blocks stay compact (override below). */
   min-height: 69px;
 }
-.node-model-block.node-model-block-empty { min-height: 0; }
+.node-model-block.node-model-block-empty { min-height: 69px; }
+/* Reserved cells show a dimmed draft of the SLOTS panel so the card silhouette
+   matches configured cells (same rhythm before and after configuration). */
+.ghost-slots { opacity: .5; }
+.ghost-slots .slot-chip.idle { min-width: 100%; }
 .node-model-block:hover { border-color: color-mix(in srgb, var(--accent,#6ea8fe) 45%, transparent); background: color-mix(in srgb, var(--accent,#6ea8fe) 7%, transparent); }
 /* Row 1: icon + name */
 .node-model-row1 { display:flex; align-items:center; gap:7px; min-width:0; }
