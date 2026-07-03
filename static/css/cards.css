@@ -870,6 +870,11 @@ button.llama-edit-head:hover .llama-edit-pencil {
   stroke: var(--accent);
   stroke-width: 4;
   stroke-dasharray: 10 7;
+  /* Static brightness parity with .router (0.8): the base .topology-cable
+     opacity is 0.36 and the pulse animation is the only thing that raised it,
+     so an active client→router cable read as "not highlighted" whenever the
+     animation didn't kick in (redraws, reduced motion). */
+  opacity: 0.95;
   animation:
     topologyCablePulse 2.2s ease-in-out infinite,
     topologyCableFlow 100s ease-in-out infinite;
@@ -895,6 +900,7 @@ button.llama-edit-head:hover .llama-edit-pencil {
   stroke: color-mix(in srgb, var(--accent) 82%, #dbeafe);
   stroke-width: 3.2;
   stroke-dasharray: 12 9;
+  opacity: 0.95;
 }
 
 .topology-cable.proxy.priority,

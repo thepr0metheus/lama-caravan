@@ -742,3 +742,15 @@
   box-shadow: 0 6px 24px rgba(0,0,0,.45);
 }
 #hfToast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Models-disk headroom badge in the header */
+.hf-disk-badge {
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+.hf-disk-badge.low { color: #e8b464; border-color: #8a6a30; }
+.hf-disk-badge.critical { color: #ec7063; border-color: #8a3030; font-weight: 600; }

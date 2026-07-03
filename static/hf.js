@@ -1018,7 +1018,38 @@ function refreshDownloadPanel() {
   }
 }
 
+// ── models-disk headroom: header badge + pre-download fit check ─────────────
+let _diskInfo = null;
+async function refreshDiskInfo() {
+  try {
+    _diskInfo = await fetch("/api/models/disk").then(r => r.json());
+  } catch (_) { _diskInfo = null; }
+  const el = document.getElementById("hfDiskBadge");
+  if (!el) return;
+  if (!_diskInfo || !_diskInfo.ok) { el.hidden = true; return; }
+  const free = _diskInfo.freeGb;
+  el.hidden = false;
+  el.textContent = `disk: ${free} GB free`;
+  el.title = `${_diskInfo.path} — ${free} GB free of ${_diskInfo.totalGb} GB`;
+  el.classList.toggle("low", free < 50);
+  el.classList.toggle("critical", free < 15);
+}
+
+// Returns true when the download should proceed. Blocks with a confirm()
+// when the selection clearly does not fit (sizes are known from the file
+// list; +5 GB slack for the .tmp copy during multi-part assembly).
+function diskFitCheck(files) {
+  if (!_diskInfo || !_diskInfo.ok) return true;
+  const needGb = files.reduce((a, f) => a + (Number(f.size) || 0), 0) / 2 ** 30 + 5;
+  const freeGb = Number(_diskInfo.freeGb) || 0;
+  if (needGb <= freeGb) return true;
+  return confirm(
+    `This download needs ~${needGb.toFixed(1)} GB but the models disk has only `
+    + `${freeGb} GB free (${_diskInfo.path}).\n\nFree up space first (or press OK to try anyway).`);
+}
+
 async function startDownload(repoId, files, payload) {
+  if (!diskFitCheck(files)) return;
   const job = {
     // Full repo id, not just the model name — concurrent jobs for the same
     // model from different authors must be distinguishable in the panel.
@@ -1424,6 +1455,8 @@ async function loadRefModels(force = false) {
 // ── init ──────────────────────────────────────────────────────────────────────
 
 const _initLoads = [loadTokenStatus(), loadFavs(), restoreDlJobs()];
+refreshDiskInfo();
+setInterval(refreshDiskInfo, 60_000);
 renderRefSection();
 // Пиксельный лоадер (inline в hf.html) прячем, когда стартовые данные пришли.
 Promise.allSettled(_initLoads).then(() => window.__plHide?.());

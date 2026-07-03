@@ -75,7 +75,7 @@ from caravan.admin.state import admin_state, load_admin_state, save_admin_state,
 from caravan.admin.backups import backup_config, backups, delete_backup, resolve_backup_path, revert_latest
 from caravan import __version__ as APP_VERSION
 from caravan.admin import auth as auth_mod
-from caravan.admin.status import controller_info, do_action, llama_cpp_info, state, update_llama_cpp
+from caravan.admin.status import controller_info, do_action, llama_cpp_info, models_disk, state, update_llama_cpp
 from caravan.admin.cell_ops import (
     client_server_slot_add,
     client_server_slot_delete,
@@ -689,6 +689,11 @@ def _get_api_raw_start_server(h, parsed):
 @_route(GET_ROUTES, '/api/controller-info')
 def _get_api_controller_info(h, parsed):
         h.send_json(controller_info())
+        return
+
+@_route(GET_ROUTES, '/api/models/disk')
+def _get_api_models_disk(h, parsed):
+        h.send_json(models_disk())
         return
 
 @_route(GET_ROUTES, '/api/llamacpp')

@@ -1,0 +1,49 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: py_compile (whole tree)
+        run: python3 -m py_compile $(git ls-files '*.py')
+
+      - name: queue node unit test
+        run: python3 scripts/test_queue_node.py
+
+      - name: JS syntax (ES modules)
+        run: |
+          set -e
+          for f in $(git ls-files 'static/js/*.js' 'static/*.js'); do
+            cp "$f" /tmp/check.mjs
+            node --check /tmp/check.mjs || { echo "FAIL $f"; exit 1; }
+          done
+
+      - name: boot smoke (admin serves)
+        run: |
+          set -e
+          export LLAMA_ADMIN_STATE=/tmp/ci/admin.json
+          export AGENT_PROXY_CONFIG_FILE=/tmp/ci/agent-proxies.json
+          export AGENT_PROXY_STATE_FILE=/tmp/ci/agent-proxy-state.json
+          export TOKEN_HISTORY_FILE=/tmp/ci/token-history.json
+          export CLOUD_PROVIDERS_FILE=/tmp/ci/cloud-providers.json
+          export LLAMA_MONITOR_HISTORY=/tmp/ci/monitor-history.json
+          export LLAMA_CLIENT_LABELS_FILE=/tmp/ci/client-labels.json
+          mkdir -p /tmp/ci
+          python3 app.py &
+          for i in $(seq 1 30); do
+            curl -sf -o /dev/null http://127.0.0.1:8090/api/auth/me && break
+            sleep 1
+          done
+          curl -sf -o /dev/null http://127.0.0.1:8090/api/auth/me
+          curl -sf -o /dev/null http://127.0.0.1:8090/
+          curl -sf -o /dev/null http://127.0.0.1:8090/api/state
+          echo "smoke OK"

@@ -55,6 +55,20 @@ def _unit_brief(unit):
         "since": props.get("ExecMainStartTimestamp", ""),
     }
 
+def models_disk():
+    """Cheap disk headroom for the models dir (the /hf page badge + the
+    pre-download check) — no systemctl calls, unlike controller_info()."""
+    import shutil
+    config = parse_config()
+    models_dir = models_dir_from_config(config)
+    try:
+        usage = shutil.disk_usage(str(models_dir))
+        return {"ok": True, "path": str(models_dir),
+                "totalGb": round(usage.total / 2**30, 1),
+                "freeGb": round(usage.free / 2**30, 1)}
+    except OSError as exc:
+        return {"ok": False, "path": str(models_dir), "error": str(exc)}
+
 def controller_info():
     """The Controller card in the System modal: what THIS host runs (admin +
     proxy services, cell units, app git, python) and whether the models disk
