@@ -30,7 +30,7 @@ message broker, no build step.
                         ▲ heartbeats / node control (HTTP)                 ▲ proxied traffic
                         │                                                  │
         ┌── client hosts (your machines)    ──┐            OpenClaw agents (per host)      
-        │ llm-easy-route-agent (:8092)        │            → their local proxy port :81xx
+        │ caravan-scout (:8092)               │            → their local proxy port :81xx
         │ · local llama cells / model cache   │
         │ · POSTs /api/topology/client-heartbeat
         │ whisper_server.py (command cells)   │
@@ -42,7 +42,7 @@ message broker, no build step.
 | Admin server (`caravan/admin`) | controller `:8090` | UI + API: fleet topology, launch configs, HF model browser, monitors, cloud accounts, queue thresholds. See [backend-admin.md](backend-admin.md). |
 | Proxy daemon (`caravan/proxy`) | controller `:8101+` (one port per route) | OpenAI-compatible reverse proxy per agent: admission queue, priority preemption, router DAG, cloud fallback, protocol translation. See [backend-proxy.md](backend-proxy.md). |
 | Server cells | controller + clients | Per-port llama-server instances. Controller cells run under `lama-cell@<port>.service` from generated `var/server-cells/<port>/start.sh`; client cells are managed remotely through the route-agent. |
-| Route-agent (`llm-easy-route-agent`, separate repo) | each client `:8092` | Publishes the host's llama nodes/GPUs to the admin (heartbeat) and executes start/stop/config/cache commands on behalf of the admin. |
+| Route-agent (`caravan-scout`, formerly `llm-easy-route-agent`, separate repo) | each client `:8092` | Publishes the host's llama nodes/GPUs to the admin (heartbeat) and executes start/stop/config/cache commands on behalf of the admin. |
 | Whisper server (`whisper/whisper_server.py`) | any host | Example "command cell": an arbitrary server managed like a llama cell, with a health endpoint that reports download/load progress. |
 | Frontend (`static/`) | served by admin | Topology board, standalone kanban/router canvas, HF browser. Native ES modules. See [frontend.md](frontend.md). |
 | OpenClaw config managers | your hosts `:5005` | External agents' config source; the admin syncs per-agent `wait_timeout` from them and computes queue thresholds. |
@@ -137,5 +137,5 @@ Import layering inside `caravan/` is strict and cycle-free (see the backend
 references); the frontend has an equivalent rule set around ES-module live
 bindings. The HTTP surface is listed in [http-api.md](http-api.md); day-2
 operations live in [operations.md](operations.md). Client hosts run the
-companion `llm-easy-route-agent` sidecar (published separately), which
+companion `caravan-scout` sidecar (formerly `llm-easy-route-agent`, published separately), which
 manages local llama cells and reports heartbeats to this controller.

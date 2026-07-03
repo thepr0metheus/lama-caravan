@@ -197,7 +197,7 @@ It does not delete models or old profiles.
 - `POST /api/action` - service action. Body: `{ "action": "start|stop|restart" }`.
 - `POST /api/revert` - restore the latest `start-server.sh.bak.*`.
 - `POST /api/topology/client-heartbeat` - receive heartbeat from
-  `llm-easy-route-agent` on client hosts.
+  `caravan-scout` (formerly `llm-easy-route-agent`) on client hosts.
 - `POST /api/topology/assignments` - store desired `agent -> proxy` routes and
   push them to the registered client route agent when available.
 
@@ -215,7 +215,7 @@ Topology state is stored in the admin state file:
 ~/.local/state/llamacpp-easy-admin/admin.json
 ```
 
-Client hosts run `llm-easy-route-agent` and heartbeat into:
+Client hosts run `caravan-scout` and heartbeat into:
 
 ```text
 POST http://<controller-ip>:8090/api/topology/client-heartbeat
@@ -233,7 +233,7 @@ executors and report applied state.
 In the `Topology` view, set the connection role to `Primary` or `Fallback`, then
 drag a client agent card onto a proxy port card. The UI stores the desired
 assignment in the admin state and immediately calls the registered
-`llm-easy-route-agent` on that client host. Holding Shift while dropping forces
+`caravan-scout` on that client host. Holding Shift while dropping forces
 the dropped route to `Fallback`.
 
 ## Install llama.cpp
@@ -280,7 +280,7 @@ rejected when it was passed to `cudaFuncSetAttribute`.
 
 `install-llama.sh` detects `sm_120` GPUs and **automatically applies the fix** — a
 minimal single-file patch that queries `cudaDeviceGetAttribute` instead of the
-bad struct field. No code change is needed in `llm-easy-route-agent` —
+bad struct field. No code change is needed in `caravan-scout` —
 they don't run CUDA code; each Blackwell host just needs `llama.cpp` rebuilt via
 this script.
 

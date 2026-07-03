@@ -192,11 +192,11 @@ bash scripts/install-llama.sh --force      # rebuilds llama.cpp with the patches
 
 ---
 
-## 6. Scope: do the client hosts or `llm-easy-route-agent` need a code change?
+## 6. Scope: do the client hosts or `caravan-scout` need a code change?
 
 **No.** The bug lives entirely in the **`llama-server` CUDA backend** (`ggml-cuda`). Neither component runs CUDA code:
 
-- **`llm-easy-route-agent`** (per-client host) only starts/stops/proxies `llama-server` processes and reports status. It spawns the binary; it does not touch the GPU.
+- **`caravan-scout`** (per-client host) only starts/stops/proxies `llama-server` processes and reports status. It spawns the binary; it does not touch the GPU.
 - The orchestration/config layer over the agents runs on a client host.
 
 The "rare crashes with the same model" seen elsewhere were **the same llama.cpp CUDA bug**, observed through different cells/hosts. The remediation is therefore **operational, not a code change in those services**:
