@@ -214,6 +214,13 @@ export function closeTopologyLlamaEdit() {
 }
 
 export async function saveTopologyLlamaConfig(restart) {
+  const btn = $("topologyLlamaEditSaveRestart");
+  const orig = btn ? btn.textContent : "";
+  if (btn) {
+    btn.textContent = restart ? t("topologyClientGpuStarting") : t("savingConfig");
+    btn.disabled = true;
+    btn.classList.add("btn-busy");
+  }
   try {
     const config = readConfigForm("te-");
     const data = await api("/api/config", {
@@ -226,6 +233,12 @@ export async function saveTopologyLlamaConfig(restart) {
     toast(restart ? t("savedRestarted") : t("saved"));
   } catch (err) {
     toast(err.message);
+  } finally {
+    if (btn) {
+      btn.textContent = orig;
+      btn.disabled = false;
+      btn.classList.remove("btn-busy");
+    }
   }
 }
 

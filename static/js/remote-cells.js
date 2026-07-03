@@ -206,8 +206,14 @@ export async function reserveServerCell(hostId, portHint = "") {
         if (!topologyInteractionActive()) renderTopology();
       }, 1400);
     }
+    // Keep the spinner up until the new cell is actually ON the board —
+    // clearing it on the API reply left a dead gap while the heavier
+    // /api/topology refetch was still in flight ("the UI hung").
+    try {
+      await refreshTopology();
+    } catch { /* poll will catch up */ }
     _reservingCells.delete(hostKey);
-    refreshTopology().catch(() => {});
+    if (!topologyInteractionActive()) renderTopology();
   } catch (e) {
     _reservingCells.delete(hostKey);
     renderTopology();
@@ -702,8 +708,9 @@ export async function submitRemoteLlamaStart() {
   if (_trCellPort) {
     const btn = $("llamaRemoteEditStart");
     const orig = btn.textContent;
-    btn.textContent = "Сохраняется…";
+    btn.textContent = t("savingConfig");
     btn.disabled = true;
+    btn.classList.add("btn-busy");
     try {
       await api("/api/topology/server-cell/save-config", {
         method: "POST",
@@ -711,12 +718,20 @@ export async function submitRemoteLlamaStart() {
       });
       $("llamaRemoteEditOverlay").hidden = true;
       toast(t("saved"));
+      // Pulse the cell card so the eye lands where the chip flips to CONFIGURED.
+      const key = `${_trHostId}:${port}`;
+      _newReservedCells.add(key);
+      setTimeout(() => {
+        _newReservedCells.delete(key);
+        if (!topologyInteractionActive()) renderTopology();
+      }, 2600);
       refreshTopology().catch(() => {});
     } catch (e) {
       toast(String(e));
     } finally {
       btn.textContent = orig;
       btn.disabled = false;
+      btn.classList.remove("btn-busy");
     }
     return;
   }
@@ -725,6 +740,7 @@ export async function submitRemoteLlamaStart() {
   const orig = btn.textContent;
   btn.textContent = t("topologyClientGpuStarting");
   btn.disabled = true;
+  btn.classList.add("btn-busy");
   try {
     const result = await api("/api/topology/client-llama/start", {
       method: "POST",
@@ -775,6 +791,7 @@ export async function submitRemoteLlamaStart() {
   } finally {
     btn.textContent = orig;
     btn.disabled = false;
+    btn.classList.remove("btn-busy");
   }
 }
 

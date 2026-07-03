@@ -196,6 +196,11 @@ def parse_value(raw):
     return raw
 
 def parse_config():
+    # Fresh installs have no legacy single-server layout (~/llama.cpp/
+    # start-server.sh) — the board must still come up: server cells don't
+    # need it. Missing script => empty config instead of a 500 on /api/state.
+    if not START_SCRIPT.exists():
+        return {}
     return parse_config_from_text(read_text(START_SCRIPT))
 
 def parse_config_from_text(text, source="text"):

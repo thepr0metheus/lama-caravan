@@ -233,14 +233,20 @@ export function renderSecurity(sec) {
     });
     return;
   }
-  const users = (sec.users || []).map((u) => `
+  const users = (sec.users || []).map((u) => {
+    const role = u.role || "admin";
+    const target = role === "admin" ? "viewer" : "admin";
+    return `
     <div class="diagnostic-row">
-      <span>${escapeHtml(u.username)}${u.username === sec.user ? " · " + escapeHtml(t("authYou")) : ""}</span>
+      <span>${escapeHtml(u.username)}${u.username === sec.user ? " · " + escapeHtml(t("authYou")) : ""}
+        <em class="auth-role ${role}">${escapeHtml(role === "viewer" ? t("authRoleViewer") : "admin")}</em></span>
       <strong>
+        <button class="mini-btn" data-auth-role="${escapeHtml(u.username)}:${target}" title="${escapeHtml(t("authToggleRole"))}">→ ${escapeHtml(target)}</button>
         <button class="mini-btn" data-auth-passwd="${escapeHtml(u.username)}">${escapeHtml(t("authSetPassword"))}</button>
         <button class="mini-btn danger" data-auth-del="${escapeHtml(u.username)}">✕</button>
       </strong>
-    </div>`).join("");
+    </div>`;
+  }).join("");
   const sessions = (sec.sessions || []).map((sess) => `
     <div class="diagnostic-row">
       <span>${escapeHtml(sess.username)} · ${escapeHtml(sess.ip || "?")}</span>
@@ -255,6 +261,10 @@ export function renderSecurity(sec) {
     <form id="authAddForm" class="auth-form">
       <input id="authAddUser" placeholder="${escapeHtml(t("authUsername"))}" autocomplete="off">
       <input id="authAddPass" type="password" placeholder="${escapeHtml(t("authPassword"))}" autocomplete="new-password">
+      <select id="authAddRole">
+        <option value="admin">admin</option>
+        <option value="viewer">${escapeHtml(t("authRoleViewer"))}</option>
+      </select>
       <button type="submit">${escapeHtml(t("authAddUser"))}</button>
     </form>
     <h3 class="security-sub">${escapeHtml(t("authSessions"))}</h3>
@@ -271,11 +281,20 @@ export function renderSecurity(sec) {
     ev.preventDefault();
     try {
       await api("/api/auth/users", { method: "POST", body: JSON.stringify({
-        action: "create", username: $("authAddUser").value.trim(), password: $("authAddPass").value }) });
+        action: "create", username: $("authAddUser").value.trim(), password: $("authAddPass").value,
+        role: $("authAddRole").value }) });
       toast(t("saved"));
       refreshSecurity();
     } catch (err) { toast(err.message); }
   });
+  el.querySelectorAll("[data-auth-role]").forEach((b) => b.addEventListener("click", async () => {
+    const [user, role] = b.dataset.authRole.split(":");
+    try {
+      await api("/api/auth/users", { method: "POST", body: JSON.stringify({
+        action: "set-role", username: user, role }) });
+      refreshSecurity();
+    } catch (err) { toast(err.message); }
+  }));
   el.querySelectorAll("[data-auth-del]").forEach((b) => b.addEventListener("click", async () => {
     try {
       await api("/api/auth/users", { method: "POST", body: JSON.stringify({

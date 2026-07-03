@@ -826,3 +826,32 @@ button.cmd-dirty::after {
 }
 .mini-btn:hover { color: var(--text); border-color: var(--accent); }
 .mini-btn.danger:hover { color: #ec7063; border-color: #ec7063; }
+
+.auth-role {
+  font-style: normal; font-size: 10.5px; padding: 1px 7px; border-radius: 999px;
+  margin-left: 6px; border: 1px solid var(--line); color: var(--muted);
+}
+.auth-role.viewer { color: #e8b464; border-color: #8a6a30; }
+.auth-form select {
+  background: var(--bg); color: var(--text); border: 1px solid var(--line);
+  border-radius: 7px; padding: 7px 10px; font-size: 13px;
+}
+
+/* Busy state for submit buttons (Применить / Start): inline spinner + lock */
+.btn-busy {
+  position: relative;
+  pointer-events: none;
+  opacity: 0.85;
+}
+.btn-busy::after {
+  content: "";
+  display: inline-block;
+  width: 11px; height: 11px;
+  margin-left: 8px;
+  vertical-align: -1px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: btnBusySpin 0.7s linear infinite;
+}
+@keyframes btnBusySpin { to { transform: rotate(360deg); } }

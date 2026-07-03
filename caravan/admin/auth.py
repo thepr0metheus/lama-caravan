@@ -49,6 +49,9 @@ def _db():
         last_seen INTEGER NOT NULL, ip TEXT, ua TEXT)""")
     conn.execute("""CREATE TABLE IF NOT EXISTS meta (
         key TEXT PRIMARY KEY, value TEXT NOT NULL)""")
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+    if "role" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'")
     if fresh:
         try:
             os.chmod(AUTH_DB, 0o600)
@@ -72,8 +75,11 @@ def _hash_password(password: str, salt: bytes, iters: int = PBKDF2_ITERS) -> byt
     return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iters)
 
 
-def create_user(username: str, password: str) -> dict:
+def create_user(username: str, password: str, role: str = "admin") -> dict:
     username = str(username or "").strip()
+    role = str(role or "admin").strip().lower()
+    if role not in ("admin", "viewer"):
+        raise AppError("role must be admin or viewer")
     if not username or len(username) > 64:
         raise AppError("username is required (max 64 chars)")
     if len(password or "") < 8:
@@ -83,12 +89,28 @@ def create_user(username: str, password: str) -> dict:
     try:
         with _db() as conn:
             conn.execute(
-                "INSERT INTO users (username, salt, hash, iters, created_at) VALUES (?,?,?,?,?)",
-                (username, salt, digest, PBKDF2_ITERS, int(time.time())))
+                "INSERT INTO users (username, salt, hash, iters, created_at, role) VALUES (?,?,?,?,?,?)",
+                (username, salt, digest, PBKDF2_ITERS, int(time.time()), role))
     except sqlite3.IntegrityError:
         raise AppError(f"user {username} already exists", 409)
     _ENABLED_CACHE[0] = None
-    return {"username": username}
+    return {"username": username, "role": role}
+
+def set_role(username: str, role: str) -> None:
+    role = str(role or "").strip().lower()
+    if role not in ("admin", "viewer"):
+        raise AppError("role must be admin or viewer")
+    with _db() as conn:
+        if role == "viewer":
+            admins = conn.execute(
+                "SELECT COUNT(*) FROM users WHERE role='admin' AND username != ?",
+                (username,)).fetchone()[0]
+            if admins == 0:
+                raise AppError("cannot demote the last admin", 400)
+        cur = conn.execute("UPDATE users SET role=? WHERE username=?", (role, username))
+        if cur.rowcount == 0:
+            raise AppError(f"no such user: {username}", 404)
+    _SESSION_CACHE.clear()
 
 
 def set_password(username: str, password: str) -> None:
@@ -119,8 +141,8 @@ def delete_user(username: str) -> None:
 
 def list_users() -> list:
     with _db() as conn:
-        rows = conn.execute("SELECT username, created_at FROM users ORDER BY id").fetchall()
-    return [{"username": r[0], "createdAt": r[1]} for r in rows]
+        rows = conn.execute("SELECT username, created_at, role FROM users ORDER BY id").fetchall()
+    return [{"username": r[0], "createdAt": r[1], "role": r[2] or "admin"} for r in rows]
 
 
 def verify_login(username: str, password: str, ip: str = "") -> dict:
@@ -131,7 +153,7 @@ def verify_login(username: str, password: str, ip: str = "") -> dict:
     with _db() as conn:
         row = conn.execute(
             "SELECT id, username, salt, hash, iters FROM users WHERE username=?",
-            (str(username or "").strip(),)).fetchone()
+            (str(username or "").strip(),)).fetchone()  # role resolved per-session
     ok = False
     if row:
         ok = hmac.compare_digest(_hash_password(password or "", row[2], row[4]), row[3])
@@ -159,10 +181,10 @@ def create_session(user_id: int, ip: str = "", ua: str = "") -> str:
     return token
 
 
-def validate_session(token: str) -> str:
-    """Return the username for a live session token, or '' if invalid."""
+def validate_session(token: str) -> dict:
+    """Return {'user': name, 'role': role} for a live session, or {} if invalid."""
     if not token:
-        return ""
+        return {}
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     now = time.time()
     cached = _SESSION_CACHE.get(token_hash)
@@ -170,17 +192,18 @@ def validate_session(token: str) -> str:
         return cached[0]
     with _db() as conn:
         row = conn.execute(
-            """SELECT s.last_seen, s.expires_at, u.username FROM sessions s
+            """SELECT s.last_seen, s.expires_at, u.username, u.role FROM sessions s
                JOIN users u ON u.id = s.user_id WHERE s.token_hash=?""",
             (token_hash,)).fetchone()
         if not row or row[1] < now:
             _SESSION_CACHE.pop(token_hash, None)
-            return ""
+            return {}
         if now - row[0] > 60:
             conn.execute("UPDATE sessions SET last_seen=? WHERE token_hash=?",
                          (int(now), token_hash))
-    _SESSION_CACHE[token_hash] = (row[2], now + 5)
-    return row[2]
+    info = {"user": row[2], "role": row[3] or "admin"}
+    _SESSION_CACHE[token_hash] = (info, now + 5)
+    return info
 
 
 def delete_session(token: str) -> None:
@@ -246,14 +269,15 @@ def fleet_token_verify(candidate: str) -> bool:
 
 # ── request-side helpers (used by the dispatcher) ────────────────────────────
 
-def session_from_handler(handler) -> str:
+def session_from_handler(handler) -> dict:
+    """{'user','role'} for the request's cookie session, or {}."""
     raw = handler.headers.get("Cookie") or ""
     try:
         jar = http_cookies.SimpleCookie(raw)
         morsel = jar.get(SESSION_COOKIE)
-        return validate_session(morsel.value) if morsel else ""
+        return validate_session(morsel.value) if morsel else {}
     except Exception:
-        return ""
+        return {}
 
 
 def session_cookie_header(token: str, clear: bool = False) -> str:
@@ -333,21 +357,22 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="python3 -m caravan.admin.auth")
     sub = parser.add_subparsers(dest="cmd", required=True)
     p_create = sub.add_parser("create-user"); p_create.add_argument("username")
+    p_create.add_argument("--role", choices=["admin", "viewer"], default="admin")
     p_pass = sub.add_parser("set-password"); p_pass.add_argument("username")
     sub.add_parser("list")
     sub.add_parser("fleet-token")
     args = parser.parse_args(argv)
     if args.cmd == "create-user":
         password = getpass.getpass("Password (min 8 chars): ")
-        create_user(args.username, password)
-        print(f"user {args.username} created; auth is now ON")
+        create_user(args.username, password, role=args.role)
+        print(f"user {args.username} ({args.role}) created; auth is now ON")
         print(f"fleet token (put into each scout's config as controllerToken): {fleet_token_ensure()}")
     elif args.cmd == "set-password":
         set_password(args.username, getpass.getpass("New password: "))
         print("password updated")
     elif args.cmd == "list":
         for u in list_users():
-            print(u["username"])
+            print(u["username"], "·", u["role"])
         print(f"auth enabled: {auth_enabled()}")
     elif args.cmd == "fleet-token":
         print(fleet_token_ensure())

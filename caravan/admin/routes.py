@@ -1152,7 +1152,12 @@ def _auth_guard(h, path, method):
             return True
         h.send_json({"error": "fleet token required (X-Caravan-Token)"}, 401)
         return False
-    if auth_mod.session_from_handler(h):
+    sess = auth_mod.session_from_handler(h)
+    if sess:
+        # viewer = read-only: every GET, nothing mutating (logout excepted).
+        if sess.get("role") == "viewer" and method != "GET" and path != "/api/auth/logout":
+            h.send_json({"error": "read-only account"}, 403)
+            return False
         return True
     if method == "GET" and (path == "/" or not path.startswith("/api/")):
         # Pages redirect to the login form; API calls get a plain 401.
@@ -1178,9 +1183,10 @@ def _get_login(h, parsed):
 
 @_route(GET_ROUTES, '/api/auth/me')
 def _get_auth_me(h, parsed):
-        user = auth_mod.session_from_handler(h)
+        sess = auth_mod.session_from_handler(h)
         h.send_json({"enabled": auth_mod.auth_enabled(),
-                     "authenticated": bool(user), "user": user})
+                     "authenticated": bool(sess),
+                     "user": sess.get("user", ""), "role": sess.get("role", "")})
         return
 
 @_route(POST_ROUTES, '/api/auth/login')
@@ -1242,9 +1248,11 @@ def _post_auth_logout(h, parsed, body):
 
 @_route(GET_ROUTES, '/api/auth/overview')
 def _get_auth_overview(h, parsed):
+        sess = auth_mod.session_from_handler(h)
         h.send_json({
             "enabled": auth_mod.auth_enabled(),
-            "user": auth_mod.session_from_handler(h),
+            "user": sess.get("user", ""),
+            "role": sess.get("role", ""),
             "users": auth_mod.list_users(),
             "sessions": auth_mod.list_sessions(),
             "fleetTokenSet": bool(auth_mod.fleet_token_get()),
@@ -1256,7 +1264,12 @@ def _post_auth_users(h, parsed, body):
         action = str(body.get("action") or "create")
         if action == "create":
             h.send_json({"ok": True, **auth_mod.create_user(
-                str(body.get("username") or ""), str(body.get("password") or ""))})
+                str(body.get("username") or ""), str(body.get("password") or ""),
+                role=str(body.get("role") or "admin"))})
+            return
+        if action == "set-role":
+            auth_mod.set_role(str(body.get("username") or ""), str(body.get("role") or ""))
+            h.send_json({"ok": True})
             return
         if action == "delete":
             auth_mod.delete_user(str(body.get("username") or ""))
