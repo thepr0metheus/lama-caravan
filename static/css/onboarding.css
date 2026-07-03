@@ -1,0 +1,135 @@
+/* ── Onboarding tour: floating "?" button + spotlight overlay ─────────────── */
+
+.ob-btn {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 105;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--line, #2a2e3b);
+  background: var(--panel, #171a22);
+  color: var(--muted, #9aa3b2);
+  font: 700 19px/1 var(--font-ui, system-ui, sans-serif);
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+.ob-btn:hover {
+  color: var(--text, #e6e6ea);
+  border-color: var(--accent, #4a7dbd);
+  transform: scale(1.06);
+}
+.ob-btn-pulse {
+  animation: ob-pulse 2.2s ease-out infinite;
+}
+@keyframes ob-pulse {
+  0%   { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 0 0 color-mix(in srgb, var(--accent, #4a7dbd) 55%, transparent); }
+  60%  { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 0 14px transparent; }
+  100% { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ob-btn-pulse { animation: none; }
+}
+
+.ob-root {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  pointer-events: none;
+}
+
+/* Spotlight: transparent window; the giant shadow dims everything else. */
+.ob-spot {
+  position: fixed;
+  border-radius: 10px;
+  box-shadow: 0 0 0 9999px rgba(4, 8, 14, 0.62);
+  border: 2px solid var(--accent, #4a7dbd);
+  transition: left 0.28s ease, top 0.28s ease, width 0.28s ease, height 0.28s ease;
+  pointer-events: none;
+}
+.ob-spot-center { border-color: transparent; }
+
+.ob-card {
+  position: fixed;
+  pointer-events: auto;
+  background: var(--panel, #171a22);
+  color: var(--text, #e6e6ea);
+  border: 1px solid var(--line, #2a2e3b);
+  border-radius: 12px;
+  padding: 16px 18px 12px;
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.55);
+  transition: left 0.28s ease, top 0.28s ease;
+  max-height: 72vh;
+  display: flex;
+  flex-direction: column;
+}
+.ob-title {
+  margin: 0 22px 8px 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+.ob-body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted, #9aa3b2);
+  overflow-y: auto;
+}
+.ob-body b, .ob-body strong { color: var(--text, #e6e6ea); }
+.ob-body code {
+  background: color-mix(in srgb, var(--line, #2a2e3b) 45%, transparent);
+  border-radius: 4px;
+  padding: 0 4px;
+  font-size: 12px;
+  color: var(--text, #e6e6ea);
+  word-break: break-all;
+}
+.ob-body ul { margin: 6px 0; padding-left: 18px; }
+.ob-body li { margin: 3px 0; }
+.ob-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted, #9aa3b2);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.ob-close:hover { color: var(--text, #e6e6ea); background: color-mix(in srgb, var(--line, #2a2e3b) 50%, transparent); }
+.ob-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 12px;
+}
+.ob-count { font-size: 11.5px; color: var(--muted, #9aa3b2); }
+.ob-nav { display: flex; gap: 8px; }
+.ob-back, .ob-next {
+  border-radius: 7px;
+  padding: 6px 13px;
+  font-size: 12.5px;
+  cursor: pointer;
+  border: 1px solid var(--line, #2a2e3b);
+  background: transparent;
+  color: var(--muted, #9aa3b2);
+}
+.ob-back:hover { color: var(--text, #e6e6ea); }
+.ob-next {
+  background: var(--accent, #4a7dbd);
+  border-color: var(--accent, #4a7dbd);
+  color: #fff;
+  font-weight: 600;
+}
+.ob-next:hover { filter: brightness(1.12); }
+
+@media (max-width: 640px) {
+  .ob-btn { right: 12px; bottom: 12px; }
+  .ob-card { max-height: 62vh; }
+}

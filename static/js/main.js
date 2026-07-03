@@ -28,6 +28,7 @@ import {
 } from "./llama-edit.js";
 import { refreshComputeTarget } from "./memory.js";
 import { fetchModelPricing, fetchProxyDailyStats } from "./model-meta.js";
+import { initOnboarding } from "./onboarding-tours.js";
 import { action, bindMonitorDrawer, loadState, startTopologyMonitor } from "./polling.js";
 import { refreshRouteErrBadges } from "./topology-activity.js";
 import { purgeRemoteModelCache, submitRemoteLlamaStart } from "./remote-cells.js";
@@ -88,6 +89,7 @@ function initRouterStandalonePage() {
 document.addEventListener("DOMContentLoaded", async () => {
   applyLanguage();
   applyTheme();
+  initOnboarding();
 
   if (window.ROUTER_STANDALONE) {
     initRouterStandalonePage();

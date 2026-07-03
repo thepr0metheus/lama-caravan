@@ -159,6 +159,19 @@ then calls `renderAll()`). `applyLanguage()` walks the `data-i18n` attribute fam
 - Owns: `lang`, `theme`, the language dropdown.
 - Key exports: `t`, `fieldHelp`, `labelWithTip`, `helpTip`, `applyLanguage`, `applyTheme`, `setupLangSelect`.
 
+## onboarding.js / onboarding-tours.js / onboarding-strings.js
+
+Onboarding tours behind the floating `?` button (bottom-right on all three
+pages). `onboarding.js` is the dependency-free engine (spotlight overlay +
+card, keyboard nav, skips steps whose anchor is missing/hidden, auto-start
+once per page via `caravanTourSeen:<page>` in localStorage) — hf.js reuses it
+without pulling i18n-data. `onboarding-tours.js` declares the board, config
+editor (te-/tr- modal, picked automatically when one is open) and kanban
+tours; `onboarding-strings.js` holds the EN/RU texts and is merged into
+`messages` at import (other languages fall back to English via `t()`).
+
+- Key exports: `createTour`, `mountTourButton`, `autoStartOnce` (engine); `initOnboarding` (tours).
+
 ## state.js
 
 See "State model" above. 35 lines; read them.

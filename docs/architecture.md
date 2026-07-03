@@ -124,7 +124,7 @@ caravan/
 ├── admin/                 admin server (30 modules)   → docs/backend-admin.md
 └── proxy/                 proxy daemon (14 modules)   → docs/backend-proxy.md
 static/
-├── js/                    29 ES modules (entry main.js) → docs/frontend.md
+├── js/                    32 ES modules (entry main.js) → docs/frontend.md
 ├── css/                   9 cascade-ordered stylesheets
 └── index.html / kanban.html / hf.html / hf.js
 scripts/                   install/start scripts, queue-node unit tests, refactor tooling

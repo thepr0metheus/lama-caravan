@@ -1435,3 +1435,60 @@ if (_urlQ) {
 } else {
   searchInput.focus();
 }
+
+// ── onboarding tour (?) ───────────────────────────────────────────────────────
+// The engine is dependency-free; strings live here so this page keeps NOT
+// importing the big i18n dictionary. RU + EN; the language follows the main
+// app's localStorage key.
+import { autoStartOnce, createTour, mountTourButton } from "/js/onboarding.js";
+
+const HF_TOUR = {
+  en: {
+    btn: "How to use this page",
+    next: "Next →", back: "← Back", done: "Done", skip: "Close",
+    steps: [
+      [null, "HuggingFace model browser",
+       "Search HuggingFace for <b>GGUF</b> models and download them straight to the controller's models directory — they become available to every llama server cell.<br><br>Navigate with <b>→</b>/<b>←</b>, close with <b>Esc</b>."],
+      [".hf-search", "Search",
+       "Type a repo name (<code>bartowski/Qwen3-…-GGUF</code>) or free words. Only GGUF repositories are shown."],
+      ["#hfRepoCol", "Repositories",
+       "Pick a repository — stars, downloads and benchmark badges help choose. ★ favorites stay on top."],
+      ["#hfFileCol", "Files & quants",
+       "Every GGUF in the repo with its size. Pick a quantization that fits your VRAM (the board's editor shows a fit estimate) and press download; multi-part files are handled automatically."],
+      [".hf-token-row", "HF token",
+       "Needed only for gated or private repos. Stored on the controller, never in the browser."],
+    ],
+  },
+  ru: {
+    btn: "Как пользоваться этой страницей",
+    next: "Дальше →", back: "← Назад", done: "Готово", skip: "Закрыть",
+    steps: [
+      [null, "Браузер моделей HuggingFace",
+       "Ищите на HuggingFace <b>GGUF</b>-модели и скачивайте их прямо в каталог моделей контроллера — они станут доступны всем llama-ячейкам.<br><br>Навигация: <b>→</b>/<b>←</b>, закрыть — <b>Esc</b>."],
+      [".hf-search", "Поиск",
+       "Введите имя репозитория (<code>bartowski/Qwen3-…-GGUF</code>) или просто слова. Показываются только GGUF-репозитории."],
+      ["#hfRepoCol", "Репозитории",
+       "Выберите репозиторий — помогут звёзды, загрузки и бейджи бенчмарков. ★ избранное всегда сверху."],
+      ["#hfFileCol", "Файлы и кванты",
+       "Все GGUF репозитория с размерами. Выберите квант под вашу VRAM (оценку «влезет ли» покажет редактор на доске) и жмите download; многочастные файлы склеиваются сами."],
+      [".hf-token-row", "HF-токен",
+       "Нужен только для gated/приватных репозиториев. Хранится на контроллере, не в браузере."],
+    ],
+  },
+};
+
+function hfTourStrings() {
+  const lang = localStorage.getItem("llamacppAdminLang") || "en";
+  return HF_TOUR[lang] || HF_TOUR.en;
+}
+
+function hfStartTour() {
+  const s = hfTourStrings();
+  createTour({
+    steps: () => s.steps.map(([anchor, title, body]) => ({ anchor, title, body, center: !anchor })),
+    labels: { next: s.next, back: s.back, done: s.done, skip: s.skip },
+  }).start();
+}
+
+mountTourButton({ title: hfTourStrings().btn, onClick: hfStartTour });
+autoStartOnce("hf", () => !document.getElementById("appLoader"), hfStartTour);

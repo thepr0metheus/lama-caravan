@@ -124,6 +124,9 @@ state and are not the source deployment path.
 - Explain what each parameter controls.
 - Show local llama.cpp version/build metadata and guarded update/build actions.
 - Switch between light, dark, and black LLM-focused themes.
+- Built-in onboarding tours (the floating `?` button) on the board, the kanban
+  and the HF browser — auto-run on the first visit, re-runnable anytime; with
+  the server editor open the same button explains the llama.cpp config fields.
 - Show Gemma 4 MTP/speculative decoding state in the Runtime panel.
 - Reserve globally numbered server cells starting at port `8001`.
 - Generate per-cell `cell.json` and `start.sh` launch artifacts.
