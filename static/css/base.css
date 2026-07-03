@@ -2,6 +2,7 @@
   color-scheme: dark;
   --bg: #11171a;
   --panel: #182125;
+  --surface: var(--panel);  /* alias: the page shells (system/models/hf) build on it */
   --text: #e7eef1;
   --muted: #9aa9b0;
   --line: #2a3a40;

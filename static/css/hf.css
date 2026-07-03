@@ -757,8 +757,15 @@
 
 /* ── "on disk" manager: downloaded-models tree overlay ─────────────────────── */
 .hf-ondisk-btn {
-  background: var(--surface); color: var(--text);
-  border: 1px solid var(--line); border-radius: 8px;
-  font-size: 12px; padding: 3px 10px; cursor: pointer; white-space: nowrap;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  color: var(--text); font-weight: 650;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line));
+  border-radius: 8px; font-size: 12px; padding: 4px 12px;
+  cursor: pointer; white-space: nowrap;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 40%, transparent);
+  transition: box-shadow .15s ease, background .15s ease;
 }
-.hf-ondisk-btn:hover { border-color: var(--accent); }
+.hf-ondisk-btn:hover {
+  background: color-mix(in srgb, var(--accent) 30%, var(--surface));
+  box-shadow: 0 0 10px 0 color-mix(in srgb, var(--accent) 30%, transparent);
+}

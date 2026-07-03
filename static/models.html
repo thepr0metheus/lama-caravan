@@ -71,6 +71,9 @@
     }
     .mdl-panel-head { display: flex; align-items: center; gap: 10px; }
     .mdl-panel-head .mdl-path { color: var(--muted); font-size: 11.5px; font-family: ui-monospace, Menlo, monospace; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mdl-path-edit { display: flex; gap: 8px; align-items: center; }
+    .mdl-path-edit input { flex: 1; min-width: 0; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px;
+      background: var(--field); border: 1px solid var(--line); border-radius: 8px; color: var(--text); padding: 6px 10px; }
     .mdl-tree { overflow: auto; font-size: 12.5px; }
     .mdl-tree details { margin: 2px 0; }
     .mdl-tree summary {
@@ -151,7 +154,13 @@
     <section class="mdl-panel">
       <div class="mdl-panel-head">
         <span class="mdl-path" id="mdlPath"></span>
+        <button class="mini-link" type="button" id="mdlPathEdit" title="Edit models directory">✎</button>
         <button class="mini-link" type="button" id="mdlSelectAll" data-i18n="gcSelectAll">Select all unused</button>
+      </div>
+      <div class="mdl-path-edit" id="mdlPathEditRow" hidden>
+        <input id="mdlPathInput" placeholder="/path/to/models" autocomplete="off" spellcheck="false">
+        <button class="mini-link" type="button" id="mdlPathSave" data-i18n="save">Save</button>
+        <button class="mini-link" type="button" id="mdlPathCancel" data-i18n="cancel">Cancel</button>
       </div>
       <div class="mdl-tree" id="mdlTree"><p class="muted">…</p></div>
       <div class="mdl-foot">

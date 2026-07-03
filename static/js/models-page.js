@@ -132,6 +132,38 @@ document.addEventListener("DOMContentLoaded", () => {
     if (e.key === "Escape" && !$("confirmOverlay").hidden) settleAppConfirm(false);
   });
 
+  // Models-dir editing: same contract as the board's MODELS bar — /api/config
+  // replaces the WHOLE saved config, so merge over the current one (fetched
+  // at save time; it is the only consumer of the heavy /api/state here).
+  $("mdlPathEdit").addEventListener("click", () => {
+    $("mdlPathInput").value = $("mdlPath").textContent.trim();
+    $("mdlPathEditRow").hidden = false;
+    $("mdlPathInput").focus();
+  });
+  $("mdlPathCancel").addEventListener("click", () => { $("mdlPathEditRow").hidden = true; });
+  $("mdlPathInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); $("mdlPathSave").click(); }
+    if (e.key === "Escape") { e.preventDefault(); $("mdlPathCancel").click(); }
+  });
+  $("mdlPathSave").addEventListener("click", async () => {
+    const newPath = $("mdlPathInput").value.trim();
+    if (!newPath) return;
+    const btn = $("mdlPathSave");
+    btn.disabled = true; btn.classList.add("btn-busy");
+    try {
+      const st = await api("/api/state");
+      const config = Object.assign({}, st.config || {}, { LLAMA_MODELS_DIR: newPath });
+      await api("/api/config", { method: "POST", body: JSON.stringify({ config, restart: false }) });
+      $("mdlPathEditRow").hidden = true;
+      toast(t("saved"));
+      await refresh();
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      btn.disabled = false; btn.classList.remove("btn-busy");
+    }
+  });
+
   $("mdlTree").addEventListener("change", updatePicked);
   $("mdlSelectAll").addEventListener("click", () => {
     document.querySelectorAll("#mdlTree input[data-del-path]").forEach((el) => { el.checked = true; });
