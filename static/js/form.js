@@ -832,6 +832,20 @@ export function maybeAutofillModelHelpersPfx(pfx) {
   const modelVal = $(pfx + "MODEL_FILE")?.value || "";
   const selected = modelsByPath().get(modelVal);
 
+  // ALIAS — derive from the model file name while the field is empty or still
+  // holds exactly a previous auto-fill (tracked in data-auto-alias); anything
+  // the user or a saved config typed there wins and is never overwritten.
+  const aliasEl = $(pfx + "ALIAS");
+  if (aliasEl && modelVal) {
+    const cur = aliasEl.value.trim();
+    if (!cur || cur === aliasEl.dataset.autoAlias) {
+      const derived = modelVal.split("/").pop()
+        .replace(/\.gguf$/i, "").replace(/-\d{5}-of-\d{5}$/i, "").toLowerCase();
+      aliasEl.value = derived;
+      aliasEl.dataset.autoAlias = derived;
+    }
+  }
+
   // MMPROJ — always overwrite (clear if none found).
   const mmprojEl = $(pfx + "MMPROJ_FILE");
   if (mmprojEl) {

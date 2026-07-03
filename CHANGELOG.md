@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.1 — 2026-07-03
+
+- Config editor: ALIAS auto-fills from the model file name when the field is
+  empty (shards/extension stripped, lowercased); a custom alias is never
+  overwritten and re-selecting a model refreshes only auto-filled values.
+- Confirm dialogs: the start scene is now a rocket launch — the llama presses
+  the button, the rocket ignites, lifts off and leaves smoke on the pad.
+
 ## 1.1.0 — 2026-07-03
 
 - Sign-in: SQLite accounts (admin/viewer), sessions, fleet token for scouts,

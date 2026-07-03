@@ -1,7 +1,7 @@
 // Animated pixel llamas for the shared confirm dialog (#confirmOverlay).
 // Scene kinds: "delete" — the llama stomps a crate flat (a fresh one slides
-// in, loop); "change" — it nose-flips a big toggle; "start" — it steps
-// between a green and a red button, pressing them with a front paw.
+// in, loop); "change" — it nose-flips a big toggle; "start" — it presses the
+// launch button and a little rocket ignites and lifts off the pad.
 // The kind comes from overlay.dataset.dlgScene (set by appConfirm/appPrompt
 // opts.scene) or falls back by tone: danger→delete, ask→change. Colors are
 // re-rolled from the loader palette on every open, so the llama differs.
@@ -94,16 +94,33 @@ function crate(state) {
   }
   return px;
 }
-function buttons(lit) {
+// start scene: launch button (paw tip lands on it at x13) + rocket on a pad.
+// stage: "idle" | "lit" (button pressed) | "ignite" | "up1" | "up2" | "gone".
+// cool steel tones so the hull never matches a llama body (those are all warm)
+const FL1 = "#ffd75e", FL2 = "#f0a44a", SMOKE = "#9aa5a8", ROCK1 = "#dfe9f2", ROCK2 = "#9fb4c4", RRED = "#c4574e";
+function rocketPad(stage) {
   const px = [];
-  const G = lit === "g" ? "#3fae6a" : "#2f6b46", R = lit === "r" ? "#e05555" : "#7d3030";
-  // green pad x13..15, red pad x17..19 — a paw tip at x13 presses green;
-  // the llama hops +4em so the same tip lands at x17 on red.
-  [[13, 11], [14, 11], [15, 11], [17, 11], [18, 11], [19, 11]].forEach(([x, y]) => px.push([x, y, "#20282c"]));
-  [[13, 10], [14, 10], [15, 10]].forEach(([x, y]) => px.push([x, y, G]));
-  [[17, 10], [18, 10], [19, 10]].forEach(([x, y]) => px.push([x, y, R]));
-  if (lit === "g") px.push([13, 9, "#baf3c9"], [14, 8, "#baf3c9"], [15, 9, "#baf3c9"]);
-  if (lit === "r") px.push([17, 9, "#f6c0ba"], [18, 8, "#f6c0ba"], [19, 9, "#f6c0ba"]);
+  const lit = stage === "lit";
+  // launch button x12..14 (base y11, cap y10) + glow when pressed
+  [[12, 11], [13, 11], [14, 11]].forEach(([x, y]) => px.push([x, y, "#20282c"]));
+  [[12, 10], [13, 10], [14, 10]].forEach(([x, y]) => px.push([x, y, lit ? "#3fae6a" : "#2f6b46"]));
+  if (lit) px.push([12, 9, "#baf3c9"], [13, 8, "#baf3c9"], [14, 9, "#baf3c9"]);
+  // pad x16..20 with two legs — stays behind after liftoff
+  [[16, 11], [17, 11], [18, 11], [19, 11], [20, 11]].forEach(([x, y]) => px.push([x, y, "#20282c"]));
+  px.push([16, 10, CRATE2], [20, 10, CRATE2]);
+  if (stage === "gone") {   // smoke puffs + a dot of exhaust far up
+    px.push([16, 9, SMOKE], [18, 10, SMOKE], [20, 9, SMOKE], [17, 8, SMOKE], [19, 8, SMOKE], [18, 0, FL2]);
+    return px;
+  }
+  const dy = stage === "up1" ? -1 : stage === "up2" ? -2 : 0;
+  // rocket: body x17..19 y5..9, red nose cone, fins, porthole
+  for (let y = 5; y <= 9; y += 1) for (let x = 17; x <= 19; x += 1) px.push([x, y + dy, x === 18 ? ROCK1 : ROCK2]);
+  px.push([17, 4 + dy, RRED], [18, 4 + dy, RRED], [19, 4 + dy, RRED], [18, 3 + dy, RRED]);
+  px.push([16, 9 + dy, RRED], [20, 9 + dy, RRED]);
+  px.push([18, 6 + dy, "#4f8fd0"]);
+  if (stage === "ignite") px.push([18, 10, FL1], [17, 10, FL2], [19, 10, FL2]);
+  if (stage === "up1") px.push([18, 9, FL1], [17, 9, FL2], [19, 9, FL2], [18, 10, FL2]);
+  if (stage === "up2") px.push([18, 8, FL1], [17, 8, FL2], [19, 8, FL2], [18, 9, FL2], [16, 10, SMOKE], [20, 10, SMOKE]);
   return px;
 }
 function toggle(side, accent) {
@@ -170,10 +187,12 @@ function timeline(kind, accent) {
   }
   if (kind === "start") {
     return [
-      ["press", propShadow(buttons("g")), 0, false],
-      ["standA", propShadow(buttons("")), 0, false],
-      ["press", propShadow(buttons("r")), 4, false],  // hops over to the red one
-      ["standA", propShadow(buttons("")), 0, false],
+      ["standA", propShadow(rocketPad("idle")), 0, false],
+      ["press", propShadow(rocketPad("lit")), 0, false],    // paw hits the button
+      ["standA", propShadow(rocketPad("ignite")), 0, false],
+      ["standB", propShadow(rocketPad("up1")), 0, false],
+      ["standA", propShadow(rocketPad("up2")), 0, false],
+      ["standB", propShadow(rocketPad("gone")), 0, false],  // off it goes; loop rolls a new one onto the pad
     ];
   }
   return [ // change: nose-flip the toggle
