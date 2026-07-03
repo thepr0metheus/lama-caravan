@@ -345,6 +345,9 @@ def normalize_agent_proxy_route(route):
         "providerId": provider_id,
         "enabled": bool(route.get("enabled", True)),
         "mode": str(route.get("mode") or "open").strip().lower(),
+        # Data-plane auth: when set, the proxy port demands this key as
+        # `Authorization: Bearer …` (or x-api-key). Empty = open (default).
+        "apiKey": str(route.get("apiKey") or "").strip()[:128],
         "priority": int(route.get("priority") or 0),
         "preemptible": bool(route.get("preemptible", True)),
         # Client wait timeout (seconds) — synced from OpenClaw config by admin.

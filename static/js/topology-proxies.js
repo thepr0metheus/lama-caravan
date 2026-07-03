@@ -250,6 +250,10 @@ export async function connectTopologyProxyToLlama(proxyId, llamaPort, llamaHost)
     // Preserve admin-managed fields the full-rebuild would otherwise drop.
     clientTimeoutSeconds: Number(proxy.clientTimeoutSeconds || 0),
     cloudFallbackProviderId: proxy.cloudFallbackProviderId || "",
+    apiKey: proxy.apiKey || "",
+    routerId: proxy.routerId || "router:default",
+    role: proxy.role || "",
+    clientId: proxy.clientId || "",
   })).sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
   const changed = routes.find((route) => `skynet:proxy:${route.port}` === proxyId);
   if (!changed) {
@@ -312,6 +316,7 @@ export function topologyProxyRoutes() {
     preemptible: proxy.preemptible !== false,
     clientTimeoutSeconds: Number(proxy.clientTimeoutSeconds || 0),
     cloudFallbackProviderId: proxy.cloudFallbackProviderId || "",
+    apiKey: proxy.apiKey || "",
     routerId: proxy.routerId || "router:default",
     role: proxy.role || "",
     clientId: proxy.clientId || "",
@@ -333,16 +338,18 @@ export function renderTopologyProxyForm() {
     upstreamHost: editingProxy.upstreamHost || "127.0.0.1",
     upstreamPort: editingProxy.upstreamPort || 8080,
     mode: editingProxy.mode || "open",
+    apiKey: editingProxy.apiKey || "",
   } : {
     label: "",
     port: nextTopologyProxyPort(),
     upstreamHost: "127.0.0.1",
     upstreamPort: 8080,
     mode: "open",
+    apiKey: "",
   };
   // Show advanced section open if editing and has a non-default mode. Queue/priority is
   // configured on the Router canvas (queue nodes), not here.
-  const advancedOpen = !isNew && values.mode !== "open";
+  const advancedOpen = !isNew && (values.mode !== "open" || !!values.apiKey);
   return `
     <div class="topology-policy-overlay" data-topology-proxy-overlay>
       <div class="topology-policy-modal proxy-form-modal" role="dialog" aria-modal="true" aria-label="${isNew ? "Add Standalone Proxy" : "Edit Proxy Port"}">
@@ -366,6 +373,13 @@ export function renderTopologyProxyForm() {
                 ${["open", "paused", "drain"].map((mode) => `<option value="${mode}"${values.mode === mode ? " selected" : ""}>${mode}</option>`).join("")}
               </select>
             </label>
+            <label>${escapeHtml(t("proxyApiKeyLabel"))}
+              <span class="proxy-apikey-row">
+                <input name="apiKey" placeholder="${escapeHtml(t("proxyApiKeyPlaceholder"))}" value="${escapeHtml(String(values.apiKey))}" autocomplete="off" spellcheck="false">
+                <button class="mini-link" type="button" data-proxy-genkey title="${escapeHtml(t("proxyApiKeyGenTip"))}">🎲</button>
+              </span>
+              <span class="muted proxy-apikey-hint">${escapeHtml(t("proxyApiKeyHint"))}</span>
+            </label>
           </details>
           <div class="proxy-route-actions">
             <button class="primary-mini-action" type="button" data-topology-proxy-save>Save</button>
@@ -387,6 +401,7 @@ export function readTopologyProxyForm() {
     upstreamPort: Number(form.querySelector('[name="upstreamPort"]')?.value || 8080),
     enabled: true,
     mode: form.querySelector('[name="mode"]')?.value || "open",
+    apiKey: form.querySelector('[name="apiKey"]')?.value.trim() || "",
   };
 }
 

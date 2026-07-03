@@ -103,6 +103,9 @@ def normalize_route(route):
         "providerId": str(route.get("providerId") or "").strip(),
         "enabled": bool(route.get("enabled", True)),
         "mode": str(route.get("mode") or "open").strip().lower(),
+        # Data-plane auth: requests must present this as a Bearer/x-api-key.
+        # Empty = open port (the default).
+        "apiKey": str(route.get("apiKey") or "").strip(),
         "priority": int(route.get("priority") or 0),
         "preemptible": bool(route.get("preemptible", True)),
         # Client wait timeout (seconds) — synced from OpenClaw config by admin.

@@ -63,11 +63,25 @@ scrape_configs:
     authorization: { type: Bearer, credentials: "<fleet token>" }
 ```
 
+## Data-plane API keys (proxy ports)
+
+Each proxy port can demand its own key: open the route's edit form on the
+board (pencil on the proxy card) → Advanced → **API key**, roll one with 🎲,
+Save. From that moment requests to the port need
+`Authorization: Bearer <key>` (or `x-api-key: <key>`); everything else gets
+`401`. An empty field keeps the port open — nothing changes until you opt in.
+
+Point the agent at the same key: in the agent's OpenClaw config the provider
+entry already has an `apiKey` field (OpenAI-compatible clients send it as the
+Bearer token) — replace its placeholder value with the route's key and restart
+the gateway. Roll keys per route, not one shared secret, so revoking one agent
+doesn't touch the rest. The proxy hot-reloads the config in ~2 s; no proxy
+restart is needed when you change a key.
+
 ## What this does NOT cover
 
-- **Proxy ports** (`:81xx`) stay open: they are the data plane your agents
-  talk to. Keep them LAN-only (firewall) — per-route API keys are a possible
-  future addition.
+- **Proxy ports without a key** stay open: keys are opt-in per route. Keep
+  the data plane LAN-only (firewall) either way.
 - **TLS**: the admin speaks plain HTTP. If you expose it beyond the LAN, put
   a reverse proxy with TLS in front (the session cookie is not marked Secure,
   so terminate TLS before the browser).

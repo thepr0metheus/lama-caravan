@@ -159,6 +159,13 @@ export function bindTopologyDragAndDrop() {
   document.querySelector("[data-topology-proxy-save]")?.addEventListener("click", () => {
     saveTopologyProxyForm().catch((err) => toast(err.message));
   });
+  // Roll a fresh data-plane API key into the form field (saved on Save).
+  document.querySelector("[data-proxy-genkey]")?.addEventListener("click", () => {
+    const input = document.querySelector('[data-topology-proxy-form] [name="apiKey"]');
+    if (!input) return;
+    const bytes = crypto.getRandomValues(new Uint8Array(24));
+    input.value = "lcv1_" + [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  });
   document.querySelector("[data-topology-proxy-overlay]")?.addEventListener("click", (event) => {
     if (event.target?.dataset?.topologyProxyOverlay !== undefined) {
       ui.topologyProxyFormOpen = false;

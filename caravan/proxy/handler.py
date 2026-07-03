@@ -1,6 +1,7 @@
 """ProxyHandler: the per-port HTTP request handler — route resolution, queue
 admission, upstream forwarding (llama or cloud with protocol translation),
 response relay and event logging."""
+import hmac
 import http.client
 import json
 import select
@@ -69,6 +70,33 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def agent_name(self):
         return self.route["label"]
 
+    def _api_key_ok(self, route):
+        """Data-plane auth: when the route carries an apiKey, the request must
+        present it (Authorization: Bearer …, or x-api-key). Empty key = open
+        (the default — LAN routes keep working until the operator opts in)."""
+        want = str(route.get("apiKey") or "")
+        if not want:
+            return True
+        auth = self.headers.get("Authorization") or ""
+        got = auth[7:].strip() if auth.startswith("Bearer ") else (self.headers.get("x-api-key") or "").strip()
+        return bool(got) and hmac.compare_digest(got, want)
+
+    def _reject_unauthorized(self, route, request_id):
+        payload = json.dumps({"error": {"message": f"proxy {route.get('label') or ''} requires an API key "
+                                                   "(Authorization: Bearer <key>)", "type": "unauthorized"}}).encode("utf-8")
+        try:
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.send_header("Connection", "close")
+            self.end_headers()
+            self.wfile.write(payload)
+        except Exception:
+            pass
+        write_proxy_event("blocked", route_label=route.get("label") or "", request_id=request_id,
+                          item={"id": request_id, "route": route.get("label") or "",
+                                "port": route.get("port"), "reason": "unauthorized:bad-api-key"})
+
     def proxy(self):
         request_id = f"{time.time_ns()}-{threading.get_ident()}"
         started = time.time()
@@ -79,6 +107,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
         req_summary = request_summary(body, self.headers)
         route = live_route_for_port(self.route.get("port")) or self.route
+        if not self._api_key_ok(route):
+            self._reject_unauthorized(route, request_id)
+            return
         # Resolve the actual upstream through this proxy's router (routing layer).
         # ctx.model lets a byModel graph node branch on the requested model.
         route = apply_router(route, current_config(), ctx={"model": req_summary.get("model"), "maxTokens": req_summary.get("maxTokens"), "audio": ("/audio/" in parsed.path), "embeddings": parsed.path.rstrip("/").endswith("/embeddings")})
@@ -859,6 +890,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if urlsplit(self.path).path == "/v1/models":
             route = live_route_for_port(self.server.route.get("port")) or self.server.route
+            if not self._api_key_ok(route):
+                self._reject_unauthorized(route, f"{time.time_ns()}-{threading.get_ident()}")
+                return
             self._send_models_fast(route)
             return
         self.proxy()
