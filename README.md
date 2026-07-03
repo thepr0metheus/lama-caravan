@@ -61,6 +61,27 @@ that would have cost in cloud tokens.
 The long version of that day — with the kanban that implements it — lives in
 [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md).
 
+## Screenshots
+
+The live topology board — clients on the left, kanban routing in the middle,
+server cells and GPU telemetry on the right:
+
+![Topology board](docs/screenshots/board.png)
+
+The llama.cpp cell editor: memory math against free VRAM, CPU/GPU target,
+every flag explained, the exact command it will run:
+
+![Cell editor](docs/screenshots/editor.png)
+
+The routing kanban — agents on the left, rule nodes (schedule / queue /
+failover / by-size) in the middle, local cells and cloud models as outputs:
+
+![Routing kanban](docs/screenshots/kanban.png)
+
+The built-in HuggingFace GGUF browser:
+
+![HF browser](docs/screenshots/hf.png)
+
 ## Requirements
 
 | Component | Requirement |
