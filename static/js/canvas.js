@@ -541,7 +541,12 @@ export function requestTypeNodeBodyHtml(router, n) {
       + `<span class="cv-q-dt" title="${escapeHtml(label)}">${escapeHtml(label)}</span>`
       + `<span class="cv-port out${wired ? "" : " unset"}" data-cv-port="out" data-cv-sched-port="${portId}" title="${escapeHtml(hint)}"></span>`
     + `</div>`;
-  return `<div class="cv-q-body">`
+  // The clients-panel EMBEDDINGS selector (rules.embeddingsOutput) is checked
+  // BEFORE the graph — when it is set, this node's embed port never fires.
+  const globalEmbed = (router.rules || {}).embeddingsOutput;
+  const globalNote = globalEmbed
+    ? `<div class="cv-q-note">${escapeHtml(t("cvReqTypeGlobalNote"))}</div>` : "";
+  return `<div class="cv-q-body">` + globalNote
     + destRow("embed", "spill", "embeddings", "Drag to the embeddings target (e.g. a cloud embedder) →", embedLabel, !!embedEdge)
     + destRow("__default__", "admit", "default", "Drag to where everything else should go →", defaultLabel, !!defaultEdge)
     + `</div>`;

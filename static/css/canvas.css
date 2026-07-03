@@ -1202,3 +1202,13 @@ select.cv-pin { width: 100%; }
 /* Junction dot where sibling cables (same destination) merge — the hop arc is
    reserved for genuine crossings of unrelated cables. */
 .cv-junction { fill: color-mix(in srgb, var(--accent) 45%, var(--muted)); opacity: .9; pointer-events: none; }
+
+/* requestType node: note when the global embeddings selector overrides it */
+.cv-q-note {
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--muted);
+  font-style: italic;
+  padding: 2px 4px 6px;
+  max-width: 230px;
+}

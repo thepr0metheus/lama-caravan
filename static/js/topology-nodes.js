@@ -685,9 +685,26 @@ export function nodesLaneHtml() {
       const serversHtml = servers.length
         ? servers.map((s) => nodeServerCardHtml(n, s)).join("")
         : "";
-      const gpusHtml = (n.gpus || []).length
+      // Cells that run on this host WITHOUT touching a GPU (n-gpu-layers 0,
+      // command cells): they never appear in a GPU row's ▶ ports, so give
+      // them their own CPU line — otherwise a running CPU cell looks missing.
+      const cpuPorts = servers.filter((srv) => {
+        const ph = srv.phase || (srv.status && srv.status.phase) || "";
+        return ph === "running" && !(srv.gpuIndexes || []).length;
+      }).map((srv) => srv.port).filter(Boolean);
+      const cpuRowHtml = cpuPorts.length ? `
+        <div class="node-gpu-row node-cpu-row" title="${escapeHtml(t("topologyCpuCellsHint"))}">
+          <div class="node-gpu-head">
+            <strong>CPU</strong>
+            <span class="node-gpu-name">${escapeHtml(t("topologyCpuCellsLabel"))}</span>
+          </div>
+          <div class="node-gpu-meta">
+            <span class="node-gpu-ports">▶ ${cpuPorts.map((pp) => escapeHtml(String(pp))).join(", ")}</span>
+          </div>
+        </div>` : "";
+      const gpusHtml = ((n.gpus || []).length
         ? n.gpus.map((g) => nodeGpuRowHtml(n, g)).join("")
-        : `<div class="topology-muted" style="font-size:12px">${escapeHtml(t("topologyNoGpu"))}</div>`;
+        : `<div class="topology-muted" style="font-size:12px">${escapeHtml(t("topologyNoGpu"))}</div>`) + cpuRowHtml;
       // Controller node hosts the deep controller telemetry (mounted, not rebuilt):
       // Server charts toggle under the "Servers" header; GPU charts live in the
       // GPUs column; Incidents open in a modal from the header button.

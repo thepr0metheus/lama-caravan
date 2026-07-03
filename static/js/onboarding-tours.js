@@ -104,4 +104,25 @@ export function initOnboarding() {
     if (document.querySelector(".ob-root")) return;
     startTour();
   });
+  watchEditorFirstOpen();
+}
+
+// The cell editor has its own detailed tour — auto-run it the FIRST time
+// either editor modal opens (the header ? button is hidden behind the modal,
+// so discoverability needs this nudge; afterwards the in-modal ? re-runs it).
+function watchEditorFirstOpen() {
+  const KEY = "caravanTourSeen:config";
+  if (localStorage.getItem(KEY)) return;
+  const overlays = ["topologyLlamaEditOverlay", "llamaRemoteEditOverlay"]
+    .map((id) => document.getElementById(id)).filter(Boolean);
+  if (!overlays.length) return;
+  const obs = new MutationObserver(() => {
+    if (localStorage.getItem(KEY)) { obs.disconnect(); return; }
+    if (!overlays.some((el) => el.hidden === false)) return;
+    localStorage.setItem(KEY, "1");
+    obs.disconnect();
+    // Give the form a beat to render its fields so more steps have anchors.
+    setTimeout(() => { if (!document.querySelector(".ob-root")) startTour(); }, 900);
+  });
+  overlays.forEach((el) => obs.observe(el, { attributes: true, attributeFilter: ["hidden"] }));
 }

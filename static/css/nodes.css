@@ -741,3 +741,7 @@
 
 /* ── HuggingFace Browser ─────────────────────────────── */
 
+
+/* CPU pseudo-row in the GPUs column: running cells that use no VRAM */
+.node-cpu-row { opacity: 0.85; }
+.node-cpu-row .node-gpu-head strong { color: var(--muted); }
