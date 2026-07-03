@@ -505,14 +505,38 @@ button.cmd-dirty::after {
   image-rendering: pixelated;
 }
 
-/* Animated confirm scene (dialog-llamas.js): hide the static sprite, widen
-   the tile so the prop (crate/buttons/toggle) fits to the llama's right. */
-.dlg-ico.dlg-live { width: 62px; }
-.dlg-ico.dlg-live::before { box-shadow: none; }
-.dlg-sc { position: absolute; left: 3px; top: 7px; width: 1em; height: 1em; font-size: 2px; image-rendering: pixelated; }
-.dlg-sc i { position: absolute; width: 1em; height: 1em; transition: transform .28s steps(3); }
+/* Animated confirm scene (dialog-llamas.js): a centered stage strip above the
+   header — loader-sized pixels (5px) with a ground line, so the action reads
+   at a glance. The small header tile hides while the stage is live. */
+.modal.dlg-staged .dlg-ico { display: none; }
+.dlg-stage {
+  position: relative;
+  height: 84px;
+  margin: 0 0 6px;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+}
+.dlg-stage::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: 12px;
+  height: 2px;
+  background: color-mix(in srgb, var(--dlg-tone, var(--line)) 35%, transparent);
+}
+.dlg-stage .dlg-sc {
+  position: relative;
+  width: 22em;
+  height: 12em;
+  margin-top: 8px;
+  font-size: 5px;
+  image-rendering: pixelated;
+}
+.dlg-sc i { position: absolute; left: 0; top: 0; width: 1em; height: 1em; transition: transform .28s steps(3); }
 .dlg-sc .dlg-sc-prop.dlg-sc-slide { animation: dlg-slide-in .3s steps(4) 1; }
-@keyframes dlg-slide-in { from { transform: translateX(7em); } to { transform: translateX(0); } }
+@keyframes dlg-slide-in { from { transform: translateX(8em); } to { transform: translateX(0); } }
 
 /* 16x13 pixel llama (same grid as the page loader), drawn at 2px per pixel. */
 .dlg-ico::before {

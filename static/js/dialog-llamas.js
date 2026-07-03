@@ -30,7 +30,7 @@ const LEGS = {
   // front legs slam down-forward (onto the crate zone)
   stomp:  { b: [[3, 10], [3, 11], [5, 10], [5, 11], [12, 9], [12, 10], [13, 9], [13, 10]], h: [[3, 12]], headDy: 1 },
   // one front paw reaches forward to a button, the rest stand
-  press:  { b: [[3, 10], [3, 11], [5, 10], [5, 11], [8, 10], [8, 11], [11, 9], [12, 9]], h: [[3, 12], [12, 10]] },
+  press:  { b: [[3, 10], [3, 11], [5, 10], [5, 11], [8, 10], [8, 11], [11, 9], [12, 9]], h: [[3, 12], [13, 10]] },
 };
 
 function llamaShadow(pose, body, blanket) {
@@ -47,34 +47,44 @@ function llamaShadow(pose, body, blanket) {
   return px.map(([x, y, c]) => `${x}em ${y}em 0 0 ${c}`).join(", ");
 }
 
-// ── props (drawn to the RIGHT of the llama, x13..18) ─────────────────────────
+// ── props (drawn to the RIGHT of the llama, x13..21) ─────────────────────────
 const CRATE = "#8a7351", CRATE2 = "#6e5137", ROPE = "#c8a06c";
 function crate(state) {
   const px = [];
   if (state === "ok") {
-    for (let y = 8; y <= 11; y += 1) for (let x = 14; x <= 17; x += 1) px.push([x, y, y === 9 ? ROPE : (x === 14 || x === 17 ? CRATE2 : CRATE)]);
+    // 6×5 crate with a rope band — big enough to read at a glance
+    for (let y = 7; y <= 11; y += 1) for (let x = 14; x <= 19; x += 1) {
+      const edge = x === 14 || x === 19 || y === 7 || y === 11;
+      px.push([x, y, x === 16 || x === 17 ? ROPE : (edge ? CRATE2 : CRATE)]);
+    }
   } else if (state === "dent") {
-    for (let y = 9; y <= 11; y += 1) for (let x = 14; x <= 17; x += 1) px.push([x, y, y === 10 ? ROPE : CRATE]);
-    px.push([13, 11, CRATE2], [18, 11, CRATE2]);
+    for (let y = 9; y <= 11; y += 1) for (let x = 14; x <= 19; x += 1) px.push([x, y, y === 10 ? ROPE : CRATE]);
+    px.push([13, 11, CRATE2], [20, 11, CRATE2], [15, 8, CRATE2], [18, 8, CRATE2]);
   } else if (state === "flat") {
-    for (let x = 13; x <= 18; x += 1) px.push([x, 11, CRATE2]);
-    px.push([14, 10, ROPE], [17, 10, CRATE]);
+    for (let x = 13; x <= 20; x += 1) px.push([x, 11, CRATE2]);
+    px.push([14, 10, CRATE], [15, 10, ROPE], [16, 10, CRATE2], [18, 10, CRATE], [19, 10, CRATE2]);
+    px.push([16, 9, CRATE2], [15, 8, CRATE]);  // splinters in the air
   }
   return px;
 }
 function buttons(lit) {
   const px = [];
   const G = lit === "g" ? "#3fae6a" : "#2f6b46", R = lit === "r" ? "#e05555" : "#7d3030";
-  [[13, 10], [14, 10], [13, 11], [14, 11]].forEach(([x, y]) => px.push([x, y, G]));
-  [[16, 10], [17, 10], [16, 11], [17, 11]].forEach(([x, y]) => px.push([x, y, R]));
-  if (lit === "g") px.push([13, 9, "#baf3c9"], [14, 9, "#baf3c9"]);
-  if (lit === "r") px.push([16, 9, "#f6c0ba"], [17, 9, "#f6c0ba"]);
+  // green pad x13..15, red pad x17..19 — a paw tip at x13 presses green;
+  // the llama hops +4em so the same tip lands at x17 on red.
+  [[13, 11], [14, 11], [15, 11], [17, 11], [18, 11], [19, 11]].forEach(([x, y]) => px.push([x, y, "#20282c"]));
+  [[13, 10], [14, 10], [15, 10]].forEach(([x, y]) => px.push([x, y, G]));
+  [[17, 10], [18, 10], [19, 10]].forEach(([x, y]) => px.push([x, y, R]));
+  if (lit === "g") px.push([13, 9, "#baf3c9"], [14, 8, "#baf3c9"], [15, 9, "#baf3c9"]);
+  if (lit === "r") px.push([17, 9, "#f6c0ba"], [18, 8, "#f6c0ba"], [19, 9, "#f6c0ba"]);
   return px;
 }
 function toggle(side, accent) {
-  const px = [[14, 11, CRATE2], [15, 11, CRATE2], [16, 11, CRATE2], [15, 9, CRATE], [15, 10, CRATE]];
-  if (side === "l") px.push([14, 8, CRATE], [13, 7, accent], [13, 8, accent]);
-  else px.push([16, 8, CRATE], [17, 7, accent], [17, 8, accent]);
+  // fat lever on a base: stick leans left/right, accent knob on top
+  const px = [[15, 11, "#20282c"], [16, 11, "#20282c"], [17, 11, "#20282c"], [18, 11, "#20282c"],
+              [16, 10, CRATE], [17, 10, CRATE]];
+  if (side === "l") px.push([15, 9, CRATE], [14, 8, CRATE], [13, 7, accent], [14, 7, accent], [13, 8, accent]);
+  else px.push([18, 9, CRATE], [19, 8, CRATE], [20, 7, accent], [19, 7, accent], [20, 8, accent]);
   return px;
 }
 const propShadow = (px) => px.map(([x, y, c]) => `${x}em ${y}em 0 0 ${c}`).join(", ");
@@ -84,9 +94,9 @@ function timeline(kind, accent) {
   if (kind === "delete") {
     return [
       ["standA", propShadow(crate("ok")), 0, false],
-      ["rear", propShadow(crate("ok")), 0, false],
-      ["stomp", propShadow(crate("dent")), 0, false],
-      ["stomp", propShadow(crate("flat")), 0, false],
+      ["rear", propShadow(crate("ok")), 1, false],
+      ["stomp", propShadow(crate("dent")), 1, false],
+      ["stomp", propShadow(crate("flat")), 1, false],
       ["standB", propShadow(crate("flat")), 0, false],
       ["standA", propShadow(crate("ok")), 0, true],   // fresh crate slides in
     ];
@@ -95,8 +105,8 @@ function timeline(kind, accent) {
     return [
       ["press", propShadow(buttons("g")), 0, false],
       ["standA", propShadow(buttons("")), 0, false],
-      ["press", propShadow(buttons("r")), 3, false],  // steps over to the red one
-      ["standB", propShadow(buttons("")), 3, false],
+      ["press", propShadow(buttons("r")), 4, false],  // hops over to the red one
+      ["standA", propShadow(buttons("")), 0, false],
     ];
   }
   return [ // change: nose-flip the toggle
@@ -110,23 +120,28 @@ function timeline(kind, accent) {
 let _timer = null;
 
 function mountScene(overlay) {
-  const ico = overlay.querySelector(".dlg-ico");
-  if (!ico) return;
-  teardown(overlay);
   const modal = overlay.querySelector(".modal");
+  if (!modal) return;
+  teardown(overlay);
   const kind = overlay.dataset.dlgScene
-    || (modal?.dataset.tone === "danger" ? "delete" : "change");
+    || (modal.dataset.tone === "danger" ? "delete" : "change");
   const body = BODIES[Math.floor(Math.random() * BODIES.length)];
-  const blanket = BLANKETS[Math.floor(Math.random() * BLANKETS.length)];
+  // The blanket must READ against the body — the pale bodies swallow the
+  // pale blankets, leaving a seemingly naked llama.
+  const lum = (hex) => parseInt(hex.slice(1, 3), 16) + parseInt(hex.slice(3, 5), 16) + parseInt(hex.slice(5, 7), 16);
+  let blanket = BLANKETS[Math.floor(Math.random() * BLANKETS.length)];
+  for (let tries = 0; tries < 5 && Math.abs(lum(blanket) - lum(body)) < 130; tries += 1) {
+    blanket = BLANKETS[Math.floor(Math.random() * BLANKETS.length)];
+  }
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#4da392";
   const frames = timeline(kind, accent);
-  ico.classList.add("dlg-live");
-  const lay = document.createElement("span");
-  lay.className = "dlg-sc";
-  lay.innerHTML = `<i class="dlg-sc-llama"></i><i class="dlg-sc-prop"></i>`;
-  ico.appendChild(lay);
-  const llamaEl = lay.firstElementChild;
-  const propEl = lay.lastElementChild;
+  modal.classList.add("dlg-staged");   // hides the small header tile
+  const stage = document.createElement("div");
+  stage.className = "dlg-stage";
+  stage.innerHTML = `<span class="dlg-sc"><i class="dlg-sc-llama"></i><i class="dlg-sc-prop"></i></span>`;
+  modal.prepend(stage);
+  const llamaEl = stage.querySelector(".dlg-sc-llama");
+  const propEl = stage.querySelector(".dlg-sc-prop");
   let i = 0;
   const paint = () => {
     const [pose, prop, shift, slide] = frames[i % frames.length];
@@ -142,9 +157,9 @@ function mountScene(overlay) {
 
 function teardown(overlay) {
   if (_timer) { clearInterval(_timer); _timer = null; }
-  const ico = overlay.querySelector(".dlg-ico");
-  ico?.classList.remove("dlg-live");
-  ico?.querySelector(".dlg-sc")?.remove();
+  const modal = overlay.querySelector(".modal");
+  modal?.classList.remove("dlg-staged");
+  modal?.querySelector(".dlg-stage")?.remove();
 }
 
 // Watch the shared overlay: legacy openers unhide it directly, so an
