@@ -40,7 +40,7 @@ jobs:
           mkdir -p /tmp/ci
           python3 app.py &
           for i in $(seq 1 30); do
-            curl -sf -o /dev/null http://127.0.0.1:8090/api/auth/me && break
+            if curl -sf -o /dev/null http://127.0.0.1:8090/api/auth/me; then break; fi
             sleep 1
           done
           curl -sf -o /dev/null http://127.0.0.1:8090/api/auth/me
