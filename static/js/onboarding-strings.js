@@ -5,6 +5,8 @@
 
 export const TOUR_EN = {
   tourBtnTitle: "How to use this page",
+  tourBtnLabel: "Tour",
+  tourLangPick: "Interface language",
   tourNext: "Next →",
   tourBack: "← Back",
   tourDone: "Done",
@@ -31,7 +33,7 @@ export const TOUR_EN = {
   tourIxMonitorT: "Live monitors",
   tourIxMonitorB: "GPU (nvidia-smi), CPU and llama slots on the right edge. Hover a tab to peek, click to pin.",
   tourIxDoneT: "That's the basics",
-  tourIxDoneB: "The <b>?</b> button stays in the corner — run this tour anytime. It adapts: with the server editor open it explains the config fields, and the kanban and HF pages have their own tours.",
+  tourIxDoneB: "The <b>? Tour</b> button lives in the header, next to the language switch — run this tour anytime. It adapts: with the server editor open it explains the config fields, and the kanban and HF pages have their own tours.",
 
   tourCfgModelT: "Model",
   tourCfgModelB: "Pick the GGUF to serve. The list comes from the models directory (or the client's local cache); the insight block below shows size and parameters.",
@@ -56,6 +58,8 @@ export const TOUR_EN = {
 
 export const TOUR_RU = {
   tourBtnTitle: "Как пользоваться этой страницей",
+  tourBtnLabel: "Тур",
+  tourLangPick: "Язык интерфейса",
   tourNext: "Дальше →",
   tourBack: "← Назад",
   tourDone: "Готово",
@@ -82,7 +86,7 @@ export const TOUR_RU = {
   tourIxMonitorT: "Живые мониторы",
   tourIxMonitorB: "GPU (nvidia-smi), CPU и слоты llama — по правому краю. Наведите на вкладку, чтобы подглядеть; клик — закрепить.",
   tourIxDoneT: "Это основы",
-  tourIxDoneB: "Кнопка <b>?</b> остаётся в углу — тур можно запустить в любой момент. Он подстраивается: при открытом редакторе сервера объясняет поля конфига, а у канбана и HF-страницы свои туры.",
+  tourIxDoneB: "Кнопка <b>? Тур</b> живёт в шапке, рядом с выбором языка — запускайте тур в любой момент. Он подстраивается: при открытом редакторе сервера объясняет поля конфига, а у канбана и HF-страницы свои туры.",
 
   tourCfgModelT: "Модель",
   tourCfgModelB: "Выберите GGUF. Список берётся из каталога моделей (или локального кэша клиента); блок ниже показывает размер и параметры.",

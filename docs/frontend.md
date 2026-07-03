@@ -161,11 +161,15 @@ then calls `renderAll()`). `applyLanguage()` walks the `data-i18n` attribute fam
 
 ## onboarding.js / onboarding-tours.js / onboarding-strings.js
 
-Onboarding tours behind the floating `?` button (bottom-right on all three
-pages). `onboarding.js` is the dependency-free engine (spotlight overlay +
-card, keyboard nav, skips steps whose anchor is missing/hidden, auto-start
-once per page via `caravanTourSeen:<page>` in localStorage) — hf.js reuses it
-without pulling i18n-data. `onboarding-tours.js` declares the board, config
+Onboarding tours behind the `? Tour` header button (marked `data-ob-tour`;
+static HTML on index/hf, part of the standalone header template in routers.js
+on the kanban — a document-level click delegation survives re-renders, with a
+floating fallback if no header button exists). `onboarding.js` is the
+dependency-free engine (spotlight overlay + card, keyboard nav, skips steps
+whose anchor is missing/hidden, auto-start once per page via
+`caravanTourSeen:<page>` in localStorage, single active tour) — hf.js reuses
+it without pulling i18n-data. The welcome step embeds an interface-language
+picker (`setLang` from i18n.js; en/ru toggle on hf). `onboarding-tours.js` declares the board, config
 editor (te-/tr- modal, picked automatically when one is open) and kanban
 tours; `onboarding-strings.js` holds the EN/RU texts and is merged into
 `messages` at import (other languages fall back to English via `t()`).

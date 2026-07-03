@@ -1,6 +1,40 @@
 /* ── Onboarding tour: floating "?" button + spotlight overlay ─────────────── */
 
-.ob-btn {
+/* Header pill button (index topbar / kanban head / hf header). */
+.ob-btn-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 13px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent, #4a7dbd) 65%, var(--line, #2a2e3b));
+  background: color-mix(in srgb, var(--accent, #4a7dbd) 12%, transparent);
+  color: var(--text, #e6e6ea);
+  font: 600 12.5px/1 var(--font-ui, system-ui, sans-serif);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+.ob-btn-head .ob-q {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: var(--accent, #4a7dbd);
+  color: #fff;
+  font-weight: 700;
+  font-size: 12px;
+}
+.ob-btn-head:hover {
+  background: color-mix(in srgb, var(--accent, #4a7dbd) 24%, transparent);
+  border-color: var(--accent, #4a7dbd);
+  transform: scale(1.04);
+}
+
+/* Floating fallback (only when a page has no header button). */
+.ob-btn-float {
   position: fixed;
   right: 18px;
   bottom: 18px;
@@ -14,20 +48,16 @@
   font: 700 19px/1 var(--font-ui, system-ui, sans-serif);
   cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
-  transition: color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
-.ob-btn:hover {
-  color: var(--text, #e6e6ea);
-  border-color: var(--accent, #4a7dbd);
-  transform: scale(1.06);
-}
+.ob-btn-float:hover { color: var(--text, #e6e6ea); border-color: var(--accent, #4a7dbd); }
+
 .ob-btn-pulse {
   animation: ob-pulse 2.2s ease-out infinite;
 }
 @keyframes ob-pulse {
-  0%   { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 0 0 color-mix(in srgb, var(--accent, #4a7dbd) 55%, transparent); }
-  60%  { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 0 14px transparent; }
-  100% { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 0 0 0 transparent; }
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent, #4a7dbd) 55%, transparent); }
+  60%  { box-shadow: 0 0 0 12px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ob-btn-pulse { animation: none; }
@@ -130,6 +160,43 @@
 .ob-next:hover { filter: brightness(1.12); }
 
 @media (max-width: 640px) {
-  .ob-btn { right: 12px; bottom: 12px; }
+  .ob-btn-float { right: 12px; bottom: 12px; }
+  .ob-btn-head span:not(.ob-q) { display: none; }
   .ob-card { max-height: 62vh; }
+}
+
+/* Language picker inside the welcome step. */
+.ob-langs { margin-top: 12px; }
+.ob-langs-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted, #9aa3b2);
+  margin-bottom: 7px;
+}
+.ob-langs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 6px;
+  max-height: 132px;
+  overflow-y: auto;
+}
+.ob-lang {
+  border: 1px solid var(--line, #2a2e3b);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted, #9aa3b2);
+  font-size: 12px;
+  padding: 5px 7px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ob-lang:hover { color: var(--text, #e6e6ea); border-color: color-mix(in srgb, var(--accent, #4a7dbd) 60%, var(--line, #2a2e3b)); }
+.ob-lang.selected {
+  background: color-mix(in srgb, var(--accent, #4a7dbd) 18%, transparent);
+  border-color: var(--accent, #4a7dbd);
+  color: var(--text, #e6e6ea);
 }

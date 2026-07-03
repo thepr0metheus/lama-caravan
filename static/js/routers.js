@@ -481,6 +481,9 @@ export function renderTopologyRouterDetail() {
             </div>
           </div>
           <span class="topology-policy-head-actions">
+            <button type="button" class="ob-btn-head" data-ob-tour>
+              <span class="ob-q">?</span>${escapeHtml(t("tourBtnLabel"))}
+            </button>
           </span>
         </div>` : `
         <div class="rw-head">

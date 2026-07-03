@@ -1440,11 +1440,13 @@ if (_urlQ) {
 // The engine is dependency-free; strings live here so this page keeps NOT
 // importing the big i18n dictionary. RU + EN; the language follows the main
 // app's localStorage key.
-import { autoStartOnce, createTour, mountTourButton } from "/js/onboarding.js";
+import { autoStartOnce, createTour, initTourButtons } from "/js/onboarding.js";
 
 const HF_TOUR = {
   en: {
     btn: "How to use this page",
+    label: "Tour",
+    langPick: "Language",
     next: "Next →", back: "← Back", done: "Done", skip: "Close",
     steps: [
       [null, "HuggingFace model browser",
@@ -1461,6 +1463,8 @@ const HF_TOUR = {
   },
   ru: {
     btn: "Как пользоваться этой страницей",
+    label: "Тур",
+    langPick: "Язык",
     next: "Дальше →", back: "← Назад", done: "Готово", skip: "Закрыть",
     steps: [
       [null, "Браузер моделей HuggingFace",
@@ -1482,13 +1486,45 @@ function hfTourStrings() {
   return HF_TOUR[lang] || HF_TOUR.en;
 }
 
-function hfStartTour() {
+function hfTourBtnLabel() {
+  const el = document.getElementById("obBtnLabel");
+  if (el) el.textContent = hfTourStrings().label;
+}
+
+// The tour dictionary here is EN/RU only, so the welcome step offers exactly
+// those two; the choice is written to the shared app language key.
+function hfLangPicker(body, api) {
   const s = hfTourStrings();
+  const cur = localStorage.getItem("llamacppAdminLang") || "en";
+  const wrap = document.createElement("div");
+  wrap.className = "ob-langs";
+  wrap.innerHTML = `<div class="ob-langs-head">${s.langPick}</div><div class="ob-langs-grid">`
+    + [["en", "☕ English"], ["ru", "🪆 Русский"]].map(([code, label]) =>
+      `<button type="button" class="ob-lang${code === cur ? " selected" : ""}" data-ob-lang="${code}">${label}</button>`).join("")
+    + `</div>`;
+  wrap.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-ob-lang]");
+    if (!btn) return;
+    localStorage.setItem("llamacppAdminLang", btn.dataset.obLang);
+    hfTourBtnLabel();
+    api.rerender();
+  });
+  body.appendChild(wrap);
+}
+
+function hfStartTour() {
   createTour({
-    steps: () => s.steps.map(([anchor, title, body]) => ({ anchor, title, body, center: !anchor })),
-    labels: { next: s.next, back: s.back, done: s.done, skip: s.skip },
+    steps: () => hfTourStrings().steps.map(([anchor, title, body], i) => ({
+      anchor, title, body, center: !anchor,
+      onRender: !anchor && i === 0 ? hfLangPicker : undefined,
+    })),
+    labels: () => {
+      const s = hfTourStrings();
+      return { next: s.next, back: s.back, done: s.done, skip: s.skip };
+    },
   }).start();
 }
 
-mountTourButton({ title: hfTourStrings().btn, onClick: hfStartTour });
+hfTourBtnLabel();
+initTourButtons({ title: () => hfTourStrings().btn, onClick: hfStartTour });
 autoStartOnce("hf", () => !document.getElementById("appLoader"), hfStartTour);

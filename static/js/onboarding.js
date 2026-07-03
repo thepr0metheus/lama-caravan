@@ -5,6 +5,10 @@
 
 const BTN_SEEN_KEY = "caravanTourBtnUsed";
 
+// Only one tour at a time: starting a new one stops the previous instance
+// (button clicked while a tour is already open = restart, not stacking).
+let activeTour = null;
+
 function visibleEl(selector) {
   if (!selector) return null;
   const el = document.querySelector(selector);
@@ -17,7 +21,8 @@ function visibleEl(selector) {
 }
 
 export function createTour(config) {
-  const labels = config.labels || {};
+  // labels may be a function so a language switch mid-tour re-resolves them.
+  const L = () => (typeof config.labels === "function" ? config.labels() : config.labels) || {};
   let steps = [];
   let idx = 0;
   let root = null;
@@ -34,13 +39,13 @@ export function createTour(config) {
     root.innerHTML = `
       <div class="ob-spot" aria-hidden="true"></div>
       <div class="ob-card" role="dialog" aria-modal="true">
-        <button class="ob-close" type="button" aria-label="${labels.skip || "Close"}">×</button>
+        <button class="ob-close" type="button" aria-label="${L().skip || "Close"}">×</button>
         <h3 class="ob-title"></h3>
         <div class="ob-body"></div>
         <div class="ob-foot">
           <span class="ob-count"></span>
           <span class="ob-nav">
-            <button class="ob-back" type="button">${labels.back || "← Back"}</button>
+            <button class="ob-back" type="button"></button>
             <button class="ob-next" type="button"></button>
           </span>
         </div>
@@ -107,16 +112,28 @@ export function createTour(config) {
     if (!step) { stop(); return; }
     root.querySelector(".ob-title").textContent = step.title || "";
     root.querySelector(".ob-body").innerHTML = step.body || "";
+    if (step.onRender) step.onRender(root.querySelector(".ob-body"), { rerender: rebuildStep });
     root.querySelector(".ob-count").textContent = `${idx + 1}/${steps.length}`;
-    root.querySelector(".ob-back").style.visibility = idx === 0 ? "hidden" : "visible";
+    const back = root.querySelector(".ob-back");
+    back.textContent = L().back || "← Back";
+    back.style.visibility = idx === 0 ? "hidden" : "visible";
     root.querySelector(".ob-next").textContent =
-      idx === steps.length - 1 ? (labels.done || "Done") : (labels.next || "Next →");
+      idx === steps.length - 1 ? (L().done || "Done") : (L().next || "Next →");
     const el = step.center ? null : visibleEl(step.anchor);
     if (el) el.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
     position();
     // Re-measure after smooth scroll / card reflow settles.
     requestAnimationFrame(position);
     setTimeout(position, 260);
+  }
+
+  // Re-resolve steps (e.g. after a language switch) and redraw in place.
+  function rebuildStep() {
+    const kept = idx;
+    steps = liveSteps();
+    if (!steps.length) { stop(); return; }
+    idx = Math.min(kept, steps.length - 1);
+    render();
   }
 
   function go(next) {
@@ -127,15 +144,17 @@ export function createTour(config) {
   }
 
   function start() {
-    stop();
+    if (activeTour) activeTour.stop();
     steps = liveSteps();
     if (!steps.length) return;
     idx = 0;
     build();
     render();
+    activeTour = api;
   }
 
   function stop(finished) {
+    if (activeTour === api) activeTour = null;
     if (!root) return;
     window.removeEventListener("resize", position);
     window.removeEventListener("scroll", position, { capture: true });
@@ -145,26 +164,44 @@ export function createTour(config) {
     if (config.onStop) config.onStop(!!finished);
   }
 
-  return { start, stop, active: () => !!root };
+  const api = { start, stop, active: () => !!root };
+  return api;
 }
 
-// Floating "?" button, bottom-right. Pulses gently until used once (ever).
-export function mountTourButton(opts) {
-  if (document.querySelector(".ob-btn")) return;
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "ob-btn";
-  btn.textContent = "?";
-  btn.title = opts.title || "How to use this page";
-  btn.setAttribute("aria-label", btn.title);
-  if (!localStorage.getItem(BTN_SEEN_KEY)) btn.classList.add("ob-btn-pulse");
-  btn.addEventListener("click", () => {
+// Tour buttons live in each page's header (static HTML or a JS-rendered
+// template) and are marked with [data-ob-tour]. One document-level click
+// delegation survives header re-renders; a decorator interval keeps
+// late-rendered buttons titled and pulsing until the tour is used once.
+export function initTourButtons(opts) {
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target.closest("[data-ob-tour]");
+    if (!btn) return;
+    ev.preventDefault();
     localStorage.setItem(BTN_SEEN_KEY, "1");
-    btn.classList.remove("ob-btn-pulse");
+    document.querySelectorAll("[data-ob-tour]").forEach((b) => b.classList.remove("ob-btn-pulse"));
     opts.onClick();
   });
-  document.body.appendChild(btn);
-  return btn;
+  const decorate = () => {
+    const title = typeof opts.title === "function" ? opts.title() : opts.title;
+    document.querySelectorAll("[data-ob-tour]").forEach((b) => {
+      if (title) { b.title = title; b.setAttribute("aria-label", title); }
+      b.classList.toggle("ob-btn-pulse", !localStorage.getItem(BTN_SEEN_KEY));
+    });
+  };
+  decorate();
+  setInterval(decorate, 1500);
+  // Fallback: if the page has no header button (none rendered within 4 s),
+  // mount the old floating one so the tour stays reachable.
+  setTimeout(() => {
+    if (document.querySelector("[data-ob-tour]")) return;
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ob-btn-float";
+    btn.textContent = "?";
+    btn.setAttribute("data-ob-tour", "");
+    document.body.appendChild(btn);
+    decorate();
+  }, 4000);
 }
 
 // First-visit auto start: waits until `ready()` is true (app loader gone,

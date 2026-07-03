@@ -1,7 +1,7 @@
 // Language + theme: t(), applyLanguage/applyTheme, the language dropdown.
 import { option } from "./form.js";
 import { LANGS, messages } from "./i18n-data.js";
-import { renderAll } from "./topology-render.js";
+import { renderAll, renderTopology } from "./topology-render.js";
 import { $, escapeHtml } from "./utils.js";
 
 // Language options for the dropdown. `emoji` is a country-flavoured glyph
@@ -16,6 +16,21 @@ export function t(key, vars = {}) {
     text = text.replace(`{${name}}`, value);
   });
   return text;
+}
+
+// Programmatic language switch (used by the onboarding tour's picker).
+// On the standalone kanban page renderAll() would touch board-only DOM,
+// so re-render only what exists there.
+export function setLang(code) {
+  if (!code || code === lang || !LANGS.some((l) => l.code === code)) return;
+  lang = code;
+  localStorage.setItem("llamacppAdminLang", lang);
+  if (window.ROUTER_STANDALONE) {
+    applyLanguage();
+    renderTopology();
+  } else {
+    renderAll();
+  }
 }
 
 export function fieldHelp(field) {
@@ -99,10 +114,7 @@ export function setupLangSelect() {
     const option = e.target.closest(".lang-option");
     if (!option) return;
     close();
-    if (option.dataset.lang === lang) return;
-    lang = option.dataset.lang;
-    localStorage.setItem("llamacppAdminLang", lang);
-    renderAll();
+    setLang(option.dataset.lang);
   });
   document.addEventListener("click", (e) => {
     if (!menu.hidden && !root.contains(e.target)) close();
