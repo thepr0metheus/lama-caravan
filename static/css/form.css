@@ -899,6 +899,8 @@ button.cmd-dirty::after {
 .user-menu {
   position: absolute; right: 0; top: calc(100% + 6px); z-index: 60;
   min-width: 180px; display: grid; gap: 2px; padding: 6px;
+  /* display:grid would defeat the hidden attribute (author display beats the
+     UA's [hidden]{display:none}) — this is why the menu looked "always open". */
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
   box-shadow: 0 10px 30px rgba(0,0,0,0.45);
 }
@@ -907,4 +909,5 @@ button.cmd-dirty::after {
   background: transparent; color: var(--text); font-size: 13px; cursor: pointer;
 }
 .user-menu button:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.user-menu[hidden] { display: none; }
 .models-bar-tip { flex-shrink: 0; }

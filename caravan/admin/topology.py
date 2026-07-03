@@ -315,13 +315,23 @@ def topology_server(config=None):
             if slot_phase == "running" and not slot_is_command:
                 cell_metrics = runtime_metrics_sample(port)
         cell_error = None
-        if is_controller_slot and slot_phase == "error":
+        if is_controller_slot:
             # Classify WHY it won't start (journal tail, cached) so the card
-            # can show a human hint instead of a bare red pill.
+            # can show a human hint instead of a bare red pill. Also attach it
+            # DURING a retry (starting/warming with restart history) — in a
+            # crash-loop the card spends most time "loading model into VRAM",
+            # and the user must see what the previous attempt died of.
             try:
-                cell_error = cell_last_error(port)
-            except Exception:
-                cell_error = None
+                restarts = int(cell_status.get("NRestarts") or 0)
+            except (TypeError, ValueError):
+                restarts = 0
+            failing = slot_phase == "error" or (
+                restarts > 0 and slot_phase in ("starting", "warming"))
+            if failing:
+                try:
+                    cell_error = cell_last_error(port)
+                except Exception:
+                    cell_error = None
         # Authoritative modalities for a live cell (controller on 127.0.0.1,
         # remote on its IP). Stopped/reserved cells have no running server.
         slot_mods = None
@@ -341,8 +351,9 @@ def topology_server(config=None):
             "mmproj": str(((slot.get("config") or {}).get("MMPROJ_FILE")) or ""),
             "specDraft": str(((slot.get("config") or {}).get("SPEC_DRAFT_MODEL_FILE")) or ""),
             "specType": str(((slot.get("config") or {}).get("SPEC_TYPE")) or ""),
-            "status": ({"phase": slot_phase, "error": cell_error} if cell_error
-                       else {"phase": slot_phase}),
+            "status": ({"phase": slot_phase,
+                        ("error" if slot_phase == "error" else "lastError"): cell_error}
+                       if cell_error else {"phase": slot_phase}),
             "service": service_name,
             "gpuIndexes": [],
             "isRemote": not is_controller_slot,

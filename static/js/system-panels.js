@@ -441,6 +441,8 @@ export function renderControllerInfo(info) {
 
 
 export function renderLlamaCpp() {
+  const el = $("llamaCppSummary");
+  if (!el) return;   // the llama.cpp panel lives on /system only
   const info = state.llamaCpp || {};
   const git = info.git || {};
   const localBuild = parseLlamaBuildVersion(info.version || "");

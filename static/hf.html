@@ -768,6 +768,7 @@
       <span class="ob-q">?</span><span id="obBtnLabel">Tour</span>
     </button>
     <span id="hfDiskBadge" class="hf-disk-badge" hidden></span>
+    <button id="hfOnDiskBtn" type="button" class="hf-ondisk-btn" title="Manage downloaded models">📦 on disk</button>
     <div class="hf-token-row">
       <span class="hf-token-label">HF Token</span>
       <span id="hfTokenStatus" class="hf-token-status">checking…</span>
@@ -798,6 +799,22 @@
   </div>
 
   <div id="hfDownloadPanel" class="hf-download-panel" hidden></div>
+
+
+  <div id="hfOnDiskOverlay" class="hf-ondisk-overlay" hidden>
+    <div class="hf-ondisk-modal" role="dialog" aria-modal="true" aria-label="Downloaded models">
+      <div class="hf-ondisk-head">
+        <strong>📦 Models on disk</strong>
+        <span class="hf-ondisk-summary" id="hfOnDiskSummary">…</span>
+        <button class="hf-ondisk-close" id="hfOnDiskClose" aria-label="Close">✕</button>
+      </div>
+      <div class="hf-ondisk-tree" id="hfOnDiskTree"></div>
+      <div class="hf-ondisk-foot">
+        <span class="picked" id="hfOnDiskPicked"></span>
+        <button class="hf-ondisk-del" id="hfOnDiskDelete" disabled>Delete selected</button>
+      </div>
+    </div>
+  </div>
 
   <script type="module" src="/hf.js"></script>
 </body>

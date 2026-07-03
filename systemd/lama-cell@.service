@@ -2,13 +2,21 @@
 Description=LAMA CARAVAN server cell %i
 After=network-online.target
 Wants=network-online.target
+# Give up after 3 failed starts in 10 minutes: a config that cannot load
+# (e.g. does not fit in VRAM) must END UP visibly failed on the board, not
+# reload a 20+ GB model forever. A manual Start resets the counter.
+StartLimitIntervalSec=600
+StartLimitBurst=3
 
 [Service]
 Type=simple
 WorkingDirectory=__CARAVAN_ROOT__
 ExecStart=__CARAVAN_ROOT__/var/server-cells/%i/start.sh
 Restart=on-failure
-RestartSec=3
+# 10s, not 3: after a 20+ GB llama-server dies the driver needs seconds to
+# reclaim its VRAM — an instant retry lands on a still-dirty card and OOMs,
+# looping forever even though the config fits a clean one.
+RestartSec=10
 
 [Install]
 WantedBy=default.target

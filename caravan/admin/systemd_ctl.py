@@ -104,6 +104,9 @@ def cell_service_action(port, action):
         raise AppError("unsupported cell service action", 400)
     if action in {"start", "restart", "enable"}:
         ensure_cell_service_template()
+        # A unit that tripped the start limit refuses `start` until the
+        # failure state is cleared — a MANUAL start is exactly that consent.
+        systemctl("reset-failed", cell_service_name(port), timeout=5)
         # Open the port in ufw so clients on other hosts can reach the cell.
         try:
             run(["sudo", "-n", "ufw", "allow", str(port)], timeout=5)

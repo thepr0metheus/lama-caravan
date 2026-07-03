@@ -754,3 +754,64 @@
 }
 .hf-disk-badge.low { color: #e8b464; border-color: #8a6a30; }
 .hf-disk-badge.critical { color: #ec7063; border-color: #8a3030; font-weight: 600; }
+
+/* ── "on disk" manager: downloaded-models tree overlay ─────────────────────── */
+.hf-ondisk-btn {
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px;
+  font-size: 12px; padding: 3px 10px; cursor: pointer; white-space: nowrap;
+}
+.hf-ondisk-btn:hover { border-color: var(--accent); }
+.hf-ondisk-overlay {
+  position: fixed; inset: 0; z-index: 60;
+  background: rgba(0,0,0,.55); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center;
+}
+.hf-ondisk-modal {
+  width: min(860px, 94vw); max-height: 86vh;
+  display: flex; flex-direction: column;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; padding: 16px 18px; gap: 8px;
+}
+.hf-ondisk-head { display: flex; align-items: center; gap: 10px; }
+.hf-ondisk-head strong { font-size: 15px; }
+.hf-ondisk-head .hf-ondisk-summary { color: var(--muted); font-size: 12px; margin-right: auto; }
+.hf-ondisk-close {
+  background: none; border: 1px solid var(--line); border-radius: 7px;
+  color: var(--muted); cursor: pointer; font-size: 13px; padding: 2px 9px;
+}
+.hf-ondisk-close:hover { color: var(--text); border-color: var(--accent); }
+.hf-ondisk-tree { overflow: auto; font-size: 12.5px; }
+.hf-ondisk-tree details { margin: 2px 0; }
+.hf-ondisk-tree summary {
+  cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; border-radius: 8px;
+}
+.hf-ondisk-tree summary::-webkit-details-marker { display: none; }
+.hf-ondisk-tree summary:hover { background: color-mix(in srgb, var(--line) 30%, transparent); }
+.hf-ondisk-tree summary .tw { width: 12px; color: var(--muted); flex: 0 0 auto; }
+.hf-ondisk-tree details[open] > summary .tw::before { content: "▾"; }
+.hf-ondisk-tree details:not([open]) > summary .tw::before { content: "▸"; }
+.hf-ondisk-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hf-ondisk-size { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.hf-ondisk-lvl { margin-left: 18px; border-left: 1px solid color-mix(in srgb, var(--line) 60%, transparent); padding-left: 8px; }
+.hf-ondisk-file {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 8px 4px 26px; border-radius: 8px;
+}
+.hf-ondisk-file:hover { background: color-mix(in srgb, var(--line) 24%, transparent); }
+.hf-ondisk-file code { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hf-ondisk-file .meta { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; }
+.hf-ondisk-used {
+  font-size: 10px; padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+  background: color-mix(in srgb, #4fc38a 18%, transparent); color: #6fd6a4;
+}
+.hf-ondisk-file input[type=checkbox] { accent-color: var(--accent); }
+.hf-ondisk-foot { display: flex; align-items: center; gap: 10px; padding-top: 6px; border-top: 1px solid var(--line); }
+.hf-ondisk-foot .picked { color: var(--muted); font-size: 12px; margin-right: auto; }
+.hf-ondisk-del {
+  background: color-mix(in srgb, #e05555 22%, var(--surface));
+  border: 1px solid #8a3030; color: #f2b8b5;
+  border-radius: 8px; padding: 5px 12px; cursor: pointer; font-size: 12px;
+}
+.hf-ondisk-del:disabled { opacity: .5; cursor: default; }

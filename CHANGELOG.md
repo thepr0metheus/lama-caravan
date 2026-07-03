@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.1.0 — 2026-07-03
+
+- Sign-in: SQLite accounts (admin/viewer), sessions, fleet token for scouts,
+  first-account wizard on /login with all 20 UI languages; account chip in
+  the header.
+- /system page (replaces the System modal): Controller / llama.cpp /
+  Security / Diagnostics tabs, hero stats, deep links.
+- Cell schedules: start/stop windows per cell (edge-driven, overnight-aware).
+- Models disk GC: list unused GGUFs, free space from the UI.
+- Prometheus /metrics endpoint (clients, cells, GPU, routes).
+- Onboarding tours translated into all 20 UI languages (+ CI guard);
+  the /hf tour language picker offers the full list.
+- Seamless scout deploys: running cells are adopted, not killed.
+- Cell start reliability: the lama-cell@ unit template renders from the
+  actual checkout path; start failures are classified (out-of-memory /
+  exec / model / port / crash) and shown on the card, including the
+  previous attempt while systemd retries; retries stop after 3 failures
+  in 10 minutes instead of reloading a 20 GB model forever.
+- TRAFFIC (route activity) on client cards; ⚠ failed-requests badge;
+  request-log diagnostics API.
+
 ## 1.0.0 — 2026-07-03
 
 First public release.

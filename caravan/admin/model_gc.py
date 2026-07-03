@@ -23,23 +23,32 @@ def _part_group(rel_path):
     return f"{match.group('stem')}-*-of-{match.group('n')}.gguf" if match else rel_path
 
 
-def _referenced_relpaths():
+def _referenced_relpaths(with_owners=False):
+    """Set of referenced rel-paths; with_owners=True also returns
+    {relpath: ["host:port", ...]} for the UI's "who uses this" column."""
     refs = set()
+    owners = {}
 
-    def add(value):
+    def add(value, owner=None):
         v = str(value or "").strip().lstrip("/")
-        if v:
-            refs.add(v)
+        if not v:
+            return
+        refs.add(v)
+        if owner:
+            owners.setdefault(v, [])
+            if owner not in owners[v]:
+                owners[v].append(owner)
 
     config = parse_config()
     for key in ("MODEL_FILE", "MMPROJ_FILE", "SPEC_DRAFT_MODEL_FILE"):
-        add(config.get(key))
+        add(config.get(key), "legacy")
     for slot in topology_store().get("serverSlots", {}).values():
         cfg = slot.get("config") or {}
-        add(slot.get("model"))
+        owner = f"{slot.get('hostId') or '?'}:{slot.get('port') or '?'}"
+        add(slot.get("model"), owner)
         for key in ("MODEL_FILE", "MMPROJ_FILE", "SPEC_DRAFT_MODEL_FILE"):
-            add(cfg.get(key))
-    return refs
+            add(cfg.get(key), owner)
+    return (refs, owners) if with_owners else refs
 
 
 def list_unused_models():
@@ -47,8 +56,14 @@ def list_unused_models():
     models_dir = models_dir_from_config(parse_config())
     if not models_dir.is_dir():
         return {"ok": False, "path": str(models_dir), "error": "models dir not found", "files": []}
-    refs = _referenced_relpaths()
+    refs, owners = _referenced_relpaths(with_owners=True)
     ref_groups = {_part_group(r) for r in refs}
+    group_owners = {}
+    for rel, who in owners.items():
+        group_owners.setdefault(_part_group(rel), [])
+        for w in who:
+            if w not in group_owners[_part_group(rel)]:
+                group_owners[_part_group(rel)].append(w)
     now = time.time()
     files = []
     for f in sorted(models_dir.rglob("*.gguf")):
@@ -64,6 +79,7 @@ def list_unused_models():
             "sizeGb": round(stat.st_size / 2**30, 2),
             "ageDays": int((now - stat.st_mtime) // 86400),
             "referenced": referenced,
+            "referencedBy": owners.get(rel) or group_owners.get(_part_group(rel)) or [],
             "group": _part_group(rel),
         })
     unused = [f for f in files if not f["referenced"]]

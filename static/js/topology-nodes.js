@@ -211,6 +211,15 @@ export function nodeServerCardHtml(node, s) {
   // keeps its height instead of growing extra rows at the bottom.
   const _msl = (cls, inner) => `<div class="node-model-row2 model-status-line${cls ? " " + cls : ""}">${inner}</div>`;
   const _mslSpin = (stop) => `<span class="topology-spinner${stop ? " stopping-spinner" : ""}" aria-hidden="true"></span>`;
+  // While systemd retries a crashing cell the card mostly shows "loading …" —
+  // this ⚠ carries what the PREVIOUS attempt died of (hover for the journal).
+  const _prevErrChip = (srv) => {
+    const err = srv.status?.lastError;
+    if (!err) return "";
+    const kindKey = { oom: "cellErrOom", exec: "cellErrExec", model: "cellErrModel", port: "cellErrPort" }[err.kind] || "cellErrCrash";
+    const tip = `${t("cellPrevAttempt")} ${t(kindKey)}\n\n${err.tail || err.detail || ""}`.trim();
+    return `<span class="msl-prev-err" title="${escapeHtml(tip)}">⚠</span>`;
+  };
   let statusRow = "";
   if (isDeleting) {
     statusRow = _msl("msl-stop", `${_mslSpin(true)}<span class="msl-bar indeterminate msl-bar-stop"><span></span></span><span class="msl-text">${escapeHtml(t("removingSlotLabel"))}</span>`);
@@ -222,7 +231,7 @@ export function nodeServerCardHtml(node, s) {
     const dlFile = s.downloadingFile ? escapeHtml(s.downloadingFile) : escapeHtml(t("topologyRemoteDownloading"));
     statusRow = _msl("", `<span class="msl-bar"><span style="width:${p ?? 0}%"></span></span><span class="msl-text" data-live-dl>${dlFile} · ${(done/1e9).toFixed(1)}/${(tot/1e9).toFixed(1)} GB${p!=null?` · ${p}%`:""}</span>`);
   } else if (isWarming) {
-    statusRow = _msl("", `${_mslSpin(false)}<span class="msl-bar indeterminate"><span></span></span><span class="msl-text">${escapeHtml(t("topologyRemoteWarming"))}</span>`);
+    statusRow = _msl("", `${_mslSpin(false)}<span class="msl-bar indeterminate"><span></span></span><span class="msl-text">${escapeHtml(t("topologyRemoteWarming"))}</span>${_prevErrChip(s)}`);
   } else if (isError && (s.status?.error)) {
     // The unit is failed or flapping — say WHY (classified from its journal)
     // instead of leaving a silent stopped-looking card.
@@ -231,7 +240,7 @@ export function nodeServerCardHtml(node, s) {
     const tip = [err.detail || "", "", err.tail || ""].join("\n").trim();
     statusRow = _msl("msl-err", `<span class="msl-err-icon" aria-hidden="true">⚠</span><span class="msl-text" title="${escapeHtml(tip)}">${escapeHtml(t(kindKey))}</span>`);
   } else if (!running && !isStopped) {
-    statusRow = _msl("", `${_mslSpin(false)}<span class="msl-text">${escapeHtml(phase === "loading" ? t("topologyRemoteLoading") : t("topologyRemoteStarting"))}</span>`);
+    statusRow = _msl("", `${_mslSpin(false)}<span class="msl-text">${escapeHtml(phase === "loading" ? t("topologyRemoteLoading") : t("topologyRemoteStarting"))}</span>${_prevErrChip(s)}`);
   }
   const healthCls = running ? "running" : (isStopped ? "" : "loading");
   // Compact model block (name + quant/size/vision chips) — click to drill in.

@@ -222,6 +222,8 @@
   line-height: 1.3;
 }
 .msl-err-icon { color: var(--danger, #e05555); font-size: 12px; flex: 0 0 auto; }
+/* "Previous attempt failed" marker next to the loading spinner (hover = journal tail). */
+.msl-prev-err { color: var(--warn, #e0a03f); font-size: 12px; flex: 0 0 auto; cursor: help; }
 
 .node-server-foot { font-size:11px; margin-top:4px; }
 

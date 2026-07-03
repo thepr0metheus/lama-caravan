@@ -1469,6 +1469,118 @@ if (_urlQ) {
   searchInput.focus();
 }
 
+
+// ── "on disk" manager: tree of downloaded models, sizes, owners, delete ──────
+const onDiskOverlay = document.getElementById("hfOnDiskOverlay");
+const onDiskTree = document.getElementById("hfOnDiskTree");
+const onDiskSummary = document.getElementById("hfOnDiskSummary");
+const onDiskPicked = document.getElementById("hfOnDiskPicked");
+const onDiskDelete = document.getElementById("hfOnDiskDelete");
+
+function fmtGb(bytes) {
+  const gb = bytes / 2 ** 30;
+  return gb >= 100 ? `${Math.round(gb)} GB` : `${gb.toFixed(gb >= 10 ? 1 : 2)} GB`;
+}
+
+function onDiskUpdatePicked() {
+  const picked = [...onDiskTree.querySelectorAll("input[data-del-path]:checked")];
+  const bytes = picked.reduce((a, el) => a + Number(el.dataset.size || 0), 0);
+  onDiskPicked.textContent = picked.length ? `${picked.length} file${picked.length > 1 ? "s" : ""} · ${fmtGb(bytes)}` : "";
+  onDiskDelete.disabled = !picked.length;
+}
+
+async function openOnDiskManager() {
+  onDiskOverlay.hidden = false;
+  onDiskTree.innerHTML = `<p class="hf-muted">Scanning models directory…</p>`;
+  onDiskSummary.textContent = "";
+  onDiskPicked.textContent = "";
+  onDiskDelete.disabled = true;
+  let data;
+  try {
+    data = await fetch("/api/models/unused").then((r) => r.json());
+  } catch (err) {
+    onDiskTree.innerHTML = `<p class="hf-muted">${escapeHtml(String(err))}</p>`;
+    return;
+  }
+  if (!data.ok) {
+    onDiskTree.innerHTML = `<p class="hf-muted">${escapeHtml(data.error || "models dir not found")}</p>`;
+    return;
+  }
+  const files = data.files || [];
+  const totalBytes = files.reduce((a, f) => a + f.sizeBytes, 0);
+  onDiskSummary.textContent =
+    `${data.path} — ${files.length} files · ${fmtGb(totalBytes)}; unused: ${data.unusedCount} · ${data.unusedGb} GB`;
+  // Group flat rel-paths into model → author → quant → files.
+  const tree = new Map();
+  files.forEach((f) => {
+    const segs = f.path.split("/");
+    const model = segs.length > 1 ? segs[0] : "(root)";
+    const author = segs.length > 2 ? segs[1] : "";
+    const quant = segs.length > 3 ? segs[2] : "";
+    const key1 = model, key2 = author, key3 = quant;
+    if (!tree.has(key1)) tree.set(key1, { bytes: 0, children: new Map() });
+    const lvl1 = tree.get(key1); lvl1.bytes += f.sizeBytes;
+    const k2 = key2 || "·";
+    if (!lvl1.children.has(k2)) lvl1.children.set(k2, { bytes: 0, children: new Map() });
+    const lvl2 = lvl1.children.get(k2); lvl2.bytes += f.sizeBytes;
+    const k3 = key3 || "·";
+    if (!lvl2.children.has(k3)) lvl2.children.set(k3, { bytes: 0, files: [] });
+    const lvl3 = lvl2.children.get(k3); lvl3.bytes += f.sizeBytes;
+    lvl3.files.push(f);
+  });
+  const fileRow = (f) => {
+    const name = f.path.split("/").pop();
+    const used = f.referenced
+      ? `<span class="hf-ondisk-used" title="${escapeHtml((f.referencedBy || []).join(", "))}">used: ${escapeHtml((f.referencedBy || []).join(", ") || "yes")}</span>`
+      : `<input type="checkbox" data-del-path="${escapeHtml(f.path)}" data-size="${f.sizeBytes}" title="select for deletion">`;
+    return `<div class="hf-ondisk-file">${used}<code title="${escapeHtml(f.path)}">${escapeHtml(name)}</code>` +
+      `<span class="meta">${fmtGb(f.sizeBytes)} · ${f.ageDays}d</span></div>`;
+  };
+  const lvlHtml = (label, node, inner) => `
+    <details>
+      <summary><span class="tw"></span><span class="hf-ondisk-name">${escapeHtml(label)}</span>
+        <span class="hf-ondisk-size">${fmtGb(node.bytes)}</span></summary>
+      <div class="hf-ondisk-lvl">${inner}</div>
+    </details>`;
+  const html = [...tree.entries()]
+    .sort((a, b) => b[1].bytes - a[1].bytes)
+    .map(([model, lvl1]) => lvlHtml(model, lvl1,
+      [...lvl1.children.entries()].map(([author, lvl2]) => lvlHtml(author, lvl2,
+        [...lvl2.children.entries()].map(([quant, lvl3]) =>
+          lvlHtml(quant, lvl3, lvl3.files.map(fileRow).join(""))).join(""))).join("")))
+    .join("");
+  onDiskTree.innerHTML = html || `<p class="hf-muted">No GGUF files on disk yet.</p>`;
+  onDiskTree.addEventListener("change", onDiskUpdatePicked);
+}
+
+onDiskDelete?.addEventListener("click", async () => {
+  const picked = [...onDiskTree.querySelectorAll("input[data-del-path]:checked")];
+  if (!picked.length) return;
+  const bytes = picked.reduce((a, el) => a + Number(el.dataset.size || 0), 0);
+  if (!confirm(`Delete ${picked.length} file(s), ${fmtGb(bytes)}? This cannot be undone.`)) return;
+  onDiskDelete.disabled = true;
+  try {
+    const res = await fetch("/api/models/gc", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ files: picked.map((el) => el.dataset.delPath) }),
+    }).then((r) => r.json());
+    if (res.error) throw new Error(res.error);
+    await openOnDiskManager();   // re-scan
+    refreshDiskInfo();
+  } catch (err) {
+    alert(String(err.message || err));
+    onDiskDelete.disabled = false;
+  }
+});
+
+document.getElementById("hfOnDiskBtn")?.addEventListener("click", openOnDiskManager);
+document.getElementById("hfOnDiskClose")?.addEventListener("click", () => { onDiskOverlay.hidden = true; });
+onDiskOverlay?.addEventListener("click", (e) => { if (e.target === onDiskOverlay) onDiskOverlay.hidden = true; });
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && onDiskOverlay && !onDiskOverlay.hidden) onDiskOverlay.hidden = true;
+});
+
 // ── onboarding tour (?) ───────────────────────────────────────────────────────
 // The engine is dependency-free; strings live here so this page keeps NOT
 // importing the big i18n dictionary. All 20 app languages; the language

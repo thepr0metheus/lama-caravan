@@ -263,17 +263,33 @@ export function drawTopologyGpuHistory() {
 // llama upstream points at one of the node's llama-server endpoints. (Grouping
 // by "agents hosted here" was misleading: an agent's route can go to the cloud
 // or another GPU. This view matches the node's GPU/Token panels.)
-export function nodeRouteLabels(nodeId) {
-  const node = (topology?.nodes || []).find((n) => String(n.id) === String(nodeId));
-  if (!node) return [];
+// The node's own serving endpoints (host:port of its cells). Controller cells
+// are reachable both by LAN IP and 127.0.0.1 — requests log the latter.
+export function nodeEndpointSet(node) {
   const endpoints = new Set();
-  (node.servers || []).forEach((s) => {
+  (node?.servers || []).forEach((s) => {
     const host = s.clientIp || node.ip;
     if (host && s.port != null) {
       endpoints.add(`${host}:${s.port}`);
       if (node.role === "controller") endpoints.add(`127.0.0.1:${s.port}`);
     }
   });
+  return endpoints;
+}
+
+// Per-node sample filter for Route Activity: attribute a request to the node
+// that ACTUALLY served it (item.upstream), not to every node its route can
+// reach — a request handled on a client GPU must not light the controller.
+export function nodeActivityFilter(nodeId) {
+  const node = (topology?.nodes || []).find((n) => String(n.id) === String(nodeId));
+  if (!node) return null;
+  return { endpoints: nodeEndpointSet(node), isController: node.role === "controller" };
+}
+
+export function nodeRouteLabels(nodeId) {
+  const node = (topology?.nodes || []).find((n) => String(n.id) === String(nodeId));
+  if (!node) return [];
+  const endpoints = nodeEndpointSet(node);
   // Routers whose kanban outputs point at this node's cells: their routes can
   // land here even when the route's STATIC upstream says otherwise (the graph
   // resolves per request) — this is what makes client cards show traffic.
@@ -412,7 +428,7 @@ export function drawNodeTelemetry() {
       const labels = nodeRouteLabels(id);
       const sm = systemSamples(ui.latestSystemMonitor).slice(-600);
       const { buckets, barW } = _routeBuckets(sm, routeCv);
-      drawTopologyRouteHistory(sm, buckets, barW, routeCv, { routes: labels });
+      drawTopologyRouteHistory(sm, buckets, barW, routeCv, { routes: labels, filter: nodeActivityFilter(id) });
     }
   });
 }
@@ -941,6 +957,7 @@ export function drawRouteActivityModal() {
   drawTopologyRouteHistory(samples, buckets, barW, canvas, {
     rowH: 28, rowGap: 5,
     routes: _routeActivityNode ? nodeRouteLabels(_routeActivityNode) : undefined,
+    filter: _routeActivityNode ? nodeActivityFilter(_routeActivityNode) : null,
   });
   const legendEl = $("routeActivityLegend");
   if (legendEl) legendEl.innerHTML = buildRouteActivityLegendHtml();
@@ -1004,7 +1021,7 @@ export function drawTopologyRouteHistory(samples, buckets, barW, overrideCanvas,
     ctx.fillStyle = "rgba(160, 180, 185, 0.08)";
     ctx.fillRect(pad.left, y, plotW, rowHpx);
     buckets.forEach((bucket, index) => {
-      const state = topologyRouteActivityForBucket(bucket, route);
+      const state = topologyRouteActivityForBucket(bucket, route, opts.filter || null);
       if (!state) return;
       const x = pad.left + index * barW;
       ctx.fillStyle = topologyRouteActivityColor(route, state);
@@ -1025,7 +1042,7 @@ export function drawTopologyRouteHistory(samples, buckets, barW, overrideCanvas,
   ctx.shadowColor = "transparent";
   ctx.shadowBlur = 0;
   const latest = samples[samples.length - 1] || {};
-  const latestRoutes = [...topologyRouteActivityForSample(latest).keys()];
+  const latestRoutes = [...topologyRouteActivityForSample(latest, opts.filter || null).keys()];
   if (legend) legend.innerHTML = "";
   // Native title only on the small chart; modal uses the custom hover tooltip
   if (!overrideCanvas) {
@@ -1050,14 +1067,27 @@ export function topologyRouteActivitySet(map, route, state) {
   }
 }
 
-export function topologyRouteActivityForSample(sample) {
+export function topologyRouteActivityForSample(sample, filter = null) {
   const activity = new Map();
   const correlated = sample?.correlatedActivity || {};
   const sampleTime = Number(sample?.time || 0);
-  (correlated.gpu?.activeRoutes || []).forEach((route) => topologyRouteActivitySet(activity, route, "active"));
-  (correlated.gpu?.cloudActiveRoutes || []).forEach((route) => topologyRouteActivitySet(activity, route, "cloud_active"));
-  (correlated.llamaServer?.activeRoutes || []).forEach((route) => topologyRouteActivitySet(activity, route, "active"));
+  // Skip items the filtered node did not serve: cloud requests use no local
+  // GPU, and an upstream that isn't one of the node's cells means another
+  // host handled it. Items without an upstream yet (queued) stay visible.
+  const skipItem = (item) => {
+    if (!filter) return false;
+    if (item.isCloud) return true;
+    const up = String(item.upstream || "").trim();
+    return !!up && !filter.endpoints.has(up);
+  };
+  // GPU/llama correlations describe the CONTROLLER host's hardware.
+  if (!filter || filter.isController) {
+    (correlated.gpu?.activeRoutes || []).forEach((route) => topologyRouteActivitySet(activity, route, "active"));
+    if (!filter) (correlated.gpu?.cloudActiveRoutes || []).forEach((route) => topologyRouteActivitySet(activity, route, "cloud_active"));
+    (correlated.llamaServer?.activeRoutes || []).forEach((route) => topologyRouteActivitySet(activity, route, "active"));
+  }
   (correlated.activeRequests || []).forEach((item) => {
+    if (skipItem(item)) return;
     const incident = topologyIncidentForItem(item);
     const isQueued = topologyIsQueuedItem(item);
     const isPreempting = String(item.phase || "") === "preempting";
@@ -1070,6 +1100,7 @@ export function topologyRouteActivityForSample(sample) {
     topologyRouteActivitySet(activity, item.label, state);
   });
   (correlated.recentRequests || []).forEach((item) => {
+    if (skipItem(item)) return;
     const eventTime = Number(item.finishedAt || item.startedAt || 0);
     if (!sampleTime || !eventTime || Math.abs(sampleTime - eventTime) > 3) return;
     const incident = topologyIncidentForItem(item);
@@ -1084,10 +1115,10 @@ export function topologyRouteActivityForSample(sample) {
   return activity;
 }
 
-export function topologyRouteActivityForBucket(bucket, route) {
+export function topologyRouteActivityForBucket(bucket, route, filter = null) {
   let state = "";
   bucket.forEach((sample) => {
-    const next = topologyRouteActivityForSample(sample).get(route);
+    const next = topologyRouteActivityForSample(sample, filter).get(route);
     if (next && topologyRouteActivityPriority(next) > topologyRouteActivityPriority(state)) {
       state = next;
     }
