@@ -47,6 +47,13 @@ html[data-theme="llm"] {
   box-sizing: border-box;
 }
 
+/* The hidden attribute must ALWAYS win: any class with its own `display`
+   silently defeats the UA's [hidden]{display:none} (specificity), which has
+   already produced "always-open" UI twice (user menu, /hf overlay). */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   background: var(--bg);

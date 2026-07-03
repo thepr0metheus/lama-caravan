@@ -745,6 +745,11 @@ def _get_system(h, parsed):
         h.send_file(STATIC_DIR / "system.html", "text/html; charset=utf-8")
         return
 
+@_route(GET_ROUTES, '/models')
+def _get_models(h, parsed):
+        h.send_file(STATIC_DIR / "models.html", "text/html; charset=utf-8")
+        return
+
 @_route(GET_ROUTES, '/hf.js')
 def _get_hf_js(h, parsed):
         h.send_file(STATIC_DIR / "hf.js", "application/javascript; charset=utf-8")

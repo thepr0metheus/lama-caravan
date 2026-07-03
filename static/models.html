@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Models — Lama Caravan</title>
+  <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/topology-board.css">
+  <link rel="stylesheet" href="/css/canvas.css">
+  <link rel="stylesheet" href="/css/modals.css">
+  <link rel="stylesheet" href="/css/cards.css">
+  <link rel="stylesheet" href="/css/form.css">
+  <link rel="stylesheet" href="/css/monitor.css">
+  <link rel="stylesheet" href="/css/nodes.css">
+  <link rel="stylesheet" href="/css/onboarding.css">
+  <style>
+    body {
+      min-height: 100dvh;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui, system-ui, sans-serif);
+      display: flex;
+      flex-direction: column;
+    }
+    .topbar { position: sticky; top: 0; z-index: 30; }
+    .sys-back {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 12px; border: 1px solid var(--line); border-radius: 9px;
+      background: var(--surface); color: var(--text); text-decoration: none;
+      font-size: 12px; white-space: nowrap;
+      transition: border-color .15s ease;
+    }
+    .sys-back:hover { border-color: var(--accent); }
+
+    .mdl-wrap {
+      width: min(980px, 94vw);
+      margin: 0 auto;
+      padding: 22px 0 60px;
+      display: flex; flex-direction: column; gap: 16px; flex: 1;
+    }
+    .mdl-hero {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      gap: 18px; flex-wrap: wrap; padding: 22px 24px;
+      border: 1px solid var(--line); border-radius: 16px;
+      background:
+        radial-gradient(1200px 300px at 8% -40%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
+        var(--surface);
+    }
+    .mdl-hero h1 { margin: 0 0 4px; font-size: 26px; display: flex; align-items: center; gap: 10px; }
+    .mdl-hero p { margin: 0; font-size: 12.5px; color: var(--muted); max-width: 52ch; }
+    .mdl-hero-stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 8px; min-width: min(460px, 100%);
+    }
+    .mdl-stat {
+      border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px;
+      background: color-mix(in srgb, var(--bg) 55%, transparent);
+      display: flex; flex-direction: column; gap: 2px; min-width: 0;
+    }
+    .mdl-stat span { font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+    .mdl-stat strong { font-size: 13.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mdl-stat.warn strong { color: var(--warn, #e0a03f); }
+    .mdl-stat.good strong { color: var(--ok, #4fc38a); }
+
+    .mdl-panel {
+      border: 1px solid var(--line); border-radius: 16px;
+      padding: 16px 18px; background: var(--surface);
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .mdl-panel-head { display: flex; align-items: center; gap: 10px; }
+    .mdl-panel-head .mdl-path { color: var(--muted); font-size: 11.5px; font-family: ui-monospace, Menlo, monospace; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mdl-tree { overflow: auto; font-size: 12.5px; }
+    .mdl-tree details { margin: 2px 0; }
+    .mdl-tree summary {
+      cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
+      padding: 5px 8px; border-radius: 8px;
+    }
+    .mdl-tree summary::-webkit-details-marker { display: none; }
+    .mdl-tree summary:hover { background: color-mix(in srgb, var(--line) 30%, transparent); }
+    .mdl-tree summary .tw { width: 12px; color: var(--muted); flex: 0 0 auto; }
+    .mdl-tree details[open] > summary .tw::before { content: "▾"; }
+    .mdl-tree details:not([open]) > summary .tw::before { content: "▸"; }
+    .mdl-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mdl-size { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+    .mdl-lvl { margin-left: 18px; border-left: 1px solid color-mix(in srgb, var(--line) 60%, transparent); padding-left: 8px; }
+    .mdl-file { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 26px; border-radius: 8px; }
+    .mdl-file:hover { background: color-mix(in srgb, var(--line) 24%, transparent); }
+    .mdl-file code { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mdl-file .meta { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .mdl-used {
+      font-size: 10px; padding: 1px 6px; border-radius: 4px; white-space: nowrap;
+      background: color-mix(in srgb, #4fc38a 18%, transparent); color: #6fd6a4;
+      max-width: 220px; overflow: hidden; text-overflow: ellipsis;
+    }
+    .mdl-file input[type=checkbox] { accent-color: var(--accent); }
+    .mdl-foot { display: flex; align-items: center; gap: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
+    .mdl-foot .picked { color: var(--muted); font-size: 12px; margin-right: auto; }
+    .mdl-del {
+      background: color-mix(in srgb, #e05555 22%, var(--surface));
+      border: 1px solid #8a3030; color: #f2b8b5;
+      border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12px;
+    }
+    .mdl-del:disabled { opacity: .5; cursor: default; }
+    .mdl-hf-link { text-decoration: none; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <h1 class="brand-title">
+        <img src="/favicon.svg?v=2" alt="" aria-hidden="true">
+        <span class="brand-name-wrap">
+          <span data-i18n="appTitle">LAMA CARAVAN</span>
+          <span class="brand-acronym" data-i18n="modelsPage">Models on disk</span>
+        </span>
+      </h1>
+    </div>
+    <div class="actions">
+      <a class="sys-back" href="/"><span aria-hidden="true">←</span> <span data-i18n="sysBackToBoard">Board</span></a>
+      <a class="sys-back mdl-hf-link" href="/hf">🤗 HF</a>
+      <div class="user-chip" id="userChip" hidden>
+        <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false">
+          <span class="user-chip-ico">👤</span><span id="userChipName"></span><span class="lang-caret" aria-hidden="true">▾</span>
+        </button>
+        <div id="userMenu" class="user-menu" hidden>
+          <button id="userMenuLogout" type="button" data-i18n="authLogout">Log out</button>
+        </div>
+      </div>
+      <div class="lang-select" id="langSelect">
+        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Language">
+          <span class="lang-emoji" id="langTriggerEmoji">☕</span>
+          <span class="lang-code" id="langTriggerCode">EN</span>
+          <span class="lang-caret" aria-hidden="true">▾</span>
+        </button>
+        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden></ul>
+      </div>
+    </div>
+  </header>
+
+  <div class="mdl-wrap">
+    <section class="mdl-hero">
+      <div>
+        <h1><span aria-hidden="true">📦</span> <span data-i18n="modelsPage">Models on disk</span></h1>
+        <p data-i18n="modelsPageSub">Everything the controller can serve — sizes, which cells use what, and cleanup of the rest.</p>
+      </div>
+      <div class="mdl-hero-stats" id="mdlHeroStats"></div>
+    </section>
+
+    <section class="mdl-panel">
+      <div class="mdl-panel-head">
+        <span class="mdl-path" id="mdlPath"></span>
+        <button class="mini-link" type="button" id="mdlSelectAll" data-i18n="gcSelectAll">Select all unused</button>
+      </div>
+      <div class="mdl-tree" id="mdlTree"><p class="muted">…</p></div>
+      <div class="mdl-foot">
+        <span class="picked" id="mdlPicked"></span>
+        <button class="mdl-del" id="mdlDelete" disabled data-i18n="gcDelete">Delete selected</button>
+      </div>
+    </section>
+  </div>
+
+  <div id="confirmOverlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" data-tone="danger">
+      <header class="dlg-head">
+        <span class="dlg-ico" aria-hidden="true"></span>
+        <h2 id="confirmTitle" data-i18n="deleteBackup">Delete?</h2>
+      </header>
+      <p id="confirmText"></p>
+      <div id="confirmMeta" class="modal-meta" hidden></div>
+      <code id="confirmPath"></code>
+      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden>
+      <div class="modal-actions">
+        <button id="confirmCancel" type="button" data-i18n="cancel">Cancel</button>
+        <button id="confirmDelete" type="button" class="danger" data-i18n="deleteAction">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" role="status"></div>
+  <script type="module" src="/js/models-page.js"></script>
+</body>
+</html>
