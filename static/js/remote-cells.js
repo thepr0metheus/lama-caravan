@@ -187,7 +187,7 @@ export async function reserveServerCell(hostId, portHint = "") {
   const hostKey = String(hostId || "");
   const pendingPort = Number(portHint || nextTopologyCellPort() || 0);
   if (!(await appConfirm(t("dlgReserveCell", { port: String(pendingPort || "?") }),
-                         { danger: false, confirmLabel: t("topologyReserveCellLabel"), scene: "change" }))) return;
+                         { danger: false, confirmLabel: t("topologyReserveCellLabel"), scene: "create" }))) return;
   if (hostKey && pendingPort) {
     _reservingCells.set(hostKey, { port: pendingPort, startedAt: Date.now() });
     renderTopology();
@@ -280,11 +280,11 @@ export async function deleteTopologyClient(clientId) {
 
 // Register a discovered (running but unregistered) agent into the fleet registry.
 export async function discoveryAddCandidate(suggestedId, host) {
-  const id = ((await appPrompt(t("dlgRegisterAgentId"), { value: suggestedId || "" })) || "").trim();
+  const id = ((await appPrompt(t("dlgRegisterAgentId"), { value: suggestedId || "", scene: "create" })) || "").trim();
   if (!id) return;
-  const ip = ((await appPrompt(t("dlgRegisterHost"), { value: host || "" })) || "").trim();
+  const ip = ((await appPrompt(t("dlgRegisterHost"), { value: host || "", scene: "create" })) || "").trim();
   if (!ip) return;
-  const portStr = ((await appPrompt(t("dlgRegisterPort", { ip }), { value: "18796" })) || "").trim();
+  const portStr = ((await appPrompt(t("dlgRegisterPort", { ip }), { value: "18796", scene: "create" })) || "").trim();
   const port = parseInt(portStr, 10);
   if (!port) { toast("port is required"); return; }
   try {
@@ -935,7 +935,7 @@ export async function purgeRemoteModelCache() {
 // controller under <host>/<gpu-or-CPU>/ — mirrors the controller's "Save current
 // config" so the client Add-Llama modal works the same.
 export async function snapshotRemoteConfig(hostId) {
-  const name = await appPrompt(t("snapshotNamePrompt"), { value: suggestedSnapshotName("tr-"), confirmLabel: t("save") });
+  const name = await appPrompt(t("snapshotNamePrompt"), { value: suggestedSnapshotName("tr-"), confirmLabel: t("save"), scene: "create" });
   if (name === null) return;
   const trimmed = name.trim();
   if (!trimmed) { toast(t("snapshotNameRequired")); return; }

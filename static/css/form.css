@@ -517,15 +517,6 @@ button.cmd-dirty::after {
   justify-content: center;
   overflow: hidden;
 }
-.dlg-stage::after {
-  content: "";
-  position: absolute;
-  left: 8%;
-  right: 8%;
-  bottom: 12px;
-  height: 2px;
-  background: color-mix(in srgb, var(--dlg-tone, var(--line)) 35%, transparent);
-}
 .dlg-stage .dlg-sc {
   position: relative;
   width: 22em;

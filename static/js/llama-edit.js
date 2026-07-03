@@ -354,7 +354,7 @@ export function currentSavedConfig(pfx) {
 }
 
 export async function snapshotConfig(pfx = "") {
-  const name = await appPrompt(t("snapshotNamePrompt"), { value: suggestedSnapshotName(pfx), confirmLabel: t("save") });
+  const name = await appPrompt(t("snapshotNamePrompt"), { value: suggestedSnapshotName(pfx), confirmLabel: t("save"), scene: "create" });
   if (name === null) return;
   const trimmed = name.trim();
   if (!trimmed) {

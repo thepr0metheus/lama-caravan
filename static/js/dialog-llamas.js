@@ -87,10 +87,41 @@ function toggle(side, accent) {
   else px.push([18, 9, CRATE], [19, 8, CRATE], [20, 7, accent], [19, 7, accent], [20, 8, accent]);
   return px;
 }
+// create scene: egg → crack → hatched mini-llama that hops beside the parent
+const EGG = "#e8e2d4", EGGSPOT = "#cbb188", CRACK = "#141c20";
+function egg(state, miniColor) {
+  if (state === "whole" || state === "crack") {
+    const px = [[16, 8, EGG], [15, 9, EGG], [16, 9, EGGSPOT], [17, 9, EGG],
+                [15, 10, EGG], [16, 10, EGG], [17, 10, EGG], [16, 11, EGG]];
+    if (state === "crack") px.push([16, 8, CRACK], [17, 9, CRACK], [15, 10, CRACK]);
+    return px;
+  }
+  // hatched: bottom shell cup + the newborn standing in/beside it
+  const shell = [[14, 11, EGG], [15, 11, EGG], [17, 11, EGG], [18, 11, EGG], [14, 10, EGG], [18, 10, EGG]];
+  const dx = state === "hop" ? 2 : 0, dy = state === "hop" ? -1 : 0;
+  const mini = [
+    [15 + dx, 9 + dy, miniColor], [16 + dx, 9 + dy, miniColor],
+    [15 + dx, 10 + dy, miniColor], [16 + dx, 10 + dy, miniColor],
+    [17 + dx, 8 + dy, miniColor], [17 + dx, 7 + dy, miniColor], [18 + dx, 7 + dy, miniColor],
+    [17 + dx, 6 + dy, miniColor],
+    [15 + dx, 11 + dy, miniColor], [16 + dx, 11 + dy, miniColor],
+  ];
+  return state === "hop" ? shell.concat(mini) : shell.concat(mini);
+}
 const propShadow = (px) => px.map(([x, y, c]) => `${x}em ${y}em 0 0 ${c}`).join(", ");
 
 // ── scene timelines: [pose, propShadow, llamaShiftEm, propSlide] per tick ────
-function timeline(kind, accent) {
+function timeline(kind, accent, miniColor) {
+  if (kind === "create") {
+    return [
+      ["standA", propShadow(egg("whole", miniColor)), 0, false],
+      ["standB", propShadow(egg("whole", miniColor)), 1, false],   // nudges the egg
+      ["standA", propShadow(egg("crack", miniColor)), 0, false],
+      ["standA", propShadow(egg("hatched", miniColor)), 0, false], // a newborn!
+      ["standB", propShadow(egg("hop", miniColor)), 0, false],     // first hop
+      ["standA", propShadow(egg("hatched", miniColor)), 0, false],
+    ];
+  }
   if (kind === "delete") {
     return [
       ["standA", propShadow(crate("ok")), 0, false],
@@ -134,7 +165,8 @@ function mountScene(overlay) {
     blanket = BLANKETS[Math.floor(Math.random() * BLANKETS.length)];
   }
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#4da392";
-  const frames = timeline(kind, accent);
+  const miniColor = BODIES.filter((c) => c !== body)[Math.floor(Math.random() * (BODIES.length - 1))];
+  const frames = timeline(kind, accent, miniColor);
   modal.classList.add("dlg-staged");   // hides the small header tile
   const stage = document.createElement("div");
   stage.className = "dlg-stage";
