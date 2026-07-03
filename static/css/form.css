@@ -345,6 +345,17 @@ button.cmd-dirty::after {
   gap: 6px;
 }
 
+.diagnostic-row.muted { opacity: 0.55; }
+.diagnostic-row.muted strong { color: var(--muted); font-weight: 500; }
+.legacy-details { margin-top: 10px; }
+.legacy-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12.5px;
+  padding: 6px 0;
+}
+.legacy-details summary:hover { color: var(--text); }
+.legacy-details[open] summary { margin-bottom: 6px; }
 .diagnostic-row {
   display: grid;
   grid-template-columns: 150px minmax(0, 1fr);

@@ -51,6 +51,7 @@ TOKEN_HISTORY_RETENTION_SEC = int(os.environ.get("TOKEN_HISTORY_RETENTION_SEC", 
 AGENT_PROXY_LOG_DIR = Path(os.environ.get("AGENT_PROXY_LOG_DIR",
     str(PROJECT_ROOT / "logs" / "proxy-events")))
 AGENT_PROXY_SERVICE_NAME = os.environ.get("AGENT_PROXY_SERVICE_NAME", "lama-caravan-proxies.service")
+ADMIN_SERVICE_NAME = os.environ.get("LLAMA_ADMIN_SERVICE_NAME", "lama-caravan.service")
 TOPOLOGY_CLIENT_TTL = int(os.environ.get("LLAMA_TOPOLOGY_CLIENT_TTL", "45"))
 MODEL_PRICING_CACHE_PATH = PROJECT_ROOT / "logs" / "model-pricing-cache.json"
 MODEL_PRICING_URL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"

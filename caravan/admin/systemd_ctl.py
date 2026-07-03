@@ -89,30 +89,42 @@ def user_service_diagnostics(service=None, runtime=None):
         "title": "systemd user bus",
         "detail": f"{bus_path} exists" if bus_path.exists() else f"{bus_path} is missing",
     })
+    legacy_active = service.get("ok") and service.get("ActiveState") == "active"
     if service.get("ok"):
-        active = service.get("ActiveState") == "active"
+        # The single-server unit is LEGACY: with server cells (lama-cell@<port>)
+        # doing the serving, this unit being off is the normal state — report
+        # it muted, not as a problem.
         checks.append({
-            "kind": "good" if active else "warn",
-            "title": "llamacpp-current.service",
-            "detail": f"{service.get('ActiveState', 'unknown')} / {service.get('SubState', 'unknown')}, PID {service.get('MainPID', '0')}",
+            "kind": "good" if legacy_active else "muted",
+            "title": "llamacpp-current.service (legacy)",
+            "detail": f"{service.get('ActiveState', 'unknown')} / {service.get('SubState', 'unknown')}, PID {service.get('MainPID', '0')}"
+                      + ("" if legacy_active else " — off is normal when serving via cells"),
         })
     else:
         checks.append({
             "kind": "bad",
-            "title": "llamacpp-current.service",
+            "title": "llamacpp-current.service (legacy)",
             "detail": (service.get("error") or "systemctl --user failed").strip(),
         })
     props = runtime.get("props") if isinstance(runtime, dict) else {}
     ready = isinstance(props, dict) and props.get("ok") is not False and "error" not in props
-    checks.append({
-        "kind": "good" if ready else "warn",
-        "title": "llama.cpp HTTP",
-        "detail": "ready on configured port" if ready else str((props or {}).get("error") or "not ready yet"),
-    })
+    if legacy_active or ready:
+        checks.append({
+            "kind": "good" if ready else "warn",
+            "title": "llama.cpp HTTP (legacy port)",
+            "detail": "ready on configured port" if ready else str((props or {}).get("error") or "not ready yet"),
+        })
+    else:
+        checks.append({
+            "kind": "muted",
+            "title": "llama.cpp HTTP (legacy port)",
+            "detail": "legacy single-server not running — check skipped",
+        })
     return {
         "summary": "Admin uses systemctl --user, so the system service must talk to the service user's bus.",
-        "fix": "Use Repair user service, or restart llamacpp-easy-admin after ensuring /run/user/<uid>/bus exists.",
+        "fix": "Use Repair user service, or restart lama-caravan after ensuring /run/user/<uid>/bus exists.",
         "checks": checks,
+        "legacyActive": bool(legacy_active),
     }
 
 def read_cmdline(pid):

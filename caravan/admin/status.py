@@ -15,7 +15,7 @@ from caravan.admin.llama_metrics import runtime_phase
 from caravan.admin.models import list_chat_templates, list_models
 from caravan.admin.monitoring import cpu_state, gpu_state, memory_state, runtime_api
 from caravan.admin.openclaw import notify_openclaw_config_managers, openclaw_config_manager_state
-from caravan.admin.paths import LLAMA_HOME, PROJECT_ROOT, SERVER_CELLS_DIR, SERVICE_NAME, START_SCRIPT
+from caravan.admin.paths import ADMIN_SERVICE_NAME, AGENT_PROXY_SERVICE_NAME, LLAMA_HOME, PROJECT_ROOT, SERVER_CELLS_DIR, SERVICE_NAME, START_SCRIPT
 from caravan.admin.state import admin_state
 from caravan.admin.systemd_ctl import logs, service_status, systemctl, user_service_diagnostics
 from caravan.common.errors import AppError
@@ -36,6 +36,65 @@ def project_git_info():
         "ok": head["ok"] and branch["ok"],
         "error": "" if head["ok"] and branch["ok"] else (head["stderr"] or branch["stderr"]),
     }
+
+def _unit_brief(unit):
+    show = systemctl("show", unit, "-p", "ActiveState", "-p", "SubState",
+                     "-p", "MainPID", "-p", "ExecMainStartTimestamp", timeout=5)
+    props = {}
+    for line in show["stdout"].splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            props[key] = value
+    return {
+        "unit": unit,
+        "ok": show["ok"],
+        "active": props.get("ActiveState", ""),
+        "sub": props.get("SubState", ""),
+        "pid": props.get("MainPID", "0"),
+        "since": props.get("ExecMainStartTimestamp", ""),
+    }
+
+def controller_info():
+    """The Controller card in the System modal: what THIS host runs (admin +
+    proxy services, cell units, app git, python) and whether the models disk
+    has room — the questions asked before/after every deploy or download."""
+    import shutil
+    import sys
+    config = parse_config()
+    models_dir = models_dir_from_config(config)
+    info = {
+        "ok": True,
+        "python": sys.version.split()[0],
+        "projectGit": project_git_info(),
+        "services": [_unit_brief(ADMIN_SERVICE_NAME), _unit_brief(AGENT_PROXY_SERVICE_NAME)],
+        "cells": {},
+        "disk": {},
+        "models": {},
+        "time": int(time.time()),
+    }
+    cells = systemctl("list-units", "lama-cell@*", "--no-legend", "--plain", timeout=5)
+    if cells["ok"]:
+        lines = [line for line in cells["stdout"].splitlines() if line.strip()]
+        info["cells"] = {
+            "total": len(lines),
+            "running": sum(1 for line in lines if " running " in f" {line} "),
+        }
+    try:
+        usage = shutil.disk_usage(str(models_dir))
+        info["disk"] = {
+            "path": str(models_dir),
+            "totalGb": round(usage.total / 2**30, 1),
+            "freeGb": round(usage.free / 2**30, 1),
+            "usedGb": round((usage.total - usage.free) / 2**30, 1),
+        }
+    except OSError as exc:
+        info["disk"] = {"path": str(models_dir), "error": str(exc)}
+    try:
+        sizes = [f.stat().st_size for f in models_dir.rglob("*.gguf")]
+        info["models"] = {"count": len(sizes), "totalGb": round(sum(sizes) / 2**30, 1)}
+    except OSError:
+        pass
+    return info
 
 def state():
     config = parse_config()

@@ -186,6 +186,43 @@ export function openSystemInfoModal() {
   renderLlamaCpp();        // refresh from current state before showing
   renderKnownProblems();
   overlay.hidden = false;
+  api("/api/controller-info").then(renderControllerInfo).catch((err) => {
+    const el = $("controllerInfo");
+    if (el) el.innerHTML = `<span class="muted">${escapeHtml(String(err.message || err))}</span>`;
+  });
+}
+
+// The Controller card: what this host runs (admin/proxy services, cells),
+// app git, python and models-disk headroom.
+export function renderControllerInfo(info) {
+  const el = $("controllerInfo");
+  if (!el || !info) return;
+  const chips = [];
+  for (const svc of info.services || []) {
+    const activeTxt = svc.ok ? `${svc.active || "?"} / ${svc.sub || "?"}` : "n/a";
+    const good = svc.active === "active";
+    const since = svc.since ? ` · ${svc.since.replace(/^\w+ /, "")}` : "";
+    chips.push(`<div class="llama-chip ${good ? "good" : "warn"}"><span>${escapeHtml(svc.unit || "")}</span><strong>${escapeHtml(activeTxt)}${svc.pid && svc.pid !== "0" ? ` · PID ${escapeHtml(svc.pid)}` : ""}${escapeHtml(since)}</strong></div>`);
+  }
+  const cells = info.cells || {};
+  if (cells.total != null) {
+    chips.push(`<div class="llama-chip ${cells.running ? "good" : ""}"><span>${t("ctrlCells")}</span><strong>${cells.running || 0} / ${cells.total || 0}</strong></div>`);
+  }
+  const git = info.projectGit || {};
+  chips.push(`<div class="llama-chip ${git.dirtyCount ? "warn" : "good"}"><span>${t("ctrlAppGit")}</span><strong>${escapeHtml(git.branch || "n/a")}${git.head ? " @ " + escapeHtml(git.head) : ""}${git.dirtyCount ? ` +${git.dirtyCount}` : ""}</strong></div>`);
+  chips.push(`<div class="llama-chip"><span>Python</span><strong>${escapeHtml(info.python || "n/a")}</strong></div>`);
+  const disk = info.disk || {};
+  if (disk.error) {
+    chips.push(`<div class="llama-chip warn"><span>${t("ctrlDisk")}</span><strong>${escapeHtml(disk.path || "")}: ${escapeHtml(disk.error)}</strong></div>`);
+  } else if (disk.totalGb != null) {
+    const low = (disk.freeGb || 0) < 50;
+    chips.push(`<div class="llama-chip ${low ? "warn" : "good"}"><span>${t("ctrlDisk")}</span><strong>${disk.freeGb} GB ${t("ctrlDiskFree")} / ${disk.totalGb} GB</strong></div>`);
+  }
+  const models = info.models || {};
+  if (models.count != null) {
+    chips.push(`<div class="llama-chip"><span>${t("ctrlModels")}</span><strong>${models.count} · ${models.totalGb || 0} GB</strong></div>`);
+  }
+  el.innerHTML = chips.join("");
 }
 export function closeSystemInfoModal() {
   const overlay = $("systemInfoOverlay");
@@ -236,24 +273,40 @@ export function renderProjectGitBranch() {
 export function renderKnownProblems() {
   const diagnostics = state.diagnostics || {};
   const checks = diagnostics.checks || [];
-  const rows = checks.map((check) => `
+  const row = (check) => `
     <div class="diagnostic-row ${escapeHtml(check.kind || "")}">
       <span>${escapeHtml(check.title || "")}</span>
       <strong>${escapeHtml(check.detail || "")}</strong>
     </div>
-  `).join("");
-  $("knownProblems").innerHTML = `
+  `;
+  // The single-server unit is legacy: when it is intentionally off (cells do
+  // the serving) its checks and the PID-0 how-to collapse into a details
+  // block instead of shouting red at every visitor.
+  const isLegacy = (c) => /legacy/i.test(c.title || "");
+  const mainRows = checks.filter((c) => !isLegacy(c)).map(row).join("");
+  const legacyRows = checks.filter(isLegacy).map(row).join("");
+  const legacyArticle = `
     <article class="problem-item">
       <h3>${escapeHtml(t("problemUserBusTitle"))}</h3>
       <p>${escapeHtml(t("problemUserBusCause"))}</p>
       <p>${escapeHtml(t("problemUserBusFix"))}</p>
     </article>
+    <div class="diagnostic-list">${legacyRows}</div>
+  `;
+  const legacyBlock = diagnostics.legacyActive
+    ? legacyArticle
+    : `<details class="legacy-details">
+         <summary>${escapeHtml(t("legacyProblems"))}</summary>
+         ${legacyArticle}
+       </details>`;
+  $("knownProblems").innerHTML = `
     <article class="problem-item">
       <h3>${escapeHtml(t("diagnostics"))}</h3>
       <p>${escapeHtml(diagnostics.summary || "")}</p>
-      <div class="diagnostic-list">${rows}</div>
+      <div class="diagnostic-list">${mainRows}</div>
       <p>${escapeHtml(diagnostics.fix || "")}</p>
     </article>
+    ${legacyBlock}
   `;
 }
 

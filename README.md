@@ -58,6 +58,9 @@ agent; one agent with confidential data stays pinned to the local route; a
 whisper cell transcribes on a spare box; and the spend chart shows what all of
 that would have cost in cloud tokens.
 
+The long version of that day — with the kanban that implements it — lives in
+[docs/day-with-the-caravan.md](docs/day-with-the-caravan.md).
+
 ## Documentation
 
 | Doc | Covers |
@@ -68,6 +71,7 @@ that would have cost in cloud tokens.
 | [docs/frontend.md](docs/frontend.md) | `static/js/` ES-module reference, state model, render/polling pipeline |
 | [docs/http-api.md](docs/http-api.md) | Every HTTP endpoint of the admin and the proxy surface |
 | [docs/operations.md](docs/operations.md) | Runbook: services, deploy, rollback, backups, local dev, quirks |
+| [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md) | A worked example: one day of hybrid local/cloud routing and the kanban behind it |
 
 Legacy single-server mode edits the marked config block in:
 

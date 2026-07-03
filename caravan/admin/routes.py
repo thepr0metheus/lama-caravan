@@ -73,7 +73,7 @@ from caravan.admin.paths import (
 )
 from caravan.admin.state import admin_state, load_admin_state, save_admin_state, topology_store
 from caravan.admin.backups import backup_config, backups, delete_backup, resolve_backup_path, revert_latest
-from caravan.admin.status import do_action, llama_cpp_info, state, update_llama_cpp
+from caravan.admin.status import controller_info, do_action, llama_cpp_info, state, update_llama_cpp
 from caravan.admin.cell_ops import (
     client_server_slot_add,
     client_server_slot_delete,
@@ -684,6 +684,11 @@ def _get_api_raw_start_server(h, parsed):
         h.send_json({"text": read_text(START_SCRIPT)})
         return
 
+@_route(GET_ROUTES, '/api/controller-info')
+def _get_api_controller_info(h, parsed):
+        h.send_json(controller_info())
+        return
+
 @_route(GET_ROUTES, '/api/llamacpp')
 def _get_api_llamacpp(h, parsed):
         h.send_json(llama_cpp_info(fetch_remote=True))
@@ -1115,7 +1120,7 @@ def _delete_api_hf_local_file(h, parsed):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "llamacpp-easy-admin/0.1"
+    server_version = "lama-caravan/0.1"
 
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt % args}")

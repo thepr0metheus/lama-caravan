@@ -41,6 +41,8 @@ function indexSteps() {
     { anchor: "#topologyClients", title: t("tourIxClientsT"), body: t("tourIxClientsB") },
     { anchor: "#topologyProxies", title: t("tourIxProxiesT"), body: t("tourIxProxiesB") },
     { anchor: "#topologyLlamaServers", title: t("tourIxServersT"), body: t("tourIxServersB") },
+    { anchor: "#topologyLlamaServers .node-server:not(.ghost-server)", title: t("tourIxCellLifeT"), body: t("tourIxCellLifeB") },
+    { anchor: "[data-node-reserve]", title: t("tourIxCellNewT"), body: t("tourIxCellNewB") },
     { anchor: "#topologyModelsBar", title: t("tourIxModelsT"), body: t("tourIxModelsB") },
     { anchor: "#topologyCloudProviders", title: t("tourIxCloudT"), body: t("tourIxCloudB") },
     { anchor: "#usageStatsBtn", title: t("tourIxStatsT"), body: t("tourIxStatsB") },
@@ -51,12 +53,20 @@ function indexSteps() {
 }
 
 function configSteps(pfx) {
+  const form = pfx === "te" ? "#topologyLlamaEditForm" : "#llamaRemoteEditForm";
   const startBtn = pfx === "te" ? "#topologyLlamaEditSaveRestart" : "#llamaRemoteEditStart";
   return [
+    { anchor: `${form} .cell-kind-toggle`, title: t("tourCfgKindT"), body: t("tourCfgKindB") },
     { anchor: `#${pfx}-MODEL_FILE`, title: t("tourCfgModelT"), body: t("tourCfgModelB") },
-    { anchor: `#${pfx}-asideVramBar`, title: t("tourCfgVramT"), body: t("tourCfgVramB") },
+    { anchor: `#${pfx}-MMPROJ_FILE`, title: t("tourCfgMmprojT"), body: t("tourCfgMmprojB") },
+    { anchor: `#${pfx}-SPEC_DRAFT_MODEL_FILE`, title: t("tourCfgSpecT"), body: t("tourCfgSpecB") },
+    { anchor: `#${pfx}-modelInsight`, title: t("tourCfgInsightT"), body: t("tourCfgInsightB") },
+    { anchor: `#${pfx}-computeTarget`, title: t("tourCfgComputeT"), body: t("tourCfgComputeB") },
+    { anchor: `${form} .advanced-tab-bar`, title: t("tourCfgTabsT"), body: t("tourCfgTabsB") },
     { anchor: `#${pfx}-dynamicFields`, title: t("tourCfgFieldsT"), body: t("tourCfgFieldsB") },
+    { anchor: `#${pfx}-asideVramBar`, title: t("tourCfgVramT"), body: t("tourCfgVramB") },
     { anchor: `#${pfx}-cmdPreview`, title: t("tourCfgCmdT"), body: t("tourCfgCmdB") },
+    { anchor: `#${pfx}-backups`, title: t("tourCfgBackupsT"), body: t("tourCfgBackupsB") },
     { anchor: startBtn, title: t("tourCfgStartT"), body: t("tourCfgStartB") },
   ];
 }
