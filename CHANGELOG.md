@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.3 — 2026-07-03
+
+- Fix: the classic form's model-change handler did not pass aliasFollow
+  (the 1.1.2 edit silently missed the wrapper), so picking a model there
+  kept the old alias. All three forms now rewrite it.
+
+## 1.1.2 — 2026-07-03
+
+- ALIAS now always follows an explicit model selection, replacing whatever
+  was in the field; saved aliases are still kept on form open and when
+  loading a backup (no model change happened).
+
 ## 1.1.1 — 2026-07-03
 
 - Config editor: ALIAS auto-fills from the model file name when the field is

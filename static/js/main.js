@@ -310,7 +310,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     renderCommandPreview("te-");
   });
   $("te-MODEL_FILE")?.addEventListener("change", () => {
-    maybeAutofillModelHelpersPfx("te-");
+    maybeAutofillModelHelpersPfx("te-", { aliasFollow: true });
     renderModelInsight("te-");
     renderChatTemplateHint("te-");
     renderCommandPreview("te-");

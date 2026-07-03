@@ -619,7 +619,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
     wireCellKindToggle("tr-");
     // MODEL_FILE change: auto-fill mmproj + refresh insight + preview
     $("tr-MODEL_FILE")?.addEventListener("change", () => {
-      maybeAutofillModelHelpersPfx("tr-");
+      maybeAutofillModelHelpersPfx("tr-", { aliasFollow: true });
     });
     $("tr-OFFLOAD_MMPROJ")?.addEventListener("change", (e) => {
       syncToggleLabel(e.target);

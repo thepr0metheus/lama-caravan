@@ -818,7 +818,7 @@ export function maybeAutofillChatTemplate() {
 }
 
 export function maybeAutofillModelHelpers() {
-  maybeAutofillModelHelpersPfx("");
+  maybeAutofillModelHelpersPfx("", { aliasFollow: true });
   renderRuntime();
   maybeAutofillChatTemplate();
 }
@@ -828,17 +828,19 @@ export function maybeAutofillModelHelpers() {
  * Always rewrites all companion fields to match the selected model.
  * Called on MODEL_FILE change and on form open.
  */
-export function maybeAutofillModelHelpersPfx(pfx) {
+export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
   const modelVal = $(pfx + "MODEL_FILE")?.value || "";
   const selected = modelsByPath().get(modelVal);
 
-  // ALIAS — derive from the model file name while the field is empty or still
-  // holds exactly a previous auto-fill (tracked in data-auto-alias); anything
-  // the user or a saved config typed there wins and is never overwritten.
+  // ALIAS — derive from the model file name. On an explicit model change
+  // (opts.aliasFollow, set by the change listeners) the alias ALWAYS follows
+  // the newly picked model, even over a custom value. On form open / backup
+  // load (no aliasFollow) only an empty field or our own previous auto-fill
+  // (tracked in data-auto-alias) is rewritten, so saved aliases survive.
   const aliasEl = $(pfx + "ALIAS");
   if (aliasEl && modelVal) {
     const cur = aliasEl.value.trim();
-    if (!cur || cur === aliasEl.dataset.autoAlias) {
+    if (opts.aliasFollow || !cur || cur === aliasEl.dataset.autoAlias) {
       const derived = modelVal.split("/").pop()
         .replace(/\.gguf$/i, "").replace(/-\d{5}-of-\d{5}$/i, "").toLowerCase();
       aliasEl.value = derived;
