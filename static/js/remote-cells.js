@@ -369,7 +369,7 @@ export function bindServerSlotControls(root) {
       const port = b.dataset.nodeCellPort;
       const model = b.closest("article")?.querySelector(".node-model-name")?.textContent?.trim();
       const msg = model ? t("dlgStopModel", { model, port }) : t("dlgStopPort", { port });
-      if (!(await appConfirm(msg, { confirmLabel: t("stop"), scene: "start" }))) return;
+      if (!(await appConfirm(msg, { confirmLabel: t("stop"), scene: "stop" }))) return;
       cellServiceAction(b.dataset.nodeCellStop, port, "stop");
     }));
   root.querySelectorAll("[data-node-cell-boot]").forEach((b) =>
@@ -388,7 +388,7 @@ export function bindServerSlotControls(root) {
   // Controller server stop (stops llamacpp-current.service, not the admin panel)
   root.querySelectorAll("[data-node-ctrl-stop]").forEach((b) =>
     b.addEventListener("click", () => {
-      appConfirm(t("dlgStopLlama"), { confirmLabel: t("stop"), scene: "start" })
+      appConfirm(t("dlgStopLlama"), { confirmLabel: t("stop"), scene: "stop" })
         .then((ok) => { if (ok) action("stop"); });
     }));
   // Controller server start
@@ -438,7 +438,7 @@ export function nodeStartingCardHtml(node) {
 export async function submitLlamaStop(hostId) {
   const client = (topology?.clients || []).find((c) => c.id === hostId);
   const name = client?.name || hostId;
-  if (!(await appConfirm(`${t("stopServerConfirm", { host: name })}`, { confirmLabel: t("stop") }))) return;
+  if (!(await appConfirm(`${t("stopServerConfirm", { host: name })}`, { confirmLabel: t("stop"), scene: "stop" }))) return;
 
   _stoppingHosts.add(hostId);
   if (!topologyInteractionActive()) renderTopology();

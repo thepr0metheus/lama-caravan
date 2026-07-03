@@ -33,6 +33,33 @@ const LEGS = {
   press:  { b: [[3, 10], [3, 11], [5, 10], [5, 11], [8, 10], [8, 11], [11, 9], [12, 9]], h: [[3, 12], [13, 10]] },
 };
 
+// Lying-down sprite for the stop scene: body dropped to the ground, legs
+// tucked, head resting low with the eye closed (a body-colored pixel).
+function lieShadow(variant, body, blanket) {
+  const px = [];
+  for (let y = 8; y <= 11; y += 1) for (let x = 2; x <= 11; x += 1) px.push([x, y, body]);
+  px.push([1, 8, body], [1, 9, body]);
+  for (let y = 8; y <= 10; y += 1) for (let x = 4; x <= 8; x += 1) px.push([x, y, blanket]);
+  // neck + resting head (ear up, eye closed, nose)
+  px.push([10, 6, body], [11, 6, body], [10, 7, body], [11, 7, body]);
+  px.push([11, 3, body], [13, 3, body]);
+  for (let x = 11; x <= 14; x += 1) { px.push([x, 4, body]); px.push([x, 5, body]); }
+  px.push([15, 5, HOOF]);
+  // tucked front hooves peeking out; variant B twitches an ear
+  px.push([3, 11, HOOF], [9, 11, HOOF]);
+  if (variant === "b") px.push([13, 2, body]);
+  return px.map(([x, y, c]) => `${x}em ${y}em 0 0 ${c}`).join(", ");
+}
+
+const ZZ = "#dce9e9";
+function zzz(stage) {
+  const px = [];
+  // small rising dots near the head, then a proper 3×3 Z above
+  if (stage >= 1) px.push([16, 4, ZZ], [17, 3, ZZ]);
+  if (stage >= 2) px.push([16, 0, ZZ], [17, 0, ZZ], [18, 0, ZZ], [17, 1, ZZ], [16, 2, ZZ], [17, 2, ZZ], [18, 2, ZZ]);
+  return px;
+}
+
 function llamaShadow(pose, body, blanket) {
   const px = [];
   const dy = LEGS[pose].headDy || 0;
@@ -132,6 +159,16 @@ function timeline(kind, accent, miniColor) {
       ["standA", propShadow(crate("ok")), 0, true],   // fresh crate slides in
     ];
   }
+  if (kind === "stop") {
+    return [
+      ["standA", "", 0, false],
+      ["lieA", "", 0, false],
+      ["lieA", propShadow(zzz(1)), 0, false],
+      ["lieB", propShadow(zzz(2)), 0, false],
+      ["lieA", propShadow(zzz(2)), 0, false],
+      ["lieB", propShadow(zzz(1)), 0, false],
+    ];
+  }
   if (kind === "start") {
     return [
       ["press", propShadow(buttons("g")), 0, false],
@@ -177,7 +214,9 @@ function mountScene(overlay) {
   let i = 0;
   const paint = () => {
     const [pose, prop, shift, slide] = frames[i % frames.length];
-    llamaEl.style.boxShadow = llamaShadow(pose, body, blanket);
+    llamaEl.style.boxShadow = pose.startsWith("lie")
+      ? lieShadow(pose.endsWith("B") ? "b" : "a", body, blanket)
+      : llamaShadow(pose, body, blanket);
     llamaEl.style.transform = `translateX(${shift}em)`;
     propEl.style.boxShadow = prop;
     propEl.classList.toggle("dlg-sc-slide", !!slide);
