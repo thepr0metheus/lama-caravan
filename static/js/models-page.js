@@ -3,6 +3,7 @@
 // unreferenced ones. Data: /api/models/unused + /api/models/disk; deletion:
 // /api/models/gc (refuses referenced files server-side too).
 import { appConfirm, settleAppConfirm } from "./dialogs.js";
+import { initDialogLlamas } from "./dialog-llamas.js";
 import { applyLanguage, applyTheme, setupLangSelect, t } from "./i18n.js";
 import { ui } from "./state.js";
 import { $, api, escapeHtml, toast } from "./utils.js";
@@ -118,6 +119,7 @@ function bindUserChip() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  initDialogLlamas();
   applyTheme();
   applyLanguage();
   setupLangSelect();

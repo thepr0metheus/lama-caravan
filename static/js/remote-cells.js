@@ -355,13 +355,19 @@ export function bindServerSlotControls(root) {
     }));
   // Launch a configured cell directly (no modal — model already set)
   root.querySelectorAll("[data-node-cell-launch]").forEach((b) =>
-    b.addEventListener("click", () => cellServiceAction(b.dataset.nodeCellLaunch, b.dataset.nodeCellPort, "start")));
+    b.addEventListener("click", async () => {
+      const port = b.dataset.nodeCellPort;
+      const model = b.closest("article")?.querySelector(".node-model-name")?.textContent?.trim();
+      const msg = model ? t("dlgStartModel", { model, port }) : t("dlgStartPort", { port });
+      if (!(await appConfirm(msg, { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;
+      cellServiceAction(b.dataset.nodeCellLaunch, port, "start");
+    }));
   root.querySelectorAll("[data-node-cell-stop]").forEach((b) =>
     b.addEventListener("click", async () => {
       const port = b.dataset.nodeCellPort;
       const model = b.closest("article")?.querySelector(".node-model-name")?.textContent?.trim();
       const msg = model ? t("dlgStopModel", { model, port }) : t("dlgStopPort", { port });
-      if (!(await appConfirm(msg, { confirmLabel: t("stop") }))) return;
+      if (!(await appConfirm(msg, { confirmLabel: t("stop"), scene: "start" }))) return;
       cellServiceAction(b.dataset.nodeCellStop, port, "stop");
     }));
   root.querySelectorAll("[data-node-cell-boot]").forEach((b) =>
@@ -380,12 +386,15 @@ export function bindServerSlotControls(root) {
   // Controller server stop (stops llamacpp-current.service, not the admin panel)
   root.querySelectorAll("[data-node-ctrl-stop]").forEach((b) =>
     b.addEventListener("click", () => {
-      appConfirm(t("dlgStopLlama"), { confirmLabel: t("stop") })
+      appConfirm(t("dlgStopLlama"), { confirmLabel: t("stop"), scene: "start" })
         .then((ok) => { if (ok) action("stop"); });
     }));
   // Controller server start
   root.querySelectorAll("[data-node-ctrl-start]").forEach((b) =>
-    b.addEventListener("click", () => action("start")));
+    b.addEventListener("click", async () => {
+      if (!(await appConfirm(t("dlgStartPort", { port: "" }).replace(" :?", "?"), { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;
+      action("start");
+    }));
   root.querySelectorAll("[data-node-slot-del]").forEach((b) =>
     b.addEventListener("click", () => {
       const [hostId, port] = b.dataset.nodeSlotDel.split(":");

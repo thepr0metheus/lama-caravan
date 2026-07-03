@@ -1,5 +1,6 @@
 // Entry point: DOMContentLoaded wiring and the standalone kanban page init.
 import { appConfirm } from "./dialogs.js";
+import { initDialogLlamas } from "./dialog-llamas.js";
 import { drawLiveTopologyCable, drawTopologyCables } from "./cables.js";
 import { canvasLoadPositions, cvSetViewport, drawCanvasConnectors } from "./canvas.js";
 import { drawTopologyServerStats, systemSamples } from "./charts.js";
@@ -79,6 +80,7 @@ function initRouterStandalonePage() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  initDialogLlamas();
   applyLanguage();
   applyTheme();
   initOnboarding();
@@ -281,7 +283,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (event.target.id === "topologyLlamaEditSaveRestart") {
       if (_teCellPort) {
         // Cell config — confirm before applying
-        appConfirm(t("dlgApplyCellConfig"), { danger: false, confirmLabel: "OK" })
+        appConfirm(t("dlgApplyCellConfig"), { danger: false, confirmLabel: "OK", scene: "start" })
           .then((ok) => { if (ok) saveTopologyLlamaConfig(false).catch((err) => toast(err.message)); });
         return;
       } else {

@@ -400,6 +400,7 @@ export function renderSecurity(sec) {
     $("authTokenOut").innerHTML = `<code class="auth-token">${escapeHtml(res.fleetToken)}</code>`;
   });
   $("authRegenToken").addEventListener("click", async () => {
+    if (!(await appConfirm(t("authRegenConfirm"), { confirmLabel: t("authRegenToken") }))) return;
     const res = await api("/api/auth/fleet-token", { method: "POST", body: JSON.stringify({ regenerate: true }) });
     $("authTokenOut").innerHTML = `<code class="auth-token">${escapeHtml(res.fleetToken)}</code> · ${escapeHtml(t("authRegenDone"))}`;
   });

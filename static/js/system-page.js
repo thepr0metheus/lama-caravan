@@ -3,6 +3,7 @@
 // numbers an operator checks first. The section renderers are shared with
 // system-panels.js — this file only orchestrates the page.
 import { applyLanguage, applyTheme, setupLangSelect, t } from "./i18n.js";
+import { initDialogLlamas } from "./dialog-llamas.js";
 import { settleAppConfirm } from "./dialogs.js";
 import { setState, state, ui } from "./state.js";
 import {
@@ -108,6 +109,7 @@ function bindUserChip() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  initDialogLlamas();
   applyTheme();
   applyLanguage();
   setupLangSelect();

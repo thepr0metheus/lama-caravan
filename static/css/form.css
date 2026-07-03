@@ -505,6 +505,15 @@ button.cmd-dirty::after {
   image-rendering: pixelated;
 }
 
+/* Animated confirm scene (dialog-llamas.js): hide the static sprite, widen
+   the tile so the prop (crate/buttons/toggle) fits to the llama's right. */
+.dlg-ico.dlg-live { width: 62px; }
+.dlg-ico.dlg-live::before { box-shadow: none; }
+.dlg-sc { position: absolute; left: 3px; top: 7px; width: 1em; height: 1em; font-size: 2px; image-rendering: pixelated; }
+.dlg-sc i { position: absolute; width: 1em; height: 1em; transition: transform .28s steps(3); }
+.dlg-sc .dlg-sc-prop.dlg-sc-slide { animation: dlg-slide-in .3s steps(4) 1; }
+@keyframes dlg-slide-in { from { transform: translateX(7em); } to { transform: translateX(0); } }
+
 /* 16x13 pixel llama (same grid as the page loader), drawn at 2px per pixel. */
 .dlg-ico::before {
   content: "";

@@ -14,6 +14,9 @@ function openDialog(message, opts, mode) {
     _mode = mode;
     const dlg = $("confirmOverlay").querySelector(".modal");
     dlg.dataset.tone = mode === "prompt" || opts.danger === false ? "ask" : "danger";
+    // Scene hint for the animated llama (dialog-llamas.js); falls back by tone.
+    if (opts.scene) $("confirmOverlay").dataset.dlgScene = opts.scene;
+    else delete $("confirmOverlay").dataset.dlgScene;
     $("confirmTitle").textContent = opts.title || (mode === "prompt" ? message : t("confirmActionTitle"));
     $("confirmText").textContent = mode === "prompt" ? (opts.text || "") : message;
     const meta = $("confirmMeta");
