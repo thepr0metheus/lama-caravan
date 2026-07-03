@@ -51,6 +51,12 @@
       #appLoader .pl-llama.pl-t-hop.pl-c { animation-delay: -4.9s, 0s; }
       @keyframes pl-hop { 0%, 20%, 100% { margin-bottom: 0; } 55% { margin-bottom: 6px; } }
       #appLoader .pl-llama.pl-t-hop.pl-gaitb::before { box-shadow: 5em 7em 0 0 #4d8f5c, 6em 7em 0 0 #4d8f5c, 7em 7em 0 0 #4d8f5c, 8em 7em 0 0 #4d8f5c, 9em 7em 0 0 #4d8f5c, 4em 8em 0 0 #4d8f5c, 5em 8em 0 0 #4d8f5c, 6em 8em 0 0 #66ab72, 7em 8em 0 0 #4d8f5c, 8em 8em 0 0 #66ab72, 9em 8em 0 0 #4d8f5c, 10em 8em 0 0 #4d8f5c, 3em 9em 0 0 #4d8f5c, 4em 9em 0 0 #4d8f5c, 5em 9em 0 0 #66ab72, 6em 9em 0 0 #4d8f5c, 7em 9em 0 0 #66ab72, 8em 9em 0 0 #4d8f5c, 9em 9em 0 0 #66ab72, 10em 9em 0 0 #4d8f5c, 11em 9em 0 0 #4d8f5c, 3em 10em 0 0 #3a6f47, 4em 10em 0 0 #3a6f47, 5em 10em 0 0 #3a6f47, 6em 10em 0 0 #3a6f47, 7em 10em 0 0 #3a6f47, 8em 10em 0 0 #3a6f47, 9em 10em 0 0 #3a6f47, 10em 10em 0 0 #3a6f47, 11em 10em 0 0 #3a6f47, 2em 10em 0 0 #9cbd72, 12em 8em 0 0 #9cbd72, 13em 8em 0 0 #22301f, 12em 9em 0 0 #9cbd72, 13em 9em 0 0 #9cbd72, 12em 10em 0 0 #9cbd72, 4em 11em 0 0 #9cbd72, 4em 12em 0 0 #9cbd72, 9em 11em 0 0 #9cbd72, 9em 12em 0 0 #9cbd72; }
+      /* клики: прыжок ламы и «египетский» выход черепашки */
+      #appLoader .pl-llama::after { content: ""; position: absolute; left: 0; top: -13em; width: 17em; height: 15em; cursor: pointer; }
+      #appLoader .pl-llama.pl-jump::before { animation: pl-jumpy .55s ease-in-out 1; }
+      @keyframes pl-jumpy { 0%, 100% { transform: translateY(-12em); } 45% { transform: translateY(-17em); } }
+      #appLoader .pl-t.pl-egypt::before { box-shadow: 6em 3em 0 0 #4d8f5c, 7em 3em 0 0 #4d8f5c, 8em 3em 0 0 #4d8f5c, 9em 3em 0 0 #4d8f5c, 6em 4em 0 0 #4d8f5c, 7em 4em 0 0 #66ab72, 8em 4em 0 0 #66ab72, 9em 4em 0 0 #4d8f5c, 6em 5em 0 0 #4d8f5c, 7em 5em 0 0 #66ab72, 8em 5em 0 0 #66ab72, 9em 5em 0 0 #4d8f5c, 6em 6em 0 0 #4d8f5c, 7em 6em 0 0 #66ab72, 8em 6em 0 0 #66ab72, 9em 6em 0 0 #4d8f5c, 6em 7em 0 0 #4d8f5c, 7em 7em 0 0 #4d8f5c, 8em 7em 0 0 #4d8f5c, 9em 7em 0 0 #4d8f5c, 6em 8em 0 0 #3a6f47, 7em 8em 0 0 #3a6f47, 8em 8em 0 0 #3a6f47, 9em 8em 0 0 #3a6f47, 6em 9em 0 0 #9cbd72, 6em 10em 0 0 #9cbd72, 6em 11em 0 0 #9cbd72, 6em 12em 0 0 #9cbd72, 9em 9em 0 0 #9cbd72, 9em 10em 0 0 #9cbd72, 9em 11em 0 0 #9cbd72, 9em 12em 0 0 #9cbd72, 10em 1em 0 0 #9cbd72, 11em 1em 0 0 #9cbd72, 12em 1em 0 0 #22301f, 10em 2em 0 0 #9cbd72, 11em 2em 0 0 #9cbd72, 9em 2em 0 0 #9cbd72, 10em 4em 0 0 #9cbd72, 11em 4em 0 0 #9cbd72, 11em 5em 0 0 #9cbd72, 5em 5em 0 0 #9cbd72, 4em 5em 0 0 #9cbd72, 4em 4em 0 0 #9cbd72; }
+      #appLoader .pl-t.pl-egypt.pl-gaitb::before { box-shadow: 6em 3em 0 0 #4d8f5c, 7em 3em 0 0 #4d8f5c, 8em 3em 0 0 #4d8f5c, 9em 3em 0 0 #4d8f5c, 6em 4em 0 0 #4d8f5c, 7em 4em 0 0 #66ab72, 8em 4em 0 0 #66ab72, 9em 4em 0 0 #4d8f5c, 6em 5em 0 0 #4d8f5c, 7em 5em 0 0 #66ab72, 8em 5em 0 0 #66ab72, 9em 5em 0 0 #4d8f5c, 6em 6em 0 0 #4d8f5c, 7em 6em 0 0 #66ab72, 8em 6em 0 0 #66ab72, 9em 6em 0 0 #4d8f5c, 6em 7em 0 0 #4d8f5c, 7em 7em 0 0 #4d8f5c, 8em 7em 0 0 #4d8f5c, 9em 7em 0 0 #4d8f5c, 6em 8em 0 0 #3a6f47, 7em 8em 0 0 #3a6f47, 8em 8em 0 0 #3a6f47, 9em 8em 0 0 #3a6f47, 6em 9em 0 0 #9cbd72, 6em 10em 0 0 #9cbd72, 6em 11em 0 0 #9cbd72, 6em 12em 0 0 #9cbd72, 9em 9em 0 0 #9cbd72, 9em 10em 0 0 #9cbd72, 9em 11em 0 0 #9cbd72, 9em 12em 0 0 #9cbd72, 9em 1em 0 0 #9cbd72, 10em 1em 0 0 #9cbd72, 11em 1em 0 0 #22301f, 9em 2em 0 0 #9cbd72, 10em 2em 0 0 #9cbd72, 10em 4em 0 0 #9cbd72, 11em 4em 0 0 #9cbd72, 11em 3em 0 0 #9cbd72, 5em 5em 0 0 #9cbd72, 4em 5em 0 0 #9cbd72, 4em 6em 0 0 #9cbd72; }
       #appLoader .pl-hint { color: rgba(160,180,185,.6); font: 500 11px/1 -apple-system, "Segoe UI", sans-serif;
         letter-spacing: .18em; }
     </style>
@@ -97,6 +103,22 @@
         const gait = setInterval(() => l && l.querySelectorAll(".pl-llama").forEach(el => el.classList.toggle("pl-gaitb")), 220);
         window.__plHide = () => { if (!l || l.classList.contains("pl-done")) return; l.classList.add("pl-done");
           setTimeout(() => { clearInterval(gait); l.remove(); }, 400); };
+        // пасхалки: клик по ламе — прыжок; клик по черепашке — 2с египетской походки
+        l.querySelector(".pl-strip").addEventListener("click", (ev) => {
+          const el = ev.target.closest(".pl-llama");
+          if (!el) return;
+          if (el.classList.contains("pl-t")) {
+            if (el.classList.contains("pl-egypt")) return;
+            const hopped = el.classList.contains("pl-t-hop");
+            el.classList.remove("pl-t-hop");
+            el.classList.add("pl-egypt");
+            setTimeout(() => { el.classList.remove("pl-egypt"); if (hopped) el.classList.add("pl-t-hop"); }, 2000);
+            return;
+          }
+          if (el.classList.contains("pl-jump")) return;
+          el.classList.add("pl-jump");
+          el.addEventListener("animationend", () => el.classList.remove("pl-jump"), { once: true });
+        });
         setTimeout(window.__plHide, 20000);  // страховка, если инициализация зависла
       })();
     </script>

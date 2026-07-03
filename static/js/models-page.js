@@ -52,19 +52,21 @@ async function refresh() {
   if (disk && disk.ok) tiles.push(stat(t("ctrlDisk"), `${disk.freeGb} GB ${t("ctrlDiskFree")}`, (disk.freeGb || 0) < 50 ? "warn" : "good"));
   hero.innerHTML = tiles.join("");
 
-  // Group flat rel-paths into model → author → quant → files.
+  // Group flat rel-paths into model → author → quant → files. Each level also
+  // rolls up the FRESHEST file age inside it — the collapsed row answers
+  // "when was anything in here last touched" without expanding.
   const grouped = new Map();
   files.forEach((f) => {
     const segs = f.path.split("/");
     const model = segs.length > 1 ? segs[0] : "(root)";
     const author = segs.length > 2 ? segs[1] : "·";
     const quant = segs.length > 3 ? segs[2] : "·";
-    if (!grouped.has(model)) grouped.set(model, { bytes: 0, children: new Map() });
-    const l1 = grouped.get(model); l1.bytes += f.sizeBytes;
-    if (!l1.children.has(author)) l1.children.set(author, { bytes: 0, children: new Map() });
-    const l2 = l1.children.get(author); l2.bytes += f.sizeBytes;
-    if (!l2.children.has(quant)) l2.children.set(quant, { bytes: 0, files: [] });
-    const l3 = l2.children.get(quant); l3.bytes += f.sizeBytes;
+    if (!grouped.has(model)) grouped.set(model, { bytes: 0, minAge: Infinity, children: new Map() });
+    const l1 = grouped.get(model); l1.bytes += f.sizeBytes; l1.minAge = Math.min(l1.minAge, f.ageDays);
+    if (!l1.children.has(author)) l1.children.set(author, { bytes: 0, minAge: Infinity, children: new Map() });
+    const l2 = l1.children.get(author); l2.bytes += f.sizeBytes; l2.minAge = Math.min(l2.minAge, f.ageDays);
+    if (!l2.children.has(quant)) l2.children.set(quant, { bytes: 0, minAge: Infinity, files: [] });
+    const l3 = l2.children.get(quant); l3.bytes += f.sizeBytes; l3.minAge = Math.min(l3.minAge, f.ageDays);
     l3.files.push(f);
   });
   const fileRow = (f) => {
@@ -76,10 +78,11 @@ async function refresh() {
     return `<div class="mdl-file">${used}<code title="${escapeHtml(f.path)}">${escapeHtml(name)}</code>` +
       `<span class="meta">${fmtGb(f.sizeBytes)} · ${f.ageDays}d</span></div>`;
   };
+  const freshness = (age) => (age === Infinity ? "" : ` · ${age}d`);
   const lvl = (label, node, inner) => `
     <details>
       <summary><span class="tw"></span><span class="mdl-name">${escapeHtml(label)}</span>
-        <span class="mdl-size">${fmtGb(node.bytes)}</span></summary>
+        <span class="mdl-size">${fmtGb(node.bytes)}${freshness(node.minAge)}</span></summary>
       <div class="mdl-lvl">${inner}</div>
     </details>`;
   tree.innerHTML = [...grouped.entries()]
