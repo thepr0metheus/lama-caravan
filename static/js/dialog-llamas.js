@@ -1,7 +1,8 @@
 // Animated pixel llamas for the shared confirm dialog (#confirmOverlay).
 // Scene kinds: "delete" — the llama stomps a crate flat (a fresh one slides
-// in, loop); "change" — it nose-flips a big toggle; "start" — it presses the
-// launch button and a little rocket ignites and lifts off the pad.
+// in, loop); "change" — it nose-flips a big toggle; "start" — a night launch:
+// the llama presses the button, the rocket climbs out of the frame past a
+// crescent moon, and a fresh rocket rolls onto the pad.
 // The kind comes from overlay.dataset.dlgScene (set by appConfirm/appPrompt
 // opts.scene) or falls back by tone: danger→delete, ask→change. Colors are
 // re-rolled from the loader palette on every open, so the llama differs.
@@ -94,33 +95,48 @@ function crate(state) {
   }
   return px;
 }
-// start scene: launch button (paw tip lands on it at x13) + rocket on a pad.
-// stage: "idle" | "lit" (button pressed) | "ignite" | "up1" | "up2" | "gone".
+// start scene, night launch. Static scenery (crescent moon, pad, unlit launch
+// button) lives on the sky layer; the prop layer carries only the rocket,
+// flame, smoke and the button glow — so the slide-in animation on the prop
+// layer moves the NEW rocket in without dragging the moon or the pad along.
 // cool steel tones so the hull never matches a llama body (those are all warm)
-const FL1 = "#ffd75e", FL2 = "#f0a44a", SMOKE = "#9aa5a8", ROCK1 = "#dfe9f2", ROCK2 = "#9fb4c4", RRED = "#c4574e";
-function rocketPad(stage) {
+const FL1 = "#ffd75e", FL2 = "#f0a44a", SMOKE = "#9aa5a8", ROCK1 = "#dfe9f2", ROCK2 = "#9fb4c4", RRED = "#c4574e", MOON = "#e6e0c0";
+function startSky() {
   const px = [];
-  const lit = stage === "lit";
-  // launch button x12..14 (base y11, cap y10) + glow when pressed
+  // crescent moon top-left (open side facing the rocket's path)
+  px.push([4, 0, MOON], [3, 0, MOON], [2, 1, MOON], [2, 2, MOON], [3, 3, MOON], [4, 3, MOON]);
+  // launch button x12..14 (base y11, unlit cap y10) — a paw tip lands on x13
   [[12, 11], [13, 11], [14, 11]].forEach(([x, y]) => px.push([x, y, "#20282c"]));
-  [[12, 10], [13, 10], [14, 10]].forEach(([x, y]) => px.push([x, y, lit ? "#3fae6a" : "#2f6b46"]));
-  if (lit) px.push([12, 9, "#baf3c9"], [13, 8, "#baf3c9"], [14, 9, "#baf3c9"]);
+  [[12, 10], [13, 10], [14, 10]].forEach(([x, y]) => px.push([x, y, "#2f6b46"]));
   // pad x16..20 with two legs — stays behind after liftoff
   [[16, 11], [17, 11], [18, 11], [19, 11], [20, 11]].forEach(([x, y]) => px.push([x, y, "#20282c"]));
   px.push([16, 10, CRATE2], [20, 10, CRATE2]);
-  if (stage === "gone") {   // smoke puffs + a dot of exhaust far up
-    px.push([16, 9, SMOKE], [18, 10, SMOKE], [20, 9, SMOKE], [17, 8, SMOKE], [19, 8, SMOKE], [18, 0, FL2]);
-    return px;
-  }
-  const dy = stage === "up1" ? -1 : stage === "up2" ? -2 : 0;
-  // rocket: body x17..19 y5..9, red nose cone, fins, porthole
-  for (let y = 5; y <= 9; y += 1) for (let x = 17; x <= 19; x += 1) px.push([x, y + dy, x === 18 ? ROCK1 : ROCK2]);
-  px.push([17, 4 + dy, RRED], [18, 4 + dy, RRED], [19, 4 + dy, RRED], [18, 3 + dy, RRED]);
-  px.push([16, 9 + dy, RRED], [20, 9 + dy, RRED]);
-  px.push([18, 6 + dy, "#4f8fd0"]);
-  if (stage === "ignite") px.push([18, 10, FL1], [17, 10, FL2], [19, 10, FL2]);
-  if (stage === "up1") px.push([18, 9, FL1], [17, 9, FL2], [19, 9, FL2], [18, 10, FL2]);
-  if (stage === "up2") px.push([18, 8, FL1], [17, 8, FL2], [19, 8, FL2], [18, 9, FL2], [16, 10, SMOKE], [20, 10, SMOKE]);
+  return px;
+}
+// stage: idle | lit | ignite | up1 | up2 | up4 | up7 | gone | empty | new
+// (the stage box has overflow:hidden, so above-frame pixels just clip away)
+function startProp(stage) {
+  const px = [];
+  const rocketAt = (lift) => {
+    const dy = -lift;
+    for (let y = 5; y <= 9; y += 1) for (let x = 17; x <= 19; x += 1) px.push([x, y + dy, x === 18 ? ROCK1 : ROCK2]);
+    px.push([17, 4 + dy, RRED], [18, 4 + dy, RRED], [19, 4 + dy, RRED], [18, 3 + dy, RRED]);  // nose cone
+    px.push([16, 9 + dy, RRED], [20, 9 + dy, RRED]);                                          // fins
+    px.push([18, 6 + dy, "#4f8fd0"]);                                                         // porthole
+  };
+  const flameAt = (lift) => {
+    px.push([18, 10 - lift, FL1], [17, 10 - lift, FL2], [19, 10 - lift, FL2], [18, 11 - lift, FL2]);
+  };
+  if (stage === "lit") px.push([12, 10, "#3fae6a"], [13, 10, "#3fae6a"], [14, 10, "#3fae6a"],
+                               [12, 9, "#baf3c9"], [13, 8, "#baf3c9"], [14, 9, "#baf3c9"]);
+  if (stage === "idle" || stage === "lit" || stage === "new") rocketAt(0);
+  if (stage === "ignite") { rocketAt(0); px.push([18, 10, FL1], [17, 10, FL2], [19, 10, FL2]); }
+  if (stage === "up1") { rocketAt(1); flameAt(1); }
+  if (stage === "up2") { rocketAt(2); flameAt(2); px.push([16, 10, SMOKE], [20, 10, SMOKE]); }
+  if (stage === "up4") { rocketAt(4); flameAt(4); px.push([16, 9, SMOKE], [20, 9, SMOKE], [16, 10, SMOKE], [20, 10, SMOKE]); }
+  if (stage === "up7") { rocketAt(7); flameAt(7); px.push([16, 10, SMOKE], [18, 9, SMOKE], [20, 10, SMOKE]); }
+  if (stage === "gone") px.push([16, 9, SMOKE], [18, 10, SMOKE], [20, 9, SMOKE], [17, 8, SMOKE], [19, 8, SMOKE], [18, 0, FL2]);
+  if (stage === "empty") px.push([18, 10, SMOKE]);
   return px;
 }
 function toggle(side, accent) {
@@ -187,12 +203,16 @@ function timeline(kind, accent) {
   }
   if (kind === "start") {
     return [
-      ["standA", propShadow(rocketPad("idle")), 0, false],
-      ["press", propShadow(rocketPad("lit")), 0, false],    // paw hits the button
-      ["standA", propShadow(rocketPad("ignite")), 0, false],
-      ["standB", propShadow(rocketPad("up1")), 0, false],
-      ["standA", propShadow(rocketPad("up2")), 0, false],
-      ["standB", propShadow(rocketPad("gone")), 0, false],  // off it goes; loop rolls a new one onto the pad
+      ["standA", propShadow(startProp("idle")), 0, false],
+      ["press", propShadow(startProp("lit")), 0, false],    // paw hits the button
+      ["standA", propShadow(startProp("ignite")), 0, false],
+      ["standB", propShadow(startProp("up1")), 0, false],
+      ["standA", propShadow(startProp("up2")), 0, false],
+      ["rear", propShadow(startProp("up4")), 1, false],     // rears up, watching it climb
+      ["standA", propShadow(startProp("up7")), 0, false],   // only the tail flame still in frame
+      ["standB", propShadow(startProp("gone")), 0, false],  // smoke on the pad, a spark far above
+      ["standA", propShadow(startProp("empty")), 0, false], // quiet beat
+      ["standB", propShadow(startProp("new")), 0, true],    // next rocket rolls onto the pad
     ];
   }
   return [ // change: nose-flip the toggle
@@ -224,10 +244,12 @@ function mountScene(overlay) {
   modal.classList.add("dlg-staged");   // hides the small header tile
   const stage = document.createElement("div");
   stage.className = "dlg-stage";
-  stage.innerHTML = `<span class="dlg-sc"><i class="dlg-sc-llama"></i><i class="dlg-sc-prop"></i></span>`;
+  stage.innerHTML = `<span class="dlg-sc"><i class="dlg-sc-sky"></i><i class="dlg-sc-llama"></i><i class="dlg-sc-prop"></i></span>`;
   modal.prepend(stage);
   const llamaEl = stage.querySelector(".dlg-sc-llama");
   const propEl = stage.querySelector(".dlg-sc-prop");
+  const skyEl = stage.querySelector(".dlg-sc-sky");
+  skyEl.style.boxShadow = kind === "start" ? propShadow(startSky()) : "";
   let i = 0;
   const paint = () => {
     const [pose, prop, shift, slide] = frames[i % frames.length];

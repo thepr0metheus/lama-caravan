@@ -197,7 +197,9 @@ def write_server_cell_artifacts(host_id, port, config):
     }
 
 def _sanitize_snapshot_name(name):
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", str(name or "").strip()).strip("-.")
+    # \w is unicode in py3, so Cyrillic and friends survive; the old ASCII-only
+    # class reduced e.g. "тест" to an empty string and the save failed with 400.
+    safe = re.sub(r"[^\w.-]+", "-", str(name or "").strip()).strip("-.")
     return safe[:60]
 
 def snapshot_config(name, config=None):

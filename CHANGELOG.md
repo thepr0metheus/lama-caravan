@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.4 — 2026-07-03
+
+- Start scene v2: a night launch — crescent moon, 10 frames, the rocket
+  climbs out of the frame and a fresh one rolls onto the pad (static
+  scenery moved to a separate sky layer so the slide-in moves only the
+  rocket).
+- Saved configs: the list now shows the name you typed (it was saved but
+  never displayed); Cyrillic and other unicode names no longer collapse
+  to an empty string and fail with 400.
+
 ## 1.1.3 — 2026-07-03
 
 - Fix: the classic form's model-change handler did not pass aliasFollow

@@ -981,8 +981,10 @@ export async function fetchAndRenderRemoteBackups(hostId) {
     infoEl.textContent = configs.length ? t("clickBackupHint") : t("noBackups");
     listEl.innerHTML = saveCurrentHtml + configs.map((cfg) => {
       const modelShort = (cfg.modelName || cfg.modelPath || "").split("/").pop();
-      const label = `${cfg.savedAt} — ${modelShort}`;
-      const meta = `${cfg.target || "?"} · port ${cfg.port} · ctx ${cfg.ctxSize} · ${cfg.gpuLayers} layers`;
+      // Named snapshots lead with the user's name (the timestamp moves into the
+      // meta line); legacy no-name entries keep the old timestamp label.
+      const label = cfg.name ? `${cfg.name} — ${modelShort}` : `${cfg.savedAt} — ${modelShort}`;
+      const meta = `${cfg.name ? cfg.savedAt + " · " : ""}${cfg.target || "?"} · port ${cfg.port} · ctx ${cfg.ctxSize} · ${cfg.gpuLayers} layers`;
       return `
         <div class="backup-row" title="${escapeHtml(meta)}">
           <button class="backup-item" type="button" data-remote-backup="${escapeHtml(cfg.filename)}">
