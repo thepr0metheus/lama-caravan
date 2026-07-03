@@ -16,8 +16,11 @@ additional routable outputs.
 
 Everything is intentionally dependency-light: two stdlib-only Python daemons,
 static HTML/CSS/JS with native ES modules, JSON files as the only IPC, and
-`systemd --user` units for process management. There is no database, no
-message broker, no build step.
+`systemd --user` units for process management. There is no database server,
+no message broker, no build step. (Accounts and sessions live in one embedded
+SQLite file next to the admin state — stdlib `sqlite3`, still zero services;
+everything else stays in JSON on purpose: the proxy hot-reloads configs by
+mtime, files diff cleanly in git, and a backup is a copy.)
 
 ## Components
 

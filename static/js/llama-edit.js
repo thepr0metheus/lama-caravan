@@ -362,6 +362,13 @@ export async function snapshotConfig(pfx = "") {
     return;
   }
   const cellConfig = currentSavedConfig(pfx);
+  // The prompt modal is gone the moment it resolves, and the snapshot call
+  // can take a couple of seconds — keep the trigger button visibly busy so
+  // the pause reads as "saving", not "nothing happened".
+  const snapBtn = $(pfx + "backups")?.querySelector("[data-snapshot-config]");
+  snapBtn?.classList.add("btn-busy");
+  if (snapBtn) snapBtn.disabled = true;
+  toast(t("snapshotSaving"));
   try {
     const data = await api("/api/config/snapshot", {
       method: "POST",
@@ -372,6 +379,9 @@ export async function snapshotConfig(pfx = "") {
     toast(`${t("snapshotSaved")}: ${backupLabel(data.snapshot)}`);
   } catch (err) {
     toast(err.message);
+  } finally {
+    snapBtn?.classList.remove("btn-busy");
+    if (snapBtn) snapBtn.disabled = false;
   }
 }
 

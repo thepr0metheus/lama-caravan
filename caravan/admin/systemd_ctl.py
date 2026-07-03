@@ -1,5 +1,6 @@
 """systemd --user service control: status, actions, diagnostics, unit repair."""
 import os
+import time
 from pathlib import Path
 
 from caravan.admin.paths import PROJECT_ROOT, SERVICE_NAME
@@ -28,10 +29,12 @@ def ensure_cell_service_template():
     target_dir = Path.home() / ".config/systemd/user"
     target_dir.mkdir(parents=True, exist_ok=True)
     target = target_dir / "lama-cell@.service"
-    src_text = src.read_text(encoding="utf-8")
-    if not target.exists() or target.read_text(encoding="utf-8", errors="replace") != src_text:
+    # The repo template is deployment-agnostic; the unit must point at THIS
+    # checkout, wherever it lives (~/lama-caravan, ~/projects/lama-caravan, …).
+    rendered = src.read_text(encoding="utf-8").replace("__CARAVAN_ROOT__", str(PROJECT_ROOT))
+    if not target.exists() or target.read_text(encoding="utf-8", errors="replace") != rendered:
         tmp = target.with_suffix(".service.tmp")
-        tmp.write_text(src_text, encoding="utf-8")
+        tmp.write_text(rendered, encoding="utf-8")
         tmp.replace(target)
         systemctl("daemon-reload", timeout=15)
     return str(target)
@@ -39,7 +42,8 @@ def ensure_cell_service_template():
 def cell_service_status(port):
     name = cell_service_name(port)
     show = systemctl("show", name, "-p", "LoadState", "-p", "ActiveState", "-p", "SubState",
-                     "-p", "MainPID", "-p", "ExecMainStartTimestamp", "-p", "UnitFileState", timeout=5)
+                     "-p", "MainPID", "-p", "ExecMainStartTimestamp", "-p", "UnitFileState",
+                     "-p", "Result", "-p", "NRestarts", timeout=5)
     status = {}
     for line in show["stdout"].splitlines():
         if "=" in line:
@@ -49,6 +53,51 @@ def cell_service_status(port):
     status["error"] = show["stderr"]
     status["service"] = name
     return status
+
+# Failure classification for a cell that won't start. Patterns are matched
+# against the unit's journal tail, first hit wins — order matters (exec/model
+# problems also mention memory-sounding words further down the log).
+_CELL_ERR_PATTERNS = (
+    ("exec", ("status=203", "203/exec", "failed to locate executable", "permission denied")),
+    ("model", ("gguf_init_from_file", "error loading model", "failed to load model",
+               "no such file or directory")),
+    ("port", ("address already in use", "couldn't bind", "failed to bind")),
+    ("oom", ("out of memory", "cudamalloc", "failed to allocate", "unable to allocate",
+             "erroroutofdevicememory", "not enough memory", "insufficient memory")),
+)
+_cell_err_cache = {}
+
+def cell_last_error(port, lines=60, ttl=10):
+    """Tail the cell unit's journal and classify why it won't start.
+
+    Returns {kind, detail, tail} or None when the journal is unreadable.
+    Cached per port for `ttl` seconds — this runs inside the topology poll.
+    """
+    now = time.time()
+    cached = _cell_err_cache.get(port)
+    if cached and now - cached[0] < ttl:
+        return cached[1]
+    res = run(["journalctl", "--user", "-u", cell_service_name(port), "-n", str(lines),
+               "--no-pager", "-o", "cat"], timeout=6, env=user_systemd_env())
+    text = res.get("stdout") or ""
+    result = None
+    if text.strip():
+        low = text.lower()
+        kind = "crash"
+        for name, needles in _CELL_ERR_PATTERNS:
+            if any(n in low for n in needles):
+                kind = name
+                break
+        tail_lines = [l for l in text.splitlines() if l.strip()][-8:]
+        # The most telling line: last one matching the winning pattern, else the last line.
+        detail = tail_lines[-1] if tail_lines else ""
+        for line in reversed(text.splitlines()):
+            if any(n in line.lower() for n in dict(_CELL_ERR_PATTERNS).get(kind, ())):
+                detail = line.strip()
+                break
+        result = {"kind": kind, "detail": detail[:300], "tail": "\n".join(tail_lines)[-1500:]}
+    _cell_err_cache[port] = (now, result)
+    return result
 
 def cell_service_action(port, action):
     if action not in {"start", "stop", "restart", "enable", "disable"}:

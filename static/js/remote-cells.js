@@ -924,6 +924,12 @@ export async function snapshotRemoteConfig(hostId) {
   if (name === null) return;
   const trimmed = name.trim();
   if (!trimmed) { toast(t("snapshotNameRequired")); return; }
+  // Same busy treatment as the controller editor: the prompt is already gone,
+  // so the save button carries the "working…" signal until the API returns.
+  const snapBtn = $("tr-backups")?.querySelector("[data-snapshot-remote]");
+  snapBtn?.classList.add("btn-busy");
+  if (snapBtn) snapBtn.disabled = true;
+  toast(t("snapshotSaving"));
   try {
     await api("/api/topology/client-llama/configs/save", {
       method: "POST",
@@ -938,6 +944,9 @@ export async function snapshotRemoteConfig(hostId) {
     toast(`${t("snapshotSaved")}: ${trimmed}`);
   } catch (err) {
     toast(err.message || String(err));
+  } finally {
+    snapBtn?.classList.remove("btn-busy");
+    if (snapBtn) snapBtn.disabled = false;
   }
 }
 

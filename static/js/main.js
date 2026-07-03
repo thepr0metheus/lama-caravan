@@ -34,16 +34,7 @@ import { refreshRouteErrBadges } from "./topology-activity.js";
 import { purgeRemoteModelCache, submitRemoteLlamaStart } from "./remote-cells.js";
 import { rebindProxyRouter } from "./routers.js";
 import { topology, ui } from "./state.js";
-import {
-  bindModelGc,
-  checkLlamaCpp,
-  closeSystemInfoModal,
-  openRepairUserServiceModal,
-  openSystemInfoModal,
-  openUpdateLlamaModal,
-  renderRuntime,
-  revertLatest,
-} from "./system-panels.js";
+import { renderRuntime, revertLatest } from "./system-panels.js";
 import {
   clearTopologyPointerDrag,
   topologyPointerDrag,
@@ -114,12 +105,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       menu.hidden = !menu.hidden;
       $("userChipBtn").setAttribute("aria-expanded", String(!menu.hidden));
     });
-    document.addEventListener("click", (e) => { if (!$("userChip").contains(e.target)) closeMenu(); });
+    // Capture phase: the board's delegated click router stopPropagation()s
+    // most clicks, so a bubble-phase listener never saw them and the menu
+    // stayed open forever. Capture runs before any of that.
+    document.addEventListener("click", (e) => { if (!$("userChip").contains(e.target)) closeMenu(); }, true);
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) closeMenu(); });
     $("userMenuLogout").addEventListener("click", doLogout);
     $("userMenuSecurity").addEventListener("click", () => {
       closeMenu();
-      openSystemInfoModal();
-      setTimeout(() => document.querySelector(".security-panel")?.scrollIntoView({ block: "start", behavior: "smooth" }), 150);
+      window.location.href = "/system#security";
     });
   }).catch(() => {});
 
@@ -137,18 +131,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (samples.length) drawTopologyServerStats(samples);
   });
   setupLangSelect();
-  $("checkLlamaBtn").addEventListener("click", () => checkLlamaCpp().catch((err) => toast(err.message)));
-  $("updateLlamaBtn").addEventListener("click", () => openUpdateLlamaModal());
-  $("repairUserServiceBtn").addEventListener("click", () => openRepairUserServiceModal());
-  // System info modal (llama.cpp build + Known Problems, moved out of Classic)
-  $("systemInfoBtn")?.addEventListener("click", openSystemInfoModal);
-  bindModelGc();
+  // System lives on its own page now (/system: Controller, llama.cpp,
+  // Security, Diagnostics tabs) — the header button just navigates.
+  $("systemInfoBtn")?.addEventListener("click", () => { window.location.href = "/system"; });
   $("usageStatsBtn")?.addEventListener("click", openUsageStatsModal);
-
-  $("systemInfoClose")?.addEventListener("click", closeSystemInfoModal);
-  $("systemInfoOverlay")?.addEventListener("click", (e) => {
-    if (e.target === $("systemInfoOverlay")) closeSystemInfoModal();
-  });
   $("gemmaTextBoostBtn").addEventListener("click", () => setGemma4Mode("text").catch((err) => toast(err.message)));
   $("gemmaVisionBtn").addEventListener("click", () => setGemma4Mode("vision").catch((err) => toast(err.message)));
   $("textOnlyBtn").addEventListener("click", () => {

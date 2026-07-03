@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>System — Lama Caravan</title>
+  <link rel="icon" href="/favicon.svg?v=2" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/topology-board.css">
+  <link rel="stylesheet" href="/css/canvas.css">
+  <link rel="stylesheet" href="/css/modals.css">
+  <link rel="stylesheet" href="/css/cards.css">
+  <link rel="stylesheet" href="/css/form.css">
+  <link rel="stylesheet" href="/css/monitor.css">
+  <link rel="stylesheet" href="/css/nodes.css">
+  <link rel="stylesheet" href="/css/onboarding.css">
+  <style>
+    body {
+      min-height: 100dvh;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui, system-ui, sans-serif);
+      display: flex;
+      flex-direction: column;
+    }
+    .topbar { position: sticky; top: 0; z-index: 30; }
+    .sys-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      background: var(--surface);
+      color: var(--text);
+      text-decoration: none;
+      font-size: 12px;
+      white-space: nowrap;
+      transition: border-color .15s ease, background .15s ease;
+    }
+    .sys-back:hover { border-color: var(--accent); }
+
+    .sys-wrap {
+      width: min(980px, 94vw);
+      margin: 0 auto;
+      padding: 22px 0 60px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      flex: 1;
+    }
+
+    /* ── hero ── */
+    .sys-hero {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 18px;
+      flex-wrap: wrap;
+      padding: 22px 24px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background:
+        radial-gradient(1200px 300px at 8% -40%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
+        var(--surface);
+    }
+    .sys-hero h1 {
+      margin: 0 0 4px;
+      font-size: 26px;
+      letter-spacing: .02em;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .sys-hero p { margin: 0; font-size: 12.5px; color: var(--muted); max-width: 52ch; }
+    .sys-hero-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 8px;
+      min-width: min(420px, 100%);
+    }
+    .sys-stat {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 9px 12px;
+      background: color-mix(in srgb, var(--bg) 55%, transparent);
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .sys-stat span {
+      font-size: 9.5px;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .sys-stat strong {
+      font-size: 13.5px;
+      font-weight: 650;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .sys-stat.warn strong { color: var(--warn, #e0a03f); }
+    .sys-stat.good strong { color: var(--ok, #4fc38a); }
+
+    /* ── tabs ── */
+    .sys-tabs {
+      position: sticky;
+      top: 54px;
+      z-index: 20;
+      display: flex;
+      gap: 4px;
+      padding: 5px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: color-mix(in srgb, var(--surface) 92%, transparent);
+      backdrop-filter: blur(8px);
+      overflow-x: auto;
+    }
+    .sys-tab {
+      flex: 1 1 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      padding: 9px 14px;
+      border: 0;
+      border-radius: 9px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12.5px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .15s ease, color .15s ease;
+    }
+    .sys-tab:hover { color: var(--text); }
+    .sys-tab.active {
+      background: color-mix(in srgb, var(--accent) 16%, var(--bg));
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+    }
+    .sys-tab .sys-tab-ico { font-size: 14px; }
+
+    /* ── panels ── */
+    .sys-panel { display: none; animation: sys-fade .18s ease; }
+    .sys-panel.active { display: block; }
+    @keyframes sys-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+    .sys-panel .panel {
+      margin: 0;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 18px 20px;
+      background: var(--surface);
+    }
+    .sys-panel .section-title { margin-bottom: 12px; }
+    .sys-panel .section-title h2 { font-size: 15px; }
+    .llama-update-log:empty { display: none; }
+    .sys-foot { text-align: center; font-size: 11px; color: var(--muted); padding: 8px 0 0; }
+    @media (max-width: 640px) {
+      .sys-hero { padding: 16px; }
+      .sys-tabs { top: 50px; }
+      .sys-tab { padding: 8px 8px; font-size: 11.5px; }
+      .sys-tab .sys-tab-label { display: none; }
+      .sys-tab .sys-tab-ico { font-size: 17px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-brand">
+      <h1 class="brand-title">
+        <img src="/favicon.svg?v=2" alt="" aria-hidden="true">
+        <span class="brand-name-wrap">
+          <span data-i18n="appTitle">LAMA CARAVAN</span>
+          <span class="brand-acronym" data-i18n="systemSubtitleBrand">System &amp; settings</span>
+        </span>
+        <span id="projectGitBranch" class="project-git-branch" title="Project git branch">branch n/a</span>
+      </h1>
+    </div>
+    <div class="actions">
+      <a class="sys-back" href="/"><span aria-hidden="true">←</span> <span data-i18n="sysBackToBoard">Board</span></a>
+      <div class="user-chip" id="userChip" hidden>
+        <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false">
+          <span class="user-chip-ico">👤</span><span id="userChipName"></span><span class="lang-caret" aria-hidden="true">▾</span>
+        </button>
+        <div id="userMenu" class="user-menu" hidden>
+          <button id="userMenuLogout" type="button" data-i18n="authLogout">Log out</button>
+        </div>
+      </div>
+      <div class="lang-select" id="langSelect">
+        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Language">
+          <span class="lang-emoji" id="langTriggerEmoji">☕</span>
+          <span class="lang-code" id="langTriggerCode">EN</span>
+          <span class="lang-caret" aria-hidden="true">▾</span>
+        </button>
+        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden></ul>
+      </div>
+    </div>
+  </header>
+
+  <div class="sys-wrap">
+    <section class="sys-hero">
+      <div>
+        <h1><span aria-hidden="true">🛠</span> <span data-i18n="systemInfoTitle">System</span></h1>
+        <p data-i18n="sysSubtitle">Controller health, llama.cpp build, accounts and diagnostics — everything operational lives here.</p>
+      </div>
+      <div class="sys-hero-stats" id="sysHeroStats"></div>
+    </section>
+
+    <nav class="sys-tabs" role="tablist" id="sysTabs">
+      <button class="sys-tab active" data-tab="controller" role="tab" aria-selected="true">
+        <span class="sys-tab-ico" aria-hidden="true">⚙️</span><span class="sys-tab-label" data-i18n="controllerSection">Controller</span>
+      </button>
+      <button class="sys-tab" data-tab="llama" role="tab" aria-selected="false">
+        <span class="sys-tab-ico" aria-hidden="true">🦙</span><span class="sys-tab-label">llama.cpp</span>
+      </button>
+      <button class="sys-tab" data-tab="security" role="tab" aria-selected="false">
+        <span class="sys-tab-ico" aria-hidden="true">🛡️</span><span class="sys-tab-label" data-i18n="securitySection">Security</span>
+      </button>
+      <button class="sys-tab" data-tab="diag" role="tab" aria-selected="false">
+        <span class="sys-tab-ico" aria-hidden="true">🩺</span><span class="sys-tab-label" data-i18n="diagSection">Diagnostics</span>
+      </button>
+    </nav>
+
+    <section class="sys-panel active" data-panel="controller">
+      <div class="panel controller-panel">
+        <div class="section-title">
+          <h2 class="title-with-tip"><span data-i18n="controllerSection">Controller</span><span id="controllerSectionTip"></span></h2>
+          <div class="button-row">
+            <button id="modelGcBtn" type="button" data-i18n="gcOpen">Free up space…</button>
+          </div>
+        </div>
+        <div id="controllerInfo" class="llama-summary"><span class="muted">…</span></div>
+      </div>
+    </section>
+
+    <section class="sys-panel" data-panel="llama">
+      <div class="panel llama-panel">
+        <div class="section-title">
+          <h2 class="title-with-tip"><span>llama.cpp</span><span id="llamaCppTip"></span></h2>
+          <div class="button-row">
+            <span class="button-with-tip"><button id="checkLlamaBtn" type="button" data-i18n="checkVersions">Check Versions</button><span id="checkVersionsTip"></span></span>
+            <span class="button-with-tip"><button id="updateLlamaBtn" type="button" class="danger" data-i18n="updateBuild">Update Build</button><span id="updateBuildTip"></span></span>
+          </div>
+        </div>
+        <div id="llamaCppSummary" class="llama-summary"></div>
+        <pre id="llamaUpdateLog" class="llama-update-log"></pre>
+      </div>
+    </section>
+
+    <section class="sys-panel" data-panel="security">
+      <div class="panel security-panel">
+        <div class="section-title">
+          <h2 class="title-with-tip"><span data-i18n="securitySection">Security</span><span id="securitySectionTip"></span></h2>
+          <div class="button-row">
+            <span class="button-with-tip"><button id="authLogoutBtn" type="button" data-i18n="authLogout" hidden>Log out</button></span>
+          </div>
+        </div>
+        <div id="securityInfo" class="security-info"><span class="muted">…</span></div>
+      </div>
+    </section>
+
+    <section class="sys-panel" data-panel="diag">
+      <div class="panel problems-panel">
+        <div class="section-title">
+          <h2 class="title-with-tip"><span data-i18n="diagSection">Diagnostics</span><span id="knownProblemsTip"></span></h2>
+          <div class="button-row">
+            <span class="button-with-tip"><button id="repairUserServiceBtn" type="button" data-i18n="repairUserService">Repair user service</button><span id="repairUserServiceTip"></span></span>
+          </div>
+        </div>
+        <div id="knownProblems" class="known-problems"></div>
+      </div>
+    </section>
+
+    <p class="sys-foot" id="sysFoot"></p>
+  </div>
+
+  <div id="confirmOverlay" class="modal-overlay" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" data-tone="danger">
+      <header class="dlg-head">
+        <span class="dlg-ico" aria-hidden="true"></span>
+        <h2 id="confirmTitle" data-i18n="deleteBackup">Delete backup?</h2>
+      </header>
+      <p id="confirmText"></p>
+      <div id="confirmMeta" class="modal-meta" hidden></div>
+      <code id="confirmPath"></code>
+      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden>
+      <div class="modal-actions">
+        <button id="confirmCancel" type="button" data-i18n="cancel">Cancel</button>
+        <button id="confirmDelete" type="button" class="danger" data-i18n="deleteAction">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modelGcOverlay" class="modal-overlay" hidden>
+    <div class="modal model-gc-modal" role="dialog" aria-modal="true" aria-label="Model cache cleanup">
+      <div class="modal-head-row">
+        <strong data-i18n="gcTitle">Models disk cleanup</strong>
+        <button class="icon-action compact" id="modelGcClose" aria-label="Close">✕</button>
+      </div>
+      <p class="muted" id="modelGcSummary">…</p>
+      <div id="modelGcList" class="model-gc-list"></div>
+      <div class="button-row model-gc-foot">
+        <button id="modelGcSelectAll" type="button" data-i18n="gcSelectAll">Select all unused</button>
+        <span id="modelGcSelected" class="muted"></span>
+        <button id="modelGcDelete" type="button" class="danger" data-i18n="gcDelete">Delete selected</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" role="status"></div>
+  <script type="module" src="/js/system-page.js"></script>
+</body>
+</html>

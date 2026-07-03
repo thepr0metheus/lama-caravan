@@ -29,7 +29,7 @@ from caravan.admin.proxies_config import (
 from caravan.admin.router_dsl import normalize_agent_proxy_policy
 from caravan.admin.server_cells import server_slot_key
 from caravan.admin.state import save_admin_state, topology_store
-from caravan.admin.systemd_ctl import cell_service_name, cell_service_status, service_status
+from caravan.admin.systemd_ctl import cell_last_error, cell_service_name, cell_service_status, service_status
 from caravan.admin.telemetry import (
     _normalize_modalities,
     _record_cpu_history,
@@ -301,12 +301,27 @@ def topology_server(config=None):
                         slot_phase = "starting"
             elif cell_status.get("ActiveState") == "failed":
                 slot_phase = "error"
+            elif cell_status.get("ActiveState") in ("activating", "reloading"):
+                # auto-restart = the unit is flapping (exec failed / instant
+                # crash). Without this branch the card silently shows
+                # "stopped" while systemd retries every 3s.
+                flapping = cell_status.get("SubState") == "auto-restart" or (
+                    cell_status.get("Result") not in ("", "success", None))
+                slot_phase = "error" if flapping else "starting"
             # Scrape the cell's own /metrics so token throughput shows for the
             # controller cell too — it isn't a remote client (no heartbeat) and
             # isn't the legacy "current" service, so nothing else samples it.
             # (Command cells aren't llama-server — nothing to scrape.)
             if slot_phase == "running" and not slot_is_command:
                 cell_metrics = runtime_metrics_sample(port)
+        cell_error = None
+        if is_controller_slot and slot_phase == "error":
+            # Classify WHY it won't start (journal tail, cached) so the card
+            # can show a human hint instead of a bare red pill.
+            try:
+                cell_error = cell_last_error(port)
+            except Exception:
+                cell_error = None
         # Authoritative modalities for a live cell (controller on 127.0.0.1,
         # remote on its IP). Stopped/reserved cells have no running server.
         slot_mods = None
@@ -326,7 +341,8 @@ def topology_server(config=None):
             "mmproj": str(((slot.get("config") or {}).get("MMPROJ_FILE")) or ""),
             "specDraft": str(((slot.get("config") or {}).get("SPEC_DRAFT_MODEL_FILE")) or ""),
             "specType": str(((slot.get("config") or {}).get("SPEC_TYPE")) or ""),
-            "status": {"phase": slot_phase},
+            "status": ({"phase": slot_phase, "error": cell_error} if cell_error
+                       else {"phase": slot_phase}),
             "service": service_name,
             "gpuIndexes": [],
             "isRemote": not is_controller_slot,

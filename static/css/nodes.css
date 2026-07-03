@@ -215,6 +215,13 @@
 }
 .msl-bar-stop > span { background: var(--danger, #e05555); }
 .model-status-line.msl-stop .msl-text { color: color-mix(in srgb, var(--danger, #e05555) 65%, var(--text)); }
+/* Start-failure line: ⚠ + classified reason (hover for the journal tail). */
+.model-status-line.msl-err .msl-text {
+  color: color-mix(in srgb, var(--danger, #e05555) 78%, var(--text));
+  white-space: normal;
+  line-height: 1.3;
+}
+.msl-err-icon { color: var(--danger, #e05555); font-size: 12px; flex: 0 0 auto; }
 
 .node-server-foot { font-size:11px; margin-top:4px; }
 

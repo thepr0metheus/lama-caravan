@@ -5,8 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=%h/lama-caravan
-ExecStart=%h/lama-caravan/var/server-cells/%i/start.sh
+WorkingDirectory=__CARAVAN_ROOT__
+ExecStart=__CARAVAN_ROOT__/var/server-cells/%i/start.sh
 Restart=on-failure
 RestartSec=3
 

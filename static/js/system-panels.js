@@ -1,28 +1,45 @@
-// Controller service/CPU/GPU panels, system-info modal, llama.cpp update/revert.
-import { appConfirm } from "./dialogs.js";
+// Controller service/CPU/GPU panels, the /system page sections, llama.cpp
+// update/revert. Renderers null-guard their targets: some ids exist only on
+// the board page, some only on /system.
+import { appConfirm, settleAppConfirm } from "./dialogs.js";
 import { formatCmdline } from "./command-preview.js";
 import { helpTip, t } from "./i18n.js";
-import { closeConfirmModal } from "./llama-edit.js";
 import { estimateRuntimeMemoryGb, formatSizeGb, ramFit, vramFit } from "./memory.js";
 import { formatTps, metricNumber, tokenSpeedState } from "./polling.js";
 import { setState, state, ui } from "./state.js";
 import { parseLlamaBuildVersion } from "./topology-nodes.js";
-import { renderAll } from "./topology-render.js";
 import { $, api, escapeHtml, formatBytesMiB, formatMemoryMiB, pill, toast } from "./utils.js";
+
+// Close the shared confirm dialog (the repair/update flows fill it directly).
+function closeConfirmModal() {
+  settleAppConfirm(false);
+}
+
+// The state-driven System sections — refreshed after repair/update instead of
+// the board-wide renderAll (this module also runs on /system, no board there).
+function renderSystemSections() {
+  renderService();
+  renderLlamaCpp();
+  renderKnownProblems();
+  renderProjectGitBranch();
+}
 
 export function renderService() {
   const svc = state.service || {};
+  const el = $("serviceSummary");
+  if (!el) return;
   const status = state.runtime?.status || {};
   const phase = status.phase || svc.ActiveState || "unknown";
   const label = t(phase) || status.label || phase;
-  $("serviceSummary").innerHTML = `
+  el.innerHTML = `
     <div>${pill(label, status.kind || (svc.ActiveState === "active" ? "good" : "bad"))} ${escapeHtml(svc.SubState || "")}</div>
     <div>${t("pid")}: <b>${svc.MainPID || "0"}</b></div>
     <div>${t("started")}: <b>${svc.ExecMainStartTimestamp || "n/a"}</b></div>
     <div>${t("service")}: <b>${state.paths.service}</b></div>
     ${status.detail ? `<div>${escapeHtml(status.detail)}</div>` : ""}
   `;
-  $("cmdline").textContent = svc.cmdline ? formatCmdline(svc.cmdline) : t("noRunningCommand");
+  const cmdEl = $("cmdline");
+  if (cmdEl) cmdEl.textContent = svc.cmdline ? formatCmdline(svc.cmdline) : t("noRunningCommand");
 }
 
 export function renderSectionTips() {
@@ -178,19 +195,6 @@ export function renderGpu() {
     <div>Bus: <b>${row.pciBusId || "n/a"}</b>, mem clock: <b>${row.memoryClockMHz || "n/a"} MHz</b></div>
   `);
   $("gpuSummary").innerHTML = rows.join("");
-}
-
-export function openSystemInfoModal() {
-  const overlay = $("systemInfoOverlay");
-  if (!overlay) return;
-  renderLlamaCpp();        // refresh from current state before showing
-  renderKnownProblems();
-  overlay.hidden = false;
-  api("/api/controller-info").then(renderControllerInfo).catch((err) => {
-    const el = $("controllerInfo");
-    if (el) el.innerHTML = `<span class="muted">${escapeHtml(String(err.message || err))}</span>`;
-  });
-  refreshSecurity();
 }
 
 // ── Models-disk GC modal ─────────────────────────────────────────────────────
@@ -433,11 +437,6 @@ export function renderControllerInfo(info) {
   }
   el.innerHTML = chips.join("");
 }
-export function closeSystemInfoModal() {
-  const overlay = $("systemInfoOverlay");
-  if (overlay) overlay.hidden = true;
-}
-
 // ── HuggingFace Browser moved to /hf (static/hf.js) ─────────────────────────
 
 
@@ -516,7 +515,9 @@ export function renderKnownProblems() {
   const advice = unhealthy
     ? `<p>${escapeHtml(diagnostics.summary || "")}</p><p>${escapeHtml(diagnostics.fix || "")}</p>`
     : "";
-  $("knownProblems").innerHTML = `
+  const kpEl = $("knownProblems");
+  if (!kpEl) return;
+  kpEl.innerHTML = `
     <article class="problem-item">
       <div class="diagnostic-list">${mainRows}</div>
       ${advice}
@@ -544,7 +545,7 @@ export function openRepairUserServiceModal() {
     closeConfirmModal();
     const data = await api("/api/repair/user-service", { method: "POST", body: JSON.stringify({}) });
     setState(data.state);
-    renderAll();
+    renderSystemSections();
     toast(t("repairComplete"));
   };
   $("confirmOverlay").hidden = false;
@@ -586,7 +587,7 @@ export function openUpdateLlamaModal() {
         step.stdout,
         step.stderr,
       ].filter(Boolean).join("\n")).join("\n\n");
-      renderAll();
+      renderSystemSections();
       toast(t("updateComplete"));
     } catch (err) {
       $("llamaUpdateLog").textContent = err.message;
@@ -603,7 +604,7 @@ export async function revertLatest() {
     body: JSON.stringify({ restart: true }),
   });
   setState(data.state);
-  renderAll();
+  renderSystemSections();
   toast(t("reverted"));
 }
 

@@ -223,6 +223,13 @@ export function nodeServerCardHtml(node, s) {
     statusRow = _msl("", `<span class="msl-bar"><span style="width:${p ?? 0}%"></span></span><span class="msl-text" data-live-dl>${dlFile} · ${(done/1e9).toFixed(1)}/${(tot/1e9).toFixed(1)} GB${p!=null?` · ${p}%`:""}</span>`);
   } else if (isWarming) {
     statusRow = _msl("", `${_mslSpin(false)}<span class="msl-bar indeterminate"><span></span></span><span class="msl-text">${escapeHtml(t("topologyRemoteWarming"))}</span>`);
+  } else if (isError && (s.status?.error)) {
+    // The unit is failed or flapping — say WHY (classified from its journal)
+    // instead of leaving a silent stopped-looking card.
+    const err = s.status.error;
+    const kindKey = { oom: "cellErrOom", exec: "cellErrExec", model: "cellErrModel", port: "cellErrPort" }[err.kind] || "cellErrCrash";
+    const tip = [err.detail || "", "", err.tail || ""].join("\n").trim();
+    statusRow = _msl("msl-err", `<span class="msl-err-icon" aria-hidden="true">⚠</span><span class="msl-text" title="${escapeHtml(tip)}">${escapeHtml(t(kindKey))}</span>`);
   } else if (!running && !isStopped) {
     statusRow = _msl("", `${_mslSpin(false)}<span class="msl-text">${escapeHtml(phase === "loading" ? t("topologyRemoteLoading") : t("topologyRemoteStarting"))}</span>`);
   }

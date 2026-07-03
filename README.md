@@ -48,8 +48,10 @@ What that gives you in practice:
   traffic), per-request history with timings and error kinds, incident badges,
   GPU/CPU/token-speed monitors.
 - **Nothing to install but Python.** Controller and agent are stdlib-only; no
-  Docker, no database, no external services. Everything is plain JSON files
-  and systemd/launchd units on your own machines.
+  Docker, no database server, no external services. State lives in plain JSON
+  files (hot-reloadable, git-diffable, backed up by copying) plus one small
+  embedded SQLite file for accounts/sessions — and systemd/launchd units on
+  your own machines.
 
 A concrete day with it: your coding agents hammer a local Qwen on the desktop
 GPU all night on a schedule window; in the morning the schedule flips them to
@@ -100,7 +102,7 @@ The built-in HuggingFace GGUF browser:
 | GPU serving | NVIDIA driver + `nvidia-smi` for telemetry; CUDA build of llama.cpp (CPU-only also works) |
 | Client hosts | Linux (systemd --user) or macOS (launchd), Python 3.10+, [caravan-scout](https://github.com/thepr0metheus/caravan-scout) |
 | Browser | any modern browser — native ES modules, no build step |
-| Storage | plain JSON files; no database server required |
+| Storage | plain JSON files + an embedded SQLite file (accounts/sessions); no database server required |
 
 ## Documentation
 
