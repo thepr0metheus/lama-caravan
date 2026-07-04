@@ -726,11 +726,11 @@ export function bindTopologyDragAndDrop() {
       }
 
       // Show confirm modal (reuse global #confirmOverlay pattern).
-      $("confirmTitle").textContent = "Сменить дефолт?";
-      $("confirmText").textContent = `Установить «${label}» как дефолтный выход?`;
+      $("confirmTitle").textContent = t("dndSetDefaultTitle");
+      $("confirmText").textContent = t("dndSetDefaultText", { label });
       $("confirmMeta").hidden = true;
       $("confirmPath").textContent = "";
-      $("confirmDelete").textContent = "Установить";
+      $("confirmDelete").textContent = t("dndSetDefaultOk");
       $("confirmDelete").classList.remove("danger");
       ui.pendingConfirm = () => {
         closeConfirmModal();

@@ -87,7 +87,7 @@ export function topologyAgentCard(client, agent, routeMap) {
   // Build delete button. Prefer direct agent removal; fall back to sub-client delete.
   let deleteBtn = "";
   if (supportsRD || subClient) {
-    const title = agentIsStale ? "Нет связи — удалить агента" : "Удалить агента из списка";
+    const title = agentIsStale ? t("agentRemoveStaleTitle") : t("agentRemoveTitle");
     if (supportsRD) {
       deleteBtn = `<button class="agent-remove-btn${agentIsStale ? " stale" : ""}" type="button"
         title="${title}"

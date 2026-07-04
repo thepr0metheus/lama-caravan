@@ -730,7 +730,7 @@ export function renderField(field, pfx = "") {
         <div class="port-combo">
           <input id="${fid}" name="${field}" type="number" min="1024" max="65535"
             value="${escapeHtml(currentPort)}" autocomplete="off">
-          <button class="port-dropdown-btn" type="button" tabindex="-1" aria-haspopup="true" title="Выбрать порт">▾</button>
+          <button class="port-dropdown-btn" type="button" tabindex="-1" aria-haspopup="true" title="${escapeHtml(t("pickPort"))}">▾</button>
           <div class="port-dropdown" hidden>${chipsHtml}</div>
         </div>
         <p>${escapeHtml(help)}</p>

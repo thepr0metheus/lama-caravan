@@ -193,10 +193,10 @@ export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
   if (saveRestartBtn) {
     const isRunning = !!(state.service?.active || state.service?.pid);
     if (_teCellPort) {
-      saveRestartBtn.textContent = "Применить";
+      saveRestartBtn.textContent = t("apply");
       saveRestartBtn.className = "topo-ok-btn";
     } else {
-      saveRestartBtn.textContent = isRunning ? "Restart" : "Start";
+      saveRestartBtn.textContent = t(isRunning ? "restart" : "start");
       saveRestartBtn.className = "danger";
     }
   }

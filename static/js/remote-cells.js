@@ -241,10 +241,10 @@ export async function cellServiceAction(hostId, port, actionName) {
     // e.g. a client has a single server slot and another cell is still
     // starting/downloading. Surface that instead of silently doing nothing.
     if (res && res.ok === false) {
-      const raw = String((res.result && res.result.error) || res.error || "не удалось выполнить действие");
+      const raw = String((res.result && res.result.error) || res.error || t("cellActionFailed"));
       const busy = /already|in progress|already running/i.test(raw);
       toast(busy
-        ? `⚠️ ${raw} — на этом хосте один слот на сервер, дождитесь завершения запуска`
+        ? `⚠️ ${raw} — ${t("cellSlotBusyHint")}`
         : `⚠️ ${raw}`);
     }
     if (actionName === "stop") {
@@ -319,7 +319,7 @@ export async function deleteOrphanAgent(clientId, agentId) {
       body: JSON.stringify({ clientId, agentId }),
     });
     const freed = (res && res.freedPorts) || [];
-    toast(freed.length ? `Удалён ${agentId}; освобождены порты: ${freed.map((p) => ":" + p).join(" ")}` : `Удалён ${agentId}`);
+    toast(freed.length ? t("agentRemovedPorts", { id: agentId, ports: freed.map((p) => ":" + p).join(" ") }) : t("agentRemoved", { id: agentId }));
     refreshTopology().catch(() => {});
   } catch (e) { toast(String(e)); }
 }

@@ -823,16 +823,16 @@ export function initRouteActivityCanvasHover() {
 
 export function buildRouteActivityLegendHtml() {
   const items = [
-    { color: "rgba(37,99,235,0.92)",   label: "выполняется (локально)" },
-    { color: "rgba(186,230,253,0.92)", label: "☁ облако (активно)" },
-    { color: "rgba(96,165,250,0.60)",  label: "в очереди" },
-    { color: "rgba(52,211,153,0.75)",  label: "завершился OK" },
-    { color: "rgba(99,102,241,0.82)",  label: "☁ облако (завершено)" },
-    { color: "rgba(45,212,191,0.82)",  label: "медленно (успех)" },
-    { color: "rgba(167,139,250,0.88)", label: "вытесняется" },
-    { color: "rgba(228,173,83,0.88)",  label: "инцидент (не фатальный)" },
-    { color: "rgba(250,204,21,0.82)",  label: "клиент ушёл" },
-    { color: "rgba(255,120,120,0.90)", label: "ошибка / таймаут" },
+    { color: "rgba(37,99,235,0.92)",   label: t("ralRunLocal") },
+    { color: "rgba(186,230,253,0.92)", label: t("ralCloudActive") },
+    { color: "rgba(96,165,250,0.60)",  label: t("ralQueued") },
+    { color: "rgba(52,211,153,0.75)",  label: t("ralDoneOk") },
+    { color: "rgba(99,102,241,0.82)",  label: t("ralCloudDone") },
+    { color: "rgba(45,212,191,0.82)",  label: t("ralSlowOk") },
+    { color: "rgba(167,139,250,0.88)", label: t("ralPreempted") },
+    { color: "rgba(228,173,83,0.88)",  label: t("ralIncident") },
+    { color: "rgba(250,204,21,0.82)",  label: t("ralClientGone") },
+    { color: "rgba(255,120,120,0.90)", label: t("ralError") },
   ];
   return items.map(({ color, label, border }) =>
     `<span class="ral-item"><i style="background:${color}${border ? `;outline:${border}` : ""}"></i>${escapeHtml(label)}</span>`

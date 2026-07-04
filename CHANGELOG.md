@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.5 — 2026-07-04
+
+- i18n: hardcoded Russian strings now follow the selected language — the
+  Apply/Cancel buttons of both llama editors, the Route Activity legend,
+  the default-output confirm, agent-remove tooltips, cell-action errors,
+  the freed-ports toast and the port-picker tooltip (new keys in en+ru,
+  other languages fall back to English).
+
 ## 1.1.4 — 2026-07-03
 
 - Start scene v2: a night launch — crescent moon, 10 frames, the rocket
