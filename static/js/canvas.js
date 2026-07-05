@@ -288,11 +288,11 @@ export function _cvSchedInputPorts(router, schedNodeId) {
 // Render schedule history: only requests from ports wired into this schedule node.
 export function _renderSchedHistHtml(nodeId, outputs, grid, inputPorts) {
   const cache = _cvSchedHistData[nodeId];
-  if (!cache) return `<div class="cv-q-hist-loading">loading…</div>`;
+  if (!cache) return `<div class="cv-q-hist-loading">${t("loadingEllipsis")}</div>`;
   if (cache.err) return `<div class="cv-q-hist-loading">failed to load</div>`;
 
   if (inputPorts && inputPorts.size === 0) {
-    return `<div class="cv-q-hist-loading">no inputs connected to this node</div>`;
+    return `<div class="cv-q-hist-loading">${t("cvNoInputs")}</div>`;
   }
 
   // Filter to only rows from ports wired into this schedule node
@@ -301,7 +301,7 @@ export function _renderSchedHistHtml(nodeId, outputs, grid, inputPorts) {
     return !inputPorts || !port || inputPorts.has(Number(port));
   }).slice(0, 20);
 
-  if (!filtered.length) return `<div class="cv-q-hist-loading">no history yet</div>`;
+  if (!filtered.length) return `<div class="cv-q-hist-loading">${t("cvNoHistory")}</div>`;
 
   const rows = filtered.map((raw) => {
     const item = raw.item || {};
@@ -346,7 +346,7 @@ export function _renderQueueHistHtml(nodeId) {
   const cache = _cvQueueHistData[nodeId];
   if (!cache) return `<div class="cv-q-hist-loading">loading…</div>`;
   if (cache.err) return `<div class="cv-q-hist-loading">failed to load</div>`;
-  if (!cache.rows.length) return `<div class="cv-q-hist-loading">no history yet</div>`;
+  if (!cache.rows.length) return `<div class="cv-q-hist-loading">${t("cvNoHistory")}</div>`;
 
   const batch = cache.rows.slice(0, 25);
   // Pre-compute max processing time for relative bar scaling
@@ -1302,7 +1302,7 @@ export function _cvSyncServersPortDots() {
       dot.className = "cv-port in";
       dot.dataset.cvNode = key;
       dot.dataset.cvOutPort = key;
-      dot.title = "Drop a cable here to route to this output";
+      dot.title = t("cvDropCable");
       block.appendChild(dot);
     }
     // Position in block's coordinate space (world units = CSS px at scale 1).
@@ -1342,7 +1342,7 @@ export function _cvSyncInputsBlockPortDots() {
       dot = document.createElement("span");
       dot.className = "cv-port out";
       dot.dataset.cvRef = ref;
-      dot.title = "Drag to route this port →";
+      dot.title = t("cvDragPort");
       block.appendChild(dot);
     }
     const yBlock = (rowRect.top - blockRect.top + rowRect.height / 2) / scale;

@@ -5,6 +5,7 @@ import { action } from "./polling.js";
 import { topology, ui } from "./state.js";
 import { renderTopologyLogDetail, topologyLogSummary } from "./topology-modals.js";
 import { $, api, escapeHtml, pill, toast } from "./utils.js";
+import { t } from "./i18n.js";
 
 // ── Request History modal ──────────────────────────────────────────────────
 export let historyRows = [];          // finished events (Requests tab)
@@ -39,11 +40,11 @@ export function openRequestHistory() {
           <select id="historyStatusSelect" class="history-date-select">
             <option value="">status: all</option>
             <option value="ok">OK (2xx)</option>
-            <option value="error">Error (4xx/5xx)</option>
+            <option value="error">${escapeHtml(t("historyErrorOpt"))}</option>
           </select>
         </div>
         <div id="historyTableWrap" class="history-table-wrap">
-          <div class="history-loading">Loading…</div>
+          <div class="history-loading">${escapeHtml(t("historyLoading"))}</div>
         </div>
       </div>`;
     document.body.appendChild(div);
@@ -80,7 +81,7 @@ export function closeRequestHistory() {
 export async function loadRequestHistory() {
   const wrap = $("historyTableWrap");
   if (!wrap) return;
-  wrap.innerHTML = `<div class="history-loading">Loading…</div>`;
+  wrap.innerHTML = `<div class="history-loading">${escapeHtml(t("historyLoading"))}</div>`;
   try {
     const params = new URLSearchParams({ limit: 500, event: "finished" });
     if (historyCurrentDate) params.set("date", historyCurrentDate);
@@ -102,7 +103,7 @@ export async function loadHistoryEvents() {
     renderHistoryEvents();
     return;
   }
-  wrap.innerHTML = `<div class="history-loading">Loading…</div>`;
+  wrap.innerHTML = `<div class="history-loading">${escapeHtml(t("historyLoading"))}</div>`;
   try {
     const params = new URLSearchParams({ limit: 500 });
     if (historyCurrentDate) params.set("date", historyCurrentDate);

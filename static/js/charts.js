@@ -216,7 +216,7 @@ export function drawTopologyGpuHistory() {
   const legend = $("topologyGpuHistoryLegend");
   drawTopologyGpuHistoryOnCanvas(samples, canvas);
   if (!samples.length) {
-    if (meta) meta.textContent = "waiting";
+    if (meta) meta.textContent = t("chartWaiting");
     if (legend) legend.textContent = "";
     return;
   }
@@ -224,7 +224,7 @@ export function drawTopologyGpuHistory() {
   const activeRoutes = latest.correlatedActivity?.gpu?.activeRoutes || [];
   if (meta) {
     const retention = ui.latestSystemMonitor?.retentionSeconds || 600;
-    meta.textContent = `${samples.length} samples · ${Math.round(retention / 60)} min`;
+    meta.textContent = t("chartSamplesMeta", { n: samples.length, m: Math.round(retention / 60) });
   }
   const latestUtil = latest.gpu?.utilPct ?? "n/a";
   const latestTemp = latest.gpu?.temperatureC ?? "n/a";
@@ -571,7 +571,7 @@ export function drawTopologyTokenSpeedHistory(samples, overrideCanvas) {
   const latest = samples[samples.length - 1] || {};
   const prompt = topologyPromptTps(latest);
   const evalSpeed = topologyEvalTps(latest);
-  if (meta) meta.textContent = samples.length ? `prompt ${formatTps(prompt)} / gen ${formatTps(evalSpeed)} t/s` : "waiting";
+  if (meta) meta.textContent = samples.length ? `prompt ${formatTps(prompt)} / gen ${formatTps(evalSpeed)} t/s` : t("chartWaiting");
   if (legend) {
     legend.innerHTML = [
       `<span class="topology-history-route" style="--route-color: rgba(96, 165, 250, 0.95)">prompt ≤${promptMax}</span>`,
@@ -733,7 +733,7 @@ export function renderTopologyIncidents(samples = systemSamples(ui.latestSystemM
   const meta = $("topologyIncidentsMeta");
   if (!panel) return;
   const incidents = topologyIncidentItems(samples || []);
-  if (meta) meta.textContent = incidents.length ? `${incidents.length} recent` : "clear";
+  if (meta) meta.textContent = incidents.length ? t("incidentsRecent", { n: incidents.length }) : t("incidentsClear");
   // Reflect the count on the controller node's header button.
   document.querySelectorAll("[data-ctrl-incidents-count]").forEach((el) => {
     el.textContent = String(incidents.length);
@@ -742,7 +742,7 @@ export function renderTopologyIncidents(samples = systemSamples(ui.latestSystemM
     btn.classList.toggle("has-incidents", incidents.length > 0);
   });
   if (!incidents.length) {
-    panel.innerHTML = `<div class="topology-incident-empty">No slow or failed proxy incidents in the visible history.</div>`;
+    panel.innerHTML = `<div class="topology-incident-empty">${escapeHtml(t("noIncidents"))}</div>`;
     return;
   }
   panel.innerHTML = incidents.map((item) => {
@@ -840,10 +840,10 @@ export function buildRouteActivityLegendHtml() {
 }
 
 export const CHART_EXPAND_CONFIGS = {
-  gpu:    { title: "GPU History",  height: 200 },
-  tokens: { title: "Token Speed",  height: 200 },
-  vram:   { title: "VRAM",         height: 180 },
-  power:  { title: "Power",        height: 260 },
+  gpu:    { titleKey: "chartGpuHistory", height: 200 },
+  tokens: { titleKey: "chartTokenSpeed", height: 200 },
+  vram:   { titleKey: "chartVram",       height: 180 },
+  power:  { titleKey: "chartPower",      height: 260 },
 };
 
 export let _chartExpandType = null;
@@ -857,10 +857,10 @@ export function openChartModal(type) {
     const [, id, key] = String(type).split(":");
     const node = (topology?.nodes || []).find((nd) => String(nd.id) === id);
     const base = CHART_EXPAND_CONFIGS[key] || {};
-    config = { title: `${node?.name || id} · ${base.title || key}`, height: base.height || 200 };
+    config = { title: `${node?.name || id} · ${base.titleKey ? t(base.titleKey) : key}`, height: base.height || 200 };
   }
   const titleEl = $("chartExpandTitle");
-  if (titleEl) titleEl.textContent = config.title || type;
+  if (titleEl) titleEl.textContent = config.title || (config.titleKey ? t(config.titleKey) : type);
   const canvas = $("chartExpandCanvas");
   if (canvas) canvas.style.height = `${config.height || 200}px`;
   overlay.hidden = false;
@@ -926,7 +926,7 @@ export function openRouteActivityModal(nodeId) {
   const titleEl = overlay.querySelector(".modal-head-row strong");
   if (titleEl) {
     const node = (topology?.nodes || []).find((nd) => String(nd.id) === _routeActivityNode);
-    titleEl.textContent = node ? `Route Activity · ${node.name || node.id}` : "Route Activity";
+    titleEl.textContent = node ? `${t("routeActivity")} · ${node.name || node.id}` : t("routeActivity");
   }
   overlay.hidden = false;
   if (!_routeActivityHoverBound) { _routeActivityHoverBound = true; initRouteActivityCanvasHover(); }

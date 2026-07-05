@@ -64,7 +64,7 @@ function initRouterStandalonePage() {
     const router = (topology?.routers || []).find((r) => r.id === routerId);
     if (!router) {
       const el = $("topologyProxies");
-      if (el) el.innerHTML = `<div style="padding:20px;color:var(--muted)">Router not found: ${escapeHtml(routerId)}</div>`;
+      if (el) el.innerHTML = `<div style="padding:20px;color:var(--muted)">${escapeHtml(t("routerNotFound", { id: routerId }))}</div>`;
       hideAppLoader();
       return;
     }
@@ -98,7 +98,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Header account chip: shown when sign-in is enabled; menu = Security / Log out.
   api("/api/auth/me").then((me) => {
     if (!me.enabled || !me.authenticated) return;
-    $("userChipName").textContent = me.user + (me.role === "viewer" ? " · viewer" : "");
+    $("userChipName").textContent = me.user + (me.role === "viewer" ? t("userViewerSuffix") : "");
     $("userChip").hidden = false;
     const menu = $("userMenu");
     const closeMenu = () => { menu.hidden = true; $("userChipBtn").setAttribute("aria-expanded", "false"); };

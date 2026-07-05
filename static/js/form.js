@@ -165,7 +165,7 @@ export function makeModelCombobox(selectEl) {
   const search = document.createElement("input");
   search.type = "text";
   search.className = "mc-search";
-  search.placeholder = "Filter…";
+  search.placeholder = t("filterPlaceholder");
   search.setAttribute("autocomplete", "off");
 
   const list = document.createElement("div");
@@ -482,7 +482,7 @@ export function renderAsideVramBar(pfx, runtimeSizeGb) {
   const el = $(pfx + "asideVramBar");
   if (!el) return;
   if (!runtimeSizeGb) {
-    el.innerHTML = `<span class="aside-vram-empty">Select a model to see estimate</span>`;
+    el.innerHTML = `<span class="aside-vram-empty">${escapeHtml(t("selectModelEstimate"))}</span>`;
     return;
   }
   const cpuMode = computeIsCpu(pfx);

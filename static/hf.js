@@ -16,6 +16,506 @@ function hfToast(message) {
   hfToast._t = setTimeout(() => el.classList.remove("show"), 4000);
 }
 
+// ── page strings (en+ru; the big i18n-data dict is deliberately NOT loaded
+// here — /hf stays lightweight, so it keeps its own tiny table; language code
+// is shared with the main app via localStorage) ─────────────────────────────
+const HFS = {
+  en: {
+    tokenNotSet: "not set — gated models unavailable",
+    tokenChangeTitle: "Change HF token?", tokenChangeOk: "Change",
+    tokenClearTitle: "Clear HF token?", tokenClearOk: "Clear",
+    favRemove: "Remove from favorites", favAdd: "Add to favorites",
+    searchToBrowse: "Search to browse repositories",
+    noFilterMatches: "No matches for the filter",
+    selectRepo: "← Select a repository",
+    searching: "Searching…", noResults: "No results", errorWord: "Error",
+    showBench: "Show benchmarks", loading: "Loading…",
+    noGguf: "No GGUF files found",
+    selectForDownload: "Select for download",
+    deleteLocalTitle: "Delete local file", deleteLocalConfirm: "Delete local file?", deleteWord: "Delete",
+    deleteFailed: "Failed to delete: {err}",
+    benchLoading: "Loading data from Artificial Analysis…",
+    onDiskTitle: "Manage downloaded models",
+  },
+  ru: {
+    tokenNotSet: "не задан — закрытые модели недоступны",
+    tokenChangeTitle: "Сменить HF-токен?", tokenChangeOk: "Сменить",
+    tokenClearTitle: "Убрать HF-токен?", tokenClearOk: "Убрать",
+    favRemove: "Убрать из избранного", favAdd: "В избранное",
+    searchToBrowse: "Ищите, чтобы посмотреть репозитории",
+    noFilterMatches: "Ничего не подходит под фильтр",
+    selectRepo: "← Выберите репозиторий",
+    searching: "Ищу…", noResults: "Ничего не найдено", errorWord: "Ошибка",
+    showBench: "Показать бенчмарки", loading: "Загрузка…",
+    noGguf: "GGUF-файлов не найдено",
+    selectForDownload: "Выбрать для загрузки",
+    deleteLocalTitle: "Удалить локальный файл", deleteLocalConfirm: "Удалить локальный файл?", deleteWord: "Удалить",
+    deleteFailed: "Не удалось удалить: {err}",
+    benchLoading: "Загружаю данные Artificial Analysis…",
+    onDiskTitle: "Скачанные модели",
+  },
+  zh: {
+    tokenNotSet: "未设置 — 无法访问受限模型",
+    tokenChangeTitle: "更换 HF 令牌？",
+    tokenChangeOk: "更换",
+    tokenClearTitle: "清除 HF 令牌？",
+    tokenClearOk: "清除",
+    favRemove: "从收藏中移除",
+    favAdd: "加入收藏",
+    searchToBrowse: "搜索以浏览仓库",
+    noFilterMatches: "没有符合筛选的结果",
+    selectRepo: "← 选择一个仓库",
+    searching: "搜索中…",
+    noResults: "无结果",
+    errorWord: "错误",
+    showBench: "显示基准测试",
+    loading: "加载中…",
+    noGguf: "未找到 GGUF 文件",
+    selectForDownload: "选择以下载",
+    deleteLocalTitle: "删除本地文件",
+    deleteLocalConfirm: "删除本地文件？",
+    deleteWord: "删除",
+    deleteFailed: "删除失败：{err}",
+    benchLoading: "正在加载 Artificial Analysis 数据…",
+    onDiskTitle: "管理已下载的模型",
+  },
+  hi: {
+    tokenNotSet: "सेट नहीं — गेटेड मॉडल अनुपलब्ध",
+    tokenChangeTitle: "HF टोकन बदलें?",
+    tokenChangeOk: "बदलें",
+    tokenClearTitle: "HF टोकन हटाएं?",
+    tokenClearOk: "हटाएं",
+    favRemove: "पसंदीदा से हटाएं",
+    favAdd: "पसंदीदा में जोड़ें",
+    searchToBrowse: "रिपॉज़िटरी ब्राउज़ करने के लिए खोजें",
+    noFilterMatches: "फ़िल्टर से कोई मेल नहीं",
+    selectRepo: "← एक रिपॉज़िटरी चुनें",
+    searching: "खोज रहा है…",
+    noResults: "कोई परिणाम नहीं",
+    errorWord: "त्रुटि",
+    showBench: "बेंचमार्क दिखाएं",
+    loading: "लोड हो रहा है…",
+    noGguf: "कोई GGUF फ़ाइलें नहीं मिलीं",
+    selectForDownload: "डाउनलोड के लिए चुनें",
+    deleteLocalTitle: "स्थानीय फ़ाइल हटाएं",
+    deleteLocalConfirm: "स्थानीय फ़ाइल हटाएं?",
+    deleteWord: "हटाएं",
+    deleteFailed: "हटाना विफल: {err}",
+    benchLoading: "Artificial Analysis से डेटा लोड हो रहा है…",
+    onDiskTitle: "डाउनलोड किए मॉडल प्रबंधित करें",
+  },
+  es: {
+    tokenNotSet: "no definido — modelos con acceso restringido no disponibles",
+    tokenChangeTitle: "¿Cambiar el token HF?",
+    tokenChangeOk: "Cambiar",
+    tokenClearTitle: "¿Borrar el token HF?",
+    tokenClearOk: "Borrar",
+    favRemove: "Quitar de favoritos",
+    favAdd: "Añadir a favoritos",
+    searchToBrowse: "Busca para explorar repositorios",
+    noFilterMatches: "Nada coincide con el filtro",
+    selectRepo: "← Selecciona un repositorio",
+    searching: "Buscando…",
+    noResults: "Sin resultados",
+    errorWord: "Error",
+    showBench: "Mostrar benchmarks",
+    loading: "Cargando…",
+    noGguf: "No se encontraron archivos GGUF",
+    selectForDownload: "Seleccionar para descargar",
+    deleteLocalTitle: "Eliminar archivo local",
+    deleteLocalConfirm: "¿Eliminar archivo local?",
+    deleteWord: "Eliminar",
+    deleteFailed: "Fallo al eliminar: {err}",
+    benchLoading: "Cargando datos de Artificial Analysis…",
+    onDiskTitle: "Gestionar modelos descargados",
+  },
+  fr: {
+    tokenNotSet: "non défini — modèles à accès restreint indisponibles",
+    tokenChangeTitle: "Changer le token HF ?",
+    tokenChangeOk: "Changer",
+    tokenClearTitle: "Effacer le token HF ?",
+    tokenClearOk: "Effacer",
+    favRemove: "Retirer des favoris",
+    favAdd: "Ajouter aux favoris",
+    searchToBrowse: "Recherchez pour parcourir les dépôts",
+    noFilterMatches: "Aucun résultat pour ce filtre",
+    selectRepo: "← Sélectionnez un dépôt",
+    searching: "Recherche…",
+    noResults: "Aucun résultat",
+    errorWord: "Erreur",
+    showBench: "Afficher les benchmarks",
+    loading: "Chargement…",
+    noGguf: "Aucun fichier GGUF trouvé",
+    selectForDownload: "Sélectionner pour téléchargement",
+    deleteLocalTitle: "Supprimer le fichier local",
+    deleteLocalConfirm: "Supprimer le fichier local ?",
+    deleteWord: "Supprimer",
+    deleteFailed: "Échec de la suppression : {err}",
+    benchLoading: "Chargement des données d'Artificial Analysis…",
+    onDiskTitle: "Gérer les modèles téléchargés",
+  },
+  ar: {
+    tokenNotSet: "غير مضبوط — النماذج المقيدة غير متاحة",
+    tokenChangeTitle: "تغيير رمز HF؟",
+    tokenChangeOk: "تغيير",
+    tokenClearTitle: "مسح رمز HF؟",
+    tokenClearOk: "مسح",
+    favRemove: "إزالة من المفضلة",
+    favAdd: "إضافة إلى المفضلة",
+    searchToBrowse: "ابحث لتصفح المستودعات",
+    noFilterMatches: "لا نتائج مطابقة للتصفية",
+    selectRepo: "← اختر مستودعًا",
+    searching: "جارٍ البحث…",
+    noResults: "لا نتائج",
+    errorWord: "خطأ",
+    showBench: "عرض المعايير",
+    loading: "جارٍ التحميل…",
+    noGguf: "لم يُعثر على ملفات GGUF",
+    selectForDownload: "تحديد للتنزيل",
+    deleteLocalTitle: "حذف الملف المحلي",
+    deleteLocalConfirm: "حذف الملف المحلي؟",
+    deleteWord: "حذف",
+    deleteFailed: "فشل الحذف: {err}",
+    benchLoading: "جارٍ تحميل بيانات Artificial Analysis…",
+    onDiskTitle: "إدارة النماذج المنزّلة",
+  },
+  bn: {
+    tokenNotSet: "সেট করা নেই — গেটেড মডেল অনুপলব্ধ",
+    tokenChangeTitle: "HF টোকেন বদলাবেন?",
+    tokenChangeOk: "বদলান",
+    tokenClearTitle: "HF টোকেন মুছবেন?",
+    tokenClearOk: "মুছুন",
+    favRemove: "প্রিয় থেকে সরান",
+    favAdd: "প্রিয়তে যোগ করুন",
+    searchToBrowse: "রিপোজিটরি ব্রাউজ করতে অনুসন্ধান করুন",
+    noFilterMatches: "ফিল্টারের সাথে কিছু মেলেনি",
+    selectRepo: "← একটি রিপোজিটরি নির্বাচন করুন",
+    searching: "অনুসন্ধান চলছে…",
+    noResults: "কোনো ফলাফল নেই",
+    errorWord: "ত্রুটি",
+    showBench: "বেঞ্চমার্ক দেখান",
+    loading: "লোড হচ্ছে…",
+    noGguf: "কোনো GGUF ফাইল পাওয়া যায়নি",
+    selectForDownload: "ডাউনলোডের জন্য নির্বাচন করুন",
+    deleteLocalTitle: "স্থানীয় ফাইল মুছুন",
+    deleteLocalConfirm: "স্থানীয় ফাইল মুছবেন?",
+    deleteWord: "মুছুন",
+    deleteFailed: "মুছতে ব্যর্থ: {err}",
+    benchLoading: "Artificial Analysis থেকে ডেটা লোড হচ্ছে…",
+    onDiskTitle: "ডাউনলোড করা মডেল পরিচালনা",
+  },
+  pt: {
+    tokenNotSet: "não definido — modelos restritos indisponíveis",
+    tokenChangeTitle: "Alterar o token HF?",
+    tokenChangeOk: "Alterar",
+    tokenClearTitle: "Remover o token HF?",
+    tokenClearOk: "Remover",
+    favRemove: "Remover dos favoritos",
+    favAdd: "Adicionar aos favoritos",
+    searchToBrowse: "Pesquise para navegar pelos repositórios",
+    noFilterMatches: "Nada corresponde ao filtro",
+    selectRepo: "← Selecione um repositório",
+    searching: "Pesquisando…",
+    noResults: "Sem resultados",
+    errorWord: "Erro",
+    showBench: "Mostrar benchmarks",
+    loading: "Carregando…",
+    noGguf: "Nenhum arquivo GGUF encontrado",
+    selectForDownload: "Selecionar para baixar",
+    deleteLocalTitle: "Excluir arquivo local",
+    deleteLocalConfirm: "Excluir o arquivo local?",
+    deleteWord: "Excluir",
+    deleteFailed: "Falha ao excluir: {err}",
+    benchLoading: "Carregando dados do Artificial Analysis…",
+    onDiskTitle: "Gerenciar modelos baixados",
+  },
+  ja: {
+    tokenNotSet: "未設定 — ゲート付きモデルは利用できません",
+    tokenChangeTitle: "HF トークンを変更しますか？",
+    tokenChangeOk: "変更",
+    tokenClearTitle: "HF トークンを削除しますか？",
+    tokenClearOk: "削除",
+    favRemove: "お気に入りから削除",
+    favAdd: "お気に入りに追加",
+    searchToBrowse: "検索してリポジトリを表示",
+    noFilterMatches: "フィルターに一致するものがありません",
+    selectRepo: "← リポジトリを選択",
+    searching: "検索中…",
+    noResults: "結果なし",
+    errorWord: "エラー",
+    showBench: "ベンチマークを表示",
+    loading: "読み込み中…",
+    noGguf: "GGUF ファイルが見つかりません",
+    selectForDownload: "ダウンロード対象に選択",
+    deleteLocalTitle: "ローカルファイルを削除",
+    deleteLocalConfirm: "ローカルファイルを削除しますか？",
+    deleteWord: "削除",
+    deleteFailed: "削除に失敗しました：{err}",
+    benchLoading: "Artificial Analysis からデータを読み込み中…",
+    onDiskTitle: "ダウンロード済みモデルの管理",
+  },
+  de: {
+    tokenNotSet: "nicht gesetzt — zugangsbeschränkte Modelle nicht verfügbar",
+    tokenChangeTitle: "HF-Token ändern?",
+    tokenChangeOk: "Ändern",
+    tokenClearTitle: "HF-Token entfernen?",
+    tokenClearOk: "Entfernen",
+    favRemove: "Aus Favoriten entfernen",
+    favAdd: "Zu Favoriten hinzufügen",
+    searchToBrowse: "Suchen, um Repositories zu durchstöbern",
+    noFilterMatches: "Keine Treffer für den Filter",
+    selectRepo: "← Repository auswählen",
+    searching: "Suche läuft…",
+    noResults: "Keine Ergebnisse",
+    errorWord: "Fehler",
+    showBench: "Benchmarks anzeigen",
+    loading: "Lädt…",
+    noGguf: "Keine GGUF-Dateien gefunden",
+    selectForDownload: "Zum Herunterladen auswählen",
+    deleteLocalTitle: "Lokale Datei löschen",
+    deleteLocalConfirm: "Lokale Datei löschen?",
+    deleteWord: "Löschen",
+    deleteFailed: "Löschen fehlgeschlagen: {err}",
+    benchLoading: "Daten von Artificial Analysis werden geladen…",
+    onDiskTitle: "Heruntergeladene Modelle verwalten",
+  },
+  id: {
+    tokenNotSet: "belum disetel — model tertutup tidak tersedia",
+    tokenChangeTitle: "Ganti token HF?",
+    tokenChangeOk: "Ganti",
+    tokenClearTitle: "Hapus token HF?",
+    tokenClearOk: "Hapus",
+    favRemove: "Hapus dari favorit",
+    favAdd: "Tambah ke favorit",
+    searchToBrowse: "Cari untuk menjelajahi repositori",
+    noFilterMatches: "Tidak ada yang cocok dengan filter",
+    selectRepo: "← Pilih repositori",
+    searching: "Mencari…",
+    noResults: "Tidak ada hasil",
+    errorWord: "Kesalahan",
+    showBench: "Tampilkan benchmark",
+    loading: "Memuat…",
+    noGguf: "Tidak ada berkas GGUF ditemukan",
+    selectForDownload: "Pilih untuk diunduh",
+    deleteLocalTitle: "Hapus berkas lokal",
+    deleteLocalConfirm: "Hapus berkas lokal?",
+    deleteWord: "Hapus",
+    deleteFailed: "Gagal menghapus: {err}",
+    benchLoading: "Memuat data dari Artificial Analysis…",
+    onDiskTitle: "Kelola model terunduh",
+  },
+  ur: {
+    tokenNotSet: "سیٹ نہیں — گیٹڈ ماڈلز دستیاب نہیں",
+    tokenChangeTitle: "HF ٹوکن تبدیل کریں؟",
+    tokenChangeOk: "تبدیل کریں",
+    tokenClearTitle: "HF ٹوکن ہٹائیں؟",
+    tokenClearOk: "ہٹائیں",
+    favRemove: "پسندیدہ سے ہٹائیں",
+    favAdd: "پسندیدہ میں شامل کریں",
+    searchToBrowse: "ریپوزٹریز دیکھنے کے لیے تلاش کریں",
+    noFilterMatches: "فلٹر سے کچھ میل نہیں کھاتا",
+    selectRepo: "← ایک ریپوزٹری منتخب کریں",
+    searching: "تلاش ہو رہی ہے…",
+    noResults: "کوئی نتائج نہیں",
+    errorWord: "خرابی",
+    showBench: "بینچ مارکس دکھائیں",
+    loading: "لوڈ ہو رہا ہے…",
+    noGguf: "کوئی GGUF فائلیں نہیں ملیں",
+    selectForDownload: "ڈاؤن لوڈ کے لیے منتخب کریں",
+    deleteLocalTitle: "مقامی فائل حذف کریں",
+    deleteLocalConfirm: "مقامی فائل حذف کریں؟",
+    deleteWord: "حذف کریں",
+    deleteFailed: "حذف کرنا ناکام: {err}",
+    benchLoading: "Artificial Analysis سے ڈیٹا لوڈ ہو رہا ہے…",
+    onDiskTitle: "ڈاؤن لوڈ شدہ ماڈلز منظم کریں",
+  },
+  tr: {
+    tokenNotSet: "ayarlanmadı — kısıtlı modeller kullanılamaz",
+    tokenChangeTitle: "HF token'ı değiştirilsin mi?",
+    tokenChangeOk: "Değiştir",
+    tokenClearTitle: "HF token'ı temizlensin mi?",
+    tokenClearOk: "Temizle",
+    favRemove: "Favorilerden kaldır",
+    favAdd: "Favorilere ekle",
+    searchToBrowse: "Depolara göz atmak için arayın",
+    noFilterMatches: "Filtreyle eşleşen yok",
+    selectRepo: "← Bir depo seçin",
+    searching: "Aranıyor…",
+    noResults: "Sonuç yok",
+    errorWord: "Hata",
+    showBench: "Karşılaştırmaları göster",
+    loading: "Yükleniyor…",
+    noGguf: "GGUF dosyası bulunamadı",
+    selectForDownload: "İndirmek için seç",
+    deleteLocalTitle: "Yerel dosyayı sil",
+    deleteLocalConfirm: "Yerel dosya silinsin mi?",
+    deleteWord: "Sil",
+    deleteFailed: "Silme başarısız: {err}",
+    benchLoading: "Artificial Analysis'ten veri yükleniyor…",
+    onDiskTitle: "İndirilen modelleri yönet",
+  },
+  ko: {
+    tokenNotSet: "설정 안 됨 — 게이트된 모델 사용 불가",
+    tokenChangeTitle: "HF 토큰을 변경할까요?",
+    tokenChangeOk: "변경",
+    tokenClearTitle: "HF 토큰을 지울까요?",
+    tokenClearOk: "지우기",
+    favRemove: "즐겨찾기에서 제거",
+    favAdd: "즐겨찾기에 추가",
+    searchToBrowse: "저장소를 보려면 검색하세요",
+    noFilterMatches: "필터와 일치하는 항목 없음",
+    selectRepo: "← 저장소를 선택하세요",
+    searching: "검색 중…",
+    noResults: "결과 없음",
+    errorWord: "오류",
+    showBench: "벤치마크 표시",
+    loading: "로딩 중…",
+    noGguf: "GGUF 파일을 찾지 못함",
+    selectForDownload: "다운로드 대상으로 선택",
+    deleteLocalTitle: "로컬 파일 삭제",
+    deleteLocalConfirm: "로컬 파일을 삭제할까요?",
+    deleteWord: "삭제",
+    deleteFailed: "삭제 실패: {err}",
+    benchLoading: "Artificial Analysis 데이터 로딩 중…",
+    onDiskTitle: "다운로드한 모델 관리",
+  },
+  vi: {
+    tokenNotSet: "chưa đặt — không dùng được các mô hình bị khóa",
+    tokenChangeTitle: "Đổi token HF?",
+    tokenChangeOk: "Đổi",
+    tokenClearTitle: "Xóa token HF?",
+    tokenClearOk: "Xóa",
+    favRemove: "Bỏ khỏi yêu thích",
+    favAdd: "Thêm vào yêu thích",
+    searchToBrowse: "Tìm kiếm để duyệt các kho",
+    noFilterMatches: "Không có kết quả khớp bộ lọc",
+    selectRepo: "← Chọn một kho",
+    searching: "Đang tìm…",
+    noResults: "Không có kết quả",
+    errorWord: "Lỗi",
+    showBench: "Hiện benchmark",
+    loading: "Đang tải…",
+    noGguf: "Không tìm thấy tệp GGUF",
+    selectForDownload: "Chọn để tải xuống",
+    deleteLocalTitle: "Xóa tệp cục bộ",
+    deleteLocalConfirm: "Xóa tệp cục bộ?",
+    deleteWord: "Xóa",
+    deleteFailed: "Xóa thất bại: {err}",
+    benchLoading: "Đang tải dữ liệu từ Artificial Analysis…",
+    onDiskTitle: "Quản lý mô hình đã tải",
+  },
+  it: {
+    tokenNotSet: "non impostato — modelli gated non disponibili",
+    tokenChangeTitle: "Cambiare il token HF?",
+    tokenChangeOk: "Cambia",
+    tokenClearTitle: "Rimuovere il token HF?",
+    tokenClearOk: "Rimuovi",
+    favRemove: "Rimuovi dai preferiti",
+    favAdd: "Aggiungi ai preferiti",
+    searchToBrowse: "Cerca per sfogliare i repository",
+    noFilterMatches: "Nessuna corrispondenza per il filtro",
+    selectRepo: "← Seleziona un repository",
+    searching: "Ricerca…",
+    noResults: "Nessun risultato",
+    errorWord: "Errore",
+    showBench: "Mostra benchmark",
+    loading: "Caricamento…",
+    noGguf: "Nessun file GGUF trovato",
+    selectForDownload: "Seleziona per il download",
+    deleteLocalTitle: "Elimina file locale",
+    deleteLocalConfirm: "Eliminare il file locale?",
+    deleteWord: "Elimina",
+    deleteFailed: "Eliminazione non riuscita: {err}",
+    benchLoading: "Caricamento dati da Artificial Analysis…",
+    onDiskTitle: "Gestisci i modelli scaricati",
+  },
+  te: {
+    tokenNotSet: "సెట్ కాలేదు — గేటెడ్ మోడల్‌లు అందుబాటులో లేవు",
+    tokenChangeTitle: "HF టోకెన్‌ను మార్చాలా?",
+    tokenChangeOk: "మార్చండి",
+    tokenClearTitle: "HF టోకెన్‌ను క్లియర్ చేయాలా?",
+    tokenClearOk: "క్లియర్ చేయండి",
+    favRemove: "ఇష్టమైనవాటి నుండి తీసివేయండి",
+    favAdd: "ఇష్టమైనవాటికి జోడించండి",
+    searchToBrowse: "రిపోజిటరీలను బ్రౌజ్ చేయడానికి వెతకండి",
+    noFilterMatches: "ఫిల్టర్‌కు సరిపోలేవి లేవు",
+    selectRepo: "← రిపోజిటరీని ఎంచుకోండి",
+    searching: "వెతుకుతోంది…",
+    noResults: "ఫలితాలు లేవు",
+    errorWord: "లోపం",
+    showBench: "బెంచ్‌మార్క్‌లను చూపించండి",
+    loading: "లోడ్ అవుతోంది…",
+    noGguf: "GGUF ఫైళ్లు కనుగొనబడలేదు",
+    selectForDownload: "డౌన్‌లోడ్ కోసం ఎంచుకోండి",
+    deleteLocalTitle: "లోకల్ ఫైల్‌ను తొలగించండి",
+    deleteLocalConfirm: "లోకల్ ఫైల్‌ను తొలగించాలా?",
+    deleteWord: "తొలగించండి",
+    deleteFailed: "తొలగించడం విఫలమైంది: {err}",
+    benchLoading: "Artificial Analysis నుండి డేటా లోడ్ అవుతోంది…",
+    onDiskTitle: "డౌన్‌లోడ్ చేసిన మోడల్‌లను నిర్వహించండి",
+  },
+  mr: {
+    tokenNotSet: "सेट केलेले नाही — गेटेड मॉडेल्स अनुपलब्ध",
+    tokenChangeTitle: "HF टोकन बदलायचे?",
+    tokenChangeOk: "बदला",
+    tokenClearTitle: "HF टोकन काढायचे?",
+    tokenClearOk: "काढा",
+    favRemove: "आवडत्यांमधून काढा",
+    favAdd: "आवडत्यांमध्ये जोडा",
+    searchToBrowse: "रिपॉझिटरी ब्राउझ करण्यासाठी शोधा",
+    noFilterMatches: "फिल्टरसाठी काहीही जुळत नाही",
+    selectRepo: "← रिपॉझिटरी निवडा",
+    searching: "शोधत आहे…",
+    noResults: "काही निकाल नाही",
+    errorWord: "त्रुटी",
+    showBench: "बेंचमार्क दाखवा",
+    loading: "लोड होत आहे…",
+    noGguf: "कोणत्याही GGUF फाइल्स सापडल्या नाहीत",
+    selectForDownload: "डाउनलोडसाठी निवडा",
+    deleteLocalTitle: "स्थानिक फाइल हटवा",
+    deleteLocalConfirm: "स्थानिक फाइल हटवायची?",
+    deleteWord: "हटवा",
+    deleteFailed: "हटवणे अयशस्वी: {err}",
+    benchLoading: "Artificial Analysis कडून डेटा लोड होत आहे…",
+    onDiskTitle: "डाउनलोड केलेली मॉडेल्स व्यवस्थापित करा",
+  },
+  ta: {
+    tokenNotSet: "அமைக்கப்படவில்லை — கேட் செய்யப்பட்ட மாதிரிகள் கிடைக்காது",
+    tokenChangeTitle: "HF டோக்கனை மாற்றவா?",
+    tokenChangeOk: "மாற்று",
+    tokenClearTitle: "HF டோக்கனை அழிக்கவா?",
+    tokenClearOk: "அழி",
+    favRemove: "பிடித்தவைகளிலிருந்து அகற்று",
+    favAdd: "பிடித்தவைகளில் சேர்",
+    searchToBrowse: "களஞ்சியங்களை உலாவ தேடவும்",
+    noFilterMatches: "வடிகட்டிக்கு பொருத்தங்கள் இல்லை",
+    selectRepo: "← ஒரு களஞ்சியத்தைத் தேர்வுசெய்",
+    searching: "தேடுகிறது…",
+    noResults: "முடிவுகள் இல்லை",
+    errorWord: "பிழை",
+    showBench: "பென்ச்மார்க்குகளைக் காட்டு",
+    loading: "ஏற்றுகிறது…",
+    noGguf: "GGUF கோப்புகள் எதுவும் கிடைக்கவில்லை",
+    selectForDownload: "பதிவிறக்கத்திற்குத் தேர்வுசெய்",
+    deleteLocalTitle: "உள்ளூர் கோப்பை நீக்கு",
+    deleteLocalConfirm: "உள்ளூர் கோப்பை நீக்கவா?",
+    deleteWord: "நீக்கு",
+    deleteFailed: "நீக்குவது தோல்வியுற்றது: {err}",
+    benchLoading: "Artificial Analysis இலிருந்து தரவு ஏற்றப்படுகிறது…",
+    onDiskTitle: "பதிவிறக்கிய மாதிரிகளை நிர்வகி",
+  },
+};
+function hfT(key, vars = {}) {
+  const lang = localStorage.getItem("llamacppAdminLang") || "en";
+  let text = (HFS[lang] || HFS.en)[key] || HFS.en[key] || key;
+  Object.entries(vars).forEach(([n, v]) => { text = text.replace(`{${n}}`, v); });
+  return text;
+}
+document.addEventListener("DOMContentLoaded", () => {
+  const od = document.getElementById("hfOnDiskBtn");
+  if (od) od.title = hfT("onDiskTitle");
+});
+
 function hfConfirm(title, body, okLabel = "Delete", danger = true) {
   return new Promise(resolve => {
     const overlay = document.createElement("div");
@@ -59,7 +559,7 @@ function renderTokenState(data) {
     tokenStatus.className = "hf-token-status is-set";
     tokenClearBtn.hidden = false;
   } else {
-    tokenStatus.textContent = "not set — gated models unavailable";
+    tokenStatus.textContent = hfT("tokenNotSet");
     tokenStatus.className = "hf-token-status";
     tokenClearBtn.hidden = true;
   }
@@ -78,7 +578,7 @@ async function loadTokenStatus() {
 }
 
 tokenEditBtn.addEventListener("click", async () => {
-  if (!(await hfConfirm("Change HF token?", "", "Change", false))) return;
+  if (!(await hfConfirm(hfT("tokenChangeTitle"), "", hfT("tokenChangeOk"), false))) return;
   tokenStatus.hidden = true;
   tokenEditBtn.hidden = true;
   tokenInput.hidden = false;
@@ -109,7 +609,7 @@ async function saveToken() {
 }
 
 tokenClearBtn.addEventListener("click", async () => {
-  if (!(await hfConfirm("Clear HF token?", "", "Clear"))) return;
+  if (!(await hfConfirm(hfT("tokenClearTitle"), "", hfT("tokenClearOk")))) return;
   await fetch("/api/hf/token", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
@@ -180,7 +680,7 @@ function refreshStarButtons(repoId) {
 
 function setStarBtn(btn, starred) {
   btn.textContent = starred ? "★" : "☆";
-  btn.title = starred ? "Remove from favorites" : "Add to favorites";
+  btn.title = starred ? hfT("favRemove") : hfT("favAdd");
   btn.classList.toggle("is-starred", starred);
 }
 
@@ -192,7 +692,7 @@ favSection.hidden = true;
 
 const resultsList = document.createElement("div");
 resultsList.className = "hf-results-list";
-resultsList.innerHTML = `<div class="hf-file-empty" style="padding:20px;text-align:center;color:var(--muted)">Search to browse repositories</div>`;
+resultsList.innerHTML = `<div class="hf-file-empty" style="padding:20px;text-align:center;color:var(--muted)">${hfT("searchToBrowse")}</div>`;
 
 repoCol.appendChild(buildFilterBar());
 repoCol.appendChild(favSection);
@@ -290,7 +790,7 @@ function renderFavSection(filteredFavs) {
 function renderResultsSection(repos) {
   resultsList.innerHTML = '';
   if (!searchResults.length) {
-    resultsList.innerHTML = `<div class="hf-file-empty" style="padding:20px;text-align:center;color:var(--muted)">Search to browse repositories</div>`;
+    resultsList.innerHTML = `<div class="hf-file-empty" style="padding:20px;text-align:center;color:var(--muted)">${hfT("searchToBrowse")}</div>`;
     return;
   }
   const hdr = document.createElement('div');
@@ -300,7 +800,7 @@ function renderResultsSection(repos) {
   if (!repos.length) {
     const el = document.createElement('div');
     el.className = 'hf-status'; el.style.padding = '12px';
-    el.textContent = 'No matches for the filter';
+    el.textContent = hfT("noFilterMatches");
     resultsList.appendChild(el);
     return;
   }
@@ -386,8 +886,8 @@ async function doSearch() {
   const q = searchInput.value.trim();
   if (!q) return;
 
-  resultsList.innerHTML = `<div class="hf-status">Searching…</div>`;
-  fileCol.innerHTML = `<div class="hf-file-empty">← Select a repository</div>`;
+  resultsList.innerHTML = `<div class="hf-status">${hfT("searching")}</div>`;
+  fileCol.innerHTML = `<div class="hf-file-empty">${hfT("selectRepo")}</div>`;
   activeRepoId = null;
   filesCache.clear();
   checkedMap.clear();
@@ -399,8 +899,8 @@ async function doSearch() {
 
   try {
     const data = await fetch(`/api/hf/search?q=${encodeURIComponent(q)}&limit=${limit}`).then(r => r.json());
-    if (!data.ok) { resultsList.innerHTML = `<div class="hf-error">${escapeHtml(data.error || "Error")}</div>`; return; }
-    if (!data.repos.length) { resultsList.innerHTML = `<div class="hf-status">No results</div>`; return; }
+    if (!data.ok) { resultsList.innerHTML = `<div class="hf-error">${escapeHtml(data.error || hfT("errorWord"))}</div>`; return; }
+    if (!data.repos.length) { resultsList.innerHTML = `<div class="hf-status">${hfT("noResults")}</div>`; return; }
 
     searchResults = data.repos;
     for (const r of data.repos) {
@@ -623,12 +1123,12 @@ function buildRepoRow(repo) {
   div.innerHTML =
     `<div class="hf-repo-row-top">` +
       `<span class="hf-repo-row-id">${escapeHtml(repo.id)}</span>` +
-      `<button class="hf-star-btn${starred ? " is-starred" : ""}" title="${starred ? "Remove from favorites" : "Add to favorites"}">${starred ? "★" : "☆"}</button>` +
+      `<button class="hf-star-btn${starred ? " is-starred" : ""}" title="${starred ? hfT("favRemove") : hfT("favAdd")}">${starred ? "★" : "☆"}</button>` +
     `</div>` +
     `<div class="hf-repo-row-bottom">` +
       `<span class="hf-repo-row-meta">↓ ${fmtNum(repo.downloads)} · ♥ ${fmtNum(repo.likes)}${extractParams(repo.id) ? ` · <span class="hf-repo-params">${extractParams(repo.id)}</span>` : ""}<span class="hf-repo-date-slot">${_repoDateHtml(repo.id, repo.createdAt)}</span></span>` +
       `<div class="hf-repo-badges">${buildBadgesHtml(repo.id, filesCache.get(repo.id) ? new Set(filesCache.get(repo.id).map(f=>f.kind)) : null)}</div>` +
-      `<button class="hf-bench-toggle" title="Show benchmarks">📊</button>` +
+      `<button class="hf-bench-toggle" title="${hfT("showBench")}">📊</button>` +
     `</div>` +
     `<div class="hf-bench-inline"></div>`;
 
@@ -672,7 +1172,7 @@ async function selectRepo(repoId) {
 
   fileCol.innerHTML =
     `<div class="hf-file-col-header"><span class="hf-file-col-title">${escapeHtml(repoId)}</span></div>` +
-    `<div class="hf-status">Loading…</div>`;
+    `<div class="hf-status">${hfT("loading")}</div>`;
 
   try {
     const [filesData, localData] = await Promise.all([
@@ -685,7 +1185,7 @@ async function selectRepo(repoId) {
     if (!filesData.ok) {
       fileCol.innerHTML =
         `<div class="hf-file-col-header"><span class="hf-file-col-title">${escapeHtml(repoId)}</span></div>` +
-        `<div class="hf-error" style="margin:12px">${escapeHtml(filesData.error || "Error")}</div>`;
+        `<div class="hf-error" style="margin:12px">${escapeHtml(filesData.error || hfT("errorWord"))}</div>`;
       return;
     }
     const ORDER = { model: 0, mmproj: 1, mtp: 2, vocab: 3 };
@@ -729,7 +1229,7 @@ function renderFilePanel(repoId) {
   fileCol.appendChild(header);
 
   if (!files.length) {
-    fileCol.insertAdjacentHTML("beforeend", `<div class="hf-status">No GGUF files found</div>`);
+    fileCol.insertAdjacentHTML("beforeend", `<div class="hf-status">${hfT("noGguf")}</div>`);
     return;
   }
 
@@ -751,7 +1251,7 @@ function renderFilePanel(repoId) {
     chk.type = "checkbox";
     chk.className = "hf-file-check";
     chk.checked = checked.has(f.path);
-    chk.title = "Select for download";
+    chk.title = hfT("selectForDownload");
 
     chk.addEventListener("change", () => {
       if (chk.checked) checked.add(f.path);
@@ -769,14 +1269,14 @@ function renderFilePanel(repoId) {
       `<span class="hf-file-size">${fmtBytes(f.size)}</span>` +
       `<span class="hf-file-date"${f.date ? ` title="${escapeHtml(f.date)}"` : ""}>${f.date ? escapeHtml(fmtDate(f.date)) : ""}</span>` +
       `<span class="hf-file-rec" hidden></span>` +
-      (isLocal ? `<button class="hf-file-del" title="Delete local file">🗑</button>` : `<span class="hf-file-del"></span>`)
+      (isLocal ? `<button class="hf-file-del" title="${hfT("deleteLocalTitle")}">🗑</button>` : `<span class="hf-file-del"></span>`)
     );
 
     if (isLocal) {
       const delBtn = row.querySelector(".hf-file-del");
       delBtn.addEventListener("click", async (e) => {
         e.stopPropagation();
-        if (!await hfConfirm("Delete local file?", f.name)) return;
+        if (!await hfConfirm(hfT("deleteLocalConfirm"), f.name, hfT("deleteWord"))) return;
         delBtn.disabled = true;
         delBtn.textContent = "…";
         const res = await fetch(
@@ -789,7 +1289,7 @@ function renderFilePanel(repoId) {
         } else {
           delBtn.disabled = false;
           delBtn.textContent = "🗑";
-          hfToast(`Failed to delete: ${res.error}`);
+          hfToast(hfT("deleteFailed", { err: res.error }));
         }
       });
     }
@@ -1401,7 +1901,7 @@ function renderRefSection() {
   if (!_refData) {
     const loading = document.createElement("div");
     loading.className = "hf-status"; loading.style.padding = "12px";
-    loading.textContent = "Loading data from Artificial Analysis…";
+    loading.textContent = hfT("benchLoading");
     refSection.appendChild(loading);
     return;
   }

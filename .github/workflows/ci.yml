@@ -21,6 +21,7 @@ jobs:
 
       - name: tour i18n coverage
         run: python3 scripts/check_tour_i18n.py
+          python3 scripts/check_messages_i18n.py
 
       - name: JS syntax (ES modules)
         run: |

@@ -132,7 +132,7 @@
           <span data-i18n="appTitle">LAMA CARAVAN</span>
           <span class="brand-acronym" data-i18n="appAcronym">Local And Multi-backend Adaptive Computation And Routing Across Various AI Nodes</span>
         </span>
-        <span id="projectGitBranch" class="project-git-branch" title="Project git branch">branch n/a</span>
+        <span id="projectGitBranch" class="project-git-branch" data-title-i18n="projectGitBranchTitle" title="Project git branch">branch n/a</span>
       </h1>
     </div>
     <div class="actions">
@@ -172,7 +172,7 @@
       </article>
 
       <article class="panel">
-        <h2>OpenClaw Links</h2>
+        <h2 data-i18n="openclawLinks">OpenClaw Links</h2>
         <div id="openclawLinksSummary" class="summary"></div>
       </article>
     </section>
@@ -233,7 +233,7 @@
         </div>
 
         <div class="chat-template-panel" id="chatTemplatePanel">
-          <div class="chat-template-head">Chat template</div>
+          <div class="chat-template-head" data-i18n="chatTemplateHead">Chat template</div>
           <label for="CHAT_TEMPLATE_FILE">CHAT_TEMPLATE_FILE</label>
           <input id="CHAT_TEMPLATE_FILE" name="CHAT_TEMPLATE_FILE" list="chatTemplateFileOptions">
           <datalist id="chatTemplateFileOptions"></datalist>
@@ -291,10 +291,10 @@
           <section class="lane-servers">
             <div class="topology-lane-head">
               <h2 class="title-with-tip"><span data-i18n="topologyLlamaServersSection">Llama Servers</span><span id="topologyLlamaServersTip"></span></h2>
-              <button id="topologyRequestHistoryBtn" type="button" class="icon-action prominent" title="Request history" aria-label="Request history">
+              <button id="topologyRequestHistoryBtn" type="button" class="icon-action prominent" data-title-i18n="requestHistoryTitle" title="Request history">
                 <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
               </button>
-              <button id="systemInfoBtn" type="button" class="icon-action prominent" title="System info — llama.cpp build &amp; known problems" aria-label="System info">🛠</button>
+              <button id="systemInfoBtn" type="button" class="icon-action prominent" data-title-i18n="systemInfoTitle" title="System info — llama.cpp build &amp; known problems">🛠</button>
             </div>
             <div id="topologyModelsBar" class="topology-models-bar"></div>
             <div id="topologyLlamaServers" class="topology-stack nodes-mode"></div>
@@ -306,7 +306,7 @@
           <section class="lane-stats">
             <details class="topology-card topology-server-stats-card">
               <summary class="topology-card-head topology-server-stats-summary">
-                <strong>Server</strong>
+                <strong data-i18n="statServer">Server</strong>
                 <span id="topologyServerStatsMeta" class="topology-history-meta">—</span>
               </summary>
               <div class="topology-stat-row">
@@ -325,21 +325,21 @@
               </div>
               <div class="topology-stat-row">
                 <div class="topology-stat-head">
-                  <span class="topology-stat-label">Network</span>
+                  <span class="topology-stat-label" data-i18n="statNetwork">Network</span>
                   <span id="topologyNetValue" class="topology-stat-value">—</span>
                 </div>
                 <canvas id="topologyNetChart" class="topology-stat-chart" width="320" height="44"></canvas>
               </div>
               <div class="topology-stat-row">
                 <div class="topology-stat-head">
-                  <span class="topology-stat-label">Disk IO</span>
+                  <span class="topology-stat-label" data-i18n="statDiskIo">Disk IO</span>
                   <span id="topologyDiskValue" class="topology-stat-value">—</span>
                 </div>
                 <canvas id="topologyDiskChart" class="topology-stat-chart" width="320" height="44"></canvas>
               </div>
               <details class="topology-processes-details">
                 <summary class="topology-stat-head">
-                  <span class="topology-stat-label">Processes</span>
+                  <span class="topology-stat-label" data-i18n="statProcesses">Processes</span>
                   <span id="topologyProcessValue" class="topology-stat-value">—</span>
                 </summary>
                 <div id="topologyProcesses" class="topology-processes-list"></div>
@@ -389,7 +389,7 @@
             </article>
             <article class="topology-card topology-incidents-card">
               <div class="topology-card-head">
-                <strong>Incidents</strong>
+                <strong data-i18n="incidentsHead">Incidents</strong>
                 <span id="topologyIncidentsMeta" class="topology-history-meta">waiting</span>
               </div>
               <div id="topologyIncidents" class="topology-incidents-list"></div>
@@ -420,10 +420,10 @@
             <input id="tr-LLAMA_MODELS_DIR" type="hidden" value="">
             <!-- Cell type: llama-server vs generic managed command (e.g. whisper) -->
             <div class="field cell-kind-row">
-              <div class="label-row"><label>Cell type</label></div>
+              <div class="label-row"><label data-i18n="cellTypeLabel">Cell type</label></div>
               <div class="cell-kind-toggle" style="display:flex;gap:6px">
                 <button type="button" class="cell-kind-btn is-active" data-cell-kind="" style="flex:1;padding:6px 10px;cursor:pointer">llama-server</button>
-                <button type="button" class="cell-kind-btn" data-cell-kind="command" style="flex:1;padding:6px 10px;cursor:pointer">Command</button>
+                <button type="button" class="cell-kind-btn" data-cell-kind="command" style="flex:1;padding:6px 10px;cursor:pointer" data-i18n="cellKindCommand">Command</button>
               </div>
               <input id="tr-CELL_KIND" name="CELL_KIND" type="hidden" value="">
             </div>
@@ -472,7 +472,7 @@
             </div>
 
             <div class="chat-template-panel" id="tr-chatTemplatePanel">
-              <div class="chat-template-head">Chat template</div>
+              <div class="chat-template-head" data-i18n="chatTemplateHead">Chat template</div>
               <input id="tr-CHAT_TEMPLATE_FILE" name="CHAT_TEMPLATE_FILE" list="tr-chatTemplateFileOptions">
               <datalist id="tr-chatTemplateFileOptions"></datalist>
               <div id="tr-chatTemplateHint" class="field-note"></div>
@@ -495,15 +495,15 @@
         <aside class="topo-edit-aside">
           <div id="tr-llamaAside">
           <article class="panel">
-            <h2 class="topo-aside-title">Remote GPU</h2>
+            <h2 class="topo-aside-title" data-i18n="remoteGpuHead">Remote GPU</h2>
             <div id="tr-remoteGpuInfo" style="font-size:13px"></div>
           </article>
           <article class="panel">
-            <h2 class="topo-aside-title">Memory estimate</h2>
-            <div id="tr-asideVramBar"><span class="aside-vram-empty">Select a model to see estimate</span></div>
+            <h2 class="topo-aside-title" data-i18n="memoryEstimateHead">Memory estimate</h2>
+            <div id="tr-asideVramBar"><span class="aside-vram-empty" data-i18n="selectModelEstimate">Select a model to see estimate</span></div>
           </article>
           <article class="panel">
-            <h2 class="topo-aside-title">Backups</h2>
+            <h2 class="topo-aside-title" data-i18n="backups">Backups</h2>
             <div id="tr-backupInfo" class="backup-info"></div>
             <div id="tr-backups" class="backup-list"></div>
           </article>
@@ -519,18 +519,18 @@
             <p id="tr-schedStatus" class="field-note muted"></p>
           </article>
           <article class="panel">
-            <h2 class="topo-aside-title">Model cache</h2>
+            <h2 class="topo-aside-title" data-i18n="modelCacheHead">Model cache</h2>
             <div id="tr-cacheList" style="margin-bottom:8px"></div>
-            <button type="button" id="tr-purgeCache" class="muted" style="width:100%">Clear model cache on host</button>
+            <button type="button" id="tr-purgeCache" class="muted" style="width:100%" data-i18n="purgeCacheBtn">Clear model cache on host</button>
             <div id="tr-purgeCacheInfo" style="font-size:11px;color:var(--muted,#888);margin-top:6px">Deletes downloaded .gguf from <code>~/llama-model-cache</code> (a running model is kept).</div>
           </article>
           <article class="panel">
-            <h2 class="topo-aside-title">Command (on remote)</h2>
+            <h2 class="topo-aside-title" data-i18n="commandOnRemote">Command (on remote)</h2>
             <div style="font-size:10px;opacity:.6;margin-bottom:4px">Binary and model paths resolved on remote host</div>
             <pre id="tr-currentCmdline" class="command-preview"></pre>
           </article>
           <article class="panel">
-            <h2 class="topo-aside-title">New command (on remote)</h2>
+            <h2 class="topo-aside-title" data-i18n="newCommandOnRemote">New command (on remote)</h2>
             <pre id="tr-previewCmdline" class="command-preview"></pre>
           </article>
           </div><!-- /tr-llamaAside -->
@@ -573,10 +573,10 @@
             <input id="te-LLAMA_MODELS_DIR" name="LLAMA_MODELS_DIR" type="hidden">
             <!-- Cell type: llama-server vs generic managed command (e.g. whisper) -->
             <div class="field cell-kind-row">
-              <div class="label-row"><label>Cell type</label></div>
+              <div class="label-row"><label data-i18n="cellTypeLabel">Cell type</label></div>
               <div class="cell-kind-toggle" style="display:flex;gap:6px">
                 <button type="button" class="cell-kind-btn is-active" data-cell-kind="" style="flex:1;padding:6px 10px;cursor:pointer">llama-server</button>
-                <button type="button" class="cell-kind-btn" data-cell-kind="command" style="flex:1;padding:6px 10px;cursor:pointer">Command</button>
+                <button type="button" class="cell-kind-btn" data-cell-kind="command" style="flex:1;padding:6px 10px;cursor:pointer" data-i18n="cellKindCommand">Command</button>
               </div>
               <input id="te-CELL_KIND" name="CELL_KIND" type="hidden" value="">
             </div>
@@ -626,7 +626,7 @@
             </div>
 
             <div class="chat-template-panel" id="te-chatTemplatePanel">
-              <div class="chat-template-head">Chat template</div>
+              <div class="chat-template-head" data-i18n="chatTemplateHead">Chat template</div>
               <input id="te-CHAT_TEMPLATE_FILE" name="CHAT_TEMPLATE_FILE" list="te-chatTemplateFileOptions">
               <datalist id="te-chatTemplateFileOptions"></datalist>
               <div id="te-chatTemplateHint" class="field-note"></div>
@@ -657,8 +657,8 @@
             <p id="te-schedStatus" class="field-note muted"></p>
           </article>
           <article class="panel">
-            <h2 class="topo-aside-title">Memory estimate</h2>
-            <div id="te-asideVramBar"><span class="aside-vram-empty">Select a model to see estimate</span></div>
+            <h2 class="topo-aside-title" data-i18n="memoryEstimateHead">Memory estimate</h2>
+            <div id="te-asideVramBar"><span class="aside-vram-empty" data-i18n="selectModelEstimate">Select a model to see estimate</span></div>
           </article>
           <article class="panel">
             <h2 class="topo-aside-title">Command</h2>

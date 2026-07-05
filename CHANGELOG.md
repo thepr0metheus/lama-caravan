@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.6 — 2026-07-04
+
+- i18n: full 20-language coverage. A repo-wide audit wired ~90 more
+  hardcoded strings into t()/data-i18n (board tooltips, modal headings,
+  Route Activity legend and titles, validation toasts, empty states, the
+  /hf page via its own light dict) and translated the whole 241-key
+  backlog — everything that previously existed only in en+ru — into the
+  remaining 18 languages (~4800 strings), plus 4 missing fieldHelp
+  entries and a lost ru key. New CI guard (check_messages_i18n.py) fails
+  the build if any language misses a key from now on.
+- Config editor: the manual EXTRA_ARGS box is full-width again — the Ф2
+  CSS split had cut a comment across two files and silently voided the
+  rule.
+
 ## 1.1.5 — 2026-07-04
 
 - i18n: hardcoded Russian strings now follow the selected language — the

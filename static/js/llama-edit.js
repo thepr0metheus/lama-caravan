@@ -174,16 +174,15 @@ export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
   const serverName = topology?.server?.name || "Controller";
   const gpuName = (topology?.server?.gpus || [])[0]?.name || "";
   const gpuSuffix = gpuName ? ` · ${gpuName}` : "";
-  const action = mode === "add" ? "Add" : "Edit";
   const titleEl = $("topologyLlamaEditTitle");
   if (titleEl) {
-    titleEl.textContent = `${action} Llama Server — ${serverName}${gpuSuffix}`;
+    titleEl.textContent = t(mode === "add" ? "llamaEditTitleAdd" : "llamaEditTitleEdit", { name: `${serverName}${gpuSuffix}` });
     // LOCAL badge next to title (not in actions bar)
     let badge = titleEl.parentElement.querySelector(".topo-edit-mode-badge");
     if (!badge) {
       badge = document.createElement("span");
       badge.className = "topo-edit-mode-badge local";
-      badge.textContent = "LOCAL";
+      badge.textContent = t("badgeLocal");
       titleEl.after(badge);
     }
   }
@@ -547,7 +546,7 @@ export function wireCellKindToggle(pfx) {
 }
 
 export const COMMAND_PRESETS = [
-  { id: "", label: "— preset —" },
+  { id: "", labelKey: "cmdPresetPlaceholder" },   // t() at render — module scope hits the i18n TDZ
   // Standardized on faster-whisper (fastest on NVIDIA GPU). run_whisper.sh uses
   // the ~/wsr venv and puts cuDNN/cuBLAS on LD_LIBRARY_PATH; the agent installer
   // auto-provisions it, so this one preset works on every GPU host.
@@ -558,7 +557,7 @@ export const COMMAND_PRESETS = [
 export function populateCommandPresets(pfx) {
   const sel = $(pfx + "CMD_PRESET");
   if (!sel || sel.dataset.filled) return;
-  sel.innerHTML = COMMAND_PRESETS.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.label)}</option>`).join("");
+  sel.innerHTML = COMMAND_PRESETS.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.labelKey ? t(p.labelKey) : p.label)}</option>`).join("");
   sel.dataset.filled = "1";
   sel.addEventListener("change", () => {
     const p = COMMAND_PRESETS.find((x) => x.id === sel.value);
@@ -607,13 +606,13 @@ export function renderCommandCellPreview(pfx) {
   const cur = $(pfx + "cmdCurrent");
   if (cur) {
     const saved = ((slot && slot.slotConfig && slot.slotConfig.COMMAND) || "").trim();
-    cur.textContent = saved || "— not saved yet";
+    cur.textContent = saved || t("cmdNotSavedYet");
   }
   const hist = $(pfx + "cmdHistory");
   if (hist) {
     const items = (slot && slot.commandHistory) || [];
     if (!items.length) {
-      hist.innerHTML = `<div class="cmd-history-empty">No previous commands.</div>`;
+      hist.innerHTML = `<div class="cmd-history-empty">${t("cmdHistoryEmpty")}</div>`;
     } else {
       hist.innerHTML = items.map((h, i) => {
         const when = h.ts ? new Date(h.ts * 1000).toLocaleString() : "";

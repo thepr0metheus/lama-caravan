@@ -1,4 +1,7 @@
-   .advanced-tab-panel .advanced-grid rule with higher specificity.) */
+/* Manual extra-args field — full width so it reads as a command-line box,
+   not a cramped single-column input. The Ф2 CSS split cut the original
+   comment across the cards.css/form.css boundary, which silently voided this
+   rule (each stylesheet parses on its own). */
 .advanced-tab-panel .advanced-grid.extra-args-grid {
   grid-template-columns: 1fr;
 }

@@ -1820,5 +1820,3 @@ pre {
   color: var(--muted);
 }
 
-/* Manual extra-args field on the Params tab — full width so it reads as a
-   command-line box, not a cramped single-column input. (Override the 4-column

@@ -121,7 +121,7 @@ export function renderTopologyClientDetail() {
   if (!entry) {
     body = `<div class="topology-muted">${t("topologyDetailNoManager", { client: `<code>${escapeHtml(topologyClientDetailFor)}</code>` })}</div>`;
   } else if (!entry.ok) {
-    body = `<div class="topology-incident-line failed">Could not reach <code>${escapeHtml(entry.url || "")}</code>: ${escapeHtml(entry.error || "unknown error")}</div>`;
+    body = `<div class="topology-incident-line failed">${escapeHtml(t("tmCouldNotReach"))} <code>${escapeHtml(entry.url || "")}</code>: ${escapeHtml(entry.error || t("unknownError"))}</div>`;
   } else {
     body = renderOpenclawConfigBody(entry.data || {}, entry);
   }
@@ -164,7 +164,7 @@ export function renderOpenclawConfigBody(data, entry) {
         ${modelRows}
       </div>
     `;
-  }).join("") || `<div class="topology-muted">no providers configured</div>`;
+  }).join("") || `<div class="topology-muted">${t("noProvidersConfigured")}</div>`;
   const fallbacks = Array.isArray(defaults?.model?.fallbacks) ? defaults.model.fallbacks : [];
   return `
     <section class="client-detail-section">
@@ -302,26 +302,26 @@ export function _renderQueueThresholdTimelines(globalCloudPct, globalPriorPct, g
           <div class="topology-pct-fill" data-qp-proxy-fill="${port}" style="width:${abortPct}%"></div>
           <div class="topology-pct-handle cloud${!hasCloud ? " qp-handle-inactive" : ""}" style="left:${cloudPct}%"
               data-qp-proxy-handle="${port}" data-qp-pct-key="cloudFallbackPct" tabindex="0"
-              title="${hasCloud ? "Cloud fallback — drag to override" : "No cloud provider — drag to pre-set value"}">
+              title="${escapeHtml(hasCloud ? t("qpCloudFallbackTitle") : t("qpNoCloudTitle"))}">
             <span class="qp-handle-icon">↑☁</span>
             <span class="qp-handle-time">${_fmtSec(Math.round(wt * cloudPct / 100))}</span>
           </div>
           <div class="topology-pct-handle crown${!hasPriority ? " qp-handle-inactive" : ""}" style="left:${priorPct}%"
               data-qp-proxy-handle="${port}" data-qp-pct-key="priorityPreemptPct" tabindex="0"
-              title="${hasPriority ? "Priority preempt — drag to override" : "No priority set — drag to pre-set value"}">
+              title="${escapeHtml(hasPriority ? t("qpPriorityTitle") : t("qpNoPriorityTitle"))}">
             <span class="qp-handle-icon">👑</span>
             <span class="qp-handle-time">${_fmtSec(Math.round(wt * priorPct / 100))}</span>
           </div>
           <div class="topology-pct-handle abort" style="left:${abortPct}%"
               data-qp-proxy-handle="${port}" data-qp-pct-key="queueAbortPct"
-              tabindex="0" title="Queue abort — drag to override">
+              tabindex="0" title="${escapeHtml(t("qpQueueAbortTitle"))}">
             <span class="qp-handle-icon">✕</span>
             <span class="qp-handle-time">${_fmtSec(Math.round(wt * abortPct / 100))}</span>
           </div>
         </div>
         <div class="qp-proxy-override-footer">
-          <span class="qp-override-hint">Drag active handles to override · timeout ${wt}s</span>
-          ${anyOverride ? `<button class="mini-link qp-override-reset" type="button" data-qp-proxy-reset="${port}" title="Reset to global">↺ reset to global</button>` : ""}
+          <span class="qp-override-hint">${escapeHtml(t("qpOverrideHint", { wt }))}</span>
+          ${anyOverride ? `<button class="mini-link qp-override-reset" type="button" data-qp-proxy-reset="${port}" title="${escapeHtml(t("qpResetGlobalTitle"))}">${escapeHtml(t("qpResetGlobalBtn"))}</button>` : ""}
         </div>
       </div>`;
 
@@ -372,16 +372,16 @@ export function renderTopologyGpuModal() {
     <div class="topology-policy-overlay" data-topology-gpu-modal-overlay>
       <div class="topology-policy-modal topology-gpu-modal" role="dialog" aria-modal="true" aria-label="GPU Logs &amp; Raw API">
         <div class="topology-card-head">
-          <strong>GPU 0 — Logs &amp; Raw API</strong>
+          <strong>${escapeHtml(t("gpuLogsHeading"))}</strong>
           <button class="icon-action compact" type="button" data-topology-gpu-modal-close aria-label="Close" title="Close">×</button>
         </div>
         <div class="topology-gpu-modal-body">
           <div class="topology-gpu-modal-section">
-            <div class="topology-gpu-modal-section-head">Logs</div>
+            <div class="topology-gpu-modal-section-head">${escapeHtml(t("logsSection"))}</div>
             <pre class="topology-gpu-modal-pre">${escapeHtml(logs || "(no logs)")}</pre>
           </div>
           <div class="topology-gpu-modal-section">
-            <div class="topology-gpu-modal-section-head">Raw API</div>
+            <div class="topology-gpu-modal-section-head">${escapeHtml(t("rawApiSection"))}</div>
             <pre class="topology-gpu-modal-pre">${escapeHtml(JSON.stringify(summary, null, 2))}</pre>
           </div>
         </div>
@@ -449,7 +449,7 @@ export function renderTopologyQueuePriorityModal() {
         </div>
 
         <div class="topology-threshold-section" style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);padding:2px 0 8px">Agent timelines</div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted);padding:2px 0 8px">${escapeHtml(t("agentTimelines"))}</div>
           <div style="font-size:11px;max-height:480px;overflow-y:auto;padding-right:4px">
             ${_renderQueueThresholdTimelines(cloudPct, priorPct, abortPct)}
           </div>
@@ -474,7 +474,7 @@ export function renderTopologyRawConfigModal() {
           <strong>${escapeHtml(topologyRawConfigPath || "agent-proxies.json")}</strong>
           <button class="icon-action compact" type="button" data-topology-raw-close aria-label="${escapeHtml(t("topologyClose"))}" title="${escapeHtml(t("topologyClose"))}">×</button>
         </div>
-        <div class="topology-policy-hint">Stored on the backend — the proxy enforces queue/preempt/cloud-fallback from this file, no frontend required. <code>computedThresholds</code> mirrors the per-agent seconds.</div>
+        <div class="topology-policy-hint">${t("policyStoredHint")}</div>
         <pre class="topology-raw-config">${escapeHtml(topologyRawConfigText || "(empty)")}</pre>
       </div>
     </div>
@@ -491,7 +491,7 @@ export async function openRawConfigViewer() {
     topologyRawConfigText = res.content || "(empty)";
     topologyRawConfigPath = res.path || "agent-proxies.json";
   } catch (err) {
-    topologyRawConfigText = `error: ${err.message}`;
+    topologyRawConfigText = t("rawConfigError", { msg: err.message });
   }
   renderTopology();
 }
@@ -524,7 +524,7 @@ export function renderTopologyProxySummaryModal() {
     return `
       <div class="proxy-reg-row ${orphan ? "orphan" : ""}">
         <span class="proxy-reg-port">:${escapeHtml(p.port)}</span>
-        <span class="proxy-reg-owner">${orphan ? `<span class="proxy-reg-orphan" title="No agent currently uses this port — safe to delete">orphan</span>` : ""}<span class="proxy-reg-owner-name">${escapeHtml(ownerName)}</span></span>
+        <span class="proxy-reg-owner">${orphan ? `<span class="proxy-reg-orphan" title="${escapeHtml(t("orphanPortTitle"))}">orphan</span>` : ""}<span class="proxy-reg-owner-name">${escapeHtml(ownerName)}</span></span>
         <span class="proxy-reg-role ${escapeHtml(role)}">${escapeHtml(role || "—")}</span>
         <select class="proxy-reg-router" data-proxy-reg-router="${escapeHtml(p.id)}" title="Router this port feeds">${routerOptions}</select>
         <span class="proxy-reg-actions">
@@ -546,18 +546,18 @@ export function renderTopologyProxySummaryModal() {
     return `
       <div class="proxy-reg-row orphan">
         <span class="proxy-reg-port">${escapeHtml(portsLabel)}</span>
-        <span class="proxy-reg-owner"><span class="proxy-reg-orphan" title="Dead agent — no longer reported by the host. Delete to free its ports.">dead</span><span class="proxy-reg-owner-name">${escapeHtml(o.agentId)} · ${escapeHtml(o.clientName)}</span></span>
+        <span class="proxy-reg-owner"><span class="proxy-reg-orphan" title="${escapeHtml(t("deadAgentTitle"))}">dead</span><span class="proxy-reg-owner-name">${escapeHtml(o.agentId)} · ${escapeHtml(o.clientName)}</span></span>
         <span class="proxy-reg-role">—</span>
         <span></span>
         <span class="proxy-reg-actions">
-          <button class="icon-action compact danger" type="button" data-orphan-agent-delete-client="${escapeHtml(o.clientId)}" data-orphan-agent-delete-id="${escapeHtml(o.agentId)}" aria-label="Delete dead agent" title="Delete this dead agent and free its ports">
+          <button class="icon-action compact danger" type="button" data-orphan-agent-delete-client="${escapeHtml(o.clientId)}" data-orphan-agent-delete-id="${escapeHtml(o.agentId)}" aria-label="${escapeHtml(t("deleteDeadAgent"))}" title="${escapeHtml(t("deleteDeadAgent"))}">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
           </button>
         </span>
       </div>`;
   }).join("");
   const orphanSection = orphanedAgents.length ? `
-        <div class="topology-policy-hint proxy-reg-deadhead">Dead agents — agent no longer reported by its host; delete to free its ports.</div>
+        <div class="topology-policy-hint proxy-reg-deadhead">${escapeHtml(t("deadAgentsHint"))}</div>
         <div class="proxy-reg-list">${orphanRows}</div>` : "";
   return `
     <div class="topology-policy-overlay" data-topology-proxy-summary-overlay>
@@ -569,7 +569,7 @@ export function renderTopologyProxySummaryModal() {
             <button class="icon-action compact" type="button" data-topology-proxy-summary-close aria-label="Close" title="Close">×</button>
           </span>
         </div>
-        <div class="topology-policy-hint">Ports persist even after an agent is removed. Reassign the router, rename, or delete ports here — deletion is manual.</div>
+        <div class="topology-policy-hint">${escapeHtml(t("proxyPortsHint"))}</div>
         <div class="proxy-reg-head">
           <span>port</span><span>owner</span><span>role</span><span>router</span><span></span>
         </div>
@@ -585,12 +585,12 @@ export function renderTopologyAgentConfigModal() {
   const client = (topology?.clients || []).find((c) => c.id === topologyAgentConfigClientId);
   const agent = (client?.agents || []).find((a) => a.id === topologyAgentConfigAgentId);
   const title = `${agent?.name || topologyAgentConfigAgentId} — .openclaw/openclaw.json`;
-  const loading = topologyAgentConfigLoading ? `<span class="topology-muted">loading…</span>` : "";
+  const loading = topologyAgentConfigLoading ? `<span class="topology-muted">${t("loadingEllipsis")}</span>` : "";
   let body = "";
   if (topologyAgentConfigLoading) {
-    body = `<div class="topology-muted">loading…</div>`;
+    body = `<div class="topology-muted">${t("loadingEllipsis")}</div>`;
   } else if (!topologyAgentConfigResult) {
-    body = `<div class="topology-muted">no data</div>`;
+    body = `<div class="topology-muted">${t("noData")}</div>`;
   } else if (!topologyAgentConfigResult.ok) {
     body = `<div class="topology-incident-line failed">${escapeHtml(topologyAgentConfigResult.error || "error")}</div>`;
   } else if (ui.topologyAgentConfigMode === "raw") {
@@ -617,7 +617,7 @@ export function renderTopologyAgentConfigModal() {
         </div>
         <code>${escapeHtml(url)}</code>
       </div>`;
-    }).join("") || `<div class="topology-muted">no providers</div>`;
+    }).join("") || `<div class="topology-muted">${t("noProviders")}</div>`;
     body = `
       <div class="topology-policy-hint">${escapeHtml(topologyAgentConfigResult.path || "")}</div>
       <div style="margin-top:8px">${rows}</div>`;
@@ -944,7 +944,7 @@ export function renderTopologyLogsModal() {
           <select data-topology-logs-date>
             ${dates.length
               ? dates.map((date) => `<option value="${escapeHtml(date)}"${date === activeDate ? " selected" : ""}>${escapeHtml(date)}</option>`).join("")
-              : `<option value="${escapeHtml(activeDate)}">${escapeHtml(activeDate || "today")}</option>`}
+              : `<option value="${escapeHtml(activeDate)}">${escapeHtml(activeDate || t("todayWord"))}</option>`}
           </select>
           <button class="icon-action compact" type="button" data-topology-logs-refresh aria-label="Refresh logs" title="Refresh">↻</button>
         </div>
@@ -956,7 +956,7 @@ export function renderTopologyLogsModal() {
               <summary>${escapeHtml(topologyLogSummary(row))}</summary>
               <div class="log-detail-body">${renderTopologyLogDetail(row)}</div>
             </details>`;
-          }).join("") : `<div class="topology-muted">No proxy log rows for this date.</div>`}
+          }).join("") : `<div class="topology-muted">${escapeHtml(t("noProxyLogRows"))}</div>`}
         </div>
       </div>
     </div>
@@ -1065,7 +1065,7 @@ export function renderTopologyScheduleModal() {
   const outputs = router.outputs || [];
 
   const palette = [
-    `<button class="sched-swatch ${topologySchedulePaintOutput === "" ? "active" : ""}" type="button" data-sched-paint="" title="Erase → falls back to the default output"><i class="sched-clear"></i>Default / clear</button>`,
+    `<button class="sched-swatch ${topologySchedulePaintOutput === "" ? "active" : ""}" type="button" data-sched-paint="" title="${escapeHtml(t("schedEraseTitle"))}"><i class="sched-clear"></i>${escapeHtml(t("schedClearBtn"))}</button>`,
     ...outputs.map((o) => `<button class="sched-swatch ${topologySchedulePaintOutput === o.id ? "active" : ""}" type="button" data-sched-paint="${escapeHtml(o.id)}"><i style="background:${scheduleOutputColor(router, o.id)}"></i>${escapeHtml(topologyRouterOutputLabel(o))}</button>`),
   ].join("");
 
@@ -1088,7 +1088,7 @@ export function renderTopologyScheduleModal() {
           <strong>⏱ Schedule — ${escapeHtml(t("topologyRouterTitle"))}</strong>
           <button class="icon-action compact" type="button" data-schedule-close aria-label="Close" title="Close">×</button>
         </div>
-        <div class="sched-hint">Pick an output, then drag across the grid to assign hours. Unpainted hours use the default output.</div>
+        <div class="sched-hint">${escapeHtml(t("schedPaintHint"))}</div>
         <div class="schedule-palette">${palette}</div>
         <div class="schedule-grid" data-schedule-grid>
           ${header}

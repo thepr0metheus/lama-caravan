@@ -216,13 +216,13 @@ export function bindTopologyDragAndDrop() {
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       const id = btn.dataset.cloudFetchModels;
-      btn.textContent = "↻ fetching…"; btn.disabled = true;
+      btn.textContent = t("fetchingModels"); btn.disabled = true;
       try {
         const res = await api("/api/cloud-accounts/auto-create-blocks", { method: "POST", body: JSON.stringify({ id }) });
         if (res.topology) setTopology(res.topology);
         toast(res.created > 0 ? `${res.created} model${res.created !== 1 ? "s" : ""} added (${res.total} available)` : `models up to date (${res.total} available)`);
         renderTopology();
-      } catch (err) { toast(`fetch failed: ${err.message}`); btn.textContent = "↻ Fetch models from provider"; btn.disabled = false; }
+      } catch (err) { toast(`fetch failed: ${err.message}`); btn.textContent = t("fetchModelsBtn"); btn.disabled = false; }
     });
   });
   // account modal
@@ -239,7 +239,7 @@ export function bindTopologyDragAndDrop() {
       ? ((topology?.cloudAccounts || []).find((a) => a.id === ui.topologyCloudForm.accountId)?.name || "this account")
       : "this account";
     $("confirmTitle").textContent = t("topologyCloudDeleteAccount");
-    $("confirmText").textContent = `Delete "${name}"? All model blocks will be removed.`;
+    $("confirmText").textContent = t("deleteCloudAccountText", { name });
     $("confirmMeta").hidden = true;
     $("confirmPath").textContent = "";
     $("confirmDelete").textContent = t("topologyCloudDeleteAccount");
@@ -301,7 +301,7 @@ export function bindTopologyDragAndDrop() {
   document.querySelector("[data-cloud-delete-block]")?.addEventListener("click", () => {
     const model = topologyCloudBlockForm?.model || topologyCloudBlockForm?.blockName || topologyCloudBlockForm?.blockId || "this model block";
     $("confirmTitle").textContent = t("topologyCloudDeleteBlock");
-    $("confirmText").textContent = `Remove model block "${model}"?`;
+    $("confirmText").textContent = t("removeCloudBlockText", { model });
     $("confirmMeta").hidden = true;
     $("confirmPath").textContent = "";
     $("confirmDelete").textContent = t("topologyCloudDeleteBlock");

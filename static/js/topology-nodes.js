@@ -167,7 +167,7 @@ export function serverLifecycleBar(lcIdx, lcActiveStep, uptimeTxt = "", cfgAttrs
       // card, which has no port, keeps the dot for symmetry).
       const inner = `${(i === 0 && reservedPort) ? "" : `<span class="lc-dot"></span>`}<span class="lc-lbl">${label}</span>`;
       const node = (i === 1 && cfgAttrs)
-        ? `<button class="lc-node lc-cfg-btn ${nodeState} lc-${colorKey}${cfgLive}" type="button" ${cfgAttrs} title="Configure">${inner}</button>`
+        ? `<button class="lc-node lc-cfg-btn ${nodeState} lc-${colorKey}${cfgLive}" type="button" ${cfgAttrs} title="${escapeHtml(t("nodeConfigure"))}">${inner}</button>`
         : `<span class="lc-node ${nodeState} lc-${colorKey}${cfgLive}">${inner}</span>`;
       return `${i > 0 ? `<span class="lc-rail ${railCls}"></span>` : ""}${node}`;
     }).join("")
@@ -308,7 +308,7 @@ export function nodeServerCardHtml(node, s) {
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
       <div class="node-model-row1">
         <span class="node-cmd-icon" aria-hidden="true">⌘</span>
-        <strong class="node-model-name" title="${escapeHtml(cmdText)}">${escapeHtml(cmdText || "command cell")}</strong>
+        <strong class="node-model-name" title="${escapeHtml(cmdText)}">${escapeHtml(cmdText || t("commandCellFallback"))}</strong>
       </div>
       ${statusRow || `<div class="node-model-row2"><span class="model-chips">${mbadge("cmd", "⌘ command")}${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
     </div>` : "";
@@ -347,7 +347,7 @@ export function nodeServerCardHtml(node, s) {
       ? `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("removingSlotLabel"))}"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("deleteAction"))}</span></button>`
       : `<button class="node-action-btn ${canDelete ? "del" : "muted"}" type="button"
            ${canDelete ? `data-node-slot-del="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}"` : "disabled"}
-           title="${canDelete ? "Remove cell" : "Cannot remove while active"}">✕<span class="nab-lbl">${escapeHtml(t("deleteAction"))}</span></button>`;
+           title="${escapeHtml(canDelete ? t("nodeRemoveCell") : t("nodeCannotRemoveActive"))}">✕<span class="nab-lbl">${escapeHtml(t("deleteAction"))}</span></button>`;
 
     // ⚙ Configure — disabled only during starting / stopping / deleting
     const canConfigure = !isDeleting && !isCellBusy && phase !== "starting";
@@ -361,15 +361,15 @@ export function nodeServerCardHtml(node, s) {
     const canPlay = (phase === "stopped" || isError) && !isCellBusy && !isDeleting;
     const playBtn = `<button class="node-action-btn ${canPlay ? "ok" : "muted"}" type="button"
         ${canPlay ? `data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"` : "disabled"}
-        title="${canPlay ? "Start server" : (isReserved ? "Configure first" : "Server not stopped")}">▶<span class="nab-lbl">${escapeHtml(t("start"))}</span></button>`;
+        title="${escapeHtml(canPlay ? t("nodeStartServer") : (isReserved ? t("nodeConfigureFirst") : t("nodeNotStopped")))}">▶<span class="nab-lbl">${escapeHtml(t("start"))}</span></button>`;
 
     // ⏹ stop — active when starting or running; spinner while stopping
     const canStop = !isStopped && !isDeleting && !isCellBusy;
     const stopBtn = isCellStopping
-      ? `<button class="node-action-btn muted" type="button" disabled title="Stopping…"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`
+      ? `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("nodeStoppingTitle"))}"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`
       : `<button class="node-action-btn ${canStop ? "warn" : "muted"}" type="button"
            ${canStop ? `data-node-cell-stop="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"` : "disabled"}
-           title="${canStop ? "Stop server" : "Server not running"}">⏹<span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`;
+           title="${escapeHtml(canStop ? t("nodeStopServer") : t("nodeNotRunning"))}">⏹<span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`;
 
     // ↑ autostart — controller only for now; shown on both but disabled on client
     const bootSupported = s.isController;
@@ -415,11 +415,11 @@ export function nodeServerCardHtml(node, s) {
       </article>`;
   } else if (s.isController) {
     // Controller's legacy single "current" llama server (not a reserved slot).
-    const editBtn = `<button class="node-icon-btn" type="button" data-node-ctrl-edit title="Edit server config">✎</button>`;
+    const editBtn = `<button class="node-icon-btn" type="button" data-node-ctrl-edit title="${escapeHtml(t("nodeEditConfig"))}">✎</button>`;
     if (!isStopped) {
-      controls = editBtn + `<button class="node-icon-btn warn" type="button" data-node-ctrl-stop title="Stop llama server">⏹</button>`;
+      controls = editBtn + `<button class="node-icon-btn warn" type="button" data-node-ctrl-stop title="${escapeHtml(t("nodeStopLlama"))}">⏹</button>`;
     } else {
-      controls = editBtn + `<button class="node-icon-btn ok" type="button" data-node-ctrl-start title="Start llama server">▶</button>`;
+      controls = editBtn + `<button class="node-icon-btn ok" type="button" data-node-ctrl-start title="${escapeHtml(t("nodeStartLlama"))}">▶</button>`;
     }
   }
   if (controls) controls = `<span class="node-server-ctl">${controls}</span>`;
@@ -570,7 +570,7 @@ export function openNodeServerDetail(nodeId, port) {
     }
     const cmdText = tokens.join(" ");
     return `<div class="nsd-cfg-section">
-      <div class="nsd-cfg-head">COMMAND <button class="nsd-copy-btn" type="button" data-copy="${escapeHtml(cmdText)}" title="Copy command">⎘</button></div>
+      <div class="nsd-cfg-head">COMMAND <button class="nsd-copy-btn" type="button" data-copy="${escapeHtml(cmdText)}" title="${escapeHtml(t("copyCommand"))}">⎘</button></div>
       <pre class="command-preview nsd-cmd-pre">${parts.join("\n")}</pre>
     </div>`;
   })();
@@ -668,7 +668,7 @@ export function nodesLaneHtml() {
       ? `<span class="llama-ver-upstream"> → b${ctrlUpstreamBuild} ⬆</span>`
       : "";
     const refreshBtn = isCtrlNode
-      ? `<button class="llama-ver-refresh" type="button" data-check-llama-ver title="Check upstream version" aria-label="Refresh llama.cpp version">↻</button>`
+      ? `<button class="llama-ver-refresh" type="button" data-check-llama-ver title="${escapeHtml(t("checkUpstreamVersion"))}" aria-label="${escapeHtml(t("checkUpstreamVersion"))}">↻</button>`
       : "";
     const verChip = verLabel
       ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${upstreamArrow}${verOutdated ? " ⬆" : ""}</span>${refreshBtn}`
@@ -746,7 +746,7 @@ export function nodesLaneHtml() {
     return `
       <section class="node-card ${n.online ? "online" : "offline"} ${collapsed ? "collapsed" : ""}" data-node-id="${escapeHtml(n.id)}">
         <header class="node-head">
-          <button class="node-collapse" type="button" data-node-collapse="${escapeHtml(n.id)}" title="${collapsed ? "Expand" : "Collapse"}" aria-expanded="${collapsed ? "false" : "true"}">${collapsed ? "▸" : "▾"}</button>
+          <button class="node-collapse" type="button" data-node-collapse="${escapeHtml(n.id)}" title="${escapeHtml(collapsed ? t("expand") : t("collapse"))}" aria-expanded="${collapsed ? "false" : "true"}">${collapsed ? "▸" : "▾"}</button>
           <span class="node-dot ${n.online ? "on" : "off"}"></span>
           <strong>${escapeHtml(n.name || n.id)}</strong>
           <span class="node-role">${escapeHtml(n.role === "controller" ? t("nodeRoleController") : n.role === "client" ? t("nodeRoleClient") : n.role)}</span>
@@ -844,8 +844,8 @@ export function renderModelsBar() {
     el.innerHTML = `
       <span class="models-bar-icon" aria-hidden="true">📁</span>
       <input id="modelsDirEditInput" class="models-bar-input" value="${escapeHtml(dir)}" placeholder="/path/to/models" autocomplete="off" spellcheck="false">
-      <button class="models-bar-btn models-bar-save" type="button" title="Save path">Save</button>
-      <button class="models-bar-btn models-bar-cancel" type="button" title="Cancel">✕</button>`;
+      <button class="models-bar-btn models-bar-save" type="button" title="${escapeHtml(t("savePath"))}">${escapeHtml(t("save"))}</button>
+      <button class="models-bar-btn models-bar-cancel" type="button" title="${escapeHtml(t("cancel"))}">✕</button>`;
     const input = el.querySelector("#modelsDirEditInput");
     input?.focus();
     input?.select();
@@ -868,9 +868,9 @@ export function renderModelsBar() {
       <span class="models-bar-icon" aria-hidden="true">📁</span>
       <span class="models-bar-label">${escapeHtml(t("topologyModelsLabel"))}</span>
       <code class="models-bar-path${dir ? "" : " models-bar-empty"}" title="${escapeHtml(dir)}">${escapeHtml(dirDisplay)}</code>
-      <button class="models-bar-btn models-bar-edit" type="button" title="Edit models directory">✎</button>
+      <button class="models-bar-btn models-bar-edit" type="button" title="${escapeHtml(t("editModelsDir"))}">✎</button>
       <span class="inline-tip help-tip models-bar-tip" tabindex="0" aria-label="${escapeHtml(t("modelsLayoutHint"))}">?<span class="tooltip" role="tooltip">${escapeHtml(t("modelsLayoutHint"))}</span></span>
-      <a class="models-bar-btn models-bar-hf" href="/hf" target="_blank" rel="noopener" title="HuggingFace Model Browser">HF ↗</a>`;
+      <a class="models-bar-btn models-bar-hf" href="/hf" target="_blank" rel="noopener" title="${escapeHtml(t("hfBrowserTitle"))}">HF ↗</a>`;
     el.querySelector(".models-bar-edit")?.addEventListener("click", () => {
       _modelsDirEditing = true;
       renderModelsBar();

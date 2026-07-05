@@ -286,13 +286,13 @@ export async function discoveryAddCandidate(suggestedId, host) {
   if (!ip) return;
   const portStr = ((await appPrompt(t("dlgRegisterPort", { ip }), { value: "18796", scene: "create" })) || "").trim();
   const port = parseInt(portStr, 10);
-  if (!port) { toast("port is required"); return; }
+  if (!port) { toast(t("portRequired")); return; }
   try {
     const res = await api("/api/topology/discover/add", {
       method: "POST",
       body: JSON.stringify({ id, name: id, host: ip, port }),
     });
-    toast(res?.ok ? `Registered ${id} into the fleet registry` : `Add failed: ${res?.error || "?"}`);
+    toast(res?.ok ? t("agentRegistered", { id }) : t("agentAddFailed", { err: res?.error || "?" }));
     refreshTopology().catch(() => {});
   } catch (e) { toast(String(e)); }
 }
@@ -511,7 +511,7 @@ export function renderNvidiaSmiSourceButtons() {
       });
 
       const target = $("monitorNvidia");
-      if (target) target.textContent = "loading…";
+      if (target) target.textContent = t("loadingEllipsis");
       // Restart interval so it uses the new source immediately
       startMonitor("nvidia-smi");
     });
@@ -722,7 +722,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
 
   // п.5: fetch cached model list from remote host asynchronously
   const cacheListEl = $("tr-cacheList");
-  if (cacheListEl) cacheListEl.innerHTML = `<span class="topology-muted" style="font-size:11px">loading cache…</span>`;
+  if (cacheListEl) cacheListEl.innerHTML = `<span class="topology-muted" style="font-size:11px">${t("cacheListing")}</span>`;
   api(`/api/topology/client-llama/list-cache?hostId=${encodeURIComponent(hostId)}`)
     .then((res) => {
       if (res?.models?.length) {
@@ -732,7 +732,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
       if (cacheListEl) {
         const models = res?.models || [];
         if (!models.length) {
-          cacheListEl.innerHTML = `<span class="topology-muted" style="font-size:11px">Cache is empty</span>`;
+          cacheListEl.innerHTML = `<span class="topology-muted" style="font-size:11px">${t("cacheEmpty")}</span>`;
         } else {
           const totalGb = models.reduce((s, m) => s + (m.sizeBytes || 0), 0) / 1e9;
           cacheListEl.innerHTML = `<div class="tr-cache-list">${
@@ -763,17 +763,17 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
           <span class="topology-muted">${freeGb} GB free / ${totalGb} GB total</span></div>`;
       }).join("");
     } else {
-      gpuBox.textContent = "GPU info not available";
+      gpuBox.textContent = t("gpuInfoUnavailable");
     }
   }
 
   const remTitleEl = $("llamaRemoteEditTitle");
   if (remTitleEl) {
-    remTitleEl.textContent = `Add llama server — ${hostId}${gpuName ? " · " + gpuName : ""}`;
+    remTitleEl.textContent = t("remoteAddTitle", { host: `${hostId}${gpuName ? " · " + gpuName : ""}` });
     if (!remTitleEl.parentElement.querySelector(".topo-edit-mode-badge")) {
       const b = document.createElement("span");
       b.className = "topo-edit-mode-badge remote";
-      b.textContent = "REMOTE";
+      b.textContent = t("badgeRemote");
       remTitleEl.after(b);
     }
   }
@@ -797,8 +797,8 @@ export async function submitRemoteLlamaStart() {
     : t("dlgStartModel", { model: modelPath.split("/").pop(), port: String(port) });
   if (!(await appConfirm(_startMsg, { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;
   if (isCommand) {
-    if (!(config.COMMAND || "").trim()) { toast("Enter a command"); return; }
-  } else if (!modelPath) { toast("Select a model"); return; }
+    if (!(config.COMMAND || "").trim()) { toast(t("enterCommand")); return; }
+  } else if (!modelPath) { toast(t("selectModel")); return; }
 
   // Cell mode: save config without starting (same as controller "Применить")
   if (_trCellPort) {
@@ -916,7 +916,7 @@ export async function purgeRemoteModelCache() {
     toast(msg);
     // Refresh cache list to show it's now empty
     const cacheListEl = $("tr-cacheList");
-    if (cacheListEl) cacheListEl.innerHTML = `<span class="topology-muted" style="font-size:11px">Cache is empty</span>`;
+    if (cacheListEl) cacheListEl.innerHTML = `<span class="topology-muted" style="font-size:11px">${t("cacheEmpty")}</span>`;
     _trCachedModels = new Set();
     renderModelSelects("tr-");
   } catch (e) {
@@ -969,7 +969,7 @@ export async function fetchAndRenderRemoteBackups(hostId) {
   const infoEl = $("tr-backupInfo");
   const listEl = $("tr-backups");
   if (!infoEl || !listEl) return;
-  infoEl.textContent = "loading…";
+  infoEl.textContent = t("loadingEllipsis");
   listEl.innerHTML = "";
   const saveCurrentHtml = `
     <button class="backup-save-current" type="button" data-snapshot-remote title="${escapeHtml(t("saveSnapshotHint"))}">
