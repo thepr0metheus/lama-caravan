@@ -5,7 +5,7 @@ import { formatPricePer1M, modelPricing } from "./model-meta.js";
 import { action } from "./polling.js";
 import { nextTopologyCellPort } from "./remote-cells.js";
 import { setTopology, state, topology, ui } from "./state.js";
-import { renderTopology } from "./topology-render.js";
+import { refreshTopology, renderTopology } from "./topology-render.js";
 import {
   apiCostsCache,
   apiCostsHtml,
@@ -20,12 +20,97 @@ import {
   subscriptionUsageCache,
   subscriptionUsageHtml,
 } from "./usage-stats.js";
-import { $, api, escapeHtml, pill, toast } from "./utils.js";
+import { appConfirm } from "./dialogs.js";
+import { $, api, copyText, escapeHtml, pill, toast } from "./utils.js";
 
 export let topologyCloudBlockModalOpen = false;
 export let topologyCloudBlockForm = null;
 export let topologyCloudBusy = false;
 export const topologyCloudModelCache = new Map(); // accountId → models[], fetched once at page load
+// Provider-card controls via DELEGATION on the permanent container: the lane's
+// children are replaced by several independent paths (full renderTopology, the
+// usage/pricing fetch callbacks, the flyout toggle) — per-node listeners bound
+// by bindTopologyDragAndDrop died with the old nodes whenever a callback-path
+// re-render ran, leaving dead buttons. One listener on the container survives
+// every innerHTML swap.
+function bindCloudCardDelegates(cpEl) {
+  if (cpEl.dataset.delegated) return;
+  cpEl.dataset.delegated = "1";
+  cpEl.addEventListener("click", async (e) => {
+    const toggle = e.target.closest("[data-cloud-models-toggle]");
+    if (toggle) {
+      e.stopPropagation();
+      const id = toggle.dataset.cloudModelsToggle;
+      (ui.cloudModelsOpen ||= {})[id] = !ui.cloudModelsOpen[id];
+      ui._lastCloudProvidersKey = "";   // the class lives outside the render key
+      renderTopologyCloudProviders();
+      return;
+    }
+    const edit = e.target.closest("[data-cloud-edit-account]");
+    if (edit) { e.stopPropagation(); openCloudAccountModal(edit.dataset.cloudEditAccount); return; }
+    const addBlock = e.target.closest("[data-cloud-add-block]");
+    if (addBlock) { e.stopPropagation(); openCloudBlockModal(null, addBlock.dataset.cloudAddBlock); return; }
+    const fetchBtn = e.target.closest("[data-cloud-fetch-models]");
+    if (fetchBtn) {
+      e.stopPropagation();
+      const id = fetchBtn.dataset.cloudFetchModels;
+      fetchBtn.textContent = t("fetchingModels"); fetchBtn.disabled = true;
+      try {
+        const res = await api("/api/cloud-accounts/auto-create-blocks", { method: "POST", body: JSON.stringify({ id }) });
+        if (res.topology) setTopology(res.topology);
+        toast(res.created > 0 ? `${res.created} model${res.created !== 1 ? "s" : ""} added (${res.total} available)` : `models up to date (${res.total} available)`);
+        renderTopology();
+      } catch (err) { toast(`fetch failed: ${err.message}`); fetchBtn.textContent = t("fetchModelsBtn"); fetchBtn.disabled = false; }
+      return;
+    }
+    const mint = e.target.closest("[data-bridge-mint]");
+    if (mint) {
+      e.stopPropagation();
+      const sel = cpEl.querySelector(`select[data-bridge-block="${mint.dataset.bridgeMint}"]`);
+      const blockId = sel?.value;
+      if (!blockId) return;
+      mint.disabled = true;
+      try {
+        const res = await api("/api/cloud-accounts/bridge-port", { method: "POST", body: JSON.stringify({ blockId }) });
+        await refreshTopology();
+        const url = `http://${location.hostname}:${res.route.port}`;
+        toast((await copyText(url)) ? t("cloudBridgeMinted", { url }) : url);
+        renderTopology();
+      } catch (err) { toast(err.message); mint.disabled = false; }
+      return;
+    }
+    const copyBtn = e.target.closest("[data-bridge-copy]");
+    if (copyBtn) {
+      e.stopPropagation();
+      toast((await copyText(copyBtn.dataset.bridgeCopy)) ? t("cloudBridgeCopied") : copyBtn.dataset.bridgeCopy);
+      return;
+    }
+    const del = e.target.closest("[data-bridge-delete]");
+    if (del) {
+      e.stopPropagation();
+      if (!(await appConfirm(t("cloudBridgeDeleteConfirm", { port: del.dataset.bridgeDelete })))) return;
+      try {
+        await api("/api/cloud-accounts/bridge-port-delete", { method: "POST", body: JSON.stringify({ port: Number(del.dataset.bridgeDelete) }) });
+        await refreshTopology();
+        renderTopology();
+      } catch (err) { toast(err.message); }
+      return;
+    }
+    const row = e.target.closest("[data-cloud-block]");
+    if (row) openCloudBlockModal(row.dataset.cloudBlock, null);
+  });
+  cpEl.addEventListener("change", (e) => {
+    const sel = e.target.closest("select[data-bridge-block]");
+    // Unsaved choice — survives the poll-tick rebuilds (the render below puts
+    // the selected attribute back from ui state).
+    if (sel) (ui.bridgeBlockChoice ||= {})[sel.dataset.bridgeBlock] = sel.value;
+  });
+  cpEl.addEventListener("keydown", (e) => {
+    const row = e.target.closest("[data-cloud-block]");
+    if (row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openCloudBlockModal(row.dataset.cloudBlock, null); }
+  });
+}
+
 export function renderTopologyCloudProviders() {
   const accounts = topology?.cloudAccounts || [];
   const blocks = topology?.cloudProviders || [];
@@ -51,6 +136,7 @@ export function renderTopologyCloudProviders() {
   const addCloudBtn = `<button class="topology-add-wide-btn" type="button" data-topo-add-cloud>+ Add Cloud Provider</button>`;
   const cpEl = $("topologyCloudProviders");
   if (!cpEl) return;
+  bindCloudCardDelegates(cpEl);
   if (!accounts.length) {
     cpEl.innerHTML = `<article class="topology-card"><div class="topology-muted">${escapeHtml(t("topologyCloudNoProviders"))}</div></article>${addCloudBtn}`;
     return;
@@ -132,14 +218,15 @@ export function renderTopologyCloudProviders() {
     // One cable handle per PROVIDER (account). The router output attaches here;
     // the actual model is chosen inside the router. The model list is hidden until
     // hover (slide-out flyout with prices).
+    const modelsOpen = !!ui.cloudModelsOpen?.[acct.id];
     return `
-      <article class="topology-card cloud-account-card ${acct.hasCredential ? "configured" : "needs-key"}">
+      <article class="topology-card cloud-account-card ${acct.hasCredential ? "configured" : "needs-key"}${modelsOpen ? " models-open" : ""}">
         <span class="topology-handle server-input cloud-account-input" data-topology-cloud-input="1" data-account-id="${escapeHtml(acct.id)}" title="Router output → this provider"></span>
         <div class="cloud-account-head">
           <span class="cloud-account-icon" style="color:${escapeHtml(meta.color || "#94a3b8")}">${cloudPickerTileIcon(iconType)}</span>
           <strong class="cloud-account-name">${escapeHtml(acct.name || acct.id)}</strong>
           ${acct.hasCredential ? pill(isSubscription ? "Plus" : acct.credentialKind === "noKey" ? "ready" : acct.credentialKind === "apiKey" ? t("topologyCloudConfigured") : "OAuth", "good") : pill(t("topologyCloudNeedsKey"), "warn")}
-          <span class="cloud-model-count" title="${acctBlocks.length} model${acctBlocks.length === 1 ? "" : "s"} — hover to view">${acctBlocks.length} ⌄</span>
+          <button class="cloud-model-count" type="button" data-cloud-models-toggle="${escapeHtml(acct.id)}" title="${acctBlocks.length} model${acctBlocks.length === 1 ? "" : "s"} — click to view">${acctBlocks.length} ${modelsOpen ? "⌃" : "⌄"}</button>
           <button class="icon-action compact" type="button" data-cloud-edit-account="${escapeHtml(acct.id)}" title="Edit account">⚙</button>
         </div>
         <div class="cloud-key-line ${acct.hasCredential ? "set" : "unset"}">${escapeHtml(credLine)}</div>

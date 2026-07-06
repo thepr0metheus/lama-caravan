@@ -432,7 +432,15 @@ export function applyTopologyUpdate() {
     _topologyRenderPending = true;
     return;
   }
-  if (topologyStructureFingerprint() !== _lastStructureFingerprint) {
+  const fp = topologyStructureFingerprint();
+  if (fp !== _lastStructureFingerprint) {
+    // Set window.__fpDebug = 1 in the console to see WHICH fingerprint part
+    // forces full rebuilds — the #1 suspect when the board redraws too often.
+    if (window.__fpDebug && _lastStructureFingerprint) {
+      const a = _lastStructureFingerprint.split("||"), b = fp.split("||");
+      const parts = ["clients", "classicSrv", "nodeSrv", "gpus", "prox", "cloud", "view", "pendingCells", "modals"];
+      b.forEach((v, i) => { if (v !== a[i]) console.debug(`[fp] ${parts[i]} changed:\n  was: ${a[i]}\n  now: ${v}`); });
+    }
     renderTopology();          // structure changed → full rebuild
   } else if (topologyNodesViewOn) {
     syncTopologyLive();        // node view → patch volatile numbers, keep DOM + animations

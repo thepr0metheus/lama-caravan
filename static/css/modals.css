@@ -1098,15 +1098,19 @@
 .cloud-model-count {
   margin-left: auto; font-size: 10px; color: var(--muted);
   border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; white-space: nowrap;
+  background: none; cursor: pointer; font-family: inherit;
 }
+.cloud-model-count:hover { color: var(--fg, #dde); border-color: color-mix(in srgb, var(--accent,#4da392) 45%, transparent); }
 .cloud-models-flyout {
   max-height: 0;
   overflow: hidden;
   opacity: 0;
   transition: max-height 0.18s ease, opacity 0.18s ease;
 }
-.cloud-account-card:hover .cloud-models-flyout,
-.cloud-account-card:focus-within .cloud-models-flyout {
+/* Opened by CLICK on the model-count chip (was hover/focus-within: the list
+   sprang open whenever the pointer crossed the card or any field in it got
+   focus, and snapped shut again on every poll re-render). */
+.cloud-account-card.models-open .cloud-models-flyout {
   max-height: 60vh;
   opacity: 1;
   overflow-y: auto;   /* scroll the full model list (can be 100+) */

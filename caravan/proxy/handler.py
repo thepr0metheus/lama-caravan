@@ -898,13 +898,28 @@ class ProxyHandler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        if urlsplit(self.path).path == "/v1/models":
+        path = urlsplit(self.path).path
+        if path == "/v1/models":
             route = live_route_for_port(self.server.route.get("port")) or self.server.route
             if not self._api_key_ok(route):
                 self._reject_unauthorized(route, f"{time.time_ns()}-{threading.get_ident()}")
                 return
             self._send_models_fast(route)
             return
+        if path == "/health":
+            route = live_route_for_port(self.server.route.get("port")) or self.server.route
+            if str(route.get("upstreamType") or "llama") == "cloud":
+                # Bridge health is the port itself: cloud APIs have no /health,
+                # so forwarding answered 405 and painted the activity strip red
+                # every time an external consumer probed its endpoint.
+                body = json.dumps({"status": "ok"}).encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header("Connection", "close")
+                self.end_headers()
+                self.wfile.write(body)
+                return
         self.proxy()
 
     def do_POST(self):

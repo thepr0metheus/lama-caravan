@@ -18,8 +18,6 @@ import {
   closeCloudProviderModal,
   deleteCloudAccount,
   deleteCloudBlock,
-  openCloudAccountModal,
-  openCloudBlockModal,
   saveCloudAccount,
   saveCloudBlock,
   selectCloudProviderType,
@@ -68,7 +66,7 @@ import {
   editTopologyProxy,
   saveTopologyProxyForm,
 } from "./topology-proxies.js";
-import { flushPendingTopologyRender, refreshTopology, renderTopology } from "./topology-render.js";
+import { flushPendingTopologyRender, renderTopology } from "./topology-render.js";
 import {
   apiCostsCache,
   fetchApiCosts,
@@ -82,7 +80,7 @@ import {
   usageStatsApiPriceEdit,
   usageStatsData,
 } from "./usage-stats.js";
-import { $, api, copyText, pill, toast } from "./utils.js";
+import { $, api, pill, toast } from "./utils.js";
 
 export let topologyPointerDrag = null;
 export let topologyScheduleRouterId = "";         // which router's weekly schedule editor is open
@@ -197,76 +195,10 @@ export function bindTopologyDragAndDrop() {
   $("incidentsModalOverlay")?.addEventListener("click", (e) => {
     if (e.target === $("incidentsModalOverlay")) closeIncidentsModal();
   });
-  // block row clicks → open block modal
-  document.querySelectorAll("[data-cloud-block]").forEach((row) => {
-    const open = () => openCloudBlockModal(row.dataset.cloudBlock, null);
-    row.addEventListener("click", open);
-    row.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
-    });
-  });
-  // account edit / add-block buttons
-  document.querySelectorAll("[data-cloud-edit-account]").forEach((btn) => {
-    btn.addEventListener("click", (e) => { e.stopPropagation(); openCloudAccountModal(btn.dataset.cloudEditAccount); });
-  });
-  document.querySelectorAll("[data-cloud-add-block]").forEach((btn) => {
-    btn.addEventListener("click", (e) => { e.stopPropagation(); openCloudBlockModal(null, btn.dataset.cloudAddBlock); });
-  });
-  document.querySelectorAll("[data-cloud-fetch-models]").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const id = btn.dataset.cloudFetchModels;
-      btn.textContent = t("fetchingModels"); btn.disabled = true;
-      try {
-        const res = await api("/api/cloud-accounts/auto-create-blocks", { method: "POST", body: JSON.stringify({ id }) });
-        if (res.topology) setTopology(res.topology);
-        toast(res.created > 0 ? `${res.created} model${res.created !== 1 ? "s" : ""} added (${res.total} available)` : `models up to date (${res.total} available)`);
-        renderTopology();
-      } catch (err) { toast(`fetch failed: ${err.message}`); btn.textContent = t("fetchModelsBtn"); btn.disabled = false; }
-    });
-  });
-  // bridge ports: mint / copy URL / delete (provider-card section)
-  document.querySelectorAll("select[data-bridge-block]").forEach((sel) => {
-    sel.addEventListener("change", () => {
-      // Unsaved choice — survives the poll-tick rebuilds (cloud.js renders
-      // the selected attribute back from ui state).
-      (ui.bridgeBlockChoice ||= {})[sel.dataset.bridgeBlock] = sel.value;
-    });
-  });
-  document.querySelectorAll("[data-bridge-mint]").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const sel = document.querySelector(`select[data-bridge-block="${btn.dataset.bridgeMint}"]`);
-      const blockId = sel?.value;
-      if (!blockId) return;
-      btn.disabled = true;
-      try {
-        const res = await api("/api/cloud-accounts/bridge-port", { method: "POST", body: JSON.stringify({ blockId }) });
-        await refreshTopology();
-        const url = `http://${location.hostname}:${res.route.port}`;
-        // "(copied)" must not lie: fall back to showing the bare URL.
-        toast((await copyText(url)) ? t("cloudBridgeMinted", { url }) : url);
-        renderTopology();
-      } catch (err) { toast(err.message); btn.disabled = false; }
-    });
-  });
-  document.querySelectorAll("[data-bridge-copy]").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      toast((await copyText(btn.dataset.bridgeCopy)) ? t("cloudBridgeCopied") : btn.dataset.bridgeCopy);
-    });
-  });
-  document.querySelectorAll("[data-bridge-delete]").forEach((btn) => {
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      if (!(await appConfirm(t("cloudBridgeDeleteConfirm", { port: btn.dataset.bridgeDelete })))) return;
-      try {
-        await api("/api/cloud-accounts/bridge-port-delete", { method: "POST", body: JSON.stringify({ port: Number(btn.dataset.bridgeDelete) }) });
-        await refreshTopology();
-        renderTopology();
-      } catch (err) { toast(err.message); }
-    });
-  });
+  // Provider-card controls (block rows, edit/add/fetch, models flyout toggle,
+  // bridge ports) live on a DELEGATED listener owned by cloud.js — the lane's
+  // children are replaced by callback-path re-renders that never come back
+  // through this binder, so per-node listeners here ended up dead.
   // account modal
   document.querySelector("[data-cloud-close]")?.addEventListener("click", closeCloudProviderModal);
   document.querySelector("[data-cloud-cancel]")?.addEventListener("click", closeCloudProviderModal);

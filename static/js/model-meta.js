@@ -110,13 +110,19 @@ export function modalitiesText(llama, tx) {
     : (tx ? tx("topologyOff") : "off");
 }
 
+let _lastProxyDailyStatsJson = "";
 export async function fetchProxyDailyStats() {
   try {
     const data = await api("/api/proxy-daily-stats");
     if (data?.routes) {
+      // This runs after EVERY topology poll — an unconditional render here was
+      // the source of the board's per-tick full rebuilds (measured 9 rebuilds
+      // per 10 polls on an idle fleet). The counts only move when requests
+      // actually flow, so render only when the payload changed.
+      const fresh = JSON.stringify(data.routes);
+      if (fresh === _lastProxyDailyStatsJson) return;
+      _lastProxyDailyStatsJson = fresh;
       proxyDailyStats = data.routes;
-      // Slow-moving "today: N" counts — full render is fine, but never while the
-      // user is dragging a cable (defer until they finish).
       if (topologyInteractionActive()) markTopologyRenderPending();
       else renderTopology();
     }

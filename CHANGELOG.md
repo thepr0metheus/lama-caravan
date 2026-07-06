@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.3.8 — 2026-07-06
+
+- The idle board stops redrawing itself: the daily-stats fetch after
+  every topology poll triggered an unconditional full render (measured
+  9 rebuilds per 10 polls with nothing happening) — it now renders
+  only when the counts actually changed. Focused fields already defer
+  rebuilds since 1.3.7; together the board is finally still under the
+  pointer.
+- Cloud provider model lists open on CLICK of the count chip (⌄/⌃)
+  instead of hover/focus-within — no more lists springing open when
+  the pointer crosses a card and snapping shut on re-renders.
+- Provider-card controls (model rows, edit/fetch, bridge mint/copy/
+  delete, flyout toggle) moved to a delegated listener on the lane
+  container: usage-fetch re-renders replaced the buttons without
+  re-binding, leaving them dead once the per-tick rebuilds stopped.
+- Bridge ports answer GET /health themselves ({"status":"ok"}) —
+  forwarding it to a cloud API returned 405 and painted the route's
+  activity strip red on every probe from an external consumer.
+
 ## 1.3.7 — 2026-07-06
 
 - Cell notes: every cell card can carry a free-form user comment —
