@@ -19,6 +19,13 @@ from caravan.admin.config_builder import (
 )
 from caravan.admin.paths import DEFAULT_MODELS_DIR, SERVER_CELLS_DIR, START_SCRIPT
 from caravan.common.errors import AppError
+from caravan.admin.runners import (
+    VLLM_BOOTSTRAP_LINES,
+    build_vllm_command,
+    build_whisper_command,
+    runner_id,
+    uses_command_path,
+)
 
 
 LAUNCH_COMMAND_BEGIN = "# BEGIN LLAMA COMMAND"
@@ -39,14 +46,31 @@ def render_command_cell_script(config):
     port = merged.get("PORT") or ""
     if not port.isdigit():
         raise AppError("PORT must be a number")
-    # Be forgiving: strip a leading `exec ` — we add our own.
-    command = re.sub(r"^\s*exec\s+", "", merged.get("COMMAND") or "").strip()
-    if not command:
-        raise AppError("COMMAND is required for a command cell")
-    merged["COMMAND"] = command  # keep the config block and the exec line in sync
+    is_vllm = runner_id(merged) == "vllm"
+    is_whisper = runner_id(merged) == "whisper"
+    if is_vllm:
+        if not merged.get("VLLM_MODEL"):
+            raise AppError("VLLM_MODEL is required for a vLLM cell")
+        command = build_vllm_command(merged)
+    elif is_whisper:
+        # The command references ${LLAMA_MODELS_DIR} for the shared model root —
+        # make sure the config block carries a concrete value on the controller.
+        if not merged.get("LLAMA_MODELS_DIR"):
+            merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
+        command = build_whisper_command(merged)
+    else:
+        # Be forgiving: strip a leading `exec ` — we add our own.
+        command = re.sub(r"^\s*exec\s+", "", merged.get("COMMAND") or "").strip()
+        if not command:
+            raise AppError("COMMAND is required for a command cell")
+        merged["COMMAND"] = command  # keep the config block and the exec line in sync
 
+    block_keys = ("RUNNER", "CELL_KIND", "PORT", "HEALTH_PATH", "WORKDIR", "COMMAND",
+                  "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION",
+                  "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL",
+                  "LLAMA_MODELS_DIR", "ALIAS")
     block_lines = [CONFIG_BEGIN]
-    for key in ("CELL_KIND", "PORT", "HEALTH_PATH", "WORKDIR", "COMMAND"):
+    for key in block_keys:
         block_lines.append(f"{key}={quote_shell_value(merged.get(key, ''))}")
     block_lines.append(CONFIG_END)
     config_block = "\n".join(block_lines)
@@ -77,6 +101,8 @@ def render_command_cell_script(config):
     workdir = merged.get("WORKDIR") or ""
     if workdir:
         lines.append(f"cd {shlex.quote(workdir)}")
+    if is_vllm:
+        lines += ["", *VLLM_BOOTSTRAP_LINES]
     lines += [
         "",
         LAUNCH_COMMAND_BEGIN + " — generated command cell; edit via the admin UI, not by hand",
@@ -96,7 +122,7 @@ def render_launch_script(config):
     do not hand-edit it.
     """
     merged = {key: str(config.get(key, "")).strip() for key in CONFIG_FIELDS}
-    if is_command_cell(merged):
+    if uses_command_path(merged):
         return render_command_cell_script(merged)
     if not merged.get("LLAMA_MODELS_DIR"):
         merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
@@ -164,7 +190,7 @@ def write_server_cell_artifacts(host_id, port, config):
     """
     if not isinstance(config, dict):
         return {}
-    if not is_command_cell(config) and not str(config.get("MODEL_FILE") or "").strip():
+    if not uses_command_path(config) and not str(config.get("MODEL_FILE") or "").strip():
         return {}
     merged = {key: str(config.get(key, "")).strip() for key in CONFIG_FIELDS}
     merged["PORT"] = str(port)

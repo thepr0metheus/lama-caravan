@@ -657,6 +657,12 @@
 .mbadge-cached { background: color-mix(in srgb, var(--good,#4ade80) 12%, transparent); color: var(--good,#4ade80); border-color: color-mix(in srgb, var(--good,#4ade80) 28%, transparent); }
 .mbadge-missing { background: color-mix(in srgb, #f87171 12%, transparent); color: #f87171; border-color: color-mix(in srgb, #f87171 28%, transparent); letter-spacing: 0; font-weight: 400; }
 .mbadge-uncensored { background: color-mix(in srgb, #f43f5e 12%, transparent); color: #fda4af; border-color: color-mix(in srgb, #f43f5e 30%, transparent); }
+.mbadge-st     { background: color-mix(in srgb, #9fd0ff 12%, transparent); color: #9fd0ff; border-color: color-mix(in srgb, #9fd0ff 30%, transparent); }
+/* picker rows for artifacts not on disk yet (whisper sizes that download on first start) */
+.mc-item.mc-dim { opacity: .45; }
+/* runner icons left of the model name in the picker: 🦙 native, ⚡ vLLM (dimmed = experimental) */
+.mc-runners { flex: 0 0 auto; font-size: 11px; margin-right: 4px; letter-spacing: 1px; }
+.mc-runners .mc-run-exp { opacity: .35; }
 .mbadge-vision { background: color-mix(in srgb, #38bdf8 12%, transparent); color: #bae6fd; border-color: color-mix(in srgb, #38bdf8 30%, transparent); }
 .mbadge-audio  { background: color-mix(in srgb, #c084fc 12%, transparent); color: #e9d5ff; border-color: color-mix(in srgb, #c084fc 30%, transparent); }
 .mbadge-video  { background: color-mix(in srgb, #f472b6 12%, transparent); color: #fbcfe8; border-color: color-mix(in srgb, #f472b6 30%, transparent); }

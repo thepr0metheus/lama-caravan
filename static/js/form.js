@@ -21,7 +21,7 @@ import {
   updateStarStates,
 } from "./favorites.js";
 import { fieldHelp, labelWithTip, t } from "./i18n.js";
-import { renderBackups } from "./llama-edit.js";
+import { gpuComputeCap, renderBackups } from "./llama-edit.js";
 import {
   applyComputeTarget,
   computeIsCpu,
@@ -40,7 +40,7 @@ import {
 import { _modelBenchKey, fetchPickerBenchBatch, serverBenchCache } from "./model-meta.js";
 import { saveConfig } from "./polling.js";
 import { _trCachedModels, _trClientCpu } from "./remote-cells.js";
-import { state } from "./state.js";
+import { state, topology } from "./state.js";
 import { renderRuntime } from "./system-panels.js";
 import { $, api, escapeHtml, formatBool, toast } from "./utils.js";
 
@@ -303,9 +303,42 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
       el.innerHTML = `<div class="mc-item-main"><span class="mc-item-name muted">${escapeHtml(item.label || "—")}</span></div>`;
     } else {
       const parts = (item.value || "").split("/");
-      const fname = parts.pop();
-      const dir = parts.join("/");
+      let fname = parts.pop();
+      let dir = parts.join("/");
+      // Safetensors artifact: the value is a directory (<model>/<author>/<FORMAT>);
+      // show the model folder as the name and the full dir underneath.
+      if (item.kind === "st") { fname = item.stName || fname; dir = item.value; }
+      if (item.kind === "whisper") {
+        fname = `whisper · ${item.whSize}`;
+        dir = item.value;
+        if (!item.whOnDisk) el.classList.add("mc-dim");
+      }
+      // Runner icons LEFT of the name — which engines can launch this artifact:
+      // gguf → llama.cpp (native) + vLLM (experimental, dimmed); safetensors →
+      // vLLM, dimmed when NO fleet GPU meets the format's compute requirement.
+      let runnerIcons = "";
+      if (item.kind === "st") {
+        const reqs = (state.runners || []).find((r) => r.id === "vllm")?.formatRequirements || {};
+        const need = reqs[String(item.stFormat || "").toLowerCase()];
+        let blocked = false;
+        if (need) {
+          let maxCap = null;
+          (topology?.nodes || []).forEach((n) => (n.gpus || []).forEach((g) => {
+            const c = gpuComputeCap(g.name);
+            if (c != null && (maxCap == null || c > maxCap)) maxCap = c;
+          }));
+          blocked = maxCap != null && maxCap < need;
+        }
+        runnerIcons = blocked
+          ? `<span class="mc-runners" title="${escapeHtml(`${item.stFormat} · ${t("runnerNeedsCompute", { n: need })}`)}"><span class="mc-run-exp">⚡</span></span>`
+          : `<span class="mc-runners" title="vLLM">⚡</span>`;
+      } else if (item.kind === "whisper") {
+        runnerIcons = `<span class="mc-runners" title="whisper (faster-whisper)">🎙</span>`;
+      } else if (item.kind === "model" && !item.missing) {
+        runnerIcons = `<span class="mc-runners" title="llama.cpp · vLLM (experimental)">🦙<span class="mc-run-exp">⚡</span></span>`;
+      }
       let badges = "";
+      if (item.kind === "st") badges += mbadge("st", item.stFormat || "safetensors", "safetensors");
       if (item.cached) badges += mbadge("cached", t("cachedOnHost"));
       if (item.missing) {
         el.dataset.missing = "1";
@@ -319,7 +352,7 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
       const dateStr = mcFormatMtime(item.mtime);
       el.innerHTML = `
         <div class="mc-item-main">
-          <span class="mc-item-name">${escapeHtml(fname)}</span>
+          ${runnerIcons}<span class="mc-item-name">${escapeHtml(fname)}</span>
           ${item.sizeGb ? `<span class="mc-item-size">${item.sizeGb} GB</span>` : ""}
           ${badges}
           ${dateStr ? `<span class="mc-item-date" title="${t("addedOnDisk")}">${dateStr}</span>` : ""}
@@ -369,6 +402,33 @@ export function renderModelSelects(pfx = "") {
       familyDefaults: row.familyDefaults,
       cached: pfx === "tr-" && _trCachedModels.has(row.path),
     }));
+  // Safetensors artifacts (vLLM launches them). Controller forms only: client
+  // hosts don't have the controller's models tree and the scout syncs gguf only.
+  if (pfx !== "tr-") {
+    (state.artifacts || []).forEach((row) => modelItems.push({
+      value: row.path,
+      sizeGb: row.sizeGb,
+      mtime: row.mtime,
+      kind: "st",
+      stName: row.name,
+      stFormat: row.format,
+    }));
+  }
+  // Whisper models join the same picker (🎙) on EVERY form: the "model" is a
+  // size name and faster-whisper downloads it on the target host itself.
+  // Dimming marks sizes missing from the CONTROLLER's disk — client (tr-)
+  // caches are unknown here, so their rows never dim.
+  {
+    const have = new Set(state.whisperOnDisk || []);
+    ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"]
+      .forEach((size) => modelItems.push({
+        value: `whisper/models--Systran--faster-whisper-${size}`,
+        kind: "whisper",
+        whSize: size,
+        whOnDisk: pfx === "tr-" || have.has(size),
+        mtime: 0,
+      }));
+  }
   if (currentModel && !modelItems.find((i) => i.value === currentModel)) {
     modelItems.unshift({ value: currentModel, kind: "model", label: currentModel, missing: true });
   }
@@ -841,8 +901,13 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
   if (aliasEl && modelVal) {
     const cur = aliasEl.value.trim();
     if (opts.aliasFollow || !cur || cur === aliasEl.dataset.autoAlias) {
-      const derived = modelVal.split("/").pop()
-        .replace(/\.gguf$/i, "").replace(/-\d{5}-of-\d{5}$/i, "").toLowerCase();
+      // Safetensors artifact paths end in a FORMAT folder — the alias should be
+      // the model folder (first segment), not "nvfp4".
+      const stRow = (state.artifacts || []).find((a) => a.path === modelVal);
+      const derived = stRow
+        ? stRow.name.toLowerCase()
+        : modelVal.split("/").pop()
+            .replace(/\.gguf$/i, "").replace(/-\d{5}-of-\d{5}$/i, "").toLowerCase();
       aliasEl.value = derived;
       aliasEl.dataset.autoAlias = derived;
     }
@@ -1184,11 +1249,17 @@ export function readConfigForm(pfx = "") {
   });
   // Generic command cell (CELL_KIND="command"): raw COMMAND instead of a model.
   config.CELL_KIND = $(pfx + "CELL_KIND")?.value || "";
+  config.RUNNER = ($(pfx + "RUNNER")?.value || "").trim()
+    || (config.CELL_KIND === "command" ? "custom" : "llama-server");
   config.COMMAND = ($(pfx + "COMMAND")?.value || "").trim();
   config.HEALTH_PATH = ($(pfx + "HEALTH_PATH")?.value || "").trim();
   config.ENV = $(pfx + "ENV")?.value || "";
   config.WORKDIR = ($(pfx + "WORKDIR")?.value || "").trim();
-  if (config.CELL_KIND === "command") {
+  ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL",
+   "WHISPER_MODEL"].forEach((k) => {
+    config[k] = ($(pfx + k)?.value || "").trim();
+  });
+  if (config.CELL_KIND === "command" || config.RUNNER === "vllm" || config.RUNNER === "whisper") {
     // Not a llama-server — don't carry a stale model/mmproj/draft into the slot.
     config.MODEL_FILE = "";
     config.MMPROJ_FILE = "";

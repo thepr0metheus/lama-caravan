@@ -943,3 +943,25 @@ button.cmd-dirty::after {
 .proxy-apikey-row { display: flex; gap: 6px; align-items: center; }
 .proxy-apikey-row input { flex: 1; min-width: 0; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; }
 .proxy-apikey-hint { display: block; font-size: 10.5px; margin-top: 3px; line-height: 1.35; }
+
+/* Runner tabs (Model -> Runner -> Params): the one-line benefits hint under
+   the tab row; tabs reuse .cell-kind-btn styling. */
+/* .field p wins on specificity (tag+class) and brings display:none in the
+   editors AND min-height:78px from the base sheet — beat both: this line is
+   UI, not a help paragraph, and must hug its content. */
+.field p.runner-benefits { display: block !important; margin: 6px 0 0; font-size: 11px; color: var(--muted); min-height: 0; }
+/* per-host compute gate under the benefits line (NVFP4/FP8 artifacts) */
+.runner-host-gate { font-size: 11px; color: var(--muted); }
+.runner-host-gate .gate-ok { color: var(--good, #4ade80); }
+.runner-host-gate .gate-no { color: #f87171; }
+.cell-kind-btn[disabled] { opacity: .45; cursor: not-allowed; }
+/* The runner row carries three stacked parts (label / tabs / benefits) — the
+   generic .field template of 26px+42px rows clips it and the tabs bleed onto
+   the next field, so give this row its own auto-sized template. */
+.field.cell-kind-row { grid-template-rows: 26px auto auto; }
+.runner-tabs .cell-kind-btn { white-space: nowrap; font-size: 12.5px; }
+/* the (?) chip inside each runner tab — hover for benefits + trade-offs */
+.runner-tab-help { display: inline-block; margin-left: 6px; width: 14px; height: 14px;
+  line-height: 14px; border-radius: 50%; font-size: 10px; text-align: center;
+  background: color-mix(in srgb, var(--muted, #888) 22%, transparent);
+  color: var(--muted, #aaa); cursor: help; }

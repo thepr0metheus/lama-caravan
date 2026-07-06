@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 
 from caravan.admin.backups import backups
+from caravan.admin.runners import RUNNERS
 from caravan.admin.config_builder import (
     CONFIG_FIELDS,
     FIELD_HELP,
@@ -12,7 +13,7 @@ from caravan.admin.config_builder import (
     parse_config,
 )
 from caravan.admin.llama_metrics import runtime_phase
-from caravan.admin.models import list_chat_templates, list_models
+from caravan.admin.models import list_chat_templates, list_models, list_st_artifacts, list_whisper_sizes
 from caravan.admin.monitoring import cpu_state, gpu_state, memory_state, runtime_api
 from caravan.admin.openclaw import notify_openclaw_config_managers, openclaw_config_manager_state
 from caravan.admin.paths import ADMIN_SERVICE_NAME, AGENT_PROXY_SERVICE_NAME, LLAMA_HOME, PROJECT_ROOT, SERVER_CELLS_DIR, SERVICE_NAME, START_SCRIPT
@@ -119,6 +120,7 @@ def state():
     runtime["status"] = runtime_phase(service, runtime)
     return {
         "appVersion": APP_VERSION,
+        "runners": RUNNERS,
         "config": config,
         "fields": CONFIG_FIELDS,
         "help": FIELD_HELP,
@@ -131,6 +133,8 @@ def state():
             "service": SERVICE_NAME,
         },
         "models": list_models(config),
+        "artifacts": list_st_artifacts(config),
+        "whisperOnDisk": list_whisper_sizes(config),
         "chatTemplates": list_chat_templates(config),
         "service": service,
         "runtime": runtime,

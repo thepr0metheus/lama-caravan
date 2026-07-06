@@ -26,7 +26,7 @@ export function topologyProjectorIcon() {
 export function parseModelName(path) {
   const file = String(path || "").split("/").pop().replace(/\.gguf$/i, "");
   if (!file) return null;
-  const quant = file.match(/\b(IQ\d+(?:_[A-Z0-9]+)*|Q\d+(?:_[A-Z0-9]+)*|BF16|F16|F32)\b/i)?.[0] || "";
+  const quant = file.match(/\b(NVFP4|MXFP4|IQ\d+(?:_[A-Z0-9]+)*|Q\d+(?:_[A-Z0-9]+)*|BF16|F16|F32)\b/i)?.[0] || "";
   const size = file.match(/\b\d+(?:\.\d+)?x?\d*B\b/i)?.[0] || "";
   // Detect instruction-tuned / chat variant from common suffixes
   const variantMatch = file.match(/[_-](it|instruct|chat|instruction)(?:[_-]|$)/i);

@@ -21,6 +21,8 @@ function hfToast(message) {
 // is shared with the main app via localStorage) ─────────────────────────────
 const HFS = {
   en: {
+    treeQuants: "Quantized versions",
+    treeSiblings: "Other quants of {base}",
     tokenNotSet: "not set — gated models unavailable",
     tokenChangeTitle: "Change HF token?", tokenChangeOk: "Change",
     tokenClearTitle: "Clear HF token?", tokenClearOk: "Clear",
@@ -38,6 +40,8 @@ const HFS = {
     onDiskTitle: "Manage downloaded models",
   },
   ru: {
+    treeQuants: "Квантованные версии",
+    treeSiblings: "Другие кванты {base}",
     tokenNotSet: "не задан — закрытые модели недоступны",
     tokenChangeTitle: "Сменить HF-токен?", tokenChangeOk: "Сменить",
     tokenClearTitle: "Убрать HF-токен?", tokenClearOk: "Убрать",
@@ -55,6 +59,8 @@ const HFS = {
     onDiskTitle: "Скачанные модели",
   },
   zh: {
+    treeQuants: "量化版本",
+    treeSiblings: "{base} 的其他量化版本",
     tokenNotSet: "未设置 — 无法访问受限模型",
     tokenChangeTitle: "更换 HF 令牌？",
     tokenChangeOk: "更换",
@@ -80,6 +86,8 @@ const HFS = {
     onDiskTitle: "管理已下载的模型",
   },
   hi: {
+    treeQuants: "क्वांटाइज़्ड संस्करण",
+    treeSiblings: "{base} के अन्य क्वांट",
     tokenNotSet: "सेट नहीं — गेटेड मॉडल अनुपलब्ध",
     tokenChangeTitle: "HF टोकन बदलें?",
     tokenChangeOk: "बदलें",
@@ -105,6 +113,8 @@ const HFS = {
     onDiskTitle: "डाउनलोड किए मॉडल प्रबंधित करें",
   },
   es: {
+    treeQuants: "Versiones cuantizadas",
+    treeSiblings: "Otras cuantizaciones de {base}",
     tokenNotSet: "no definido — modelos con acceso restringido no disponibles",
     tokenChangeTitle: "¿Cambiar el token HF?",
     tokenChangeOk: "Cambiar",
@@ -130,6 +140,8 @@ const HFS = {
     onDiskTitle: "Gestionar modelos descargados",
   },
   fr: {
+    treeQuants: "Versions quantifiées",
+    treeSiblings: "Autres quantifications de {base}",
     tokenNotSet: "non défini — modèles à accès restreint indisponibles",
     tokenChangeTitle: "Changer le token HF ?",
     tokenChangeOk: "Changer",
@@ -155,6 +167,8 @@ const HFS = {
     onDiskTitle: "Gérer les modèles téléchargés",
   },
   ar: {
+    treeQuants: "إصدارات مكمّمة",
+    treeSiblings: "تكميمات أخرى لـ {base}",
     tokenNotSet: "غير مضبوط — النماذج المقيدة غير متاحة",
     tokenChangeTitle: "تغيير رمز HF؟",
     tokenChangeOk: "تغيير",
@@ -180,6 +194,8 @@ const HFS = {
     onDiskTitle: "إدارة النماذج المنزّلة",
   },
   bn: {
+    treeQuants: "কোয়ান্টাইজড সংস্করণ",
+    treeSiblings: "{base}-এর অন্যান্য কোয়ান্ট",
     tokenNotSet: "সেট করা নেই — গেটেড মডেল অনুপলব্ধ",
     tokenChangeTitle: "HF টোকেন বদলাবেন?",
     tokenChangeOk: "বদলান",
@@ -205,6 +221,8 @@ const HFS = {
     onDiskTitle: "ডাউনলোড করা মডেল পরিচালনা",
   },
   pt: {
+    treeQuants: "Versões quantizadas",
+    treeSiblings: "Outras quantizações de {base}",
     tokenNotSet: "não definido — modelos restritos indisponíveis",
     tokenChangeTitle: "Alterar o token HF?",
     tokenChangeOk: "Alterar",
@@ -230,6 +248,8 @@ const HFS = {
     onDiskTitle: "Gerenciar modelos baixados",
   },
   ja: {
+    treeQuants: "量子化バージョン",
+    treeSiblings: "{base} の他の量子化版",
     tokenNotSet: "未設定 — ゲート付きモデルは利用できません",
     tokenChangeTitle: "HF トークンを変更しますか？",
     tokenChangeOk: "変更",
@@ -255,6 +275,8 @@ const HFS = {
     onDiskTitle: "ダウンロード済みモデルの管理",
   },
   de: {
+    treeQuants: "Quantisierte Versionen",
+    treeSiblings: "Weitere Quantisierungen von {base}",
     tokenNotSet: "nicht gesetzt — zugangsbeschränkte Modelle nicht verfügbar",
     tokenChangeTitle: "HF-Token ändern?",
     tokenChangeOk: "Ändern",
@@ -280,6 +302,8 @@ const HFS = {
     onDiskTitle: "Heruntergeladene Modelle verwalten",
   },
   id: {
+    treeQuants: "Versi terkuantisasi",
+    treeSiblings: "Kuantisasi lain dari {base}",
     tokenNotSet: "belum disetel — model tertutup tidak tersedia",
     tokenChangeTitle: "Ganti token HF?",
     tokenChangeOk: "Ganti",
@@ -305,6 +329,8 @@ const HFS = {
     onDiskTitle: "Kelola model terunduh",
   },
   ur: {
+    treeQuants: "کوانٹائزڈ ورژن",
+    treeSiblings: "{base} کے دیگر کوانٹس",
     tokenNotSet: "سیٹ نہیں — گیٹڈ ماڈلز دستیاب نہیں",
     tokenChangeTitle: "HF ٹوکن تبدیل کریں؟",
     tokenChangeOk: "تبدیل کریں",
@@ -330,6 +356,8 @@ const HFS = {
     onDiskTitle: "ڈاؤن لوڈ شدہ ماڈلز منظم کریں",
   },
   tr: {
+    treeQuants: "Nicemlenmiş sürümler",
+    treeSiblings: "{base} için diğer nicemlemeler",
     tokenNotSet: "ayarlanmadı — kısıtlı modeller kullanılamaz",
     tokenChangeTitle: "HF token'ı değiştirilsin mi?",
     tokenChangeOk: "Değiştir",
@@ -355,6 +383,8 @@ const HFS = {
     onDiskTitle: "İndirilen modelleri yönet",
   },
   ko: {
+    treeQuants: "양자화 버전",
+    treeSiblings: "{base}의 다른 양자화 버전",
     tokenNotSet: "설정 안 됨 — 게이트된 모델 사용 불가",
     tokenChangeTitle: "HF 토큰을 변경할까요?",
     tokenChangeOk: "변경",
@@ -380,6 +410,8 @@ const HFS = {
     onDiskTitle: "다운로드한 모델 관리",
   },
   vi: {
+    treeQuants: "Phiên bản lượng tử hóa",
+    treeSiblings: "Các bản lượng tử hóa khác của {base}",
     tokenNotSet: "chưa đặt — không dùng được các mô hình bị khóa",
     tokenChangeTitle: "Đổi token HF?",
     tokenChangeOk: "Đổi",
@@ -405,6 +437,8 @@ const HFS = {
     onDiskTitle: "Quản lý mô hình đã tải",
   },
   it: {
+    treeQuants: "Versioni quantizzate",
+    treeSiblings: "Altre quantizzazioni di {base}",
     tokenNotSet: "non impostato — modelli gated non disponibili",
     tokenChangeTitle: "Cambiare il token HF?",
     tokenChangeOk: "Cambia",
@@ -430,6 +464,8 @@ const HFS = {
     onDiskTitle: "Gestisci i modelli scaricati",
   },
   te: {
+    treeQuants: "క్వాంటైజ్డ్ వెర్షన్లు",
+    treeSiblings: "{base} ఇతర క్వాంట్లు",
     tokenNotSet: "సెట్ కాలేదు — గేటెడ్ మోడల్‌లు అందుబాటులో లేవు",
     tokenChangeTitle: "HF టోకెన్‌ను మార్చాలా?",
     tokenChangeOk: "మార్చండి",
@@ -455,6 +491,8 @@ const HFS = {
     onDiskTitle: "డౌన్‌లోడ్ చేసిన మోడల్‌లను నిర్వహించండి",
   },
   mr: {
+    treeQuants: "क्वांटाइज्ड आवृत्त्या",
+    treeSiblings: "{base} च्या इतर क्वांट आवृत्त्या",
     tokenNotSet: "सेट केलेले नाही — गेटेड मॉडेल्स अनुपलब्ध",
     tokenChangeTitle: "HF टोकन बदलायचे?",
     tokenChangeOk: "बदला",
@@ -480,6 +518,8 @@ const HFS = {
     onDiskTitle: "डाउनलोड केलेली मॉडेल्स व्यवस्थापित करा",
   },
   ta: {
+    treeQuants: "குவாண்டைஸ் பதிப்புகள்",
+    treeSiblings: "{base} இன் பிற குவாண்ட்கள்",
     tokenNotSet: "அமைக்கப்படவில்லை — கேட் செய்யப்பட்ட மாதிரிகள் கிடைக்காது",
     tokenChangeTitle: "HF டோக்கனை மாற்றவா?",
     tokenChangeOk: "மாற்று",
@@ -843,8 +883,27 @@ function mbadge(type, text) {
   return `<span class="mbadge mbadge-${type}">${text}</span>`;
 }
 
+// Artifact format of a repo, best-effort: HF tags (search results carry them),
+// then the loaded file panel, then the repo name. "" when unknown.
+function repoFormatLabel(repoId) {
+  const tags = ((repoModality.get(repoId) || {}).tags || []).map((x) => String(x).toLowerCase());
+  if (tags.includes("gguf")) return "GGUF";
+  const st = repoMetaCache.get(repoId)?.safetensors;
+  if (st?.format) return "⚡ " + st.format;
+  if (tags.includes("mlx")) return "MLX";
+  const up = repoId.toUpperCase();
+  if (up.endsWith("-GGUF") || up.includes("-GGUF-")) return "GGUF";
+  for (const hint of ["NVFP4", "MXFP4", "AWQ", "GPTQ", "AUTOROUND", "FP8", "W4A16", "BNB"]) {
+    if (up.includes(hint) || tags.includes(hint.toLowerCase())) return "⚡ " + hint;
+  }
+  if (tags.includes("safetensors")) return "⚡ ST";
+  return "";
+}
+
 function buildBadgesHtml(repoId, extraKinds) {
   const badges = [];
+  const fmt = repoFormatLabel(repoId);
+  if (fmt) badges.push(mbadge("fmt", fmt));
   if (inferIt(repoId))            badges.push(mbadge("it", "🤖 it"));
   if (inferVision(repoId, extraKinds)) badges.push(mbadge("vision", "👁 vision"));
   if (inferAudio(repoId))         badges.push(mbadge("audio", "🎙 audio"));
@@ -868,6 +927,7 @@ function updateRepoBadges(repoId) {
 let activeRepoId = null;
 const filesCache  = new Map();
 const repoMetaCache = new Map(); // repoId → { lastModified }
+const treeCache = new Map(); // repoId → {quantizations, base, siblings} | null while in flight
 const repoModality = new Map(); // repoId → { pipelineTag, tags:[] } from HF
 const checkedMap  = new Map();
 const localCache  = new Map(); // repoId → Set of local filenames
@@ -948,7 +1008,9 @@ async function loadAllFilesBg(repos) {
             const d = (ORDER[a.kind]??9) - (ORDER[b.kind]??9);
             return d !== 0 ? d : a.quant < b.quant ? -1 : 1;
           }));
-          repoMetaCache.set(repo.id, {lastModified: data.lastModified||''});
+          repoMetaCache.set(repo.id, {lastModified: data.lastModified||'',
+                                      safetensors: data.safetensors || null,
+                                      otherFiles: data.otherFiles || []});
           // update discovered types
           for (const f of data.files) {
             if (['mmproj','mtp','vision'].includes(f.kind)) discoveredTypes.add(f.kind);
@@ -1153,8 +1215,22 @@ function buildRepoRow(repo) {
 
 // ── select repo → load files into right panel ─────────────────────────────────
 
+function ensureModelTree(repoId) {
+  if (treeCache.has(repoId)) return; // loaded or in flight
+  treeCache.set(repoId, null);
+  fetch(`/api/hf/model-tree?repo=${encodeURIComponent(repoId)}`)
+    .then(r => r.json())
+    .then(d => {
+      if (!d?.ok) { treeCache.delete(repoId); return; }
+      treeCache.set(repoId, d);
+      if (activeRepoId === repoId) renderFilePanel(repoId);
+    })
+    .catch(() => treeCache.delete(repoId));
+}
+
 async function selectRepo(repoId) {
   activeRepoId = repoId;
+  ensureModelTree(repoId);
 
   document.querySelectorAll(".hf-repo-row").forEach(el =>
     el.classList.toggle("is-active", el.dataset.repoId === repoId)
@@ -1193,7 +1269,9 @@ async function selectRepo(repoId) {
       const d = (ORDER[a.kind] ?? 9) - (ORDER[b.kind] ?? 9);
       return d !== 0 ? d : a.quant < b.quant ? -1 : 1;
     }));
-    repoMetaCache.set(repoId, { lastModified: filesData.lastModified || "" });
+    repoMetaCache.set(repoId, { lastModified: filesData.lastModified || "",
+                                safetensors: filesData.safetensors || null,
+                                otherFiles: filesData.otherFiles || [] });
     updateRepoBadges(repoId);
     refreshRepoRowDate(repoId);
     renderFilePanel(repoId);
@@ -1228,8 +1306,76 @@ function renderFilePanel(repoId) {
       : "");
   fileCol.appendChild(header);
 
+  // safetensors checkpoint: ONE artifact row — the whole repo downloads into
+  // <model>/<author>/<FORMAT>/… exactly like a gguf quant folder. No new
+  // translatable words: format token, counts and sizes only.
+  const st = meta.safetensors;
+  if (st && st.files?.length) {
+    const gb = (st.totalSize / 1e9).toFixed(2);
+    const row = document.createElement("div");
+    row.className = "hf-file hf-file-st";
+    row.innerHTML =
+      `<span class="hf-file-badge hf-badge-st">${escapeHtml(st.format)}</span>` +
+      `<span class="hf-file-name">safetensors · ${st.files.length} × 📄</span>` +
+      `<span class="hf-file-size">${gb} GB</span>` +
+      `<button class="hf-file-dl" title="⬇ ${escapeHtml(st.format)}">⬇</button>`;
+    row.querySelector(".hf-file-dl").addEventListener("click", () => downloadSafetensors(repoId, st));
+    fileCol.appendChild(row);
+  }
+
+  // HF model tree, the actionable part: quantized descendants of this repo,
+  // and — when the repo is itself a quant — the other quants of its base.
+  // Rows are one click away from the same file panel (selectRepo).
+  const renderModelTree = () => {
+    const tree = treeCache.get(repoId);
+    if (!tree) return;
+    const sections = [
+      { items: tree.quantizations || [], label: hfT("treeQuants"), open: true },
+      { items: tree.siblings || [], label: hfT("treeSiblings", { base: tree.base }),
+        open: !(tree.quantizations || []).length },
+    ];
+    for (const s of sections) {
+      if (!s.items.length) continue;
+      const det = document.createElement("details");
+      det.className = "hf-model-tree";
+      det.open = s.open;
+      det.innerHTML =
+        `<summary>🧬 ${escapeHtml(s.label)} · ${s.items.length}</summary>` +
+        s.items.map(it =>
+          `<div class="hf-tree-row" data-repo="${escapeHtml(it.id)}" title="${escapeHtml(it.id)}">` +
+          `<span class="hf-file-badge hf-badge-st">${escapeHtml(it.format || "?")}</span>` +
+          `<span class="hf-tree-id">${escapeHtml(it.id)}</span>` +
+          `<span class="hf-tree-meta">⬇ ${fmtNum(it.downloads)}${it.likes ? " · ♥ " + fmtNum(it.likes) : ""}</span>` +
+          `</div>`).join("");
+      det.querySelectorAll(".hf-tree-row").forEach(rowEl =>
+        rowEl.addEventListener("click", () => selectRepo(rowEl.dataset.repo)));
+      fileCol.appendChild(det);
+    }
+  };
+
+  // Everything the caravan cannot launch still deserves to be SEEN: a grey,
+  // collapsed list at the bottom (README, onnx, tf, misc) — numbers only, no
+  // download buttons.
+  const renderOtherFiles = () => {
+    const others = meta.otherFiles || [];
+    if (!others.length) return;
+    const bytes = others.reduce((a, f) => a + (f.size || 0), 0);
+    const sizeLabel = bytes >= 1e9 ? (bytes / 1e9).toFixed(2) + " GB"
+                    : bytes >= 1e6 ? Math.round(bytes / 1e6) + " MB"
+                    : bytes > 0 ? Math.max(1, Math.round(bytes / 1e3)) + " KB" : "";
+    const det = document.createElement("details");
+    det.className = "hf-other-files";
+    det.innerHTML =
+      `<summary>… ${others.length} × 📄${sizeLabel ? " · " + sizeLabel : ""}</summary>` +
+      others.map((f) => `<div class="hf-other-file"><span class="hf-file-name">${escapeHtml(f.name)}</span>` +
+        `<span class="hf-file-size">${f.size ? (f.size >= 1e9 ? (f.size / 1e9).toFixed(2) + " GB" : Math.max(1, Math.round(f.size / 1e6)) + " MB") : ""}</span></div>`).join("");
+    fileCol.appendChild(det);
+  };
+
   if (!files.length) {
-    fileCol.insertAdjacentHTML("beforeend", `<div class="hf-status">${hfT("noGguf")}</div>`);
+    if (!st) fileCol.insertAdjacentHTML("beforeend", `<div class="hf-status">${hfT("noGguf")}</div>`);
+    renderModelTree();
+    renderOtherFiles();
     return;
   }
 
@@ -1298,6 +1444,8 @@ function renderFilePanel(repoId) {
   }
 
   fileCol.appendChild(list);
+  renderModelTree();
+  renderOtherFiles();
 }
 
 // ── recommendations ───────────────────────────────────────────────────────────
@@ -1651,6 +1799,40 @@ function pollDownload(job) {
 
 function deriveModelName(repoId) {
   return repoId.includes("/") ? repoId.split("/").pop() : repoId;
+}
+
+async function downloadSafetensors(repoId, st) {
+  const author = repoId.includes("/") ? repoId.split("/")[0] : "unknown";
+  const modelName = deriveModelName(repoId);
+  const destDir = `${modelName}/${author}/${st.format}`;
+  const payload = st.files.map((f) => ({ path: f.path, name: f.name, size: f.size, destDir }));
+  const totalGb = (st.totalSize / 1e9).toFixed(2);
+  if (!await hfConfirm(`⬇ ${st.format} · ${totalGb} GB`, `${repoId} → ${destDir}/`, "⬇", false)) return;
+  const job = {
+    repoId, jobId: null,
+    totalBytes: st.totalSize, doneBytes: 0, fileName: st.files[0]?.name || "",
+    totalFiles: payload.length, pct: 0, labelText: "Starting…", labelCls: "", cancelled: false,
+  };
+  dlJobs.push(job);
+  refreshDownloadPanel();
+  try {
+    const data = await fetch("/api/hf/download", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repo: repoId, files: payload }),
+    }).then((r) => r.json());
+    if (!data.ok) {
+      job.labelText = "Error: " + (data.error || "unknown"); job.labelCls = "hf-dl-error";
+      refreshDownloadPanel();
+      return;
+    }
+    job.jobId = data.jobId;
+    saveDlJobs();
+    pollDownload(job);
+  } catch (e) {
+    job.labelText = "Error: " + e.message; job.labelCls = "hf-dl-error";
+    refreshDownloadPanel();
+  }
 }
 
 function computeDestDir(repoId, file) {

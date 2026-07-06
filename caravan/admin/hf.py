@@ -36,7 +36,7 @@ def _hf_request(path, timeout=12):
         return {"_error": str(exc)}
 
 _QUANT_PAT = re.compile(
-    r'\b(IQ\d_[A-Z0-9]+|Q\d[_\-][A-Z0-9]+(?:[_\-][A-Z0-9]+)*|BF16|F16|F32)\b',
+    r'\b(NVFP4|MXFP4|IQ\d_[A-Z0-9]+|Q\d[_\-][A-Z0-9]+(?:[_\-][A-Z0-9]+)*|BF16|F16|F32)\b',
     re.IGNORECASE,
 )
 
@@ -54,6 +54,38 @@ def _extract_quant(filename):
     m = _QUANT_PAT.search(filename)
     return m.group(0).upper() if m else ""
 
+_SKIP_REPO_FILES = (".gitattributes", "readme.md", "license", "license.txt", "notice.txt")
+_ST_NAME_HINTS = ("NVFP4", "MXFP4", "AWQ", "GPTQ", "AUTOROUND", "FP8", "INT4", "W4A16", "BNB")
+
+
+def _safetensors_format(repo_id, config_json=None):
+    """Human badge for a safetensors checkpoint: NVFP4 / AWQ / … / BF16.
+    The repo name usually says it; config.json's quantization_config is the
+    source of truth when it doesn't."""
+    up = repo_id.upper()
+    for hint in _ST_NAME_HINTS:
+        if hint in up:
+            return hint
+    qc = (config_json or {}).get("quantization_config") or {}
+    method = str(qc.get("quant_method") or "").lower()
+    if method:
+        return {"modelopt": "NVFP4", "fp8": "FP8", "awq": "AWQ", "gptq": "GPTQ",
+                "autoround": "AUTOROUND", "bitsandbytes": "BNB"}.get(method, method.upper())
+    dtype = str((config_json or {}).get("torch_dtype") or "").lower()
+    if dtype in ("bfloat16", "float16", "float32"):
+        return {"bfloat16": "BF16", "float16": "FP16", "float32": "FP32"}[dtype]
+    return "SAFETENSORS"
+
+
+def _fetch_repo_config(repo_id):
+    try:
+        from caravan.common.fetch import fetch_json
+        encoded = urllib.parse.quote(repo_id, safe="/")
+        return fetch_json(f"https://huggingface.co/{encoded}/resolve/main/config.json", timeout=8)
+    except Exception:
+        return None
+
+
 def hf_list_files(repo_id):
     repo_id = repo_id.strip().strip("/")
     if not re.match(r'^[\w.\-]+/[\w.\-]+$', repo_id):
@@ -65,6 +97,8 @@ def hf_list_files(repo_id):
         return {"ok": False, "error": err}
     last_modified = ""
     files = []
+    st_files = []
+    other_files = []
     for item in raw:
         if item.get("type") != "file":
             continue
@@ -74,20 +108,113 @@ def hf_list_files(repo_id):
         file_date = last_commit.get("date", "")
         if file_date and (not last_modified or file_date > last_modified):
             last_modified = file_date
-        if not name.lower().endswith(".gguf"):
-            continue
-        kind = _classify_gguf(name)
         lfs = item.get("lfs") or {}
         size = lfs.get("size") or item.get("size") or 0
-        files.append({
-            "path": path,
-            "name": name,
-            "kind": kind,
-            "quant": _extract_quant(name) if kind == "model" else "",
-            "size": size,
-            "date": file_date,
+        if name.lower().endswith(".gguf"):
+            kind = _classify_gguf(name)
+            files.append({
+                "path": path,
+                "name": name,
+                "kind": kind,
+                "quant": _extract_quant(name) if kind == "model" else "",
+                "size": size,
+                "date": file_date,
+            })
+            continue
+        # Everything else that belongs to a safetensors checkpoint is collected
+        # into ONE downloadable artifact (config/tokenizer/shards/index) so the
+        # repo lands in the models tree as <model>/<author>/<FORMAT>/…
+        low = name.lower()
+        if low in _SKIP_REPO_FILES or low.endswith((".md", ".png", ".jpg", ".jpeg", ".gif", ".pdf")):
+            other_files.append({"path": path, "name": name, "size": size})
+            continue
+        st_files.append({"path": path, "name": name, "size": size})
+    result = {"ok": True, "repo": repo_id, "files": files, "lastModified": last_modified}
+    # No safetensors weights in the repo -> the collected candidates are just
+    # unsupported extras (onnx, tf, bins…): surface them in the grey list too.
+    if not any(f["name"].lower().endswith(".safetensors") for f in st_files):
+        other_files.extend(st_files)
+        st_files = []
+    other_files.sort(key=lambda f: f["name"].lower())
+    if other_files:
+        result["otherFiles"] = other_files
+    if any(f["name"].lower().endswith(".safetensors") for f in st_files):
+        cfg = _fetch_repo_config(repo_id)
+        result["safetensors"] = {
+            "format": _safetensors_format(repo_id, cfg),
+            "files": st_files,
+            "totalSize": sum(int(f.get("size") or 0) for f in st_files),
+        }
+    return result
+
+def _tree_item_format(item):
+    """Format badge for a model-tree entry. Library/tags beat name hints:
+    'CodeFault/…-NVFP4-GGUF' is a GGUF repo even though the name says NVFP4."""
+    tags = [str(t).lower() for t in (item.get("tags") or [])]
+    library = str(item.get("library_name") or "").lower()
+    if "gguf" in tags or library == "llama.cpp":
+        return "GGUF"
+    if "mlx" in tags or library == "mlx":
+        return "MLX"
+    if "onnx" in tags or library == "onnx":
+        return "ONNX"
+    for t in ("nvfp4", "mxfp4", "awq", "gptq", "autoround", "fp8", "exl2", "exl3", "bnb"):
+        if t in tags:
+            return t.upper()
+    up = str(item.get("id") or "").upper()
+    for hint in _ST_NAME_HINTS:
+        if hint in up:
+            return hint
+    if up.endswith("-GGUF") or "-GGUF-" in up:
+        return "GGUF"
+    if "safetensors" in tags:
+        return "SAFETENSORS"
+    return ""
+
+
+def _tree_items(raw, exclude=""):
+    if not isinstance(raw, list):
+        return []
+    ex = exclude.lower()
+    items = []
+    for r in raw:
+        rid = str(r.get("id") or "")
+        if not rid or rid.lower() == ex:
+            continue
+        items.append({
+            "id": rid,
+            "downloads": r.get("downloads", 0) or 0,
+            "likes": r.get("likes", 0) or 0,
+            "format": _tree_item_format(r),
         })
-    return {"ok": True, "repo": repo_id, "files": files, "lastModified": last_modified}
+    return items
+
+
+def hf_model_tree(repo_id):
+    """HF model tree, the part the caravan can act on: quantized descendants of
+    this repo, plus — when the repo is itself a quant — the base model and its
+    other quants (so an NVFP4 page leads to the GGUF twins one click away)."""
+    repo_id = repo_id.strip().strip("/")
+    if not re.match(r'^[\w.\-]+/[\w.\-]+$', repo_id):
+        return {"ok": False, "error": "invalid repo id"}
+    quant_filter = urllib.parse.quote(f"base_model:quantized:{repo_id}")
+    quants_raw = _hf_request(f"models?filter={quant_filter}&sort=downloads&direction=-1&limit=30")
+    quants = _tree_items(quants_raw, exclude=repo_id)
+    base = ""
+    siblings = []
+    info = _hf_request(f"models/{urllib.parse.quote(repo_id, safe='/')}")
+    if isinstance(info, dict) and not info.get("_error"):
+        for t in info.get("tags") or []:
+            m = re.match(r"^base_model:quantized:(.+)$", str(t))
+            if m:
+                base = m.group(1).strip()
+                break
+    if base and base.lower() != repo_id.lower():
+        sib_filter = urllib.parse.quote(f"base_model:quantized:{base}")
+        sib_raw = _hf_request(f"models?filter={sib_filter}&sort=downloads&direction=-1&limit=30")
+        siblings = _tree_items(sib_raw, exclude=repo_id)
+    return {"ok": True, "repo": repo_id, "quantizations": quants, "base": base, "siblings": siblings}
+
 
 def hf_search(query, limit=20):
     query = query.strip()

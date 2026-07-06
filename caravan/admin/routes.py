@@ -266,6 +266,7 @@ from caravan.admin.hf import (
     hf_list_files,
     hf_local_check,
     hf_local_delete,
+    hf_model_tree,
     hf_search,
 )
 from caravan.admin.benchmarks import (
@@ -452,6 +453,13 @@ def _get_api_hf_files(h, parsed):
         _q = urllib.parse.parse_qs(parsed.query or "")
         _repo = (_q.get("repo") or [""])[0].strip()
         h.send_json(hf_list_files(_repo) if _repo else {"ok": False, "error": "missing repo"})
+        return
+
+@_route(GET_ROUTES, '/api/hf/model-tree')
+def _get_api_hf_model_tree(h, parsed):
+        _q = urllib.parse.parse_qs(parsed.query or "")
+        _repo = (_q.get("repo") or [""])[0].strip()
+        h.send_json(hf_model_tree(_repo) if _repo else {"ok": False, "error": "missing repo"})
         return
 
 @_route(GET_ROUTES, '/api/hf/local-check')
@@ -1363,6 +1371,10 @@ class Handler(BaseHTTPRequestHandler):
         data = json_bytes(payload)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        # Without this browsers heuristically cache API fetch() responses:
+        # /hf kept rendering a stale /api/hf/files payload even across a hard
+        # reload (which only bypasses the cache for documents, not later XHR).
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)

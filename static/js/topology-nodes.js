@@ -36,6 +36,30 @@ import { renderTopology } from "./topology-render.js";
 import { $, api, escapeHtml, toast } from "./utils.js";
 
 // ── Host-centric node view (Stage 3a) ────────────────────────────────────────
+// Known safetensors format folder names (mirror of _ST_FORMAT_HINTS in
+// caravan/admin/models.py) — used to read <Model>/<author>/<FORMAT> paths.
+const _ST_FMT = new Set(["NVFP4", "MXFP4", "AWQ", "GPTQ", "AUTOROUND", "FP8",
+                         "INT4", "W4A16", "BNB", "BF16", "FP16", "FP32", "ST"]);
+
+// Runner identity chip shown IN the model-name row of every cell card —
+// replaces the generic "chip" svg so the engine is readable at a glance.
+function runnerChipHtml(runnerId) {
+  const meta = { "llama-server": ["🦙", "llama.cpp"], "vllm": ["⚡", "vLLM"],
+                 "whisper": ["🎙", "whisper"], "custom": ["🛠", "command"] }[runnerId];
+  if (!meta) return "";
+  return `<span class="mbadge mbadge-cmd node-runner-chip">${meta[0]} ${meta[1]}</span>`;
+}
+
+// Compact age for status lines: 45s / 12m / 5h / 3d.
+function _agoShort(epoch) {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - Number(epoch)));
+  if (s < 90) return s + "s";
+  const m = Math.floor(s / 60);
+  if (m < 90) return m + "m";
+  const h = Math.floor(m / 60);
+  if (h < 36) return h + "h";
+  return Math.floor(h / 24) + "d";
+}
 export const topologyNodesViewOn = true;  // node view is the only mode (flat list retired)
 export const _collapsedNodes = new Set(
   (() => { try { return JSON.parse(localStorage.getItem("topologyCollapsedNodes") || "[]"); } catch { return []; } })()
@@ -234,13 +258,19 @@ export function nodeServerCardHtml(node, s) {
     statusRow = _msl("", `${_mslSpin(false)}<span class="msl-bar indeterminate"><span></span></span><span class="msl-text">${escapeHtml(t("topologyRemoteWarming"))}</span>${_prevErrChip(s)}`);
   } else if (isError && (s.status?.error)) {
     // The unit is failed or flapping — say WHY (classified from its journal)
-    // instead of leaving a silent stopped-looking card.
+    // instead of leaving a silent stopped-looking card. WHEN it died matters
+    // just as much: an hours-old crash must not read as "it just fell again".
     const err = s.status.error;
     const kindKey = { oom: "cellErrOom", exec: "cellErrExec", model: "cellErrModel", port: "cellErrPort" }[err.kind] || "cellErrCrash";
+    const ago = s.status.errorAt ? ` · ${_agoShort(s.status.errorAt)}` : "";
     const tip = [err.detail || "", "", err.tail || ""].join("\n").trim();
-    statusRow = _msl("msl-err", `<span class="msl-err-icon" aria-hidden="true">⚠</span><span class="msl-text" title="${escapeHtml(tip)}">${escapeHtml(t(kindKey))}</span>`);
+    statusRow = _msl("msl-err", `<span class="msl-err-icon" aria-hidden="true">⚠</span><span class="msl-text" title="${escapeHtml(tip)}">${escapeHtml(t(kindKey) + ago)}</span>`);
   } else if (!running && !isStopped) {
-    statusRow = _msl("", `${_mslSpin(false)}<span class="msl-text">${escapeHtml(phase === "loading" ? t("topologyRemoteLoading") : t("topologyRemoteStarting"))}</span>${_prevErrChip(s)}`);
+    // progressNote (from the cell journal) says WHERE a long start currently
+    // is — vLLM downloads/compiles for minutes and a bare spinner reads as a
+    // hang. Log-derived, so shown as-is (same policy as error details).
+    const note = s.status?.progressNote ? ` · ${s.status.progressNote}` : "";
+    statusRow = _msl("", `${_mslSpin(false)}<span class="msl-text">${escapeHtml((phase === "loading" ? t("topologyRemoteLoading") : t("topologyRemoteStarting")) + note)}</span>${_prevErrChip(s)}`);
   }
   const healthCls = running ? "running" : (isStopped ? "" : "loading");
   // Compact model block (name + quant/size/vision chips) — click to drill in.
@@ -287,7 +317,7 @@ export function nodeServerCardHtml(node, s) {
     <div class="node-model-block" role="button" tabindex="0"
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
       <div class="node-model-row1">
-        ${topologyModelIcon()}
+        ${runnerChipHtml("llama-server")}
         <strong class="node-model-name" title="${escapeHtml(s.modelPath || s.model)}">${escapeHtml(parsed.label || s.model)}</strong>
       </div>
       ${statusRow || (chips || schedChip ? `<div class="node-model-row2"><span class="model-chips">${chips}${schedChip}</span></div>` : "")}
@@ -307,12 +337,55 @@ export function nodeServerCardHtml(node, s) {
     <div class="node-model-block" role="button" tabindex="0"
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
       <div class="node-model-row1">
-        <span class="node-cmd-icon" aria-hidden="true">⌘</span>
+        ${runnerChipHtml("custom")}
         <strong class="node-model-name" title="${escapeHtml(cmdText)}">${escapeHtml(cmdText || t("commandCellFallback"))}</strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${mbadge("cmd", "⌘ command")}${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
     </div>` : "";
-  const bodyBlock = modelBlock || commandBlock || emptyCellBlock;
+  // vLLM runner cell: no MODEL_FILE — the artifact lives in VLLM_MODEL. Same
+  // body layout as a llama cell: model icon + model NAME, then runner chips.
+  const isVllmCell = String(_scfg.RUNNER || "").toLowerCase() === "vllm";
+  const vllmModel = String(_scfg.VLLM_MODEL || "").trim().replace(/\/+$/, "");
+  const vllmArt = vllmModel
+    ? (state.artifacts || []).find((a) => vllmModel === a.path || vllmModel.endsWith("/" + a.path))
+    : null;
+  let vllmName = vllmArt?.name || "";
+  let vllmFmt = vllmArt?.format || "";
+  if (!vllmName && vllmModel) {
+    // <…>/<Model>/<author>/<FORMAT> → Model; a bare HF repo id → its last part.
+    const segs = vllmModel.split("/").filter(Boolean);
+    const last = segs[segs.length - 1] || "";
+    if (_ST_FMT.has(last.toUpperCase()) && segs.length >= 3) {
+      vllmFmt = last.toUpperCase();
+      vllmName = segs[segs.length - 3];
+    } else {
+      vllmName = last;
+    }
+  }
+  if (!vllmName) vllmName = String(_scfg.ALIAS || "").trim() || "vLLM";
+  const vllmAlias = String(_scfg.ALIAS || "").trim();
+  const vllmBlock = (isVllmCell && !s.model) ? `
+    <div class="node-model-block" role="button" tabindex="0"
+         data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
+      <div class="node-model-row1">
+        ${runnerChipHtml("vllm")}
+        <strong class="node-model-name" title="${escapeHtml(vllmModel || vllmName)}${vllmAlias ? escapeHtml(` · served as ${vllmAlias}`) : ""}">${escapeHtml(vllmName)}</strong>
+      </div>
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${vllmFmt ? mbadge("quant", `🎛 ${escapeHtml(vllmFmt)}`) : ""}${mbadge("cmd", "❤ /v1/models")}${_scfg.MAX_MODEL_LEN ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.MAX_MODEL_LEN)))}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
+    </div>` : "";
+  // whisper runner cell: the "model" is a faster-whisper size name.
+  const isWhisperCell = String(_scfg.RUNNER || "").toLowerCase() === "whisper";
+  const whisperSize = String(_scfg.WHISPER_MODEL || "").trim() || "large-v3";
+  const whisperBlock = (isWhisperCell && !s.model) ? `
+    <div class="node-model-block" role="button" tabindex="0"
+         data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
+      <div class="node-model-row1">
+        ${runnerChipHtml("whisper")}
+        <strong class="node-model-name" title="faster-whisper ${escapeHtml(whisperSize)}">${escapeHtml(whisperSize)}</strong>
+      </div>
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
+    </div>` : "";
+  const bodyBlock = modelBlock || vllmBlock || whisperBlock || commandBlock || emptyCellBlock;
   // No model/command block to host the status (e.g. a bare stopped server) —
   // fall back to the old below-the-body progress panel.
   const progressPanel = (!bodyBlock && statusRow)
@@ -480,6 +553,8 @@ export function openNodeServerDetail(nodeId, port) {
   const hasMtp = !!s.specDraft || hasMtpBuiltin || (s.specType || "").toLowerCase() === "draft-mtp";
   const _scfg = s.slotConfig || {};
   const isCmd = String(_scfg.CELL_KIND || "").toLowerCase() === "command";
+  const isVllm = String(_scfg.RUNNER || "").toLowerCase() === "vllm";
+  const isWhisper = String(_scfg.RUNNER || "").toLowerCase() === "whisper";
   const nsdCtxChip = s.ctxMax
     ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(s.ctxMax))}`, t("topologyCtxUsageTip") || "Context window")
     : (_scfg.CTX_SIZE ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.CTX_SIZE)))}`) : "");
@@ -506,6 +581,34 @@ export function openNodeServerDetail(nodeId, port) {
   // Build formatted command block from slotConfig
   const cmdBlockHtml = (() => {
     const cfg = s.slotConfig || {};
+    if (isWhisper) {
+      const size = String(cfg.WHISPER_MODEL || "").trim() || "large-v3";
+      const lines = [`export PORT=${cfg.PORT || s.port || ""}`,
+                     `exec env HUGGINGFACE_HUB_CACHE="\${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/whisper" bash $HOME/run_whisper.sh "$PORT" ${size}`];
+      const cmdText = lines.join("\n");
+      const pre = lines.map((l) => `<span class="cmd-token">${escapeHtml(l)}</span>`).join("\n");
+      return `<div class="nsd-cfg-section"><div class="nsd-cfg-head">COMMAND <button class="nsd-copy-btn" type="button" data-copy="${escapeHtml(cmdText)}" title="Copy">⎘</button></div><pre class="command-preview nsd-cmd-pre">${pre}</pre></div>`;
+    }
+    if (isVllm) {
+      // Simplified mirror of build_vllm_command() — the authoritative script
+      // lives in the cell's start.sh; this is the human-readable summary.
+      const m = String(cfg.VLLM_MODEL || "").trim() || "…";
+      const served = String(cfg.ALIAS || "").trim() || (m.split("/").filter(Boolean).pop() || "").toLowerCase();
+      const p = ["$HOME/vllm-venv/bin/vllm serve", m, '--host 0.0.0.0 --port "$PORT"'];
+      if (served) p.push(`--served-model-name ${served}`);
+      if (cfg.MAX_MODEL_LEN) p.push(`--max-model-len ${cfg.MAX_MODEL_LEN}`);
+      if (cfg.GPU_MEMORY_UTILIZATION) p.push(`--gpu-memory-utilization ${cfg.GPU_MEMORY_UTILIZATION}`);
+      const q = String(cfg.QUANTIZATION || "").toLowerCase();
+      if (q && q !== "auto") p.push(`--quantization ${q}`);
+      const dt = String(cfg.DTYPE || "").toLowerCase();
+      if (dt && dt !== "auto") p.push(`--dtype ${dt}`);
+      const tp = String(cfg.TENSOR_PARALLEL || "").trim();
+      if (tp && tp !== "0" && tp !== "1") p.push(`--tensor-parallel-size ${tp}`);
+      const lines = [`export PORT=${cfg.PORT || s.port || ""}`, `exec ${p.join(" ")}`];
+      const cmdText = lines.join("\n");
+      const pre = lines.map((l) => `<span class="cmd-token">${escapeHtml(l)}</span>`).join("\n");
+      return `<div class="nsd-cfg-section"><div class="nsd-cfg-head">COMMAND <button class="nsd-copy-btn" type="button" data-copy="${escapeHtml(cmdText)}" title="Copy">⎘</button></div><pre class="command-preview nsd-cmd-pre">${pre}</pre></div>`;
+    }
     if (isCmd) {
       const port = cfg.PORT || s.port || "";
       const lines = [`export PORT=${port}`];
@@ -587,7 +690,13 @@ export function openNodeServerDetail(nodeId, port) {
           ${row("Address", `<a href="http://${escapeHtml(addr)}" target="_blank" rel="noopener" class="topology-addr-link nsd-addr-link" onclick="event.stopPropagation()">${escapeHtml(addr)} ↗</a>`)}
           ${isCmd
             ? row("Command", `<code class="nsd-cmd-inline">${escapeHtml(String(_scfg.COMMAND || "").replace(/^\s*exec\s+/, "") || "—")}</code>`)
+            : isVllm
+            ? row("Model", `<code class="nsd-cmd-inline">${escapeHtml(String(_scfg.VLLM_MODEL || "") || "—")}</code>`)
+            : isWhisper
+            ? row("Model", `<code class="nsd-cmd-inline">faster-whisper ${escapeHtml(String(_scfg.WHISPER_MODEL || "large-v3"))}</code>`)
             : row("Model", escapeHtml(parsed.label || s.model || ""))}
+          ${isVllm ? row("Runner", `${mbadge("cmd", "⚡ vllm")}${mbadge("cmd", "❤ /v1/models")}`) : ""}
+          ${isWhisper ? row("Runner", `${mbadge("cmd", "🎙 whisper")}${mbadge("cmd", "❤ /health")}`) : ""}
           ${isCmd
             ? (row("Health", _scfg.HEALTH_PATH ? `<code>${escapeHtml(_scfg.HEALTH_PATH)}</code>` : "") + row("Workdir", _scfg.WORKDIR ? `<code>${escapeHtml(_scfg.WORKDIR)}</code>` : ""))
             : (() => { const chips = [parsed.quant ? mbadge("quant", `🎛 ${escapeHtml(parsed.quant)}`) : "", parsed.size ? mbadge("size", `⚖ ${escapeHtml(parsed.size)}`) : "", parsed.variant ? mbadge("it", `🤖 ${escapeHtml(parsed.variant)}`) : "", s.mmproj ? mbadge("mmproj", "📷 mmproj") : "", hasMtp ? mbadge("mtp", "⚡ mtp") : "", nsdCtxChip].filter(Boolean).join(""); return chips ? `<div class="nsd-row"><span class="nsd-k"></span><span class="nsd-v"><span class="model-chips">${chips}</span></span></div>` : ""; })()}

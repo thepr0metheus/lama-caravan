@@ -697,6 +697,13 @@
 }
 .cmd-history-revert:hover { border-color: var(--accent); }
 
+/* Artifact format chip in the repo list (GGUF / ⚡NVFP4 / MLX …) */
+.mbadge-fmt {
+  background: color-mix(in srgb, #9fd0ff 12%, transparent);
+  border-color: color-mix(in srgb, #9fd0ff 30%, var(--line));
+  color: #9fd0ff;
+}
+
 /* Command cell: card badge + icon */
 .mbadge-cmd {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
@@ -704,6 +711,8 @@
   color: var(--accent-strong, var(--accent));
 }
 .node-cmd-icon { font-size: 14px; opacity: .8; }
+/* runner identity chip in the model-name row (🦙 llama.cpp / ⚡ vLLM / 🛠 command) */
+.node-runner-chip { flex: 0 0 auto; font-size: 10px; white-space: nowrap; }
 .nsd-cmd-inline { font-family: ui-monospace, Menlo, monospace; font-size: 11px; word-break: break-all; }
 
 /* The llama/command field wrappers must NOT break the form's flex gap:
@@ -769,3 +778,23 @@
   background: color-mix(in srgb, var(--accent) 30%, var(--surface));
   box-shadow: 0 0 10px 0 color-mix(in srgb, var(--accent) 30%, transparent);
 }
+
+/* safetensors artifact row: one download for the whole checkpoint folder */
+.hf-file-st { display: flex; align-items: center; gap: 10px; padding: 10px 12px; }
+.hf-badge-st { background: #2b3f52; color: #9fd0ff; border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700; letter-spacing: .4px; }
+.hf-file-st .hf-file-dl { margin-left: auto; }
+
+/* unsupported repo files: visible but grey and folded by default */
+.hf-other-files { margin: 10px 12px; color: var(--muted); opacity: .75; font-size: 12px; }
+.hf-other-files summary { cursor: pointer; padding: 4px 0; user-select: none; }
+.hf-other-file { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0 2px 14px; }
+
+/* model tree: quantized descendants / other quants of the base model */
+.hf-model-tree { margin: 10px 12px; font-size: 12px; }
+.hf-model-tree summary { cursor: pointer; padding: 4px 0; user-select: none; color: var(--muted); font-weight: 600; }
+.hf-tree-row { display: flex; align-items: center; gap: 8px; padding: 4px 0 4px 14px; cursor: pointer; border-radius: 6px; }
+.hf-tree-row:hover { background: rgba(120, 170, 255, .08); }
+.hf-tree-row .hf-file-badge { flex: 0 0 auto; min-width: 44px; text-align: center; }
+.hf-tree-id { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg, #dbe6f4); }
+.hf-tree-row:hover .hf-tree-id { text-decoration: underline; }
+.hf-tree-meta { flex: 0 0 auto; color: var(--muted); font-size: 11px; }

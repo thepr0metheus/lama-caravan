@@ -9,7 +9,8 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args, is_command_cell
+from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args
+from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
 from caravan.admin.launch import _sanitize_snapshot_name
 from caravan.admin.paths import (
     AGENT_PROXY_SERVICE_NAME,
@@ -101,11 +102,14 @@ def client_llama_start(body: dict) -> dict:
         # fallback for older agents that still rebuild the command themselves.
         "config": body.get("config") if isinstance(body.get("config"), dict) else {},
     }
-    # Command cells run an arbitrary managed process — no model, no llama args.
-    if is_command_cell(payload["config"]):
+    # Command-path cells run an arbitrary managed process — no llama args.
+    # custom cells send their stored COMMAND; vllm cells compile their fields
+    # into one bootstrap+serve line. The scout runs either via bash -lc, so no
+    # agent-side knowledge of runners is needed.
+    if uses_command_path(payload["config"]):
         payload["cellKind"] = "command"
-        payload["command"] = str(payload["config"].get("COMMAND") or "").strip()
-        payload["healthPath"] = str(payload["config"].get("HEALTH_PATH") or "").strip()
+        payload["command"] = effective_command(payload["config"], with_bootstrap=True)
+        payload["healthPath"] = effective_health_path(payload["config"])
         if not payload["command"]:
             raise AppError("command is required for a command cell", 400)
     else:

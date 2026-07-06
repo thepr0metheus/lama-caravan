@@ -11,6 +11,7 @@ from pathlib import Path
 
 from caravan.admin.paths import DEFAULT_MODELS_DIR, LLAMA_HOME, START_SCRIPT
 from caravan.common.errors import AppError
+from caravan.admin.runners import runner_id
 from caravan.common.fsio import read_text
 
 
@@ -95,15 +96,41 @@ CONFIG_FIELDS = [
     # CELL_KIND="command" turns a cell into a managed arbitrary process (e.g. a
     # whisper-server) instead of llama-server. Empty CELL_KIND (the default for
     # every existing cell) stays a normal llama.cpp cell, so nothing else changes.
+    # RUNNER supersedes it (see caravan/admin/runners.py): the GUI writes both
+    # so old readers (scout included) keep working from CELL_KIND alone.
+    "RUNNER",        # "" (legacy -> derive from CELL_KIND) | "llama-server" | "custom"
     "CELL_KIND",     # "" | "command"
     "COMMAND",       # single shell command line for a command cell; may use $PORT
     "HEALTH_PATH",   # optional HTTP path to health-probe (empty = TCP port probe)
     "ENV",           # command cell: newline/comma KEY=VALUE env exports
     "WORKDIR",       # command cell: working directory (cd before exec)
+    # vLLM runner (RUNNER="vllm"): compiled into the command-cell machinery at
+    # launch time — scout and start.sh treat it as a managed command.
+    "VLLM_MODEL",              # HF repo id (nvidia/Qwen3.6-27B-NVFP4) or local path
+    "MAX_MODEL_LEN",           # --max-model-len
+    "GPU_MEMORY_UTILIZATION",  # --gpu-memory-utilization (0.90)
+    "QUANTIZATION",            # --quantization (auto|modelopt|awq|gptq|fp8)
+    "DTYPE",                   # --dtype (auto|bfloat16|float16)
+    "TENSOR_PARALLEL",         # --tensor-parallel-size
+    # whisper runner (RUNNER="whisper"): run_whisper.sh "$PORT" <size>
+    "WHISPER_MODEL",           # faster-whisper size: tiny…large-v3(-turbo)
 ]
 
 FIELD_HELP = {
     "HOST": "Bind address. 0.0.0.0 exposes the server on the LAN.",
+    "RUNNER": "Launch flavour of this cell: llama-server or a custom managed command. Legacy configs derive it from CELL_KIND.",
+    "CELL_KIND": "Legacy launch-kind flag; superseded by RUNNER but still written for old readers.",
+    "COMMAND": "Full shell command for a custom cell. $PORT expands to the cell port.",
+    "ENV": "Extra environment for the command: newline- or comma-separated KEY=VALUE pairs.",
+    "WORKDIR": "Working directory the command starts in (cd before exec).",
+    "HEALTH_PATH": "HTTP path probed to decide the cell is up; empty falls back to a TCP port probe.",
+    "VLLM_MODEL": "HF repo id (e.g. nvidia/Qwen3.6-27B-NVFP4) or a local path; vLLM downloads HF repos into its own cache on first start.",
+    "MAX_MODEL_LEN": "vLLM context window (--max-model-len). Empty lets vLLM use the model default — large defaults can exhaust VRAM.",
+    "GPU_MEMORY_UTILIZATION": "Fraction of VRAM vLLM may claim (--gpu-memory-utilization), e.g. 0.90.",
+    "QUANTIZATION": "vLLM quantization backend (--quantization): auto detects; modelopt for NVFP4 checkpoints, awq/gptq for INT4.",
+    "DTYPE": "Activation dtype (--dtype): auto, bfloat16 or float16.",
+    "TENSOR_PARALLEL": "GPUs to shard across (--tensor-parallel-size). 1 on single-GPU hosts.",
+    "WHISPER_MODEL": "faster-whisper model size (tiny…large-v3). Downloaded automatically on first start; language is chosen per request.",
     "PORT": "llama.cpp HTTP port. OpenAI-compatible API is /v1 on this port.",
     "LLAMA_MODELS_DIR": "Directory where local GGUF models and mmproj files are stored.",
     "MODEL_FILE": "GGUF model path relative to the models directory.",
@@ -594,7 +621,7 @@ def build_local_llama_command(config, *, llama_home=None):
 
 def is_command_cell(config):
     """True when a cell runs a generic managed command instead of llama-server."""
-    return str((config or {}).get("CELL_KIND") or "").strip().lower() == "command"
+    return runner_id(config) == "custom"
 
 def models_dir_from_config(config):
     return Path(config.get("LLAMA_MODELS_DIR") or str(DEFAULT_MODELS_DIR)).expanduser()

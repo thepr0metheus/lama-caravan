@@ -4,7 +4,8 @@ import os
 import time
 
 from caravan.admin.cloud import cloud_accounts_state, cloud_blocks_state, cloud_provider_presets_public
-from caravan.admin.config_builder import is_command_cell, parse_config
+from caravan.admin.config_builder import parse_config
+from caravan.admin.runners import uses_command_path
 from caravan.admin.fleet_clients import refresh_topology_clients_from_agents, topology_clients
 from caravan.admin.llama_metrics import runtime_metrics_sample, runtime_phase
 from caravan.admin.monitoring import (
@@ -29,7 +30,7 @@ from caravan.admin.proxies_config import (
 from caravan.admin.router_dsl import normalize_agent_proxy_policy
 from caravan.admin.server_cells import server_slot_key
 from caravan.admin.state import save_admin_state, topology_store
-from caravan.admin.systemd_ctl import cell_last_error, cell_service_name, cell_service_status, service_status
+from caravan.admin.systemd_ctl import cell_last_error, cell_progress_note, cell_service_name, cell_service_status, cell_unit_pids, service_status, systemd_ts_epoch
 from caravan.admin.telemetry import (
     _normalize_modalities,
     _record_cpu_history,
@@ -171,7 +172,7 @@ def topology_server(config=None):
         # llama.cpp keeps loading the model into VRAM afterwards (/health → 503).
         # Probe /health so we can show a distinct "loading into VRAM" state.
         _r_cfg = (_r_slot.get("config") or {}) if _r_slot else {}
-        slot_is_command = is_command_cell(_r_cfg)
+        slot_is_command = uses_command_path(_r_cfg)
         _cmd_dl = _cmd_tot = 0
         _cmd_phase = ""
         if slot_is_command:
@@ -262,10 +263,12 @@ def topology_server(config=None):
             gpu_name = str((client["gpus"][0] or {}).get("name") or "")
         model_path = str(slot.get("model") or "")
         slot_cfg = slot.get("config") or {}
-        slot_is_command = is_command_cell(slot_cfg)
+        slot_is_command = uses_command_path(slot_cfg)
         # A configured command cell has no MODEL_FILE but still counts as
         # "configured" (stopped), not an empty "reserved" slot.
-        slot_phase = "stopped" if (model_path or (slot_is_command and slot_cfg.get("COMMAND"))) else "reserved"
+        slot_phase = "stopped" if (model_path or (slot_is_command and (
+            slot_cfg.get("COMMAND") or slot_cfg.get("VLLM_MODEL")
+            or str(slot_cfg.get("RUNNER") or "").strip().lower() == "whisper"))) else "reserved"
         service_name = SERVICE_NAME if is_controller_slot else ""
         cell_status = {}
         cell_pid = None
@@ -334,6 +337,12 @@ def topology_server(config=None):
                     cell_error = None
         # Authoritative modalities for a live cell (controller on 127.0.0.1,
         # remote on its IP). Stopped/reserved cells have no running server.
+        progress_note = ""
+        if is_controller_slot and slot_phase in ("starting", "warming"):
+            try:
+                progress_note = cell_progress_note(port)
+            except Exception:
+                progress_note = ""
         slot_mods = None
         if slot_phase == "running" and not slot_is_command:
             probe_ip = "127.0.0.1" if is_controller_slot else client_ip
@@ -352,8 +361,15 @@ def topology_server(config=None):
             "specDraft": str(((slot.get("config") or {}).get("SPEC_DRAFT_MODEL_FILE")) or ""),
             "specType": str(((slot.get("config") or {}).get("SPEC_TYPE")) or ""),
             "status": ({"phase": slot_phase,
+                        **({"progressNote": progress_note} if progress_note else {}),
+                        # When the crash happened — old failures shouldn't read
+                        # as "it just died again" on the card.
+                        **({"errorAt": systemd_ts_epoch(cell_status.get("ExecMainExitTimestamp"))}
+                           if systemd_ts_epoch(cell_status.get("ExecMainExitTimestamp")) else {}),
                         ("error" if slot_phase == "error" else "lastError"): cell_error}
-                       if cell_error else {"phase": slot_phase}),
+                       if cell_error else
+                       ({"phase": slot_phase, "progressNote": progress_note}
+                        if progress_note else {"phase": slot_phase})),
             "service": service_name,
             "gpuIndexes": [],
             "isRemote": not is_controller_slot,
@@ -375,6 +391,9 @@ def topology_server(config=None):
             "commandHistory": slot.get("commandHistory") or [],
             "bootEnabled": cell_boot == "enabled",
             "pid": cell_pid,
+            # All unit PIDs — vLLM holds the GPU in a forked worker, and the
+            # GPU binder must see it or the cell lands in the CPU section.
+            "pids": sorted(cell_unit_pids(port)) if (is_controller_slot and slot_phase == "running") else [],
             "lastError": cell_status.get("error") if slot_phase == "error" else "",
             "firewall": firewall_port_access(port) if is_controller_slot else None,
             "reachable": None,
@@ -407,13 +426,15 @@ def _bind_servers_to_gpus(gpus, compute_apps, servers):
         pid_mem[(pid, idx)] = app.get("usedMiB", 0)
     gpu_ports: dict = {}
     for s in servers:
-        pid = s.get("pid")
-        idxs = sorted(pid_indexes.get(pid, set()), key=lambda x: (x is None, x)) if pid else []
+        pids = {p for p in [s.get("pid"), *(s.get("pids") or [])] if p}
+        idxs = sorted({i for p in pids for i in pid_indexes.get(p, set())},
+                      key=lambda x: (x is None, x))
         # Fall back to any pre-set gpuIndexes (e.g. controller default-all).
         if not idxs and s.get("gpuIndexes"):
             idxs = list(s["gpuIndexes"])
         s["gpuIndexes"] = idxs
-        s["gpuMem"] = {str(i): pid_mem.get((pid, i), 0) for i in idxs} if pid else {}
+        s["gpuMem"] = ({str(i): sum(pid_mem.get((p, i), 0) for p in pids) for i in idxs}
+                       if pids else {})
         for i in idxs:
             gpu_ports.setdefault(i, set()).add(s.get("port"))
     for g in gpus:

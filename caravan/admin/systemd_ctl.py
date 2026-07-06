@@ -1,5 +1,7 @@
 """systemd --user service control: status, actions, diagnostics, unit repair."""
+import datetime
 import os
+import re
 import time
 from pathlib import Path
 
@@ -39,11 +41,35 @@ def ensure_cell_service_template():
         systemctl("daemon-reload", timeout=15)
     return str(target)
 
+def systemd_ts_epoch(value):
+    """systemd's 'Sun 2026-07-05 20:09:31 +04' → epoch seconds (0 if unset)."""
+    s = str(value or "").strip()
+    if not s or s in ("n/a", "0"):
+        return 0
+    m = re.match(r"^\w+ (\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(?: ([+-]\d{2})(\d{2})?)?", s)
+    if not m:
+        return 0
+    date_s, time_s, tzh, tzm = m.groups()
+    try:
+        dt = datetime.datetime.fromisoformat(f"{date_s}T{time_s}")
+        if tzh is not None:
+            hours = int(tzh)
+            minutes = int(tzm or 0)
+            offset = datetime.timedelta(hours=hours,
+                                        minutes=minutes if hours >= 0 else -minutes)
+            dt = dt.replace(tzinfo=datetime.timezone(offset))
+        else:
+            dt = dt.astimezone()  # controller-local time, same box as systemd
+        return int(dt.timestamp())
+    except Exception:
+        return 0
+
+
 def cell_service_status(port):
     name = cell_service_name(port)
     show = systemctl("show", name, "-p", "LoadState", "-p", "ActiveState", "-p", "SubState",
                      "-p", "MainPID", "-p", "ExecMainStartTimestamp", "-p", "UnitFileState",
-                     "-p", "Result", "-p", "NRestarts", timeout=5)
+                     "-p", "Result", "-p", "NRestarts", "-p", "ExecMainExitTimestamp", timeout=5)
     status = {}
     for line in show["stdout"].splitlines():
         if "=" in line:
@@ -66,6 +92,45 @@ _CELL_ERR_PATTERNS = (
              "erroroutofdevicememory", "not enough memory", "insufficient memory")),
 )
 _cell_err_cache = {}
+
+_cell_progress_cache = {}
+
+# Ordered from latest phase to earliest: the LAST matching journal line wins,
+# so the note follows the launch as it moves through the stages.
+_CELL_PROGRESS_PATTERNS = (
+    ("starting API",        ("starting vllm api server", "uvicorn running", "application startup complete")),
+    ("capturing CUDA graphs", ("capturing cuda graph", "cudagraph", "graph capturing finished")),
+    ("compiling kernels",   ("torch.compile", "dynamo bytecode", "compiling", "inductor")),
+    ("loading weights",     ("loading safetensors", "model loading took", "loading weights", "load_tensors", "loading model")),
+    ("downloading model",   ("downloading", "fetching ", "%|")),
+    ("provisioning venv",   ("provisioning vllm venv",)),
+    ("warming up",          ("warming up", "kv cache", "encoder cache")),
+)
+
+
+def cell_progress_note(port, lines=25, ttl=8):
+    """One short line describing WHERE a starting cell currently is, derived
+    from the unit journal (vLLM downloads/compiles for minutes — the board
+    should say so instead of a bare spinner). Cached per port like
+    cell_last_error; returns "" when nothing matches."""
+    now = time.time()
+    cached = _cell_progress_cache.get(port)
+    if cached and now - cached[0] < ttl:
+        return cached[1]
+    res = run(["journalctl", "--user", "-u", cell_service_name(port), "-n", str(lines),
+               "--no-pager", "-o", "cat"], timeout=6, env=user_systemd_env())
+    note = ""
+    for line in reversed((res.get("stdout") or "").splitlines()):
+        low = line.lower()
+        for label, needles in _CELL_PROGRESS_PATTERNS:
+            if any(n in low for n in needles):
+                note = label
+                break
+        if note:
+            break
+    _cell_progress_cache[port] = (now, note)
+    return note
+
 
 def cell_last_error(port, lines=60, ttl=10):
     """Tail the cell unit's journal and classify why it won't start.
@@ -98,6 +163,34 @@ def cell_last_error(port, lines=60, ttl=10):
         result = {"kind": kind, "detail": detail[:300], "tail": "\n".join(tail_lines)[-1500:]}
     _cell_err_cache[port] = (now, result)
     return result
+
+def cell_unit_pids(port):
+    """Every PID in the cell unit's cgroup — engines that fork workers (vLLM)
+    hold the GPU in a CHILD process, so matching only MainPID misclassifies
+    the cell as CPU-only. Returns a set; empty when the unit isn't running."""
+    show = systemctl("show", cell_service_name(port), "-p", "ControlGroup", timeout=5)
+    cg = ""
+    for line in (show.get("stdout") or "").splitlines():
+        if line.startswith("ControlGroup="):
+            cg = line.split("=", 1)[1].strip()
+            break
+    pids = set()
+    if not cg:
+        return pids
+    root = Path("/sys/fs/cgroup") / cg.lstrip("/")
+    try:
+        for procs in [root / "cgroup.procs", *root.glob("*/cgroup.procs")]:
+            if not procs.is_file():
+                continue
+            for tok in procs.read_text().split():
+                try:
+                    pids.add(int(tok))
+                except ValueError:
+                    pass
+    except OSError:
+        pass
+    return pids
+
 
 def cell_service_action(port, action):
     if action not in {"start", "stop", "restart", "enable", "disable"}:

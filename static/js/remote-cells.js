@@ -786,19 +786,25 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
 export async function submitRemoteLlamaStart() {
   if (_trPurging) { toast(t("topologyPurgeCacheBlocksStart")); return; }
   const config = readConfigForm("tr-");
-  const isCommand      = config.CELL_KIND === "command";
+  // Command-path runners (custom/vllm/whisper) carry no MODEL_FILE — their
+  // artifact lives in COMMAND/VLLM_MODEL/WHISPER_MODEL respectively.
+  const runnerId       = (config.RUNNER || "").trim() || (config.CELL_KIND === "command" ? "custom" : "llama-server");
+  const isCommandPath  = runnerId !== "llama-server";
+  const isCommand      = runnerId === "custom";
   const port           = parseInt(config.PORT || "8180", 10);
   const modelPath      = (config.MODEL_FILE || "").trim();
   const gpuLayers      = parseInt(config.N_GPU_LAYERS || "999", 10);
   const ctxSize        = parseInt(config.CTX_SIZE || "4096", 10);
   const cacheModels    = !!$("tr-cacheModels")?.checked;
-  const _startMsg = isCommand || !modelPath
+  const _startMsg = isCommandPath || !modelPath
     ? t("dlgStartPort", { port: String(port) })
     : t("dlgStartModel", { model: modelPath.split("/").pop(), port: String(port) });
   if (!(await appConfirm(_startMsg, { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;
   if (isCommand) {
     if (!(config.COMMAND || "").trim()) { toast(t("enterCommand")); return; }
-  } else if (!modelPath) { toast(t("selectModel")); return; }
+  } else if (runnerId === "vllm") {
+    if (!(config.VLLM_MODEL || "").trim()) { toast(t("selectModel")); return; }
+  } else if (!isCommandPath && !modelPath) { toast(t("selectModel")); return; }
 
   // Cell mode: save config without starting (same as controller "Применить")
   if (_trCellPort) {

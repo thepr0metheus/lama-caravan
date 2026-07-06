@@ -205,7 +205,12 @@ export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
   if (teKindRow) teKindRow.hidden = !_teCellPort;
   if (!_teCellPort) {
     const k = $("te-CELL_KIND");
-    if (k && k.value) { k.value = ""; applyCellKindUI("te-"); }
+    const r = $("te-RUNNER");
+    if ((k && k.value) || (r && r.value && r.value !== "llama-server")) {
+      if (k) k.value = "";
+      if (r) r.value = "";
+      applyCellKindUI("te-");
+    }
   }
   $("topologyLlamaEditOverlay").hidden = false;
 }
@@ -316,10 +321,42 @@ export function applyConfigToForm(config, pfx = "") {
   // Generic command cell fields + llama/command visibility.
   const ckEl = $(pfx + "CELL_KIND");
   if (ckEl) ckEl.value = config.CELL_KIND || "";
+  const runEl = $(pfx + "RUNNER");
+  if (runEl) runEl.value = config.RUNNER || "";
   const cmdEl = $(pfx + "COMMAND");
   if (cmdEl) cmdEl.value = config.COMMAND || "";
   const hpEl = $(pfx + "HEALTH_PATH");
   if (hpEl) hpEl.value = config.HEALTH_PATH || "";
+  ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL"].forEach((k) => {
+    const el = $(pfx + k);
+    if (el) el.value = config[k] || "";
+  });
+  const whEl = $(pfx + "WHISPER_MODEL");
+  if (whEl) whEl.value = config.WHISPER_MODEL || "large-v3";
+  // vLLM/whisper cells clear MODEL_FILE on save, and merging with the global
+  // config would leak the main service's model into the picker. So the picker
+  // ALWAYS shows the cell's own artifact (vLLM with a local path) or nothing
+  // (HF repo id / whisper, whose model is a size name) — never the leak.
+  const _rid = String(config.RUNNER || "").toLowerCase();
+  if (_rid === "vllm" || _rid === "whisper") {
+    const vm = String(config.VLLM_MODEL || "").trim().replace(/\/+$/, "");
+    const base = (state.paths?.modelsDir || "").replace(/\/+$/, "");
+    let rel = "";
+    if (_rid === "vllm" && vm && base && vm.startsWith(base + "/")) {
+      const cand = vm.slice(base.length + 1);
+      if ((state.artifacts || []).some((a) => a.path === cand)) rel = cand;
+    }
+    if (_rid === "whisper") {
+      // Every size has a picker row now (undownloaded ones dimmed).
+      const size = String(config.WHISPER_MODEL || "").trim() || "large-v3";
+      rel = `whisper/models--Systran--faster-whisper-${size}`;
+    }
+    const mEl = $(pfx + "MODEL_FILE");
+    if (mEl) {
+      mEl.value = rel;
+      if (mEl.tagName === "SELECT") mcUpdateTrigger(mEl);
+    }
+  }
   const envEl = $(pfx + "ENV");
   if (envEl) envEl.value = config.ENV || "";
   const wdEl = $(pfx + "WORKDIR");
@@ -504,43 +541,233 @@ export function _cellKindOverlay(pfx) {
   return id ? $(id) : null;
 }
 
+// Runner metadata: prefer the backend registry (state.runners), fall back to
+// the built-in pair so the form works before /api/state lands.
+export function runnerRegistry() {
+  const rs = state.runners;
+  return (Array.isArray(rs) && rs.length) ? rs : [
+    { id: "llama-server", icon: "🦙", labelKey: "runnerLlama", benefitsKey: "runnerLlamaBenefits", formats: ["gguf"] },
+    { id: "custom", icon: "🛠️", labelKey: "runnerCustom", benefitsKey: "runnerCustomBenefits", formats: ["*"] },
+  ];
+}
+
+export function effectiveRunnerId(pfx) {
+  const explicit = ($(pfx + "RUNNER")?.value || "").trim();
+  if (explicit) return explicit;
+  return ($(pfx + "CELL_KIND")?.value || "") === "command" ? "custom" : "llama-server";
+}
+
+// Can this runner launch the currently selected artifact? An empty model never
+// blocks a tab (the form starts empty); "*" accepts anything. Today the only
+// concrete format is gguf — safetensors variants arrive with the vLLM runner.
+function runnerAvailability(runner, pfx) {
+  const formats = runner.formats || [];
+  if (formats.includes("*")) return { ok: true };
+  const model = $(pfx + "MODEL_FILE")?.value || "";
+  if (!model) return { ok: true };
+  const fmt = model.toLowerCase().endsWith(".gguf") ? "gguf" : "other";
+  return formats.includes(fmt) ? { ok: true } : { ok: false, reasonKey: "runnerNeedsGguf" };
+}
+
+// CUDA compute capability by GPU marketing name — best-effort map used only to
+// gate quant formats (formatRequirements). Unknown GPUs render as "?".
+export function gpuComputeCap(name) {
+  const n = String(name || "").toUpperCase();
+  if (/RTX 50/.test(n)) return 12.0;                     // Blackwell consumer
+  if (/\bB[12]00\b|\bGB[12]0/.test(n)) return 10.0;      // Blackwell datacenter
+  if (/H100|H200|GH200/.test(n)) return 9.0;             // Hopper
+  if (/RTX 40|\bL4\b|\bL40/.test(n)) return 8.9;         // Ada
+  if (/RTX 30|\bA(40|10|16|2)\b|A[45]000|A6000/.test(n)) return 8.6;  // Ampere consumer/pro
+  if (/\bA100\b|\bA30\b/.test(n)) return 8.0;            // Ampere datacenter
+  if (/RTX 20|TITAN RTX|\bT4\b/.test(n)) return 7.5;     // Turing
+  if (/\bV100\b/.test(n)) return 7.0;                    // Volta
+  return null;
+}
+
+// "Which hosts can run this artifact's format?" — one line under the runner
+// benefits, only when the format has a compute requirement (NVFP4/FP8).
+function runnerHostGateHtml(pfx) {
+  const runner = runnerRegistry().find((r) => r.id === effectiveRunnerId(pfx));
+  const reqs = runner?.formatRequirements || {};
+  const model = $(pfx + "MODEL_FILE")?.value || "";
+  // vLLM does load GGUF (that's why the tab stays enabled) — but it's the
+  // experimental path there; say so instead of silently allowing it.
+  if (runner?.id === "vllm" && model.toLowerCase().endsWith(".gguf")) {
+    return `<br><span class="runner-host-gate">⚠ ${escapeHtml(t("runnerVllmGgufNote"))}</span>`;
+  }
+  const art = (state.artifacts || []).find((a) => a.path === model);
+  const need = art ? reqs[String(art.format || "").toLowerCase()] : null;
+  if (!need) return "";
+  const rows = [];
+  (topology?.nodes || []).forEach((n) => (n.gpus || []).forEach((g) => {
+    const cap = gpuComputeCap(g.name);
+    const ok = cap != null && cap >= need;
+    const mark = cap == null ? "?" : (ok ? "✓" : "✗");
+    rows.push(`<span class="${ok ? "gate-ok" : "gate-no"}" title="${escapeHtml(String(g.name || ""))}${cap != null ? ` · compute ${cap}` : ""}">${escapeHtml(String(n.name || n.id))} ${mark}</span>`);
+  }));
+  if (!rows.length) return "";
+  return `<br><span class="runner-host-gate">${escapeHtml(art.format)} · ${escapeHtml(t("runnerNeedsCompute", { n: need }))} → ${rows.join(" · ")}</span>`;
+}
+
+// VLLM_MODEL derives from the model picker, so the raw field is noise while a
+// model is picked — show it only for the hand-typed HF-repo-id case (empty
+// picker), and always on client (tr-) cells where controller paths don't apply.
+function syncVllmModelVisibility(pfx) {
+  const el = $(pfx + "VLLM_MODEL");
+  if (!el) return;
+  const picked = !!(($(pfx + "MODEL_FILE")?.value || "").trim());
+  const hide = picked && pfx !== "tr-";
+  el.style.display = hide ? "none" : "";
+  const lbl = el.previousElementSibling;
+  if (lbl?.classList?.contains("label-row")) lbl.style.display = hide ? "none" : "";
+}
+
+// "✓" on whisper sizes that are already on disk under <models root>/whisper.
+function markWhisperOptions(pfx) {
+  const sel = $(pfx + "WHISPER_MODEL");
+  if (!sel) return;
+  const have = new Set(state.whisperOnDisk || []);
+  [...sel.options].forEach((o) => {
+    const base = o.dataset.baseLabel || (o.dataset.baseLabel = o.textContent);
+    o.textContent = have.has(o.value) ? `✓ ${base}` : base;
+  });
+}
+
+export function renderRunnerTabs(pfx) {
+  const overlay = _cellKindOverlay(pfx);
+  const wrap = overlay?.querySelector(".runner-tabs");
+  if (!wrap) return;
+  syncVllmModelVisibility(pfx);
+  markWhisperOptions(pfx);
+  const current = effectiveRunnerId(pfx);
+  // Each tab carries a (?) with the full trade-off story: what the runner is
+  // good at (benefitsKey) and what it costs (runner*Minus).
+  const MINUS_KEY = { "llama-server": "runnerLlamaMinus", "vllm": "runnerVllmMinus",
+                      "whisper": "runnerWhisperMinus", "custom": "runnerCustomMinus" };
+  wrap.innerHTML = runnerRegistry().map((r) => {
+    const avail = runnerAvailability(r, pfx);
+    const label = (r.icon ? r.icon + " " : "") + t(r.labelKey || r.id);
+    const tipParts = [r.benefitsKey ? t(r.benefitsKey) : "", MINUS_KEY[r.id] ? t(MINUS_KEY[r.id]) : ""];
+    if (!avail.ok) tipParts.unshift(t(avail.reasonKey));
+    const tip = tipParts.filter(Boolean).join("\n\n");
+    return `<button type="button" class="cell-kind-btn${r.id === current ? " is-active" : ""}"` +
+      ` data-runner="${escapeHtml(r.id)}"${avail.ok ? "" : " disabled"} title="${escapeHtml(tip)}"` +
+      ` style="flex:1;padding:6px 10px;cursor:pointer">${escapeHtml(label)}` +
+      `<span class="runner-tab-help" title="${escapeHtml(tip)}">?</span></button>`;
+  }).join("");
+  const benefits = $(pfx + "runnerBenefits");
+  if (benefits) {
+    const meta = runnerRegistry().find((r) => r.id === current);
+    benefits.innerHTML = (meta?.benefitsKey ? escapeHtml(t(meta.benefitsKey)) : "") + runnerHostGateHtml(pfx);
+  }
+}
+
 export function applyCellKindUI(pfx) {
   const overlay = _cellKindOverlay(pfx);
   const kindEl = $(pfx + "CELL_KIND");
   if (!overlay || !kindEl) return;
-  const isCommand = (kindEl.value || "") === "command";
-  overlay.querySelectorAll(".cell-kind-btn").forEach((b) => {
-    b.classList.toggle("is-active", (b.dataset.cellKind || "") === (isCommand ? "command" : ""));
-  });
+  const runner = effectiveRunnerId(pfx);
+  const isCommand = runner === "custom";
+  // Keep both hidden inputs coherent: RUNNER is the source of truth, CELL_KIND
+  // stays populated for legacy readers (scout, old backups, start.sh blocks).
+  const rEl = $(pfx + "RUNNER");
+  if (rEl) rEl.value = runner;
+  kindEl.value = isCommand ? "command" : "";
+  renderRunnerTabs(pfx);
+  const isVllm = runner === "vllm";
+  const isWhisper = runner === "whisper";
+  const nonLlama = isCommand || isVllm || isWhisper;
   // Use inline display, not the [hidden] attr: .field has a stylesheet `display`
   // rule that would otherwise keep the command fields visible in llama mode.
   const llamaFields = $(pfx + "llamaFields");
-  if (llamaFields) llamaFields.style.display = isCommand ? "none" : "";
+  if (llamaFields) llamaFields.style.display = nonLlama ? "none" : "";
   const cmdFields = $(pfx + "commandFields");
   if (cmdFields) cmdFields.style.display = isCommand ? "" : "none";
-  // Aside: llama VRAM/preview vs. the command preview + history.
+  const vllmFields = $(pfx + "vllmFields");
+  if (vllmFields) vllmFields.style.display = isVllm ? "" : "none";
+  // The whisper size is picked in the SHARED model picker on every form —
+  // the container stays as the hidden carrier of the WHISPER_MODEL value.
+  const whisperFields = $(pfx + "whisperFields");
+  if (whisperFields) whisperFields.style.display = "none";
+  // Aside: llama VRAM/preview vs. the command preview + history (vllm/whisper
+  // reuse the command aside — their exec line renders into the same preview).
   const llamaAside = $(pfx + "llamaAside");
-  if (llamaAside) llamaAside.style.display = isCommand ? "none" : "";
+  if (llamaAside) llamaAside.style.display = nonLlama ? "none" : "";
   const cmdAside = $(pfx + "commandAside");
-  if (cmdAside) cmdAside.style.display = isCommand ? "" : "none";
-  if (isCommand) renderCommandCellPreview(pfx);
+  if (cmdAside) cmdAside.style.display = nonLlama ? "" : "none";
+  if (nonLlama) renderCommandCellPreview(pfx);
 }
 
 export function wireCellKindToggle(pfx) {
   const overlay = _cellKindOverlay(pfx);
   if (!overlay || overlay.dataset.cellKindWired) return;
-  overlay.querySelectorAll(".cell-kind-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const kindEl = $(pfx + "CELL_KIND");
-      if (kindEl) kindEl.value = btn.dataset.cellKind || "";
+  // Delegated: the tab buttons are re-rendered on every model/runner change.
+  overlay.querySelector(".runner-tabs")?.addEventListener("click", (e) => {
+    const btn = e.target.closest("[data-runner]");
+    if (!btn || btn.disabled) return;
+    const rEl = $(pfx + "RUNNER");
+    if (rEl) rEl.value = btn.dataset.runner || "";
+    // Manual switch to whisper: aim the shared picker at the current size —
+    // the dedicated select is hidden everywhere.
+    if ((btn.dataset.runner || "") === "whisper") {
+      const mEl = $(pfx + "MODEL_FILE");
+      const size = ($(pfx + "WHISPER_MODEL")?.value || "").trim() || "large-v3";
+      const want = `whisper/models--Systran--faster-whisper-${size}`;
+      if (mEl && mEl.value !== want) {
+        mEl.value = want;
+        if (mEl.tagName === "SELECT") mcUpdateTrigger(mEl);
+      }
+    }
+    applyCellKindUI(pfx);
+  });
+  // Model switch can change which runners fit the artifact — and picking a
+  // safetensors artifact aims the vLLM runner at its local path.
+  $(pfx + "MODEL_FILE")?.addEventListener("change", () => {
+    const model = $(pfx + "MODEL_FILE")?.value || "";
+    // A downloaded whisper model picked from the shared picker: flip the
+    // runner to whisper with that size — same pattern as st→vLLM.
+    const wh = model.match(/^whisper\/models--Systran--faster-whisper-(.+)$/);
+    if (wh) {
+      const rEl = $(pfx + "RUNNER");
+      if (rEl) rEl.value = "whisper";
+      const wEl = $(pfx + "WHISPER_MODEL");
+      if (wEl) wEl.value = wh[1];
       applyCellKindUI(pfx);
-    });
+      return;
+    }
+    const stRow = (state.artifacts || []).find((a) => a.path === model);
+    // VLLM_MODEL is DERIVED from the picked model (folder for safetensors,
+    // file path for gguf) — the field stays editable only for HF repo ids
+    // with no local copy. An explicit pick always rewrites it, like ALIAS.
+    // Controller cells only: these are controller paths, clients don't have them.
+    const vmEl = $(pfx + "VLLM_MODEL");
+    if (vmEl && model && pfx !== "tr-") {
+      const base = (state.paths?.modelsDir || effectiveModelsDir(state.config) || "").replace(/\/+$/, "");
+      if (stRow) vmEl.value = base + "/" + stRow.path;
+      else if (model.toLowerCase().endsWith(".gguf")) vmEl.value = base + "/" + model;
+    }
+    const cur = runnerRegistry().find((r) => r.id === effectiveRunnerId(pfx));
+    if (cur && !runnerAvailability(cur, pfx).ok) {
+      // The active runner can't launch this artifact — jump to the first that can.
+      const fit = runnerRegistry().find((r) => runnerAvailability(r, pfx).ok);
+      const rEl = $(pfx + "RUNNER");
+      if (fit && rEl) rEl.value = fit.id;
+      applyCellKindUI(pfx);
+    } else {
+      renderRunnerTabs(pfx);
+      if (effectiveRunnerId(pfx) === "vllm") renderCommandCellPreview(pfx);
+    }
   });
   // Command-tab conveniences: preset dropdown + live preview on edit.
   populateCommandPresets(pfx);
-  ["COMMAND", "ENV", "WORKDIR", "HEALTH_PATH"].forEach((k) => {
+  ["COMMAND", "ENV", "WORKDIR", "HEALTH_PATH",
+   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL",
+   "WHISPER_MODEL"].forEach((k) => {
     const el = $(pfx + k);
-    if (el) el.addEventListener("input", () => renderCommandCellPreview(pfx));
+    if (el) {
+      el.addEventListener("input", () => renderCommandCellPreview(pfx));
+      el.addEventListener("change", () => renderCommandCellPreview(pfx));
+    }
   });
   overlay.dataset.cellKindWired = "1";
 }
@@ -581,8 +808,38 @@ export function _commandCellSlot(pfx) {
                  (pfx === "te-" ? s.isController : String(s.clientId || "") === String(hostId))) || null;
 }
 
+// Mirror of build_vllm_command() in caravan/admin/runners.py — the backend
+// renders the real script; this only feeds the NEW COMMAND preview pane.
+export function buildVllmCommandPreview(pfx) {
+  const v = (id) => ($(pfx + id)?.value || "").trim();
+  const model = v("VLLM_MODEL");
+  const parts = ["$HOME/vllm-venv/bin/vllm", "serve", model || "…", "--host", "0.0.0.0", "--port", '"$PORT"'];
+  const served = v("ALIAS") || (model ? model.split("/").pop().toLowerCase() : "");
+  if (served) parts.push("--served-model-name", served);
+  if (v("MAX_MODEL_LEN")) parts.push("--max-model-len", v("MAX_MODEL_LEN"));
+  if (v("GPU_MEMORY_UTILIZATION")) parts.push("--gpu-memory-utilization", v("GPU_MEMORY_UTILIZATION"));
+  const quant = v("QUANTIZATION").toLowerCase();
+  if (quant && quant !== "auto") parts.push("--quantization", quant);
+  const dtype = v("DTYPE").toLowerCase();
+  if (dtype && dtype !== "auto") parts.push("--dtype", dtype);
+  const tp = v("TENSOR_PARALLEL");
+  if (tp && tp !== "0" && tp !== "1") parts.push("--tensor-parallel-size", tp);
+  return parts.join(" ");
+}
+
 export function _buildCommandExecPreview(pfx) {
   const port = $(pfx + "PORT")?.value || (pfx === "te-" ? _teCellPort : _trCellPort) || "PORT";
+  if (effectiveRunnerId(pfx) === "vllm") {
+    return [`export PORT=${port}`,
+            "# first start on a host provisions ~/vllm-venv (several minutes)",
+            `exec ${buildVllmCommandPreview(pfx)}`].join("\n");
+  }
+  if (effectiveRunnerId(pfx) === "whisper") {
+    const size = ($(pfx + "WHISPER_MODEL")?.value || "").trim() || "large-v3";
+    return [`export PORT=${port}`,
+            "# model downloads on first start into <models root>/whisper",
+            `exec env HUGGINGFACE_HUB_CACHE="\${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/whisper" bash $HOME/run_whisper.sh "$PORT" ${size}`].join("\n");
+  }
   const cmd = ($(pfx + "COMMAND")?.value || "").trim().replace(/^\s*exec\s+/, "");
   const lines = [`export PORT=${port}`];
   ($(pfx + "ENV")?.value || "").split(/[\n,]/).forEach((raw) => {

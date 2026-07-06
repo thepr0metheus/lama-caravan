@@ -40,6 +40,7 @@ def _referenced_relpaths(with_owners=False):
                 owners[v].append(owner)
 
     config = parse_config()
+    models_root = str(models_dir_from_config(config)).rstrip("/")
     for key in ("MODEL_FILE", "MMPROJ_FILE", "SPEC_DRAFT_MODEL_FILE"):
         add(config.get(key), "legacy")
     for slot in topology_store().get("serverSlots", {}).values():
@@ -48,7 +49,47 @@ def _referenced_relpaths(with_owners=False):
         add(slot.get("model"), owner)
         for key in ("MODEL_FILE", "MMPROJ_FILE", "SPEC_DRAFT_MODEL_FILE"):
             add(cfg.get(key), owner)
+        # vLLM cells reference a safetensors DIRECTORY via an absolute path.
+        vm = str(cfg.get("VLLM_MODEL") or "").strip().rstrip("/")
+        if vm.startswith(models_root + "/"):
+            add(vm[len(models_root) + 1:], owner)
+        # whisper cells reference a SIZE — map it to the HF-cache dir name.
+        if str(cfg.get("RUNNER") or "").strip().lower() == "whisper":
+            size = str(cfg.get("WHISPER_MODEL") or "").strip() or "large-v3"
+            add(f"whisper/models--Systran--faster-whisper-{size}", owner)
     return (refs, owners) if with_owners else refs
+
+
+def _dir_stats(d):
+    size = 0
+    mtime = 0
+    for f in d.rglob("*"):
+        try:
+            if f.is_file():
+                st = f.stat()
+                size += st.st_size
+                mtime = max(mtime, int(st.st_mtime))
+        except OSError:
+            continue
+    return size, mtime
+
+
+def _artifact_dirs(models_dir):
+    """Non-gguf artifacts as (relpath, kind) — whisper HF-cache dirs and
+    safetensors checkpoint folders."""
+    out = []
+    wroot = models_dir / "whisper"
+    if wroot.is_dir():
+        for d in sorted(wroot.glob("models--*")):
+            if d.is_dir():
+                out.append((str(d.relative_to(models_dir)), "whisper"))
+    seen = set()
+    for f in models_dir.rglob("*.safetensors"):
+        d = f.parent
+        if d not in seen and d != models_dir:
+            seen.add(d)
+            out.append((str(d.relative_to(models_dir)), "safetensors"))
+    return out
 
 
 def list_unused_models():
@@ -82,6 +123,21 @@ def list_unused_models():
             "referencedBy": owners.get(rel) or group_owners.get(_part_group(rel)) or [],
             "group": _part_group(rel),
         })
+    # Non-gguf artifacts (whisper HF-cache dirs, safetensors folders) join the
+    # same list — one manager for everything under the models root.
+    for rel, kind in _artifact_dirs(models_dir):
+        size, mtime = _dir_stats(models_dir / rel)
+        referenced = rel in refs
+        files.append({
+            "path": rel,
+            "kind": kind,
+            "sizeBytes": size,
+            "sizeGb": round(size / 2**30, 2),
+            "ageDays": int((now - mtime) // 86400) if mtime else 0,
+            "referenced": referenced,
+            "referencedBy": owners.get(rel) or [],
+            "group": rel,
+        })
     unused = [f for f in files if not f["referenced"]]
     return {
         "ok": True,
@@ -101,19 +157,26 @@ def delete_models(body):
     models_dir = models_dir_from_config(parse_config()).resolve()
     refs = _referenced_relpaths()
     ref_groups = {_part_group(r) for r in refs}
+    artifact_rels = {rel for rel, _kind in _artifact_dirs(Path(models_dir))}
     deleted, freed = [], 0
     for rel in paths:
         rel = str(rel or "").strip().lstrip("/")
-        if not rel.endswith(".gguf"):
-            raise AppError(f"not a gguf: {rel}")
+        is_artifact_dir = rel.rstrip("/") in artifact_rels
+        if not rel.endswith(".gguf") and not is_artifact_dir:
+            raise AppError(f"not a gguf or a known artifact folder: {rel}")
         target = (models_dir / rel).resolve()
         if models_dir not in target.parents and target != models_dir:
             raise AppError(f"path escapes the models dir: {rel}", 400)
         if rel in refs or _part_group(rel) in ref_groups:
             raise AppError(f"refusing to delete a referenced model: {rel}", 409)
         try:
-            size = target.stat().st_size
-            target.unlink()
+            if is_artifact_dir:
+                import shutil
+                size, _mtime = _dir_stats(target)
+                shutil.rmtree(target)
+            else:
+                size = target.stat().st_size
+                target.unlink()
             deleted.append(rel)
             freed += size
         except FileNotFoundError:

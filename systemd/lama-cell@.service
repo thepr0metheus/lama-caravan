@@ -17,6 +17,13 @@ Restart=on-failure
 # reclaim its VRAM — an instant retry lands on a still-dirty card and OOMs,
 # looping forever even though the config fits a clean one.
 RestartSec=10
+# A cell may never take the host down with it. vLLM kernel compilation once
+# peaked at 57.6G RAM + 7.5G swap (parallel cicc workers) and froze the whole
+# controller — past these caps the CELL gets oom-killed, not the machine.
+# Percentages scale with the host's physical RAM.
+MemoryHigh=70%
+MemoryMax=80%
+MemorySwapMax=2G
 
 [Install]
 WantedBy=default.target

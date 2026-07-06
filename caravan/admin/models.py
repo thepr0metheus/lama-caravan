@@ -21,6 +21,30 @@ GGUF_VALUE_TYPES = {
     12: "d",
 }
 
+_GGUF_META_CACHE = {}
+
+
+def read_gguf_metadata_cached(path):
+    """read_gguf_metadata keyed by (path, mtime, size): each /api/state used to
+    re-parse EVERY model header; a dozen concurrent pollers serialized on the
+    GIL and the whole API crawled (live incident, 2026-07-05). The header of an
+    unchanged file never changes — cache it forever."""
+    try:
+        st = path.stat()
+        key = (str(path), int(st.st_mtime), st.st_size)
+    except OSError:
+        return read_gguf_metadata(path)
+    hit = _GGUF_META_CACHE.get(key)
+    if hit is None:
+        hit = read_gguf_metadata(path)
+        # Drop stale generations of the same path so the cache cannot grow
+        # unboundedly on re-downloaded files.
+        for old in [k for k in _GGUF_META_CACHE if k[0] == key[0] and k != key]:
+            _GGUF_META_CACHE.pop(old, None)
+        _GGUF_META_CACHE[key] = hit
+    return hit
+
+
 def read_gguf_metadata(path, limit_keys=256):
     wanted_suffixes = (
         "block_count",
@@ -286,7 +310,7 @@ def list_models(config=None):
         capability = "vision_likely" if (compatible or name_hints) else "text"
 
         family_defaults = FAMILY_DEFAULTS.get(family, {})
-        gguf_meta = extract_runtime_meta(read_gguf_metadata(path))
+        gguf_meta = extract_runtime_meta(read_gguf_metadata_cached(path))
 
         # Embedding models: detected by name ("embed"/"embedding") or by the GGUF
         # carrying a pooling_type (chat models don't). They serve /v1/embeddings,
@@ -332,6 +356,73 @@ def list_models(config=None):
         })
 
     return rows
+
+
+_ST_FORMAT_HINTS = ("NVFP4", "MXFP4", "AWQ", "GPTQ", "AUTOROUND", "FP8",
+                    "INT4", "W4A16", "BNB", "BF16", "FP16", "FP32")
+
+
+def list_st_artifacts(config=None):
+    """Safetensors checkpoints in the models tree: one artifact per directory
+    holding *.safetensors files. The /hf download layout is
+    <model>/<author>/<FORMAT>/ so the format comes from a path segment —
+    no file reads, this runs on every /api/state."""
+    rows = []
+    models_dir = models_dir_from_config(config or parse_config())
+    if not models_dir.exists():
+        return rows
+    by_dir = {}
+    for path in models_dir.rglob("*.safetensors"):
+        if not path.is_file():
+            continue
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        entry = by_dir.setdefault(path.parent, {"size": 0, "files": 0, "mtime": 0})
+        entry["size"] += st.st_size
+        entry["files"] += 1
+        entry["mtime"] = max(entry["mtime"], int(st.st_mtime))
+    for d in sorted(by_dir):
+        entry = by_dir[d]
+        rel = str(d.relative_to(models_dir))
+        parts = Path(rel).parts
+        fmt = ""
+        for seg in reversed(parts):
+            if seg.upper() in _ST_FORMAT_HINTS:
+                fmt = seg.upper()
+                break
+        if not fmt:
+            up_rel = rel.upper()
+            for hint in _ST_FORMAT_HINTS:
+                if hint in up_rel:
+                    fmt = hint
+                    break
+        rows.append({
+            "path": rel,                       # directory, relative to the models root
+            "name": parts[0] if parts else rel,
+            "kind": "safetensors",
+            "format": fmt or "ST",
+            "files": entry["files"],
+            "size": entry["size"],
+            "sizeGb": round(entry["size"] / (1024 ** 3), 2),
+            "mtime": entry["mtime"],
+        })
+    return rows
+
+
+def list_whisper_sizes(config=None):
+    """Which faster-whisper sizes are already on disk under <root>/whisper —
+    dir names only (models--Systran--faster-whisper-<size>), no file reads."""
+    models_dir = models_dir_from_config(config or parse_config())
+    wroot = models_dir / "whisper"
+    sizes = []
+    if wroot.is_dir():
+        for d in sorted(wroot.glob("models--*faster-whisper-*")):
+            if d.is_dir():
+                sizes.append(d.name.rsplit("faster-whisper-", 1)[-1])
+    return sizes
+
 
 def list_chat_templates(config=None):
     config = config or parse_config()

@@ -419,13 +419,18 @@
             <!-- Hidden: resolved on remote host — used only to fix command preview path -->
             <input id="tr-LLAMA_MODELS_DIR" type="hidden" value="">
             <!-- Cell type: llama-server vs generic managed command (e.g. whisper) -->
+            <!-- Model first, then the runner that launches it (llama-server /
+                 custom now; vLLM next). Tabs render from state.runners. -->
+            <div class="field model-file-field">
+              <div class="label-row"><label for="tr-MODEL_FILE">MODEL_FILE</label></div>
+              <select id="tr-MODEL_FILE" name="MODEL_FILE"></select>
+            </div>
             <div class="field cell-kind-row">
-              <div class="label-row"><label data-i18n="cellTypeLabel">Cell type</label></div>
-              <div class="cell-kind-toggle" style="display:flex;gap:6px">
-                <button type="button" class="cell-kind-btn is-active" data-cell-kind="" style="flex:1;padding:6px 10px;cursor:pointer">llama-server</button>
-                <button type="button" class="cell-kind-btn" data-cell-kind="command" style="flex:1;padding:6px 10px;cursor:pointer" data-i18n="cellKindCommand">Command</button>
-              </div>
+              <div class="label-row"><label data-i18n="runnerLabel">Runner</label></div>
+              <div class="cell-kind-toggle runner-tabs" style="display:flex;gap:6px"></div>
+              <p class="runner-benefits" id="tr-runnerBenefits"></p>
               <input id="tr-CELL_KIND" name="CELL_KIND" type="hidden" value="">
+              <input id="tr-RUNNER" name="RUNNER" type="hidden" value="">
             </div>
             <div class="field command-cell-fields" id="tr-commandFields" style="display:none">
               <div class="label-row"><label for="tr-CMD_PRESET">Preset</label></div>
@@ -441,11 +446,45 @@
               <div class="label-row" style="margin-top:8px"><label for="tr-HEALTH_PATH">HEALTH_PATH <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
               <input id="tr-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health — empty = TCP port probe" style="width:100%">
             </div>
-            <div id="tr-llamaFields">
-            <div class="field model-file-field">
-              <div class="label-row"><label for="tr-MODEL_FILE">MODEL_FILE</label></div>
-              <select id="tr-MODEL_FILE" name="MODEL_FILE"></select>
+            <div class="field vllm-cell-fields" id="tr-vllmFields" style="display:none">
+              <div class="label-row" style="margin-top:8px"><label for="tr-VLLM_MODEL">VLLM_MODEL</label></div>
+              <input id="tr-VLLM_MODEL" name="VLLM_MODEL" type="text" placeholder="nvidia/Qwen3.6-27B-NVFP4 — HF repo id or local path" style="width:100%">
+              <p class="field-note">vLLM pulls HF repos into its own cache on first start; the venv self-provisions on the host.</p>
+              <div class="label-row" style="margin-top:8px"><label for="tr-MAX_MODEL_LEN">MAX_MODEL_LEN</label></div>
+              <input id="tr-MAX_MODEL_LEN" name="MAX_MODEL_LEN" type="number" placeholder="32768 — empty = model default" style="width:100%">
+              <div class="label-row" style="margin-top:8px"><label for="tr-GPU_MEMORY_UTILIZATION">GPU_MEMORY_UTILIZATION</label></div>
+              <input id="tr-GPU_MEMORY_UTILIZATION" name="GPU_MEMORY_UTILIZATION" type="text" placeholder="0.90" style="width:100%">
+              <div class="label-row" style="margin-top:8px"><label for="tr-QUANTIZATION">QUANTIZATION</label></div>
+              <select id="tr-QUANTIZATION" name="QUANTIZATION" style="width:100%">
+                <option value="">auto</option>
+                <option value="modelopt">modelopt (NVFP4)</option>
+                <option value="awq">awq</option>
+                <option value="gptq">gptq</option>
+                <option value="fp8">fp8</option>
+              </select>
+              <div class="label-row" style="margin-top:8px"><label for="tr-DTYPE">DTYPE</label></div>
+              <select id="tr-DTYPE" name="DTYPE" style="width:100%">
+                <option value="">auto</option>
+                <option value="bfloat16">bfloat16</option>
+                <option value="float16">float16</option>
+              </select>
+              <div class="label-row" style="margin-top:8px"><label for="tr-TENSOR_PARALLEL">TENSOR_PARALLEL</label></div>
+              <input id="tr-TENSOR_PARALLEL" name="TENSOR_PARALLEL" type="number" placeholder="1" style="width:100%">
             </div>
+            <div class="field whisper-cell-fields" id="tr-whisperFields" style="display:none">
+              <div class="label-row" style="margin-top:8px"><label for="tr-WHISPER_MODEL">WHISPER_MODEL</label></div>
+              <select id="tr-WHISPER_MODEL" name="WHISPER_MODEL" style="width:100%">
+                <option value="tiny">tiny · 75 MB</option>
+                <option value="base">base · 145 MB</option>
+                <option value="small">small · 480 MB</option>
+                <option value="medium">medium · 1.5 GB</option>
+                <option value="large-v3" selected>large-v3 · 3 GB</option>
+                <option value="large-v3-turbo">large-v3-turbo · 1.6 GB</option>
+                <option value="distil-large-v3">distil-large-v3 · 1.5 GB</option>
+              </select>
+              <p class="field-note">faster-whisper downloads the model on first start; language is chosen per request.</p>
+            </div>
+            <div id="tr-llamaFields">
 
             <div class="field companion-field">
               <div class="companion-row">
@@ -572,13 +611,19 @@
           <form id="topologyLlamaEditForm" class="topo-edit-form">
             <input id="te-LLAMA_MODELS_DIR" name="LLAMA_MODELS_DIR" type="hidden">
             <!-- Cell type: llama-server vs generic managed command (e.g. whisper) -->
+            <!-- Model first, then the runner that launches it (llama-server /
+                 custom now; vLLM next). Tabs render from state.runners. -->
+            <div class="field model-file-field">
+              <div class="label-row"><label for="te-MODEL_FILE">MODEL_FILE</label></div>
+              <select id="te-MODEL_FILE" name="MODEL_FILE"></select>
+              <p id="te-modelFileDirHint" class="field-note te-models-dir-hint" hidden></p>
+            </div>
             <div class="field cell-kind-row">
-              <div class="label-row"><label data-i18n="cellTypeLabel">Cell type</label></div>
-              <div class="cell-kind-toggle" style="display:flex;gap:6px">
-                <button type="button" class="cell-kind-btn is-active" data-cell-kind="" style="flex:1;padding:6px 10px;cursor:pointer">llama-server</button>
-                <button type="button" class="cell-kind-btn" data-cell-kind="command" style="flex:1;padding:6px 10px;cursor:pointer" data-i18n="cellKindCommand">Command</button>
-              </div>
+              <div class="label-row"><label data-i18n="runnerLabel">Runner</label></div>
+              <div class="cell-kind-toggle runner-tabs" style="display:flex;gap:6px"></div>
+              <p class="runner-benefits" id="te-runnerBenefits"></p>
               <input id="te-CELL_KIND" name="CELL_KIND" type="hidden" value="">
+              <input id="te-RUNNER" name="RUNNER" type="hidden" value="">
             </div>
             <div class="field command-cell-fields" id="te-commandFields" style="display:none">
               <div class="label-row"><label for="te-CMD_PRESET">Preset</label></div>
@@ -594,12 +639,45 @@
               <div class="label-row" style="margin-top:8px"><label for="te-HEALTH_PATH">HEALTH_PATH <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
               <input id="te-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health — empty = TCP port probe" style="width:100%">
             </div>
-            <div id="te-llamaFields">
-            <div class="field model-file-field">
-              <div class="label-row"><label for="te-MODEL_FILE">MODEL_FILE</label></div>
-              <select id="te-MODEL_FILE" name="MODEL_FILE"></select>
-              <p id="te-modelFileDirHint" class="field-note te-models-dir-hint" hidden></p>
+            <div class="field vllm-cell-fields" id="te-vllmFields" style="display:none">
+              <div class="label-row" style="margin-top:8px"><label for="te-VLLM_MODEL">VLLM_MODEL</label></div>
+              <input id="te-VLLM_MODEL" name="VLLM_MODEL" type="text" placeholder="nvidia/Qwen3.6-27B-NVFP4 — HF repo id or local path" style="width:100%">
+              <p class="field-note">vLLM pulls HF repos into its own cache on first start; the venv self-provisions on the host.</p>
+              <div class="label-row" style="margin-top:8px"><label for="te-MAX_MODEL_LEN">MAX_MODEL_LEN</label></div>
+              <input id="te-MAX_MODEL_LEN" name="MAX_MODEL_LEN" type="number" placeholder="32768 — empty = model default" style="width:100%">
+              <div class="label-row" style="margin-top:8px"><label for="te-GPU_MEMORY_UTILIZATION">GPU_MEMORY_UTILIZATION</label></div>
+              <input id="te-GPU_MEMORY_UTILIZATION" name="GPU_MEMORY_UTILIZATION" type="text" placeholder="0.90" style="width:100%">
+              <div class="label-row" style="margin-top:8px"><label for="te-QUANTIZATION">QUANTIZATION</label></div>
+              <select id="te-QUANTIZATION" name="QUANTIZATION" style="width:100%">
+                <option value="">auto</option>
+                <option value="modelopt">modelopt (NVFP4)</option>
+                <option value="awq">awq</option>
+                <option value="gptq">gptq</option>
+                <option value="fp8">fp8</option>
+              </select>
+              <div class="label-row" style="margin-top:8px"><label for="te-DTYPE">DTYPE</label></div>
+              <select id="te-DTYPE" name="DTYPE" style="width:100%">
+                <option value="">auto</option>
+                <option value="bfloat16">bfloat16</option>
+                <option value="float16">float16</option>
+              </select>
+              <div class="label-row" style="margin-top:8px"><label for="te-TENSOR_PARALLEL">TENSOR_PARALLEL</label></div>
+              <input id="te-TENSOR_PARALLEL" name="TENSOR_PARALLEL" type="number" placeholder="1" style="width:100%">
             </div>
+            <div class="field whisper-cell-fields" id="te-whisperFields" style="display:none">
+              <div class="label-row" style="margin-top:8px"><label for="te-WHISPER_MODEL">WHISPER_MODEL</label></div>
+              <select id="te-WHISPER_MODEL" name="WHISPER_MODEL" style="width:100%">
+                <option value="tiny">tiny · 75 MB</option>
+                <option value="base">base · 145 MB</option>
+                <option value="small">small · 480 MB</option>
+                <option value="medium">medium · 1.5 GB</option>
+                <option value="large-v3" selected>large-v3 · 3 GB</option>
+                <option value="large-v3-turbo">large-v3-turbo · 1.6 GB</option>
+                <option value="distil-large-v3">distil-large-v3 · 1.5 GB</option>
+              </select>
+              <p class="field-note">faster-whisper downloads the model on first start; language is chosen per request.</p>
+            </div>
+            <div id="te-llamaFields">
 
             <div class="field companion-field">
               <div class="companion-row">
