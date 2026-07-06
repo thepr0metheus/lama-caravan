@@ -24,7 +24,7 @@ import {
   syncToggleLabel,
   toggleChecked,
 } from "./form.js";
-import { t } from "./i18n.js";
+import { fieldHelp, t } from "./i18n.js";
 import { refreshComputeTarget } from "./memory.js";
 import { action, loadState, saveConfig } from "./polling.js";
 import { _trCellPort, _trHostId } from "./remote-cells.js";
@@ -633,12 +633,38 @@ function markWhisperOptions(pfx) {
   });
 }
 
+// The runner panels (command/vLLM/whisper) are static HTML — give their field
+// labels the SAME (?) tip-trigger the llama fields get from labelWithTip.
+// Idempotent and re-run on every render so tooltips follow language switches.
+const _STATIC_TIP_FIELDS = ["COMMAND", "ENV", "WORKDIR", "HEALTH_PATH",
+  "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION",
+  "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL"];
+function injectStaticFieldTips(pfx) {
+  _STATIC_TIP_FIELDS.forEach((f) => {
+    const label = _cellKindOverlay(pfx)?.querySelector(`label[for="${pfx}${f}"]`);
+    if (!label) return;
+    const help = fieldHelp(f);
+    if (!help) return;
+    let btn = label.parentElement?.querySelector(".tip-trigger");
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.className = "tip-trigger";
+      btn.type = "button";
+      btn.innerHTML = `?<span class="tooltip" role="tooltip"></span>`;
+      label.after(btn);
+    }
+    btn.setAttribute("aria-label", `${f}: ${help}`);
+    btn.querySelector(".tooltip").textContent = help;
+  });
+}
+
 export function renderRunnerTabs(pfx) {
   const overlay = _cellKindOverlay(pfx);
   const wrap = overlay?.querySelector(".runner-tabs");
   if (!wrap) return;
   syncVllmModelVisibility(pfx);
   markWhisperOptions(pfx);
+  injectStaticFieldTips(pfx);
   const current = effectiveRunnerId(pfx);
   // Each tab carries a (?) with the full trade-off story: what the runner is
   // good at (benefitsKey) and what it costs (runner*Minus).

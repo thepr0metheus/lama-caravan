@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.4 — 2026-07-06
+
+- Runner tabs carry a (?) with the full trade-off story (benefits plus
+  honest downsides), and every field on the static panels (custom /
+  vLLM / whisper) got the same (?) tip the llama fields have — texts
+  from the existing fieldHelp translations, 20 languages.
+- One model picker everywhere: whisper sizes appear on client cell
+  forms too (their rows never dim — the controller can't see a client
+  cache); the dedicated WHISPER_MODEL select is hidden on all forms.
+- Client cells fixed for command-path runners: Apply no longer dies
+  with "Select a model" on whisper/vLLM cells, and Start no longer
+  demands a COMMAND from a whisper cell — the full client whisper
+  cycle (configure → scout start → /health → card) verified live.
+
 ## 1.3.3 — 2026-07-06
 
 - Running vLLM cells show live engine metrics on the card: ▶ active

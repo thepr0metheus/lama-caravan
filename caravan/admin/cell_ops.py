@@ -151,11 +151,13 @@ def server_cell_action(body: dict) -> dict:
         cfg = slot.get("config") if isinstance(slot.get("config"), dict) else {}
         model = str(slot.get("model") or cfg.get("MODEL_FILE") or "").strip()
         if uses_command_path(cfg):
-            if runner_id(cfg) == "vllm":
+            rid = runner_id(cfg)
+            if rid == "vllm":
                 if not str(cfg.get("VLLM_MODEL") or "").strip():
                     raise AppError("vLLM cell has no model — configure it first", 400)
-            elif not str(cfg.get("COMMAND") or "").strip():
+            elif rid == "custom" and not str(cfg.get("COMMAND") or "").strip():
                 raise AppError("command cell has no command — configure it first", 400)
+            # whisper needs nothing: the size has a default and the command is built.
         elif not model:
             raise AppError("cell has no saved model — configure it first", 400)
         result = client_llama_start({
