@@ -1095,12 +1095,15 @@
   transform: none;
   border-radius: 8px 0 0 8px;
 }
-.cloud-model-count {
-  margin-left: auto; font-size: 10px; color: var(--muted);
-  border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; white-space: nowrap;
-  background: none; cursor: pointer; font-family: inherit;
+/* Full-width "show all N models" row at the bottom of the card — replaces the
+   tiny header count chip nobody could find. */
+.cloud-models-toggle-row {
+  display: block; width: 100%;
+  background: none; border: none; border-top: 1px solid var(--line);
+  padding: 7px 10px; font-family: inherit; font-size: 11px;
+  color: var(--muted); text-align: center; cursor: pointer;
 }
-.cloud-model-count:hover { color: var(--fg, #dde); border-color: color-mix(in srgb, var(--accent,#4da392) 45%, transparent); }
+.cloud-models-toggle-row:hover { color: var(--fg, #dde); background: color-mix(in srgb, var(--accent,#4da392) 7%, transparent); }
 .cloud-models-flyout {
   max-height: 0;
   overflow: hidden;

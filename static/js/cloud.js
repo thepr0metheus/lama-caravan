@@ -226,11 +226,13 @@ export function renderTopologyCloudProviders() {
           <span class="cloud-account-icon" style="color:${escapeHtml(meta.color || "#94a3b8")}">${cloudPickerTileIcon(iconType)}</span>
           <strong class="cloud-account-name">${escapeHtml(acct.name || acct.id)}</strong>
           ${acct.hasCredential ? pill(isSubscription ? "Plus" : acct.credentialKind === "noKey" ? "ready" : acct.credentialKind === "apiKey" ? t("topologyCloudConfigured") : "OAuth", "good") : pill(t("topologyCloudNeedsKey"), "warn")}
-          <button class="cloud-model-count" type="button" data-cloud-models-toggle="${escapeHtml(acct.id)}" title="${acctBlocks.length} model${acctBlocks.length === 1 ? "" : "s"} — click to view">${acctBlocks.length} ${modelsOpen ? "⌃" : "⌄"}</button>
           <button class="icon-action compact" type="button" data-cloud-edit-account="${escapeHtml(acct.id)}" title="Edit account">⚙</button>
         </div>
         <div class="cloud-key-line ${acct.hasCredential ? "set" : "unset"}">${escapeHtml(credLine)}</div>
         ${usagePanel}
+        <button class="cloud-models-toggle-row" type="button" data-cloud-models-toggle="${escapeHtml(acct.id)}">
+          ${modelsOpen ? `${escapeHtml(t("cloudModelsHide"))} ⌃` : `${escapeHtml(t("cloudModelsShowAll", { n: String(acctBlocks.length) }))} ⌄`}
+        </button>
         <div class="cloud-models-flyout">
           ${blockRows ? `<div class="cloud-account-blocks">${blockRows}</div>` : `<div class="topology-muted" style="font-size:11px">no models yet</div>`}
           <button class="cloud-add-model-btn" type="button" data-cloud-fetch-models="${escapeHtml(acct.id)}" title="Fetch the model list from the provider">↻ Fetch models from provider</button>

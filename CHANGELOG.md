@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.9 — 2026-07-06
+
+- The cloud model-list toggle is a full-width "Show all N models ⌄" /
+  "Hide models ⌃" row at the bottom of the provider card (20
+  languages) — the tiny header count chip it replaces was easy to
+  miss.
+
 ## 1.3.8 — 2026-07-06
 
 - The idle board stops redrawing itself: the daily-stats fetch after
