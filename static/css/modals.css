@@ -1071,6 +1071,20 @@
   border-top: 1px solid var(--line);
 }
 
+/* Bridge ports on the provider card: entry points for external consumers. */
+.cloud-bridges { border-top: 1px solid var(--line); padding: 6px 10px 8px; display: flex; flex-direction: column; gap: 4px; }
+.cloud-bridges-head { font-size: 10px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.cloud-bridge-row { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.cloud-bridge-port { color: var(--accent, #4da392); }
+.cloud-bridge-model { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.cloud-bridge-add { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+.cloud-bridge-block { flex: 1; min-width: 0; font-size: 11px; padding: 3px 6px; }
+/* mint button mirrors the Reserve-cell ghost card styling */
+.cloud-bridge-ghost-btn { white-space: nowrap; }
+.proxy-reg-bridge { font-size: 9px; padding: 1px 5px; border-radius: 6px; margin-right: 6px;
+  background: color-mix(in srgb, var(--accent, #4da392) 18%, transparent); color: var(--accent, #4da392); }
+.proxy-reg-bridge-target { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
 /* One cable handle per provider (account); model list hidden until hover. */
 .cloud-account-card { position: relative; }
 /* Attach the cloud cable to the card HEADER, not its vertical middle. Needs all three

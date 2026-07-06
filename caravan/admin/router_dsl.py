@@ -336,9 +336,16 @@ def normalize_agent_proxy_route(route):
     if upstream_type not in ("llama", "cloud"):
         upstream_type = "llama"
     provider_id = str(route.get("providerId") or "").strip()
+    # "" = an agent port (default). "service" = a bridge port for an external
+    # consumer (e.g. a voice app): route-level cloud upstream, no router, no agent
+    # semantics — the kanban, OpenClaw sync and ↑☁ eligibility all skip it.
+    kind = str(route.get("kind") or "").strip().lower()
+    if kind not in ("", "service"):
+        kind = ""
     return {
         "label": label,
         "port": port,
+        "kind": kind,
         "upstreamHost": upstream_host,
         "upstreamPort": upstream_port,
         "upstreamType": upstream_type,
@@ -375,9 +382,12 @@ def normalize_agent_proxy_route(route):
         # explicit instead of being inferred from the label suffix.
         # An ABSENT routerId defaults to router:default (fresh proxy); an EXPLICIT
         # empty string ("") means "unassigned" (free) — not routed by any router,
-        # which the runtime treats as 503 until the user binds it.
-        "routerId": (DEFAULT_ROUTER_ID if route.get("routerId") is None
-                          else str(route.get("routerId")).strip()),
+        # which the runtime treats as 503 until the user binds it. Bridge ports
+        # are ALWAYS router-free: their routing is the route-level cloud pin,
+        # and no client rebuild may re-attach them to a router.
+        "routerId": ("" if kind == "service"
+                     else DEFAULT_ROUTER_ID if route.get("routerId") is None
+                     else str(route.get("routerId")).strip()),
         "role": (str(route.get("role") or "").strip().lower() or _role_from_label(route.get("label"))),
         "clientId": str(route.get("clientId") or "").strip(),
     }
@@ -401,6 +411,8 @@ def recompute_cloud_fallback_eligibility(routes):
     for route in routes:
         if not isinstance(route, dict):
             continue
+        if str(route.get("kind") or "") == "service":
+            continue  # bridge ports never act as a group's cloud sibling
         if str(route.get("upstreamType") or "llama").strip().lower() == "cloud":
             pid = str(route.get("providerId") or "").strip()
             if pid:
@@ -408,6 +420,8 @@ def recompute_cloud_fallback_eligibility(routes):
     for route in routes:
         if not isinstance(route, dict):
             continue
+        if str(route.get("kind") or "") == "service":
+            continue  # ↑☁ is an agent-route ability; leave bridges untouched
         is_cloud = str(route.get("upstreamType") or "llama").strip().lower() == "cloud"
         cloud_pid = group_cloud.get(_proxy_group_key(route.get("label")), "")
         eligible = bool(cloud_pid) and not is_cloud

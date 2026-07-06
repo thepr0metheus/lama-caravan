@@ -1,5 +1,50 @@
 # Changelog
 
+## 1.3.7 — 2026-07-06
+
+- Cell notes: every cell card can carry a free-form user comment —
+  drill into the cell (the model block) and edit NOTE in the detail
+  modal; the card shows it under the body (💬, two lines max, stored
+  on the slot, 20 languages).
+- Bridge minting now looks like the Reserve-cell control: a dashed
+  ghost button with the actual next port ("＋ Bridge port :8015").
+- One fleet-wide port pool, enforced both ways: cells now refuse ports
+  held by proxy routes (reserve guess + backend check include routes),
+  so a Reserve-cell can no longer collide with a bridge or agent port.
+- Copy buttons in the cell detail modal use the same plain-http
+  clipboard fallback as the bridge rows.
+- The board's poll-tick rebuild no longer fights the user: a focused
+  select/text field defers the rebuild (the deferred render lands on
+  focusout), and the bridge model choice is kept in UI state — picking
+  a model in a dropdown that used to redraw every ~3 s now works.
+
+## 1.3.6 — 2026-07-06
+
+- Bridge ports: one-click OpenAI-compatible entry points for EXTERNAL
+  consumers (e.g. a voice-translation app), minted on the Cloud Providers card — pick a
+  model block, get the next free port relayed to that cloud model with
+  the account's credentials (streaming, OAuth refresh, spend metering
+  and request logs included; /v1/models answers the pinned model, so
+  clients label themselves). Route kind="service": router-free by
+  construction, invisible to the kanban/agent machinery (OpenClaw sync,
+  ↑☁ eligibility, auto-attach all skip it); the port registry shows a
+  "bridge" badge with the pinned model instead of a router select.
+  Full-rebuild saves preserve the new fields; 20 languages.
+
+## 1.3.5 — 2026-07-06
+
+- Docker as the entry door: a controller-only image (admin UI + proxy
+  router, stdlib-only, ~150 MB) with a `docker compose up -d --build`
+  quick start. `CARAVAN_CONTAINER=1` swaps systemd for an in-process
+  proxy supervisor (crash watchdog + on-demand respawn, log in
+  /data/logs/proxy.log); `CARAVAN_DATA_DIR` rebases all mutable state
+  under one volume — also handy for local dev. Local cells, the legacy
+  unit and repair answer with a clear 400 — models run on caravan-scout
+  hosts; the board swaps the reserve-cell card for a scout hint on the
+  containerized controller (20 languages), the System modal shows
+  container service chips, the version chip reads the commit baked at
+  build. Native systemd deployment unchanged and remains primary.
+
 ## 1.3.4 — 2026-07-06
 
 - Runner tabs carry a (?) with the full trade-off story (benefits plus

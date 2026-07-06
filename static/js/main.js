@@ -41,7 +41,7 @@ import {
   topologyPointerDrag,
   topologyRouterInputAtPoint,
 } from "./topology-dnd.js";
-import { activeView, refreshTopology, renderTopology, setActiveView } from "./topology-render.js";
+import { activeView, flushPendingTopologyRender, refreshTopology, renderTopology, setActiveView } from "./topology-render.js";
 import { openUsageStatsModal } from "./usage-stats.js";
 import { $, api, bindTooltips, escapeHtml, toast } from "./utils.js";
 
@@ -350,6 +350,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.querySelectorAll("[data-view-tab]").forEach((button) => {
     button.addEventListener("click", () => setActiveView(button.dataset.viewTab));
   });
+  // Board renders deferred while a select/text field held focus (see
+  // topologyInteractionActive) land here once the focus moves on. The timeout
+  // lets document.activeElement settle on the newly-focused element first.
+  document.addEventListener("focusout", () => setTimeout(flushPendingTopologyRender, 60));
   // The loader hides the moment the board is actually populated — polling the
   // DOM beats awaiting the init chain, whose slowest call (/api/state tail)
   // can finish many seconds after the topology already rendered.

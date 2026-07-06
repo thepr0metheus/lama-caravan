@@ -107,6 +107,11 @@ never raises, so the server works on a laptop with empty panels. The monitor
 sampler also runs on macOS: memory comes from `vm_stat`/`sysctl`, processes
 from `ps -r`; per-core CPU% stays 0 (no `/proc`), loadavg is real.
 
+Shorthand for the same isolation: `CARAVAN_DATA_DIR=/tmp/caravan-dev python3
+app.py` rebases every mutable default (state/, config/, logs/, secrets/,
+models/, server-cells/, server-backups/) under one directory; the individual
+env vars above still win when set.
+
 Quick checks while developing:
 
 ```sh
@@ -114,6 +119,26 @@ python3 -m py_compile app.py agent-proxies.py $(find caravan -name '*.py')
 python3 scripts/test_queue_node.py
 node --check <(cat static/js/<module>.js)        # ES-module syntax (or copy to .mjs)
 ```
+
+## Docker (controller-only)
+
+**Evaluation / GPU-less-controller mode — native systemd stays the primary
+deployment** (only it can host `lama-cell@` cells on the controller box).
+`docker compose up -d --build` runs the admin + proxy in one container (see
+the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
+
+- No systemd: the proxy is a **supervised child** of the admin
+  (`caravan/admin/proxy_supervisor.py`) — respawned by a watchdog on crash,
+  respawned in place when a routes/cabling save asks for a restart. Its output
+  goes to `/data/logs/proxy.log`; `docker logs` carries the admin.
+- Local `lama-cell@` cells, the legacy single-server unit and "Repair user
+  service" are disabled with a clear 400 — models run on caravan-scout hosts
+  (attach the Docker host itself with scout if it has the GPU).
+- All mutable state lives under the `/data` volume (`CARAVAN_DATA_DIR`);
+  the System modal shows synthetic service chips (`lama-caravan (container)`,
+  `agent-proxies (child)`) and hides systemd diagnostics.
+- The version chip reads `CARAVAN_GIT_HEAD` (baked at build) because the
+  image ships without `.git`.
 
 ## Request-log diagnostics (API)
 

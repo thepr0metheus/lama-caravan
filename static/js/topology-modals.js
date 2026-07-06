@@ -511,22 +511,29 @@ export function renderTopologyProxySummaryModal() {
   const routers = topology?.routers || [];
   const onlineClientIds = new Set((topology?.clients || []).map((c) => c.id));
   const rows = proxies.map((p) => {
-    const owner = topologyProxyOwner(p.id);
+    // Bridge ports are not agents: no owner, no router — a cloud pin instead.
+    const isBridge = p.kind === "service";
+    const owner = isBridge ? null : topologyProxyOwner(p.id);
     // Orphan = no LIVE agent uses this port: either no assignment at all, or the
     // assigned agent is no longer reported by the host (dead agent). Its settings
     // are kept; this is where you decide to delete it.
-    const orphan = !(owner && owner.live);
+    const orphan = !isBridge && !(owner && owner.live);
     const role = p.role || (String(p.label || "").match(/(primary|fallback)$/i)?.[1]?.toLowerCase()) || "";
     const ownerName = owner?.title || p.label || "—";
     const routerOptions = routers.length
       ? routers.map((s) => `<option value="${escapeHtml(s.id)}"${s.id === (p.routerId || "router:default") ? " selected" : ""}>${escapeHtml(s.name || s.id)}</option>`).join("")
       : `<option value="router:default">Default</option>`;
+    const bridgeModel = isBridge
+      ? ((topology?.cloudProviders || []).find((b) => b.id === p.providerId)?.model || p.providerId || "cloud")
+      : "";
     return `
       <div class="proxy-reg-row ${orphan ? "orphan" : ""}">
         <span class="proxy-reg-port">:${escapeHtml(p.port)}</span>
-        <span class="proxy-reg-owner">${orphan ? `<span class="proxy-reg-orphan" title="${escapeHtml(t("orphanPortTitle"))}">orphan</span>` : ""}<span class="proxy-reg-owner-name">${escapeHtml(ownerName)}</span></span>
+        <span class="proxy-reg-owner">${orphan ? `<span class="proxy-reg-orphan" title="${escapeHtml(t("orphanPortTitle"))}">orphan</span>` : ""}${isBridge ? `<span class="proxy-reg-bridge" title="${escapeHtml(t("cloudBridgeHint"))}">bridge</span>` : ""}<span class="proxy-reg-owner-name">${escapeHtml(ownerName)}</span></span>
         <span class="proxy-reg-role ${escapeHtml(role)}">${escapeHtml(role || "—")}</span>
-        <select class="proxy-reg-router" data-proxy-reg-router="${escapeHtml(p.id)}" title="Router this port feeds">${routerOptions}</select>
+        ${isBridge
+          ? `<span class="proxy-reg-router proxy-reg-bridge-target" title="${escapeHtml(t("cloudBridgeHint"))}">☁ ${escapeHtml(bridgeModel)}</span>`
+          : `<select class="proxy-reg-router" data-proxy-reg-router="${escapeHtml(p.id)}" title="Router this port feeds">${routerOptions}</select>`}
         <span class="proxy-reg-actions">
           <button class="icon-action compact" type="button" data-topology-proxy-edit="${escapeHtml(p.id)}" aria-label="Edit port" title="Rename / change port">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>

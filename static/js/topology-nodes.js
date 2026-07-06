@@ -32,8 +32,8 @@ import {
 } from "./topology-activity.js";
 import { topologyLlamaDetailOpen } from "./topology-dnd.js";
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
-import { renderTopology } from "./topology-render.js";
-import { $, api, escapeHtml, toast } from "./utils.js";
+import { refreshTopology, renderTopology } from "./topology-render.js";
+import { $, api, copyText, escapeHtml, toast } from "./utils.js";
 
 // ── Host-centric node view (Stage 3a) ────────────────────────────────────────
 // Known safetensors format folder names (mirror of _ST_FORMAT_HINTS in
@@ -465,6 +465,10 @@ export function nodeServerCardHtml(node, s) {
               ? `<div class="node-server-body">${bodyBlock}${(() => `<div class="topology-runtime-panel llama ghost-slots"><div class="topology-runtime-slots-head"><strong>${escapeHtml(t("topologySlots"))} <span class="topology-muted">1</span></strong></div><div class="topology-runtime-slots slot-chips-row"><span class="slot-chip idle"></span></div></div>`)()}</div>${progressPanel}`
               : `<div class="node-server-body">${bodyBlock}${topologyRuntimePanelHtml(topologyServerGroup(s))}</div>${progressPanel}`)
           : progressPanel}
+        ${(() => {
+          const note = (topology?.cellNotes || {})[slotKey];
+          return note ? `<div class="node-server-note" title="${escapeHtml(note)}">💬 ${escapeHtml(note)}</div>` : "";
+        })()}
         ${isError && s.lastError ? (() => {
           const err = classifyLlamaError(s.lastError);
           return `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(s.lastError)}">
@@ -708,6 +712,12 @@ export function openNodeServerDetail(nodeId, port) {
           ${s.reachable === false ? row("Reachable", "<span style='color:var(--warn,#f59e0b)'>no — port blocked?</span>") : ""}
           ${phase === "error" && s.lastError ? row("Error", `<code>${escapeHtml(s.lastError)}</code>`) : ""}
           ${cmdBlockHtml}
+          <div class="nsd-cfg-section nsd-note-section">
+            <div class="nsd-cfg-head">${escapeHtml(t("cellNoteHead"))}</div>
+            <textarea class="nsd-note-input" maxlength="280" rows="2"
+              placeholder="${escapeHtml(t("cellNotePlaceholder"))}">${escapeHtml((topology?.cellNotes || {})[`${s.isController ? "skynet" : node.id}:${s.port}`] || "")}</textarea>
+            <button class="nsd-note-save" type="button">${escapeHtml(t("cellNoteSave"))}</button>
+          </div>
         </div>
       </div>
     </div>`;
@@ -719,13 +729,33 @@ export function openNodeServerDetail(nodeId, port) {
   overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
   overlay.querySelector("#nodeServerDetailClose")?.addEventListener("click", close);
   overlay.querySelectorAll("[data-copy]").forEach((b) => {
-    b.addEventListener("click", () => {
-      navigator.clipboard?.writeText(b.dataset.copy).then(() => {
+    b.addEventListener("click", async () => {
+      // copyText falls back to execCommand — the LAN UI runs on plain http
+      // where navigator.clipboard does not exist.
+      if (await copyText(b.dataset.copy)) {
         const orig = b.textContent;
         b.textContent = "✓";
         setTimeout(() => { b.textContent = orig; }, 1200);
-      });
+      }
     });
+  });
+  overlay.querySelector(".nsd-note-save")?.addEventListener("click", async (e) => {
+    const btn = e.currentTarget;
+    const note = overlay.querySelector(".nsd-note-input")?.value ?? "";
+    btn.disabled = true;
+    try {
+      await api("/api/topology/server-slot/note", {
+        method: "POST",
+        body: JSON.stringify({ hostId: s.isController ? "skynet" : node.id, port: s.port, note }),
+      });
+      toast(t("cellNoteSaved"));
+      await refreshTopology();
+      renderTopology();
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      btn.disabled = false;
+    }
   });
 }
 
@@ -788,7 +818,13 @@ export function nodesLaneHtml() {
     const reservePending = _reservingCells.get(String(n.id));
     const reservePort = reservePending?.port || nextCellPort;
     const reserveBusy = !!reservePending;
-    const addBtn = `<article class="node-server ghost-server${reserveBusy ? " reserving" : ""}">
+    // A containerized controller has no systemd to host cells — swap the
+    // reserve card for a hint that models are served by caravan-scout hosts.
+    const addBtn = n.containerized
+      ? `<article class="node-server ghost-server container-hint">
+      <div class="ghost-server-body"><span class="container-cells-hint">🐳 ${escapeHtml(t("topologyContainerCellsHint"))}</span></div>
+    </article>`
+      : `<article class="node-server ghost-server${reserveBusy ? " reserving" : ""}">
       ${serverLifecycleBar(-1, "none")}
       <div class="ghost-server-body">
         <button class="ghost-start-btn" type="button"

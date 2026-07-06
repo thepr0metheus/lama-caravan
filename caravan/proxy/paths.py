@@ -5,20 +5,34 @@ from pathlib import Path
 # caravan/proxy/paths.py -> parents[2] == repo root (where agent-proxies.py lives).
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+# CARAVAN_DATA_DIR rebases the mutable defaults below one mountable directory —
+# same layout as caravan/admin/paths.py (the admin sets it for the whole
+# container, both daemons must resolve the shared files identically).
+DATA_DIR = Path(os.environ.get("CARAVAN_DATA_DIR")).expanduser() \
+    if os.environ.get("CARAVAN_DATA_DIR", "").strip() else None
+
+def _default(data_rel, legacy):
+    return str(DATA_DIR / data_rel) if DATA_DIR else str(legacy)
+
 
 UPSTREAM_HOST = os.environ.get("AGENT_PROXY_UPSTREAM_HOST", "127.0.0.1")
 
 UPSTREAM_PORT = int(os.environ.get("AGENT_PROXY_UPSTREAM_PORT", "8080"))
 
-STATE_FILE = Path(os.environ.get("AGENT_PROXY_STATE_FILE", str(PROJECT_ROOT / "agent-proxy-state.json")))
+STATE_FILE = Path(os.environ.get("AGENT_PROXY_STATE_FILE")
+    or _default("state/agent-proxy-state.json", PROJECT_ROOT / "agent-proxy-state.json"))
 
-CONFIG_FILE = Path(os.environ.get("AGENT_PROXY_CONFIG_FILE", str(PROJECT_ROOT / "agent-proxies.json")))
+CONFIG_FILE = Path(os.environ.get("AGENT_PROXY_CONFIG_FILE")
+    or _default("config/agent-proxies.json", PROJECT_ROOT / "agent-proxies.json"))
 
-CLOUD_PROVIDERS_FILE = Path(os.environ.get("CLOUD_PROVIDERS_FILE", str(PROJECT_ROOT / "cloud-providers.json")))
+CLOUD_PROVIDERS_FILE = Path(os.environ.get("CLOUD_PROVIDERS_FILE")
+    or _default("config/cloud-providers.json", PROJECT_ROOT / "cloud-providers.json"))
 
-PROVIDER_SECRETS_FILE = Path(os.environ.get("PROVIDER_SECRETS_FILE", str(Path.home() / ".config" / "llamacpp-easy-admin" / "provider-secrets.json")))
+PROVIDER_SECRETS_FILE = Path(os.environ.get("PROVIDER_SECRETS_FILE")
+    or _default("secrets/provider-secrets.json", Path.home() / ".config" / "llamacpp-easy-admin" / "provider-secrets.json"))
 
-LOG_DIR = Path(os.environ.get("AGENT_PROXY_LOG_DIR", str(PROJECT_ROOT / "logs" / "proxy-events")))
+LOG_DIR = Path(os.environ.get("AGENT_PROXY_LOG_DIR")
+    or _default("logs/proxy-events", PROJECT_ROOT / "logs" / "proxy-events"))
 
 LOG_RETENTION_DAYS = int(os.environ.get("AGENT_PROXY_LOG_RETENTION_DAYS", "30"))
 

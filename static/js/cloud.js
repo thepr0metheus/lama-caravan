@@ -3,6 +3,7 @@ import { badge, option } from "./form.js";
 import { t } from "./i18n.js";
 import { formatPricePer1M, modelPricing } from "./model-meta.js";
 import { action } from "./polling.js";
+import { nextTopologyCellPort } from "./remote-cells.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { renderTopology } from "./topology-render.js";
 import {
@@ -38,7 +39,13 @@ export function renderTopologyCloudProviders() {
     const p = modelPricing[b.model || ""];
     return p ? `${b.model}:${p.inputPer1M}:${p.outputPer1M}` : b.model || "";
   }).join("|");
-  const key = JSON.stringify(accounts) + JSON.stringify(blocks) + usageKeys + pricingKey + `:ps${proxySpendFetchedAt}`;
+  // Bridge ports live on the provider cards — their set must trigger a re-render.
+  const bridgesKey = (topology?.proxies || [])
+    .filter((p) => p.kind === "service")
+    .map((p) => `${p.port}:${p.providerId}`).join(",");
+  // The mint button shows the next fleet-wide port — any cell/port change must re-render.
+  const key = JSON.stringify(accounts) + JSON.stringify(blocks) + usageKeys + pricingKey
+    + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${nextTopologyCellPort()}`;
   if (key === ui._lastCloudProvidersKey) return;
   ui._lastCloudProvidersKey = key;
   const addCloudBtn = `<button class="topology-add-wide-btn" type="button" data-topo-add-cloud>+ Add Cloud Provider</button>`;
@@ -87,6 +94,41 @@ export function renderTopologyCloudProviders() {
     // Local proxy spend-meter (our token counts × pricing) — for every cloud account.
     fetchProxySpend();
     usagePanel += proxySpendHtml(acct.id);
+    // Bridge ports: OpenAI-compatible entry points for EXTERNAL consumers
+    // (a voice app, an IDE plugin, …) pinned to one of this account's model blocks. Not agents:
+    // kind="service" routes never join the kanban graph.
+    const blockById = new Map(acctBlocks.map((b) => [b.id, b]));
+    const bridges = (topology?.proxies || [])
+      .filter((p) => p.kind === "service" && blockById.has(p.providerId))
+      .sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
+    const bridgeRows = bridges.map((p) => {
+      const model = blockById.get(p.providerId)?.model || p.providerId;
+      const url = `http://${location.hostname}:${p.port}`;
+      return `<div class="cloud-bridge-row">
+        <code class="cloud-bridge-port">:${escapeHtml(String(p.port))}</code>
+        <span class="cloud-bridge-model" title="${escapeHtml(`${p.label || ""} → ${model}`)}">→ ${escapeHtml(model)}</span>
+        <button class="icon-action compact" type="button" data-bridge-copy="${escapeHtml(url)}" title="${escapeHtml(t("cloudBridgeCopy"))}">⧉</button>
+        <button class="icon-action compact" type="button" data-bridge-delete="${escapeHtml(String(p.port))}" title="${escapeHtml(t("cloudBridgeDelete"))}">✕</button>
+      </div>`;
+    }).join("");
+    // The board fully re-renders on poll ticks — an unsaved dropdown choice
+    // must live in ui state or every rebuild would reset it to the first row.
+    const chosenBlock = ui.bridgeBlockChoice?.[acct.id] || "";
+    const bridgeOptions = acctBlocks
+      .map((b) => `<option value="${escapeHtml(b.id)}"${b.id === chosenBlock ? " selected" : ""}>${escapeHtml(b.model || b.name || b.id)}</option>`).join("");
+    // Same ghost styling and "next free port" promise as the Reserve-cell
+    // card — bridges and cells share the fleet-wide numbering.
+    const nextBridgePort = nextTopologyCellPort();
+    const bridgePanel = acct.hasCredential && acctBlocks.length ? `
+      <div class="cloud-bridges">
+        <div class="cloud-bridges-head" title="${escapeHtml(t("cloudBridgeHint"))}">${escapeHtml(t("cloudBridgePorts"))}</div>
+        ${bridgeRows}
+        <div class="cloud-bridge-add">
+          <select class="cloud-bridge-block" data-bridge-block="${escapeHtml(acct.id)}" title="${escapeHtml(t("cloudBridgeHint"))}">${bridgeOptions}</select>
+          <button class="ghost-start-btn cloud-bridge-ghost-btn" type="button" data-bridge-mint="${escapeHtml(acct.id)}" title="${escapeHtml(t("cloudBridgeOpen"))}">＋ ${escapeHtml(t("cloudBridgeReserveLabel"))} :${escapeHtml(String(nextBridgePort))}</button>
+        </div>
+      </div>` : "";
+    usagePanel += bridgePanel;
     // One cable handle per PROVIDER (account). The router output attaches here;
     // the actual model is chosen inside the router. The model list is hidden until
     // hover (slide-out flyout with prices).

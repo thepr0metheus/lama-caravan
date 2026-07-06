@@ -178,6 +178,13 @@ export function nextTopologyCellPort() {
     const port = Number(s.port || 0);
     if (port) used.add(port);
   }));
+  // Proxy routes (agent + bridge ports) share the fleet-wide numbering — a
+  // cell must never take a port the proxy already listens on (the backend
+  // used_server_cell_ports applies the same union).
+  (topology?.proxies || []).forEach((p) => {
+    const port = Number(p.port || 0);
+    if (port) used.add(port);
+  });
   let port = 8001;
   while (used.has(port)) port += 1;
   return port;

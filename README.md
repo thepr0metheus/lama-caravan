@@ -22,6 +22,12 @@ What that gives you in practice:
 - **Stable endpoints for agents.** Every agent points at its own fixed proxy
   port on the controller — and never needs reconfiguring again. Swap the model,
   move it to another machine, reroute to the cloud: the agent doesn't notice.
+- **Bridge ports: cloud models for ANY app, not just agents.** One click on a
+  cloud provider's card opens an OpenAI-compatible port pinned to a chosen
+  model — the caravan holds the keys/OAuth, meters the spend and logs the
+  requests. Point a transcription tool, a translator overlay or an IDE plugin
+  at `http://controller:port` and it speaks to `gpt-…`/OpenRouter/Anthropic
+  without owning a single credential.
 - **Local ⇄ cloud routing you can draw.** Each port has a visual pipeline (the
   kanban): queue nodes with priorities and admission limits, **schedule nodes**
   (nights on the big GPU, work hours to the cloud), weighted splits,
@@ -41,6 +47,11 @@ What that gives you in practice:
   on the board, and you can launch llama.cpp server cells there remotely —
   models are cached and shipped from the controller, with a "will it fit"
   VRAM/RAM estimate before starting.
+- **Three engines, one lifecycle.** A cell can run **llama.cpp** (GGUF),
+  **vLLM** (safetensors — AWQ/FP8/NVFP4, provisioned into its own venv on
+  first start) or **faster-whisper** (speech-to-text) — same cards, same
+  health checks, same start/stop/schedule machinery; plus a "custom command"
+  cell for anything else that listens on `$PORT`.
 - **Models from HuggingFace in two clicks.** The built-in HF browser searches
   GGUF repos, shows quants with sizes and benchmark badges, downloads
   multi-part files straight into the controller's model directory.
@@ -48,10 +59,10 @@ What that gives you in practice:
   traffic), per-request history with timings and error kinds, incident badges,
   GPU/CPU/token-speed monitors.
 - **Nothing to install but Python.** Controller and agent are stdlib-only; no
-  Docker, no database server, no external services. State lives in plain JSON
-  files (hot-reloadable, git-diffable, backed up by copying) plus one small
-  embedded SQLite file for accounts/sessions — and systemd/launchd units on
-  your own machines.
+  database server, no external services, Docker optional (see the quick start).
+  State lives in plain JSON files (hot-reloadable, git-diffable, backed up by
+  copying) plus one small embedded SQLite file for accounts/sessions — and
+  systemd/launchd units on your own machines.
 
 A concrete day with it: your coding agents hammer a local Qwen on the desktop
 GPU all night on a schedule window; in the morning the schedule flips them to
@@ -62,6 +73,40 @@ that would have cost in cloud tokens.
 
 The long version of that day — with the kanban that implements it — lives in
 [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md).
+
+## Quick start (Docker)
+
+> **Docker is the evaluation path** — the fastest way to look around: one
+> container with the admin UI and the proxy router, no models inside. The
+> **primary, fully-featured deployment is the native systemd install**
+> ([Install On the controller](#install-on-the-controller)) — it also runs
+> `lama-cell@<port>` server cells on the controller box itself, with journald
+> logs, restart limits and per-cell memory caps.
+
+```bash
+git clone https://github.com/thepr0metheus/lama-caravan.git
+cd lama-caravan
+LLAMA_TOPOLOGY_SERVER_IP=<this-machine-LAN-IP> docker compose up -d --build
+# open http://<this-machine>:8090
+```
+
+Models are **not** served from inside the container (it has no systemd and, by
+design, no GPU): attach each GPU machine — including the Docker host itself —
+with [caravan-scout](https://github.com/thepr0metheus/caravan-scout), and its
+cells appear on the board. The `?` tour and System → Security (fleet token)
+walk you through pairing. All state lives in the `caravan-data` volume
+(`/data`): config, accounts, token history, logs and downloaded models.
+
+Notes:
+
+- **Linux host recommended.** `network_mode: host` lets the proxy bind its
+  per-agent ports on the fly; on Docker Desktop (macOS/Windows) enable its
+  host-networking option or use the native install below.
+- Liked it? For day-to-day fleet duty switch to the native install — the
+  container is also fine long-term for a GPU-less controller box (NAS/VPS)
+  where every model lives on scout hosts.
+- Version chip: build with
+  `CARAVAN_GIT_HEAD=$(git rev-parse --short HEAD) docker compose up -d --build`.
 
 ## Models directory layout
 
@@ -96,7 +141,7 @@ The built-in HuggingFace GGUF browser:
 
 | Component | Requirement |
 |---|---|
-| Controller OS | Linux with systemd (tested on Ubuntu 24.04; any systemd distro should work) |
+| Controller OS | **Primary:** Linux with systemd (tested on Ubuntu 24.04; any systemd distro should work). **Evaluation:** any Docker host via the [Docker quick start](#quick-start-docker) — controller-only, cells then live on scout hosts |
 | Python | **3.10+**, standard library only — no pip packages (tested on 3.12) |
 | llama.cpp | a `llama-server` build **b400+** (needs `--chat-template-file`; tested with b422, 2026-06) |
 | GPU serving | NVIDIA driver + `nvidia-smi` for telemetry; CUDA build of llama.cpp (CPU-only also works) |
@@ -413,9 +458,20 @@ on the Blackwell GPU backend — the `sm_120` dequant kernel is broken (confirme
 works on CPU, garbles on GPU regardless of build flags). This is independent of
 the crash fix. **Use a K-quant** (`Q4_K_M`, `Q5_K_XL`, `Q6_K`) on Blackwell hosts.
 
+**Still needed?** Checked 2026-07-06 against upstream `master` (b9570+):
+`ggml_cuda_init()` still reads `prop.sharedMemPerBlockOptin` directly, so the
+patch remains required. It is idempotent and re-applied automatically on every
+`install-llama.sh` rebuild — nothing to do by hand; drop this section only once
+upstream switches to `cudaDeviceGetAttribute` here.
+
 Full write-up: [`docs/postmortem-blackwell-soft-max-crash.md`](docs/postmortem-blackwell-soft-max-crash.md).
 
 ## Install On the controller
+
+**This is the primary deployment.** The [Docker quick start](#quick-start-docker)
+above is for evaluation (or a GPU-less controller box); a real fleet controller
+runs native under systemd so it can host `lama-cell@<port>` server cells with
+journald logs, start limits and memory caps.
 
 Copy this directory to:
 

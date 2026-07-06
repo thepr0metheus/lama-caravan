@@ -1,0 +1,37 @@
+# LAMA CARAVAN controller in Docker — the quickest way to try the project.
+#
+#   docker compose up -d --build
+#   open http://<this-host>:8090
+#
+# Then attach GPU machines with caravan-scout (they serve the models):
+# the board's "?" tour and System → Security (fleet token) walk you through it.
+#
+# Linux is the intended host: network_mode: host lets the proxy router bind
+# its per-agent ports (8083…, 8100+) on the fly — Docker port publishing
+# can't follow a dynamic set. On Docker Desktop (macOS/Windows) enable its
+# host-networking option, or stick to the native install.
+services:
+  caravan:
+    build:
+      context: .
+      # Bakes the commit into the version chip; harmless to omit:
+      #   CARAVAN_GIT_HEAD=$(git rev-parse --short HEAD) docker compose up -d --build
+      args:
+        CARAVAN_GIT_HEAD: "${CARAVAN_GIT_HEAD:-}"
+    image: lama-caravan:latest
+    container_name: lama-caravan
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      # Everything mutable: config, auth DB, token history, logs, downloaded
+      # models (served to scout hosts from here).
+      - caravan-data:/data
+    environment:
+      # The address agents/scout hosts use to reach this controller —
+      # set it to this machine's LAN IP.
+      LLAMA_TOPOLOGY_SERVER_IP: "${LLAMA_TOPOLOGY_SERVER_IP:-127.0.0.1}"
+      # Admin UI port (also adjust the healthcheck expectation if you change it):
+      # LLAMACPP_ADMIN_PORT: "8090"
+
+volumes:
+  caravan-data:

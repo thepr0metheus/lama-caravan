@@ -97,6 +97,10 @@ def normalize_route(route):
     return {
         "label": label,
         "port": port,
+        # "service" = bridge port for an external consumer (a voice app etc.);
+        # carried through for state/log consumers — the data plane treats it
+        # like any other route.
+        "kind": str(route.get("kind") or "").strip().lower(),
         "upstreamHost": upstream_host,
         "upstreamPort": upstream_port,
         "upstreamType": str(route.get("upstreamType") or "llama").strip().lower(),

@@ -103,6 +103,7 @@ from caravan.admin.server_cells import (
     normalize_topology_agent,
     reserve_server_cell,
     server_slot_key,
+    set_server_slot_note,
     upsert_server_slot,
     used_server_cell_ports,
 )
@@ -229,7 +230,9 @@ from caravan.admin.router_dsl import (
     recompute_cloud_fallback_eligibility,
 )
 from caravan.admin.proxies_config import (
+    delete_bridge_port,
     load_agent_proxy_config,
+    mint_bridge_port,
     normalize_routers,
     read_agent_proxy_payload,
     save_agent_proxy_config,
@@ -1004,6 +1007,17 @@ def _post_api_agent_proxies_stop(h, parsed, body):
         h.send_json({"ok": True, "result": result, "monitor": system_monitor_state()})
         return
 
+@_route(POST_ROUTES, '/api/cloud-accounts/bridge-port')
+def _post_api_cloud_bridge_port(h, parsed, body):
+        route = mint_bridge_port(body.get("blockId"), body.get("label"))
+        h.send_json({"ok": True, "route": route})
+        return
+
+@_route(POST_ROUTES, '/api/cloud-accounts/bridge-port-delete')
+def _post_api_cloud_bridge_port_delete(h, parsed, body):
+        h.send_json({"ok": True, **delete_bridge_port(body.get("port"))})
+        return
+
 @_route(POST_ROUTES, '/api/cloud-accounts/auto-create-blocks')
 def _post_api_cloud_accounts_auto_create_blocks(h, parsed, body):
         account_id = str(body.get("id") or "").strip()
@@ -1109,6 +1123,12 @@ def _post_api_topology_server_slot_add(h, parsed, body):
 @_route(POST_ROUTES, '/api/topology/server-slot/delete')
 def _post_api_topology_server_slot_delete(h, parsed, body):
         h.send_json(client_server_slot_delete(body))
+        return
+
+@_route(POST_ROUTES, '/api/topology/server-slot/note')
+def _post_api_topology_server_slot_note(h, parsed, body):
+        h.send_json({"ok": True, **set_server_slot_note(
+            body.get("hostId"), body.get("port"), body.get("note"))})
         return
 
 @_route(POST_ROUTES, '/api/topology/server-cell/action')

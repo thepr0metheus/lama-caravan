@@ -411,6 +411,9 @@ export function renderSecurity(sec) {
 export function renderControllerInfo(info) {
   const el = $("controllerInfo");
   if (!el || !info) return;
+  // Container mode: there is no user systemd to repair — the button would
+  // only ever answer with a 400.
+  if (info.container) $("repairUserServiceBtn")?.closest(".button-with-tip")?.remove();
   const chips = [];
   for (const svc of info.services || []) {
     const activeTxt = svc.ok ? `${svc.active || "?"} / ${svc.sub || "?"}` : "n/a";

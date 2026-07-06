@@ -1,0 +1,31 @@
+# The image carries only the code: app.py, agent-proxies.py, caravan/, static/.
+# Everything else — and especially live deployment state — stays out.
+.git
+.gitignore
+.claude
+.bench_cache
+__pycache__
+**/__pycache__
+*.pyc
+
+# Live state of a native deployment (never bake a real config into an image)
+var/
+logs/
+agent-proxies.json
+agent-proxies.json.bak-*
+agent-proxy-state.json
+agent-proxies.py.bak*
+client-labels.json
+token-history.json
+cloud-providers.json
+
+# Host-side tooling that is useless inside the container
+systemd/
+scripts/
+whisper/
+docs/
+*.md
+LICENSE
+Dockerfile
+docker-compose.yml
+.dockerignore

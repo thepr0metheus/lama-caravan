@@ -353,7 +353,7 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
       el.innerHTML = `
         <div class="mc-item-main">
           ${runnerIcons}<span class="mc-item-name">${escapeHtml(fname)}</span>
-          ${item.sizeGb ? `<span class="mc-item-size">${item.sizeGb} GB</span>` : ""}
+          ${item.sizeLabel ? `<span class="mc-item-size">${escapeHtml(item.sizeLabel)}</span>` : item.sizeGb ? `<span class="mc-item-size">${item.sizeGb} GB</span>` : ""}
           ${badges}
           ${dateStr ? `<span class="mc-item-date" title="${t("addedOnDisk")}">${dateStr}</span>` : ""}
         </div>
@@ -420,11 +420,13 @@ export function renderModelSelects(pfx = "") {
   // caches are unknown here, so their rows never dim.
   {
     const have = new Set(state.whisperOnDisk || []);
-    ["tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3"]
-      .forEach((size) => modelItems.push({
+    [["tiny", "75 MB"], ["base", "145 MB"], ["small", "480 MB"], ["medium", "1.5 GB"],
+     ["large-v3", "3 GB"], ["large-v3-turbo", "1.6 GB"], ["distil-large-v3", "1.5 GB"]]
+      .forEach(([size, sizeLabel]) => modelItems.push({
         value: `whisper/models--Systran--faster-whisper-${size}`,
         kind: "whisper",
         whSize: size,
+        sizeLabel,
         whOnDisk: pfx === "tr-" || have.has(size),
         mtime: 0,
       }));

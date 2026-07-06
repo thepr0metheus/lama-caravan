@@ -215,6 +215,8 @@ def sync_wait_timeouts_from_openclaw():
         for route in routes:
             if not isinstance(route, dict):
                 continue
+            if str(route.get("kind") or "") == "service":
+                continue  # bridge ports have no OpenClaw agent behind them
             # Match by the proxy's own listening port — OpenClaw's baseUrl points here
             port = int(route.get("port") or 0)
             new_timeout = port_to_timeout.get(port)

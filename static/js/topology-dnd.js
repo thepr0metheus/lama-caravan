@@ -68,7 +68,7 @@ import {
   editTopologyProxy,
   saveTopologyProxyForm,
 } from "./topology-proxies.js";
-import { flushPendingTopologyRender, renderTopology } from "./topology-render.js";
+import { flushPendingTopologyRender, refreshTopology, renderTopology } from "./topology-render.js";
 import {
   apiCostsCache,
   fetchApiCosts,
@@ -82,7 +82,7 @@ import {
   usageStatsApiPriceEdit,
   usageStatsData,
 } from "./usage-stats.js";
-import { $, api, pill, toast } from "./utils.js";
+import { $, api, copyText, pill, toast } from "./utils.js";
 
 export let topologyPointerDrag = null;
 export let topologyScheduleRouterId = "";         // which router's weekly schedule editor is open
@@ -223,6 +223,48 @@ export function bindTopologyDragAndDrop() {
         toast(res.created > 0 ? `${res.created} model${res.created !== 1 ? "s" : ""} added (${res.total} available)` : `models up to date (${res.total} available)`);
         renderTopology();
       } catch (err) { toast(`fetch failed: ${err.message}`); btn.textContent = t("fetchModelsBtn"); btn.disabled = false; }
+    });
+  });
+  // bridge ports: mint / copy URL / delete (provider-card section)
+  document.querySelectorAll("select[data-bridge-block]").forEach((sel) => {
+    sel.addEventListener("change", () => {
+      // Unsaved choice — survives the poll-tick rebuilds (cloud.js renders
+      // the selected attribute back from ui state).
+      (ui.bridgeBlockChoice ||= {})[sel.dataset.bridgeBlock] = sel.value;
+    });
+  });
+  document.querySelectorAll("[data-bridge-mint]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const sel = document.querySelector(`select[data-bridge-block="${btn.dataset.bridgeMint}"]`);
+      const blockId = sel?.value;
+      if (!blockId) return;
+      btn.disabled = true;
+      try {
+        const res = await api("/api/cloud-accounts/bridge-port", { method: "POST", body: JSON.stringify({ blockId }) });
+        await refreshTopology();
+        const url = `http://${location.hostname}:${res.route.port}`;
+        // "(copied)" must not lie: fall back to showing the bare URL.
+        toast((await copyText(url)) ? t("cloudBridgeMinted", { url }) : url);
+        renderTopology();
+      } catch (err) { toast(err.message); btn.disabled = false; }
+    });
+  });
+  document.querySelectorAll("[data-bridge-copy]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      toast((await copyText(btn.dataset.bridgeCopy)) ? t("cloudBridgeCopied") : btn.dataset.bridgeCopy);
+    });
+  });
+  document.querySelectorAll("[data-bridge-delete]").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!(await appConfirm(t("cloudBridgeDeleteConfirm", { port: btn.dataset.bridgeDelete })))) return;
+      try {
+        await api("/api/cloud-accounts/bridge-port-delete", { method: "POST", body: JSON.stringify({ port: Number(btn.dataset.bridgeDelete) }) });
+        await refreshTopology();
+        renderTopology();
+      } catch (err) { toast(err.message); }
     });
   });
   // account modal

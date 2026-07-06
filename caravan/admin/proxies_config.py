@@ -3,7 +3,7 @@ funnels through write_agent_proxy_payload (with the kanban-graph autobackup)."""
 import json
 
 from caravan.admin.cloud import cloud_blocks_state, load_cloud_data, save_cloud_data
-from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE, AGENT_PROXY_SERVICE_NAME
+from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE
 from caravan.admin.router_dsl import (
     DEFAULT_ROUTER_ID,
     normalize_agent_proxy_policy,
@@ -12,7 +12,7 @@ from caravan.admin.router_dsl import (
     normalize_router_output,
     recompute_cloud_fallback_eligibility,
 )
-from caravan.admin.systemd_ctl import systemctl
+from caravan.admin.systemd_ctl import restart_agent_proxy
 from caravan.common.errors import AppError
 from caravan.common.fsio import atomic_write_text
 
@@ -317,10 +317,95 @@ def save_agent_proxy_config(routes, routers=None):
         "stopRequests": current.get("stopRequests") or [],
     }
     write_agent_proxy_payload(payload)
-    result = systemctl("restart", AGENT_PROXY_SERVICE_NAME, timeout=30)
+    result = restart_agent_proxy(timeout=30)
     if not result["ok"]:
         raise AppError(result["stderr"] or "failed to restart agent proxy service", 500)
     return payload
+
+# ── Bridge ports (kind="service") ────────────────────────────────────────────
+# An OpenAI-compatible entry point for an EXTERNAL consumer (a voice app etc.):
+# route-level cloud upstream pinned to one model block, routerId explicitly ""
+# so it feeds no router and never shows up in the kanban graph; the agent
+# machinery (OpenClaw sync, ↑☁ eligibility, assignments) skips kind="service".
+
+def _next_free_proxy_port(routes):
+    """Bridges share the fleet-wide cell numbering (8001, 8002, … — the same
+    "next free port" a Reserve-cell would take): smallest port from that pool
+    not held by a server slot on any host or by an existing proxy route."""
+    from caravan.admin.paths import SERVER_CELL_BASE_PORT
+    from caravan.admin.server_cells import used_server_cell_ports
+    used = set()
+    try:
+        used |= used_server_cell_ports()
+    except Exception:
+        pass
+    for r in routes:
+        if isinstance(r, dict):
+            try:
+                used.add(int(r.get("port") or 0))
+            except (TypeError, ValueError):
+                pass
+    port = SERVER_CELL_BASE_PORT
+    while port in used:
+        port += 1
+    if port > 65535:
+        raise AppError("no free proxy port left", 500)
+    return port
+
+def mint_bridge_port(block_id, label=""):
+    """Create a bridge port for a cloud model block and return the saved route."""
+    block_id = str(block_id or "").strip()
+    if not block_id:
+        raise AppError("blockId is required", 400)
+    data = load_cloud_data()
+    block = next((b for b in (data.get("blocks") or [])
+                  if isinstance(b, dict) and b.get("id") == block_id), None)
+    if not block:
+        raise AppError(f"unknown cloud model block: {block_id}", 404)
+    if not any(isinstance(a, dict) and a.get("id") == block.get("accountId")
+               for a in (data.get("accounts") or [])):
+        raise AppError("model block has no account", 400)
+    payload = load_agent_proxy_config()
+    routes = payload.get("routes") or []
+    port = _next_free_proxy_port(routes)
+    model = str(block.get("model") or block.get("name") or block_id)
+    route = {
+        "label": (str(label or "").strip() or f"bridge {model}")[:80],
+        "port": port,
+        "kind": "service",
+        "upstreamType": "cloud",
+        "providerId": block_id,
+        "routerId": "",   # explicit: unassigned — absent would auto-bind router:default
+        "mode": "open",
+    }
+    routes.append(route)
+    # A bridge exists FOR an external consumer on the LAN — open the port the
+    # same best-effort way a starting cell does (no-op without the sudo rule).
+    from caravan.admin.paths import IS_CONTAINER
+    if not IS_CONTAINER:
+        try:
+            from caravan.common.procs import run
+            run(["sudo", "-n", "ufw", "allow", str(port)], timeout=5)
+        except Exception:
+            pass
+    saved = save_agent_proxy_config(routes, payload.get("routers"))
+    return next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
+
+def delete_bridge_port(port):
+    """Remove a bridge port. Refuses agent routes — those belong to the board."""
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        raise AppError("port must be a number", 400)
+    payload = load_agent_proxy_config()
+    routes = payload.get("routes") or []
+    target = next((r for r in routes if isinstance(r, dict) and int(r.get("port") or 0) == port), None)
+    if not target:
+        raise AppError(f"no proxy route on port {port}", 404)
+    if str(target.get("kind") or "") != "service":
+        raise AppError("not a bridge port — agent routes are managed on the board", 400)
+    save_agent_proxy_config([r for r in routes if r is not target], payload.get("routers"))
+    return {"deleted": port}
 
 def set_agent_proxy_policy(policy):
     payload = load_agent_proxy_config()

@@ -32,6 +32,8 @@ const LEGS = {
   stomp:  { b: [[3, 10], [3, 11], [5, 10], [5, 11], [12, 9], [12, 10], [13, 9], [13, 10]], h: [[3, 12]], headDy: 1 },
   // one front paw reaches forward to a button, the rest stand
   press:  { b: [[3, 10], [3, 11], [5, 10], [5, 11], [8, 10], [8, 11], [11, 9], [12, 9]], h: [[3, 12], [13, 10]] },
+  // standA legs, neck craned up — watching the rocket climb without moving
+  watch:  { b: [[3, 10], [3, 11], [5, 10], [5, 11], [8, 10], [8, 11], [10, 10], [10, 11]], h: [[3, 12], [10, 12]], headDy: -1 },
 };
 
 // Lying-down sprite for the stop scene: body dropped to the ground, legs
@@ -202,17 +204,19 @@ function timeline(kind, accent) {
     ];
   }
   if (kind === "start") {
+    // after the press the llama keeps all four feet planted — only the head
+    // tips up to follow the rocket (no marching, no second jab at the button)
     return [
       ["standA", propShadow(startProp("idle")), 0, false],
       ["press", propShadow(startProp("lit")), 0, false],    // paw hits the button
       ["standA", propShadow(startProp("ignite")), 0, false],
-      ["standB", propShadow(startProp("up1")), 0, false],
-      ["standA", propShadow(startProp("up2")), 0, false],
-      ["rear", propShadow(startProp("up4")), 1, false],     // rears up, watching it climb
-      ["standA", propShadow(startProp("up7")), 0, false],   // only the tail flame still in frame
-      ["standB", propShadow(startProp("gone")), 0, false],  // smoke on the pad, a spark far above
-      ["standA", propShadow(startProp("empty")), 0, false], // quiet beat
-      ["standB", propShadow(startProp("new")), 0, true],    // next rocket rolls onto the pad
+      ["standA", propShadow(startProp("up1")), 0, false],
+      ["watch", propShadow(startProp("up2")), 0, false],    // head tilts up, feet planted
+      ["watch", propShadow(startProp("up4")), 0, false],
+      ["watch", propShadow(startProp("up7")), 0, false],    // only the tail flame still in frame
+      ["watch", propShadow(startProp("gone")), 0, false],   // smoke on the pad, a spark far above
+      ["standA", propShadow(startProp("empty")), 0, false], // quiet beat, head comes back down
+      ["standA", propShadow(startProp("new")), 0, true],    // next rocket rolls onto the pad
     ];
   }
   return [ // change: nose-flip the toggle

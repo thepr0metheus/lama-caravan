@@ -13,7 +13,6 @@ from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
 from caravan.admin.launch import _sanitize_snapshot_name
 from caravan.admin.paths import (
-    AGENT_PROXY_SERVICE_NAME,
     FLEET_REGISTRY_URL,
     TOPOLOGY_SERVER_IP,
     SERVER_BACKUPS_DIR,
@@ -34,7 +33,7 @@ from caravan.admin.server_cells import (
     upsert_server_slot,
 )
 from caravan.admin.state import save_admin_state, topology_store
-from caravan.admin.systemd_ctl import systemctl
+from caravan.admin.systemd_ctl import restart_agent_proxy
 from caravan.admin.telemetry import _normalize_modalities
 from caravan.common.errors import AppError
 from caravan.common.fetch import fetch_json, post_json
@@ -649,7 +648,7 @@ def auto_provision_agent_proxies(client):
         "routers": normalize_routers(proxy_config.get("routers"), all_routes),
         "stopRequests": proxy_config.get("stopRequests") or [],
     })
-    systemctl("restart", AGENT_PROXY_SERVICE_NAME, timeout=30)
+    restart_agent_proxy(timeout=30)
 
     host_mut = assignments_store.setdefault(client_id, {
         "agentUrl": client.get("agentUrl", ""), "assignments": [],

@@ -43,6 +43,26 @@ export function pill(text, kind) {
   return `<span class="pill ${kind || ""}">${text}</span>`;
 }
 
+// Clipboard with a plain-http fallback: navigator.clipboard needs a secure
+// context, but the LAN UI usually runs on http:// — the legacy
+// textarea+execCommand path still works there. Resolves true only when the
+// text actually landed in the clipboard.
+export async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    try { await navigator.clipboard.writeText(text); return true; } catch { /* fall through */ }
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch { /* stays false */ }
+  ta.remove();
+  return ok;
+}
+
 export function formatBool(value) {
   return ["1", "true", "yes", "on"].includes(String(value).toLowerCase());
 }

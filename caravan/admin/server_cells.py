@@ -22,6 +22,20 @@ def used_server_cell_ports(exclude_key=None):
             used.add(int(slot.get("port") or 0))
         except (TypeError, ValueError):
             pass
+    # Proxy routes (agent ports AND bridge ports) share the fleet-wide port
+    # numbering: one number means one thing, so a cell may never reserve a
+    # port a proxy is already listening on. Lazy import — proxies_config
+    # imports this module for the same shared-pool reason.
+    try:
+        from caravan.admin.proxies_config import read_agent_proxy_payload
+        for route in read_agent_proxy_payload().get("routes") or []:
+            if isinstance(route, dict):
+                try:
+                    used.add(int(route.get("port") or 0))
+                except (TypeError, ValueError):
+                    pass
+    except Exception:
+        pass
     return {p for p in used if p > 0}
 
 def next_server_cell_port():
@@ -84,6 +98,23 @@ def upsert_server_slot(host_id, port, config=None, model=None, label=None):
     store["serverSlots"][key] = slot
     save_admin_state()
     return slot
+
+def set_server_slot_note(host_id, port, note):
+    """Free-form user note on a cell slot (shown on the board card and in the
+    cell detail modal). Empty note clears it."""
+    store = topology_store()
+    key = server_slot_key(host_id, port)
+    slot = store.get("serverSlots", {}).get(key)
+    if not slot:
+        raise AppError(f"no server slot {key}", 404)
+    note = str(note or "").strip()[:280]
+    if note:
+        slot["note"] = note
+    else:
+        slot.pop("note", None)
+    slot["updatedAt"] = int(time.time())
+    save_admin_state()
+    return {"key": key, "note": note}
 
 def reserve_server_cell(body):
     host_id = str(body.get("hostId") or "").strip()

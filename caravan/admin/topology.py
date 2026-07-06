@@ -5,7 +5,7 @@ import time
 
 from caravan.admin.cloud import cloud_accounts_state, cloud_blocks_state, cloud_provider_presets_public
 from caravan.admin.config_builder import parse_config
-from caravan.admin.runners import uses_command_path
+from caravan.admin.runners import effective_health_path, uses_command_path
 from caravan.admin.fleet_clients import refresh_topology_clients_from_agents, topology_clients
 from caravan.admin.llama_metrics import runtime_metrics_sample, runtime_phase, vllm_metrics_sample
 from caravan.admin.monitoring import (
@@ -19,7 +19,7 @@ from caravan.admin.monitoring import (
     runtime_api,
 )
 from caravan.admin.openclaw import openclaw_configs_snapshot
-from caravan.admin.paths import SERVICE_NAME, TOPOLOGY_SERVER_IP
+from caravan.admin.paths import IS_CONTAINER, SERVICE_NAME, TOPOLOGY_SERVER_IP
 from caravan.admin.proxies_config import (
     load_agent_proxy_config,
     read_agent_proxy_payload,
@@ -178,7 +178,10 @@ def topology_server(config=None):
         if slot_is_command:
             # Command cells have no llama /health — probe HEALTH_PATH (whisper_server.py
             # reports download/load progress there) or the port.
-            _ch = command_cell_health(client_ip, remote_port, _r_cfg.get("HEALTH_PATH")) if running else None
+            # effective_health_path: explicit HEALTH_PATH, else the runner's own
+            # (/health for whisper, /v1/models for vLLM) — a bare TCP probe says
+            # "running" the moment the port listens, mid-download.
+            _ch = command_cell_health(client_ip, remote_port, effective_health_path(_r_cfg)) if running else None
             _cmd_phase = (_ch or {}).get("status") or ""
             _cmd_dl = (_ch or {}).get("downloadedBytes") or 0
             _cmd_tot = (_ch or {}).get("totalBytes") or 0
@@ -288,7 +291,7 @@ def topology_server(config=None):
                 if slot_is_command:
                     # Command cells have no llama /health; probe HEALTH_PATH
                     # (whisper reports download/load progress there) or the port.
-                    _ch = command_cell_health("127.0.0.1", port, slot_cfg.get("HEALTH_PATH"))
+                    _ch = command_cell_health("127.0.0.1", port, effective_health_path(slot_cfg))
                     _cph = (_ch or {}).get("status") or ""
                     _cdl = (_ch or {}).get("downloadedBytes") or 0
                     _ctot = (_ch or {}).get("totalBytes") or 0
@@ -487,6 +490,9 @@ def topology_nodes(config, server_obj, clients):
         "name": server_obj.get("name") or "skynet",
         "ip": server_obj.get("ip"),
         "role": "controller",
+        # In container mode the controller cannot host cells (no systemd) —
+        # the board hides the reserve/start controls and points at scouts.
+        "containerized": IS_CONTAINER,
         "online": True,
         "platform": "linux",
         "cpu": ctrl_cpu,
@@ -636,6 +642,11 @@ def topology_state(refresh_clients=True):
         # Dead agents (assignment exists but agent no longer reported by an online
         # host) — surfaced so the user can delete them and free their proxy ports.
         "orphanedAgents": _compute_orphaned_agents(clients, store),
+        # User notes on cell slots, keyed "hostId:port" — shown on the board
+        # cards and edited in the cell detail modal.
+        "cellNotes": {key: str(slot.get("note") or "")
+                      for key, slot in (store.get("serverSlots") or {}).items()
+                      if isinstance(slot, dict) and str(slot.get("note") or "").strip()},
         "clientAliases": store.get("clientAliases", {}),
         "layout": store.get("layout", {}),
         "openclawConfigs": openclaw_configs_snapshot(),

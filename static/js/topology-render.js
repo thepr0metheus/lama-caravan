@@ -373,7 +373,15 @@ export async function refreshTopology() {
 // True while the user is mid-interaction — rebuilding the DOM now would drop an
 // in-progress cable drag or close a proxy form, so we defer the render.
 export function topologyInteractionActive() {
-  return !!topologyPointerDrag || ui.topologyProxyFormOpen || !!_cvDrag;
+  if (topologyPointerDrag || ui.topologyProxyFormOpen || _cvDrag) return true;
+  // A focused select/text field anywhere on the poll-rebuilt page defers the
+  // rebuild too: a full render replaces the DOM under the user's cursor —
+  // closing an open dropdown mid-choice (bridge model select, port-registry
+  // router select) or stealing the caret from a text field (cell note).
+  // The deferred render lands via flushPendingTopologyRender on focusout.
+  const ae = document.activeElement;
+  return !!(ae && ae.matches
+            && ae.matches("select, textarea, input:not([type=checkbox]):not([type=radio])"));
 }
 
 // Exact phase string — used as a structural key. The fast-moving bits inside a

@@ -5,9 +5,14 @@ import re
 import time
 from pathlib import Path
 
-from caravan.admin.paths import PROJECT_ROOT, SERVICE_NAME
+from caravan.admin.paths import AGENT_PROXY_SERVICE_NAME, IS_CONTAINER, PROJECT_ROOT, SERVICE_NAME
 from caravan.common.errors import AppError
 from caravan.common.procs import run
+
+# One message for every host-only operation hit inside the container: the
+# controller image has no systemd, cells belong on caravan-scout hosts.
+CONTAINER_CELLS_ERROR = ("the controller runs in a container without systemd — "
+                         "serve models by adding a GPU host with caravan-scout")
 
 
 def user_systemd_env():
@@ -21,10 +26,20 @@ def user_systemd_env():
 def systemctl(*args, timeout=20):
     return run(["systemctl", "--user", *args], timeout=timeout, env=user_systemd_env())
 
+def restart_agent_proxy(timeout=30):
+    """Bounce the proxy daemon after a routes/cabling save. Native deployments
+    restart its systemd --user unit; in the container it's a supervised child."""
+    if IS_CONTAINER:
+        from caravan.admin import proxy_supervisor
+        return proxy_supervisor.restart()
+    return systemctl("restart", AGENT_PROXY_SERVICE_NAME, timeout=timeout)
+
 def cell_service_name(port):
     return f"lama-cell@{int(port)}.service"
 
 def ensure_cell_service_template():
+    if IS_CONTAINER:
+        raise AppError(CONTAINER_CELLS_ERROR, 400)
     src = PROJECT_ROOT / "systemd" / "lama-cell@.service"
     if not src.exists():
         raise AppError(f"cell service template not found: {src}", 500)
@@ -193,6 +208,8 @@ def cell_unit_pids(port):
 
 
 def cell_service_action(port, action):
+    if IS_CONTAINER:
+        raise AppError(CONTAINER_CELLS_ERROR, 400)
     if action not in {"start", "stop", "restart", "enable", "disable"}:
         raise AppError("unsupported cell service action", 400)
     if action in {"start", "restart", "enable"}:
@@ -224,6 +241,25 @@ def service_status():
     return status
 
 def user_service_diagnostics(service=None, runtime=None):
+    if IS_CONTAINER:
+        from caravan.admin import proxy_supervisor
+        from caravan.admin.paths import DATA_DIR
+        proxy = proxy_supervisor.status()
+        data_writable = bool(DATA_DIR) and os.access(DATA_DIR, os.W_OK)
+        return {
+            "summary": "Controller runs in a Docker container; cells are served by caravan-scout hosts.",
+            "fix": "If something is stuck, restart the container: docker restart <name>.",
+            "checks": [
+                {"kind": "good", "title": "container mode",
+                 "detail": f"data dir {DATA_DIR or 'not set'}"},
+                {"kind": "good" if data_writable else "bad", "title": "data dir writable",
+                 "detail": "ok" if data_writable else "mount a writable volume at the data dir"},
+                {"kind": "good" if proxy["active"] else "bad", "title": "proxy child",
+                 "detail": f"pid {proxy['pid']}, respawns {proxy['respawns']}" if proxy["active"]
+                           else "dead — watchdog respawns it within seconds"},
+            ],
+            "legacyActive": False,
+        }
     service = service or service_status()
     runtime = runtime or {}
     env = user_systemd_env()
@@ -286,6 +322,9 @@ def logs():
     return result["stdout"] if result["ok"] else result["stderr"]
 
 def repair_user_service():
+    if IS_CONTAINER:
+        raise AppError("no systemd inside the container — restart the container itself "
+                       "(docker restart <name>)", 400)
     steps = []
     for args in [("daemon-reload",), ("restart", SERVICE_NAME)]:
         result = systemctl(*args, timeout=30)

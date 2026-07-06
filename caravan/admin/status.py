@@ -16,7 +16,7 @@ from caravan.admin.llama_metrics import runtime_phase
 from caravan.admin.models import list_chat_templates, list_models, list_st_artifacts, list_whisper_sizes
 from caravan.admin.monitoring import cpu_state, gpu_state, memory_state, runtime_api
 from caravan.admin.openclaw import notify_openclaw_config_managers, openclaw_config_manager_state
-from caravan.admin.paths import ADMIN_SERVICE_NAME, AGENT_PROXY_SERVICE_NAME, LLAMA_HOME, PROJECT_ROOT, SERVER_CELLS_DIR, SERVICE_NAME, START_SCRIPT
+from caravan.admin.paths import ADMIN_SERVICE_NAME, AGENT_PROXY_SERVICE_NAME, IS_CONTAINER, LLAMA_HOME, PROJECT_ROOT, SERVER_CELLS_DIR, SERVICE_NAME, START_SCRIPT
 from caravan.admin.state import admin_state
 from caravan.admin.systemd_ctl import logs, service_status, systemctl, user_service_diagnostics
 from caravan import __version__ as APP_VERSION
@@ -28,6 +28,11 @@ def project_git_info():
     head = run_in(["git", "rev-parse", "--short", "HEAD"], timeout=3, cwd=PROJECT_ROOT)
     branch = run_in(["git", "branch", "--show-current"], timeout=3, cwd=PROJECT_ROOT)
     dirty = run_in(["git", "status", "--porcelain"], timeout=3, cwd=PROJECT_ROOT)
+    if not head["ok"]:
+        # The Docker image ships without .git — the build bakes the commit in.
+        baked = os.environ.get("CARAVAN_GIT_HEAD", "").strip()
+        if baked:
+            return {"branch": "docker", "head": baked, "dirtyCount": 0, "ok": True, "error": ""}
     branch_name = branch["stdout"].strip()
     if not branch_name:
         branch_name = "detached"
@@ -38,6 +43,22 @@ def project_git_info():
         "ok": head["ok"] and branch["ok"],
         "error": "" if head["ok"] and branch["ok"] else (head["stderr"] or branch["stderr"]),
     }
+
+def _container_briefs():
+    """Container substitutes for the two service chips: the admin is this very
+    process, the proxy is the supervised child — same keys as _unit_brief."""
+    from caravan.admin import proxy_supervisor
+    stamp = lambda epoch: datetime.fromtimestamp(epoch).strftime("%a %Y-%m-%d %H:%M:%S") if epoch else ""
+    proxy = proxy_supervisor.status()
+    return [
+        {"unit": "lama-caravan (container)", "ok": True, "active": "active", "sub": "running",
+         "pid": str(os.getpid()), "since": stamp(_ADMIN_STARTED_AT)},
+        {"unit": "agent-proxies (child)", "ok": True,
+         "active": proxy["activeState"], "sub": proxy["subState"],
+         "pid": str(proxy["pid"]), "since": stamp(proxy["sinceEpoch"])},
+    ]
+
+_ADMIN_STARTED_AT = int(time.time())
 
 def _unit_brief(unit):
     show = systemctl("show", unit, "-p", "ActiveState", "-p", "SubState",
@@ -82,8 +103,10 @@ def controller_info():
         "ok": True,
         "appVersion": APP_VERSION,
         "python": sys.version.split()[0],
+        "container": IS_CONTAINER,
         "projectGit": project_git_info(),
-        "services": [_unit_brief(ADMIN_SERVICE_NAME), _unit_brief(AGENT_PROXY_SERVICE_NAME)],
+        "services": _container_briefs() if IS_CONTAINER
+                    else [_unit_brief(ADMIN_SERVICE_NAME), _unit_brief(AGENT_PROXY_SERVICE_NAME)],
         "cells": {},
         "disk": {},
         "models": {},
@@ -120,6 +143,7 @@ def state():
     runtime["status"] = runtime_phase(service, runtime)
     return {
         "appVersion": APP_VERSION,
+        "container": IS_CONTAINER,
         "runners": RUNNERS,
         "config": config,
         "fields": CONFIG_FIELDS,
@@ -151,6 +175,9 @@ def state():
     }
 
 def do_action(action):
+    if IS_CONTAINER:
+        raise AppError("the legacy single-server unit does not exist in container mode — "
+                       "serve models from caravan-scout hosts", 400)
     if action not in {"start", "stop", "restart"}:
         raise AppError("Unsupported action")
     result = systemctl(action, SERVICE_NAME, timeout=30)

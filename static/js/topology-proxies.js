@@ -251,7 +251,10 @@ export async function connectTopologyProxyToLlama(proxyId, llamaPort, llamaHost)
     clientTimeoutSeconds: Number(proxy.clientTimeoutSeconds || 0),
     cloudFallbackProviderId: proxy.cloudFallbackProviderId || "",
     apiKey: proxy.apiKey || "",
-    routerId: proxy.routerId || "router:default",
+    // Bridge ports (kind="service") stay router-free: "" is intentional there,
+    // for agent routes an empty binding still falls back to the default router.
+    kind: proxy.kind || "",
+    routerId: proxy.kind === "service" ? "" : (proxy.routerId || "router:default"),
     role: proxy.role || "",
     clientId: proxy.clientId || "",
   })).sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
@@ -317,7 +320,10 @@ export function topologyProxyRoutes() {
     clientTimeoutSeconds: Number(proxy.clientTimeoutSeconds || 0),
     cloudFallbackProviderId: proxy.cloudFallbackProviderId || "",
     apiKey: proxy.apiKey || "",
-    routerId: proxy.routerId || "router:default",
+    // Same preservation rule as connectTopologyProxyToLlama: bridges keep
+    // kind="service" and their intentional empty router binding.
+    kind: proxy.kind || "",
+    routerId: proxy.kind === "service" ? "" : (proxy.routerId || "router:default"),
     role: proxy.role || "",
     clientId: proxy.clientId || "",
   })).sort((a, b) => Number(a.port || 0) - Number(b.port || 0));

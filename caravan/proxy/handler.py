@@ -487,8 +487,17 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     send_path = base_path + incoming + (f"?{parsed.query}" if parsed.query else "")
                     if str(provider.get("modelMode") or "rewrite") == "rewrite":
                         send_body = rewrite_model_in_body(body, provider.get("model"))
-                        if send_body is not None:
-                            headers["Content-Length"] = str(len(send_body))
+                    # The header filter above strips content-type/length and accept
+                    # "to set them explicitly below" — the subscription/anthropic
+                    # branches do, but this generic one never did: the cloud API got
+                    # a JSON body with no Content-Type and answered "you must
+                    # provide a model parameter". Restore them for ANY body,
+                    # rewritten or passed through.
+                    headers["Content-Type"] = self.headers.get("Content-Type") or "application/json"
+                    if self.headers.get("Accept"):
+                        headers["Accept"] = self.headers.get("Accept")
+                    if send_body is not None:
+                        headers["Content-Length"] = str(len(send_body))
             else:
                 conn = http.client.HTTPConnection(route["upstreamHost"], route["upstreamPort"], timeout=600)
                 register_active_control(request_id, route["label"], conn)
