@@ -7,7 +7,7 @@ from caravan.admin.cloud import cloud_accounts_state, cloud_blocks_state, cloud_
 from caravan.admin.config_builder import parse_config
 from caravan.admin.runners import uses_command_path
 from caravan.admin.fleet_clients import refresh_topology_clients_from_agents, topology_clients
-from caravan.admin.llama_metrics import runtime_metrics_sample, runtime_phase
+from caravan.admin.llama_metrics import runtime_metrics_sample, runtime_phase, vllm_metrics_sample
 from caravan.admin.monitoring import (
     cpu_snapshot,
     gpu_compute_apps,
@@ -274,6 +274,7 @@ def topology_server(config=None):
         cell_pid = None
         cell_boot = ""
         cell_metrics = {}
+        slot_vllm_stats = None
         _cdl = _ctot = 0
         if is_controller_slot:
             cell_status = cell_service_status(port)
@@ -317,6 +318,14 @@ def topology_server(config=None):
             # (Command cells aren't llama-server — nothing to scrape.)
             if slot_phase == "running" and not slot_is_command:
                 cell_metrics = runtime_metrics_sample(port)
+            # vLLM exports its own Prometheus metrics — same card treatment.
+            elif slot_phase == "running" and str(slot_cfg.get("RUNNER") or "").strip().lower() == "vllm":
+                vm = vllm_metrics_sample(port)
+                if vm.get("ok"):
+                    cell_metrics = {"ok": True,
+                                    "promptTokensPerSecond": vm.get("promptTps"),
+                                    "predictedTokensPerSecond": vm.get("genTps")}
+                    slot_vllm_stats = vm
         cell_error = None
         if is_controller_slot:
             # Classify WHY it won't start (journal tail, cached) so the card
@@ -385,6 +394,7 @@ def topology_server(config=None):
             "ctxMax": _slot_ctx_max(host_id, port),
             "promptTps": cell_metrics.get("promptTokensPerSecond") if cell_metrics.get("ok") else None,
             "genTps": cell_metrics.get("predictedTokensPerSecond") if cell_metrics.get("ok") else None,
+            "vllmStats": slot_vllm_stats,
             "artifact": slot.get("artifact") or {},
             "schedule": slot.get("schedule") or None,
             "slotConfig": slot.get("config") or {},

@@ -65,6 +65,38 @@ def runtime_metrics_sample(port=None):
         return {"ok": False, "error": str(exc)}
 
 
+def vllm_metrics_sample(port):
+    """vLLM's Prometheus /metrics, the card-worthy subset: active/queued
+    requests and (when the build exports them) the rolling throughputs.
+    Lines carry {model_name=…} labels, hence startswith matching."""
+    wanted = ("vllm:num_requests_running", "vllm:num_requests_waiting",
+              "vllm:avg_generation_throughput_toks_per_s",
+              "vllm:avg_prompt_throughput_toks_per_s")
+    try:
+        text = fetch_text(f"http://127.0.0.1:{port}/metrics", timeout=3)
+        if text.startswith("ERROR"):
+            return {"ok": False, "error": text}
+        vals = {}
+        for line in text.splitlines():
+            if line.startswith("#"):
+                continue
+            for name in wanted:
+                if line.startswith(name):
+                    try:
+                        vals[name] = float(line.rsplit(None, 1)[-1])
+                    except (ValueError, IndexError):
+                        pass
+        if not vals:
+            return {"ok": False, "error": "no vllm metrics"}
+        return {"ok": True,
+                "requestsRunning": int(vals.get("vllm:num_requests_running", 0)),
+                "requestsWaiting": int(vals.get("vllm:num_requests_waiting", 0)),
+                "genTps": vals.get("vllm:avg_generation_throughput_toks_per_s"),
+                "promptTps": vals.get("vllm:avg_prompt_throughput_toks_per_s")}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+
 def runtime_phase(service, runtime):
     active_state = service.get("ActiveState") or "unknown"
     sub_state = service.get("SubState") or ""

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.3.3 — 2026-07-06
+
+- Running vLLM cells show live engine metrics on the card: ▶ active
+  (+ ⏳ queued) requests and the rolling generation t/s, scraped from
+  vLLM's own Prometheus /metrics — the same treatment llama cells get.
+  Their token speeds also feed the standard promptTps/genTps fields.
+
 ## 1.3.2 — 2026-07-06
 
 - /models manages EVERYTHING under the models root: whisper HF-cache
