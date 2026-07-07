@@ -117,12 +117,18 @@ def correlate_activity(sample):
         label = str(row.get("label") or key).strip() or str(key)
         route_active = [summarize_proxy_item(label, row, item, "active") for item in row.get("active", []) if isinstance(item, dict)]
         route_recent = [summarize_proxy_item(label, row, item, "recent") for item in row.get("recent", []) if isinstance(item, dict)]
-        is_cloud_route = str(row.get("upstreamType") or "llama") == "cloud"
+        # isCloud is per-REQUEST, not per-port: a local ("llama") entry port can be
+        # routed to a cloud output by the router graph (schedule/byModel/queue), so
+        # the entry port's static type mislabels those requests as local. Trust the
+        # item's realized upstreamType (stamped by summarize_proxy_item), falling
+        # back to the port row for items that predate the stamp.
+        def _item_is_cloud(item):
+            return str(item.get("upstreamType") or row.get("upstreamType") or "llama") == "cloud"
         for item in route_active:
             item["slots"] = processing_slots
             item["slotIds"] = [slot.get("id") for slot in processing_slots if slot.get("id") is not None]
             item["correlation"] = "active-proxy"
-            item["isCloud"] = is_cloud_route
+            item["isCloud"] = _item_is_cloud(item)
         for item in route_recent:
             timestamp = proxy_item_timestamp(item)
             timing = nearest_event(timing_events, timestamp, max_delta=30)
@@ -132,7 +138,7 @@ def correlate_activity(sample):
             if context:
                 item["context"] = context
             item["correlation"] = "time-window" if timing or context else "proxy-only"
-            item["isCloud"] = is_cloud_route
+            item["isCloud"] = _item_is_cloud(item)
         by_proxy[label] = {
             "label": label,
             "port": row.get("port"),
@@ -144,8 +150,7 @@ def correlate_activity(sample):
         }
         active.extend(route_active)
         recent.extend(route_recent)
-        if not is_cloud_route:
-            llama_active.extend(route_active)
+        llama_active.extend([item for item in route_active if not item.get("isCloud")])
     active_clients = sorted({item.get("client") for item in active if item.get("client")})
     active_routes = sorted({item.get("label") for item in active if item.get("label") and not item.get("isCloud")})
     cloud_active_routes = sorted({item.get("label") for item in active if item.get("label") and item.get("isCloud")})
@@ -893,6 +898,7 @@ _SLIM_ITEM_FIELDS = (
     "id", "label", "port", "state", "phase", "isCloud", "client", "method", "path",
     "status", "startedAt", "finishedAt", "durationMs", "elapsedMs", "firstByteMs",
     "error", "errorKind", "queuedMs", "upstream", "upstreamHost", "upstreamPort",
+    "upstreamType", "providerId",
 )
 
 def _slim_item(item):

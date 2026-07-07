@@ -76,6 +76,12 @@ def summarize_proxy_item(label, row, item, state):
         "upstream": upstream,
         "upstreamHost": upstream_host or "127.0.0.1",
         "upstreamPort": upstream_port or 8080,
+        # Realized upstream TYPE for THIS request: a local ("llama") entry port may
+        # have been routed to a cloud output by the router graph (schedule/byModel/
+        # queue), so the item's own type wins over the port's static type. Fall back
+        # to the port row when an item predates this stamp.
+        "upstreamType": str(item.get("upstreamType") or row.get("upstreamType") or "llama"),
+        "providerId": str(item.get("providerId") or row.get("providerId") or ""),
         "client": item.get("client") or "",
         "method": item.get("method") or "POST",
         "path": item.get("path") or "",

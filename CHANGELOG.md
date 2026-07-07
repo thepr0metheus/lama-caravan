@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.3.11 — 2026-07-07
+
+- Route Activity now colours each request by where it actually went,
+  not by the entry port's static type. A client wired to a local
+  ("llama") port that a schedule / router graph forwards to a cloud
+  model was painted as "running (local)" — it now shows the cloud
+  colours, and a genuinely local request stays local. The realized
+  upstream type and provider id also ride through to the diagnostics
+  API (`?slim=1`), so the request log tells you the true destination.
+
+## 1.3.10 — 2026-07-07
+
+- The board lane is called "Model Servers" now — it has hosted vLLM
+  and faster-whisper cells alongside llama.cpp for a while. The
+  heading, its (?) tip and the client-GPU "available for …" line are
+  properly localized in all 20 languages (they were English-only).
+
 ## 1.3.9 — 2026-07-06
 
 - The cloud model-list toggle is a full-width "Show all N models ⌄" /
