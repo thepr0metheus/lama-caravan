@@ -128,7 +128,7 @@ def token_history_query(client="", range_key="all", port=None):
     } for h in hist]
 
 def controller_llama_ports():
-    """Live llama-server ports on the controller (Skynet): reserved cells plus
+    """Live llama-server ports on the controller: reserved cells plus
     the legacy single-server PORT. The model now runs in a cell (e.g. :8001),
     not on the legacy PORT, so node-level token sampling must look at the cells
     too — otherwise the controller TOKEN SPEED chart scrapes a dead :8080 and

@@ -138,7 +138,7 @@ static/
 ├── css/                   9 cascade-ordered stylesheets
 └── index.html / kanban.html / hf.html / hf.js
 scripts/                   install/start scripts, queue-node unit tests, refactor tooling
-systemd/                   unit files installed on Skynet
+systemd/                   unit files installed on the controller
 whisper/                   faster-whisper command-cell example
 docs/                      this documentation + postmortems
 ```

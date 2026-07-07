@@ -461,7 +461,7 @@ def topology_nodes(config, server_obj, clients):
     per-process GPU memory (compute-apps)."""
     nodes = []
 
-    # ── controller node (Skynet) ─────────────────────────────────────────────
+    # ── controller node ─────────────────────────────────────────────
     ctrl_gpus = [dict(g) for g in (server_obj.get("gpus") or [])]
     ctrl_servers = [dict(s) for s in (server_obj.get("llamaServers") or [])
                     if not s.get("isRemote")]

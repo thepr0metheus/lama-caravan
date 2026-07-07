@@ -36,7 +36,7 @@ def render_command_cell_script(config):
     """Generate start.sh for a generic command cell (CELL_KIND="command").
 
     Runs an arbitrary managed process (e.g. whisper-server) under the exact same
-    cell lifecycle as a llama cell — systemd `lama-cell@PORT` on Skynet, or the
+    cell lifecycle as a llama cell — systemd `lama-cell@PORT` on the controller, or the
     route-agent on a client. COMMAND is one shell command line, may reference
     $PORT, and is exec'd so the cell process replaces the shell and systemd/the
     agent tracks the real PID. Set env inline (`env VAR=val …`) or point COMMAND

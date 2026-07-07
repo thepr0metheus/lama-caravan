@@ -27,7 +27,7 @@ DEFAULT_AGENT_PROXY_ROUTES = [
 def _migrate_legacy_router_payload(payload):
     """Back-compat: upgrade the pre-rename 'switchboard' schema to 'router' in place.
 
-    Old files (e.g. Skynet's agent-proxies.json before this refactor) carry the key
+    Old files (e.g. the controller's agent-proxies.json before this refactor) carry the key
     `switchboards[]`, the id `sb:default`, and per-route `switchboardId`. Rewrite them
     to the new router schema. Idempotent — no-op once the file has been written back
     in the new shape. The OLD literals must NOT be renamed by the rename script, which

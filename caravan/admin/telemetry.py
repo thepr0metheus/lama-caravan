@@ -20,7 +20,7 @@ _remote_modalities_cache = TtlCache(300)  # "ip:port" -> {vision,video,audio}
 _firewall_cache = TtlCache(30)            # port -> {state, allowedFrom}
 
 def firewall_port_access(port):
-    """Who may reach `port` on this (Skynet) host per ufw. Cached 30s.
+    """Who may reach `port` on this (controller) host per ufw. Cached 30s.
     {state: open|all|restricted|blocked|unknown, allowedFrom:[...]}."""
     try:
         port = int(port)

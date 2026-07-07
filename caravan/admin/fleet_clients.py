@@ -423,7 +423,7 @@ def client_llama_purge_cache(body: dict) -> dict:
 def normalize_client_gpus(raw):
     """Sanitize the GPU inventory a client route agent reports in its heartbeat.
 
-    Field names match gpu_state() (Skynet's own GPUs) so the topology UI can
+    Field names match gpu_state() (the controller's own GPUs) so the topology UI can
     render client GPUs with the same card. Values are kept as short strings."""
     if not isinstance(raw, list):
         return []

@@ -987,7 +987,7 @@ def known_gpu_memory_bandwidth_gbs(name):
     return 0
 
 def gpu_compute_apps():
-    """Skynet pid -> gpu_uuid map (per-process GPU memory), to bind a local
+    """Controller pid -> gpu_uuid map (per-process GPU memory), to bind a local
     llama-server PID to the GPU(s) it occupies. Returns [{gpuUuid,pid,usedMiB}]."""
     result = run([
         "nvidia-smi",

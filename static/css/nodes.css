@@ -25,7 +25,7 @@
 .node-activity-chip { padding:1px 6px; border-radius:3px; font-size:10px; background:color-mix(in srgb,var(--accent,#6ea8fe) 16%, transparent); color:var(--accent,#6ea8fe); }
 .node-activity-chip.activity-error, .node-activity-chip.health-failed { background:color-mix(in srgb,#f85149 18%, transparent); color:#f85149; }
 
-/* Controller node: relocated Skynet system charts (park/remount) */
+/* Controller node: relocated system charts (park/remount) */
 .node-ctrl-telemetry { border-top:1px solid var(--line); }
 .node-ctrl-telemetry > summary { padding:9px 16px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted,#888); cursor:pointer; list-style:none; }
 .node-ctrl-telemetry > summary::-webkit-details-marker { display:none; }
