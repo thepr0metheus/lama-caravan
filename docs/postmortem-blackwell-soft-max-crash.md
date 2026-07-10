@@ -222,3 +222,34 @@ Action item: run `install-llama.sh --force` on each Blackwell client host (and a
 - `ggml/src/ggml-cuda/softmax.cu` — `soft_max_f32_cuda`, cooperative launch path
 - `ggml/src/ggml-cuda/fattn.cu` — flash-attention kernel selection (`can_use_vector_kernel`)
 - `ggml/src/ggml-cuda/common.cuh` — `GGML_CUDA_CC_BLACKWELL = 1200`, `CUDA_CHECK`, `CUDA_SET_SHARED_MEMORY_LIMIT`
+
+---
+
+## 9. 2026-07-10 update: workaround retired to a probe-gate
+
+Re-verification on the affected host (RTX 5090, driver 595.71.05, CUDA 13.2 —
+the exact incident stack):
+
+- A standalone probe read `sharedMemPerBlockOptin` **correctly** (`101376`,
+  identical to `cudaDeviceGetAttribute`) — consistent with §3's own finding
+  that a clean compile always read the value fine even during the incident.
+- A fully **unpatched** `llama-server` built at the same commit (`5f04dc7`,
+  nvcc 13.2, arch `120a`, same flags) served real inference on both production
+  models (Qwen3.6-35B MoE+MTP, gemma-4-31B +mmproj+MTP draft) with **zero**
+  CUDA errors. The corruption was a build-environment artifact (stale/mixed
+  objects), not a stable property of the stack.
+- Upstream context: equivalent sanitize PRs
+  [#22338](https://github.com/ggml-org/llama.cpp/pull/22338),
+  [#23766](https://github.com/ggml-org/llama.cpp/pull/23766),
+  [#24991](https://github.com/ggml-org/llama.cpp/pull/24991) were all closed
+  unmerged — the last author self-closed after his RTX 5090 (driver 580.159,
+  CUDA 12.9) read valid values: "cannot substantiate as a current upstream
+  bug". Issues #23385 / #25060 remain open. Our MR draft
+  (`llama-cpp-blackwell-smpbo-MR.md`) is archived, not filed.
+
+**Consequence:** `install-llama.sh` no longer patches unconditionally. On
+`sm_120` hosts it compiles the probe first and applies the workaround **only
+if the probe reads garbage**; healthy stacks build vanilla upstream and the
+clone stays clean. A lesson to append to §7: *a workaround needs an expiry
+check that tests the failure condition itself, not whether upstream changed
+code — upstream never "fixes" what it can't reproduce.*

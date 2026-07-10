@@ -134,6 +134,14 @@ fi
 # does not depend on the struct layout. This single-file change is sufficient;
 # earlier defensive patches to fattn.cu / softmax.cu were verified unnecessary
 # once smpbo is correct (MMA flash-attention and cooperative softmax work fine).
+#
+# 2026-07-10 update: on current driver/toolkit stacks the direct struct read is
+# valid again (verified: RTX 5090 + driver 595.71 + CUDA 13.2 probe reads
+# 101376 == attribute API, and an UNPATCHED build served inference cleanly;
+# upstream closed equivalent PRs #22338/#23766/#24991 as unreproducible). The
+# corruption was tied to early/mixed Blackwell driver+toolkit combos, so the
+# patch is now applied ONLY when the probe below actually reads garbage —
+# on healthy stacks the clone stays pristine (keeps git-based updates clean).
 apply_blackwell_patches() {
   local dir="$1"
 
@@ -169,10 +177,46 @@ else:
 PY
 }
 
-# Apply Blackwell patches if an sm_120 GPU is present
+# Probe whether the direct struct read is trustworthy on THIS driver/toolkit.
+# Exit 0: every GPU reads a sane value matching the attribute API (no patch
+# needed). Exit non-zero: garbage detected, or the probe could not run — in
+# both cases we apply the workaround (it is harmless when not needed).
+smpbo_probe() {
+  local dir rc
+  dir=$(mktemp -d) || return 1
+  cat > "$dir/probe.cu" <<'CU'
+#include <cstdio>
+#include <cuda_runtime.h>
+int main() {
+    int n = 0;
+    if (cudaGetDeviceCount(&n) != cudaSuccess || n == 0) return 1;
+    for (int i = 0; i < n; i++) {
+        cudaDeviceProp p;
+        if (cudaGetDeviceProperties(&p, i) != cudaSuccess) return 1;
+        int attr = 0;
+        if (cudaDeviceGetAttribute(&attr, cudaDevAttrMaxSharedMemoryPerBlockOptin, i) != cudaSuccess) return 1;
+        std::printf("dev %d: struct smpbo=%zu attr=%d\n", i, (size_t) p.sharedMemPerBlockOptin, attr);
+        if (attr <= 0 || (size_t) attr != p.sharedMemPerBlockOptin) return 2;  // garbage / mismatch
+    }
+    return 0;
+}
+CU
+  if ! nvcc -o "$dir/probe" "$dir/probe.cu" >/dev/null 2>&1; then
+    rm -rf "$dir"; return 1
+  fi
+  "$dir/probe"; rc=$?
+  rm -rf "$dir"
+  return $rc
+}
+
+# On sm_120 GPUs: apply the workaround only if the probe reads garbage.
 if echo "${CUDA_ARCHES}" | grep -q '120'; then
-  info "Blackwell GPU detected — applying sm_120 workaround patches ..."
-  apply_blackwell_patches "$LLAMA_DIR"
+  if smpbo_probe; then
+    info "sm_120: direct sharedMemPerBlockOptin read is valid on this driver/toolkit — smpbo workaround not needed, clone left unpatched"
+  else
+    warn "sm_120: smpbo probe read garbage (or could not run) — applying the workaround patch ..."
+    apply_blackwell_patches "$LLAMA_DIR"
+  fi
 fi
 
 # ── build ─────────────────────────────────────────────────────────────────────

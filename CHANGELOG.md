@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.12 — 2026-07-10
+
+- The Blackwell (`sm_120`) smpbo workaround is retired to a probe-gate:
+  `install-llama.sh` now compiles a 20-line CUDA probe and applies the
+  single-file patch **only if** the direct `sharedMemPerBlockOptin` read
+  actually returns garbage. Verified on the incident host (RTX 5090,
+  driver 595.71, CUDA 13.2): a fully unpatched build serves both
+  production models cleanly — the 2026-06 corruption was an artifact of
+  early/mixed Blackwell driver+toolkit stacks (upstream closed the
+  equivalent PRs as unreproducible). Healthy hosts now build vanilla
+  upstream and the llama.cpp clone stays pristine, unblocking clean
+  git-based updates. Postmortem gained a §9 with the re-verification;
+  the never-filed upstream MR draft is archived.
+
 ## 1.3.11 — 2026-07-07
 
 - Route Activity now colours each request by where it actually went,

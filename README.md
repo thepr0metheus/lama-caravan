@@ -446,49 +446,37 @@ To update llama.cpp to the latest release on an already-built host:
 bash scripts/install-llama.sh --force
 ```
 
-### Blackwell (RTX 5090 / `sm_120`) workaround
+### Blackwell (RTX 5090 / `sm_120`) notes
 
-On Blackwell GPUs with CUDA 13.x, `llama-server` crashed on inference with
-`SOFT_MAX failed: CUDA error: invalid argument` and entered a systemd restart
-loop. The root cause was a `cudaDeviceProp` struct-layout mismatch that made
-`prop.sharedMemPerBlockOptin` read a garbage ~4 GiB value, which the driver then
-rejected when it was passed to `cudaFuncSetAttribute`.
+**smpbo workaround — now probe-gated (historical for most stacks).** In June
+2026, on a Blackwell host, `llama-server` crashed on inference with `SOFT_MAX
+failed: CUDA error: invalid argument`: `cudaDeviceProp.sharedMemPerBlockOptin`
+read a garbage ~4 GiB value that the driver rejected in
+`cudaFuncSetAttribute`. The corruption turned out to be specific to
+early/mismatched Blackwell driver+toolkit combinations, not a general llama.cpp
+bug — upstream closed the equivalent fix PRs
+([#22338](https://github.com/ggml-org/llama.cpp/pull/22338),
+[#23766](https://github.com/ggml-org/llama.cpp/pull/23766),
+[#24991](https://github.com/ggml-org/llama.cpp/pull/24991)) as unreproducible
+on current stacks, and our own re-verification on 2026-07-10 (RTX 5090, driver
+595.71, CUDA 13.2) confirmed a clean **unpatched** build reads the value
+correctly and serves inference without the crash.
 
-`install-llama.sh` detects `sm_120` GPUs and **automatically applies the fix** — a
-minimal single-file patch that queries `cudaDeviceGetAttribute` instead of the
-bad struct field. No code change is needed in `caravan-scout` —
-they don't run CUDA code; each Blackwell host just needs `llama.cpp` rebuilt via
-this script.
+`install-llama.sh` therefore no longer patches unconditionally: on `sm_120`
+hosts it compiles a 20-line probe comparing the struct field against the
+`cudaDeviceGetAttribute` API. Only if the probe reads garbage (the incident
+condition) does it apply the single-file workaround; on healthy stacks the
+clone stays pristine, which keeps git-based updates fast-forward clean. No
+change is ever needed in `caravan-scout` — it runs no CUDA code.
 
-The patch (`ggml/src/ggml-cuda/ggml-cuda.cu`, in `ggml_cuda_init()`):
+**Quant caveat (still current):** `IQ4_NL` (and likely other `IQ*` quants)
+produce garbage output on the Blackwell GPU backend — the `sm_120` dequant
+kernel is broken (confirmed: works on CPU, garbles on GPU regardless of build
+flags). This is independent of the smpbo story. **Use a K-quant** (`Q4_K_M`,
+`Q5_K_XL`, `Q6_K`) on Blackwell hosts.
 
-```diff
--        info.devices[id].smpbo = prop.sharedMemPerBlockOptin;
-         info.devices[id].cc = 100*prop.major + 10*prop.minor;
-+        // Use cudaDeviceGetAttribute instead of prop.sharedMemPerBlockOptin to avoid
-+        // struct layout mismatches between CUDA toolkit versions.
-+        {
-+            int smpbo_val = 0;
-+            if (cudaDeviceGetAttribute(&smpbo_val, cudaDevAttrMaxSharedMemoryPerBlockOptin, id) == cudaSuccess && smpbo_val > 0) {
-+                info.devices[id].smpbo = (size_t) smpbo_val;
-+            } else {
-+                info.devices[id].smpbo = prop.sharedMemPerBlockOptin;
-+            }
-+        }
-```
-
-**Quant caveat:** `IQ4_NL` (and likely other `IQ*` quants) produce garbage output
-on the Blackwell GPU backend — the `sm_120` dequant kernel is broken (confirmed:
-works on CPU, garbles on GPU regardless of build flags). This is independent of
-the crash fix. **Use a K-quant** (`Q4_K_M`, `Q5_K_XL`, `Q6_K`) on Blackwell hosts.
-
-**Still needed?** Checked 2026-07-06 against upstream `master` (b9570+):
-`ggml_cuda_init()` still reads `prop.sharedMemPerBlockOptin` directly, so the
-patch remains required. It is idempotent and re-applied automatically on every
-`install-llama.sh` rebuild — nothing to do by hand; drop this section only once
-upstream switches to `cudaDeviceGetAttribute` here.
-
-Full write-up: [`docs/postmortem-blackwell-soft-max-crash.md`](docs/postmortem-blackwell-soft-max-crash.md).
+Full incident write-up and the retirement verification:
+[`docs/postmortem-blackwell-soft-max-crash.md`](docs/postmortem-blackwell-soft-max-crash.md).
 
 ## Install On the controller
 

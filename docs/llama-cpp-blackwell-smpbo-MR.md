@@ -1,7 +1,11 @@
-# [MR draft] CUDA: read `sharedMemPerBlockOptin` via `cudaDeviceGetAttribute` (fixes Blackwell `invalid argument` crash)
+# [ARCHIVED — do not file] CUDA: read `sharedMemPerBlockOptin` via `cudaDeviceGetAttribute`
 
-> This file is a ready-to-submit pull-request description for **upstream
-> `ggml-org/llama.cpp`**. Copy the body below into the PR. It is self-contained.
+> **Archived 2026-07-10, never submitted.** Upstream closed three equivalent
+> PRs (#22338, #23766, #24991) as unreproducible on current driver/toolkit
+> stacks, and our own re-verification confirmed the unpatched build is clean
+> on the incident host (see the postmortem, §9). Kept for the record only —
+> the failure was a build-environment artifact of early/mixed Blackwell
+> stacks, not a standing upstream bug.
 
 ---
 
