@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.21 — 2026-07-10
+
+- The cell config panel gains the b9947 switches as proper fields with
+  (?) help in all 20 languages, laid out into sections: CONTEXT_SHIFT
+  (Inference), KV_UNIFIED (Hardware), and on the Server tab two NEW
+  sections — Cache (CACHE_RAM, CACHE_IDLE_SLOTS alongside the existing
+  prompt-cache toggles) and Network & TLS (API_KEY, SSL_CERT_FILE,
+  SSL_KEY_FILE) — plus SLEEP_IDLE_SECONDS (idle VRAM release),
+  REASONING_PRESERVE (Reasoning), MMPROJ_AUTO (Vision). All wired both
+  ways through the EXTRA_ARGS hoister. Fixes 1.3.20 where CACHE_RAM /
+  REASONING_PRESERVE / CONTEXT_SHIFT reached the command builder but had
+  no panel field. Any other llama-server flag is still passable verbatim
+  via EXTRA_ARGS.
+
 ## 1.3.20 — 2026-07-10
 
 - Three new b9947 llama-server switches join the cell config panel (and

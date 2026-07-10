@@ -53,6 +53,7 @@ CONFIG_FIELDS = [
     "KV_OFFLOAD",
     "MMAP",
     "CONTEXT_SHIFT",
+    "KV_UNIFIED",
     "NUMA",
     "DEVICE",
     "SPLIT_MODE",
@@ -68,6 +69,11 @@ CONFIG_FIELDS = [
     "CACHE_PROMPT",
     "CACHE_REUSE",
     "CACHE_RAM",
+    "CACHE_IDLE_SLOTS",
+    "SLEEP_IDLE_SECONDS",
+    "API_KEY",
+    "SSL_CERT_FILE",
+    "SSL_KEY_FILE",
     "ENABLE_PROPS",
     "ENABLE_SLOTS",
     "IMAGE_MIN_TOKENS",
@@ -87,6 +93,7 @@ CONFIG_FIELDS = [
     "ENABLE_METRICS",
     "ENABLE_CONT_BATCHING",
     "ENABLE_WEBUI",
+    "MMPROJ_AUTO",
     "OFFLOAD_MMPROJ",
     "ENABLE_TOOLS",
     "ENABLE_AGENT",
@@ -165,6 +172,8 @@ FIELD_HELP = {
     "ROPE_FREQ_SCALE": "RoPE frequency scale override. Empty uses model/default.",
     "KV_OFFLOAD": "Offload KV cache to GPU when possible.",
     "CONTEXT_SHIFT": "Slide the context window on endless generation instead of stopping at the ctx limit (--context-shift). Empty = llama.cpp default (off); 1 = on, 0 = explicitly off.",
+    "KV_UNIFIED": "Use a single unified KV-cache buffer across slots (--kv-unified) instead of per-slot buffers. Empty = llama.cpp default; can change VRAM use with --parallel.",
+    "MMPROJ_AUTO": "Auto-load the multimodal projector companion when present (--mmproj-auto). Empty = llama.cpp default (on); 0 forces off even if an mmproj file is set.",
     "MMAP": "Memory-map model files. Usually faster startup and lower RAM pressure.",
     "NUMA": "NUMA mode: distribute, isolate, or numactl. Empty disables.",
     "DEVICE": "Comma-separated devices for offload. Empty lets llama.cpp choose.",
@@ -181,6 +190,11 @@ FIELD_HELP = {
     "CACHE_PROMPT": "Enable prompt cache reuse.",
     "CACHE_REUSE": "Minimum chunk size for KV cache reuse.",
     "CACHE_RAM": "Prompt-cache RAM cap in MiB (--cache-ram). llama.cpp default 8192; -1 = unlimited, 0 = disable. Lower it on RAM-tight hosts.",
+    "CACHE_IDLE_SLOTS": "Keep the prompt cache for idle slots (--cache-idle-slots) so a returning client skips re-processing its prompt. Empty = llama.cpp default; 0 disables to reclaim RAM.",
+    "SLEEP_IDLE_SECONDS": "Put the server to sleep after N idle seconds (--sleep-idle-seconds), freeing VRAM until the next request wakes it. Empty/0 = never sleep. Trades first-token latency after idle for VRAM.",
+    "API_KEY": "Require this key on every request (--api-key). Usually left empty here — the caravan proxy handles auth; set only for a cell exposed directly.",
+    "SSL_CERT_FILE": "Path to a TLS certificate (--ssl-cert-file) to serve HTTPS directly. Host-local path; usually unset (the proxy terminates TLS).",
+    "SSL_KEY_FILE": "Path to the TLS private key (--ssl-key-file), paired with the certificate. Host-local path.",
     "ENABLE_PROPS": "Enable POST /props for changing global server properties.",
     "ENABLE_SLOTS": "Expose slot monitoring endpoint.",
     "IMAGE_MIN_TOKENS": "Minimum image tokens for dynamic-resolution vision models.",
@@ -269,7 +283,7 @@ def build_config_block(config):
     for key in [
         "CTX_SIZE", "THREADS", "THREADS_BATCH", "BATCH_SIZE", "UBATCH_SIZE", "PARALLEL",
         "N_PREDICT", "KEEP", "POLL", "MAIN_GPU", "FIT_CTX", "TIMEOUT",
-        "THREADS_HTTP", "CACHE_REUSE", "CACHE_RAM", "IMAGE_MIN_TOKENS", "IMAGE_MAX_TOKENS", "REASONING_BUDGET",
+        "THREADS_HTTP", "CACHE_REUSE", "CACHE_RAM", "SLEEP_IDLE_SECONDS", "IMAGE_MIN_TOKENS", "IMAGE_MAX_TOKENS", "REASONING_BUDGET",
         "SPEC_DRAFT_N_GPU_LAYERS", "SPEC_DRAFT_N_MAX", "SPEC_DRAFT_N_MIN",
     ]:
         if merged[key] and not re.fullmatch(r"-?\d+", merged[key]):
@@ -284,8 +298,8 @@ def build_config_block(config):
         ["SPEC_TYPE", "SPEC_DRAFT_MODEL_FILE", "SPEC_DRAFT_N_GPU_LAYERS", "SPEC_DRAFT_N_MAX", "SPEC_DRAFT_N_MIN", "SPEC_DRAFT_CACHE_TYPE_K", "SPEC_DRAFT_CACHE_TYPE_V"],
         ["CTX_SIZE", "THREADS", "THREADS_BATCH", "BATCH_SIZE", "UBATCH_SIZE", "PARALLEL", "N_GPU_LAYERS", "CACHE_TYPE_K", "CACHE_TYPE_V"],
         ["N_PREDICT", "KEEP", "CPU_RANGE", "CPU_STRICT", "POLL", "ROPE_SCALING", "ROPE_SCALE", "ROPE_FREQ_BASE", "ROPE_FREQ_SCALE"],
-        ["KV_OFFLOAD", "MMAP", "CONTEXT_SHIFT", "NUMA", "DEVICE", "SPLIT_MODE", "TENSOR_SPLIT", "MAIN_GPU", "FIT", "FIT_TARGET", "FIT_CTX"],
-        ["ALIAS", "API_PREFIX", "TIMEOUT", "THREADS_HTTP", "CACHE_PROMPT", "CACHE_REUSE", "CACHE_RAM", "ENABLE_PROPS", "ENABLE_SLOTS"],
+        ["KV_OFFLOAD", "MMAP", "CONTEXT_SHIFT", "KV_UNIFIED", "NUMA", "DEVICE", "SPLIT_MODE", "TENSOR_SPLIT", "MAIN_GPU", "FIT", "FIT_TARGET", "FIT_CTX"],
+        ["ALIAS", "API_PREFIX", "TIMEOUT", "THREADS_HTTP", "CACHE_PROMPT", "CACHE_REUSE", "CACHE_RAM", "CACHE_IDLE_SLOTS", "SLEEP_IDLE_SECONDS", "API_KEY", "SSL_CERT_FILE", "SSL_KEY_FILE", "ENABLE_PROPS", "ENABLE_SLOTS"],
         ["IMAGE_MIN_TOKENS", "IMAGE_MAX_TOKENS", "REASONING", "REASONING_FORMAT", "REASONING_BUDGET", "REASONING_PRESERVE", "CHAT_TEMPLATE", "CHAT_TEMPLATE_FILE", "CHAT_TEMPLATE_KWARGS", "SKIP_CHAT_PARSING"],
         ["ENABLE_JINJA", "ENABLE_THINKING", "ENABLE_FLASH_ATTN", "ENABLE_MLOCK", "ENABLE_METRICS", "ENABLE_CONT_BATCHING", "ENABLE_WEBUI", "OFFLOAD_MMPROJ"],
         ["ENABLE_EMBEDDINGS", "POOLING", "EMBD_NORMALIZE"],
@@ -359,7 +373,8 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
         ("--fit-ctx", "FIT_CTX"), ("--alias", "ALIAS"),
         ("--api-prefix", "API_PREFIX"), ("--timeout", "TIMEOUT"),
         ("--threads-http", "THREADS_HTTP"), ("--cache-reuse", "CACHE_REUSE"),
-        ("--cache-ram", "CACHE_RAM"),
+        ("--cache-ram", "CACHE_RAM"), ("--sleep-idle-seconds", "SLEEP_IDLE_SECONDS"),
+        ("--api-key", "API_KEY"),
         ("--image-min-tokens", "IMAGE_MIN_TOKENS"),
         ("--image-max-tokens", "IMAGE_MAX_TOKENS"),
         ("--reasoning", "REASONING"), ("--reasoning-format", "REASONING_FORMAT"),
@@ -397,6 +412,10 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
     # Host-local file path — only meaningful on the host that owns the file.
     if include_local_paths and has("CHAT_TEMPLATE_FILE"):
         args += ["--chat-template-file", str(c["CHAT_TEMPLATE_FILE"]).strip()]
+    if include_local_paths and has("SSL_CERT_FILE"):
+        args += ["--ssl-cert-file", str(c["SSL_CERT_FILE"]).strip()]
+    if include_local_paths and has("SSL_KEY_FILE"):
+        args += ["--ssl-key-file", str(c["SSL_KEY_FILE"]).strip()]
 
     if truthy(c.get("CPU_STRICT")):
         args += ["--cpu-strict", "1"]
@@ -412,6 +431,9 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
     add_bool("SKIP_CHAT_PARSING", "--skip-chat-parsing", "--no-skip-chat-parsing")
     add_bool("REASONING_PRESERVE", "--reasoning-preserve", "--no-reasoning-preserve")
     add_bool("CONTEXT_SHIFT", "--context-shift", "--no-context-shift")
+    add_bool("KV_UNIFIED", "--kv-unified", "--no-kv-unified")
+    add_bool("CACHE_IDLE_SLOTS", "--cache-idle-slots", "--no-cache-idle-slots")
+    add_bool("MMPROJ_AUTO", "--mmproj-auto", "--no-mmproj-auto")
 
     if has("FIT"):
         args += ["--fit", "on" if truthy(c["FIT"]) else "off"]
@@ -511,6 +533,8 @@ _EXTRA_VALUE_FLAGS = {
     "--fit-target": "FIT_TARGET", "--fit-ctx": "FIT_CTX",
     "--alias": "ALIAS", "-a": "ALIAS", "--api-prefix": "API_PREFIX",
     "--timeout": "TIMEOUT", "--threads-http": "THREADS_HTTP", "--cache-reuse": "CACHE_REUSE", "--cache-ram": "CACHE_RAM", "-cram": "CACHE_RAM",
+    "--sleep-idle-seconds": "SLEEP_IDLE_SECONDS", "--api-key": "API_KEY",
+    "--ssl-cert-file": "SSL_CERT_FILE", "--ssl-key-file": "SSL_KEY_FILE",
     "--image-min-tokens": "IMAGE_MIN_TOKENS", "--image-max-tokens": "IMAGE_MAX_TOKENS",
     "--reasoning": "REASONING", "--reasoning-format": "REASONING_FORMAT",
     "--reasoning-budget": "REASONING_BUDGET",
@@ -534,6 +558,9 @@ _EXTRA_PAIR_BOOL = {
     "--skip-chat-parsing": ("SKIP_CHAT_PARSING", "1"), "--no-skip-chat-parsing": ("SKIP_CHAT_PARSING", "0"),
     "--reasoning-preserve": ("REASONING_PRESERVE", "1"), "--no-reasoning-preserve": ("REASONING_PRESERVE", "0"),
     "--context-shift": ("CONTEXT_SHIFT", "1"), "--no-context-shift": ("CONTEXT_SHIFT", "0"),
+    "--kv-unified": ("KV_UNIFIED", "1"), "--no-kv-unified": ("KV_UNIFIED", "0"),
+    "--cache-idle-slots": ("CACHE_IDLE_SLOTS", "1"), "--no-cache-idle-slots": ("CACHE_IDLE_SLOTS", "0"),
+    "--mmproj-auto": ("MMPROJ_AUTO", "1"), "--no-mmproj-auto": ("MMPROJ_AUTO", "0"),
     "--mmproj-offload": ("OFFLOAD_MMPROJ", "1"), "--no-mmproj-offload": ("OFFLOAD_MMPROJ", "0"),
     "--cont-batching": ("ENABLE_CONT_BATCHING", "1"), "-cb": ("ENABLE_CONT_BATCHING", "1"),
     "--no-cont-batching": ("ENABLE_CONT_BATCHING", "0"),
