@@ -172,6 +172,12 @@ whenever a component is upgraded (last verified: **2026-07-10**):
 > hash is what identifies the build (the topology UI compares commits for the
 > same reason). The vLLM runner is not version-pinned: it installs the current
 > `vllm` into its own venv on first start.
+>
+> Field note (2026-07-10): release `b9947` was tried fleet-wide and rolled
+> back — it crashes in `llama_decode` on the MoE + MTP-draft model
+> (Qwen3.6-35B) on the first request; embeddings served fine. The update
+> accepts a pinned `bNNNN` tag for exactly this reason: verify a new release
+> on one cell before restarting the rest onto it.
 
 ## Documentation
 

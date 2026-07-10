@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.3.13 — 2026-07-10
+
+- The System-modal "Update llama.cpp" button now runs the update as a
+  background job wrapping `scripts/install-llama.sh --force --no-restart`
+  (fetch/checkout of the release tag, probe-gated Blackwell workaround,
+  cmake build, UI-asset fallback — one battle-tested pipeline instead of
+  the old raw fetch + ff-merge that 409'd on any tracked local change and
+  died with the HTTP request on long builds). The UI polls
+  `/api/llamacpp/update-status` and streams the build log live; an
+  optional `tag` in the POST body pins a specific `bNNNN` release.
+  Running cells keep serving the old binary until restarted by hand.
+- The board no longer flags an in-sync client as outdated (yellow ⬆):
+  llama.cpp version hashes are short git abbrevs whose length varies per
+  clone (7 vs 9 chars for the same commit) — the comparison is now
+  prefix-based instead of strict equality.
+- The controller's "→ bNNNN ⬆" upstream arrow (and the System-modal
+  "upstream build" chip) compare the release tag's COMMIT against the
+  local head instead of tag number vs local build number — the local
+  build is a clone-local commit count (a shallow clone reports b731
+  while sitting exactly on b9947), so the numeric comparison showed a
+  false "update available" forever.
+- GPU detection in install-llama.sh / install-whisper.sh no longer
+  flakes to "No NVIDIA GPU" on a 5090 box: `lspci | grep -q` under
+  `set -o pipefail` dies of grep's early-exit SIGPIPE; detection now
+  goes through `nvidia-smi -L` with a -q-less lspci fallback.
+
 ## 1.3.12 — 2026-07-10
 
 - The Blackwell (`sm_120`) smpbo workaround is retired to a probe-gate:

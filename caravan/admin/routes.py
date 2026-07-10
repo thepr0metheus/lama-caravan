@@ -78,7 +78,7 @@ from caravan.admin.cell_schedule import set_cell_schedule
 from caravan.admin.metrics import build_metrics_text
 from caravan.admin.model_gc import delete_models, list_unused_models
 from caravan.admin import auth as auth_mod
-from caravan.admin.status import controller_info, do_action, llama_cpp_info, models_disk, state, update_llama_cpp
+from caravan.admin.status import controller_info, do_action, llama_cpp_info, llama_update_status, models_disk, start_llama_update, state
 from caravan.admin.cell_ops import (
     client_server_slot_add,
     client_server_slot_delete,
@@ -730,6 +730,11 @@ def _get_api_llamacpp(h, parsed):
         h.send_json(llama_cpp_info(fetch_remote=True))
         return
 
+@_route(GET_ROUTES, '/api/llamacpp/update-status')
+def _get_api_llamacpp_update_status(h, parsed):
+        h.send_json(llama_update_status())
+        return
+
 @_route(GET_ROUTES, '/api/backup')
 def _get_api_backup(h, parsed):
         query = dict(item.split("=", 1) for item in parsed.query.split("&") if "=" in item)
@@ -922,8 +927,8 @@ def _post_api_backup_delete(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/llamacpp/update')
 def _post_api_llamacpp_update(h, parsed, body):
-        result = update_llama_cpp()
-        h.send_json({"ok": True, "result": result, "state": state()})
+        job = start_llama_update(str((body or {}).get("tag") or ""))
+        h.send_json({"ok": True, "job": job})
         return
 
 @_route(POST_ROUTES, '/api/system-monitor/settings')

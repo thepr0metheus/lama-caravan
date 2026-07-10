@@ -28,8 +28,11 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   warn "macOS: the faster-whisper GPU server is Linux/NVIDIA only — skipping."
   exit 0
 fi
-if ! lspci 2>/dev/null | grep -qi nvidia; then
-  warn "No NVIDIA GPU detected (lspci) — skipping whisper provisioning."
+# nvidia-smi first; lspci without -q as the driverless fallback (grep -q on a
+# pipe under `set -o pipefail` SIGPIPEs lspci and flakes to "no GPU").
+if ! nvidia-smi -L >/dev/null 2>&1 \
+   && ! (lspci 2>/dev/null | grep -i nvidia >/dev/null); then
+  warn "No NVIDIA GPU detected — skipping whisper provisioning."
   exit 0
 fi
 if [[ ! -f "${SRC}/whisper_server.py" || ! -f "${SRC}/run_whisper.sh" ]]; then

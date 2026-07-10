@@ -780,6 +780,8 @@ export function nodesLaneHtml() {
   const ctrlMtime = state.llamaCpp?.binaryMtime || "";
   const ctrlUpstreamBuild = state.llamaCpp?.git?.upstreamBuild || 0;
   const ctrlUpstreamChecked = state.llamaCpp?.git?.upstreamChecked || false;
+  const ctrlUpstreamCommit = state.llamaCpp?.git?.upstreamBuildCommit || "";
+  const ctrlHeadCommit = state.llamaCpp?.git?.head || "";
 
   const sections = nodes.map((n) => {
     const cpu = n.cpu || {}, ram = cpu.ram || {};
@@ -794,16 +796,27 @@ export function nodesLaneHtml() {
     const verDate = nodeMtime ? nodeMtime.slice(0, 10) : "";
     // Outdated = different commit hash (most reliable) OR lower build number when
     // commits are unavailable. Same commit hash → in sync regardless of build number
-    // (happens when one clone is shallow and the other is full).
+    // (happens when one clone is shallow and the other is full). Hashes are short
+    // git abbrevs whose LENGTH varies per clone (7 vs 9 chars for the same commit),
+    // so equality is prefix-based — strict !== flagged in-sync fleets as outdated.
+    const sameCommit = (a, b) => !!a && !!b && (a.startsWith(b) || b.startsWith(a));
     const verOutdated = nodeBuild && ctrlBuild && n.role !== "controller" && (
       (nodeBuild.commit && ctrlBuild.commit)
-        ? nodeBuild.commit !== ctrlBuild.commit   // commit hash mismatch = truly different code
+        ? !sameCommit(nodeBuild.commit, ctrlBuild.commit)
         : nodeBuild.build < ctrlBuild.build       // fallback: numeric comparison
     );
     const verChipTitle = [nodeVerStr, nodeMtime].filter(Boolean).join(" · ");
-    // For the controller: show upstream build arrow if upstream is known and newer
+    // For the controller: show the upstream arrow only when the release tag's
+    // COMMIT differs from the local head — the numeric build is a clone-local
+    // counter (a shallow clone reports e.g. 731 while sitting exactly on
+    // b9947), so number-vs-number would show a false "outdated" arrow forever.
     const isCtrlNode = n.role === "controller";
-    const upstreamArrow = isCtrlNode && ctrlUpstreamChecked && ctrlUpstreamBuild > 0 && nodeBuild && ctrlUpstreamBuild > nodeBuild.build
+    const upstreamIsNewer = ctrlUpstreamChecked && ctrlUpstreamBuild > 0 && (
+      (ctrlUpstreamCommit && (ctrlHeadCommit || nodeBuild?.commit))
+        ? !sameCommit(ctrlUpstreamCommit, ctrlHeadCommit || nodeBuild.commit)
+        : (nodeBuild && ctrlUpstreamBuild > nodeBuild.build)
+    );
+    const upstreamArrow = isCtrlNode && upstreamIsNewer
       ? `<span class="llama-ver-upstream"> → b${ctrlUpstreamBuild} ⬆</span>`
       : "";
     const refreshBtn = isCtrlNode

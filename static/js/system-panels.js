@@ -455,7 +455,16 @@ export function renderLlamaCpp() {
   const upstreamBuildLabel = git.upstreamChecked
     ? (upstreamBuild > 0 ? `b${upstreamBuild}` : (git.upstreamError || "n/a"))
     : "not checked";
-  const upstreamNewer = upstreamBuild > 0 && localBuild && upstreamBuild > localBuild.build;
+  // Local build numbers are clone-local commit counts (shallow clones undercount
+  // hugely), so compare COMMITS with the release tag when both sides are known;
+  // the numeric comparison is only a fallback. Hash abbrevs vary in length →
+  // prefix equality.
+  const sameCommit = (a, b) => !!a && !!b && (a.startsWith(b) || b.startsWith(a));
+  const upstreamNewer = upstreamBuild > 0 && (
+    (git.upstreamBuildCommit && git.head)
+      ? !sameCommit(git.upstreamBuildCommit, git.head)
+      : (localBuild && upstreamBuild > localBuild.build)
+  );
   $("llamaCppSummary").innerHTML = `
     <div class="llama-chip"><span>${t("binary")}</span><strong>${escapeHtml(info.binary || "n/a")}</strong></div>
     <div class="llama-chip"><span>${t("built")}</span><strong>${escapeHtml(info.binaryMtime || "n/a")}</strong></div>
@@ -585,22 +594,44 @@ export function openUpdateLlamaModal() {
     closeConfirmModal();
     $("llamaUpdateLog").textContent = "Updating llama.cpp...";
     try {
-      const data = await api("/api/llamacpp/update", { method: "POST", body: JSON.stringify({}) });
-      setState(data.state);
-      const steps = data.result?.steps || [];
-      $("llamaUpdateLog").textContent = steps.map((step) => [
-        `$ ${step.cmd}`,
-        step.stdout,
-        step.stderr,
-      ].filter(Boolean).join("\n")).join("\n\n");
-      renderSystemSections();
-      toast(t("updateComplete"));
+      await api("/api/llamacpp/update", { method: "POST", body: JSON.stringify({}) });
+      pollLlamaUpdate();
     } catch (err) {
       $("llamaUpdateLog").textContent = err.message;
       toast(err.message);
     }
   };
   $("confirmOverlay").hidden = false;
+}
+
+// The update runs install-llama.sh as a background job on the server (a CUDA
+// build takes 10-20 min — no HTTP request survives that); poll its log tail
+// into the same <pre> the old synchronous flow used.
+let _llamaUpdatePollTimer = 0;
+async function pollLlamaUpdate() {
+  clearTimeout(_llamaUpdatePollTimer);
+  let job;
+  try {
+    job = await api("/api/llamacpp/update-status");
+  } catch (err) {
+    toast(err.message);
+    return;
+  }
+  const el = $("llamaUpdateLog");
+  if (el) {
+    el.textContent = (job.lines || []).join("\n") || "...";
+    el.scrollTop = el.scrollHeight;
+  }
+  if (job.running) {
+    _llamaUpdatePollTimer = setTimeout(pollLlamaUpdate, 2000);
+    return;
+  }
+  if (job.done && job.rc === 0) {
+    toast(t("updateComplete"));
+    try { await checkLlamaCpp(); } catch { /* chips refresh is best-effort */ }
+  } else if (job.done) {
+    toast(job.error || `update failed (rc=${job.rc})`);
+  }
 }
 
 export async function revertLatest() {

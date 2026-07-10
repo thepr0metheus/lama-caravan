@@ -1,6 +1,9 @@
 """Composite dashboard state (/api/state), service actions and llama.cpp
 version/update handling."""
 import os
+import re
+import subprocess
+import threading
 import time
 from datetime import datetime
 
@@ -205,14 +208,24 @@ def llama_cpp_info(fetch_remote=False):
         upstream = run_in(["git", "ls-remote", "origin", "HEAD"], timeout=30, cwd=LLAMA_HOME)
         upstream_tags = run_in(["git", "ls-remote", "--tags", "origin", "refs/tags/b[0-9]*"], timeout=30, cwd=LLAMA_HOME)
     binary_stat = binary.stat() if binary.exists() else None
-    # Parse highest bXXXX build number from remote tags
-    upstream_build = 0
+    # Parse the highest bXXXX build number from remote tags — AND its commit.
+    # Local clones report a clone-local commit COUNT as their build number
+    # (a shallow clone undercounts massively), so "local 731 < upstream 9947"
+    # says nothing; identity is the commit sha. Annotated tags list twice
+    # (refs/tags/bN and refs/tags/bN^{}); the peeled ^{} sha is the commit.
+    upstream_build, upstream_build_commit = 0, ""
     if upstream_tags["ok"] and upstream_tags["stdout"].strip():
-        import re as _re
+        best = {}
         for line in upstream_tags["stdout"].splitlines():
-            m = _re.search(r"refs/tags/b(\d+)$", line.strip())
-            if m:
-                upstream_build = max(upstream_build, int(m.group(1)))
+            m = re.match(r"^([0-9a-f]{7,40})\s+refs/tags/b(\d+)(\^\{\})?$", line.strip())
+            if not m:
+                continue
+            sha, num, peeled = m.group(1), int(m.group(2)), bool(m.group(3))
+            if peeled or num not in best:
+                best[num] = sha
+        if best:
+            upstream_build = max(best)
+            upstream_build_commit = best[upstream_build][:12]
     return {
         "binary": str(binary),
         "binaryExists": binary.exists(),
@@ -228,27 +241,74 @@ def llama_cpp_info(fetch_remote=False):
             "trackedDirtySample": tracked_dirty["stdout"].splitlines()[:12],
             "upstreamHead": upstream["stdout"].split()[0][:12] if upstream["ok"] and upstream["stdout"].strip() else "",
             "upstreamBuild": upstream_build,
+            "upstreamBuildCommit": upstream_build_commit,
             "upstreamChecked": fetch_remote,
             "upstreamError": "" if upstream["ok"] else upstream["stderr"],
         },
     }
 
-def update_llama_cpp():
-    info = llama_cpp_info(fetch_remote=True)
-    if info["git"]["trackedDirtyCount"]:
-        sample = "\n".join(info["git"]["trackedDirtySample"])
-        raise AppError(f"llama.cpp has tracked local changes. Clean or review them before update.\n{sample}", 409)
-    steps = []
+# ── llama.cpp update job ──────────────────────────────────────────────────────
+# The update runs scripts/install-llama.sh (--force --no-restart): the script
+# owns the whole pipeline — fetch/checkout the release tag, the probe-gated
+# Blackwell workaround, cmake build, UI-asset fallback. A build takes 10-20
+# minutes, far beyond an HTTP request, so it runs as a background thread whose
+# output streams into a ring buffer the UI polls. Running cells keep serving
+# the OLD binary (they hold its inode) until restarted by hand — deliberate.
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+_llama_update_lock = threading.Lock()
+_llama_update_job = {"running": False, "startedAt": 0, "tag": "", "lines": [],
+                     "done": False, "rc": None, "error": ""}
 
-    def step(label, cmd, timeout=60):
-        result = run_in(cmd, timeout=timeout, cwd=LLAMA_HOME)
-        steps.append({"label": label, "cmd": " ".join(cmd), **result})
-        if not result["ok"]:
-            raise AppError(f"{label} failed:\n{result['stderr'] or result['stdout']}", 500)
-        return result
+def llama_update_status():
+    with _llama_update_lock:
+        snap = dict(_llama_update_job)
+        snap["lines"] = list(_llama_update_job["lines"])[-200:]
+        return snap
 
-    branch = info["git"]["branch"] or "master"
-    step("fetch", ["git", "fetch", "origin"], timeout=120)
-    step("merge", ["git", "merge", "--ff-only", f"origin/{branch}"], timeout=120)
-    step("build", ["cmake", "--build", "build", "--target", "llama-server", "-j", str(os.cpu_count() or 4)], timeout=3600)
-    return {"steps": steps, "info": llama_cpp_info(fetch_remote=True)}
+def start_llama_update(tag=""):
+    """Kick off the background update. Empty tag → the script resolves the
+    latest upstream release tag itself (its default path). 409 while a job
+    is still running; finished jobs are replaced by the next start."""
+    if IS_CONTAINER:
+        raise AppError("the container image has no llama.cpp build environment — "
+                       "update llama.cpp on caravan-scout hosts instead", 400)
+    script = PROJECT_ROOT / "scripts" / "install-llama.sh"
+    if not script.exists():
+        raise AppError(f"install script not found: {script}", 500)
+    tag = str(tag or "").strip()
+    cmd = ["bash", str(script), "--force", "--no-restart"]
+    if tag:
+        cmd += ["--llama-tag", tag]
+    with _llama_update_lock:
+        if _llama_update_job["running"]:
+            raise AppError("a llama.cpp update is already running", 409)
+        _llama_update_job.update({"running": True, "startedAt": int(time.time()),
+                                  "tag": tag, "lines": [], "done": False,
+                                  "rc": None, "error": ""})
+    # systemd user services get a minimal PATH without the CUDA toolchain; the
+    # script hard-requires nvcc, so prepend the standard toolkit location.
+    env = dict(os.environ)
+    env["PATH"] = "/usr/local/cuda/bin:" + env.get("PATH", "/usr/bin:/bin")
+
+    def _run():
+        rc, error = -1, ""
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT, text=True,
+                                    cwd=str(PROJECT_ROOT), env=env)
+            for line in proc.stdout:
+                clean = _ANSI_RE.sub("", line.rstrip())
+                with _llama_update_lock:
+                    _llama_update_job["lines"].append(clean)
+                    if len(_llama_update_job["lines"]) > 500:
+                        del _llama_update_job["lines"][:100]
+            rc = proc.wait()
+        except Exception as exc:
+            error = str(exc)
+        finally:
+            with _llama_update_lock:
+                _llama_update_job.update({"running": False, "done": True,
+                                          "rc": rc, "error": error})
+
+    threading.Thread(target=_run, daemon=True, name="llama-update").start()
+    return llama_update_status()

@@ -41,7 +41,12 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
   exit 0
 fi
 
-if ! lspci 2>/dev/null | grep -qi "nvidia"; then
+# GPU detect: nvidia-smi first (the build needs it later anyway), lspci as the
+# fallback for driverless boxes. NB: no `grep -q` on a pipe here — under
+# `set -o pipefail` grep -q exits at the first match, lspci dies with SIGPIPE
+# (141) and the whole pipeline reads as "no GPU" — a scheduler-dependent flake.
+if ! nvidia-smi -L >/dev/null 2>&1 \
+   && ! (lspci 2>/dev/null | grep -i "nvidia" >/dev/null); then
   warn "No NVIDIA GPU detected — skipping llama.cpp build."
   exit 0
 fi
@@ -109,9 +114,14 @@ fi
 if [[ -d "${LLAMA_DIR}/.git" ]]; then
   info "llama.cpp exists at ${LLAMA_DIR} — fetching ..."
   git -C "$LLAMA_DIR" fetch --tags -q
-  git -C "$LLAMA_DIR" checkout "$LLAMA_TAG" -q 2>/dev/null \
-    || git -C "$LLAMA_DIR" checkout "tags/${LLAMA_TAG}" -q 2>/dev/null \
-    || git -C "$LLAMA_DIR" checkout master -q
+  # -f: the clone is a build artifact, not a workspace — discard local edits
+  # (e.g. a previously applied smpbo patch, or deleted tracked test files) so
+  # the checkout always lands on pristine upstream. The probe below re-applies
+  # the workaround if this stack still needs it. Untracked files (downloaded
+  # models under models/) are never touched by checkout.
+  git -C "$LLAMA_DIR" checkout -f "$LLAMA_TAG" -q 2>/dev/null \
+    || git -C "$LLAMA_DIR" checkout -f "tags/${LLAMA_TAG}" -q 2>/dev/null \
+    || git -C "$LLAMA_DIR" checkout -f master -q
 else
   info "Cloning llama.cpp @ ${LLAMA_TAG} ..."
   if [[ "$LLAMA_TAG" == "master" ]]; then
