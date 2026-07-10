@@ -626,8 +626,12 @@ def topology_state(refresh_clients=True):
     except Exception:
         pass
     clients = topology_clients()
+    # Crash watchdog verdict (cached 60s inside): a fresh llama.cpp build plus
+    # crashing cells → the board banner offers a consented rollback.
+    from caravan.admin.status import llama_crash_suspect
     return {
         "server": server_obj,
+        "llamaSuspect": llama_crash_suspect(),
         # Host-centric model (Stage 1): one node per machine with its GPUs +
         # servers + CPU/RAM, server↔GPU bound via compute-apps. The UI still
         # reads server/clients for now; `nodes` is the new spine.

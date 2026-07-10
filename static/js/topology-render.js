@@ -447,10 +447,64 @@ export function topologyStructureFingerprint() {
   return [clients, classicSrv, nodeSrv, gpus, prox, cloud, llamaVer, view, pendingCells, modals].join("||");
 }
 
+// ── llama.cpp crash-watchdog banner ──────────────────────────────────────────
+// The backend flags "fresh build + crashing cells"; the banner offers a
+// rollback to the previous archived build. Restore fires only after a second,
+// explicit confirmation click — never automatically.
+let _suspectKey = "";
+let _suspectDismissed = "";
+function renderLlamaSuspectBanner() {
+  const el = $("llamaSuspectBanner");
+  if (!el) return;
+  const s = topology?.llamaSuspect || {};
+  const cand = s.restoreCandidate || null;
+  const key = s.suspect ? `${s.currentCommit}:${s.builtAt}:${cand?.id || ""}` : "";
+  if (!s.suspect || _suspectDismissed === key) {
+    el.hidden = true;
+    _suspectKey = "";
+    return;
+  }
+  if (key === _suspectKey && !el.hidden) return;   // already rendered
+  _suspectKey = key;
+  const candLabel = cand ? String(cand.version || cand.id).replace("version: ", "b") : "";
+  el.innerHTML = `
+    <span class="llama-suspect-msg">⚠ ${escapeHtml(t("llamaSuspectMsg").replace("{n}", String(s.crashes15m || 0)))}</span>
+    ${cand ? `<button type="button" class="llama-suspect-restore" data-suspect-restore="${escapeHtml(cand.id)}">${escapeHtml(t("llamaSuspectRestore"))} ${escapeHtml(candLabel)}</button>` : ""}
+    <button type="button" class="llama-suspect-dismiss" data-suspect-dismiss>${escapeHtml(t("llamaSuspectDismiss"))}</button>`;
+  el.hidden = false;
+  const restoreBtn = el.querySelector("[data-suspect-restore]");
+  if (restoreBtn) {
+    restoreBtn.addEventListener("click", async () => {
+      if (restoreBtn.dataset.armed !== "1") {   // two-step consent, no modal needed
+        restoreBtn.dataset.armed = "1";
+        restoreBtn.textContent = t("llamaSuspectConfirm");
+        setTimeout(() => {
+          restoreBtn.dataset.armed = "";
+          restoreBtn.textContent = `${t("llamaSuspectRestore")} ${candLabel}`;
+        }, 6000);
+        return;
+      }
+      try {
+        await api("/api/llamacpp/restore", { method: "POST", body: JSON.stringify({ id: restoreBtn.getAttribute("data-suspect-restore") }) });
+        toast(t("llamaSuspectRestoring"));
+        _suspectDismissed = key;
+        el.hidden = true;
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+  }
+  el.querySelector("[data-suspect-dismiss]")?.addEventListener("click", () => {
+    _suspectDismissed = key;
+    el.hidden = true;
+  });
+}
+
 // Decide between a full structural rebuild and a cheap in-place live patch —
 // and never rebuild while the user is interacting (defer until they finish).
 export function applyTopologyUpdate() {
   if (!topology) return;
+  renderLlamaSuspectBanner();
   if (topologyInteractionActive()) {
     _topologyRenderPending = true;
     return;

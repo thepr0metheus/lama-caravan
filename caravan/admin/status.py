@@ -287,6 +287,45 @@ def llama_builds_list():
             rows.append(row)
     return {"ok": True, "builds": rows, "keep": int(os.environ.get("LLAMA_BUILDS_KEEP") or 5)}
 
+# ── crash watchdog: a fresh build + crashing cells ⇒ offer a rollback ────────
+# Cheap and stateless: only when the on-disk binary is younger than
+# LLAMA_SUSPECT_BUILD_AGE_H (default 6h) scan the last 15 min of lama-cell@*
+# journal for crash markers; at ≥ LLAMA_SUSPECT_MIN_CRASHES (default 3) the
+# board shows a prominent banner offering to restore the previous archived
+# build — restore itself always waits for the user's confirmation.
+_suspect_cache = {"t": 0.0, "data": {"suspect": False}}
+
+def llama_crash_suspect():
+    now = time.time()
+    if now - _suspect_cache["t"] < 60:
+        return _suspect_cache["data"]
+    data = {"suspect": False}
+    try:
+        min_crashes = int(os.environ.get("LLAMA_SUSPECT_MIN_CRASHES") or 3)
+        max_age_h = float(os.environ.get("LLAMA_SUSPECT_BUILD_AGE_H") or 6)
+        binary = llama_server_path()
+        built_at = binary.stat().st_mtime if binary.exists() else 0
+        if built_at and (now - built_at) < max_age_h * 3600:
+            out = run(["journalctl", "--user", "-u", "lama-cell@*",
+                       "--since", "-15 minutes", "--no-pager", "-o", "cat"], timeout=10)
+            text = out.get("stdout") or ""
+            crashes = len(re.findall(
+                r"CUDA error|GGML_ABORT|SIGSEGV|SIGABRT|Aborted \(core dumped\)", text))
+            if crashes >= min_crashes:
+                head = run_in(["git", "rev-parse", "--short", "HEAD"],
+                              timeout=5, cwd=LLAMA_HOME)["stdout"].strip()
+                prev = next((b for b in llama_builds_list()["builds"]
+                             if b.get("commit") and head
+                             and not head.startswith(b["commit"])
+                             and not b["commit"].startswith(head)), None)
+                data = {"suspect": True, "crashes15m": crashes,
+                        "builtAt": int(built_at), "currentCommit": head,
+                        "restoreCandidate": prev}
+    except Exception:
+        data = {"suspect": False}
+    _suspect_cache.update(t=now, data=data)
+    return data
+
 def start_llama_restore(build_id):
     """Restore an archived build (copy back + checkout its commit) as the same
     background job the update uses — one shared runner, one status endpoint."""

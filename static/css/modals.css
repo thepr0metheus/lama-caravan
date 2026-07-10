@@ -1995,3 +1995,23 @@
 }
 .llama-build-restore:hover { background: color-mix(in srgb, #f59e0b 32%, transparent); }
 .llama-builds-empty { font-size: 11px; opacity: .55; margin: 2px 0 8px; }
+/* llama.cpp crash-watchdog banner (board top) */
+.llama-suspect-banner {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 8px 14px 0; padding: 9px 14px; border-radius: 8px;
+  background: color-mix(in srgb, #f87171 16%, transparent);
+  border: 1px solid color-mix(in srgb, #f87171 45%, transparent);
+  color: #fecaca; font-size: 12.5px;
+}
+.llama-suspect-msg { flex: 1; min-width: 240px; }
+.llama-suspect-restore {
+  padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  background: color-mix(in srgb, #f87171 28%, transparent);
+  border: 1px solid color-mix(in srgb, #f87171 55%, transparent); color: #fee2e2;
+}
+.llama-suspect-restore[data-armed="1"] { background: #dc2626; color: #fff; }
+.llama-suspect-dismiss {
+  padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px;
+  background: none; border: 1px solid color-mix(in srgb, var(--muted) 45%, transparent);
+  color: var(--fg-muted, #94a3b8);
+}

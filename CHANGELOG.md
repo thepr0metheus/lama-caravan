@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.16 — 2026-07-10
+
+- Crash watchdog: when model cells start crashing within hours of a
+  fresh llama.cpp build (crash markers in the cells' journal, 15-min
+  window), the board shows a prominent banner offering to restore the
+  previous archived build. The restore fires only after an explicit
+  second confirmation click — never automatically. Thresholds:
+  `LLAMA_SUSPECT_MIN_CRASHES` (3) / `LLAMA_SUSPECT_BUILD_AGE_H` (6).
+- Client build archives default to keeping 2 snapshots (current + one
+  undo) instead of 5 — client snapshots are large and a client rollback
+  is never urgent since running cells keep serving their old binary;
+  `llamaBuildsKeep` in the scout config overrides.
+
 ## 1.3.15 — 2026-07-10
 
 - Build archive + one-click rollback: every successful llama.cpp build
