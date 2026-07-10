@@ -433,12 +433,18 @@ export function topologyStructureFingerprint() {
   const cloud = (topology.cloudProviders || [])
     .map((p) => `${p.id}:${(p.models || []).length}:${p.enabled !== false ? 1 : 0}`)
     .sort().join(",");
+  // llama.cpp build state per node: the client-update job flipping running
+  // on/off and a finished build changing the binary version/mtime must
+  // re-render the version chip (building indicator, stale badge, ⇪ button).
+  const llamaVer = (topology.nodes || [])
+    .map((n) => `${n.id}:${(n.llamaBinaryVersion || "").slice(0, 40)}:${(n.llamaBinaryMtime || "").slice(0, 19)}:${n.llamaUpdate?.running ? 1 : 0}`)
+    .sort().join(",");
   const view = `${topologyNodesViewOn ? 1 : 0}:${[..._collapsedNodes].sort().join("+")}`;
   // In-flight cell actions are structural: adding/clearing one must re-render
   // the card even when the server-side topology has not moved yet.
   const pendingCells = `${[..._pendingCellActions.keys()].sort().join("+")}:${[..._stoppingCells].sort().join("+")}`;
   const modals = `${ui.topologyProxyFormOpen ? 1 : 0}:${topologyQueuePriorityModalOpen ? 1 : 0}:${topologyRouteDetail?.proxyId || ""}`;
-  return [clients, classicSrv, nodeSrv, gpus, prox, cloud, view, pendingCells, modals].join("||");
+  return [clients, classicSrv, nodeSrv, gpus, prox, cloud, llamaVer, view, pendingCells, modals].join("||");
 }
 
 // Decide between a full structural rebuild and a cheap in-place live patch —
@@ -455,7 +461,7 @@ export function applyTopologyUpdate() {
     // forces full rebuilds — the #1 suspect when the board redraws too often.
     if (window.__fpDebug && _lastStructureFingerprint) {
       const a = _lastStructureFingerprint.split("||"), b = fp.split("||");
-      const parts = ["clients", "classicSrv", "nodeSrv", "gpus", "prox", "cloud", "view", "pendingCells", "modals"];
+      const parts = ["clients", "classicSrv", "nodeSrv", "gpus", "prox", "cloud", "llamaVer", "view", "pendingCells", "modals"];
       b.forEach((v, i) => { if (v !== a[i]) console.debug(`[fp] ${parts[i]} changed:\n  was: ${a[i]}\n  now: ${v}`); });
     }
     renderTopology();          // structure changed → full rebuild

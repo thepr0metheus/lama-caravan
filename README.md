@@ -156,7 +156,7 @@ whenever a component is upgraded (last verified: **2026-07-10**):
 
 | Component | Verified version |
 |---|---|
-| llama.cpp | commit `5f04dc7` (2026-06-14), CUDA build, on the controller and the Linux GPU client |
+| llama.cpp | release `b9947` (commit `3de7dd4c8`, built 2026-07-10), CUDA build — controller cells verified live; the Linux client converged onto the same commit via the fleet update button |
 | CUDA toolkit | 12.6 |
 | NVIDIA driver | 595.71 (controller), 580.159 (client) |
 | GPUs | RTX 5090 (Blackwell `sm_120`), RTX 3090 (`sm_86`) |
