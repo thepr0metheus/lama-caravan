@@ -143,11 +143,35 @@ The built-in HuggingFace GGUF browser:
 |---|---|
 | Controller OS | **Primary:** Linux with systemd (tested on Ubuntu 24.04; any systemd distro should work). **Evaluation:** any Docker host via the [Docker quick start](#quick-start-docker) — controller-only, cells then live on scout hosts |
 | Python | **3.10+**, standard library only — no pip packages (tested on 3.12) |
-| llama.cpp | a `llama-server` build **b400+** (needs `--chat-template-file`; tested with b422, 2026-06) |
+| llama.cpp | a `llama-server` build **b400+** (needs `--chat-template-file`; see [Tested versions](#tested-versions)) |
 | GPU serving | NVIDIA driver + `nvidia-smi` for telemetry; CUDA build of llama.cpp (CPU-only also works) |
 | Client hosts | Linux (systemd --user) or macOS (launchd), Python 3.10+, [caravan-scout](https://github.com/thepr0metheus/caravan-scout) |
 | Browser | any modern browser — native ES modules, no build step |
 | Storage | plain JSON files + an embedded SQLite file (accounts/sessions); no database server required |
+
+## Tested versions
+
+The exact versions the development fleet runs — re-verified and updated here
+whenever a component is upgraded (last verified: **2026-07-10**):
+
+| Component | Verified version |
+|---|---|
+| llama.cpp | commit `5f04dc7` (2026-06-14), CUDA build, on the controller and the Linux GPU client |
+| CUDA toolkit | 12.6 |
+| NVIDIA driver | 595.71 (controller), 580.159 (client) |
+| GPUs | RTX 5090 (Blackwell `sm_120`), RTX 3090 (`sm_86`) |
+| OS | Ubuntu 24.04.4 LTS (controller + Linux client), macOS 26.5 (Mac client) |
+| Python | 3.12.3 (controller, Linux client); the macOS scout runs on stock 3.9.6 |
+| systemd | 255 (Ubuntu 24.04) |
+| Docker (container mode) | 29.1 |
+| faster-whisper | 1.2.1 (CTranslate2 4.8.0) — whisper command cells |
+| caravan-scout | v1.0.1 |
+
+> The build number `llama-server --version` prints counts commits in the *local
+> clone* — a shallow clone undercounts vs upstream `bNNNN` tags, so the commit
+> hash is what identifies the build (the topology UI compares commits for the
+> same reason). The vLLM runner is not version-pinned: it installs the current
+> `vllm` into its own venv on first start.
 
 ## Documentation
 
