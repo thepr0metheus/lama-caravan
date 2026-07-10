@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.18 — 2026-07-10
+
+- The crash-watchdog verdict is sticky: an incident is persisted
+  server-side, so the banner is still there when the board is opened
+  hours after the crash storm ended — and it survives admin restarts.
+  It clears automatically when the binary changes (restore/update) or
+  when explicitly dismissed; the dismissal is also persisted, per
+  build, so a new build starts with a clean slate. The banner shows
+  the time of the last crash marker.
+
 ## 1.3.17 — 2026-07-10
 
 - The build-restore confirmation now says exactly what will happen

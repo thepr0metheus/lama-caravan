@@ -78,7 +78,7 @@ from caravan.admin.cell_schedule import set_cell_schedule
 from caravan.admin.metrics import build_metrics_text
 from caravan.admin.model_gc import delete_models, list_unused_models
 from caravan.admin import auth as auth_mod
-from caravan.admin.status import controller_info, do_action, llama_builds_list, llama_cpp_info, llama_update_status, models_disk, start_llama_restore, start_llama_update, state
+from caravan.admin.status import controller_info, do_action, llama_builds_list, llama_cpp_info, llama_suspect_dismiss, llama_update_status, models_disk, start_llama_restore, start_llama_update, state
 from caravan.admin.cell_ops import (
     client_server_slot_add,
     client_server_slot_delete,
@@ -958,6 +958,11 @@ def _post_api_llamacpp_update(h, parsed, body):
 def _post_api_llamacpp_restore(h, parsed, body):
         job = start_llama_restore(str((body or {}).get("id") or ""))
         h.send_json({"ok": True, "job": job})
+        return
+
+@_route(POST_ROUTES, '/api/llamacpp/suspect-dismiss')
+def _post_api_llamacpp_suspect_dismiss(h, parsed, body):
+        h.send_json(llama_suspect_dismiss())
         return
 
 @_route(POST_ROUTES, '/api/system-monitor/settings')

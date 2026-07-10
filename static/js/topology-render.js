@@ -459,7 +459,7 @@ function renderLlamaSuspectBanner() {
   if (!el) return;
   const s = topology?.llamaSuspect || {};
   const cand = s.restoreCandidate || null;
-  const key = s.suspect ? `${s.currentCommit}:${s.builtAt}:${cand?.id || ""}` : "";
+  const key = s.suspect ? `${s.currentCommit}:${s.builtAt}:${cand?.id || ""}:${Math.floor((s.lastSeenAt || 0) / 60)}` : "";
   if (!s.suspect || _suspectDismissed === key) {
     el.hidden = true;
     _suspectKey = "";
@@ -468,8 +468,9 @@ function renderLlamaSuspectBanner() {
   if (key === _suspectKey && !el.hidden) return;   // already rendered
   _suspectKey = key;
   const candLabel = cand ? String(cand.version || cand.id).replace("version: ", "b") : "";
+  const lastSeen = s.lastSeenAt ? ` · ${new Date(s.lastSeenAt * 1000).toLocaleTimeString()}` : "";
   el.innerHTML = `
-    <span class="llama-suspect-msg">⚠ ${escapeHtml(t("llamaSuspectMsg").replace("{n}", String(s.crashes15m || 0)))}</span>
+    <span class="llama-suspect-msg">⚠ ${escapeHtml(t("llamaSuspectMsg").replace("{n}", String(s.crashes15m || 0)))}${escapeHtml(lastSeen)}</span>
     ${cand ? `<button type="button" class="llama-suspect-restore" data-suspect-restore="${escapeHtml(cand.id)}">${escapeHtml(t("llamaSuspectRestore"))} ${escapeHtml(candLabel)}</button>` : ""}
     <button type="button" class="llama-suspect-dismiss" data-suspect-dismiss>${escapeHtml(t("llamaSuspectDismiss"))}</button>`;
   el.hidden = false;
@@ -487,6 +488,9 @@ function renderLlamaSuspectBanner() {
   el.querySelector("[data-suspect-dismiss]")?.addEventListener("click", () => {
     _suspectDismissed = key;
     el.hidden = true;
+    // Persist server-side: the dismissal survives reloads and admin restarts
+    // (per build — a new build starts with a clean slate).
+    api("/api/llamacpp/suspect-dismiss", { method: "POST", body: JSON.stringify({}) }).catch(() => {});
   });
 }
 

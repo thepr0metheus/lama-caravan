@@ -288,12 +288,22 @@ def llama_builds_list():
     return {"ok": True, "builds": rows, "keep": int(os.environ.get("LLAMA_BUILDS_KEEP") or 5)}
 
 # ── crash watchdog: a fresh build + crashing cells ⇒ offer a rollback ────────
-# Cheap and stateless: only when the on-disk binary is younger than
-# LLAMA_SUSPECT_BUILD_AGE_H (default 6h) scan the last 15 min of lama-cell@*
-# journal for crash markers; at ≥ LLAMA_SUSPECT_MIN_CRASHES (default 3) the
-# board shows a prominent banner offering to restore the previous archived
-# build — restore itself always waits for the user's confirmation.
+# Detection scans the last 15 min of lama-cell@* journal for crash markers
+# while the on-disk binary is younger than LLAMA_SUSPECT_BUILD_AGE_H (6h);
+# ≥ LLAMA_SUSPECT_MIN_CRASHES (3) trips an INCIDENT. The incident is STICKY:
+# persisted in admin_state so the banner is still there when the board is
+# opened hours later (and across admin restarts), until the user dismisses
+# it (also persisted, per build) or the binary changes (restore/update clear
+# it automatically). Restore itself always waits for explicit confirmation.
 _suspect_cache = {"t": 0.0, "data": {"suspect": False}}
+
+def _llama_binary_key():
+    """Identity of the CURRENT build: commit + binary mtime."""
+    binary = llama_server_path()
+    built_at = int(binary.stat().st_mtime) if binary.exists() else 0
+    head = run_in(["git", "rev-parse", "--short", "HEAD"],
+                  timeout=5, cwd=LLAMA_HOME)["stdout"].strip()
+    return head, built_at, f"{head}:{built_at}"
 
 def llama_crash_suspect():
     now = time.time()
@@ -301,30 +311,61 @@ def llama_crash_suspect():
         return _suspect_cache["data"]
     data = {"suspect": False}
     try:
+        from caravan.admin.state import admin_state, save_admin_state
         min_crashes = int(os.environ.get("LLAMA_SUSPECT_MIN_CRASHES") or 3)
         max_age_h = float(os.environ.get("LLAMA_SUSPECT_BUILD_AGE_H") or 6)
-        binary = llama_server_path()
-        built_at = binary.stat().st_mtime if binary.exists() else 0
-        if built_at and (now - built_at) < max_age_h * 3600:
+        head, built_at, key = _llama_binary_key()
+        incident = admin_state.get("llamaSuspectIncident")
+        dismissed_key = str(admin_state.get("llamaSuspectDismissed") or "")
+        # An incident belonging to a DIFFERENT build is stale — the binary was
+        # restored/updated since; drop it silently.
+        if incident and incident.get("key") != key:
+            admin_state.pop("llamaSuspectIncident", None)
+            save_admin_state()
+            incident = None
+        # Live detection window (only worth scanning near a fresh build).
+        if built_at and (now - built_at) < max_age_h * 3600 and key != dismissed_key:
             out = run(["journalctl", "--user", "-u", "lama-cell@*",
                        "--since", "-15 minutes", "--no-pager", "-o", "cat"], timeout=10)
-            text = out.get("stdout") or ""
             crashes = len(re.findall(
-                r"CUDA error|GGML_ABORT|SIGSEGV|SIGABRT|Aborted \(core dumped\)", text))
+                r"CUDA error|GGML_ABORT|SIGSEGV|SIGABRT|Aborted \(core dumped\)",
+                out.get("stdout") or ""))
             if crashes >= min_crashes:
-                head = run_in(["git", "rev-parse", "--short", "HEAD"],
-                              timeout=5, cwd=LLAMA_HOME)["stdout"].strip()
-                prev = next((b for b in llama_builds_list()["builds"]
-                             if b.get("commit") and head
-                             and not head.startswith(b["commit"])
-                             and not b["commit"].startswith(head)), None)
-                data = {"suspect": True, "crashes15m": crashes,
-                        "builtAt": int(built_at), "currentCommit": head,
-                        "restoreCandidate": prev}
+                incident = {
+                    "key": key, "currentCommit": head, "builtAt": built_at,
+                    "firstSeenAt": int((incident or {}).get("firstSeenAt") or now),
+                    "lastSeenAt": int(now),
+                    "crashes15m": crashes,
+                }
+                admin_state["llamaSuspectIncident"] = incident
+                save_admin_state()
+        # Sticky verdict: an unresolved incident for THIS build keeps the
+        # banner up no matter when the board is opened.
+        if incident and incident.get("key") == key and key != dismissed_key:
+            prev = next((b for b in llama_builds_list()["builds"]
+                         if b.get("commit") and head
+                         and not head.startswith(b["commit"])
+                         and not b["commit"].startswith(head)), None)
+            data = {"suspect": True, "crashes15m": incident.get("crashes15m", 0),
+                    "builtAt": built_at, "currentCommit": head,
+                    "firstSeenAt": incident.get("firstSeenAt"),
+                    "lastSeenAt": incident.get("lastSeenAt"),
+                    "restoreCandidate": prev}
     except Exception:
         data = {"suspect": False}
     _suspect_cache.update(t=now, data=data)
     return data
+
+def llama_suspect_dismiss():
+    """User said 'hide it': remember per build (survives reloads/restarts);
+    a NEW build starts with a clean slate."""
+    from caravan.admin.state import admin_state, save_admin_state
+    _, _, key = _llama_binary_key()
+    admin_state["llamaSuspectDismissed"] = key
+    admin_state.pop("llamaSuspectIncident", None)
+    save_admin_state()
+    _suspect_cache.update(t=0.0, data={"suspect": False})
+    return {"ok": True, "dismissed": key}
 
 def start_llama_restore(build_id):
     """Restore an archived build (copy back + checkout its commit) as the same
