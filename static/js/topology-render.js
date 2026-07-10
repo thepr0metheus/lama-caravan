@@ -47,6 +47,7 @@ import {
   renderCpu,
   renderGpu,
   renderKnownProblems,
+  openRestoreBuildModal,
   renderLlamaCpp,
   renderOpenClawLinks,
   renderProjectGitBranch,
@@ -474,24 +475,13 @@ function renderLlamaSuspectBanner() {
   el.hidden = false;
   const restoreBtn = el.querySelector("[data-suspect-restore]");
   if (restoreBtn) {
-    restoreBtn.addEventListener("click", async () => {
-      if (restoreBtn.dataset.armed !== "1") {   // two-step consent, no modal needed
-        restoreBtn.dataset.armed = "1";
-        restoreBtn.textContent = t("llamaSuspectConfirm");
-        setTimeout(() => {
-          restoreBtn.dataset.armed = "";
-          restoreBtn.textContent = `${t("llamaSuspectRestore")} ${candLabel}`;
-        }, 6000);
-        return;
-      }
-      try {
-        await api("/api/llamacpp/restore", { method: "POST", body: JSON.stringify({ id: restoreBtn.getAttribute("data-suspect-restore") }) });
-        toast(t("llamaSuspectRestoring"));
-        _suspectDismissed = key;
-        el.hidden = true;
-      } catch (err) {
-        toast(err.message);
-      }
+    // The click opens the SAME informative confirmation the System builds
+    // list uses: what will happen (from → to, cells keep running) and the
+    // escape hatches if the restored build misbehaves too.
+    restoreBtn.addEventListener("click", () => {
+      _suspectDismissed = key;   // the banner did its job; the modal takes over
+      el.hidden = true;
+      openRestoreBuildModal(String(cand?.id || ""), cand);
     });
   }
   el.querySelector("[data-suspect-dismiss]")?.addEventListener("click", () => {

@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.17 — 2026-07-10
+
+- The build-restore confirmation now says exactly what will happen
+  (current build → target build; running cells keep their binary until
+  restarted) and what the escape hatches are if the restored build
+  misbehaves too: the replaced build stays in the archive, any release
+  rebuilds from source via Update Build, and the same restore works
+  over ssh (`scripts/install-llama.sh --restore <id>`). The crash
+  watchdog banner routes through this same confirmation instead of its
+  own inline two-step button.
+
 ## 1.3.16 — 2026-07-10
 
 - Crash watchdog: when model cells start crashing within hours of a

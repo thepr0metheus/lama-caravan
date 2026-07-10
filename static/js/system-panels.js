@@ -502,25 +502,40 @@ export async function loadLlamaBuilds() {
       <button type="button" class="llama-build-restore" data-restore-build="${escapeHtml(b.id)}">${escapeHtml(t("restoreBuild"))}</button>
     </div>`).join("");
   el.querySelectorAll("[data-restore-build]").forEach((btn) => {
-    btn.addEventListener("click", () => openRestoreBuildModal(btn.getAttribute("data-restore-build") || ""));
+    const id = btn.getAttribute("data-restore-build") || "";
+    const meta = builds.find((b) => b.id === id) || null;
+    btn.addEventListener("click", () => openRestoreBuildModal(id, meta));
   });
 }
 
-function openRestoreBuildModal(buildId) {
+// Shared by the System builds list AND the board's crash-watchdog banner: one
+// confirmation that says what will happen (from → to, cells keep running) and
+// what the escape hatches are if the restored build misbehaves too.
+export function openRestoreBuildModal(buildId, buildMeta = null) {
+  const fmtVer = (v) => String(v || "").replace("version: ", "b").split("\n")[0];
+  const currentVer = fmtVer(state.llamaCpp?.version) || "?";
+  const targetVer = fmtVer(buildMeta?.version || buildMeta?.commit || buildId);
   $("confirmTitle").textContent = t("restoreBuildTitle");
-  $("confirmText").textContent = t("restoreBuildText");
-  $("confirmMeta").hidden = true;
+  $("confirmText").textContent = `${t("restoreBuildText")} ${t("restoreBuildRecovery")}`;
+  $("confirmMeta").hidden = false;
+  $("confirmMeta").innerHTML = [
+    [t("restoreFrom"), currentVer],
+    [t("restoreTo"), targetVer],
+  ].map(([label, value]) => `
+    <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>
+  `).join("");
   $("confirmPath").textContent = buildId;
   $("confirmDelete").textContent = t("restoreBuild");
   $("confirmDelete").classList.add("danger");
   ui.pendingConfirm = async () => {
     closeConfirmModal();
-    $("llamaUpdateLog").textContent = `Restoring ${buildId}...`;
+    const log = $("llamaUpdateLog");   // absent on the board page — toasts carry it
+    if (log) log.textContent = `Restoring ${buildId}...`;
     try {
       await api("/api/llamacpp/restore", { method: "POST", body: JSON.stringify({ id: buildId }) });
       pollLlamaUpdate();
     } catch (err) {
-      $("llamaUpdateLog").textContent = err.message;
+      if (log) log.textContent = err.message;
       toast(err.message);
     }
   };
