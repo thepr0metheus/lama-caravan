@@ -83,6 +83,12 @@ def runner_id(config) -> str:
 
 VLLM_VENV = "$HOME/vllm-venv"
 
+# The version a FIRST-TIME provision installs. Pinned on purpose: an unpinned
+# `pip install vllm` gave every new host "whatever PyPI had that day" — the
+# pip flavour of the mixed-toolkit franken-build. Update/rollback from the UI
+# moves it deliberately; the VLLM_VERSION env var overrides at cell start.
+VLLM_DEFAULT_VERSION = "0.24.0"
+
 # One line per step so the cell log tells WHERE a cold provision is (the first
 # vLLM start on a host downloads several GB of wheels and can take minutes).
 VLLM_BOOTSTRAP_LINES = [
@@ -90,7 +96,7 @@ VLLM_BOOTSTRAP_LINES = [
     f'  echo "[caravan] provisioning vLLM venv at {VLLM_VENV} (first start on this host, several minutes)…"',
     f'  python3 -m venv {VLLM_VENV}',
     f'  {VLLM_VENV}/bin/pip install --quiet --upgrade pip',
-    f'  {VLLM_VENV}/bin/pip install --quiet vllm',
+    f'  {VLLM_VENV}/bin/pip install --quiet "vllm==${{VLLM_VERSION:-{VLLM_DEFAULT_VERSION}}}"',
     'fi',
     # torch-inductor compiles kernels through ninja; venvs provisioned before
     # this line existed lack it, so the check is separate from the vllm one.

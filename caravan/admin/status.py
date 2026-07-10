@@ -287,6 +287,72 @@ def llama_builds_list():
             rows.append(row)
     return {"ok": True, "builds": rows, "keep": int(os.environ.get("LLAMA_BUILDS_KEEP") or 5)}
 
+# ── vLLM runner version ops ──────────────────────────────────────────────────
+# vLLM is a pip package in ~/vllm-venv, so PyPI itself is the build archive:
+# update = `pip install vllm==X`, rollback = the same command with an older
+# version. We only keep a small history (last 5 versions seen) to offer
+# rollback candidates, and run installs through the SAME background job the
+# llama.cpp update uses (one build/install job at a time, one status stream).
+VLLM_VENV_DIR = Path.home() / "vllm-venv"
+VLLM_HISTORY_FILE = PROJECT_ROOT / "var" / "vllm-versions.json"
+
+def _vllm_pip():
+    return VLLM_VENV_DIR / "bin" / "pip"
+
+def vllm_installed_version():
+    pip = _vllm_pip()
+    if not pip.exists():
+        return ""
+    out = run([str(pip), "show", "vllm"], timeout=15)
+    m = re.search(r"^Version:\s*(\S+)", out.get("stdout") or "", re.MULTILINE)
+    return m.group(1) if m else ""
+
+def _vllm_history_load():
+    import json as _json
+    try:
+        rows = _json.loads(VLLM_HISTORY_FILE.read_text(encoding="utf-8"))
+        return rows if isinstance(rows, list) else []
+    except Exception:
+        return []
+
+def vllm_history_record(version):
+    """Remember a version we had installed (newest first, deduped, keep 5)."""
+    import json as _json
+    version = str(version or "").strip()
+    if not version:
+        return
+    rows = [r for r in _vllm_history_load() if r.get("version") != version]
+    rows.insert(0, {"version": version, "seenAt": int(time.time())})
+    try:
+        VLLM_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        VLLM_HISTORY_FILE.write_text(_json.dumps(rows[:5], indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+def vllm_info():
+    from caravan.admin.runners import VLLM_DEFAULT_VERSION
+    current = vllm_installed_version()
+    if current:
+        vllm_history_record(current)
+    return {"ok": True, "installed": bool(current), "version": current,
+            "venv": str(VLLM_VENV_DIR), "pinnedDefault": VLLM_DEFAULT_VERSION,
+            "history": _vllm_history_load()}
+
+def start_vllm_update(version=""):
+    """Install/upgrade/rollback vLLM as the shared background job. Empty
+    version → latest release; an explicit version pins (rollback = an older
+    pin). The venv must exist (first provision happens at cell start)."""
+    pip = _vllm_pip()
+    if not pip.exists():
+        raise AppError("vLLM venv not provisioned on this host yet — "
+                       "start a vLLM cell once to create it", 400)
+    current = vllm_installed_version()
+    if current:
+        vllm_history_record(current)   # the rollback candidate
+    version = str(version or "").strip()
+    cmd = [str(pip), "install"] + ([f"vllm=={version}"] if version else ["--upgrade", "vllm"])
+    return _start_shared_job(cmd, tag=f"vllm:{version or 'latest'}")
+
 # ── crash watchdog: a fresh build + crashing cells ⇒ offer a rollback ────────
 # Detection scans the last 15 min of lama-cell@* journal for crash markers
 # while the on-disk binary is younger than LLAMA_SUSPECT_BUILD_AGE_H (6h);
@@ -394,9 +460,14 @@ def start_llama_update(tag="", restore_id=""):
         cmd = ["bash", str(script), "--force", "--no-restart"]
         if tag:
             cmd += ["--llama-tag", tag]
+    return _start_shared_job(cmd, tag)
+
+def _start_shared_job(cmd, tag):
+    """One background build/install job at a time (llama.cpp update, archive
+    restore, vLLM pip install) — same ring buffer, same status endpoint."""
     with _llama_update_lock:
         if _llama_update_job["running"]:
-            raise AppError("a llama.cpp update is already running", 409)
+            raise AppError("a build/install job is already running", 409)
         _llama_update_job.update({"running": True, "startedAt": int(time.time()),
                                   "tag": tag, "lines": [], "done": False,
                                   "rc": None, "error": ""})

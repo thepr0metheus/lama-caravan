@@ -78,7 +78,7 @@ from caravan.admin.cell_schedule import set_cell_schedule
 from caravan.admin.metrics import build_metrics_text
 from caravan.admin.model_gc import delete_models, list_unused_models
 from caravan.admin import auth as auth_mod
-from caravan.admin.status import controller_info, do_action, llama_builds_list, llama_cpp_info, llama_suspect_dismiss, llama_update_status, models_disk, start_llama_restore, start_llama_update, state
+from caravan.admin.status import controller_info, do_action, llama_builds_list, llama_cpp_info, llama_suspect_dismiss, llama_update_status, models_disk, start_llama_restore, start_llama_update, start_vllm_update, state, vllm_info
 from caravan.admin.cell_ops import (
     client_server_slot_add,
     client_server_slot_delete,
@@ -758,6 +758,11 @@ def _get_api_llamacpp_builds(h, parsed):
         h.send_json(llama_builds_list())
         return
 
+@_route(GET_ROUTES, '/api/vllm')
+def _get_api_vllm(h, parsed):
+        h.send_json(vllm_info())
+        return
+
 @_route(GET_ROUTES, '/api/backup')
 def _get_api_backup(h, parsed):
         query = dict(item.split("=", 1) for item in parsed.query.split("&") if "=" in item)
@@ -963,6 +968,12 @@ def _post_api_llamacpp_restore(h, parsed, body):
 @_route(POST_ROUTES, '/api/llamacpp/suspect-dismiss')
 def _post_api_llamacpp_suspect_dismiss(h, parsed, body):
         h.send_json(llama_suspect_dismiss())
+        return
+
+@_route(POST_ROUTES, '/api/vllm/update')
+def _post_api_vllm_update(h, parsed, body):
+        job = start_vllm_update(str((body or {}).get("version") or ""))
+        h.send_json({"ok": True, "job": job})
         return
 
 @_route(POST_ROUTES, '/api/system-monitor/settings')

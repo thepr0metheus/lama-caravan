@@ -478,6 +478,7 @@ export function renderLlamaCpp() {
   `;
   $("llamaUpdateLog").textContent = info.version || "";
   loadLlamaBuilds();
+  loadVllmPanel();
 }
 
 // ── archived llama.cpp builds (one per successful build, kept ≤5) ────────────
@@ -506,6 +507,64 @@ export async function loadLlamaBuilds() {
     const meta = builds.find((b) => b.id === id) || null;
     btn.addEventListener("click", () => openRestoreBuildModal(id, meta));
   });
+}
+
+// ── vLLM runner: pip-versioned, so PyPI is the archive — we list the small
+//    version history and install any pin via the same shared job/log. ────────
+export async function loadVllmPanel() {
+  const el = $("vllmSummary");
+  if (!el) return;
+  let info;
+  try {
+    info = await api("/api/vllm");
+  } catch (err) {
+    el.textContent = err.message;
+    return;
+  }
+  const cur = info.version || "";
+  const rows = (info.history || []).filter((r) => r.version !== cur);
+  const curRow = info.installed
+    ? `<div class="llama-build-row"><span class="llama-build-ver">vllm ${escapeHtml(cur)}</span>
+         <span class="llama-build-meta">${escapeHtml(info.venv || "")}</span>
+         <button type="button" class="llama-build-restore" data-vllm-update="">${escapeHtml(t("vllmUpdateLatest"))}</button></div>`
+    : `<p class="llama-builds-empty">${escapeHtml(t("vllmNotInstalled").replace("{v}", info.pinnedDefault || ""))}</p>`;
+  el.innerHTML = curRow + rows.map((r) => `
+    <div class="llama-build-row">
+      <span class="llama-build-ver">vllm ${escapeHtml(r.version)}</span>
+      <span class="llama-build-meta">${escapeHtml(r.seenAt ? new Date(r.seenAt * 1000).toLocaleString() : "")}</span>
+      <button type="button" class="llama-build-restore" data-vllm-update="${escapeHtml(r.version)}">${escapeHtml(t("restoreBuild"))}</button>
+    </div>`).join("");
+  el.querySelectorAll("[data-vllm-update]").forEach((btn) => {
+    btn.addEventListener("click", () => openVllmUpdateModal(btn.getAttribute("data-vllm-update") || "", cur));
+  });
+}
+
+function openVllmUpdateModal(version, currentVersion) {
+  $("confirmTitle").textContent = t("vllmUpdateTitle");
+  $("confirmText").textContent = t("vllmUpdateText");
+  $("confirmMeta").hidden = false;
+  $("confirmMeta").innerHTML = [
+    [t("restoreFrom"), `vllm ${currentVersion || "?"}`],
+    [t("restoreTo"), version ? `vllm ${version}` : t("vllmUpdateLatest")],
+  ].map(([label, value]) => `
+    <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>
+  `).join("");
+  $("confirmPath").textContent = version ? `pip install vllm==${version}` : "pip install --upgrade vllm";
+  $("confirmDelete").textContent = version ? t("restoreBuild") : t("vllmUpdateLatest");
+  $("confirmDelete").classList.add("danger");
+  ui.pendingConfirm = async () => {
+    closeConfirmModal();
+    const log = $("llamaUpdateLog");
+    if (log) log.textContent = version ? `pip install vllm==${version}...` : "pip install --upgrade vllm...";
+    try {
+      await api("/api/vllm/update", { method: "POST", body: JSON.stringify({ version }) });
+      pollLlamaUpdate();
+    } catch (err) {
+      if (log) log.textContent = err.message;
+      toast(err.message);
+    }
+  };
+  $("confirmOverlay").hidden = false;
 }
 
 // Shared by the System builds list AND the board's crash-watchdog banner: one
@@ -693,6 +752,7 @@ async function pollLlamaUpdate() {
     toast(t("updateComplete"));
     try { await checkLlamaCpp(); } catch { /* chips refresh is best-effort */ }
     loadLlamaBuilds();   // a finished build/restore changes the archive list
+    loadVllmPanel();     // …and a pip job changes the vLLM version/history
   } else if (job.done) {
     toast(job.error || `update failed (rc=${job.rc})`);
   }

@@ -165,13 +165,16 @@ whenever a component is upgraded (last verified: **2026-07-10**):
 | systemd | 255 (Ubuntu 24.04) |
 | Docker (container mode) | 29.1 |
 | faster-whisper | 1.2.1 (CTranslate2 4.8.0) — whisper command cells |
+| vLLM | 0.24.0, pinned provisioning — controller cell `:8012` |
 | caravan-scout | v1.0.1 |
 
 > The build number `llama-server --version` prints counts commits in the *local
 > clone* — a shallow clone undercounts vs upstream `bNNNN` tags, so the commit
 > hash is what identifies the build (the topology UI compares commits for the
-> same reason). The vLLM runner is not version-pinned: it installs the current
-> `vllm` into its own venv on first start.
+> same reason). The vLLM runner provisions PINNED (`VLLM_DEFAULT_VERSION`,
+> currently 0.24.0; `VLLM_VERSION` env overrides) and is updated/rolled back
+> from System → llama.cpp — pip installs are versioned by PyPI itself, so no
+> local snapshots are needed.
 >
 > Field note (2026-07-10): during the `b9947` rollout, `llama_decode` crashed
 > with `CUDA error: invalid argument` on the MoE + MTP model — root cause was

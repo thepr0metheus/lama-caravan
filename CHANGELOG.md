@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.19 — 2026-07-10
+
+- vLLM gets the same lifecycle story as llama.cpp, sized to its pip
+  nature: first-time provisioning now installs a PINNED version
+  (`VLLM_DEFAULT_VERSION`, override with the VLLM_VERSION env) instead
+  of "whatever PyPI had that day"; System → llama.cpp shows the
+  installed vLLM version with an update-to-latest button and a small
+  version history — installing any pin is the rollback, running as the
+  same shared background job with the streamed log. PyPI keeps every
+  release, so no local snapshots are needed. Running vLLM cells keep
+  their loaded version until restarted.
+
 ## 1.3.18 — 2026-07-10
 
 - The crash-watchdog verdict is sticky: an incident is persisted
