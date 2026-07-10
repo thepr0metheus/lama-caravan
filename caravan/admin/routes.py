@@ -78,7 +78,7 @@ from caravan.admin.cell_schedule import set_cell_schedule
 from caravan.admin.metrics import build_metrics_text
 from caravan.admin.model_gc import delete_models, list_unused_models
 from caravan.admin import auth as auth_mod
-from caravan.admin.status import controller_info, do_action, llama_cpp_info, llama_update_status, models_disk, start_llama_update, state
+from caravan.admin.status import controller_info, do_action, llama_builds_list, llama_cpp_info, llama_update_status, models_disk, start_llama_restore, start_llama_update, state
 from caravan.admin.cell_ops import (
     client_server_slot_add,
     client_server_slot_delete,
@@ -118,6 +118,8 @@ from caravan.admin.fleet_clients import (
     client_llama_configs_save,
     client_llama_list_cache,
     client_llama_purge_cache,
+    client_llama_builds,
+    client_llama_restore,
     client_llama_start,
     client_llama_stop,
     client_llama_update,
@@ -523,6 +525,13 @@ def _get_api_fleet_llama_update_status(h, parsed):
         h.send_json(client_llama_update_status((_q.get("hostId") or [""])[0].strip()))
         return
 
+@_route(GET_ROUTES, '/api/fleet/llama-builds')
+def _get_api_fleet_llama_builds(h, parsed):
+        import urllib.parse as _up
+        _q = _up.parse_qs(parsed.query or "")
+        h.send_json(client_llama_builds((_q.get("hostId") or [""])[0].strip()))
+        return
+
 @_route(GET_ROUTES, '/api/topology/client-llama/configs')
 def _get_api_topology_client_llama_configs(h, parsed):
         import urllib.parse as _up2
@@ -744,6 +753,11 @@ def _get_api_llamacpp_update_status(h, parsed):
         h.send_json(llama_update_status())
         return
 
+@_route(GET_ROUTES, '/api/llamacpp/builds')
+def _get_api_llamacpp_builds(h, parsed):
+        h.send_json(llama_builds_list())
+        return
+
 @_route(GET_ROUTES, '/api/backup')
 def _get_api_backup(h, parsed):
         query = dict(item.split("=", 1) for item in parsed.query.split("&") if "=" in item)
@@ -940,6 +954,12 @@ def _post_api_llamacpp_update(h, parsed, body):
         h.send_json({"ok": True, "job": job})
         return
 
+@_route(POST_ROUTES, '/api/llamacpp/restore')
+def _post_api_llamacpp_restore(h, parsed, body):
+        job = start_llama_restore(str((body or {}).get("id") or ""))
+        h.send_json({"ok": True, "job": job})
+        return
+
 @_route(POST_ROUTES, '/api/system-monitor/settings')
 def _post_api_system_monitor_settings(h, parsed, body):
         set_monitor_retention(body.get("retentionSeconds"))
@@ -1122,6 +1142,11 @@ def _post_api_topology_client_llama_start(h, parsed, body):
 @_route(POST_ROUTES, '/api/fleet/llama-update')
 def _post_api_fleet_llama_update(h, parsed, body):
         h.send_json(client_llama_update(body))
+        return
+
+@_route(POST_ROUTES, '/api/fleet/llama-restore')
+def _post_api_fleet_llama_restore(h, parsed, body):
+        h.send_json(client_llama_restore(body))
         return
 
 @_route(POST_ROUTES, '/api/topology/client-llama/stop')

@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.15 — 2026-07-10
+
+- Build archive + one-click rollback: every successful llama.cpp build
+  is snapshotted (binary + libs + metadata; the last 5 are kept,
+  `LLAMA_BUILDS_KEEP` to change) into
+  `~/.local/share/lama-caravan/llama-builds/`. System → llama.cpp gains
+  an "Archived builds" list with a Restore button — restoring copies
+  the snapshot back and checks the clone out at its commit, streaming
+  into the same job log. The script grows `--list-builds`,
+  `--restore <id|commit>` and `--archive-current` for the CLI path, and
+  clients get the same ability via caravan-scout
+  (`GET /api/llama-node/builds`, `POST /api/llama-node/restore`,
+  proxied as `/api/fleet/llama-builds` / `/api/fleet/llama-restore`).
+  Running model servers keep their current binary until restarted.
+
 ## 1.3.14 — 2026-07-10
 
 - Fleet llama.cpp updates land on client hosts too: a ⇪ button on each

@@ -477,6 +477,54 @@ export function renderLlamaCpp() {
     <div class="llama-chip ${info.supportsChatTemplateFile ? "good" : "warn"}"><span>${t("supportsChatTemplateFile")}</span><strong>${info.supportsChatTemplateFile ? "yes" : "no"}</strong></div>
   `;
   $("llamaUpdateLog").textContent = info.version || "";
+  loadLlamaBuilds();
+}
+
+// ── archived llama.cpp builds (one per successful build, kept ≤5) ────────────
+export async function loadLlamaBuilds() {
+  const el = $("llamaBuildsList");
+  if (!el) return;
+  let builds = [];
+  try {
+    builds = (await api("/api/llamacpp/builds")).builds || [];
+  } catch (err) {
+    el.textContent = err.message;
+    return;
+  }
+  if (!builds.length) {
+    el.innerHTML = `<p class="llama-builds-empty">${escapeHtml(t("noArchivedBuilds"))}</p>`;
+    return;
+  }
+  el.innerHTML = builds.map((b) => `
+    <div class="llama-build-row">
+      <span class="llama-build-ver">${escapeHtml(String(b.version || b.commit || b.id).replace("version: ", "b"))}</span>
+      <span class="llama-build-meta">${escapeHtml(b.builtAt ? new Date(b.builtAt * 1000).toLocaleString() : "")} · ${escapeHtml(String(b.sizeMb || "?"))} MB</span>
+      <button type="button" class="llama-build-restore" data-restore-build="${escapeHtml(b.id)}">${escapeHtml(t("restoreBuild"))}</button>
+    </div>`).join("");
+  el.querySelectorAll("[data-restore-build]").forEach((btn) => {
+    btn.addEventListener("click", () => openRestoreBuildModal(btn.getAttribute("data-restore-build") || ""));
+  });
+}
+
+function openRestoreBuildModal(buildId) {
+  $("confirmTitle").textContent = t("restoreBuildTitle");
+  $("confirmText").textContent = t("restoreBuildText");
+  $("confirmMeta").hidden = true;
+  $("confirmPath").textContent = buildId;
+  $("confirmDelete").textContent = t("restoreBuild");
+  $("confirmDelete").classList.add("danger");
+  ui.pendingConfirm = async () => {
+    closeConfirmModal();
+    $("llamaUpdateLog").textContent = `Restoring ${buildId}...`;
+    try {
+      await api("/api/llamacpp/restore", { method: "POST", body: JSON.stringify({ id: buildId }) });
+      pollLlamaUpdate();
+    } catch (err) {
+      $("llamaUpdateLog").textContent = err.message;
+      toast(err.message);
+    }
+  };
+  $("confirmOverlay").hidden = false;
 }
 
 export function renderProjectGitBranch() {
@@ -629,6 +677,7 @@ async function pollLlamaUpdate() {
   if (job.done && job.rc === 0) {
     toast(t("updateComplete"));
     try { await checkLlamaCpp(); } catch { /* chips refresh is best-effort */ }
+    loadLlamaBuilds();   // a finished build/restore changes the archive list
   } else if (job.done) {
     toast(job.error || `update failed (rc=${job.rc})`);
   }

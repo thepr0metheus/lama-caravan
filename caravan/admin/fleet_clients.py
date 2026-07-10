@@ -90,6 +90,23 @@ def client_llama_update_status(host_id: str) -> dict:
     except Exception as exc:
         raise AppError(f"client unreachable: {exc}", 502)
 
+def client_llama_builds(host_id: str) -> dict:
+    agent_url = _client_agent_url(host_id)
+    try:
+        return fetch_json(f"{agent_url}/api/llama-node/builds",
+                          timeout=10, headers=_scout_headers())
+    except Exception as exc:
+        raise AppError(f"client unreachable: {exc}", 502)
+
+def client_llama_restore(body: dict) -> dict:
+    agent_url = _client_agent_url(str((body or {}).get("hostId") or ""))
+    payload = {"id": str((body or {}).get("id") or "").strip()}
+    try:
+        return post_json(f"{agent_url}/api/llama-node/restore", payload,
+                         timeout=15, headers=_scout_headers())
+    except Exception as exc:
+        raise AppError(f"client unreachable: {exc}", 502)
+
 def client_llama_start(body: dict) -> dict:
     """Forward a llama-node start request to the named client route-agent."""
     host_id = str(body.get("hostId") or "").strip()

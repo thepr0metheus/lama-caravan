@@ -6,6 +6,7 @@ import subprocess
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 
 from caravan.admin.backups import backups
 from caravan.admin.runners import RUNNERS
@@ -265,10 +266,39 @@ def llama_update_status():
         snap["lines"] = list(_llama_update_job["lines"])[-200:]
         return snap
 
-def start_llama_update(tag=""):
-    """Kick off the background update. Empty tag → the script resolves the
-    latest upstream release tag itself (its default path). 409 while a job
-    is still running; finished jobs are replaced by the next start."""
+LLAMA_BUILDS_DIR = Path(os.environ.get("LLAMA_BUILDS_DIR")
+                        or Path.home() / ".local" / "share" / "lama-caravan" / "llama-builds")
+
+def llama_builds_list():
+    """Archived build snapshots (newest first) — install-llama.sh writes one
+    per successful build and prunes to LLAMA_BUILDS_KEEP (default 5)."""
+    import json as _json
+    rows = []
+    if LLAMA_BUILDS_DIR.is_dir():
+        for entry in sorted(LLAMA_BUILDS_DIR.iterdir(), reverse=True):
+            meta = entry / "meta.json"
+            if not meta.is_file():
+                continue
+            try:
+                row = _json.loads(meta.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+            row["id"] = entry.name
+            rows.append(row)
+    return {"ok": True, "builds": rows, "keep": int(os.environ.get("LLAMA_BUILDS_KEEP") or 5)}
+
+def start_llama_restore(build_id):
+    """Restore an archived build (copy back + checkout its commit) as the same
+    background job the update uses — one shared runner, one status endpoint."""
+    build_id = str(build_id or "").strip()
+    if not build_id:
+        raise AppError("build id is required", 400)
+    return start_llama_update(restore_id=build_id)
+
+def start_llama_update(tag="", restore_id=""):
+    """Kick off the background update (or an archive restore when restore_id
+    is set). Empty tag → the script resolves the latest upstream release tag
+    itself. 409 while a job is still running; finished jobs are replaced."""
     if IS_CONTAINER:
         raise AppError("the container image has no llama.cpp build environment — "
                        "update llama.cpp on caravan-scout hosts instead", 400)
@@ -276,9 +306,14 @@ def start_llama_update(tag=""):
     if not script.exists():
         raise AppError(f"install script not found: {script}", 500)
     tag = str(tag or "").strip()
-    cmd = ["bash", str(script), "--force", "--no-restart"]
-    if tag:
-        cmd += ["--llama-tag", tag]
+    restore_id = str(restore_id or "").strip()
+    if restore_id:
+        cmd = ["bash", str(script), "--restore", restore_id]
+        tag = f"restore:{restore_id}"
+    else:
+        cmd = ["bash", str(script), "--force", "--no-restart"]
+        if tag:
+            cmd += ["--llama-tag", tag]
     with _llama_update_lock:
         if _llama_update_job["running"]:
             raise AppError("a llama.cpp update is already running", 409)

@@ -21,12 +21,18 @@ LLAMA_TAG=""
 FORCE=0
 RESTART=1
 
+ACTION=""
+RESTORE_ID=""
+
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --llama-tag)   LLAMA_TAG="$2"; shift ;;
     --llama-dir)   LLAMA_DIR="$2"; shift ;;
     --force)       FORCE=1 ;;
     --no-restart)  RESTART=0 ;;
+    --list-builds) ACTION="list-builds" ;;
+    --restore)     ACTION="restore"; RESTORE_ID="${2:-}"; shift ;;
+    --archive-current) ACTION="archive" ;;
     -h|--help)
       sed -n '/^#/p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) err "unknown arg: $1"; exit 1 ;;
@@ -35,6 +41,92 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ── platform checks ───────────────────────────────────────────────────────────
+# ── build archive: every successful build is snapshotted, so a bad release is
+#    a one-click restore instead of an ssh session. Keep = LLAMA_BUILDS_KEEP
+#    (default 5). Restore copies the archived bin/ back and checks the clone
+#    out at that commit, keeping chips/fleet-convergence coherent. ─────────────
+BUILDS_DIR="${LLAMA_BUILDS_DIR:-$HOME/.local/share/lama-caravan/llama-builds}"
+BUILDS_KEEP="${LLAMA_BUILDS_KEEP:-5}"
+
+archive_current_build() {
+  local bin="${LLAMA_DIR}/build/bin/llama-server"
+  [[ -f "$bin" ]] || { warn "nothing to archive: ${bin} missing"; return 0; }
+  local commit ver id dest old size
+  commit=$(git -C "$LLAMA_DIR" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+  ver=$("$bin" --version 2>&1 | head -1 || true)
+  id="$(date -u +%Y%m%d-%H%M%S)-${commit}"
+  dest="${BUILDS_DIR}/${id}"
+  for old in "${BUILDS_DIR}"/*-"${commit}"; do   # one archive per commit
+    [[ -d "$old" ]] && rm -rf "$old"
+  done
+  mkdir -p "$dest"
+  cp -a "${LLAMA_DIR}/build/bin" "${dest}/bin"
+  [[ -d "${LLAMA_DIR}/build/lib" ]] && cp -a "${LLAMA_DIR}/build/lib" "${dest}/lib"
+  size=$(du -sm "$dest" 2>/dev/null | cut -f1 || echo 0)
+  python3 - "$dest/meta.json" "$commit" "$ver" "${size:-0}" <<'PY'
+import json, sys, time
+open(sys.argv[1], "w").write(json.dumps({
+    "commit": sys.argv[2], "version": sys.argv[3],
+    "sizeMb": int(sys.argv[4] or 0), "builtAt": int(time.time())}))
+PY
+  info "archived build ${id} (${size:-?} MB)"
+  local all count
+  all=$(ls -1d "${BUILDS_DIR}"/*/ 2>/dev/null | sort || true)
+  count=$(printf '%s\n' "$all" | grep -c . || true)
+  if (( count > BUILDS_KEEP )); then
+    printf '%s\n' "$all" | head -n $((count - BUILDS_KEEP)) | while read -r old; do
+      rm -rf "$old" && info "pruned old archive $(basename "$old")"
+    done
+  fi
+}
+
+list_builds() {
+  python3 - "$BUILDS_DIR" <<'PY'
+import json, os, sys
+root, rows = sys.argv[1], []
+if os.path.isdir(root):
+    for name in sorted(os.listdir(root), reverse=True):
+        meta = os.path.join(root, name, "meta.json")
+        if os.path.isfile(meta):
+            try:
+                row = json.load(open(meta)); row["id"] = name; rows.append(row)
+            except Exception:
+                pass
+print(json.dumps(rows))
+PY
+}
+
+restore_build() {
+  local id="$1" dir commit
+  [[ -n "$id" ]] || { err "--restore needs a build id (or commit)"; exit 1; }
+  dir=$(ls -1d "${BUILDS_DIR}"/*"${id}"*/ 2>/dev/null | sort | tail -1 || true)
+  [[ -n "$dir" && -d "$dir" ]] || { err "no archived build matches '${id}'"; list_builds; exit 1; }
+  commit=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('commit',''))" "${dir}meta.json" 2>/dev/null || true)
+  info "restoring $(basename "$dir") into ${LLAMA_DIR}/build ..."
+  mkdir -p "${LLAMA_DIR}/build"
+  rm -rf "${LLAMA_DIR}/build/bin"
+  cp -a "${dir}bin" "${LLAMA_DIR}/build/bin"
+  if [[ -d "${dir}lib" ]]; then
+    rm -rf "${LLAMA_DIR}/build/lib"
+    cp -a "${dir}lib" "${LLAMA_DIR}/build/lib"
+  fi
+  # Keep the clone coherent with the restored binary so the version chips and
+  # the fleet-convergence tag agree with what actually runs.
+  if [[ -n "$commit" ]] && git -C "$LLAMA_DIR" checkout -f "$commit" -q 2>/dev/null; then
+    info "clone checked out at ${commit}"
+  else
+    warn "could not checkout ${commit} — binary restored anyway"
+  fi
+  info "restore done: $("${LLAMA_DIR}/build/bin/llama-server" --version 2>&1 | head -1)"
+  info "running model servers keep their current binary until restarted."
+}
+
+case "$ACTION" in
+  list-builds) list_builds; exit 0 ;;
+  restore)     restore_build "$RESTORE_ID"; exit 0 ;;
+  archive)     archive_current_build; exit 0 ;;
+esac
+
 if [[ "$(uname -s)" == "Darwin" ]]; then
   warn "macOS: install llama.cpp via Homebrew: brew install llama.cpp"
   warn "Then ensure ~/llama.cpp/build/bin/llama-server exists or set LLAMA_HOME."
@@ -297,6 +389,7 @@ else
   fi
 
   info "Build complete: ${LLAMA_BIN}"
+  archive_current_build
 fi
 
 if [[ ! -f "$LLAMA_BIN" ]]; then
