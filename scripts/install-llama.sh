@@ -230,6 +230,20 @@ if echo "${CUDA_ARCHES}" | grep -q '120'; then
 fi
 
 # ── build ─────────────────────────────────────────────────────────────────────
+# Stale build-dir guard: a dir CONFIGURED under one CUDA toolkit and then
+# incrementally rebuilt under another mixes objects compiled against different
+# cudaDeviceProp layouts — the smpbo corruption (June) and the llama_decode
+# "invalid argument" crashes (July) were exactly this franken-build. If the
+# cached compiler version doesn't match the live nvcc, wipe and reconfigure.
+CACHED_CUDA_VER=$(grep -rhoE 'CMAKE_CUDA_COMPILER_VERSION "[0-9.]+"' \
+  "${LLAMA_DIR}/build/CMakeFiles" 2>/dev/null | grep -oE '[0-9.]+' | head -1 || true)
+LIVE_CUDA_VER=$(nvcc --version 2>/dev/null | grep -oE 'release [0-9.]+' | grep -oE '[0-9.]+' || true)
+if [[ -d "${LLAMA_DIR}/build" && -n "$CACHED_CUDA_VER" && -n "$LIVE_CUDA_VER" ]] \
+   && [[ "$CACHED_CUDA_VER" != "$LIVE_CUDA_VER"* && "$LIVE_CUDA_VER" != "$CACHED_CUDA_VER"* ]]; then
+  warn "build/ was configured with CUDA ${CACHED_CUDA_VER} but live nvcc is ${LIVE_CUDA_VER} — wiping build/ (mixed-toolkit objects corrupt cudaDeviceProp reads)."
+  rm -rf "${LLAMA_DIR}/build"
+fi
+
 LLAMA_BIN="${LLAMA_DIR}/build/bin/llama-server"
 if [[ -f "$LLAMA_BIN" && "$FORCE" == "0" ]]; then
   info "llama-server already built at ${LLAMA_BIN} (use --force to rebuild)"

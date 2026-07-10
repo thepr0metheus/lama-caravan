@@ -25,6 +25,12 @@
   flakes to "No NVIDIA GPU" on a 5090 box: `lspci | grep -q` under
   `set -o pipefail` dies of grep's early-exit SIGPIPE; detection now
   goes through `nvidia-smi -L` with a -q-less lspci fallback.
+- install-llama.sh wipes a stale `build/` automatically when its cached
+  CUDA compiler version doesn't match the live `nvcc`: a dir configured
+  under one toolkit and incrementally rebuilt under another mixes
+  objects with different `cudaDeviceProp` layouts — the cause of the
+  June smpbo corruption AND of `llama_decode: invalid argument` crashes
+  seen during today's rollout (initially misattributed to b9947).
 
 ## 1.3.12 — 2026-07-10
 

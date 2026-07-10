@@ -173,11 +173,15 @@ whenever a component is upgraded (last verified: **2026-07-10**):
 > same reason). The vLLM runner is not version-pinned: it installs the current
 > `vllm` into its own venv on first start.
 >
-> Field note (2026-07-10): release `b9947` was tried fleet-wide and rolled
-> back — it crashes in `llama_decode` on the MoE + MTP-draft model
-> (Qwen3.6-35B) on the first request; embeddings served fine. The update
-> accepts a pinned `bNNNN` tag for exactly this reason: verify a new release
-> on one cell before restarting the rest onto it.
+> Field note (2026-07-10): during the `b9947` rollout, `llama_decode` crashed
+> with `CUDA error: invalid argument` on the MoE + MTP model — root cause was
+> NOT the release but a **stale build dir**: it had been *configured* under
+> CUDA 12.6 and incrementally rebuilt with nvcc 13.2, mixing objects with
+> different `cudaDeviceProp` layouts (the same franken-build that caused the
+> June smpbo incident). `install-llama.sh` now wipes `build/` automatically
+> when the cached compiler version doesn't match the live `nvcc`. Two lessons:
+> pin a `bNNNN` tag and verify one cell before restarting the rest, and never
+> trust an incremental CUDA build across toolkit upgrades.
 
 ## Documentation
 
