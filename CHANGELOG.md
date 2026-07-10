@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.20 — 2026-07-10
+
+- Three new b9947 llama-server switches join the cell config panel (and
+  the EXTRA_ARGS hoister recognizes them): CACHE_RAM (--cache-ram,
+  prompt-cache RAM cap — b9947 defaults to 8 GiB, worth lowering on
+  RAM-tight hosts), REASONING_PRESERVE (--reasoning-preserve — keep the
+  reasoning trace across the whole history; Qwen3.6's template suggests
+  it at startup), CONTEXT_SHIFT (--context-shift — slide the window on
+  endless generation). Field help in all 20 languages. The webui
+  MCP/agent/tools toggles (--agent, --ui-mcp-proxy, --tools) were
+  already on the panel.
+
 ## 1.3.19 — 2026-07-10
 
 - vLLM gets the same lifecycle story as llama.cpp, sized to its pip

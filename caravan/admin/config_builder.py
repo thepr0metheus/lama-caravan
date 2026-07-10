@@ -52,6 +52,7 @@ CONFIG_FIELDS = [
     "ROPE_FREQ_SCALE",
     "KV_OFFLOAD",
     "MMAP",
+    "CONTEXT_SHIFT",
     "NUMA",
     "DEVICE",
     "SPLIT_MODE",
@@ -66,6 +67,7 @@ CONFIG_FIELDS = [
     "THREADS_HTTP",
     "CACHE_PROMPT",
     "CACHE_REUSE",
+    "CACHE_RAM",
     "ENABLE_PROPS",
     "ENABLE_SLOTS",
     "IMAGE_MIN_TOKENS",
@@ -73,6 +75,7 @@ CONFIG_FIELDS = [
     "REASONING",
     "REASONING_FORMAT",
     "REASONING_BUDGET",
+    "REASONING_PRESERVE",
     "CHAT_TEMPLATE",
     "CHAT_TEMPLATE_FILE",
     "CHAT_TEMPLATE_KWARGS",
@@ -161,6 +164,7 @@ FIELD_HELP = {
     "ROPE_FREQ_BASE": "RoPE base frequency override. Empty uses model/default.",
     "ROPE_FREQ_SCALE": "RoPE frequency scale override. Empty uses model/default.",
     "KV_OFFLOAD": "Offload KV cache to GPU when possible.",
+    "CONTEXT_SHIFT": "Slide the context window on endless generation instead of stopping at the ctx limit (--context-shift). Empty = llama.cpp default (off); 1 = on, 0 = explicitly off.",
     "MMAP": "Memory-map model files. Usually faster startup and lower RAM pressure.",
     "NUMA": "NUMA mode: distribute, isolate, or numactl. Empty disables.",
     "DEVICE": "Comma-separated devices for offload. Empty lets llama.cpp choose.",
@@ -176,6 +180,7 @@ FIELD_HELP = {
     "THREADS_HTTP": "HTTP worker threads. -1 means auto.",
     "CACHE_PROMPT": "Enable prompt cache reuse.",
     "CACHE_REUSE": "Minimum chunk size for KV cache reuse.",
+    "CACHE_RAM": "Prompt-cache RAM cap in MiB (--cache-ram). llama.cpp default 8192; -1 = unlimited, 0 = disable. Lower it on RAM-tight hosts.",
     "ENABLE_PROPS": "Enable POST /props for changing global server properties.",
     "ENABLE_SLOTS": "Expose slot monitoring endpoint.",
     "IMAGE_MIN_TOKENS": "Minimum image tokens for dynamic-resolution vision models.",
@@ -183,6 +188,7 @@ FIELD_HELP = {
     "REASONING": "Reasoning mode: on, off, or auto.",
     "REASONING_FORMAT": "Reasoning output format: none, deepseek, deepseek-legacy, or auto.",
     "REASONING_BUDGET": "Thinking token budget. -1 unrestricted, 0 disables thinking budget.",
+    "REASONING_PRESERVE": "Keep the reasoning trace across the whole chat history, not only the last turn (--reasoning-preserve). Empty = template default; needs a template with supports_preserve_reasoning (Qwen3.6 suggests enabling).",
     "CHAT_TEMPLATE": "Built-in chat template name override. Empty uses model metadata.",
     "CHAT_TEMPLATE_FILE": "Path to a custom Jinja chat template file. Overrides model metadata/template behavior when set.",
     "CHAT_TEMPLATE_KWARGS": "JSON object passed into the Jinja chat template parser, for model-specific tool/template knobs.",
@@ -263,7 +269,7 @@ def build_config_block(config):
     for key in [
         "CTX_SIZE", "THREADS", "THREADS_BATCH", "BATCH_SIZE", "UBATCH_SIZE", "PARALLEL",
         "N_PREDICT", "KEEP", "POLL", "MAIN_GPU", "FIT_CTX", "TIMEOUT",
-        "THREADS_HTTP", "CACHE_REUSE", "IMAGE_MIN_TOKENS", "IMAGE_MAX_TOKENS", "REASONING_BUDGET",
+        "THREADS_HTTP", "CACHE_REUSE", "CACHE_RAM", "IMAGE_MIN_TOKENS", "IMAGE_MAX_TOKENS", "REASONING_BUDGET",
         "SPEC_DRAFT_N_GPU_LAYERS", "SPEC_DRAFT_N_MAX", "SPEC_DRAFT_N_MIN",
     ]:
         if merged[key] and not re.fullmatch(r"-?\d+", merged[key]):
@@ -278,9 +284,9 @@ def build_config_block(config):
         ["SPEC_TYPE", "SPEC_DRAFT_MODEL_FILE", "SPEC_DRAFT_N_GPU_LAYERS", "SPEC_DRAFT_N_MAX", "SPEC_DRAFT_N_MIN", "SPEC_DRAFT_CACHE_TYPE_K", "SPEC_DRAFT_CACHE_TYPE_V"],
         ["CTX_SIZE", "THREADS", "THREADS_BATCH", "BATCH_SIZE", "UBATCH_SIZE", "PARALLEL", "N_GPU_LAYERS", "CACHE_TYPE_K", "CACHE_TYPE_V"],
         ["N_PREDICT", "KEEP", "CPU_RANGE", "CPU_STRICT", "POLL", "ROPE_SCALING", "ROPE_SCALE", "ROPE_FREQ_BASE", "ROPE_FREQ_SCALE"],
-        ["KV_OFFLOAD", "MMAP", "NUMA", "DEVICE", "SPLIT_MODE", "TENSOR_SPLIT", "MAIN_GPU", "FIT", "FIT_TARGET", "FIT_CTX"],
-        ["ALIAS", "API_PREFIX", "TIMEOUT", "THREADS_HTTP", "CACHE_PROMPT", "CACHE_REUSE", "ENABLE_PROPS", "ENABLE_SLOTS"],
-        ["IMAGE_MIN_TOKENS", "IMAGE_MAX_TOKENS", "REASONING", "REASONING_FORMAT", "REASONING_BUDGET", "CHAT_TEMPLATE", "CHAT_TEMPLATE_FILE", "CHAT_TEMPLATE_KWARGS", "SKIP_CHAT_PARSING"],
+        ["KV_OFFLOAD", "MMAP", "CONTEXT_SHIFT", "NUMA", "DEVICE", "SPLIT_MODE", "TENSOR_SPLIT", "MAIN_GPU", "FIT", "FIT_TARGET", "FIT_CTX"],
+        ["ALIAS", "API_PREFIX", "TIMEOUT", "THREADS_HTTP", "CACHE_PROMPT", "CACHE_REUSE", "CACHE_RAM", "ENABLE_PROPS", "ENABLE_SLOTS"],
+        ["IMAGE_MIN_TOKENS", "IMAGE_MAX_TOKENS", "REASONING", "REASONING_FORMAT", "REASONING_BUDGET", "REASONING_PRESERVE", "CHAT_TEMPLATE", "CHAT_TEMPLATE_FILE", "CHAT_TEMPLATE_KWARGS", "SKIP_CHAT_PARSING"],
         ["ENABLE_JINJA", "ENABLE_THINKING", "ENABLE_FLASH_ATTN", "ENABLE_MLOCK", "ENABLE_METRICS", "ENABLE_CONT_BATCHING", "ENABLE_WEBUI", "OFFLOAD_MMPROJ"],
         ["ENABLE_EMBEDDINGS", "POOLING", "EMBD_NORMALIZE"],
         ["ENABLE_TOOLS", "ENABLE_AGENT", "ENABLE_MCP_PROXY", "EXTRA_ARGS"],
@@ -353,6 +359,7 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
         ("--fit-ctx", "FIT_CTX"), ("--alias", "ALIAS"),
         ("--api-prefix", "API_PREFIX"), ("--timeout", "TIMEOUT"),
         ("--threads-http", "THREADS_HTTP"), ("--cache-reuse", "CACHE_REUSE"),
+        ("--cache-ram", "CACHE_RAM"),
         ("--image-min-tokens", "IMAGE_MIN_TOKENS"),
         ("--image-max-tokens", "IMAGE_MAX_TOKENS"),
         ("--reasoning", "REASONING"), ("--reasoning-format", "REASONING_FORMAT"),
@@ -403,6 +410,8 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
     add_bool("CACHE_PROMPT", "--cache-prompt", "--no-cache-prompt")
     add_bool("ENABLE_SLOTS", "--slots", "--no-slots")
     add_bool("SKIP_CHAT_PARSING", "--skip-chat-parsing", "--no-skip-chat-parsing")
+    add_bool("REASONING_PRESERVE", "--reasoning-preserve", "--no-reasoning-preserve")
+    add_bool("CONTEXT_SHIFT", "--context-shift", "--no-context-shift")
 
     if has("FIT"):
         args += ["--fit", "on" if truthy(c["FIT"]) else "off"]
@@ -501,7 +510,7 @@ _EXTRA_VALUE_FLAGS = {
     "--main-gpu": "MAIN_GPU", "-mg": "MAIN_GPU",
     "--fit-target": "FIT_TARGET", "--fit-ctx": "FIT_CTX",
     "--alias": "ALIAS", "-a": "ALIAS", "--api-prefix": "API_PREFIX",
-    "--timeout": "TIMEOUT", "--threads-http": "THREADS_HTTP", "--cache-reuse": "CACHE_REUSE",
+    "--timeout": "TIMEOUT", "--threads-http": "THREADS_HTTP", "--cache-reuse": "CACHE_REUSE", "--cache-ram": "CACHE_RAM", "-cram": "CACHE_RAM",
     "--image-min-tokens": "IMAGE_MIN_TOKENS", "--image-max-tokens": "IMAGE_MAX_TOKENS",
     "--reasoning": "REASONING", "--reasoning-format": "REASONING_FORMAT",
     "--reasoning-budget": "REASONING_BUDGET",
@@ -523,6 +532,8 @@ _EXTRA_PAIR_BOOL = {
     "--cache-prompt": ("CACHE_PROMPT", "1"), "--no-cache-prompt": ("CACHE_PROMPT", "0"),
     "--slots": ("ENABLE_SLOTS", "1"), "--no-slots": ("ENABLE_SLOTS", "0"),
     "--skip-chat-parsing": ("SKIP_CHAT_PARSING", "1"), "--no-skip-chat-parsing": ("SKIP_CHAT_PARSING", "0"),
+    "--reasoning-preserve": ("REASONING_PRESERVE", "1"), "--no-reasoning-preserve": ("REASONING_PRESERVE", "0"),
+    "--context-shift": ("CONTEXT_SHIFT", "1"), "--no-context-shift": ("CONTEXT_SHIFT", "0"),
     "--mmproj-offload": ("OFFLOAD_MMPROJ", "1"), "--no-mmproj-offload": ("OFFLOAD_MMPROJ", "0"),
     "--cont-batching": ("ENABLE_CONT_BATCHING", "1"), "-cb": ("ENABLE_CONT_BATCHING", "1"),
     "--no-cont-batching": ("ENABLE_CONT_BATCHING", "0"),
