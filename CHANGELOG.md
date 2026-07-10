@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.22 — 2026-07-10
+
+- Russian field-help tooltips are properly translated: 39 of the 95
+  cell-config (?) tips were Russian grammar with English noun phrases
+  left inline ("размер batch для prompt processing", "built-in chat
+  template", "continuous batching"…). They are now clean Russian,
+  keeping only genuine identifiers latin (flag names, GGUF, JSON,
+  /props, RoPE, VRAM). Audited all 20 languages: the other non-Latin
+  locales were already clean (only the ML terms "flash attention" and
+  "repo id" remain by design). Tooltips render solely from i18n
+  fieldHelp — a pure-English tooltip at a non-English UI means a stale
+  cached bundle; hard-refresh (Cmd/Ctrl+Shift+R) after a deploy.
+
 ## 1.3.21 — 2026-07-10
 
 - The cell config panel gains the b9947 switches as proper fields with
