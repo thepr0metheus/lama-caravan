@@ -120,6 +120,8 @@ from caravan.admin.fleet_clients import (
     client_llama_purge_cache,
     client_llama_start,
     client_llama_stop,
+    client_llama_update,
+    client_llama_update_status,
     client_monitor,
     refresh_topology_clients_from_agents,
     set_topology_client_alias,
@@ -512,6 +514,13 @@ def _get_api_topology_client_monitor(h, parsed):
         _host = (_q.get("hostId") or [""])[0].strip()
         _kind = (_q.get("kind") or ["nvidia-smi"])[0].strip()
         h.send_json(client_monitor(_host, _kind))
+        return
+
+@_route(GET_ROUTES, '/api/fleet/llama-update-status')
+def _get_api_fleet_llama_update_status(h, parsed):
+        import urllib.parse as _up
+        _q = _up.parse_qs(parsed.query or "")
+        h.send_json(client_llama_update_status((_q.get("hostId") or [""])[0].strip()))
         return
 
 @_route(GET_ROUTES, '/api/topology/client-llama/configs')
@@ -1108,6 +1117,11 @@ def _post_api_topology_client_alias(h, parsed, body):
 @_route(POST_ROUTES, '/api/topology/client-llama/start')
 def _post_api_topology_client_llama_start(h, parsed, body):
         h.send_json(client_llama_start(body))
+        return
+
+@_route(POST_ROUTES, '/api/fleet/llama-update')
+def _post_api_fleet_llama_update(h, parsed, body):
+        h.send_json(client_llama_update(body))
         return
 
 @_route(POST_ROUTES, '/api/topology/client-llama/stop')

@@ -536,6 +536,7 @@ def topology_nodes(config, server_obj, clients):
             "servers": servers,
             "llamaBinaryVersion": client.get("llamaBinaryVersion") or "",
             "llamaBinaryMtime": client.get("llamaBinaryMtime") or "",
+            "llamaUpdate": client.get("llamaUpdate") or {},
         })
 
     return nodes

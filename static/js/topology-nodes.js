@@ -822,8 +822,27 @@ export function nodesLaneHtml() {
     const refreshBtn = isCtrlNode
       ? `<button class="llama-ver-refresh" type="button" data-check-llama-ver title="${escapeHtml(t("checkUpstreamVersion"))}" aria-label="${escapeHtml(t("checkUpstreamVersion"))}">↻</button>`
       : "";
+    // Client nodes: one-click llama.cpp update (converges the client onto the
+    // controller's commit via the scout's background job); while the scout
+    // reports a running job the button gives way to a building indicator.
+    const upd = n.llamaUpdate || {};
+    const updateBtn = !isCtrlNode && nodeVerStr
+      ? (upd.running
+        ? `<span class="llama-ver-building" title="${escapeHtml(String(upd.lastLine || ""))}">⏳ ${escapeHtml(t("clientLlamaBuilding"))}</span>`
+        : `<button class="llama-ver-refresh" type="button" data-update-client-llama="${escapeHtml(String(n.id))}" title="${escapeHtml(t("updateClientLlama"))}" aria-label="${escapeHtml(t("updateClientLlama"))}">⇪</button>`)
+      : "";
+    // Stale binary: a server that started BEFORE the binary on disk was last
+    // rebuilt still runs the old build — restart it to apply.
+    const nodeMtimeEpoch = nodeMtime ? Date.parse(nodeMtime) / 1000 : 0;
+    const staleBinary = !isCtrlNode && nodeMtimeEpoch > 0 && (n.servers || []).some((s) => {
+      const upSec = Number(s.uptimeSec || 0);
+      return upSec > 0 && (Date.now() / 1000 - upSec) < nodeMtimeEpoch;
+    });
+    const staleBadge = staleBinary
+      ? `<span class="llama-ver-stale" title="${escapeHtml(t("staleBinaryTitle"))}">⟳ ${escapeHtml(t("staleBinaryBadge"))}</span>`
+      : "";
     const verChip = verLabel
-      ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${upstreamArrow}${verOutdated ? " ⬆" : ""}</span>${refreshBtn}`
+      ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${upstreamArrow}${verOutdated ? " ⬆" : ""}</span>${refreshBtn}${updateBtn}${staleBadge}`
       : refreshBtn || "";
     const servers = (n.servers || []);
     const collapsed = _collapsedNodes.has(n.id);

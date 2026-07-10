@@ -71,6 +71,25 @@ def client_monitor(host_id: str, kind: str) -> dict:
         raise AppError(f"client unreachable: {exc}", 502)
     return result
 
+def client_llama_update(body: dict) -> dict:
+    """Start a llama.cpp update job on a client scout. Empty tag → latest
+    release; the UI passes the controller's commit to converge the fleet."""
+    agent_url = _client_agent_url(str((body or {}).get("hostId") or ""))
+    payload = {"tag": str((body or {}).get("tag") or "").strip()}
+    try:
+        return post_json(f"{agent_url}/api/llama-node/update", payload,
+                         timeout=15, headers=_scout_headers())
+    except Exception as exc:
+        raise AppError(f"client unreachable: {exc}", 502)
+
+def client_llama_update_status(host_id: str) -> dict:
+    agent_url = _client_agent_url(host_id)
+    try:
+        return fetch_json(f"{agent_url}/api/llama-node/update-status",
+                          timeout=10, headers=_scout_headers())
+    except Exception as exc:
+        raise AppError(f"client unreachable: {exc}", 502)
+
 def client_llama_start(body: dict) -> dict:
     """Forward a llama-node start request to the named client route-agent."""
     host_id = str(body.get("hostId") or "").strip()
@@ -546,6 +565,7 @@ def topology_client_from_heartbeat(payload):
         "llamaNodes": llama_nodes,
         "llamaBinaryVersion": str(payload.get("llamaBinaryVersion") or "").strip()[:120],
         "llamaBinaryMtime": str(payload.get("llamaBinaryMtime") or "").strip()[:30],
+        "llamaUpdate": payload.get("llamaUpdate") if isinstance(payload.get("llamaUpdate"), dict) else {},
         "assignments": payload.get("assignments") if isinstance(payload.get("assignments"), list) else [],
         "applyStatus": payload.get("applyStatus") if isinstance(payload.get("applyStatus"), dict) else {},
         "firstSeen": now,
@@ -784,6 +804,7 @@ def refresh_topology_clients_from_agents():
                 "llamaNodes": state.get("llamaNodes") or [],
                 "llamaBinaryVersion": state.get("llamaBinaryVersion") or "",
                 "llamaBinaryMtime": state.get("llamaBinaryMtime") or "",
+                "llamaUpdate": state.get("llamaUpdate") if isinstance(state.get("llamaUpdate"), dict) else {},
                 "agentUrl": agent_url,
                 "time": state.get("time") or int(time.time()),
             }

@@ -340,6 +340,23 @@ export function renderTopology() {
   $("topologyLlamaServers")?.querySelectorAll("[data-check-llama-ver]").forEach((btn) => {
     btn.addEventListener("click", () => checkLlamaCpp().catch((err) => toast(err.message)));
   });
+  // Client nodes: update llama.cpp on the client to the controller's commit.
+  // The scout runs it as a background job; its heartbeat flips the chip to a
+  // "building…" indicator on the next topology poll.
+  $("topologyLlamaServers")?.querySelectorAll("[data-update-client-llama]").forEach((btn) => {
+    btn.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const hostId = btn.getAttribute("data-update-client-llama") || "";
+      const tag = state.llamaCpp?.git?.head || "";
+      if (!window.confirm(t("updateClientLlamaConfirm"))) return;
+      try {
+        await api("/api/fleet/llama-update", { method: "POST", body: JSON.stringify({ hostId, tag }) });
+        toast(t("clientLlamaBuilding"));
+      } catch (err) {
+        toast(err.message);
+      }
+    });
+  });
   // Stopped-slot Start / remove controls (both classic + node lane)
   bindServerSlotControls($("topologyLlamaServers"));
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.14 — 2026-07-10
+
+- Fleet llama.cpp updates land on client hosts too: a ⇪ button on each
+  client node chip converges that client onto the controller's exact
+  commit via caravan-scout v1.1.0 (`POST /api/llama-node/update`, a
+  background job whose slim status rides every heartbeat — the chip
+  turns into a pulsing "building…" indicator while it runs). The
+  controller proxies via `POST /api/fleet/llama-update {hostId, tag}`.
+- Client node chips gain a "stale binary" badge when a running server
+  started before the last llama.cpp rebuild on that host — the visual
+  cue that a restart is needed to apply the new build (restarts stay
+  manual by design).
+
 ## 1.3.13 — 2026-07-10
 
 - The System-modal "Update llama.cpp" button now runs the update as a
