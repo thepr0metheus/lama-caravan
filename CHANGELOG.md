@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.23 — 2026-07-10
+
+- Switching the UI language now updates the OPEN cell-config editor
+  fully. Section headers (Cache/Vision/Reasoning/…), field (?) tooltips,
+  the help lines and the LOCAL badge were built once with t()/fieldHelp()
+  at render time and were NOT tagged data-i18n, so they froze at the
+  language active when the modal was first built (e.g. Japanese tooltips
+  under a later-selected Urdu UI). They now carry data-fieldhelp /
+  data-fieldhelp-text / data-i18n-tip / data-i18n markers that
+  applyLanguage() refreshes in place — no input is lost. This was the
+  real cause of the earlier "tooltips in the wrong language" report
+  (not browser cache). Known separate gap: the router-canvas node
+  tooltips are still hardcoded English.
+
 ## 1.3.22 — 2026-07-10
 
 - Russian field-help tooltips are properly translated: 39 of the 95

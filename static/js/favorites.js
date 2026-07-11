@@ -72,7 +72,7 @@ export function renderFavoriteMirror(field, pfx = "") {
   const help = fieldHelp(field);
   const favId = pfx + "fav-" + field;
   const dragHandle = `<button class="fav-drag-handle" type="button" draggable="true" title="Drag to reorder" aria-label="Reorder">⠿</button>`;
-  const labelRow = `<div class="label-row">${dragHandle}<label for="${favId}">${field}</label><button class="tip-trigger" type="button" aria-label="${field}: ${escapeHtml(help)}">?<span class="tooltip" role="tooltip">${escapeHtml(help)}</span></button></div>`;
+  const labelRow = `<div class="label-row">${dragHandle}<label for="${favId}">${field}</label><button class="tip-trigger" type="button" data-fieldhelp="${field}" aria-label="${field}: ${escapeHtml(help)}">?<span class="tooltip" role="tooltip">${escapeHtml(help)}</span></button></div>`;
   if (!canonical) {
     div.innerHTML = labelRow;
     attachFavStar(div, field, pfx, true);

@@ -42,7 +42,7 @@ export function labelWithTip(field) {
   return `
     <div class="label-row">
       <label for="${field}">${field}</label>
-      <button class="tip-trigger" type="button" aria-label="${field}: ${help}">
+      <button class="tip-trigger" type="button" data-fieldhelp="${field}" aria-label="${field}: ${help}">
         ?
         <span class="tooltip" role="tooltip">${help}</span>
       </button>
@@ -68,6 +68,27 @@ export function applyLanguage() {
   document.querySelectorAll("[data-title-i18n]").forEach((el) => {
     const text = t(el.dataset.titleI18n);
     el.title = text;
+    el.setAttribute("aria-label", text);
+  });
+  // Dynamic (?) tooltips are built with fieldHelp()/t() at render time, not via
+  // [data-i18n] (which would overwrite the whole element, wiping the "?" glyph
+  // and the tooltip). Refresh their text + aria IN PLACE so switching language
+  // updates an OPEN cell editor without rebuilding its inputs (that would drop
+  // unsaved edits). Field NAMES stay as the raw env-var keys, by design.
+  document.querySelectorAll("[data-fieldhelp]").forEach((el) => {
+    const key = el.dataset.fieldhelp;
+    const help = fieldHelp(key);
+    const tip = el.querySelector(".tooltip");
+    if (tip) tip.textContent = help;
+    el.setAttribute("aria-label", `${key}: ${help}`);
+  });
+  document.querySelectorAll("[data-fieldhelp-text]").forEach((el) => {
+    el.textContent = fieldHelp(el.dataset.fieldhelpText);
+  });
+  document.querySelectorAll("[data-i18n-tip]").forEach((el) => {
+    const text = t(el.dataset.i18nTip);
+    const tip = el.querySelector(".tooltip");
+    if (tip) tip.textContent = text;
     el.setAttribute("aria-label", text);
   });
   renderLangSelect();
@@ -128,7 +149,7 @@ export function setupLangSelect() {
 export function helpTip(key) {
   const text = t(key);
   return `
-    <span class="inline-tip help-tip" tabindex="0" aria-label="${escapeHtml(text)}">
+    <span class="inline-tip help-tip" tabindex="0" data-i18n-tip="${key}" aria-label="${escapeHtml(text)}">
       ?
       <span class="tooltip" role="tooltip">${escapeHtml(text)}</span>
     </span>

@@ -776,7 +776,7 @@ export function renderField(field, pfx = "") {
   const help = fieldHelp(field);
   const fid = pfx + field;
   const labelRow = pfx
-    ? `<div class="label-row"><label for="${fid}">${field}</label><button class="tip-trigger" type="button" aria-label="${field}: ${escapeHtml(help)}">?<span class="tooltip" role="tooltip">${escapeHtml(help)}</span></button></div>`
+    ? `<div class="label-row"><label for="${fid}">${field}</label><button class="tip-trigger" type="button" data-fieldhelp="${field}" aria-label="${field}: ${escapeHtml(help)}">?<span class="tooltip" role="tooltip">${escapeHtml(help)}</span></button></div>`
     : labelWithTip(field);
 
   if (field === "PORT") {
@@ -1076,7 +1076,7 @@ export function renderFields(pfx = "") {
   // full-width). It is always present and cannot be un-starred.
   const favExtraSection = document.createElement("section");
   favExtraSection.className = "advanced-group extra-args-group";
-  favExtraSection.innerHTML = `<h3>${t("advancedExtraArgs")}</h3><div class="advanced-grid extra-args-grid"></div>`;
+  favExtraSection.innerHTML = `<h3 data-i18n="advancedExtraArgs">${t("advancedExtraArgs")}</h3><div class="advanced-grid extra-args-grid"></div>`;
   const favExtraField = renderField("EXTRA_ARGS", pfx);
   favExtraField.querySelector(".fav-star")?.remove();
   // Auto-hoist known flags into their fields on blur / paste.
@@ -1130,7 +1130,7 @@ export function renderFields(pfx = "") {
       if (!group) return;
       const section = document.createElement("section");
       section.className = "advanced-group";
-      section.innerHTML = `<h3>${t(group.titleKey)}</h3><div class="advanced-grid"></div>`;
+      section.innerHTML = `<h3 data-i18n="${group.titleKey}">${t(group.titleKey)}</h3><div class="advanced-grid"></div>`;
       const grid = section.querySelector(".advanced-grid");
       group.fields.forEach((field) => grid.appendChild(renderField(field, pfx)));
       panel.appendChild(section);
@@ -1169,8 +1169,8 @@ export function renderFields(pfx = "") {
   updateStarStates(pfx);
 
   if (!pfx) {
-    document.querySelector('[data-help="MODEL_FILE"]').innerHTML = `${fieldHelp("MODEL_FILE")}<span class="inline-tip" tabindex="0">?<span class="tooltip" role="tooltip">${fieldHelp("MODEL_FILE")}</span></span>`;
-    document.querySelector('[data-help="LLAMA_MODELS_DIR"]').innerHTML = `${fieldHelp("LLAMA_MODELS_DIR")}<span class="inline-tip" tabindex="0">?<span class="tooltip" role="tooltip">${fieldHelp("LLAMA_MODELS_DIR")}</span></span>`;
+    document.querySelector('[data-help="MODEL_FILE"]').innerHTML = `<span data-fieldhelp-text="MODEL_FILE">${fieldHelp("MODEL_FILE")}</span><span class="inline-tip" tabindex="0" data-fieldhelp="MODEL_FILE">?<span class="tooltip" role="tooltip">${fieldHelp("MODEL_FILE")}</span></span>`;
+    document.querySelector('[data-help="LLAMA_MODELS_DIR"]').innerHTML = `<span data-fieldhelp-text="LLAMA_MODELS_DIR">${fieldHelp("LLAMA_MODELS_DIR")}</span><span class="inline-tip" tabindex="0" data-fieldhelp="LLAMA_MODELS_DIR">?<span class="tooltip" role="tooltip">${fieldHelp("LLAMA_MODELS_DIR")}</span></span>`;
   }
 }
 
@@ -1190,7 +1190,7 @@ export function enhanceChatTemplatePanel(panel, pfx = "") {
   const row = document.createElement("div");
   row.className = "label-row";
   row.innerHTML = `<label for="${input.id}">${field}</label>` +
-    `<button class="tip-trigger" type="button" aria-label="${field}: ${escapeHtml(help)}">?<span class="tooltip" role="tooltip">${escapeHtml(help)}</span></button>`;
+    `<button class="tip-trigger" type="button" data-fieldhelp="${field}" aria-label="${field}: ${escapeHtml(help)}">?<span class="tooltip" role="tooltip">${escapeHtml(help)}</span></button>`;
   input.parentNode.insertBefore(row, input);
   attachFavStar(panel, field, pfx);
   // Help line below the input, matching other fields.
@@ -1200,6 +1200,7 @@ export function enhanceChatTemplatePanel(panel, pfx = "") {
     p.className = "ct-help";
     input.insertAdjacentElement("afterend", p);
   }
+  p.dataset.fieldhelpText = field;   // refreshed in place on language switch
   p.textContent = help;
 }
 

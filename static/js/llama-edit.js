@@ -182,9 +182,10 @@ export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
     if (!badge) {
       badge = document.createElement("span");
       badge.className = "topo-edit-mode-badge local";
-      badge.textContent = t("badgeLocal");
+      badge.dataset.i18n = "badgeLocal";   // kept in sync by applyLanguage
       titleEl.after(badge);
     }
+    badge.textContent = t("badgeLocal");   // update on every open, not just create
   }
 
   // Adaptive button: "OK" (save only) for cell config, Start/Restart for main config
