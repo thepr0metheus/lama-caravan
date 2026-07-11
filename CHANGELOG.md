@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.3.24 — 2026-07-11
+
+- The router canvas speaks all 20 languages: node tooltips, drag hints,
+  palette (node names are translated labels now), the queue node's live
+  block (waiting/idle/switch-in countdowns), empty states and the canvas
+  footer — 31 cv* keys plus a codebase-wide sweep that keyed ~130 more
+  hardcoded strings across cloud provider cards, history filters, charts,
+  usage stats, topology modals/nodes/proxies, favorites, autostart
+  buttons, "updated" stamp and "+ Add Cloud Provider". Port names
+  (small/default/embeddings/main/spill) and OAuth field names stay latin
+  by design.
+- Switching the language re-translates the OPEN cell editor in place:
+  tab captions, the composed title, Apply/Start/Restart button, runner
+  picker with its trade-off tooltips, compute-target cards, on/off toggle
+  labels, weekday chips and the command placeholder — driven by a new
+  caravan:langchange event dispatched from applyLanguage(); unsaved
+  edits survive.
+- check_messages_i18n.py now rejects UNTRANSLATED content, not just
+  missing keys: english-phrase detection for non-latin locales (after
+  stripping genuine identifiers) and verbatim en-copy detection for
+  latin ones. A future tooltip added without real translations fails CI.
+
 ## 1.3.23 — 2026-07-10
 
 - Switching the UI language now updates the OPEN cell-config editor
