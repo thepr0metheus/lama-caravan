@@ -635,6 +635,13 @@
   opacity: 0.35;
   pointer-events: none;
 }
+/* Runner "custom command" ignores the shared model picker — dim the whole
+   MODEL_FILE block (picker, badges, HF link) while that runner is active. */
+.field.runner-ignores-model {
+  opacity: 0.4;
+  filter: saturate(0.4);
+  pointer-events: none;
+}
 .mc-hf-link {
   flex-shrink: 0;
   margin-left: 6px;

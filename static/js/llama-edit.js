@@ -747,6 +747,11 @@ export function applyCellKindUI(pfx) {
   if (!overlay || !kindEl) return;
   const runner = effectiveRunnerId(pfx);
   const isCommand = runner === "custom";
+  // A custom command ignores the shared model picker (only COMMAND + $PORT
+  // reach the exec line) — dim the MODEL_FILE block so the picked model does
+  // not read as active config. whisper/vLLM DO consume the shared picker.
+  const modelField = $(pfx + "MODEL_FILE")?.closest(".field");
+  if (modelField) modelField.classList.toggle("runner-ignores-model", isCommand);
   // Keep both hidden inputs coherent: RUNNER is the source of truth, CELL_KIND
   // stays populated for legacy readers (scout, old backups, start.sh blocks).
   const rEl = $(pfx + "RUNNER");

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.25 — 2026-07-11
+
+- Picking the "Custom command" runner now dims the MODEL_FILE block
+  (picker, badges, HF link): a command cell launches COMMAND with $PORT
+  only, so the selected model is not part of its config — the UI no
+  longer suggests otherwise. whisper and vLLM keep the picker active
+  (they consume it).
+
 ## 1.3.24 — 2026-07-11
 
 - The router canvas speaks all 20 languages: node tooltips, drag hints,
