@@ -42,7 +42,7 @@ RUNNERS = [
         "formatRequirements": {"nvfp4": 10.0, "fp8": 8.9},
     },
     {
-        # faster-whisper speech-to-text (the Revoice whisper_server.py that
+        # faster-whisper speech-to-text (the whisper_server.py that
         # run_whisper.sh launches on every GPU host). The model is a SIZE name
         # (tiny\u2026large-v3) \u2014 faster-whisper downloads it itself, MODEL_FILE is
         # unused; language is a per-request field of the API, not a launch arg.

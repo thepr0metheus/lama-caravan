@@ -863,6 +863,16 @@ export const COMMAND_PRESETS = [
   // auto-provisions it, so this one preset works on every GPU host.
   { id: "whisper", label: "whisper · faster-whisper (large-v3)",
     COMMAND: "bash ~/run_whisper.sh $PORT large-v3", HEALTH_PATH: "/health" },
+  // Voice-clone TTS cells: one server file, the engine is picked per cell
+  // (scripts/install-tts.sh drops ~/run_tts.sh + ffmpeg; the engine venv and
+  // model self-install on first start — 10–20 min — unless pre-warmed with
+  // install-tts.sh --prewarm). POST /v1/audio/speech-clone: text+lang+ref wav.
+  { id: "tts-xtts", label: "tts · XTTS-v2 (voice clone)",
+    COMMAND: "bash ~/run_tts.sh $PORT xtts", HEALTH_PATH: "/health" },
+  { id: "tts-f5", label: "tts · F5-TTS (voice clone)",
+    COMMAND: "bash ~/run_tts.sh $PORT f5", HEALTH_PATH: "/health" },
+  { id: "tts-cosyvoice", label: "tts · CosyVoice2 (voice clone)",
+    COMMAND: "bash ~/run_tts.sh $PORT cosyvoice", HEALTH_PATH: "/health" },
 ];
 
 export function populateCommandPresets(pfx) {

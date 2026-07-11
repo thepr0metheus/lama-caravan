@@ -761,7 +761,7 @@ details.topology-server-stats-card > .topology-processes-details {
   border-top: 1px solid var(--line);
 }
 .router-output-row:first-child { border-top: 0; }
-.router-output-label { font-size: 12px; font-variant-numeric: tabular-nums; }
+.router-output-label { font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .router-output-label.muted { color: var(--muted); }
 .router-default-chip {
   font-size: 9px;

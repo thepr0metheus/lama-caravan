@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.3.26 — 2026-07-11
+
+- The Kanban Board card on the main board is compact again: instead of
+  one row + cable anchor per output (29 rows on a busy fleet) it shows
+  the default route, a "{n} local · {m} cloud" tally and ONE shared
+  output anchor — every router→server/cloud cable now fans out of that
+  single point, keeping per-cable activity colors. The full per-output
+  list still lives inside the kanban workspace.
+- Voice-clone TTS cells are provisioned like whisper now: `tts/` ships
+  `tts_server.py` + `run_tts.sh` (XTTS-v2 / F5-TTS / CosyVoice2 behind one
+  HTTP contract — POST `/v1/audio/speech-clone`, health with load phases),
+  `scripts/install-tts.sh` drops them into `$HOME` and installs the system
+  ffmpeg torchcodec needs (engine venvs self-install on first cell start,
+  or pre-warm with `--prewarm "xtts f5 cosyvoice"`), and the Command form
+  gains three `tts · …` presets next to the whisper one.
+
 ## 1.3.25 — 2026-07-11
 
 - Picking the "Custom command" runner now dims the MODEL_FILE block

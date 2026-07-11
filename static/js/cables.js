@@ -153,7 +153,10 @@ export function drawTopologyCables() {
   // only the output actually carrying a request animates (per-output activity).
   (topology.routers || []).forEach((router) => {
     (router.outputs || []).forEach((out) => {
-      const source = document.querySelector(`[data-topology-router-output][data-router-id="${CSS.escape(router.id)}"][data-output-id="${CSS.escape(out.id)}"]`);
+      // Per-output handles are gone from the compact board card — all cables
+      // fan out of the router's single shared output anchor.
+      const source = document.querySelector(`[data-topology-router-output][data-router-id="${CSS.escape(router.id)}"][data-output-id="${CSS.escape(out.id)}"]`)
+        || document.querySelector(`[data-topology-router-output][data-router-id="${CSS.escape(router.id)}"]`);
       const isCloud = String(out.upstreamType || "llama") === "cloud";
       // Cloud cable attaches to the PROVIDER (account), not a specific model-block.
       const target = isCloud

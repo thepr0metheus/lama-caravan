@@ -1,5 +1,5 @@
 #!/bin/bash
-# Launch the Revoice whisper server with faster-whisper's bundled cuDNN/cuBLAS
+# Launch the whisper server with faster-whisper's bundled cuDNN/cuBLAS
 # on the library path. Usage: run_whisper.sh [port] [model]
 VENV="${VENV:-$HOME/wsr}"
 SITE=$("$VENV/bin/python" -c "import site;print(site.getsitepackages()[0])")

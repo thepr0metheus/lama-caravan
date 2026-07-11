@@ -72,6 +72,11 @@ export function renderTopologyRouterCard(router) {
   const outputs = router.outputs || [];
   const inCount = (router.inputs || []).length;
   const ruleCount = (router.rules?.schedule?.length || 0) + (router.rules?.bySource?.length || 0);
+  // Compact board card: the full per-output list lives in the kanban workspace;
+  // here just the default route + a local/cloud tally, one shared cable anchor.
+  const defaultOut = outputs.find((o) => o.id === (router.rules?.default || ""));
+  const localCount = outputs.filter((o) => String(o.upstreamType || "llama") !== "cloud").length;
+  const cloudCount = outputs.length - localCount;
   return `
     <article class="topology-card router-card ${escapeHtml(topologyStateHealthClasses(activity))}" data-router-id="${escapeHtml(router.id)}" data-topology-router="${escapeHtml(router.id)}" role="button" tabindex="0" title="${escapeHtml(t("rtTitleConfigure"))}">
       <span class="topology-handle input router-input" data-topology-router-input="1" data-router-id="${escapeHtml(router.id)}" title="${escapeHtml(t("rtTitleProxiesIn"))}"></span>
@@ -80,16 +85,17 @@ export function renderTopologyRouterCard(router) {
         <span class="router-meta">in ${inCount} · out ${outputs.length}${ruleCount ? ` · ${escapeHtml(t("rtRules", { n: ruleCount }))}` : ""}</span>
       </div>
       <div class="router-outputs">
-        ${outputs.length ? outputs.map((out) => {
-          const isDefault = (router.rules?.default || "") === out.id;
-          return `
-          <div class="router-output-row ${isDefault ? "is-default" : ""}" data-output-id="${escapeHtml(out.id)}">
-            <span class="router-output-label">${escapeHtml(topologyRouterOutputLabel(out))}</span>
-            ${isDefault ? `<span class="router-default-chip" title="${escapeHtml(t("rtTitleDefaultOutput"))}">default</span>` : ""}
-            <span class="topology-handle output router-output" data-topology-router-output="1" data-router-id="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" data-upstream-port="${escapeHtml(out.upstreamPort || "")}" title="${escapeHtml(t("rtTitleOutputServer"))}"></span>
-          </div>`;
-        }).join("") : `<div class="router-output-row empty"><span class="router-output-label muted">${t("rtNoOutputs")}</span></div>`}
+        ${outputs.length ? `
+          ${defaultOut ? `
+          <div class="router-output-row is-default">
+            <span class="router-output-label">${escapeHtml(topologyRouterOutputLabel(defaultOut))}</span>
+            <span class="router-default-chip" title="${escapeHtml(t("rtTitleDefaultOutput"))}">default</span>
+          </div>` : ""}
+          <div class="router-output-row">
+            <span class="router-output-label muted">${escapeHtml(t("rtOutputsSummary", { l: localCount, c: cloudCount }))}</span>
+          </div>` : `<div class="router-output-row empty"><span class="router-output-label muted">${t("rtNoOutputs")}</span></div>`}
       </div>
+      <span class="topology-handle output router-output" data-topology-router-output="1" data-router-id="${escapeHtml(router.id)}" title="${escapeHtml(t("rtTitleOutputServer"))}"></span>
     </article>`;
 }
 

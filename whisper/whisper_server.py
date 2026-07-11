@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""OpenAI-compatible faster-whisper server for Revoice's --asr-endpoint.
+"""OpenAI-compatible faster-whisper server for a voice app's --asr-endpoint.
 
 Serves POST /v1/audio/transcriptions (multipart wav -> {"text": ...}) on your GPU.
 
