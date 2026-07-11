@@ -82,6 +82,7 @@ from caravan.admin.status import controller_info, do_action, llama_builds_list, 
 from caravan.admin.cell_ops import (
     client_server_slot_add,
     client_server_slot_delete,
+    script_preview,
     server_cell_action,
     server_cell_save_config,
 )
@@ -407,6 +408,12 @@ def _get_api_system_monitor(h, parsed):
 @_route(GET_ROUTES, '/api/topology')
 def _get_api_topology(h, parsed):
         h.send_json(topology_state())
+        return
+
+@_route(GET_ROUTES, '/api/script-preview')
+def _get_api_script_preview(h, parsed):
+        _q = urllib.parse.parse_qs(parsed.query or "")
+        h.send_json(script_preview((_q.get("path") or [""])[0]))
         return
 
 @_route(GET_ROUTES, '/api/models')

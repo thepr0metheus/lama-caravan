@@ -1,6 +1,8 @@
 """Server-cell lifecycle actions (start/stop/save/delete across controller
 systemd cells and client cells via the route-agent). Sits above status because
 the handlers return the composite state()."""
+import os
+
 from caravan.admin.config_builder import is_command_cell
 from caravan.admin.runners import runner_id, uses_command_path
 from caravan.admin.fleet_clients import client_llama_start, client_llama_stop
@@ -172,3 +174,32 @@ def server_cell_action(body: dict) -> dict:
         })
         return {"ok": result.get("ok", False), "hostId": host_id, "port": port, "action": action_name, "result": result}
     raise AppError(f"action '{action_name}' not supported for remote host", 400)
+
+_SCRIPT_PREVIEW_EXT = {".sh", ".bash", ".py"}
+_SCRIPT_PREVIEW_MAX = 64 * 1024
+
+def script_preview(raw_path):
+    """Read-only peek at a script referenced by a command cell's COMMAND line.
+
+    Controller-local files only, restricted to text scripts under $HOME —
+    the editor aside shows the content so "bash ~/run_tts.sh" isn't a black box."""
+    p = str(raw_path or "").strip().strip('"').strip("'")
+    if not p:
+        raise AppError("path required", 400)
+    expanded = os.path.expanduser(p)
+    if not os.path.isabs(expanded):
+        expanded = os.path.join(os.path.expanduser("~"), expanded)
+    real = os.path.realpath(expanded)
+    home = os.path.realpath(os.path.expanduser("~"))
+    if real != home and not real.startswith(home + os.sep):
+        raise AppError("only scripts under the home directory are readable", 400)
+    if os.path.splitext(real)[1].lower() not in _SCRIPT_PREVIEW_EXT:
+        raise AppError("only .sh / .bash / .py scripts are readable", 400)
+    if not os.path.isfile(real):
+        raise AppError("script not found", 404)
+    with open(real, "r", encoding="utf-8", errors="replace") as fh:
+        content = fh.read(_SCRIPT_PREVIEW_MAX + 1)
+    truncated = len(content) > _SCRIPT_PREVIEW_MAX
+    return {"path": real, "size": os.path.getsize(real),
+            "mtime": int(os.path.getmtime(real)),
+            "content": content[:_SCRIPT_PREVIEW_MAX], "truncated": truncated}

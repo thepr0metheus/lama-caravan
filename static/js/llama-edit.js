@@ -950,9 +950,56 @@ export function _buildCommandExecPreview(pfx) {
   return lines.join("\n");
 }
 
+// ── Script preview: show the content of the .sh/.py the command points at ──
+// Parsed from the BUILT exec preview (covers whisper's baked-in run_whisper.sh
+// and any custom COMMAND). Controller cells read via /api/script-preview;
+// client-cell files live on the remote host — shown as a note until the scout
+// grows a matching endpoint.
+function _scriptTokenFromPreview(pfx) {
+  const text = _buildCommandExecPreview(pfx);
+  const execLine = text.split("\n").filter((l) => l.startsWith("exec ")).pop() || "";
+  for (let tok of execLine.replace(/^exec\s+/, "").split(/\s+/)) {
+    tok = tok.replace(/^["']|["']$/g, "").replace(/^env$/, "");
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tok)) continue;           // env assignments
+    if (tok.startsWith("-")) continue;                            // flags
+    if (/\.(sh|bash|py)$/i.test(tok)) return tok.replace(/^\$HOME/, "~");
+  }
+  return "";
+}
+
+let _scriptPreviewSeq = 0;
+function _refreshScriptPreview(pfx) {
+  const meta = $(pfx + "scriptMeta");
+  const pre = $(pfx + "scriptPreview");
+  if (!meta || !pre) return;
+  const panel = pre.closest(".panel");
+  const tok = effectiveRunnerId(pfx) === "vllm" ? "" : _scriptTokenFromPreview(pfx);
+  if (!tok) { if (panel) panel.style.display = "none"; return; }
+  if (panel) panel.style.display = "";
+  if (pfx !== "te-") {
+    meta.textContent = tok;
+    pre.dataset.i18n = "scriptClientNote";
+    pre.textContent = t("scriptClientNote");
+    return;
+  }
+  const seq = ++_scriptPreviewSeq;
+  api("/api/script-preview?path=" + encodeURIComponent(tok)).then((res) => {
+    if (seq !== _scriptPreviewSeq) return;
+    delete pre.dataset.i18n;
+    meta.textContent = `${res.path} · ${res.size} B`;
+    pre.textContent = res.content + (res.truncated ? "\n…" : "");
+  }).catch((e) => {
+    if (seq !== _scriptPreviewSeq) return;
+    delete pre.dataset.i18n;
+    meta.textContent = tok;
+    pre.textContent = String(e && e.message || e);
+  });
+}
+
 export function renderCommandCellPreview(pfx) {
   const prev = $(pfx + "cmdPreview");
   if (prev) prev.textContent = _buildCommandExecPreview(pfx);
+  _refreshScriptPreview(pfx);
   const slot = _commandCellSlot(pfx);
   const cur = $(pfx + "cmdCurrent");
   if (cur) {

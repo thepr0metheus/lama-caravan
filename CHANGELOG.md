@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.27 — 2026-07-11
+
+- The command-cell editor's aside gains a Script panel: when COMMAND (or
+  the whisper runner's baked-in exec line) points at a .sh/.bash/.py
+  file, the controller reads it (home-directory only, 64 KB cap) and
+  shows a scrollable read-only preview — "bash ~/run_tts.sh" is no
+  longer a black box. Client-cell scripts show a note until
+  caravan-scout grows a matching endpoint. The aside titles (New
+  command / Current command / History) are now translated too.
+
 ## 1.3.26 — 2026-07-11
 
 - The Kanban Board card on the main board is compact again: instead of
