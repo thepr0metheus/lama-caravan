@@ -668,19 +668,19 @@ export function drawTopologyServerStats(samples) {
         <strong>${Number(row.cpuPct || 0).toFixed(1)}%</strong>
         <span>${formatMemoryMiB(row.rssMiB)}</span>
       </div>
-    `).join("") || `<div class="topology-muted" style="padding:6px 0">no data</div>`;
+    `).join("") || `<div class="topology-muted" style="padding:6px 0">${t("chNoData")}</div>`;
   }
 
   // Meta
   const metaEl = $("topologyServerStatsMeta");
-  if (metaEl) metaEl.textContent = `${samples.length} samples`;
+  if (metaEl) metaEl.textContent = t("chSamples", { n: samples.length });
 }
 
 export function renderLlamaClientsInnerHtml() {
   const llamaClients = ui.latestSystemMonitor?.latest?.llamaClients || {};
   const clients = llamaClients.clients || [];
   if (!llamaClients.ok && !clients.length) return `<span class="topology-muted" style="font-size:11px">—</span>`;
-  if (!clients.length) return `<span class="topology-muted" style="font-size:11px">no active clients</span>`;
+  if (!clients.length) return `<span class="topology-muted" style="font-size:11px">${t("chNoActiveClients")}</span>`;
   return clients.map((row) => `
     <div class="topology-client-row">
       <strong>${escapeHtml(row.clientName || row.clientIp || "?")}</strong>

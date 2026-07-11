@@ -60,7 +60,7 @@ export function topologyAgentCard(client, agent, routeMap) {
   const isOpenclaw = String(agent.kind || "") === "openclaw";
   const isDocker = topologyAgentGroup(agent) === "docker";
   const summaryAttrs = isOpenclaw
-    ? ` data-topology-client-detail="${escapeHtml(client.id)}" data-agent-id="${escapeHtml(agent.id)}" role="button" tabindex="0" title="Show OpenClaw config"`
+    ? ` data-topology-client-detail="${escapeHtml(client.id)}" data-agent-id="${escapeHtml(agent.id)}" role="button" tabindex="0" title="${escapeHtml(t("tpTitleShowOpenclaw"))}"`
     : "";
   const configBtns = isOpenclaw && isDocker ? `
     <div class="agent-config-btns">
@@ -68,12 +68,12 @@ export function topologyAgentCard(client, agent, routeMap) {
         data-agent-config-open="ports"
         data-client-id="${escapeHtml(client.id)}"
         data-agent-id="${escapeHtml(agent.id)}"
-        title="Real port values from agent config">ports</button>
+        title="${escapeHtml(t("tpTitlePortsReal"))}">${escapeHtml(t("tpPorts"))}</button>
       <button class="mini-link" type="button"
         data-agent-config-open="raw"
         data-client-id="${escapeHtml(client.id)}"
         data-agent-id="${escapeHtml(agent.id)}"
-        title="Show .openclaw/openclaw.json">{ }</button>
+        title="${escapeHtml(t("tpTitleShowRaw"))}">{ }</button>
     </div>` : "";
 
   // Stale: prefer runtimeDetected field if this client's route-agent supports it.

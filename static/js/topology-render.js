@@ -190,7 +190,7 @@ export function renderTopology() {
         <div class="topology-card-head client-head">
           <div class="client-title-line">
             <strong>${escapeHtml(displayName)}</strong>
-            <button class="client-rename-btn" type="button" title="Set display name"
+            <button class="client-rename-btn" type="button" title="${escapeHtml(t("trTitleSetName"))}"
               data-client-rename="${escapeHtml(client.id)}" data-client-name="${escapeHtml(displayName)}">✎</button>
             <span>${escapeHtml(client.ip || "ip n/a")}</span>
           </div>
@@ -547,7 +547,7 @@ export function syncTopologyLive() {
 
   const updatedEl = $("topologyUpdated");
   if (updatedEl && topology.time) {
-    updatedEl.textContent = `updated ${new Date(topology.time * 1000).toLocaleTimeString()}`;
+    updatedEl.textContent = `${t("topologyUpdatedLabel")} ${new Date(topology.time * 1000).toLocaleTimeString()}`;
   }
 
   // Clients column (present in both views): heartbeat age + CPU/RAM line.

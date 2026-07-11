@@ -583,7 +583,7 @@ export function renderSchedulePanel(pfx, hostId, cellPort, schedule) {
   $(`${pfx}-schedStop`).value = sc.stop || "08:00";
   const daysOn = new Set((sc.days || []).map(Number));
   $(`${pfx}-schedDays`).innerHTML = SCHED_DAY_KEYS.map((k, i) =>
-    `<button type="button" class="sched-day${daysOn.size === 0 || daysOn.has(i) ? " on" : ""}${daysOn.size === 0 ? " implicit" : ""}" data-day="${i}">${escapeHtml(t(k))}</button>`).join("");
+    `<button type="button" class="sched-day${daysOn.size === 0 || daysOn.has(i) ? " on" : ""}${daysOn.size === 0 ? " implicit" : ""}" data-day="${i}" data-i18n="${k}">${escapeHtml(t(k))}</button>`).join("");
   $(`${pfx}-schedStatus`).textContent = sc.enabled ? t("schedSaved", { start: sc.start, stop: sc.stop }) : "";
   if (!_schedWired.has(pfx)) {
     _schedWired.add(pfx);

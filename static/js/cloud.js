@@ -133,7 +133,7 @@ export function renderTopologyCloudProviders() {
     + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${nextTopologyCellPort()}`;
   if (key === ui._lastCloudProvidersKey) return;
   ui._lastCloudProvidersKey = key;
-  const addCloudBtn = `<button class="topology-add-wide-btn" type="button" data-topo-add-cloud>+ Add Cloud Provider</button>`;
+  const addCloudBtn = `<button class="topology-add-wide-btn" type="button" data-topo-add-cloud>${escapeHtml(t("clAddProvider"))}</button>`;
   const cpEl = $("topologyCloudProviders");
   if (!cpEl) return;
   bindCloudCardDelegates(cpEl);
@@ -221,12 +221,12 @@ export function renderTopologyCloudProviders() {
     const modelsOpen = !!ui.cloudModelsOpen?.[acct.id];
     return `
       <article class="topology-card cloud-account-card ${acct.hasCredential ? "configured" : "needs-key"}${modelsOpen ? " models-open" : ""}">
-        <span class="topology-handle server-input cloud-account-input" data-topology-cloud-input="1" data-account-id="${escapeHtml(acct.id)}" title="Router output → this provider"></span>
+        <span class="topology-handle server-input cloud-account-input" data-topology-cloud-input="1" data-account-id="${escapeHtml(acct.id)}" title="${escapeHtml(t("clTitleRouterOutput"))}"></span>
         <div class="cloud-account-head">
           <span class="cloud-account-icon" style="color:${escapeHtml(meta.color || "#94a3b8")}">${cloudPickerTileIcon(iconType)}</span>
           <strong class="cloud-account-name">${escapeHtml(acct.name || acct.id)}</strong>
-          ${acct.hasCredential ? pill(isSubscription ? "Plus" : acct.credentialKind === "noKey" ? "ready" : acct.credentialKind === "apiKey" ? t("topologyCloudConfigured") : "OAuth", "good") : pill(t("topologyCloudNeedsKey"), "warn")}
-          <button class="icon-action compact" type="button" data-cloud-edit-account="${escapeHtml(acct.id)}" title="Edit account">⚙</button>
+          ${acct.hasCredential ? pill(isSubscription ? "Plus" : acct.credentialKind === "noKey" ? t("clReady") : acct.credentialKind === "apiKey" ? t("topologyCloudConfigured") : "OAuth", "good") : pill(t("topologyCloudNeedsKey"), "warn")}
+          <button class="icon-action compact" type="button" data-cloud-edit-account="${escapeHtml(acct.id)}" title="${escapeHtml(t("clTitleEditAccount"))}">⚙</button>
         </div>
         <div class="cloud-key-line ${acct.hasCredential ? "set" : "unset"}">${escapeHtml(credLine)}</div>
         ${usagePanel}
@@ -234,8 +234,8 @@ export function renderTopologyCloudProviders() {
           ${modelsOpen ? `${escapeHtml(t("cloudModelsHide"))} ⌃` : `${escapeHtml(t("cloudModelsShowAll", { n: String(acctBlocks.length) }))} ⌄`}
         </button>
         <div class="cloud-models-flyout">
-          ${blockRows ? `<div class="cloud-account-blocks">${blockRows}</div>` : `<div class="topology-muted" style="font-size:11px">no models yet</div>`}
-          <button class="cloud-add-model-btn" type="button" data-cloud-fetch-models="${escapeHtml(acct.id)}" title="Fetch the model list from the provider">↻ Fetch models from provider</button>
+          ${blockRows ? `<div class="cloud-account-blocks">${blockRows}</div>` : `<div class="topology-muted" style="font-size:11px">${t("clNoModelsYet")}</div>`}
+          <button class="cloud-add-model-btn" type="button" data-cloud-fetch-models="${escapeHtml(acct.id)}" title="${escapeHtml(t("clTitleFetchModels"))}">${escapeHtml(t("fetchModelsBtn"))}</button>
         </div>
       </article>
     `;
@@ -442,7 +442,7 @@ export function renderTopologyCloudAccountModal() {
   const preset = topologyCloudPresetByType(f.type) || {};
   const authModes = preset.authModes || ["apiKey"];
   const authModeOptions = authModes.map((m) =>
-    `<option value="${escapeHtml(m)}"${m === f.authMode ? " selected" : ""}>${escapeHtml(m === "oauth" ? t("topologyCloudAuthOauth") : m === "noKey" ? "No auth" : t("topologyCloudAuthApiKey"))}</option>`
+    `<option value="${escapeHtml(m)}"${m === f.authMode ? " selected" : ""}>${escapeHtml(m === "oauth" ? t("topologyCloudAuthOauth") : m === "noKey" ? t("clNoAuth") : t("topologyCloudAuthApiKey"))}</option>`
   ).join("");
   const oc = f.oauthConfig || {};
   const oauthFields = `
@@ -451,7 +451,7 @@ export function renderTopologyCloudAccountModal() {
     <label>Authorize URL<input type="text" data-cloud-field="oauthAuthorizeUrl" value="${escapeHtml(oc.authorizeUrl || "")}"></label>
     <label>Token URL<input type="text" data-cloud-field="oauthTokenUrl" value="${escapeHtml(oc.tokenUrl || "")}"></label>
     <label>Scope<input type="text" data-cloud-field="oauthScope" value="${escapeHtml(oc.scope || "")}"></label>
-    <label>Redirect port<input type="number" data-cloud-field="oauthRedirectPort" value="${escapeHtml(String(oc.redirectPort || 1455))}"></label>
+    <label>${escapeHtml(t("clRedirectPort"))}<input type="number" data-cloud-field="oauthRedirectPort" value="${escapeHtml(String(oc.redirectPort || 1455))}"></label>
     <div class="cloud-span cloud-oauth-actions"><button class="ghost-action" type="button" data-cloud-oauth-login>${escapeHtml(t("topologyCloudOauthLogin"))}</button>${f.oauthStatus ? `<span class="cloud-oauth-note">${escapeHtml(f.oauthStatus)}</span>` : ""}</div>
   `;
   const pickerMeta = CLOUD_PICKER_META[f.type] || {};

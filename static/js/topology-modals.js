@@ -85,15 +85,15 @@ export function renderTopologyLlamaDetail() {
             <h3>${tx("topologyLlamaRuntimeSection")}</h3>
             <div class="client-detail-grid">
               <div><span class="topology-muted">${tx("topologyLlamaContextWindow")}</span><strong>${escapeHtml(String(nCtx))}</strong></div>
-              <div><span class="topology-muted">ctx used</span><strong>${ctx.limit ? `${ctx.tokens}/${ctx.limit} (${ctx.pct ?? "?"}%)` : "—"}</strong></div>
+              <div><span class="topology-muted">${t("tmCtxUsed")}</span><strong>${ctx.limit ? `${ctx.tokens}/${ctx.limit} (${ctx.pct ?? "?"}%)` : "—"}</strong></div>
               <div><span class="topology-muted">${tx("topologySlots")}</span><strong>${escapeHtml(String(totalSlots || "?"))}</strong></div>
-              <div><span class="topology-muted">prompt / gen t/s</span><strong>${timing.promptTps ? formatTps(timing.promptTps) : "—"} / ${timing.evalTps ? formatTps(timing.evalTps) : "—"}</strong></div>
-              <div><span class="topology-muted">port</span><strong>${escapeHtml(String(llama.port || "?"))}</strong></div>
-              <div><span class="topology-muted">status</span><strong>${escapeHtml(llama.status?.phase || "?")}</strong></div>
-              ${cache.prompts ? `<div><span class="topology-muted">prompt cache</span><strong>${Math.round(cache.usedMiB || 0)}/${Math.round(cache.limitMiB || 0)} MiB</strong></div>` : ""}
+              <div><span class="topology-muted">${t("tmPromptGenTps")}</span><strong>${timing.promptTps ? formatTps(timing.promptTps) : "—"} / ${timing.evalTps ? formatTps(timing.evalTps) : "—"}</strong></div>
+              <div><span class="topology-muted">${t("tmPort")}</span><strong>${escapeHtml(String(llama.port || "?"))}</strong></div>
+              <div><span class="topology-muted">${t("tmStatus")}</span><strong>${escapeHtml(llama.status?.phase || "?")}</strong></div>
+              ${cache.prompts ? `<div><span class="topology-muted">${t("tmPromptCache")}</span><strong>${Math.round(cache.usedMiB || 0)}/${Math.round(cache.limitMiB || 0)} MiB</strong></div>` : ""}
             </div>
             <div class="client-detail-models">
-              <div><span class="topology-muted">service</span> <code>${escapeHtml(llama.service || "—")}</code></div>
+              <div><span class="topology-muted">${t("tmService")}</span> <code>${escapeHtml(llama.service || "—")}</code></div>
             </div>
           </section>
         </div>
@@ -328,7 +328,7 @@ export function _renderQueueThresholdTimelines(globalCloudPct, globalPriorPct, g
     return `
       <div class="qp-proxy-tl-row${anyOverride ? " has-override" : ""}" data-qp-proxy-row="${port}">
         <div class="qp-proxy-tl-head">
-          <span class="qp-proxy-tl-label">${escapeHtml(proxy.label || `:${proxy.port}`)}${anyOverride ? `<span class="qp-override-dot" title="Custom thresholds">•</span>` : ""}</span>
+          <span class="qp-proxy-tl-label">${escapeHtml(proxy.label || `:${proxy.port}`)}${anyOverride ? `<span class="qp-override-dot" title="${escapeHtml(t("tmTitleCustomThresholds"))}">•</span>` : ""}</span>
           <span class="qp-proxy-tl-wt">wait_timeout=${wt}s${isDefault ? " (default)" : ""}</span>
         </div>
         ${sliderSection}
@@ -533,17 +533,17 @@ export function renderTopologyProxySummaryModal() {
         <span class="proxy-reg-role ${escapeHtml(role)}">${escapeHtml(role || "—")}</span>
         ${isBridge
           ? `<span class="proxy-reg-router proxy-reg-bridge-target" title="${escapeHtml(t("cloudBridgeHint"))}">☁ ${escapeHtml(bridgeModel)}</span>`
-          : `<select class="proxy-reg-router" data-proxy-reg-router="${escapeHtml(p.id)}" title="Router this port feeds">${routerOptions}</select>`}
+          : `<select class="proxy-reg-router" data-proxy-reg-router="${escapeHtml(p.id)}" title="${escapeHtml(t("tmTitleRouterFeeds"))}">${routerOptions}</select>`}
         <span class="proxy-reg-actions">
-          <button class="icon-action compact" type="button" data-topology-proxy-edit="${escapeHtml(p.id)}" aria-label="Edit port" title="Rename / change port">
+          <button class="icon-action compact" type="button" data-topology-proxy-edit="${escapeHtml(p.id)}" aria-label="${escapeHtml(t("rtTitleRenamePort"))}" title="${escapeHtml(t("rtTitleRenamePort"))}">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
           </button>
-          <button class="icon-action compact danger" type="button" data-topology-proxy-delete="${escapeHtml(p.id)}" aria-label="Delete port" title="Delete this port">
+          <button class="icon-action compact danger" type="button" data-topology-proxy-delete="${escapeHtml(p.id)}" aria-label="${escapeHtml(t("rtTitleDeletePort"))}" title="${escapeHtml(t("rtTitleDeletePort"))}">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
           </button>
         </span>
       </div>`;
-  }).join("") || `<div class="topology-muted">no proxy ports</div>`;
+  }).join("") || `<div class="topology-muted">${t("cvNoProxyPorts")}</div>`;
   // Dead agents: assignment entries whose agent is no longer reported by the host
   // (left behind after a rename/removal). Listed separately so they can be deleted
   // — which removes the assignment and frees any proxy ports it still holds.

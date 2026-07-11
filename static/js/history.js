@@ -27,18 +27,18 @@ export function openRequestHistory() {
       <div class="topology-policy-modal history-modal" role="dialog" aria-modal="true" aria-label="Request History">
         <div class="topology-card-head history-modal-head">
           <strong>Request History</strong>
-          <button class="icon-action compact" type="button" id="historyCloseBtn" aria-label="Close" title="Close">×</button>
+          <button class="icon-action compact" type="button" id="historyCloseBtn" aria-label="${escapeHtml(t("close"))}" title="${escapeHtml(t("close"))}">×</button>
         </div>
         <div class="history-filters">
           <select id="historyDateSelect" class="history-date-select"></select>
-          <input id="historyClientInput" type="text" placeholder="filter client…" class="history-filter-input">
+          <input id="historyClientInput" type="text" placeholder="${escapeHtml(t("hsFilterClient"))}" class="history-filter-input">
           <select id="historyViaSelect" class="history-date-select">
-            <option value="">via: all</option>
+            <option value="">${escapeHtml(t("hsViaAll"))}</option>
             <option value="llama">llama</option>
             <option value="cloud">cloud</option>
           </select>
           <select id="historyStatusSelect" class="history-date-select">
-            <option value="">status: all</option>
+            <option value="">${escapeHtml(t("hsStatusAll"))}</option>
             <option value="ok">OK (2xx)</option>
             <option value="error">${escapeHtml(t("historyErrorOpt"))}</option>
           </select>
@@ -256,8 +256,8 @@ export function openHistoryDetailPopup(row) {
       <div class="topology-card-head history-detail-popup-head">
         <span class="history-detail-popup-title">${escapeHtml(topologyLogSummary(row))}</span>
         <button class="icon-action compact history-curl-btn" id="historyDetailCurlBtn"
-                title="Copy a diagnostics curl for this route (last errors via /api/agent-proxy-logs)">⧉ curl</button>
-        <button class="icon-action compact" id="historyDetailCloseBtn" aria-label="Close" title="Close">×</button>
+                title="${escapeHtml(t("hsTitleCurl"))}">⧉ curl</button>
+        <button class="icon-action compact" id="historyDetailCloseBtn" aria-label="${escapeHtml(t("close"))}" title="${escapeHtml(t("close"))}">×</button>
       </div>
       <div class="history-detail-popup-body">
         ${renderHistoryDetailFull(row)}

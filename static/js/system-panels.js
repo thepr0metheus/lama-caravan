@@ -471,7 +471,7 @@ export function renderLlamaCpp() {
     <div class="llama-chip"><span>${t("commit")}</span><strong>${escapeHtml(git.head || "n/a")}</strong></div>
     <div class="llama-chip"><span>${t("branch")}</span><strong>${escapeHtml(git.branch || "n/a")}</strong></div>
     <div class="llama-chip"><span>${t("upstream")}</span><strong>${escapeHtml(upstreamHead)}</strong></div>
-    <div class="llama-chip ${upstreamNewer ? "warn" : (upstreamBuild > 0 ? "good" : "")}"><span>upstream build</span><strong>${escapeHtml(upstreamBuildLabel)}</strong></div>
+    <div class="llama-chip ${upstreamNewer ? "warn" : (upstreamBuild > 0 ? "good" : "")}"><span>${t("spUpstreamBuild")}</span><strong>${escapeHtml(upstreamBuildLabel)}</strong></div>
     <div class="llama-chip"><span>${t("dirty")}</span><strong>${git.dirtyCount || 0}</strong></div>
     <div class="llama-chip ${git.trackedDirtyCount ? "warn" : "good"}"><span>${t("trackedDirty")}</span><strong>${git.trackedDirtyCount || 0}</strong></div>
     <div class="llama-chip ${info.supportsChatTemplateFile ? "good" : "warn"}"><span>${t("supportsChatTemplateFile")}</span><strong>${info.supportsChatTemplateFile ? "yes" : "no"}</strong></div>

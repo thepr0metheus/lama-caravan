@@ -449,13 +449,13 @@ export function nodeServerCardHtml(node, s) {
     const canBoot = bootSupported && (phase === "stopped" || running) && !isDeleting && !isCellBusy;
     const bootBtn = `<button class="node-action-btn${bootSupported && s.bootEnabled ? " ok" : " muted"}" type="button"
         ${canBoot ? `data-node-cell-boot="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-boot-action="${s.bootEnabled ? "disable" : "enable"}"` : "disabled"}
-        title="${bootSupported ? (s.bootEnabled ? "Disable autostart on boot" : "Enable autostart on boot") : "Autostart not supported for remote hosts"}">${bootSupported && s.bootEnabled ? "↟" : "↥"}<span class="nab-lbl">${escapeHtml(t("topologyAutostart"))}</span></button>`;
+        title="${escapeHtml(bootSupported ? (s.bootEnabled ? t("tnBootDisable") : t("tnBootEnable")) : t("tnBootUnsupported"))}">${bootSupported && s.bootEnabled ? "↟" : "↥"}<span class="nab-lbl">${escapeHtml(t("topologyAutostart"))}</span></button>`;
 
     return `
       <article class="node-server ${cardCls}"
                data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}">
         <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
-              data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="Proxy upstream target"></span>
+              data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>
         <div class="node-ctrl-row">
           ${playBtn}${stopBtn}${bootBtn}${delBtn}
         </div>
@@ -504,7 +504,7 @@ export function nodeServerCardHtml(node, s) {
     <article class="node-server ${cardCls}"
              data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}">
       <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
-            data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="Proxy upstream target"></span>
+            data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>
       ${lifecycleBar}
       <div class="node-server-head">
         <a href="http://${escapeHtml(addr)}" target="_blank" rel="noopener" class="topology-addr-link" onclick="event.stopPropagation()">${escapeHtml(addr)}</a>

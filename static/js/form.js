@@ -46,7 +46,11 @@ import { $, api, escapeHtml, formatBool, toast } from "./utils.js";
 
 export function syncToggleLabel(input) {
   const span = input?.closest(".check-row")?.querySelector("span");
-  if (span) span.textContent = input.checked ? t("enabled") : t("disabled");
+  if (!span) return;
+  // Stamp the state-matching key so applyLanguage() re-translates the label
+  // in place when the language switches while the editor stays open.
+  span.dataset.i18n = input.checked ? "enabled" : "disabled";
+  span.textContent = t(span.dataset.i18n);
 }
 
 export function syncCompanionMuting(pfx = "") {
@@ -1066,6 +1070,7 @@ export function renderFields(pfx = "") {
   favBtn.className = "advanced-tab-btn" + (favActive ? " active" : "");
   favBtn.type = "button";
   favBtn.textContent = t("tabFavorites");
+  favBtn.dataset.i18n = "tabFavorites";   // refreshed in place on language switch
   favBtn.dataset.advTab = "fav";
   bar.appendChild(favBtn);
 
@@ -1098,6 +1103,7 @@ export function renderFields(pfx = "") {
   paramsBtn.className = "advanced-tab-btn" + (favActive ? "" : " active");
   paramsBtn.type = "button";
   paramsBtn.textContent = t("tabParams");
+  paramsBtn.dataset.i18n = "tabParams";
   paramsBtn.dataset.advTab = "0";
   bar.appendChild(paramsBtn);
 
@@ -1118,6 +1124,7 @@ export function renderFields(pfx = "") {
     btn.className = "advanced-tab-btn";
     btn.type = "button";
     btn.textContent = t(tab.key);
+    btn.dataset.i18n = tab.key;
     btn.dataset.advTab = String(idx);
     bar.appendChild(btn);
 

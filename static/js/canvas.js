@@ -289,7 +289,7 @@ export function _cvSchedInputPorts(router, schedNodeId) {
 export function _renderSchedHistHtml(nodeId, outputs, grid, inputPorts) {
   const cache = _cvSchedHistData[nodeId];
   if (!cache) return `<div class="cv-q-hist-loading">${t("loadingEllipsis")}</div>`;
-  if (cache.err) return `<div class="cv-q-hist-loading">failed to load</div>`;
+  if (cache.err) return `<div class="cv-q-hist-loading">${t("cvFailedLoad")}</div>`;
 
   if (inputPorts && inputPorts.size === 0) {
     return `<div class="cv-q-hist-loading">${t("cvNoInputs")}</div>`;
@@ -344,8 +344,8 @@ export function _renderSchedHistHtml(nodeId, outputs, grid, inputPorts) {
 
 export function _renderQueueHistHtml(nodeId) {
   const cache = _cvQueueHistData[nodeId];
-  if (!cache) return `<div class="cv-q-hist-loading">loading…</div>`;
-  if (cache.err) return `<div class="cv-q-hist-loading">failed to load</div>`;
+  if (!cache) return `<div class="cv-q-hist-loading">${t("loadingEllipsis")}</div>`;
+  if (cache.err) return `<div class="cv-q-hist-loading">${t("cvFailedLoad")}</div>`;
   if (!cache.rows.length) return `<div class="cv-q-hist-loading">${t("cvNoHistory")}</div>`;
 
   const batch = cache.rows.slice(0, 25);
@@ -412,7 +412,7 @@ export function queueNodeLiveHtml(router, n) {
   } else {
     pips = `<span class="cv-q-pip${running ? " on" : ""}"></span>`;
   }
-  const slotText = slots > 0 ? `${running}/${slots}` : `${running}/<span class="cv-q-auto">auto</span>`;
+  const slotText = slots > 0 ? `${running}/${slots}` : `${running}/<span class="cv-q-auto">${t("cvAuto")}</span>`;
   // ── live lists for this admit upstream ──
   const group = live?.group || "";
   const ov = topologyRuntimeOverview();
@@ -438,11 +438,11 @@ export function queueNodeLiveHtml(router, n) {
     ? allRunning.map(({ it, isCloud }) => {
         const el = topologyFormatDuration(it.elapsedMs || topologyDurationMs(it.startedAt));
         const routeTag = isCloud
-          ? `<span class="cv-q-route cloud" title="${escapeHtml(it.model || "cloud overflow")}">↗ cloud</span>`
-          : `<span class="cv-q-route main" title="main upstream">→ main</span>`;
+          ? `<span class="cv-q-route cloud" title="${escapeHtml(it.model || t("cvTitleCloudOverflow"))}">↗ cloud</span>`
+          : `<span class="cv-q-route main" title="${escapeHtml(t("cvTitleMainUpstream"))}">→ main</span>`;
         return `<div class="cv-q-now-row running">${chevrons}<span class="cv-q-cli">${escapeHtml(_qClientName(it))}</span>${routeTag}<span class="cv-q-elapsed">${escapeHtml(el)}</span></div>`;
       }).join("")
-    : `<div class="cv-q-empty">— no active request —</div>`;
+    : `<div class="cv-q-empty">— ${t("cvQNoActive")} —</div>`;
   // channel reservation (sticky) bar — driven by the shared rAF ticker (ensureStickyBarTicker)
   const stickyData = group ? (ui.latestSystemMonitor?.latest?.agentProxies?.stickySlots || {})[group] : null;
   let reserveRow = "";
@@ -452,7 +452,7 @@ export function queueNodeLiveHtml(router, n) {
     const remMs = Math.max(0, anim.durationMs - (Date.now() - anim.startMs));
     const startPct = anim.durationMs > 0 ? (remMs / anim.durationMs) * 100 : 0;
     reserveRow = `<div class="cv-q-reserve">`
-      + `<span class="cv-q-rlabel">⏱ channel reserved · <span data-sticky-secs>${Math.ceil(remMs / 1000)}s</span></span>`
+      + `<span class="cv-q-rlabel">⏱ ${escapeHtml(t("cvQChannelReserved"))} · <span data-sticky-secs>${Math.ceil(remMs / 1000)}s</span></span>`
       + `<span class="topology-sticky-bar" data-sticky-group="${escapeHtml(group)}" aria-hidden="true"><i style="clip-path:inset(0 ${(100 - startPct).toFixed(3)}% 0 0)"></i></span>`
     + `</div>`;
   }
@@ -468,7 +468,7 @@ export function queueNodeLiveHtml(router, n) {
     const overflowInMs = rt.cloudAt > 0 ? Math.max(0, rt.cloudAt * 1000 - rt.queuedMs) : null;
     const switchLine = spillEdge && overflowInMs !== null
       ? `<div class="cv-q-wait-sub${overflowInMs === 0 ? " now" : ""}">`
-          + (overflowInMs > 0 ? `↗ switch in ${topologyFormatDuration(overflowInMs)}` : `↗ switching now`)
+          + (overflowInMs > 0 ? `↗ ${escapeHtml(t("cvQSwitchIn", { t: topologyFormatDuration(overflowInMs) }))}` : `↗ ${escapeHtml(t("cvQSwitchingNow"))}`)
         + `</div>`
       : `<div class="cv-q-wait-sub muted">—</div>`;
     return `<div class="cv-q-wait-row">`
@@ -478,18 +478,18 @@ export function queueNodeLiveHtml(router, n) {
       + `</div>`
       + `<span class="cv-q-bar">`
         + `<span class="cv-q-bar-fill" style="width:${fill}%"></span>`
-        + (spillEdge && spillRel > 0 && spillRel < 100 ? `<span class="cv-q-bar-mk spill" style="left:${spillRel}%" title="spills at ${spillPct}%"></span>` : "")
+        + (spillEdge && spillRel > 0 && spillRel < 100 ? `<span class="cv-q-bar-mk spill" style="left:${spillRel}%" title="${escapeHtml(t("cvTitleSpillsAt", { n: spillPct }))}"></span>` : "")
       + `</span>`
       + switchLine
     + `</div>`;
   }).join("");
-  const moreWaiting = waitingItems.length > 5 ? `<div class="cv-q-empty">+${waitingItems.length - 5} more waiting…</div>` : "";
+  const moreWaiting = waitingItems.length > 5 ? `<div class="cv-q-empty">${escapeHtml(t("cvQMoreWaiting", { n: waitingItems.length - 5 }))}</div>` : "";
   const waitBlock = waitingItems.length
-    ? `<div class="cv-q-sec-h">waiting · ${waitingItems.length}</div>${waitRows}${moreWaiting}`
-    : `<div class="cv-q-empty muted">queue empty</div>`;
+    ? `<div class="cv-q-sec-h">${escapeHtml(t("cvQWaitingHead", { n: waitingItems.length }))}</div>${waitRows}${moreWaiting}`
+    : `<div class="cv-q-empty muted">${t("cvQEmpty")}</div>`;
   return `<div class="cv-q-meter${slots > 0 && running >= slots ? " full" : ""}">`
       + `<span class="cv-q-pips">${pips}</span><span class="cv-q-slotnum">${slotText}</span>`
-      + (waitingItems.length ? `<span class="cv-q-qd waiting">⏳ ${waitingItems.length}</span>` : `<span class="cv-q-qd idle">idle</span>`)
+      + (waitingItems.length ? `<span class="cv-q-qd waiting">⏳ ${waitingItems.length}</span>` : `<span class="cv-q-qd idle">${t("cvQIdle")}</span>`)
     + `</div>`
     + `<div class="cv-q-now">${nowRows}</div>`
     + reserveRow
@@ -547,8 +547,8 @@ export function requestTypeNodeBodyHtml(router, n) {
   const globalNote = globalEmbed
     ? `<div class="cv-q-note">${escapeHtml(t("cvReqTypeGlobalNote"))}</div>` : "";
   return `<div class="cv-q-body">` + globalNote
-    + destRow("embed", "spill", "embeddings", "Drag to the embeddings target (e.g. a cloud embedder) →", embedLabel, !!embedEdge)
-    + destRow("__default__", "admit", "default", "Drag to where everything else should go →", defaultLabel, !!defaultEdge)
+    + destRow("embed", "spill", "embeddings", t("cvDragEmbedTarget"), embedLabel, !!embedEdge)
+    + destRow("__default__", "admit", "default", t("cvDragDefaultTarget"), defaultLabel, !!defaultEdge)
     + `</div>`;
 }
 
@@ -573,13 +573,13 @@ export function requestSizeNodeBodyHtml(router, n) {
       + `<span class="cv-port out${wired ? "" : " unset"}" data-cv-port="out" data-cv-sched-port="${portId}" title="${escapeHtml(hint)}"></span>`
     + `</div>`;
   const thrRow = `<div class="cv-q-cfg">`
-    + `<label class="cv-q-cfg-row"><span>small ≤ <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">Requests with <code>max_tokens</code> at or below this leave the <strong>small</strong> port (heartbeat-scale replies); bigger or unspecified requests take <strong>default</strong>.</span></span></span>`
-    + `<input class="cv-q-cfg-in" type="number" min="1" max="100000" data-cv-q="maxTokensAt" value="${thr}" title="max_tokens threshold"><span class="cv-q-u">tok</span></label>`
+    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelSmallLe"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipRequestSizeSmall")}</span></span></span>`
+    + `<input class="cv-q-cfg-in" type="number" min="1" max="100000" data-cv-q="maxTokensAt" value="${thr}" title="${escapeHtml(t("cvTitleMaxTokensThr"))}"><span class="cv-q-u">tok</span></label>`
     + `</div>`;
   return `<div class="cv-q-body">`
     + thrRow
-    + destRow("small", "spill", "small", "Drag to where small requests (max_tokens ≤ threshold) go →", smallLabel, !!smallEdge)
-    + destRow("__default__", "admit", "default", "Drag to where everything else should go →", defaultLabel, !!defaultEdge)
+    + destRow("small", "spill", "small", t("cvDragSmallTarget"), smallLabel, !!smallEdge)
+    + destRow("__default__", "admit", "default", t("cvDragDefaultTarget"), defaultLabel, !!defaultEdge)
     + `</div>`;
 }
 
@@ -600,15 +600,15 @@ export function queueNodeBodyHtml(router, n) {
       + `<span class="cv-q-dot ${role}"></span>`
       + `<span class="cv-q-dl">${name}</span>`
       + `<span class="cv-q-dt" title="${escapeHtml(label)}">${escapeHtml(label)}</span>`
-      + `<span class="cv-port out${wired ? "" : " unset"}" data-cv-port="out" data-cv-qrole="${role}" title="Drag a cable to the ${role === "admit" ? "main upstream" : "overflow target (a provider or another queue)"}"></span>`
+      + `<span class="cv-port out${wired ? "" : " unset"}" data-cv-port="out" data-cv-qrole="${role}" title="${escapeHtml(role === "admit" ? t("cvDragToMain") : t("cvDragToOverflow"))}"></span>`
     + `</div>`;
   };
   // ── inline, editable parameters (also in the ⚙ panel) ──
   const qnum = (key, val, min, max, ph) =>
     `<input class="cv-q-cfg-in" type="number" min="${min}" max="${max}" data-cv-q="${key}" value="${val === null || val === undefined ? "" : val}" placeholder="${ph || ""}" title="${escapeHtml(ph || key)}">`;
   const paramsGrid = `<div class="cv-q-cfg">`
-    + `<label class="cv-q-cfg-row"><span>overflow at <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">At this % of the client's wait-timeout, the request is redirected to the overflow output instead of continuing to wait.</span></span></span>${qnum("spillPct", cfg.spillPct ?? 20, 0, 100, "% of wait")}<span class="cv-q-u">%</span></label>`
-    + `<label class="cv-q-cfg-row"><span>reserve <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">After a request finishes, hold the server slot for the same agent's next call for this many seconds. 0 = disabled.</span></span></span>${qnum("stickySlotSec", cfg.stickySlotSec ?? 20, 0, 120, "reserve for agent")}<span class="cv-q-u">s</span></label>`
+    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelOverflowAt"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipOverflowAt")}</span></span></span>${qnum("spillPct", cfg.spillPct ?? 20, 0, 100, "% of wait")}<span class="cv-q-u">%</span></label>`
+    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelReserve"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipReserve")}</span></span></span>${qnum("stickySlotSec", cfg.stickySlotSec ?? 20, 0, 120, "reserve for agent")}<span class="cv-q-u">s</span></label>`
     + `</div>`;
   // History pane — auto-refresh if stale while open
   const histOpen = !!_cvQueueHistOpen[n.id];
@@ -690,16 +690,16 @@ export function renderSchedNodeHtml(n, router) {
   const { d: nowD, h: nowH, timeStr: nowTimeStr } = _cvSchedNow();
   const activeNowId = grid[nowD]?.[nowH] || null;   // null → "default" is active
 
-  const toggleBtn = `<button class="cv-act cv-sched-toggle" type="button" data-cv-sched-toggle="${escapeHtml(nid)}" title="${collapsed ? "Expand" : "Collapse"}">${collapsed ? "+" : "−"}</button>`;
-  const head = `<span class="cv-rule-head"><strong>⏱ schedule</strong><span class="cv-sched-now-clock" data-cv-sched-clock="${escapeHtml(nid)}">${nowTimeStr}</span><span class="cv-rule-btns">${toggleBtn}<button class="cv-act cv-rule-del" type="button" data-cv-delnode="${escapeHtml(nid)}" title="Delete node">×</button></span></span>`;
+  const toggleBtn = `<button class="cv-act cv-sched-toggle" type="button" data-cv-sched-toggle="${escapeHtml(nid)}" title="${escapeHtml(collapsed ? t("expand") : t("collapse"))}">${collapsed ? "+" : "−"}</button>`;
+  const head = `<span class="cv-rule-head"><strong>⏱ ${escapeHtml(t("cvNodeSchedule"))}</strong><span class="cv-sched-now-clock" data-cv-sched-clock="${escapeHtml(nid)}">${nowTimeStr}</span><span class="cv-rule-btns">${toggleBtn}<button class="cv-act cv-rule-del" type="button" data-cv-delnode="${escapeHtml(nid)}" title="${escapeHtml(t("cvTitleDeleteNode"))}">×</button></span></span>`;
 
   if (collapsed) {
-    const activeName = activeNowId ? (outputs.find((o) => o.id === activeNowId)?.name || "output") : (cfg.defaultName || "default");
+    const activeName = activeNowId ? (outputs.find((o) => o.id === activeNowId)?.name || t("cvLabelOutput")) : (cfg.defaultName || "default");
     const ports = [...outputs.map((o) =>
       `<div class="cv-sched-chip-stub"><span class="cv-port out" data-cv-port="out" data-cv-sched-port="${escapeHtml(o.id)}" title="${escapeHtml(o.name)} →"></span></div>`
     ), `<div class="cv-sched-chip-stub"><span class="cv-port out" data-cv-port="out" data-cv-sched-port="__default__" title="default →"></span></div>`].join("");
     return head
-      + `<span class="cv-sub">${outputs.length} output${outputs.length !== 1 ? "s" : ""} · now → ${escapeHtml(activeName)}</span>`
+      + `<span class="cv-sub">${escapeHtml(t("cvSchedOutputsNow", { n: outputs.length, name: activeName }))}</span>`
       + ports;
   }
 
@@ -712,14 +712,14 @@ export function renderSchedNodeHtml(n, router) {
       return `<div class="cv-sched-row${active ? " cv-sched-row--active" : ""}${nowActive ? " cv-sched-row--now-active" : ""}" data-cv-sched-chip="${escapeHtml(nid)}:${escapeHtml(o.id)}">`
         + `<i class="cv-sched-dot" style="background:${color}"></i>`
         + `<span class="cv-sched-name" data-cv-sched-rename="${escapeHtml(nid)}:${escapeHtml(o.id)}" spellcheck="false">${escapeHtml(o.name)}</span>`
-        + `<button class="cv-sched-rm" type="button" data-cv-sched-rmout="${escapeHtml(nid)}:${escapeHtml(o.id)}" title="Remove">×</button>`
-        + `<span class="cv-port out" data-cv-port="out" data-cv-sched-port="${escapeHtml(o.id)}" title="Drag to connect →"></span>`
+        + `<button class="cv-sched-rm" type="button" data-cv-sched-rmout="${escapeHtml(nid)}:${escapeHtml(o.id)}" title="${escapeHtml(t("cvTitleRemove"))}">×</button>`
+        + `<span class="cv-port out" data-cv-port="out" data-cv-sched-port="${escapeHtml(o.id)}" title="${escapeHtml(t("cvDragConnect"))}"></span>`
         + `</div>`;
     }),
     `<div class="cv-sched-row cv-sched-row--default${paintId === "__default__" ? " cv-sched-row--active" : ""}${activeNowId === null ? " cv-sched-row--now-active" : ""}" data-cv-sched-chip="${escapeHtml(nid)}:__default__">`
       + `<i class="cv-sched-dot cv-sched-dot--default"></i>`
       + `<span class="cv-sched-name" data-cv-sched-rename-default="${escapeHtml(nid)}" spellcheck="false">${escapeHtml(cfg.defaultName || "default")}</span>`
-      + `<span class="cv-port out" data-cv-port="out" data-cv-sched-port="__default__" title="Drag to connect →"></span>`
+      + `<span class="cv-port out" data-cv-port="out" data-cv-sched-port="__default__" title="${escapeHtml(t("cvDragConnect"))}"></span>`
       + `</div>`,
     `<button class="cv-sched-addrow" type="button" data-cv-sched-addout="${escapeHtml(nid)}">+ output</button>`,
   ].join("");
@@ -861,8 +861,8 @@ export function canvasNodes(router) {
   const nodes = [];
   const graph = router.graph || { nodes: [], edges: [] };
   const ruleNodes = graph.nodes || [];
-  const PORT_OUT = `<span class="cv-port out" data-cv-port="out" title="Drag to connect →"></span>`;
-  const PORT_IN = `<span class="cv-port in" data-cv-port="in" title="Drop a connection here"></span>`;
+  const PORT_OUT = `<span class="cv-port out" data-cv-port="out" title="${escapeHtml(t("cvDragConnect"))}"></span>`;
+  const PORT_IN = `<span class="cv-port in" data-cv-port="in" title="${escapeHtml(t("cvDropHere"))}"></span>`;
   // Single source of truth = the canvas. Only inputs WIRED into the graph (≥1 outgoing
   // edge) appear here; unwired proxies live in the left panel — drag one onto a node to
   // route it. Everything unwired falls through to the default output.
@@ -877,15 +877,15 @@ export function canvasNodes(router) {
     <div class="cv-in-row ${role}${wired ? "" : " unwired"}" data-cv-in-row="in:${escapeHtml(p.id)}">
       <span class="cv-in-role">${role === "primary" ? "P" : "F"}</span>
       <span class="cv-in-port-num">:${escapeHtml(String(p.port))}</span>
-      ${role === "fallback" && !wired ? `<span class="cv-in-follow">↳ follows</span>` : ""}
+      ${role === "fallback" && !wired ? `<span class="cv-in-follow">↳ ${escapeHtml(t("cvInFollows"))}</span>` : ""}
     </div>` : "";
   const waitRow = (p) => {
     if (!p) return "";
     const override = Number(graphInputs[p.id]?.clientTimeoutSeconds || 0);
     const synced = proxyEffectiveWaitTimeout(p);
-    return `<div class="cv-in-wait" title="Wait budget — queue spill/give-up %25 scale against this. Auto-synced from the agent; type a value to override.">`
-      + `<span class="cv-in-wait-lbl">wait</span>`
-      + `<input class="cv-in-wait-in" type="number" min="0" max="86400" data-cv-wait="${escapeHtml(p.id)}" value="${override || ""}" placeholder="${synced || "auto"}">`
+    return `<div class="cv-in-wait" title="${escapeHtml(t("cvTitleWaitBudget"))}">`
+      + `<span class="cv-in-wait-lbl">${escapeHtml(t("cvLabelWait"))}</span>`
+      + `<input class="cv-in-wait-in" type="number" min="0" max="86400" data-cv-wait="${escapeHtml(p.id)}" value="${override || ""}" placeholder="${synced || escapeHtml(t("cvAuto"))}">`
       + `<span class="cv-in-wait-u">s</span></div>`;
   };
   // Build the grouped inputs block — one block for all clients, each row has a port dot
@@ -911,16 +911,16 @@ export function canvasNodes(router) {
   const embedOpts = localLlamaOuts.map((o) =>
     `<option value="${escapeHtml(o.id)}"${o.id === embedOutId ? " selected" : ""}>${escapeHtml(topologyRouterOutputLabel(o))}</option>`).join("");
   const embedSlotHtml = `<div class="cv-embed-slot ${embedOut ? "assigned" : "unassigned"}">`
-    + `<div class="cv-embed-head">🧬 embeddings <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">Every client's <code>POST /v1/embeddings</code> goes to this one server — global, no per-route wiring. Pick a local embedding model; empty means embeddings can't be served.</span></span></div>`
-    + `<select class="cv-embed-select" data-cv-embed-out><option value="">— not assigned —</option>${embedOpts}</select>`
-    + `<div class="cv-embed-note">${embedOut ? `all /v1/embeddings → ${escapeHtml(topologyRouterOutputLabel(embedOut))}` : "not set — /v1/embeddings will fail"}</div>`
+    + `<div class="cv-embed-head">🧬 embeddings <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipEmbeddings")}</span></span></div>`
+    + `<select class="cv-embed-select" data-cv-embed-out><option value="">— ${escapeHtml(t("cvNotAssigned"))} —</option>${embedOpts}</select>`
+    + `<div class="cv-embed-note">${embedOut ? escapeHtml(t("cvEmbedAllTo", { name: topologyRouterOutputLabel(embedOut) })) : t("cvEmbedNotSet")}</div>`
     + `</div>`;
   nodes.push({
     id: "inputs:block",
     type: "inputs",
     cls: "cv-inputs-block",
     fixed: { x: 20, y: 20 },
-    html: `<div class="cv-inputs-head">Clients <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">Proxy ports that feed requests into this board. Drag a cable from a client port to a rule node or server to route it.</span></span></div><div class="cv-inputs-body">${inputsBodyHtml || '<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">no proxy ports</span>'}</div>${embedSlotHtml}`,
+    html: `<div class="cv-inputs-head">${escapeHtml(t("cvLabelClients"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipClients")}</span></span></div><div class="cv-inputs-body">${inputsBodyHtml || '<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>'}</div>${embedSlotHtml}`,
   });
   // Rule nodes (graph mode) — positioned by their stored x/y; input + output ports.
   const RULE_GLYPH = { schedule: "⏱", weighted: "⚖", roundRobin: "🔁", failover: "⚡", queue: "⏳", requestType: "🔀", requestSize: "📏" };
@@ -941,15 +941,15 @@ export function canvasNodes(router) {
     // Queue nodes already have inline config fields on the card — show a ? help
     // tooltip instead of a gear button. Other rule nodes need the gear for setup.
     const cfgBtn = isQueue
-      ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">Wire the <strong>main</strong> and <strong>spill</strong> ports on the node (drag a cable from each). Requests wait for a slot on the main upstream; at <strong>overflow%</strong> of the client's timeout they divert to the spill target. <em>overflow at</em> and <em>reserve</em> are editable inline on the card.</span></span>`
+      ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipQueueNode")}</span></span>`
       : isReqType
-      ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">Wire the two ports (drag a cable from each): <strong>embeddings</strong> sends <code>POST /v1/embeddings</code> to its target (e.g. a cloud embedder); <strong>default</strong> takes everything else.</span></span>`
+      ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipRequestTypeNode")}</span></span>`
       : isReqSize
-      ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">Wire the two ports (drag a cable from each): <strong>small</strong> takes requests with <code>max_tokens</code> ≤ the threshold (heartbeat-scale asks); <strong>default</strong> takes the rest. The threshold edits inline on the card.</span></span>`
-      : `<button class="cv-act cv-rule-cfg" type="button" data-cv-cfgnode="${escapeHtml(n.id)}" title="Configure this node">⚙</button>`;
-    const head = `<span class="cv-rule-head"><strong>${RULE_GLYPH[n.type] || "•"} ${escapeHtml(n.type)}</strong>`
+      ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipRequestSizeNode")}</span></span>`
+      : `<button class="cv-act cv-rule-cfg" type="button" data-cv-cfgnode="${escapeHtml(n.id)}" title="${escapeHtml(t("cvConfigureNode"))}">⚙</button>`;
+    const head = `<span class="cv-rule-head"><strong>${RULE_GLYPH[n.type] || "•"} ${escapeHtml(cvNodeTypeLabel(n.type))}</strong>`
       + `<span class="cv-rule-btns">${cfgBtn}`
-      + `<button class="cv-act cv-rule-del" type="button" data-cv-delnode="${escapeHtml(n.id)}" title="Delete node">×</button></span></span>`;
+      + `<button class="cv-act cv-rule-del" type="button" data-cv-delnode="${escapeHtml(n.id)}" title="${escapeHtml(t("cvTitleDeleteNode"))}">×</button></span></span>`;
     const body = isQueue
       ? queueNodeBodyHtml(router, n)
       : isReqType
@@ -971,20 +971,27 @@ export function canvasNodes(router) {
     type: "outputs",
     cls: "cv-servers-block",
     fixed: { x: 700, y: 20 },
-    html: `<div class="cv-servers-head">${escapeHtml(t("topologyServersHead"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">Output targets: local llama models and cloud providers. Connect rule nodes or client ports to an output here to send traffic to it.</span></span></div><div class="cv-servers-body">${renderServersBlockHtml(router)}</div>`,
+    html: `<div class="cv-servers-head">${escapeHtml(t("topologyServersHead"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipServersHead")}</span></span></div><div class="cv-servers-body">${renderServersBlockHtml(router)}</div>`,
   });
   return nodes;
+}
+
+// Localized display label for a rule-node type (palette buttons + card heads).
+export function cvNodeTypeLabel(type) {
+  const key = { schedule: "cvNodeSchedule", weighted: "cvNodeWeighted", roundRobin: "cvNodeRoundRobin",
+    failover: "cvNodeFailover", queue: "cvNodeQueue", requestType: "cvNodeByType", requestSize: "cvNodeBySize" }[type];
+  return key ? t(key) : type;
 }
 
 // One-line summary shown under a rule node's title.
 export function _ruleNodeSummary(n, outputs) {
   const c = n.config || {};
-  if (n.type === "schedule") return `${(c.windows || []).length} window(s)`;
-  if (n.type === "weighted") return (c.weights || []).map((w) => `${w.pct}%`).join(" / ") || "no weights";
-  if (n.type === "failover") return `${(c.order || []).length} in order`;
-  if (n.type === "roundRobin") return "rotate outputs";
+  if (n.type === "schedule") return t("cvSumWindows", { n: (c.windows || []).length });
+  if (n.type === "weighted") return (c.weights || []).map((w) => `${w.pct}%`).join(" / ") || t("cvSumNoWeights");
+  if (n.type === "failover") return t("cvSumInOrder", { n: (c.order || []).length });
+  if (n.type === "roundRobin") return t("cvSumRotate");
   if (n.type === "queue") {
-    const slots = c.maxSlots ? `${c.maxSlots} slot${c.maxSlots > 1 ? "s" : ""}` : "auto slots";
+    const slots = c.maxSlots ? t("cvSumSlots", { n: c.maxSlots }) : t("cvSumAutoSlots");
     return `${slots} · spill ${c.spillPct ?? 20}%`;
   }
   return "";
@@ -1207,34 +1214,34 @@ export function renderRouterNodeConfig(router) {
     edges.map((e) => `<option value="${escapeHtml(e.id)}"${e.id === sel ? " selected" : ""}>${escapeHtml(edgeTargetLabel(router, e))}</option>`).join("");
   let body;
   if (!edges.length && node.type !== "queue") {
-    body = `<div class="rw-cfg-hint">Connect this node to one or more targets first — drag from its right port to a rule or output.</div>`;
+    body = `<div class="rw-cfg-hint">${t("cvHintConnectFirst")}</div>`;
   } else if (node.type === "weighted") {
-    body = `<div class="rw-cfg-hint">Split traffic across connections by weight.</div>`
+    body = `<div class="rw-cfg-hint">${t("cvHintWeighted")}</div>`
       + edges.map((e) => {
         const w = (cfg.weights || []).find((x) => x.edge === e.id);
         return `<label class="rw-cfg-row"><span class="rw-cfg-tgt" title="${escapeHtml(edgeTargetLabel(router, e))}">${escapeHtml(edgeTargetLabel(router, e))}</span><input class="rw-cfg-in rw-cfg-num" type="number" min="0" max="100" data-cfg-weight="${escapeHtml(e.id)}" value="${w ? w.pct : 0}"><span class="rw-cfg-unit">%</span></label>`;
       }).join("");
   } else if (node.type === "failover") {
     const order = (cfg.order && cfg.order.length ? cfg.order.filter((id) => edges.some((e) => e.id === id)) : edges.map((e) => e.id));
-    body = `<div class="rw-cfg-hint">Try connections in order; spill to the next when the target is busy.</div><ol class="rw-cfg-order">`
+    body = `<div class="rw-cfg-hint">${t("cvHintFailover")}</div><ol class="rw-cfg-order">`
       + order.map((id, i) => {
         const e = edges.find((x) => x.id === id);
         return `<li data-cfg-ord-id="${escapeHtml(id)}"><span class="rw-cfg-tgt">${escapeHtml(edgeTargetLabel(router, e))}</span><span class="rw-cfg-ord"><button class="icon-action compact" type="button" data-cfg-up="${escapeHtml(id)}" ${i === 0 ? "disabled" : ""}>↑</button><button class="icon-action compact" type="button" data-cfg-down="${escapeHtml(id)}" ${i === order.length - 1 ? "disabled" : ""}>↓</button></span></li>`;
       }).join("") + `</ol>`;
   } else if (node.type === "schedule") {
-    body = `<div class="rw-cfg-hint">Schedule is configured directly on the canvas node — use the grid and palette there.</div>`;
+    body = `<div class="rw-cfg-hint">${t("cvHintSchedule")}</div>`;
   } else if (node.type === "queue") {
     const num = (key, val, min, max, ph) =>
       `<input class="rw-cfg-in rw-cfg-num" type="number" min="${min}" max="${max}" data-cfg-q="${key}" value="${val === null || val === undefined ? "" : val}" placeholder="${ph || ""}">`;
-    body = `<div class="rw-cfg-hint">Wire the <strong>main</strong> and <strong>spill</strong> ports on the node itself (drag a cable from each). Requests wait for a slot on the main upstream; at <strong>overflow%</strong> of the client's timeout they divert to the spill target. No priorities here — pure FIFO.</div>`
-      + `<label class="rw-cfg-row"><span class="rw-cfg-tgt" title="At this % of the client's wait-timeout, redirect to the spill path">overflow at</span>${num("spillPct", cfg.spillPct ?? 20, 0, 100)}<span class="rw-cfg-unit">%</span></label>`
-      + `<label class="rw-cfg-row"><span class="rw-cfg-tgt" title="After a request finishes, reserve the slot for the same agent's follow-up calls">reserve for agent</span>${num("stickySlotSec", cfg.stickySlotSec ?? 20, 0, 120)}<span class="rw-cfg-unit">s</span></label>`;
+    body = `<div class="rw-cfg-hint">${t("cvHintQueueCfg")}</div>`
+      + `<label class="rw-cfg-row"><span class="rw-cfg-tgt" title="${escapeHtml(t("cvTitleOverflowAt"))}">${escapeHtml(t("cvLabelOverflowAt"))}</span>${num("spillPct", cfg.spillPct ?? 20, 0, 100)}<span class="rw-cfg-unit">%</span></label>`
+      + `<label class="rw-cfg-row"><span class="rw-cfg-tgt" title="${escapeHtml(t("cvTitleReserve"))}">${escapeHtml(t("cvLabelReserveForAgent"))}</span>${num("stickySlotSec", cfg.stickySlotSec ?? 20, 0, 120)}<span class="rw-cfg-unit">s</span></label>`;
   } else {
-    body = `<div class="rw-cfg-hint">Round-robin rotates evenly across all ${edges.length} connection(s). No configuration needed.</div>`;
+    body = `<div class="rw-cfg-hint">${t("cvHintRoundRobin", { n: edges.length })}</div>`;
   }
   return `
     <div class="rw-node-cfg" data-rw-node-cfg>
-      <div class="rw-node-cfg-head"><strong>${glyph} ${escapeHtml(node.type)}</strong><button class="icon-action compact" type="button" data-cfg-close aria-label="Close">×</button></div>
+      <div class="rw-node-cfg-head"><strong>${glyph} ${escapeHtml(cvNodeTypeLabel(node.type))}</strong><button class="icon-action compact" type="button" data-cfg-close aria-label="Close">×</button></div>
       <div class="rw-node-cfg-body">${body}</div>
     </div>`;
 }
@@ -1256,7 +1263,7 @@ export function renderTopologyCanvasModal() {
           <strong>⤢ ${escapeHtml(t("topologyRouterTitle"))} — canvas</strong>
           <span class="muted" style="font-size:11px">drag nodes · scroll = zoom · drag background = pan</span>
           <span class="topology-policy-head-actions">
-            <button class="icon-action compact" type="button" data-topology-canvas-close aria-label="Close" title="Close">×</button>
+            <button class="icon-action compact" type="button" data-topology-canvas-close aria-label="${escapeHtml(t("close"))}" title="${escapeHtml(t("close"))}">×</button>
           </span>
         </div>
         <div class="cv-viewport" data-cv-viewport>

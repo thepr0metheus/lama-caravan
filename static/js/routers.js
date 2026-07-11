@@ -73,11 +73,11 @@ export function renderTopologyRouterCard(router) {
   const inCount = (router.inputs || []).length;
   const ruleCount = (router.rules?.schedule?.length || 0) + (router.rules?.bySource?.length || 0);
   return `
-    <article class="topology-card router-card ${escapeHtml(topologyStateHealthClasses(activity))}" data-router-id="${escapeHtml(router.id)}" data-topology-router="${escapeHtml(router.id)}" role="button" tabindex="0" title="Click to configure routing">
-      <span class="topology-handle input router-input" data-topology-router-input="1" data-router-id="${escapeHtml(router.id)}" title="Proxies feed in here"></span>
+    <article class="topology-card router-card ${escapeHtml(topologyStateHealthClasses(activity))}" data-router-id="${escapeHtml(router.id)}" data-topology-router="${escapeHtml(router.id)}" role="button" tabindex="0" title="${escapeHtml(t("rtTitleConfigure"))}">
+      <span class="topology-handle input router-input" data-topology-router-input="1" data-router-id="${escapeHtml(router.id)}" title="${escapeHtml(t("rtTitleProxiesIn"))}"></span>
       <div class="topology-card-head">
         <strong>${escapeHtml(t("topologyRouterTitle"))}</strong>${helpTip("topologyProxyPortsHelp")}
-        <span class="router-meta">in ${inCount} · out ${outputs.length}${ruleCount ? ` · ${ruleCount} rule${ruleCount > 1 ? "s" : ""}` : ""}</span>
+        <span class="router-meta">in ${inCount} · out ${outputs.length}${ruleCount ? ` · ${escapeHtml(t("rtRules", { n: ruleCount }))}` : ""}</span>
       </div>
       <div class="router-outputs">
         ${outputs.length ? outputs.map((out) => {
@@ -85,10 +85,10 @@ export function renderTopologyRouterCard(router) {
           return `
           <div class="router-output-row ${isDefault ? "is-default" : ""}" data-output-id="${escapeHtml(out.id)}">
             <span class="router-output-label">${escapeHtml(topologyRouterOutputLabel(out))}</span>
-            ${isDefault ? `<span class="router-default-chip" title="Default output">default</span>` : ""}
-            <span class="topology-handle output router-output" data-topology-router-output="1" data-router-id="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" data-upstream-port="${escapeHtml(out.upstreamPort || "")}" title="Output → server"></span>
+            ${isDefault ? `<span class="router-default-chip" title="${escapeHtml(t("rtTitleDefaultOutput"))}">default</span>` : ""}
+            <span class="topology-handle output router-output" data-topology-router-output="1" data-router-id="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" data-upstream-port="${escapeHtml(out.upstreamPort || "")}" title="${escapeHtml(t("rtTitleOutputServer"))}"></span>
           </div>`;
-        }).join("") : `<div class="router-output-row empty"><span class="router-output-label muted">no outputs</span></div>`}
+        }).join("") : `<div class="router-output-row empty"><span class="router-output-label muted">${t("rtNoOutputs")}</span></div>`}
       </div>
     </article>`;
 }
@@ -104,7 +104,7 @@ export function _setRoutersSaving(on) {
   const busy = _routersSaving > 0;
   document.querySelector(".router-workspace")?.classList.toggle("saving", busy);
   const hint = document.querySelector(".rw-palette-save");
-  if (hint) hint.textContent = busy ? "⟳ saving…" : "⤓ changes auto-save";
+  if (hint) hint.textContent = busy ? `⟳ ${t("rtSaving")}` : `⤓ ${t("rtAutoSave")}`;
 }
 export async function saveRouters(mutator) {
   const routers = JSON.parse(JSON.stringify(topology.routers || []));
@@ -138,7 +138,7 @@ export function routerById(routers, id) { return routers.find((s) => s.id === id
 export function renderRouterOutputsPanel(router) {
   const outputs = router.outputs || [];
   const defaultId = router.rules?.default || "";
-  const liveTitle = { active: "serving now", recent: "served recently", idle: "idle" };
+  const liveTitle = { active: t("rtLiveActive"), recent: t("rtLiveRecent"), idle: t("cvQIdle") };
   const accounts = topology?.cloudAccounts || [];
   const blocks = topology?.cloudProviders || [];
 
@@ -152,8 +152,8 @@ export function renderRouterOutputsPanel(router) {
     const isCloud = String(out.upstreamType || "") === "cloud";
     const badge = isDef ? `<span class="router-out-badge">★ default</span>` : "";
     return `<label class="router-out-row ${isDef ? "is-default" : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}">
-      <span class="router-out-handle" data-cv-node="out:${escapeHtml(out.id)}" data-cv-panel-out="out:${escapeHtml(out.id)}" title="Drag a canvas cable here"></span>
-      <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="Set as default output">
+      <span class="router-out-handle" data-cv-node="out:${escapeHtml(out.id)}" data-cv-panel-out="out:${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleDragCable"))}"></span>
+      <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
       ${isCloud ? "" : liveDot(out)}
       <span class="router-out-name">${escapeHtml(topologyRouterOutputLabel(out))}</span>
       ${badge}
@@ -180,7 +180,7 @@ export function renderRouterOutputsPanel(router) {
           const sorted = [...outs].sort((a, b) => Number(a.upstreamPort || 0) - Number(b.upstreamPort || 0));
           return `<div class="router-out-host-group">${hdr}${sorted.map((o) => outputRow(o)).join("")}</div>`;
         }).join("")
-    : `<div class="router-cfg-muted">no local servers</div>`;
+    : `<div class="router-cfg-muted">${t("rtNoLocalServers")}</div>`;
 
   // CLOUD: group exposed outputs by account; the header expands a checklist of all blocks.
   const cloudOutsByAcc = new Map();
@@ -194,11 +194,11 @@ export function renderRouterOutputsPanel(router) {
     const exposedCount = accBlocks.filter((b) => b.exposed).length;
     // Auto-open a provider with nothing chosen yet (so the checklist is discoverable).
     const expanded = (acc.id in topologyOutputsCloudExpanded) ? topologyOutputsCloudExpanded[acc.id] : exposedCount === 0;
-    const header = `<button class="router-prov-head" type="button" data-router-prov-toggle="${escapeHtml(acc.id)}" title="Click to choose which models this provider exposes">
+    const header = `<button class="router-prov-head" type="button" data-router-prov-toggle="${escapeHtml(acc.id)}" title="${escapeHtml(t("rtTitleProvToggle"))}">
       <span class="router-prov-caret">${expanded ? "▾" : "▸"}</span>
       <span class="router-prov-name">☁ ${escapeHtml(acc.name || acc.id)}</span>
-      <span class="router-out-unlimited" title="Cloud — unlimited concurrency">∞</span>
-      <span class="router-prov-count" title="exposed / total models">${exposedCount}/${accBlocks.length}</span>
+      <span class="router-out-unlimited" title="${escapeHtml(t("rtTitleCloudUnlimited"))}">∞</span>
+      <span class="router-prov-count" title="${escapeHtml(t("rtTitleExposedTotal"))}">${exposedCount}/${accBlocks.length}</span>
     </button>`;
     const checklist = expanded
       ? (accBlocks.length
@@ -217,19 +217,19 @@ export function renderRouterOutputsPanel(router) {
               </label>`;
             }).join("")
             + `</div>`
-          : `<div class="router-cfg-muted router-prov-empty">no models yet — use "↻ Fetch models" on the provider card</div>`)
+          : `<div class="router-cfg-muted router-prov-empty">${escapeHtml(t("rtNoModelsYet"))}</div>`)
       : "";
     const rows = exposedOuts.map((o) => outputRow(o, "cloud")).join("");
     return `<div class="router-prov ${expanded ? "open" : ""}">${header}${checklist}${rows}</div>`;
-  }).join("") || `<div class="router-cfg-muted">no cloud providers</div>`;
+  }).join("") || `<div class="router-cfg-muted">${t("rtNoCloudProviders")}</div>`;
 
   return `
     <div class="router-out-sec">
-      <div class="router-out-sec-h">Local servers</div>
+      <div class="router-out-sec-h">${escapeHtml(t("rtLocalServers"))}</div>
       ${localHtml}
     </div>
     <div class="router-out-sec">
-      <div class="router-out-sec-h">Cloud</div>
+      <div class="router-out-sec-h">${escapeHtml(t("rtCloud"))}</div>
       ${cloudHtml}
     </div>`;
 }
@@ -244,7 +244,7 @@ export function renderServersBlockHtml(router) {
   const blocks = topology?.cloudProviders || [];
   const _aaWant = [];  // model ids whose AA Intelligence Index to lazily fetch (exposed first)
 
-  const liveTitle = { active: "serving now", recent: "served recently", idle: "idle" };
+  const liveTitle = { active: t("rtLiveActive"), recent: t("rtLiveRecent"), idle: t("cvQIdle") };
   const liveDot = (out) => {
     const st = topologyOutputActivity(out).state;
     return `<span class="router-out-live live-${st}" title="${liveTitle[st] || ""}"></span>`;
@@ -254,7 +254,7 @@ export function renderServersBlockHtml(router) {
     const isCloud = String(out.upstreamType || "") === "cloud";
     const badge = isDef ? `<span class="router-out-badge">default</span>` : "";
     return `<label class="router-out-row ${isDef ? "is-default" : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}">
-      <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="Set as default output">
+      <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
       ${isCloud ? "" : liveDot(out)}
       <span class="router-out-name">${escapeHtml(topologyRouterOutputLabel(out))}</span>
       ${badge}
@@ -281,7 +281,7 @@ export function renderServersBlockHtml(router) {
           const sorted = [...outs].sort((a, b) => Number(a.upstreamPort || 0) - Number(b.upstreamPort || 0));
           return `<div class="router-out-host-group">${hdr}${sorted.map((o) => outputRow(o)).join("")}</div>`;
         }).join("")
-    : `<div class="router-cfg-muted router-prov-empty">no local servers</div>`;
+    : `<div class="router-cfg-muted router-prov-empty">${t("rtNoLocalServers")}</div>`;
 
   // Cloud providers — collapsible with model checklist.
   const cloudOutsByAcc = new Map();
@@ -297,7 +297,7 @@ export function renderServersBlockHtml(router) {
     const header = `<button class="router-prov-head" type="button" data-router-prov-toggle="${escapeHtml(acc.id)}">
       <span class="router-prov-caret">${expanded ? "▾" : "▸"}</span>
       <span class="router-prov-name">☁ ${escapeHtml(acc.name || acc.id)}</span>
-      <span class="router-out-unlimited" title="Cloud — unlimited concurrency">∞</span>
+      <span class="router-out-unlimited" title="${escapeHtml(t("rtTitleCloudUnlimited"))}">∞</span>
       <span class="router-prov-count">${exposedCount}/${accBlocks.length}</span>
     </button>`;
     const sortedBlocks = accBlocks.slice().sort((a, b) => (b.exposed ? 1 : 0) - (a.exposed ? 1 : 0) || (a.model || a.id || "").localeCompare(b.model || b.id || ""));
@@ -319,20 +319,20 @@ export function renderServersBlockHtml(router) {
                 ${aaBadgeHtml(b.model)}
               </label>`;
             }).join("") + `</div>`
-          : `<div class="router-cfg-muted router-prov-empty">no models — use "↻ Fetch models" on the provider card</div>`)
+          : `<div class="router-cfg-muted router-prov-empty">${escapeHtml(t("rtNoModelsYet"))}</div>`)
       : "";
     const rows = exposedOuts.map((o) => outputRow(o, "cloud")).join("");
     return `<div class="router-prov ${expanded ? "open" : ""}">${header}${checklist}${rows}</div>`;
-  }).join("") || `<div class="router-cfg-muted router-prov-empty">no cloud providers</div>`;
+  }).join("") || `<div class="router-cfg-muted router-prov-empty">${t("rtNoCloudProviders")}</div>`;
   requestAaScores(_aaWant);
 
   return `
     <div class="router-out-sec">
-      <div class="router-out-sec-h">Local</div>
+      <div class="router-out-sec-h">${escapeHtml(t("rtLocal"))}</div>
       ${localHtml}
     </div>
     <div class="router-out-sec">
-      <div class="router-out-sec-h">Cloud</div>
+      <div class="router-out-sec-h">${escapeHtml(t("rtCloud"))}</div>
       ${cloudHtml}
     </div>`;
 }
@@ -390,9 +390,9 @@ export function renderTopologyRouterDetail() {
     return `
       <div class="router-cfg-rule-row" data-router-link-out="${escapeHtml(r.output)}">
         <span class="router-cfg-rule-text" title="${escapeHtml(srcLabel + " → " + outLabel)}">${escapeHtml(srcLabel)} → ${escapeHtml(outLabel)}</span>
-        <button class="icon-action compact danger" type="button" data-router-del-rule="${escapeHtml(router.id)}" data-rule-index="${i}" aria-label="Remove rule" title="Remove rule">×</button>
+        <button class="icon-action compact danger" type="button" data-router-del-rule="${escapeHtml(router.id)}" data-rule-index="${i}" aria-label="${escapeHtml(t("rtTitleRemoveRule"))}" title="${escapeHtml(t("rtTitleRemoveRule"))}">×</button>
       </div>`;
-  }).join("") : `<div class="router-cfg-muted">no source rules — all traffic uses the default output</div>`;
+  }).join("") : `<div class="router-cfg-muted">${t("rtNoSourceRules")}</div>`;
 
   const addRuleHtml = (inputProxies.length && outputs.length) ? `
     <div class="router-cfg-add-row">
@@ -403,7 +403,7 @@ export function renderTopologyRouterDetail() {
       <select class="router-cfg-select" data-router-rule-output="${escapeHtml(router.id)}">
         ${outputs.map((o) => `<option value="${escapeHtml(o.id)}">${escapeHtml(topologyRouterOutputLabel(o))}</option>`).join("")}
       </select>
-      <button class="primary-mini-action" type="button" data-router-add-rule="${escapeHtml(router.id)}">+ rule</button>
+      <button class="primary-mini-action" type="button" data-router-add-rule="${escapeHtml(router.id)}">${escapeHtml(t("rtAddRule"))}</button>
     </div>` : "";
 
   // ── LEFT column: input ports, grouped by their relation to THIS router ──
@@ -420,14 +420,14 @@ export function renderTopologyRouterDetail() {
     const title = escapeHtml(`${portName(p)} :${p.port}`);
     const head = `<span class="router-pill-r">${escapeHtml(ri)}</span><span class="router-pill-port">${escapeHtml(p.port)}</span>`;
     if (kind === "this") {
-      return `<span class="router-pill this" data-pill-name="${escapeHtml(portName(p).toLowerCase())}" data-pill-port="${escapeHtml(p.port)}" title="${title}">${head}<button class="router-pill-x" type="button" data-router-detach="${escapeHtml(p.id)}" title="Unassign from this router (will ask to confirm — port → 503, settings kept)">×</button></span>`;
+      return `<span class="router-pill this" data-pill-name="${escapeHtml(portName(p).toLowerCase())}" data-pill-port="${escapeHtml(p.port)}" title="${title}">${head}<button class="router-pill-x" type="button" data-router-detach="${escapeHtml(p.id)}" title="${escapeHtml(t("rtTitleDetachConfirm"))}">×</button></span>`;
     }
     if (kind === "other") {
-      return `<span class="router-pill other" data-router-attach="${escapeHtml(p.id)}" data-confirm="1" role="button" tabindex="0" title="Move from ${escapeHtml(routerNameOf(p.routerId))} → here">${head}<span class="router-pill-where">${escapeHtml(routerNameOf(p.routerId))}</span></span>`;
+      return `<span class="router-pill other" data-router-attach="${escapeHtml(p.id)}" data-confirm="1" role="button" tabindex="0" title="${escapeHtml(t("rtTitleMoveFrom", { name: routerNameOf(p.routerId) }))}">${head}<span class="router-pill-where">${escapeHtml(routerNameOf(p.routerId))}</span></span>`;
     }
-    return `<span class="router-pill free" data-router-attach="${escapeHtml(p.id)}" role="button" tabindex="0" title="${title} — attach here">${head}<span class="router-pill-503">503</span></span>`;
+    return `<span class="router-pill free" data-router-attach="${escapeHtml(p.id)}" role="button" tabindex="0" title="${escapeHtml(t("rtTitleAttachHere", { name: portName(p) + " :" + p.port }))}">${head}<span class="router-pill-503">503</span></span>`;
   };
-  const thisPills = onThis.map((p) => pill(p, "this")).join("") || `<div class="router-cfg-muted">none yet</div>`;
+  const thisPills = onThis.map((p) => pill(p, "this")).join("") || `<div class="router-cfg-muted">${t("rtNoneYet")}</div>`;
   // Left-pane proxy CRUD rows (Stage A.2): the registry table, inlined as a rail list.
   // edit/delete/router-select handlers live in bindTopologyDragAndDrop (bound globally).
   const onlineClientIds = new Set((topology?.clients || []).map((c) => c.id));
@@ -437,18 +437,18 @@ export function renderTopologyRouterDetail() {
     const role = portRole(p);
     return `
       <div class="rw-proxy-row ${orphan ? "orphan" : ""}" data-pill-name="${escapeHtml(portName(p).toLowerCase())}" data-pill-port="${escapeHtml(p.port)}">
-        <span class="rw-proxy-drag" data-wire-ref="in:${escapeHtml(p.id)}" data-wire-label="${escapeHtml(portName(p))}" title="Drag onto a canvas node (output or rule) to route this port">⠿</span>
+        <span class="rw-proxy-drag" data-wire-ref="in:${escapeHtml(p.id)}" data-wire-label="${escapeHtml(portName(p))}" title="${escapeHtml(t("rtTitleDragPort"))}">⠿</span>
         <span class="rw-proxy-port">:${escapeHtml(p.port)}</span>
-        <span class="rw-proxy-name" title="${escapeHtml(portName(p))}">${escapeHtml(owner?.title || portName(p))}${orphan ? ` <span class="rw-proxy-orphan" title="No agent currently uses this port — safe to delete">orphan</span>` : ""}</span>
+        <span class="rw-proxy-name" title="${escapeHtml(portName(p))}">${escapeHtml(owner?.title || portName(p))}${orphan ? ` <span class="rw-proxy-orphan" title="${escapeHtml(t("rtTitleOrphan"))}">${escapeHtml(t("rtOrphan"))}</span>` : ""}</span>
         ${role ? `<span class="rw-proxy-role ${escapeHtml(role)}" title="${escapeHtml(role)}">${escapeHtml((role[0] || "").toUpperCase())}</span>` : `<span class="rw-proxy-role">·</span>`}
         <span class="rw-proxy-actions">
-          <button class="icon-action compact" type="button" data-topology-proxy-edit="${escapeHtml(p.id)}" aria-label="Edit" title="Rename / change port">✎</button>
-          <button class="icon-action compact" type="button" data-router-detach="${escapeHtml(p.id)}" aria-label="Unassign" title="Unassign from this router (→ 503, settings kept)">⊘</button>
-          <button class="icon-action compact danger" type="button" data-topology-proxy-delete="${escapeHtml(p.id)}" aria-label="Delete" title="Delete this port">🗑</button>
+          <button class="icon-action compact" type="button" data-topology-proxy-edit="${escapeHtml(p.id)}" aria-label="${escapeHtml(t("rtTitleRenamePort"))}" title="${escapeHtml(t("rtTitleRenamePort"))}">✎</button>
+          <button class="icon-action compact" type="button" data-router-detach="${escapeHtml(p.id)}" aria-label="${escapeHtml(t("rtTitleDetach"))}" title="${escapeHtml(t("rtTitleDetach"))}">⊘</button>
+          <button class="icon-action compact danger" type="button" data-topology-proxy-delete="${escapeHtml(p.id)}" aria-label="${escapeHtml(t("rtTitleDeletePort"))}" title="${escapeHtml(t("rtTitleDeletePort"))}">🗑</button>
         </span>
       </div>`;
   };
-  const thisRows = onThis.map(proxyRow).join("") || `<div class="router-cfg-muted">none yet</div>`;
+  const thisRows = onThis.map(proxyRow).join("") || `<div class="router-cfg-muted">${t("rtNoneYet")}</div>`;
 
   // Center pane = the interactive canvas (was the separate ⤢ modal). Reuses the same
   // node descriptors + cv-* markup; the bind/render cycle (search ui.topologyCanvasRouterId)
@@ -475,9 +475,9 @@ export function renderTopologyRouterDetail() {
             <div class="rw-head-badges">
               <span class="badge rw-stat-badge">in <strong>${inputs.length}</strong></span>
               <span class="badge rw-stat-badge">out <strong>${outputs.length}</strong></span>
-              ${ruleCount ? `<span class="badge rw-stat-badge">${ruleCount} rule${ruleCount > 1 ? "s" : ""}</span>` : ""}
-              ${defaultOut ? `<span class="badge rw-default-chip" data-router-link-out="${escapeHtml(defaultOut.id)}" title="Default output">default → ${escapeHtml(topologyRouterOutputLabel(defaultOut))}</span>` : ""}
-              ${(onOther.length + free.length) ? `<span class="rw-unassigned-badge" title="${free.length} unassigned · ${onOther.length} on another kanban">${free.length + onOther.length} unassigned</span>` : ""}
+              ${ruleCount ? `<span class="badge rw-stat-badge">${escapeHtml(t("rtRules", { n: ruleCount }))}</span>` : ""}
+              ${defaultOut ? `<span class="badge rw-default-chip" data-router-link-out="${escapeHtml(defaultOut.id)}" title="${escapeHtml(t("rtTitleDefaultOutput"))}">default → ${escapeHtml(topologyRouterOutputLabel(defaultOut))}</span>` : ""}
+              ${(onOther.length + free.length) ? `<span class="rw-unassigned-badge" title="${escapeHtml(t("rtTitleUnassigned", { f: free.length, o: onOther.length }))}">${escapeHtml(t("rtUnassigned", { n: free.length + onOther.length }))}</span>` : ""}
             </div>
           </div>
           <span class="topology-policy-head-actions">
@@ -489,26 +489,26 @@ export function renderTopologyRouterDetail() {
         <div class="rw-head">
           <span class="router-cfg-title">
             <strong>${escapeHtml(t("topologyRouterTitle"))}</strong>
-            <span class="router-cfg-sub">in ${inputs.length} · out ${outputs.length}${ruleCount ? ` · ${ruleCount} rule${ruleCount > 1 ? "s" : ""}` : ""}</span>
-            ${defaultOut ? `<span class="rw-default-badge" data-router-link-out="${escapeHtml(defaultOut.id)}" title="Default output">default → <strong>${escapeHtml(topologyRouterOutputLabel(defaultOut))}</strong></span>` : ""}
+            <span class="router-cfg-sub">in ${inputs.length} · out ${outputs.length}${ruleCount ? ` · ${escapeHtml(t("rtRules", { n: ruleCount }))}` : ""}</span>
+            ${defaultOut ? `<span class="rw-default-badge" data-router-link-out="${escapeHtml(defaultOut.id)}" title="${escapeHtml(t("rtTitleDefaultOutput"))}">default → <strong>${escapeHtml(topologyRouterOutputLabel(defaultOut))}</strong></span>` : ""}
           </span>
           <span class="topology-policy-head-actions">
-            ${(onOther.length + free.length) ? `<span class="rw-unassigned-badge" title="${free.length} unassigned · ${onOther.length} on another kanban">${free.length + onOther.length} unassigned</span>` : ""}
-            <button class="icon-action compact" type="button" data-topology-router-close aria-label="Close" title="Close">×</button>
+            ${(onOther.length + free.length) ? `<span class="rw-unassigned-badge" title="${escapeHtml(t("rtTitleUnassigned", { f: free.length, o: onOther.length }))}">${escapeHtml(t("rtUnassigned", { n: free.length + onOther.length }))}</span>` : ""}
+            <button class="icon-action compact" type="button" data-topology-router-close aria-label="${escapeHtml(t("close"))}" title="${escapeHtml(t("close"))}">×</button>
           </span>
         </div>`}
         <div class="rw-cols">
           <section class="rw-pane rw-center">
             <div class="rw-palette">
-              <span class="rw-palette-label">+ rule node: <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">Rule nodes shape traffic between clients and servers. Add one and draw cables to define how requests are routed — by schedule, weight, failover, or queue.</span></span></span>
-              <button class="cv-palette-btn" type="button" data-cv-add="schedule" title="Branch on time/day windows">⏱ schedule</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="weighted" title="Split traffic by weight %">⚖ weighted</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="roundRobin" title="Rotate across outputs">🔁 round-robin</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="failover" title="Spill to the next when busy">⚡ failover</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="queue" title="Queue requests for an upstream; spill elsewhere when it overflows">⏳ queue</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="requestType" title="Route by request kind — send /v1/embeddings out a separate port (e.g. a cloud embedder)">🔀 by type</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="requestSize" title="Branch small requests (max_tokens ≤ N) away from big codegen">📏 by size</button>
-              <span class="rw-palette-save" title="No save button — every change is applied instantly">⤓ changes auto-save</span>
+              <span class="rw-palette-label">${escapeHtml(t("rtRuleNodeLabel"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("rtPaletteTip")}</span></span></span>
+              <button class="cv-palette-btn" type="button" data-cv-add="schedule" title="${escapeHtml(t("rtTitleSchedule"))}">⏱ ${escapeHtml(t("cvNodeSchedule"))}</button>
+              <button class="cv-palette-btn" type="button" data-cv-add="weighted" title="${escapeHtml(t("rtTitleWeighted"))}">⚖ ${escapeHtml(t("cvNodeWeighted"))}</button>
+              <button class="cv-palette-btn" type="button" data-cv-add="roundRobin" title="${escapeHtml(t("rtTitleRoundRobin"))}">🔁 ${escapeHtml(t("cvNodeRoundRobin"))}</button>
+              <button class="cv-palette-btn" type="button" data-cv-add="failover" title="${escapeHtml(t("rtTitleFailover"))}">⚡ ${escapeHtml(t("cvNodeFailover"))}</button>
+              <button class="cv-palette-btn" type="button" data-cv-add="queue" title="${escapeHtml(t("rtTitleQueue"))}">⏳ ${escapeHtml(t("cvNodeQueue"))}</button>
+              <button class="cv-palette-btn" type="button" data-cv-add="requestType" title="${escapeHtml(t("rtTitleByType"))}">🔀 ${escapeHtml(t("cvNodeByType"))}</button>
+              <button class="cv-palette-btn" type="button" data-cv-add="requestSize" title="${escapeHtml(t("rtTitleBySize"))}">📏 ${escapeHtml(t("cvNodeBySize"))}</button>
+              <span class="rw-palette-save" title="${escapeHtml(t("rtTitleAutoSaveInstant"))}">⤓ ${escapeHtml(t("rtAutoSave"))}</span>
             </div>
             ${renderRouterNodeConfig(router)}
             <div class="cv-viewport" data-cv-viewport>
@@ -516,7 +516,7 @@ export function renderTopologyRouterDetail() {
                 <svg class="cv-svg" data-cv-svg width="4000" height="3000" viewBox="0 0 4000 3000"></svg>
                 ${cvNodeHtml}
               </div>
-              <div class="rw-canvas-hint muted">drag from a client port → an output/rule to route it · unrouted clients use the default · scroll = zoom · drag bg = pan</div>
+              <div class="rw-canvas-hint muted">${escapeHtml(t("rtCanvasHint"))}</div>
             </div>
           </section>
         </div>

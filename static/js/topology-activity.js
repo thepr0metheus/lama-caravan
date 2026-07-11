@@ -1252,8 +1252,8 @@ export function topologyAgentRouteRow(client, agent, role, route, active = true)
   return `
     <div class="topology-agent-route ${escapeHtml(role)} ${route ? "" : "empty"} ${muted ? "muted" : ""} ${escapeHtml(topologyStateHealthClasses(activity))}"${detailAttrs}>
       ${handle}
-      <span class="route-role-label">${escapeHtml(role)}${port ? `<span class="route-port-chip" title="proxy port">${escapeHtml(port)}</span>` : ""}${routeErrBadgeHtml(port)}</span>
-      <code>${route ? escapeHtml(route.endpoint || "") : "-"}${muted ? ` <span class="route-muted-tag" title="Not in the agent config — proxy kept but inactive">inactive</span>` : ""}</code>
+      <span class="route-role-label">${escapeHtml(role)}${port ? `<span class="route-port-chip" title="${escapeHtml(t("taTitleProxyPort"))}">${escapeHtml(port)}</span>` : ""}${routeErrBadgeHtml(port)}</span>
+      <code>${route ? escapeHtml(route.endpoint || "") : "-"}${muted ? ` <span class="route-muted-tag" title="${escapeHtml(t("taTitleMutedRoute"))}">${escapeHtml(t("taInactive"))}</span>` : ""}</code>
       ${timeoutHtml}
       ${incident ? `<small class="topology-incident-line ${incident.kind === "failed" ? "failed" : ""}">${escapeHtml(`${incident.title}: ${incident.summary}`)}</small>` : ""}
     </div>

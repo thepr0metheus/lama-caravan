@@ -91,6 +91,11 @@ export function applyLanguage() {
     if (tip) tip.textContent = text;
     el.setAttribute("aria-label", text);
   });
+  // Composed texts (a key + runtime params, e.g. the cell-editor title with the
+  // server name, or the state-dependent Apply/Restart button) cannot be
+  // re-rendered from a data attribute — modules listen for this event and
+  // refresh their own pieces if visible.
+  window.dispatchEvent(new CustomEvent("caravan:langchange"));
   renderLangSelect();
 }
 

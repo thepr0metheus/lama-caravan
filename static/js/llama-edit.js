@@ -63,6 +63,43 @@ export function backupByPath(path) {
 
 // ── Topology Llama Edit Modal ────────────────────────────────────────────────
 export let _teCellPort = "";
+let _teTitleMode = "edit";
+
+// Composed chrome of the OPEN cell editor (title with the server name, the
+// state-dependent Apply/Start/Restart button) cannot be refreshed from
+// data-i18n — rebuild those two pieces when the language changes while the
+// overlay is visible. Everything else in the overlay is covered by the
+// data-i18n / data-fieldhelp markers that applyLanguage() walks.
+window.addEventListener("caravan:langchange", () => {
+  const overlay = $("topologyLlamaEditOverlay");
+  if (!overlay || overlay.hidden) return;
+  const serverName = topology?.server?.name || "Controller";
+  const gpuName = (topology?.server?.gpus || [])[0]?.name || "";
+  const gpuSuffix = gpuName ? ` · ${gpuName}` : "";
+  const titleEl = $("topologyLlamaEditTitle");
+  if (titleEl) {
+    titleEl.textContent = t(_teTitleMode === "add" ? "llamaEditTitleAdd" : "llamaEditTitleEdit",
+      { name: `${serverName}${gpuSuffix}` });
+  }
+  const saveRestartBtn = $("topologyLlamaEditSaveRestart");
+  if (saveRestartBtn) {
+    const isRunning = !!(state.service?.active || state.service?.pid);
+    saveRestartBtn.textContent = _teCellPort ? t("apply") : t(isRunning ? "restart" : "start");
+  }
+});
+// Runner tabs (labels + trade-off tooltips + the benefits line) and the
+// command-aside preview are rebuilt purely from state/t() — safe to re-render
+// on language switch for whichever cell editor is open ("te-" controller,
+// "tr-" client). Form inputs live outside these subtrees, so no edits are lost.
+window.addEventListener("caravan:langchange", () => {
+  ["te-", "tr-"].forEach((pfx) => {
+    const overlay = _cellKindOverlay(pfx);
+    if (!overlay || overlay.hidden) return;
+    renderRunnerTabs(pfx);
+    refreshComputeTarget(pfx);
+    if (effectiveRunnerId(pfx) !== "llama-server") renderCommandCellPreview(pfx);
+  });
+});
 export const _editCmdSeq = {};
 
 // Fill a form's "current command" panel (<pfx>currentCmdline) and set the diff
@@ -76,19 +113,33 @@ export const _editCmdSeq = {};
 //     "no changes" and edits highlight precisely;
 //   • "new"  — a freshly reserved / brand-new server: no prior command, every flag
 //     reads as added.
+// Show a command line (or the localized "no command" placeholder) in the
+// <pfx>currentCmdline panel. Stamps data-i18n on the placeholder so an open
+// editor re-translates it on language switch; real cmdlines clear the marker.
+function _showCurrentCmdline(cur, tokens) {
+  if (!cur) return;
+  if (tokens.length) {
+    delete cur.dataset.i18n;
+    cur.textContent = formatCmdline(tokens.join(" "));
+  } else {
+    cur.dataset.i18n = "noRunningCommand";
+    cur.textContent = t("noRunningCommand");
+  }
+}
+
 export async function setEditCurrentCommand(pfx, mode) {
   const cur = $(pfx + "currentCmdline");
   const seq = (_editCmdSeq[pfx] = (_editCmdSeq[pfx] || 0) + 1);
   if (mode === "main") {
     const tokens = splitCommand(state.service?.cmdline || "");
     _cmdBaselineTokens[pfx] = tokens;
-    if (cur) cur.textContent = tokens.length ? formatCmdline(tokens.join(" ")) : t("noRunningCommand");
+    _showCurrentCmdline(cur, tokens);
     renderCommandPreview(pfx);
     return;
   }
   if (mode === "new") {
     _cmdBaselineTokens[pfx] = [];
-    if (cur) cur.textContent = t("noRunningCommand");
+    _showCurrentCmdline(cur, []);
     renderCommandPreview(pfx);
     return;
   }
@@ -105,7 +156,7 @@ export async function setEditCurrentCommand(pfx, mode) {
     if (seq !== _editCmdSeq[pfx]) return;  // a newer open() superseded us
     const tokens = res.tokens || [];
     _cmdBaselineTokens[pfx] = tokens;
-    if (cur) cur.textContent = tokens.length ? formatCmdline(tokens.join(" ")) : t("noRunningCommand");
+    _showCurrentCmdline(cur, tokens);
   } catch (err) {
     if (seq !== _editCmdSeq[pfx]) return;
     /* leave an empty baseline — preview still renders, just without a diff */
@@ -174,6 +225,7 @@ export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
   const serverName = topology?.server?.name || "Controller";
   const gpuName = (topology?.server?.gpus || [])[0]?.name || "";
   const gpuSuffix = gpuName ? ` · ${gpuName}` : "";
+  _teTitleMode = mode;   // remembered so a language switch re-renders the title live
   const titleEl = $("topologyLlamaEditTitle");
   if (titleEl) {
     titleEl.textContent = t(mode === "add" ? "llamaEditTitleAdd" : "llamaEditTitleEdit", { name: `${serverName}${gpuSuffix}` });

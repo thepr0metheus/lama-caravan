@@ -265,8 +265,8 @@ export function renderUsageStatsModal() {
 }
 export function apiCostsHtml(accountId) {
   const c = apiCostsCache.get(accountId);
-  const refresh = `<button class="sub-usage-refresh icon-action compact${c?.loading ? " spinning" : ""}" type="button" data-api-costs-refresh="${escapeHtml(accountId)}" title="Refresh spend" ${c?.loading ? "disabled" : ""}>↻</button>`;
-  if (!c || c.loading) return `<div class="sub-usage-panel"><div class="sub-usage-head">${refresh}</div><div class="sub-usage-row"><span class="muted">loading spend…</span></div></div>`;
+  const refresh = `<button class="sub-usage-refresh icon-action compact${c?.loading ? " spinning" : ""}" type="button" data-api-costs-refresh="${escapeHtml(accountId)}" title="${escapeHtml(t("usTitleRefreshSpend"))}" ${c?.loading ? "disabled" : ""}>↻</button>`;
+  if (!c || c.loading) return `<div class="sub-usage-panel"><div class="sub-usage-head">${refresh}</div><div class="sub-usage-row"><span class="muted">${t("usLoadingSpend")}</span></div></div>`;
   const d = c.data;
   if (!d || !d.ok) return `<div class="sub-usage-panel"><div class="sub-usage-head">${refresh}</div><div class="sub-usage-row"><span class="muted">spend: ${escapeHtml(d?.error || c.error || "unavailable")}</span></div></div>`;
   return `<div class="sub-usage-panel"><div class="sub-usage-head">${refresh}</div><div class="sub-usage-credits"><span>Spent · last ${d.windowDays}d</span><strong>$${Number(d.total || 0).toFixed(2)}</strong></div></div>`;
@@ -275,8 +275,8 @@ export function apiCostsHtml(accountId) {
 export function openRouterLimitsHtml(accountId) {
   const c = openrouterLimitsCache.get(accountId);
   const isLoading = c?.loading;
-  const refreshBtn = `<button class="sub-usage-refresh icon-action compact${isLoading ? " spinning" : ""}" type="button" data-or-limits-refresh="${escapeHtml(accountId)}" title="Refresh limits" ${isLoading ? "disabled" : ""}>↻</button>`;
-  if (!c || (c.loading && !c.data)) return `<div class="sub-usage-panel"><div class="sub-usage-head">${refreshBtn}</div><div class="sub-usage-row"><span class="muted">loading limits…</span></div></div>`;
+  const refreshBtn = `<button class="sub-usage-refresh icon-action compact${isLoading ? " spinning" : ""}" type="button" data-or-limits-refresh="${escapeHtml(accountId)}" title="${escapeHtml(t("usTitleRefreshLimits"))}" ${isLoading ? "disabled" : ""}>↻</button>`;
+  if (!c || (c.loading && !c.data)) return `<div class="sub-usage-panel"><div class="sub-usage-head">${refreshBtn}</div><div class="sub-usage-row"><span class="muted">${t("usLoadingLimits")}</span></div></div>`;
   const d = c.data;
   if (!d?.ok) {
     const isAuth = d?.authError;
@@ -301,7 +301,7 @@ export function openRouterLimitsHtml(accountId) {
   if (d.rateLimit?.requests && d.rateLimit?.interval) {
     rows += `<div class="sub-usage-row"><span class="muted">${d.rateLimit.requests} req / ${d.rateLimit.interval}</span></div>`;
   }
-  const tierBadge = d.isFreeTier ? `<span class="sub-usage-label" style="color:#4ade80;margin-left:4px">free tier</span>` : "";
+  const tierBadge = d.isFreeTier ? `<span class="sub-usage-label" style="color:#4ade80;margin-left:4px">${t("usFreeTier")}</span>` : "";
   return `<div class="sub-usage-panel"><div class="sub-usage-head">${refreshBtn}${tierBadge}</div>${rows}</div>`;
 }
 
@@ -341,9 +341,9 @@ export function subscriptionUsageHtml(accountId) {
       </div>`;
   }).join("");
   const creditsHtml = credits != null
-    ? `<div class="sub-usage-credits"><span>Credits</span><strong>${credits}</strong></div>` : "";
+    ? `<div class="sub-usage-credits"><span>${t("usCredits")}</span><strong>${credits}</strong></div>` : "";
   const isLoading = cached?.loading;
-  const refreshBtn = `<button class="sub-usage-refresh icon-action compact${isLoading ? " spinning" : ""}" type="button" data-usage-refresh="${escapeHtml(accountId)}" title="Refresh limits" aria-label="Refresh limits" ${isLoading ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button>`;
+  const refreshBtn = `<button class="sub-usage-refresh icon-action compact${isLoading ? " spinning" : ""}" type="button" data-usage-refresh="${escapeHtml(accountId)}" title="${escapeHtml(t("usTitleRefreshLimits"))}" aria-label="${escapeHtml(t("usTitleRefreshLimits"))}" ${isLoading ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button>`;
   return `<div class="sub-usage-panel"><div class="sub-usage-head">${refreshBtn}</div>${rows}${creditsHtml}</div>`;
 }
 
