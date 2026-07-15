@@ -1313,10 +1313,11 @@ export function _cvSyncServersPortDots() {
       block.appendChild(dot);
     }
     // Position in block's coordinate space (world units = CSS px at scale 1).
-    // yBlock is already the row's vertical center, so override the .cv-port class's
-    // "margin-top: -8px" to prevent a visual/anchor mismatch.
+    // `top` places the dot's TOP edge, so subtract half its 16px height to put
+    // its CENTER on the row center (margin-top is zeroed to keep the rendered
+    // rect equal to the top-based math the cable anchors use).
     const yBlock = (rowRect.top - blockRect.top + rowRect.height / 2) / scale;
-    dot.style.top = yBlock + "px";
+    dot.style.top = (yBlock - 8) + "px";
     dot.style.marginTop = "0";
   });
   // Folded host/provider groups: rows are hidden, so give every hidden output
@@ -1339,7 +1340,7 @@ export function _cvSyncServersPortDots() {
         dot.title = t("cvDropCable");
         block.appendChild(dot);
       }
-      dot.style.top = ((headRect.top - blockRect.top + headRect.height / 2) / scale) + "px";
+      dot.style.top = ((headRect.top - blockRect.top + headRect.height / 2) / scale - 8) + "px";
       dot.style.marginTop = "0";
     });
   });
@@ -1377,7 +1378,7 @@ export function _cvSyncInputsBlockPortDots() {
       block.appendChild(dot);
     }
     const yBlock = (rowRect.top - blockRect.top + rowRect.height / 2) / scale;
-    dot.style.top = yBlock + "px";
+    dot.style.top = (yBlock - 8) + "px";
     dot.style.marginTop = "0";
   });
   block.querySelectorAll(":scope > .cv-port.out[data-cv-ref]").forEach((dot) => {

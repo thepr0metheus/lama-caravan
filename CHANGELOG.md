@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.30 — 2026-07-11
+
+- Port dots on the canvas servers/inputs blocks sit centered on their
+  rows again: the sync code placed the dot's TOP edge at the row center
+  (while zeroing the class's self-centering margin), so every dot — and
+  its cable end — hung 8px low. Applies to output rows, folded group
+  headers and the inputs block.
+
 ## 1.3.29 — 2026-07-11
 
 - The cable-delete ✕ on the kanban canvas is actually reachable now: it
