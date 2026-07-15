@@ -1752,13 +1752,15 @@ export function _cvShowGhost(x, y, label) {
   g.style.left = `${x}px`; g.style.top = `${y}px`;
 }
 export function _cvHideGhost() { document.getElementById("cvGhost")?.remove(); }
-// Push a just-dropped node out of any overlaps (smallest-axis translation,
-// 14px gap, cascades until clean or the iteration cap). Only the dragged node
-// moves — neighbours stay where the user put them.
+// Push a just-dropped node out of any overlaps AND enforce a minimum spacing
+// (smallest-axis translation, cascades until clean or the iteration cap).
+// Only the dragged node moves — neighbours stay where the user put them.
+// 48px: port dots overhang the borders by ~9-20px and cables need runway,
+// so anything tighter reads as clutter.
 export function _cvResolveOverlap(node) {
   const world = node?.parentElement;
   if (!world) return;
-  const GAP = 14;
+  const GAP = 48;
   const others = [...world.querySelectorAll(".cv-node")].filter((n) => n !== node && n.offsetWidth > 0);
   let x = node.offsetLeft, y = node.offsetTop;
   const w = node.offsetWidth, h = node.offsetHeight;

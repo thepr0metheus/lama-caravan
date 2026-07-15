@@ -4,7 +4,9 @@
 
 - Canvas nodes refuse to overlap: on drop, a node that lands on another
   (or on the clients/servers blocks) is pushed out along the smallest
-  axis with a 14px gap, cascading until clear — neighbours stay put.
+  axis, cascading until clear — neighbours stay put. A 48px minimum
+  spacing is enforced too, so blocks can't be parked flush against
+  each other (port dots overhang and cables need runway).
 - Hovering a cable dims every other cable (and the junction dots) to a
   ghost, so the highlighted path is easy to trace through a dense
   harness; the dimming survives the live redraw ticks.
