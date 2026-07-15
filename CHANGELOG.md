@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.28 — 2026-07-11
+
+- Subscription usage cleanup after OpenAI dropped the 5h Codex window:
+  limits are labeled by window duration (the weekly window landed in the
+  "primary" slot and rendered as a baffling "168h limit" — now "Weekly
+  limit"), the two speculative fallback endpoints (codex/usage,
+  agentic_usage) are gone, and the Costs API probe fires only for real
+  api.openai.com accounts — Ollama/Anthropic/generic cards no longer show
+  a pointless "spend: HTTP 404" (the local proxy spend-meter covers them).
+
 ## 1.3.27 — 2026-07-11
 
 - The command-cell editor's aside gains a Script panel: when COMMAND (or

@@ -470,28 +470,21 @@ def fetch_subscription_usage(account_id):
         "originator": "pi",
         "Accept": "application/json",
     }
-    # Try candidate endpoints in order (wham/usage is the confirmed analytics endpoint)
-    candidates = [
-        "https://chatgpt.com/backend-api/wham/usage",
-        "https://chatgpt.com/backend-api/codex/usage",
-        "https://chatgpt.com/backend-api/agentic_usage",
-    ]
-    last_err = None
-    for url in candidates:
-        try:
-            req = urllib.request.Request(url, headers=base_headers, method="GET")
-            with urllib.request.urlopen(req, timeout=10) as r:
-                data = json.loads(r.read().decode())
-            return _normalize_subscription_usage(data)
-        except urllib.error.HTTPError as e:
-            last_err = f"HTTP {e.code} from {url}"
-            if e.code in (401, 403):
-                raise AppError(f"auth error: {e.code}", 401)
-            continue  # try next candidate
-        except Exception as e:
-            last_err = str(e)
-            continue
-    raise AppError(f"could not fetch usage from any endpoint: {last_err}", 502)
+    # Single confirmed analytics endpoint. The old speculative fallbacks
+    # (codex/usage, agentic_usage) never answered and only produced extra
+    # 404 probes at chatgpt.com whenever wham hiccuped — dropped.
+    url = "https://chatgpt.com/backend-api/wham/usage"
+    try:
+        req = urllib.request.Request(url, headers=base_headers, method="GET")
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            raise AppError(f"auth error: {e.code}", 401)
+        raise AppError(f"usage endpoint: HTTP {e.code}", 502)
+    except Exception as e:
+        raise AppError(f"usage endpoint: {e}", 502)
+    return _normalize_subscription_usage(data)
 
 def _normalize_subscription_usage(data):
     """Normalize chatgpt.com wham/usage response into a stable shape for the UI.
@@ -523,23 +516,26 @@ def _normalize_subscription_usage(data):
                 resets_at = str(reset_at_ts)
         return {"label": label, "remainingPct": remaining_pct, "resetsAt": resets_at}
 
-    primary = rate_limit.get("primary_window")
-    secondary = rate_limit.get("secondary_window")
-    # primary_window is typically 5h (18000s), secondary is weekly (604800s)
-    if isinstance(primary, dict):
-        secs = int(primary.get("limit_window_seconds") or 0)
-        label = f"{secs // 3600}h limit" if secs >= 3600 else "Hourly limit"
-        lim = window_to_limit(primary, label)
-        if lim:
-            limits.append(lim)
-    if isinstance(secondary, dict):
-        secs = int(secondary.get("limit_window_seconds") or 0)
-        label = "Weekly limit" if secs >= 604800 else (f"{secs // 86400}d limit" if secs >= 86400 else "Limit")
-        lim = window_to_limit(secondary, label)
-        if lim:
-            limits.append(lim)
+    # Label by the window's DURATION, not its primary/secondary slot: OpenAI
+    # dropped the 5h window (2026-07), so "primary" is now the weekly one —
+    # slot-based labels rendered it as a baffling "168h limit".
+    def window_label(window):
+        secs = int((window or {}).get("limit_window_seconds") or 0)
+        if secs >= 604800:
+            return "Weekly limit"
+        if secs >= 86400:
+            return f"{secs // 86400}d limit"
+        if secs >= 3600:
+            return f"{secs // 3600}h limit"
+        return "Limit"
+
+    for window in (rate_limit.get("primary_window"), rate_limit.get("secondary_window")):
+        if isinstance(window, dict):
+            lim = window_to_limit(window, window_label(window))
+            if lim:
+                limits.append(lim)
     for extra in (rate_limit.get("additional_rate_limits") or []):
-        lim = window_to_limit(extra, "Limit")
+        lim = window_to_limit(extra, window_label(extra))
         if lim:
             limits.append(lim)
 

@@ -171,11 +171,15 @@ export function renderTopologyCloudProviders() {
     // Usage/spend panel (fetched async). Subscription → ChatGPT Plus limits/credits;
     // OpenRouter → key limits via /auth/key; API accounts → official spend via Costs API.
     const isOpenRouter = acct.type === "openrouter" || String(acct.baseUrl || "").includes("openrouter.ai");
+    // The Costs API (/organization/costs) exists only on api.openai.com — for
+    // other providers (Ollama, Anthropic, generic) the probe just 404s, so
+    // don't fire it; the local proxy spend-meter below covers them.
+    const hasCostsApi = acct.type === "openai" || String(acct.baseUrl || "").includes("api.openai.com");
     let usagePanel = "";
     if (acct.hasCredential) {
       if (isSubscription) { fetchSubscriptionUsage(acct.id); usagePanel = subscriptionUsageHtml(acct.id); }
       else if (isOpenRouter) { fetchOpenRouterLimits(acct.id); usagePanel = openRouterLimitsHtml(acct.id); }
-      else { fetchApiCosts(acct.id); usagePanel = apiCostsHtml(acct.id); }
+      else if (hasCostsApi) { fetchApiCosts(acct.id); usagePanel = apiCostsHtml(acct.id); }
     }
     // Local proxy spend-meter (our token counts × pricing) — for every cloud account.
     fetchProxySpend();
