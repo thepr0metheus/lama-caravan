@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.31 — 2026-07-11
+
+- Canvas nodes refuse to overlap: on drop, a node that lands on another
+  (or on the clients/servers blocks) is pushed out along the smallest
+  axis with a 14px gap, cascading until clear — neighbours stay put.
+- Hovering a cable dims every other cable (and the junction dots) to a
+  ghost, so the highlighted path is easy to trace through a dense
+  harness; the dimming survives the live redraw ticks.
+
 ## 1.3.30 — 2026-07-11
 
 - Port dots on the canvas servers/inputs blocks sit centered on their

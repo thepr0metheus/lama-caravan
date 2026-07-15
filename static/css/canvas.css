@@ -1223,3 +1223,9 @@ select.cv-pin { width: 100%; }
 .router-group-fold { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 11px; padding: 2px 6px; }
 .router-group-fold:hover { color: var(--text); }
 .router-out-host-group.folded, .router-prov.folded { opacity: .85; }
+
+/* Hovering one cable dims the rest so the highlighted path reads clearly. */
+.cv-svg path { transition: opacity .15s ease; }
+.cv-svg.edge-focus .cv-edge-grp:not(.focus) path:not(.cv-edge-hit) { opacity: .07; }
+.cv-svg.edge-focus .cv-junction { opacity: .07; }
+.cv-svg.edge-focus .cv-edge-grp.focus path[data-cv-edge]:not(.cv-edge-hit) { opacity: 1; }

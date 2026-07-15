@@ -1527,6 +1527,13 @@ export function drawCanvasConnectors() {
     paths.push(`<path d="${_cvPathD(_cvDrag.from, _cvDrag.cur)}" class="cv-cable connecting" fill="none"></path>`);
   }
   svg.innerHTML = paths.filter(Boolean).join("");
+  if (_cvHoverEdge) {
+    const grp = svg.querySelector(`[data-cv-edge-del="${CSS.escape(_cvHoverEdge)}"]`)?.closest(".cv-edge-grp");
+    svg.classList.toggle("edge-focus", !!grp);
+    if (grp) grp.classList.add("focus");
+  } else {
+    svg.classList.remove("edge-focus");
+  }
 }
 
 // World-space point at an element's left/right/center edge (sums offsets up to cv-world,
@@ -1745,10 +1752,47 @@ export function _cvShowGhost(x, y, label) {
   g.style.left = `${x}px`; g.style.top = `${y}px`;
 }
 export function _cvHideGhost() { document.getElementById("cvGhost")?.remove(); }
+// Push a just-dropped node out of any overlaps (smallest-axis translation,
+// 14px gap, cascades until clean or the iteration cap). Only the dragged node
+// moves — neighbours stay where the user put them.
+export function _cvResolveOverlap(node) {
+  const world = node?.parentElement;
+  if (!world) return;
+  const GAP = 14;
+  const others = [...world.querySelectorAll(".cv-node")].filter((n) => n !== node && n.offsetWidth > 0);
+  let x = node.offsetLeft, y = node.offsetTop;
+  const w = node.offsetWidth, h = node.offsetHeight;
+  for (let iter = 0; iter < 80; iter++) {
+    let bumped = false;
+    for (const o of others) {
+      const ox = o.offsetLeft, oy = o.offsetTop, ow = o.offsetWidth, oh = o.offsetHeight;
+      const dx = Math.min(x + w + GAP - ox, ox + ow + GAP - x);
+      const dy = Math.min(y + h + GAP - oy, oy + oh + GAP - y);
+      if (dx <= 0 || dy <= 0) continue;            // no overlap (incl. gap)
+      if (dx <= dy) x += (x + w / 2 < ox + ow / 2) ? -dx : dx;
+      else          y += (y + h / 2 < oy + oh / 2) ? -dy : dy;
+      bumped = true;
+    }
+    if (!bumped) break;
+  }
+  // No clamping to 0: canvas nodes legitimately live at negative world
+  // coordinates (the view pans), and clamping dragged them back into overlap.
+  x = Math.round(x);
+  y = Math.round(y);
+  if (x !== node.offsetLeft || y !== node.offsetTop) {
+    node.style.left = `${x}px`;
+    node.style.top = `${y}px`;
+    const id = node.dataset.cvNode;
+    if (id) _cvPos[id] = { x, y };
+    drawCanvasConnectors();
+  }
+}
+
 export function _cvOnUp(e) {
   if (!_cvDrag) return;
   if (_cvDrag.kind === "node") {
     _cvDrag.node.classList.remove("dragging");
+    _cvResolveOverlap(_cvDrag.node);
     if (String(_cvDrag.id).startsWith("rule:")) {
       // Rule-node position is real data → persist to router.graph.
       const nid = _cvDrag.id.slice(5), pos = _cvPos[_cvDrag.id];
@@ -1785,6 +1829,10 @@ export function _cvOnUp(e) {
   _cvDrag = null;
 }
 export let _cvWindowBound = false;
+// Edge under the mouse (edgeKey) — while set, all OTHER cables dim so the
+// hovered path stands out. Kept in a module var because drawCanvasConnectors()
+// rewrites svg.innerHTML on every tick and would otherwise drop the classes.
+export let _cvHoverEdge = null;
 
 export function bindCanvasInteractions() {
   const viewport = document.querySelector("[data-cv-viewport]");
@@ -1794,6 +1842,26 @@ export function bindCanvasInteractions() {
     _cvWindowBound = true;
     window.addEventListener("pointermove", _cvOnMove);
     window.addEventListener("pointerup", _cvOnUp);
+    // Hovering a cable dims every other cable so the highlighted path reads
+    // clearly. Delegated on document: the svg is rebuilt on every render and
+    // element-scoped listeners (and dataset flags) would die with it.
+    document.addEventListener("pointerover", (e) => {
+      const grp = e.target.closest && e.target.closest(".cv-edge-grp");
+      if (!grp) return;
+      const svg = grp.closest("svg");
+      if (!svg) return;
+      _cvHoverEdge = grp.querySelector("[data-cv-edge-del]")?.dataset.cvEdgeDel || null;
+      svg.classList.add("edge-focus");
+      svg.querySelectorAll(".cv-edge-grp.focus").forEach((g) => g.classList.remove("focus"));
+      grp.classList.add("focus");
+    });
+    document.addEventListener("pointerout", (e) => {
+      const grp = e.target.closest && e.target.closest(".cv-edge-grp");
+      if (!grp || (e.relatedTarget && grp.contains(e.relatedTarget))) return;
+      _cvHoverEdge = null;
+      grp.classList.remove("focus");
+      grp.closest("svg")?.classList.remove("edge-focus");
+    });
   }
   // Edit-in-canvas controls (stop pointerdown so they don't start a node drag).
   const router = (topology?.routers || []).find((s) => s.id === ui.topologyCanvasRouterId);
