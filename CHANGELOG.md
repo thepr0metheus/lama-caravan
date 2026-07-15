@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.29 — 2026-07-11
+
+- The cable-delete ✕ on the kanban canvas is actually reachable now: it
+  sits on the wire itself (midpoint measured along the polyline, not
+  between the endpoints, where it used to float in empty space), and an
+  invisible 18px-wide hover corridor follows the cable, so moving the
+  mouse from wire to ✕ no longer makes it vanish. Dragging anywhere in
+  the corridor re-points the cable too. Tooltip translated (20 langs).
+- The servers block on the canvas got foldable groups: every local host
+  and every cloud provider header has a ▾/▸ fold; folded rows hide and
+  their cables converge on the group header instead of disappearing.
+  The provider header click still toggles the model checklist as before.
+
 ## 1.3.28 — 2026-07-11
 
 - Subscription usage cleanup after OpenAI dropped the 5h Codex window:

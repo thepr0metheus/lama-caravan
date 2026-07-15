@@ -33,6 +33,7 @@ import {
   saveRouters,
   setCloudModelExposed,
   topologyOutputsCloudExpanded,
+  topologyOutputsFolded,
 } from "./routers.js";
 import { setTopology, topology, ui } from "./state.js";
 import { loadRouteTokenHistory, proxyEffectiveWaitTimeout } from "./topology-activity.js";
@@ -765,6 +766,15 @@ export function bindTopologyDragAndDrop() {
       const accBlocks = (topology?.cloudProviders || []).filter((b) => b.accountId === acc);
       const cur = (acc in topologyOutputsCloudExpanded) ? topologyOutputsCloudExpanded[acc] : accBlocks.filter((b) => b.exposed).length === 0;
       topologyOutputsCloudExpanded[acc] = !cur;
+      renderTopology();
+    });
+  });
+  // Host / provider group fold on the canvas servers block.
+  document.querySelectorAll("[data-router-group-fold]").forEach((el) => {
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const key = el.dataset.routerGroupFold;
+      topologyOutputsFolded[key] = !topologyOutputsFolded[key];
       renderTopology();
     });
   });

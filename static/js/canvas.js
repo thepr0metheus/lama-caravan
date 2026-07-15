@@ -1319,6 +1319,30 @@ export function _cvSyncServersPortDots() {
     dot.style.top = yBlock + "px";
     dot.style.marginTop = "0";
   });
+  // Folded host/provider groups: rows are hidden, so give every hidden output
+  // a dot AT THE GROUP HEADER — its cables converge there instead of vanishing.
+  block.querySelectorAll("[data-cv-group-outs].folded").forEach((grp) => {
+    const head = grp.querySelector("[data-router-group-fold]") || grp;
+    const headRect = head.getBoundingClientRect();
+    if (headRect.height < 1) return;
+    (grp.dataset.cvGroupOuts || "").split(",").forEach((rawId) => {
+      const id = rawId.trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      const key = `out:${id}`;
+      let dot = block.querySelector(`:scope > [data-cv-out-port="${CSS.escape(key)}"]`);
+      if (!dot) {
+        dot = document.createElement("span");
+        dot.className = "cv-port in";
+        dot.dataset.cvNode = key;
+        dot.dataset.cvOutPort = key;
+        dot.title = t("cvDropCable");
+        block.appendChild(dot);
+      }
+      dot.style.top = ((headRect.top - blockRect.top + headRect.height / 2) / scale) + "px";
+      dot.style.marginTop = "0";
+    });
+  });
   // Remove stale dots (output no longer in list or accordion is fully collapsed).
   block.querySelectorAll(":scope > [data-cv-out-port]").forEach((dot) => {
     const id = dot.dataset.cvOutPort?.replace(/^out:/, "");
@@ -1460,9 +1484,13 @@ export function drawCanvasConnectors() {
   const paths = [];
   cables.forEach((c, i) => {
     const crossVerts = verts.filter((v) => v.idx !== i);
-    const mx = (c.a.x + c.b.x) / 2, my = (c.a.y + c.b.y) / 2;
+    const [mx, my] = _cvPolyMid(c.pts);
+    // Invisible fat twin of the cable: a hover/drag corridor, so the mouse can
+    // travel from the wire to the ✕ without the group losing :hover.
     paths.push(`<g class="cv-edge-grp">`
-      + `<path data-cv-edge="${c.edgeKey}" d="${_cvCableD(c.pts, 12, crossVerts)}" class="${c.cls}" fill="none"><title>Drag to re-point · ✕ to delete</title></path>`
+      + `<title>${escapeHtml(t("cvTitleEdge"))}</title>`
+      + `<path class="cv-edge-hit" data-cv-edge="${c.edgeKey}" d="${_cvRoundedPolyD(c.pts, 12)}" fill="none"></path>`
+      + `<path data-cv-edge="${c.edgeKey}" d="${_cvCableD(c.pts, 12, crossVerts)}" class="${c.cls}" fill="none"></path>`
       + `<g class="cv-edge-x" data-cv-edge-del="${c.edgeKey}" transform="translate(${mx},${my})">`
       + `<circle r="8"></circle><path d="M -3.2 -3.2 L 3.2 3.2 M 3.2 -3.2 L -3.2 3.2"></path>`
       + `</g></g>`);
@@ -1533,6 +1561,23 @@ export function _cvAnchorTo(ref) {
   }
   const node = world.querySelector(`[data-cv-node="${CSS.escape(ref)}"]`);
   return node ? _cvWorldPoint(node.querySelector(".cv-port.in") || node, "left") : null;
+}
+
+// Midpoint measured ALONG the polyline (not between endpoints): the delete ✕
+// must sit ON the cable, or hovering toward it leaves the group and it fades.
+function _cvPolyMid(pts) {
+  let total = 0;
+  for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  let rest = total / 2;
+  for (let i = 1; i < pts.length; i++) {
+    const seg = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    if (seg >= rest) {
+      const k = seg ? rest / seg : 0;
+      return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * k, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * k];
+    }
+    rest -= seg;
+  }
+  return pts[pts.length - 1] || [0, 0];
 }
 
 // Path `d` attribute only (so callers can add their own attributes).

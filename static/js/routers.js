@@ -18,6 +18,7 @@ import { refreshTopology, renderTopology } from "./topology-render.js";
 import { $, api, escapeHtml, pill, toast } from "./utils.js";
 
 export let topologyOutputsCloudExpanded = {};     // accountId -> bool: cloud provider's model checklist open?
+export let topologyOutputsFolded = {};            // "host:<host>" / "prov:<accountId>" -> bool: rows folded on the canvas servers block
 // Per-OUTPUT activity: is a request actually being served by THIS output right now?
 // Matches active proxy items by their resolved upstream (host:port). Used so only the
 // cable to the output actually carrying traffic animates (not every output).
@@ -283,9 +284,15 @@ export function renderServersBlockHtml(router) {
         .map(([host, outs]) => {
           const isAdmin = !host || host === "127.0.0.1" || host === "localhost" || (adminIp && host === adminIp);
           const label = isAdmin ? adminName : host;
-          const hdr = hostMap.size > 1 ? `<div class="router-out-host-label">${escapeHtml(label)}</div>` : "";
+          const foldKey = `host:${host}`;
+          const folded = !!topologyOutputsFolded[foldKey];
+          const hdr = `<div class="router-out-host-head" data-router-group-fold="${escapeHtml(foldKey)}" role="button" tabindex="0" title="${escapeHtml(folded ? t("expand") : t("collapse"))}">
+            <span class="router-prov-caret">${folded ? "▸" : "▾"}</span>
+            <span class="router-out-host-label">${escapeHtml(label)}</span>
+            <span class="router-prov-count">${outs.length}</span>
+          </div>`;
           const sorted = [...outs].sort((a, b) => Number(a.upstreamPort || 0) - Number(b.upstreamPort || 0));
-          return `<div class="router-out-host-group">${hdr}${sorted.map((o) => outputRow(o)).join("")}</div>`;
+          return `<div class="router-out-host-group${folded ? " folded" : ""}" data-cv-group-outs="${escapeHtml(outs.map((o) => o.id).join(","))}">${hdr}${folded ? "" : sorted.map((o) => outputRow(o)).join("")}</div>`;
         }).join("")
     : `<div class="router-cfg-muted router-prov-empty">${t("rtNoLocalServers")}</div>`;
 
@@ -300,12 +307,17 @@ export function renderServersBlockHtml(router) {
     const exposedOuts = cloudOutsByAcc.get(acc.id) || [];
     const exposedCount = accBlocks.filter((b) => b.exposed).length;
     const expanded = (acc.id in topologyOutputsCloudExpanded) ? topologyOutputsCloudExpanded[acc.id] : exposedCount === 0;
-    const header = `<button class="router-prov-head" type="button" data-router-prov-toggle="${escapeHtml(acc.id)}">
-      <span class="router-prov-caret">${expanded ? "▾" : "▸"}</span>
-      <span class="router-prov-name">☁ ${escapeHtml(acc.name || acc.id)}</span>
-      <span class="router-out-unlimited" title="${escapeHtml(t("rtTitleCloudUnlimited"))}">∞</span>
-      <span class="router-prov-count">${exposedCount}/${accBlocks.length}</span>
-    </button>`;
+    const foldKey = `prov:${acc.id}`;
+    const folded = !!topologyOutputsFolded[foldKey];
+    const header = `<div class="router-prov-headrow">
+      <button class="router-prov-head" type="button" data-router-prov-toggle="${escapeHtml(acc.id)}">
+        <span class="router-prov-caret">${expanded ? "▾" : "▸"}</span>
+        <span class="router-prov-name">☁ ${escapeHtml(acc.name || acc.id)}</span>
+        <span class="router-out-unlimited" title="${escapeHtml(t("rtTitleCloudUnlimited"))}">∞</span>
+        <span class="router-prov-count">${exposedCount}/${accBlocks.length}</span>
+      </button>
+      <button class="router-group-fold" type="button" data-router-group-fold="${escapeHtml(foldKey)}" title="${escapeHtml(folded ? t("expand") : t("collapse"))}">${folded ? "▸" : "▾"}</button>
+    </div>`;
     const sortedBlocks = accBlocks.slice().sort((a, b) => (b.exposed ? 1 : 0) - (a.exposed ? 1 : 0) || (a.model || a.id || "").localeCompare(b.model || b.id || ""));
     if (expanded) sortedBlocks.forEach((b) => { if (b.model) _aaWant.push(b.model); });
     const checklist = expanded
@@ -327,8 +339,8 @@ export function renderServersBlockHtml(router) {
             }).join("") + `</div>`
           : `<div class="router-cfg-muted router-prov-empty">${escapeHtml(t("rtNoModelsYet"))}</div>`)
       : "";
-    const rows = exposedOuts.map((o) => outputRow(o, "cloud")).join("");
-    return `<div class="router-prov ${expanded ? "open" : ""}">${header}${checklist}${rows}</div>`;
+    const rows = folded ? "" : exposedOuts.map((o) => outputRow(o, "cloud")).join("");
+    return `<div class="router-prov ${expanded ? "open" : ""}${folded ? " folded" : ""}" data-cv-group-outs="${escapeHtml(exposedOuts.map((o) => o.id).join(","))}">${header}${folded ? "" : checklist}${rows}</div>`;
   }).join("") || `<div class="router-cfg-muted router-prov-empty">${t("rtNoCloudProviders")}</div>`;
   requestAaScores(_aaWant);
 
