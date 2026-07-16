@@ -65,7 +65,7 @@ export function proxySpendHtml(accountId) {
       const mp = modelPricing[m.model] || modelPricing[String(m.model || "").toLowerCase()];
       const rate = (mp && (mp.inputPer1M || mp.outputPer1M))
         ? `<span class="sub-usage-rate">${formatPricePer1M(mp.inputPer1M)}/${formatPricePer1M(mp.outputPer1M)}</span>` : "";
-      return `<div class="sub-usage-row"><span class="sub-usage-label">${escapeHtml(m.model)}</span>${rate}<span class="sub-usage-pct">$${Number(m.cost || 0).toFixed(3)}</span></div>`;
+      return `<div class="sub-usage-row spend-row"><span class="sub-usage-label">${escapeHtml(m.model)}</span>${rate}<span class="sub-usage-pct">$${Number(m.cost || 0).toFixed(3)}</span></div>`;
     }).join("");
   return `<div class="sub-usage-panel"><div class="sub-usage-credits"><span>⇄ via proxy · ${s.windowDays}d</span><strong>$${Number(s.total || 0).toFixed(2)}</strong></div>${models}<div class="sub-usage-row"><span class="muted">${s.requests} req · ${(s.promptTokens + s.completionTokens).toLocaleString()} tok</span></div></div>`;
 }
