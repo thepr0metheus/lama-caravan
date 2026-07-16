@@ -194,9 +194,16 @@ export function renderTopologyCloudProviders() {
     const bridgeRows = bridges.map((p) => {
       const model = blockById.get(p.providerId)?.model || p.providerId;
       const url = `http://${location.hostname}:${p.port}`;
+      const mp = modelPricing[model];
+      const priceHtml = String(model).endsWith(":free")
+        ? `<span class="cloud-bridge-price free">FREE</span>`
+        : (mp && (mp.inputPer1M || mp.outputPer1M))
+          ? `<span class="cloud-bridge-price">${formatPricePer1M(mp.inputPer1M)}/${formatPricePer1M(mp.outputPer1M)}</span>`
+          : "";
       return `<div class="cloud-bridge-row">
         <code class="cloud-bridge-port">:${escapeHtml(String(p.port))}</code>
         <span class="cloud-bridge-model" title="${escapeHtml(`${p.label || ""} → ${model}`)}">→ ${escapeHtml(model)}</span>
+        ${priceHtml}
         <button class="icon-action compact" type="button" data-bridge-copy="${escapeHtml(url)}" title="${escapeHtml(t("cloudBridgeCopy"))}">⧉</button>
         <button class="icon-action compact" type="button" data-bridge-delete="${escapeHtml(String(p.port))}" title="${escapeHtml(t("cloudBridgeDelete"))}">✕</button>
       </div>`;

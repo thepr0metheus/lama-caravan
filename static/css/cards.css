@@ -1820,3 +1820,7 @@ pre {
   color: var(--muted);
 }
 
+
+/* $in/$out tag on an existing bridge-port row, right after the model name. */
+.cloud-bridge-price { margin-left: auto; font-size: 10px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cloud-bridge-price.free { color: #4ade80; font-weight: 600; }
