@@ -328,10 +328,16 @@ export function nodeServerCardHtml(node, s) {
     || /(?:^|[\s;,])(?:TTS_DEVICE|DEVICE)=cpu\b|--device[=\s]+cpu\b/i.test(_envCmd)
     || /(?:^|[\n,;\s])CUDA_VISIBLE_DEVICES=(?:""|'')?(?:[\n,;\s]|$)/.test(_envStr);
   const cfgSaysGpu = /(?:^|[\s;,])(?:TTS_DEVICE|DEVICE)=(?:cuda|gpu)\b|--device[=\s]+(?:cuda|gpu)\b/i.test(_envCmd);
-  const devGpuTxt = (s.gpuIndexes || []).map((i) => {
-    const mib = (s.gpuMem || {})[String(i)];
-    return `GPU${i}${mib ? ` ${(mib / 1024).toFixed(1)}G` : ""}`;
-  }).join(" · ");
+  // Device chip carries WHERE (⚡ GPU0); the memory badge carries HOW MUCH and
+  // sits next to the model name — live VRAM held by the cell's processes
+  // (multi-GPU sums up, the per-GPU split lives in the tooltip).
+  const _gpuList = (s.gpuIndexes || []).map((i) => ({ i, mib: Number((s.gpuMem || {})[String(i)] || 0) }));
+  const devGpuTxt = _gpuList.map((g) => `GPU${g.i}`).join(" · ");
+  const _vramMib = _gpuList.reduce((a, g) => a + g.mib, 0);
+  const _vramSplit = _gpuList.filter((g) => g.mib).map((g) => `GPU${g.i}: ${(g.mib / 1024).toFixed(1)} GiB`).join(" · ");
+  const memBadge = (running && _vramMib)
+    ? mbadge("vram", `${escapeHtml((_vramMib / 1024).toFixed(1))}G`, `${t("vramChipTitle")}${_vramSplit ? ` — ${_vramSplit}` : ""}`)
+    : "";
   // One truth for the chip AND the card accent (.cpu-cell → blue instead of
   // green/amber): running with no GPU memory, or stopped with CPU pinned in
   // the config.
@@ -355,6 +361,7 @@ export function nodeServerCardHtml(node, s) {
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
       <div class="node-model-row1">
         ${runnerChipHtml("llama-server")}
+        ${memBadge}
         <strong class="node-model-name" title="${escapeHtml(s.modelPath || s.model)}">${escapeHtml(parsed.label || s.model)}</strong>
       </div>
       ${statusRow || (deviceChip || chips || schedChip ? `<div class="node-model-row2"><span class="model-chips">${deviceChip}${chips}${schedChip}</span></div>` : "")}
@@ -375,6 +382,7 @@ export function nodeServerCardHtml(node, s) {
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
       <div class="node-model-row1">
         ${runnerChipHtml("custom")}
+        ${memBadge}
         <strong class="node-model-name" title="${escapeHtml(cmdText)}">${escapeHtml(cmdText || t("commandCellFallback"))}</strong>
       </div>
       ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
@@ -406,6 +414,7 @@ export function nodeServerCardHtml(node, s) {
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
       <div class="node-model-row1">
         ${runnerChipHtml("vllm")}
+        ${memBadge}
         <strong class="node-model-name" title="${escapeHtml(vllmModel || vllmName)}${vllmAlias ? escapeHtml(` · served as ${vllmAlias}`) : ""}">${escapeHtml(vllmName)}</strong>
       </div>
       ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${vllmFmt ? mbadge("quant", `🎛 ${escapeHtml(vllmFmt)}`) : ""}${s.vllmStats ? mbadge("cmd", `▶ ${s.vllmStats.requestsRunning}${s.vllmStats.requestsWaiting ? " ⏳" + s.vllmStats.requestsWaiting : ""}`, "running / queued requests") : ""}${s.vllmStats && s.vllmStats.genTps != null ? mbadge("bench", `${formatTps(s.vllmStats.genTps)} t/s`) : ""}${mbadge("cmd", "❤ /v1/models")}${_scfg.MAX_MODEL_LEN ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.MAX_MODEL_LEN)))}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
@@ -418,6 +427,7 @@ export function nodeServerCardHtml(node, s) {
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
       <div class="node-model-row1">
         ${runnerChipHtml("whisper")}
+        ${memBadge}
         <strong class="node-model-name" title="faster-whisper ${escapeHtml(whisperSize)}">${escapeHtml(whisperSize)}</strong>
       </div>
       ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}

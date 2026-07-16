@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.41 — 2026-07-16
+
+- The device chip and the memory figure split: the chip in the state row
+  now carries only WHERE (⚡ GPU0), while HOW MUCH lives in a bold green
+  badge next to the model name — live VRAM held by the cell's processes,
+  multi-GPU sums up with the per-GPU split in the tooltip. CPU cells and
+  stopped cells (which hold nothing) show no memory badge.
+
 ## 1.3.40 — 2026-07-16
 
 - Reassign a parked cell's port: the RESERVED :port lifecycle step turns
