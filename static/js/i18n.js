@@ -13,7 +13,9 @@ export let theme = localStorage.getItem("llamacppAdminTheme") || "dark";
 export function t(key, vars = {}) {
   let text = messages[lang]?.[key] || messages.en[key] || key;
   Object.entries(vars).forEach(([name, value]) => {
-    text = text.replace(`{${name}}`, value);
+    // replaceAll: a placeholder may legitimately appear twice in one string
+    // (e.g. topologyCloudModelChangeWarn uses {to} in both clauses).
+    text = text.replaceAll(`{${name}}`, value);
   });
   return text;
 }

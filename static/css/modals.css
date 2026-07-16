@@ -2094,3 +2094,11 @@
   color: var(--muted);
   opacity: .75;
 }
+
+.cloud-orphan-bridges {
+  margin: 4px 0 10px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bad) 7%, transparent);
+}

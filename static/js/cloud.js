@@ -293,7 +293,24 @@ export function renderTopologyCloudProviders() {
         </div>
       </article>
     `;
-  }).join("") + addCloudBtn;
+  }).join("") + (() => {
+    // Bridges whose model block is GONE vanish from the per-account panels (the
+    // block filter can't attribute them) — without this strip they'd keep
+    // listening on their port, invisible and undeletable from the UI.
+    const allBlockIds = new Set(blocks.map((b) => b.id));
+    const orphans = (topology?.proxies || [])
+      .filter((p) => p.kind === "service" && !allBlockIds.has(p.providerId))
+      .sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
+    if (!orphans.length) return "";
+    return `<div class="cloud-orphan-bridges">
+      <div class="cloud-api-issues-title">⚠ ${escapeHtml(t("cloudOrphanBridges"))}</div>
+      ${orphans.map((p) => `<div class="cloud-bridge-row unlisted">
+        <code class="cloud-bridge-port">:${escapeHtml(String(p.port))}</code>
+        <span class="cloud-bridge-model" title="${escapeHtml(p.label || "")}">→ ${escapeHtml(p.providerId || "?")}</span>
+        <button class="icon-action compact" type="button" data-bridge-delete="${escapeHtml(String(p.port))}" title="${escapeHtml(t("cloudBridgeDelete"))}">✕</button>
+      </div>`).join("")}
+    </div>`;
+  })() + addCloudBtn;
 }
 
 // "API issues" panel: endpoints the breaker tripped (we stopped calling them —
