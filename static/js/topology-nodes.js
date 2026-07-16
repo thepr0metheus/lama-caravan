@@ -195,7 +195,7 @@ export function serverLifecycleBar(lcIdx, lcActiveStep, uptimeTxt = "", cfgAttrs
         // Reserved step becomes the port-reassign button while the cell is
         // stopped: click → free-port picker (occupied ports highlighted).
         : ((i === 0 && portAttrs)
-            ? `<button class="lc-node lc-port-btn ${nodeState} lc-${colorKey}" type="button" ${portAttrs} title="${escapeHtml(t("lcPortReassignTitle"))}">${inner}</button>`
+            ? `<button class="lc-node lc-port-btn ${nodeState} lc-${colorKey}" type="button" ${portAttrs} title="${escapeHtml(t("lcPortReassignTitle"))}">${inner}<span class="lc-port-swap" aria-hidden="true">⇄</span></button>`
             : `<span class="lc-node ${nodeState} lc-${colorKey}${cfgLive}">${inner}</span>`);
       return `${i > 0 ? `<span class="lc-rail ${railCls}"></span>` : ""}${node}`;
     }).join("")
