@@ -822,7 +822,6 @@
   transform: translateY(1px);
   box-shadow: inset 0 2px 5px rgba(0,0,0,0.55);
 }
-.lc-port-swap { font-size: 9px; opacity: .8; margin-left: 3px; }
 
 .port-picker-modal { width: min(720px, calc(100vw - 40px)); }
 
