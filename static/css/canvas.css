@@ -1224,12 +1224,18 @@ select.cv-pin { width: 100%; }
 .router-group-fold:hover { color: var(--text); }
 .router-out-host-group.folded, .router-prov.folded { opacity: .85; }
 
-/* Hovering one cable dims the rest so the highlighted path reads clearly.
-   Non-focused wires also drop to half thickness (8px → 4px). */
-.cv-svg path { transition: opacity .15s ease, stroke-width .15s ease; }
-.cv-svg.edge-focus .cv-edge-grp:not(.focus) path:not(.cv-edge-hit) { opacity: .07; stroke-width: 4; }
-.cv-svg.edge-focus .cv-junction { opacity: .07; }
-.cv-svg.edge-focus .cv-edge-grp.focus path[data-cv-edge]:not(.cv-edge-hit) { opacity: 1; }
+/* Hovering one cable: others thin to half width at low-but-visible opacity
+   (at near-zero opacity the thinning was imperceptible), the focused path
+   goes accent-colored, slightly thicker and glows. */
+.cv-svg path { transition: opacity .15s ease, stroke-width .15s ease, stroke .15s ease; }
+.cv-svg.edge-focus .cv-edge-grp:not(.focus) path:not(.cv-edge-hit) { opacity: .18; stroke-width: 4; }
+.cv-svg.edge-focus .cv-junction { opacity: .15; }
+.cv-svg.edge-focus .cv-edge-grp.focus path[data-cv-edge]:not(.cv-edge-hit) {
+  opacity: 1;
+  stroke: var(--accent);
+  stroke-width: 9;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 70%, transparent));
+}
 
 /* $in/$out per-1M tag on cloud output rows (kanban servers block + panel). */
 .router-out-price { margin-left: auto; font-size: 9px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
