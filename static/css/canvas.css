@@ -1224,9 +1224,10 @@ select.cv-pin { width: 100%; }
 .router-group-fold:hover { color: var(--text); }
 .router-out-host-group.folded, .router-prov.folded { opacity: .85; }
 
-/* Hovering one cable dims the rest so the highlighted path reads clearly. */
-.cv-svg path { transition: opacity .15s ease; }
-.cv-svg.edge-focus .cv-edge-grp:not(.focus) path:not(.cv-edge-hit) { opacity: .07; }
+/* Hovering one cable dims the rest so the highlighted path reads clearly.
+   Non-focused wires also drop to half thickness (8px → 4px). */
+.cv-svg path { transition: opacity .15s ease, stroke-width .15s ease; }
+.cv-svg.edge-focus .cv-edge-grp:not(.focus) path:not(.cv-edge-hit) { opacity: .07; stroke-width: 4; }
 .cv-svg.edge-focus .cv-junction { opacity: .07; }
 .cv-svg.edge-focus .cv-edge-grp.focus path[data-cv-edge]:not(.cv-edge-hit) { opacity: 1; }
 

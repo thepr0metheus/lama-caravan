@@ -1835,6 +1835,26 @@ export let _cvWindowBound = false;
 // hovered path stands out. Kept in a module var because drawCanvasConnectors()
 // rewrites svg.innerHTML on every tick and would otherwise drop the classes.
 export let _cvHoverEdge = null;
+// Bound at module load (not in bindCanvasInteractions): the standalone kanban
+// page reaches that bind late or never on a fresh load, and the svg itself is
+// rebuilt on every render — document-level delegation is the only stable home.
+document.addEventListener("pointerover", (e) => {
+  const grp = e.target.closest && e.target.closest(".cv-edge-grp");
+  if (!grp) return;
+  const svg = grp.closest("svg");
+  if (!svg) return;
+  _cvHoverEdge = grp.querySelector("[data-cv-edge-del]")?.dataset.cvEdgeDel || null;
+  svg.classList.add("edge-focus");
+  svg.querySelectorAll(".cv-edge-grp.focus").forEach((g) => g.classList.remove("focus"));
+  grp.classList.add("focus");
+});
+document.addEventListener("pointerout", (e) => {
+  const grp = e.target.closest && e.target.closest(".cv-edge-grp");
+  if (!grp || (e.relatedTarget && grp.contains(e.relatedTarget))) return;
+  _cvHoverEdge = null;
+  grp.classList.remove("focus");
+  grp.closest("svg")?.classList.remove("edge-focus");
+});
 
 export function bindCanvasInteractions() {
   const viewport = document.querySelector("[data-cv-viewport]");
@@ -1844,26 +1864,6 @@ export function bindCanvasInteractions() {
     _cvWindowBound = true;
     window.addEventListener("pointermove", _cvOnMove);
     window.addEventListener("pointerup", _cvOnUp);
-    // Hovering a cable dims every other cable so the highlighted path reads
-    // clearly. Delegated on document: the svg is rebuilt on every render and
-    // element-scoped listeners (and dataset flags) would die with it.
-    document.addEventListener("pointerover", (e) => {
-      const grp = e.target.closest && e.target.closest(".cv-edge-grp");
-      if (!grp) return;
-      const svg = grp.closest("svg");
-      if (!svg) return;
-      _cvHoverEdge = grp.querySelector("[data-cv-edge-del]")?.dataset.cvEdgeDel || null;
-      svg.classList.add("edge-focus");
-      svg.querySelectorAll(".cv-edge-grp.focus").forEach((g) => g.classList.remove("focus"));
-      grp.classList.add("focus");
-    });
-    document.addEventListener("pointerout", (e) => {
-      const grp = e.target.closest && e.target.closest(".cv-edge-grp");
-      if (!grp || (e.relatedTarget && grp.contains(e.relatedTarget))) return;
-      _cvHoverEdge = null;
-      grp.classList.remove("focus");
-      grp.closest("svg")?.classList.remove("edge-focus");
-    });
   }
   // Edit-in-canvas controls (stop pointerdown so they don't start a node drag).
   const router = (topology?.routers || []).find((s) => s.id === ui.topologyCanvasRouterId);
