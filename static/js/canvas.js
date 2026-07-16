@@ -1,5 +1,5 @@
 // Router node canvas: nodes, connectors, pan/zoom, schedule grid painting.
-import { appConfirm } from "./dialogs.js";
+import { appConfirm, appPrompt } from "./dialogs.js";
 import { option } from "./form.js";
 import { t } from "./i18n.js";
 import { closeConfirmModal } from "./llama-edit.js";
@@ -28,8 +28,8 @@ import {
   topologyMutedProxyIds,
   topologyProxyOwner,
 } from "./topology-proxies.js";
-import { renderTopology, topologyStructureFingerprint } from "./topology-render.js";
-import { $, api, escapeHtml, toast } from "./utils.js";
+import { refreshTopology, renderTopology, topologyStructureFingerprint } from "./topology-render.js";
+import { $, api, copyText, escapeHtml, toast } from "./utils.js";
 
 export let _cvQueueHistOpen = {};                 // nodeId -> bool: history pane open?
 export let _cvQueueHistData = {};                 // nodeId -> { rows, ts } cached log data
@@ -936,12 +936,16 @@ export function canvasNodes(router) {
     + `<select class="cv-embed-select" data-cv-embed-out><option value="">— ${escapeHtml(t("cvNotAssigned"))} —</option>${embedOpts}</select>`
     + `<div class="cv-embed-note">${embedOut ? escapeHtml(t("cvEmbedAllTo", { name: topologyRouterOutputLabel(embedOut) })) : t("cvEmbedNotSet")}</div>`
     + `</div>`;
+  // Entry port for an external app (a UI, a voice tool, …): router-routed like
+  // agent traffic, but with its own data-plane API key — apps stop borrowing
+  // agent keys (the promie-ui incident: a stale shared key = 401 spam).
+  const appPortHtml = `<div class="cv-app-port-row"><button class="cv-app-port-btn" type="button" data-cv-app-port title="${escapeHtml(t("cvAppPortHint"))}">＋ ${escapeHtml(t("cvAppPortBtn"))}</button></div>`;
   nodes.push({
     id: "inputs:block",
     type: "inputs",
     cls: "cv-inputs-block",
     fixed: { x: 20, y: 20 },
-    html: `<div class="cv-inputs-head">${escapeHtml(t("cvLabelClients"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipClients")}</span></span></div><div class="cv-inputs-body">${inputsBodyHtml || '<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>'}</div>${embedSlotHtml}`,
+    html: `<div class="cv-inputs-head">${escapeHtml(t("cvLabelClients"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipClients")}</span></span></div><div class="cv-inputs-body">${inputsBodyHtml || '<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>'}</div>${embedSlotHtml}${appPortHtml}`,
   });
   // Rule nodes (graph mode) — positioned by their stored x/y; input + output ports.
   const RULE_GLYPH = { schedule: "⏱", weighted: "⚖", roundRobin: "🔁", failover: "⚡", queue: "⏳", requestType: "🔀", requestSize: "📏" };
@@ -1875,6 +1879,29 @@ document.addEventListener("pointerout", (e) => {
   _cvHoverEdge = null;
   grp.classList.remove("focus");
   grp.closest("svg")?.classList.remove("edge-focus");
+});
+// ＋ App port — mint a router-routed entry port with its own API key for an
+// external app. Document-level delegation at module load (same reason as the
+// edge hover above: bindCanvasInteractions is late/never on standalone kanban,
+// and the node html is rebuilt on structure changes). Capture-phase pointerdown
+// keeps the click from starting a node drag.
+document.addEventListener("pointerdown", (e) => {
+  if (e.target.closest && e.target.closest("[data-cv-app-port]")) e.stopPropagation();
+}, true);
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest && e.target.closest("[data-cv-app-port]");
+  if (!btn || btn.disabled) return;
+  const name = await appPrompt(t("cvAppPortName"), { placeholder: "promie-ui" });
+  if (!name) return;
+  btn.disabled = true;
+  try {
+    const res = await api("/api/app-port", { method: "POST", body: JSON.stringify({ name }) });
+    await copyText(`http://${location.hostname}:${res.route.port}/v1\n${res.route.apiKey}`);
+    toast(t("cvAppPortMinted", { port: String(res.route.port) }));
+    await refreshTopology();
+    renderTopology();
+  } catch (err) { toast(err.message); }
+  btn.disabled = false;
 });
 
 export function bindCanvasInteractions() {

@@ -1080,6 +1080,13 @@ def _post_api_cloud_bridge_port(h, parsed, body):
         h.send_json({"ok": True, "route": route})
         return
 
+@_route(POST_ROUTES, '/api/app-port')
+def _post_api_app_port(h, parsed, body):
+        from caravan.admin.proxies_config import mint_app_port
+        route = mint_app_port(body.get("name"))
+        h.send_json({"ok": True, "route": route})
+        return
+
 @_route(POST_ROUTES, '/api/cloud-accounts/bridge-port-delete')
 def _post_api_cloud_bridge_port_delete(h, parsed, body):
         h.send_json({"ok": True, **delete_bridge_port(body.get("port"))})

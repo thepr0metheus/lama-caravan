@@ -1,6 +1,7 @@
 """agent-proxies.json I/O and mutation: routes, routers, policy. Every write
 funnels through write_agent_proxy_payload (with the kanban-graph autobackup)."""
 import json
+import secrets
 
 from caravan.admin.cloud import cloud_blocks_state, load_cloud_data, save_cloud_data
 from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE
@@ -443,6 +444,46 @@ def mint_bridge_port(block_id, label=""):
             pass
     saved = save_agent_proxy_config(routes, payload.get("routers"))
     return next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
+
+def mint_app_port(name):
+    """Create a router-routed entry port for an EXTERNAL APP (a UI, a voice
+    tool, …): traffic flows through the default router's graph/queue exactly
+    like agent traffic, but the port carries its own data-plane API key — no
+    app ever needs to borrow an agent's key again. Returns the saved route
+    INCLUDING the generated key (the UI shows/copies it once; it stays
+    readable later in the route form's Advanced section)."""
+    name = str(name or "").strip()[:80]
+    if not name:
+        raise AppError("name is required", 400)
+    payload = load_agent_proxy_config()
+    routes = payload.get("routes") or []
+    port = _next_free_proxy_port(routes)
+    api_key = "lcv1_" + secrets.token_hex(16)
+    route = {
+        "label": name,
+        "port": port,
+        # Legacy placeholder — the router graph owns the real upstream choice.
+        "upstreamHost": "127.0.0.1",
+        "upstreamPort": 8080,
+        "enabled": True,
+        "routerId": DEFAULT_ROUTER_ID,
+        "apiKey": api_key,
+        "clientTimeoutSeconds": 1800,
+        "mode": "open",
+    }
+    routes.append(route)
+    # The consumer lives elsewhere on the LAN — open the port best-effort,
+    # same as bridge ports (no-op without the sudo rule).
+    from caravan.admin.paths import IS_CONTAINER
+    if not IS_CONTAINER:
+        try:
+            from caravan.common.procs import run
+            run(["sudo", "-n", "ufw", "allow", str(port)], timeout=5)
+        except Exception:
+            pass
+    saved = save_agent_proxy_config(routes, payload.get("routers"))
+    out = next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
+    return {**out, "apiKey": api_key}
 
 def delete_bridge_port(port):
     """Remove a bridge port. Refuses agent routes — those belong to the board."""

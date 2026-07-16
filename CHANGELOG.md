@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.38 — 2026-07-16
+
+- "＋ App port" at the bottom of the kanban CLIENTS block: mints a
+  router-routed entry port for an EXTERNAL APP (a UI, a voice tool, …) —
+  traffic flows through the default router's graph/queue exactly like
+  agent traffic, but the port carries its own generated data-plane API
+  key (URL + key land in the clipboard; the key stays readable in the
+  route form's Advanced section). Apps no longer borrow agent keys —
+  born from a live incident: a container on a fleet host hammered an
+  agent's route with a stale shared key, 1.5k 401s/day.
+
 ## 1.3.37 — 2026-07-16
 
 - Provider cards grew a "Cloud request errors (24h)" block: data-plane

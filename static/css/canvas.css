@@ -1261,3 +1261,24 @@ select.cv-pin { width: 100%; }
   color: var(--bad);
   padding: 1px 6px 2px 24px;
 }
+
+/* ＋ App port mint row at the bottom of the CLIENTS block. */
+.cv-app-port-row { padding: 6px 8px 2px; }
+
+.cv-app-port-btn {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px dashed color-mix(in srgb, var(--muted,#888) 35%, transparent);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s;
+}
+
+.cv-app-port-btn:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
