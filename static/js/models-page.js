@@ -86,12 +86,15 @@ async function refresh() {
         <span class="mdl-size">${fmtGb(node.bytes)}${freshness(node.minAge)}</span></summary>
       <div class="mdl-lvl">${inner}</div>
     </details>`;
+  // Every level sorts largest-first (authors, quants and files too — not just
+  // the top-level repos), so the biggest disk eaters always float up.
+  const bySize = (a, b) => b[1].bytes - a[1].bytes;
   tree.innerHTML = [...grouped.entries()]
-    .sort((a, b) => b[1].bytes - a[1].bytes)
+    .sort(bySize)
     .map(([model, l1]) => lvl(model, l1,
-      [...l1.children.entries()].map(([author, l2]) => lvl(author, l2,
-        [...l2.children.entries()].map(([quant, l3]) =>
-          lvl(quant, l3, l3.files.map(fileRow).join(""))).join(""))).join("")))
+      [...l1.children.entries()].sort(bySize).map(([author, l2]) => lvl(author, l2,
+        [...l2.children.entries()].sort(bySize).map(([quant, l3]) =>
+          lvl(quant, l3, l3.files.slice().sort((a, b) => b.sizeBytes - a.sizeBytes).map(fileRow).join(""))).join(""))).join("")))
     .join("") || `<p class="muted">${escapeHtml(t("gcNoUnused"))}</p>`;
   updatePicked();
 }
