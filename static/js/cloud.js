@@ -204,8 +204,18 @@ export function renderTopologyCloudProviders() {
     // The board fully re-renders on poll ticks — an unsaved dropdown choice
     // must live in ui state or every rebuild would reset it to the first row.
     const chosenBlock = ui.bridgeBlockChoice?.[acct.id] || "";
+    // Native <option> can't carry styled tags, but plain text works — append
+    // the $in/$out price (or FREE) so the price is visible right in the picker.
     const bridgeOptions = acctBlocks
-      .map((b) => `<option value="${escapeHtml(b.id)}"${b.id === chosenBlock ? " selected" : ""}>${escapeHtml(b.model || b.name || b.id)}</option>`).join("");
+      .map((b) => {
+        const model = b.model || b.name || b.id;
+        const mp = modelPricing[b.model || ""];
+        const suffix = String(b.model || "").endsWith(":free") ? " · FREE"
+          : (mp && (mp.inputPer1M || mp.outputPer1M))
+            ? ` · ${formatPricePer1M(mp.inputPer1M)}/${formatPricePer1M(mp.outputPer1M)}`
+            : "";
+        return `<option value="${escapeHtml(b.id)}"${b.id === chosenBlock ? " selected" : ""}>${escapeHtml(model + suffix)}</option>`;
+      }).join("");
     // Same ghost styling and "next free port" promise as the Reserve-cell
     // card — bridges and cells share the fleet-wide numbering.
     const nextBridgePort = nextTopologyCellPort();
