@@ -827,3 +827,32 @@
   background: color-mix(in srgb, #4593ff 14%, transparent);
 }
 .node-server.cpu-cell .lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover .lc-lbl { color: #4593ff !important; }
+
+/* Action buttons follow the blue accent on CPU cells: START / AUTOSTART wear
+   .ok (green) and the autostart-off hover hints green — all turn blue here.
+   STOP stays amber and DELETE red: those mean "stop/danger", not GPU-vs-CPU. */
+.node-server.cpu-cell .node-action-btn.ok {
+  color: #4593ff;
+  border-color: color-mix(in srgb, #4593ff 30%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, #4593ff 12%, transparent) 0%, color-mix(in srgb, #4593ff 6%, transparent) 100%);
+}
+.node-server.cpu-cell .node-action-btn.ok:not(:disabled):hover {
+  background: linear-gradient(180deg, color-mix(in srgb, #4593ff 16%, transparent) 0%, color-mix(in srgb, #4593ff 9%, transparent) 100%);
+  border-color: #4593ff;
+}
+.node-server.cpu-cell .node-action-btn.off:not(:disabled):hover {
+  color: #4593ff;
+  border-color: color-mix(in srgb, #4593ff 45%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, #4593ff 12%, transparent) 0%, color-mix(in srgb, #4593ff 6%, transparent) 100%);
+}
+.node-server.cpu-cell .lc-rail.done { background: color-mix(in srgb, #4593ff 55%, var(--line)); }
+.node-server.cpu-cell .lc-node.done {
+  border-color: color-mix(in srgb, #4593ff 22%, transparent);
+  background: color-mix(in srgb, #4593ff 8%, transparent);
+}
+/* The theme's --muted is sage-green — on a blue CPU card the done-step labels
+   (RESERVED/STARTING) read as green residue; shift their hue toward the blue. */
+.node-server.cpu-cell .lc-node.done .lc-lbl,
+.node-server.cpu-cell .lc-node.done:not(.lc-cfg-btn) .lc-lbl {
+  color: color-mix(in srgb, #4593ff 45%, var(--muted, #888));
+}

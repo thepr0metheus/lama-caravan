@@ -412,6 +412,8 @@ export function applyConfigToForm(config, pfx = "") {
   }
   const envEl = $(pfx + "ENV");
   if (envEl) envEl.value = config.ENV || "";
+  const devSel = $(pfx + "CELL_DEVICE");
+  if (devSel) devSel.value = _envDeviceState(config.ENV || "", config.COMMAND || "");
   const wdEl = $(pfx + "WORKDIR");
   if (wdEl) wdEl.value = config.WORKDIR || "";
   applyCellKindUI(pfx);
@@ -853,7 +855,40 @@ export function wireCellKindToggle(pfx) {
       el.addEventListener("change", () => renderCommandCellPreview(pfx));
     }
   });
+  // Device pin: the selector rewrites ENV (see _applyDeviceToEnv) and the ENV
+  // edits feed back into the selector, so hand-typed pins stay in sync.
+  const devSel = $(pfx + "CELL_DEVICE");
+  const envEl = $(pfx + "ENV");
+  if (devSel && envEl) {
+    devSel.addEventListener("change", () => {
+      envEl.value = _applyDeviceToEnv(envEl.value, devSel.value);
+      envEl.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    envEl.addEventListener("input", () => {
+      devSel.value = _envDeviceState(envEl.value, $(pfx + "COMMAND")?.value || "");
+    });
+  }
   overlay.dataset.cellKindWired = "1";
+}
+
+// Device pin selector (command/whisper/vLLM cells) — pure sugar over ENV so
+// neither launcher (controller launch.py, scout) needs to change: cpu writes
+// TTS_DEVICE=cpu + CUDA_VISIBLE_DEVICES= (hard, runner-agnostic), gpu writes
+// TTS_DEVICE=cuda, auto removes both and leaves the runner's own probe.
+export function _envDeviceState(envStr, cmdStr) {
+  const all = `${envStr}\n${cmdStr}`;
+  if (/(?:^|[\s;,])(?:TTS_DEVICE|DEVICE)=cpu\b|--device[=\s]+cpu\b/i.test(all)
+      || /(?:^|[\n,;\s])CUDA_VISIBLE_DEVICES=(?:""|'')?(?:[\n,;\s]|$)/.test(envStr)) return "cpu";
+  if (/(?:^|[\s;,])(?:TTS_DEVICE|DEVICE)=(?:cuda|gpu)\b|--device[=\s]+(?:cuda|gpu)\b/i.test(all)) return "gpu";
+  return "auto";
+}
+
+export function _applyDeviceToEnv(envStr, mode) {
+  const rows = String(envStr || "").split(/[\n,]/).map((s) => s.trim()).filter(Boolean)
+    .filter((r) => !/^(TTS_DEVICE|CUDA_VISIBLE_DEVICES)=/i.test(r));
+  if (mode === "cpu") rows.push("TTS_DEVICE=cpu", "CUDA_VISIBLE_DEVICES=");
+  if (mode === "gpu") rows.push("TTS_DEVICE=cuda");
+  return rows.join("\n");
 }
 
 export const COMMAND_PRESETS = [

@@ -439,6 +439,7 @@
               <div class="label-row" style="margin-top:8px"><label for="tr-COMMAND">COMMAND</label></div>
               <input id="tr-COMMAND" name="COMMAND" type="text" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%">
               <p class="field-note">Runs on the client host. <code>$PORT</code> is exported to the cell's reserved port; the command is <code>exec</code>'d. Don't prefix with <code>exec</code> — it's added.</p>
+              <div class="label-row" style="margin-top:8px"><label for="tr-CELL_DEVICE" data-i18n="cellDeviceLabel">Device</label><span class="inline-tip help-tip" tabindex="0">?<span class="tooltip" data-i18n="cellDeviceHelp">Pins the launch device via ENV (TTS_DEVICE / CUDA_VISIBLE_DEVICES); auto keeps the runner's own probe.</span></span></div><select id="tr-CELL_DEVICE" style="width:100%"><option value="auto" data-i18n="cellDeviceAuto">auto — probe at start</option><option value="gpu" data-i18n="cellDeviceGpu">GPU (pin)</option><option value="cpu" data-i18n="cellDeviceCpu">CPU (pin)</option></select>
               <div class="label-row" style="margin-top:8px"><label for="tr-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
               <textarea id="tr-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace"></textarea>
               <p class="field-note">One <code>KEY=VALUE</code> per line → <code>export</code>ed before the command.</p>
@@ -637,6 +638,7 @@
               <div class="label-row" style="margin-top:8px"><label for="te-COMMAND">COMMAND</label></div>
               <input id="te-COMMAND" name="COMMAND" type="text" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%">
               <p class="field-note"><code>$PORT</code> is exported to the cell's reserved port; the command is <code>exec</code>'d. Don't prefix with <code>exec</code> — it's added.</p>
+              <div class="label-row" style="margin-top:8px"><label for="te-CELL_DEVICE" data-i18n="cellDeviceLabel">Device</label><span class="inline-tip help-tip" tabindex="0">?<span class="tooltip" data-i18n="cellDeviceHelp">Pins the launch device via ENV (TTS_DEVICE / CUDA_VISIBLE_DEVICES); auto keeps the runner's own probe.</span></span></div><select id="te-CELL_DEVICE" style="width:100%"><option value="auto" data-i18n="cellDeviceAuto">auto — probe at start</option><option value="gpu" data-i18n="cellDeviceGpu">GPU (pin)</option><option value="cpu" data-i18n="cellDeviceCpu">CPU (pin)</option></select>
               <div class="label-row" style="margin-top:8px"><label for="te-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
               <textarea id="te-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace"></textarea>
               <p class="field-note">One <code>KEY=VALUE</code> per line → <code>export</code>ed before the command.</p>

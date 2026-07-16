@@ -313,13 +313,17 @@ export function nodeServerCardHtml(node, s) {
     ? mbadge("sched", `⏱ ${escapeHtml(s.schedule.start)}–${escapeHtml(s.schedule.stop)}`,
              t("schedChipTitle"))
     : "";
-  // Device chip — GPU or CPU, right on the card. Runtime truth first: a
-  // RUNNING cell whose unit pids hold no GPU memory computes on the CPU
-  // (command cells included — the pid→GPU binder covers every runner kind).
-  // Stopped cells fall back to explicit config: -ngl 0, or a command that
-  // pins the device to cpu (TTS_DEVICE=cpu / --device cpu).
+  // Device chip — every non-reserved cell wears one. Runtime truth first: a
+  // RUNNING cell shows its actual device (unit pids vs nvidia compute-apps;
+  // command cells included). A STOPPED cell shows the CONFIGURED target —
+  // pins are scanned in COMMAND *and* ENV (the Device selector writes
+  // TTS_DEVICE=cpu|cuda there; empty CUDA_VISIBLE_DEVICES = hard CPU).
+  const _envStr = String(_scfg.ENV || "");
+  const _envCmd = `${_envStr}\n${String(_scfg.COMMAND || "")}`;
   const cfgSaysCpu = String(_scfg.N_GPU_LAYERS ?? "").trim() === "0"
-    || /(?:^|[\s;])(?:TTS_DEVICE|DEVICE)=cpu\b|--device[=\s]+cpu\b/i.test(String(_scfg.COMMAND || ""));
+    || /(?:^|[\s;,])(?:TTS_DEVICE|DEVICE)=cpu\b|--device[=\s]+cpu\b/i.test(_envCmd)
+    || /(?:^|[\n,;\s])CUDA_VISIBLE_DEVICES=(?:""|'')?(?:[\n,;\s]|$)/.test(_envStr);
+  const cfgSaysGpu = /(?:^|[\s;,])(?:TTS_DEVICE|DEVICE)=(?:cuda|gpu)\b|--device[=\s]+(?:cuda|gpu)\b/i.test(_envCmd);
   const devGpuTxt = (s.gpuIndexes || []).map((i) => {
     const mib = (s.gpuMem || {})[String(i)];
     return `GPU${i}${mib ? ` ${(mib / 1024).toFixed(1)}G` : ""}`;
@@ -328,9 +332,20 @@ export function nodeServerCardHtml(node, s) {
   // green/amber): running with no GPU memory, or stopped with CPU pinned in
   // the config.
   const isCpuCell = (running && !devGpuTxt) || (!running && cfgSaysCpu && !isReserved);
+  // Stopped without a pin: llama (with offload) and vLLM are GPU by nature,
+  // whisper's launcher is CUDA-first; a bare custom command resolves its
+  // device at start (VRAM probe) → "auto".
+  const _runner = String(_scfg.RUNNER || (String(_scfg.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server")).toLowerCase();
+  const runnerDefaultsGpu = _runner === "llama-server" || _runner === "vllm" || _runner === "whisper";
   const deviceChip = (running && devGpuTxt)
     ? mbadge("gpu", `⚡ ${escapeHtml(devGpuTxt)}`)
-    : (isCpuCell ? mbadge("cpu", "🧮 CPU", t("topologyCpuCellsHint")) : "");
+    : (isCpuCell
+        ? mbadge("cpu", "🧮 CPU", t("topologyCpuCellsHint"))
+        : ((!running && !isReserved)
+            ? ((cfgSaysGpu || runnerDefaultsGpu)
+                ? mbadge("gpu", "⚡ GPU", t("topologyDeviceCfgGpuHint"))
+                : mbadge("dev", "⚙ auto", t("topologyDeviceAutoHint")))
+            : ""));
   const modelBlock = s.model ? `
     <div class="node-model-block" role="button" tabindex="0"
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">

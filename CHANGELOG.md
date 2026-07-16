@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.3.39 — 2026-07-16
+
+- Every non-reserved cell card now wears a device chip: running cells
+  show the FACT (⚡ GPU0 2.5G / 🧮 CPU from unit pids vs nvidia
+  compute-apps), stopped cells show the CONFIGURED target — ⚡ GPU for
+  GPU-natured runners (llama with offload, vLLM, whisper) and pins,
+  🧮 CPU for CPU pins, ⚙ auto for bare custom commands that probe VRAM
+  at start. Pins are read from COMMAND and ENV.
+- CPU cells (running on CPU or stopped with a CPU pin) wear a blue card
+  accent — stripe, background, lifecycle steps, chip — instead of
+  green/amber, so the GPU-vs-CPU split reads at a glance.
+- The cell form grew a Device selector (auto / GPU pin / CPU pin) for
+  command, whisper and vLLM cells — pure sugar over ENV
+  (TTS_DEVICE=cpu|cuda; empty CUDA_VISIBLE_DEVICES as the hard,
+  runner-agnostic CPU pin), so both launch renderers — the controller
+  and caravan-scout on client hosts — work unchanged. Hand-typed ENV
+  pins sync back into the selector. Live-verified on both a controller
+  and a client cell: CPU pin loads the model on CPU with the GPU idle,
+  GPU pin takes CUDA.
+- The /models page tree sorts every level largest-first (was top-level
+  only); provider-card model lists and kanban checklists sort by price.
+
 ## 1.3.38 — 2026-07-16
 
 - "＋ App port" at the bottom of the kanban CLIENTS block: mints a
