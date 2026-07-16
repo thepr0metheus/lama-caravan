@@ -13,12 +13,15 @@ import {
   fetchOpenRouterLimits,
   fetchProxySpend,
   fetchSubscriptionUsage,
+  fetchUpstreamErrors,
   openrouterLimitsCache,
   openRouterLimitsHtml,
   proxySpendFetchedAt,
   proxySpendHtml,
   subscriptionUsageCache,
   subscriptionUsageHtml,
+  upstreamErrFetchedAt,
+  upstreamErrorsHtml,
 } from "./usage-stats.js";
 import { appConfirm } from "./dialogs.js";
 import { $, api, copyText, escapeHtml, pill, toast } from "./utils.js";
@@ -145,7 +148,7 @@ export function renderTopologyCloudProviders() {
   const healthKey = JSON.stringify(topology?.cloudApiHealth || {});
   // The mint button shows the next fleet-wide port — any cell/port change must re-render.
   const key = JSON.stringify(accounts) + JSON.stringify(blocks) + usageKeys + pricingKey
-    + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${nextTopologyCellPort()}:ml${modelsKey}:ah${healthKey}`;
+    + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${nextTopologyCellPort()}:ml${modelsKey}:ah${healthKey}:ue${upstreamErrFetchedAt}`;
   if (key === ui._lastCloudProvidersKey) return;
   ui._lastCloudProvidersKey = key;
   const addCloudBtn = `<button class="topology-add-wide-btn" type="button" data-topo-add-cloud>${escapeHtml(t("clAddProvider"))}</button>`;
@@ -215,6 +218,9 @@ export function renderTopologyCloudProviders() {
     usagePanel += proxySpendHtml(acct.id);
     // Tripped upstream endpoints (breaker) + effective codex client_version.
     usagePanel += cloudApiIssuesHtml(acct, isSubscription);
+    // Data-plane cloud failures over 24h (routed traffic that came back 4xx/5xx).
+    fetchUpstreamErrors();
+    usagePanel += upstreamErrorsHtml(acct.id);
     // Bridge ports: OpenAI-compatible entry points for EXTERNAL consumers
     // (a voice app, an IDE plugin, …) pinned to one of this account's model blocks. Not agents:
     // kind="service" routes never join the kanban graph.

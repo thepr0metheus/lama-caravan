@@ -55,6 +55,35 @@ export async function fetchProxySpend() {
   proxySpendLoading = false;
   renderTopologyCloudProviders();
 }
+// Data-plane cloud failures (routed traffic that came back 4xx/5xx or died),
+// aggregated per account over 24h — the runtime twin of the API-issues panel.
+export let upstreamErrData = null, upstreamErrFetchedAt = 0, upstreamErrLoading = false;
+export async function fetchUpstreamErrors() {
+  if (upstreamErrLoading) return;
+  if (upstreamErrData && Date.now() - upstreamErrFetchedAt < 60000) return;  // 60s TTL
+  upstreamErrLoading = true;
+  try {
+    const res = await api("/api/cloud-upstream-errors");
+    upstreamErrData = res.byAccount || {};
+  } catch { upstreamErrData = upstreamErrData || {}; }
+  upstreamErrFetchedAt = Date.now();
+  upstreamErrLoading = false;
+  renderTopologyCloudProviders();
+}
+export function upstreamErrorsHtml(accountId) {
+  const rows = (upstreamErrData || {})[accountId] || [];
+  if (!rows.length) return "";
+  const items = rows.map((r) => {
+    const when = r.lastAt ? new Date(r.lastAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+    return `<div class="cloud-api-issue">
+      <span class="cloud-api-issue-name">${escapeHtml(r.model)}</span>
+      <span class="cloud-api-issue-state">${escapeHtml(r.code)} ×${escapeHtml(String(r.count))}</span>
+      <span class="cloud-api-issue-err" title="${escapeHtml(r.error || "")}">${escapeHtml((r.error || "").slice(0, 60))}${when ? ` · ${escapeHtml(when)}` : ""}</span>
+    </div>`;
+  }).join("");
+  return `<div class="cloud-api-issues"><div class="cloud-api-issues-title">⚠ ${escapeHtml(t("cloudUpstreamErrorsTitle"))}</div>${items}</div>`;
+}
+
 export function proxySpendHtml(accountId) {
   const s = (proxySpendData || {})[accountId];
   if (!s || (!s.total && !s.requests)) return "";

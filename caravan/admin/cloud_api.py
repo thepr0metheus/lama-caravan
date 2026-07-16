@@ -381,6 +381,62 @@ def usage_stats(days=30):
         "daily": daily_series,
     }
 
+def cloud_upstream_errors(hours=24):
+    """Data-plane cloud failures per account, aggregated from the proxy event
+    logs (`finished` events with upstreamType=cloud and status>=400 or an
+    errorKind). This is the runtime companion to the endpoint breaker: the
+    breaker covers our HELPER calls (model lists, usage), this covers actual
+    routed traffic — e.g. a provider that retired a model answers 400 to every
+    completion, which otherwise is only visible in per-route logs."""
+    cutoff = time.time() - int(hours) * 3600
+    data = load_cloud_data()
+    blocks_by_id = {b.get("id"): b for b in data.get("blocks", [])}
+    account_ids = {a.get("id") for a in data.get("accounts", [])}
+    by_account = {}
+    for i in range(2):  # today + yesterday cover any 24h window
+        dstr = datetime.fromtimestamp(time.time() - i * 86400).strftime("%Y-%m-%d")
+        path = AGENT_PROXY_LOG_DIR / f"{dstr}.jsonl"
+        if not path.exists():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for ln in lines:
+            if '"finished"' not in ln or '"cloud"' not in ln:
+                continue
+            try:
+                it = (json.loads(ln).get("item") or {})
+            except Exception:
+                continue
+            if str(it.get("upstreamType")) != "cloud":
+                continue
+            status = int(it.get("status") or 0)
+            kind = str(it.get("errorKind") or "")
+            if status < 400 and not kind:
+                continue
+            ts = int(it.get("finishedAt") or 0)
+            if ts < cutoff:
+                continue
+            blk = blocks_by_id.get(str(it.get("providerId") or "")) or {}
+            acct = str(it.get("cloudAccountId") or blk.get("accountId") or "")
+            if acct not in account_ids:
+                continue
+            model = blk.get("model") or it.get("model") or "?"
+            code = f"HTTP {status}" if status >= 400 else kind
+            rows = by_account.setdefault(acct, {})
+            row = rows.setdefault((model, code), {"model": model, "code": code, "count": 0, "lastAt": 0, "error": ""})
+            row["count"] += 1
+            if ts >= row["lastAt"]:
+                row["lastAt"] = ts
+                err = it.get("error")
+                if err:
+                    row["error"] = str(err)[:200]
+    return {"ok": True, "windowHours": int(hours),
+            "byAccount": {a: sorted(rows.values(), key=lambda r: -r["count"])[:8]
+                          for a, rows in by_account.items()}}
+
+
 def fetch_subscription_models(account_id):
     """Fetch available models from chatgpt.com/backend-api/codex/models for an openai-subscription account."""
     account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == str(account_id or "")), None)

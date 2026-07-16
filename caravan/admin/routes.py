@@ -1123,6 +1123,12 @@ def _post_api_cloud_accounts_oauth_start(h, parsed, body):
         h.send_json({"ok": True, **result})
         return
 
+@_route(GET_ROUTES, '/api/cloud-upstream-errors')
+def _get_api_cloud_upstream_errors(h, parsed):
+        from caravan.admin.cloud_api import cloud_upstream_errors
+        h.send_json(cloud_upstream_errors())
+        return
+
 @_route(GET_ROUTES, '/api/cloud-blocks/refs')
 def _get_api_cloud_blocks_refs(h, parsed):
         from caravan.admin.proxies_config import cloud_block_refs

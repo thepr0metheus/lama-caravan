@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.37 — 2026-07-16
+
+- Provider cards grew a "Cloud request errors (24h)" block: data-plane
+  failures of actually ROUTED traffic (completions that came back
+  4xx/5xx or died — e.g. a provider answering 400 to every call on a
+  retired model), aggregated per account/model/code from the proxy event
+  logs. The runtime twin of the API-issues breaker panel, which covers
+  only our helper calls (model lists, usage, costs).
+- The autostart button on cell cards no longer wears the dead-chrome
+  "muted" look while OFF: off-but-clickable is a toggle state, so it
+  renders raised like delete, with a green hover hint (genuinely
+  unavailable — client cells, busy — stays muted+disabled).
+
 ## 1.3.36 — 2026-07-16
 
 Model-block lifecycle hardening — everything the live delete/re-add drill
