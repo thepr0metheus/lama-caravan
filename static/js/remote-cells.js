@@ -192,9 +192,12 @@ export function openPortPicker(hostId, port) {
     used.set(p, { kind: pr.kind === "service" ? "bridge" : "proxy", label: pr.label || "" });
   });
   const cur = Number(port);
+  // The grid always reaches 8199 (the fleet's firewall-friendly range) and
+  // stretches further if something already sits above it.
   const maxUsed = Math.max(8030, ...used.keys());
+  const upper = Math.max(8199, maxUsed + 10);
   let tiles = "";
-  for (let p = 8001; p <= maxUsed + 10; p++) {
+  for (let p = 8001; p <= upper; p++) {
     const u = used.get(p);
     const isCur = p === cur;
     const cls = isCur ? "current" : (u ? `busy ${u.kind}` : "free");

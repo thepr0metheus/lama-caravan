@@ -1282,3 +1282,24 @@ select.cv-pin { width: 100%; }
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
   background: color-mix(in srgb, var(--accent) 7%, transparent);
 }
+
+/* ✎ on client port rows — opens the proxy route form (name, router binding,
+   Advanced: mode + traffic API key). Ghost until the row is hovered. */
+.cv-in-edit {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 0 2px;
+  font-size: 10px;
+  color: var(--muted,#888);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity .12s, color .12s;
+}
+.cv-in-row:hover .cv-in-edit { opacity: .8; }
+.cv-in-edit:hover { color: var(--accent,#6ea8fe); opacity: 1; }
+
+/* The proxy route form must float above the kanban router workspace — both
+   are .topology-policy-overlay at z-60, and DOM order painted the workspace
+   on top (the form was reachable but invisible on the kanban page). */
+[data-topology-proxy-overlay] { z-index: 80; }

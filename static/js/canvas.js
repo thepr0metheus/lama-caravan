@@ -25,6 +25,7 @@ import {
 import {
   _cvProxyIsStale,
   _cvProxyIsTombstoned,
+  editTopologyProxy,
   topologyMutedProxyIds,
   topologyProxyOwner,
 } from "./topology-proxies.js";
@@ -899,6 +900,7 @@ export function canvasNodes(router) {
       <span class="cv-in-role">${role === "primary" ? "P" : "F"}</span>
       <span class="cv-in-port-num">:${escapeHtml(String(p.port))}</span>
       ${role === "fallback" && !wired ? `<span class="cv-in-follow">↳ ${escapeHtml(t("cvInFollows"))}</span>` : ""}
+      <button class="cv-in-edit" type="button" data-cv-port-edit="${escapeHtml(p.id)}" title="${escapeHtml(t("cvPortEditTitle"))}">✎</button>
     </div>` : "";
   const waitRow = (p) => {
     if (!p) return "";
@@ -1889,6 +1891,12 @@ document.addEventListener("pointerout", (e) => {
 document.addEventListener("pointerdown", (e) => {
   if (e.target.closest && e.target.closest("[data-cv-app-port]")) e.stopPropagation();
 }, true);
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest && e.target.closest("[data-cv-port-edit]");
+  if (!btn) return;
+  e.stopPropagation();
+  editTopologyProxy(btn.dataset.cvPortEdit);
+});
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest && e.target.closest("[data-cv-app-port]");
   if (!btn || btn.disabled) return;
