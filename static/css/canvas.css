@@ -1214,7 +1214,11 @@ select.cv-pin { width: 100%; }
 }
 
 /* Invisible fat twin of each cable: hover/drag corridor to reach the ✕. */
-.cv-edge-hit { stroke: transparent; stroke-width: 18; pointer-events: stroke; fill: none; }
+/* Must out-rank `.cv-svg path[data-cv-edge]` (the hit twin carries that attr
+   too) — otherwise the corridor paints as a phantom 8px cable ON TOP of the
+   real one and masks hover-focus thinning. */
+.cv-svg path[data-cv-edge].cv-edge-hit,
+.cv-edge-hit { stroke: transparent; stroke-width: 18; opacity: 1; pointer-events: stroke; fill: none; }
 /* Foldable host/provider groups on the servers block. */
 .router-out-host-head { display: flex; align-items: center; gap: 6px; cursor: pointer; padding: 3px 0; user-select: none; }
 .router-out-host-head:hover .router-out-host-label { color: var(--text); }
@@ -1228,8 +1232,8 @@ select.cv-pin { width: 100%; }
    (at near-zero opacity the thinning was imperceptible), the focused path
    goes accent-colored, slightly thicker and glows. */
 .cv-svg path { transition: opacity .15s ease, stroke-width .15s ease, stroke .15s ease; }
-.cv-svg.edge-focus .cv-edge-grp:not(.focus) path:not(.cv-edge-hit) { opacity: .18; stroke-width: 4; }
-.cv-svg.edge-focus .cv-junction { opacity: .15; }
+.cv-svg.edge-focus .cv-edge-grp:not(.focus) path:not(.cv-edge-hit) { opacity: .12; stroke-width: 2.5; }
+.cv-svg.edge-focus .cv-junction { opacity: .1; }
 .cv-svg.edge-focus .cv-edge-grp.focus path[data-cv-edge]:not(.cv-edge-hit) {
   opacity: 1;
   stroke: var(--accent);
