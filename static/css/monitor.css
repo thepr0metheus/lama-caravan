@@ -1169,8 +1169,8 @@
   background: color-mix(in srgb, var(--accent,#6ea8fe) 4%, transparent);
 }
 .node-server.running {
-  border-left-color: var(--ok,#3fb950);
-  background: color-mix(in srgb, var(--ok,#3fb950) 6%, transparent);
+  border-left-color: var(--cell-accent, #3fb950);
+  background: color-mix(in srgb, var(--cell-accent, #3fb950) 6%, transparent);
 }
 .node-server.stopped { border-left-color: var(--muted,#6e7681); background:transparent; }
 .node-server.configured-cell {
@@ -1309,11 +1309,8 @@
 
 /* Node cards rendered inside the Llama Servers lane (cable targets) */
 
-/* CPU cells (running on CPU / stopped with CPU pinned): blue card accent. */
-.node-server.cpu-cell.running {
-  border-left-color: #4593ff;
-  background: color-mix(in srgb, #4593ff 7%, transparent);
-}
+/* CPU cells: the amber configured-cell card accent turns blue (running is
+   covered by --cell-accent). */
 .node-server.cpu-cell.configured-cell {
   border-left-color: color-mix(in srgb, #4593ff 75%, var(--line));
   background: color-mix(in srgb, #4593ff 5%, transparent);

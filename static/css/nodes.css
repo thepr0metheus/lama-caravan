@@ -243,6 +243,13 @@
 .node-server-body .slot-chip { width: 100%; min-width: 0; justify-content: flex-start; }
 .node-server-body .slot-chip-name { max-width: none; flex: 1; overflow: hidden; text-overflow: ellipsis; }
 
+/* ONE source for the cell state accent: green for GPU cells, blue for CPU
+   cells (.cpu-cell is computed next to the device chip in topology-nodes.js).
+   Every state rule below drinks from this var — recoloring a cell kind is a
+   one-liner: no per-rule overrides, no specificity wars. */
+.node-server { --cell-accent: var(--ok, #3fb950); }
+.node-server.cpu-cell { --cell-accent: #4593ff; }
+
 /* ── Server lifecycle breadcrumb: stopped → starting → running ───────────── */
 /* Wrapper row: lifecycle bar + ✕ delete button in same row */
 .node-lc-row {
@@ -268,9 +275,9 @@
   transition: border-color .12s, background .12s, color .12s, box-shadow .12s, transform .08s;
 }
 .node-action-btn.ok  {
-  color: var(--ok,#3fb950);
-  border-color: color-mix(in srgb, var(--ok,#3fb950) 30%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ok,#3fb950) 12%, transparent) 0%, color-mix(in srgb, var(--ok,#3fb950) 6%, transparent) 100%);
+  color: var(--cell-accent, #3fb950);
+  border-color: color-mix(in srgb, var(--cell-accent, #3fb950) 30%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cell-accent, #3fb950) 12%, transparent) 0%, color-mix(in srgb, var(--cell-accent, #3fb950) 6%, transparent) 100%);
   box-shadow: 0 2px 5px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.10);
 }
 .node-action-btn.warn{
@@ -299,11 +306,11 @@
   box-shadow: 0 2px 4px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06);
 }
 .node-action-btn.off:not(:disabled):hover {
-  color: var(--ok,#3fb950);
-  border-color: color-mix(in srgb, var(--ok,#3fb950) 45%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ok,#3fb950) 12%, transparent) 0%, color-mix(in srgb, var(--ok,#3fb950) 6%, transparent) 100%);
+  color: var(--cell-accent, #3fb950);
+  border-color: color-mix(in srgb, var(--cell-accent, #3fb950) 45%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cell-accent, #3fb950) 12%, transparent) 0%, color-mix(in srgb, var(--cell-accent, #3fb950) 6%, transparent) 100%);
 }
-.node-action-btn.ok:not(:disabled):hover  { background: linear-gradient(180deg, color-mix(in srgb, var(--ok,#3fb950) 16%, transparent) 0%, color-mix(in srgb, var(--ok,#3fb950) 9%, transparent) 100%); border-color: var(--ok,#3fb950); }
+.node-action-btn.ok:not(:disabled):hover  { background: linear-gradient(180deg, color-mix(in srgb, var(--cell-accent, #3fb950) 16%, transparent) 0%, color-mix(in srgb, var(--cell-accent, #3fb950) 9%, transparent) 100%); border-color: var(--cell-accent, #3fb950); }
 .node-action-btn.warn:not(:disabled):hover{ background: linear-gradient(180deg, color-mix(in srgb, var(--warn,#f59e0b) 18%, transparent) 0%, color-mix(in srgb, var(--warn,#f59e0b) 10%, transparent) 100%); border-color: var(--warn,#f59e0b); }
 .node-action-btn.del:not(:disabled):hover { color: var(--bad,#ff8585); border-color: color-mix(in srgb, var(--bad,#ff8585) 45%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--bad,#ff8585) 12%, transparent) 0%, color-mix(in srgb, var(--bad,#ff8585) 6%, transparent) 100%); }
 .node-action-btn.ok:not(:disabled):active,
@@ -366,15 +373,15 @@
 .lc-rail { flex: 0 0 6px; height: 2px; border-radius: 1px; transition: background .2s; }
 
 /* Rail colours */
-.lc-rail.done   { background: color-mix(in srgb, var(--ok,#3fb950) 55%, var(--line)); }
+.lc-rail.done   { background: color-mix(in srgb, var(--cell-accent, #3fb950) 55%, var(--line)); }
 .lc-rail.future { background: color-mix(in srgb, var(--muted,#888) 20%, transparent); }
 
 /* Completed step */
 .lc-node.done {
-  border-color: color-mix(in srgb, var(--ok,#3fb950) 22%, transparent);
-  background: color-mix(in srgb, var(--ok,#3fb950) 8%, transparent);
+  border-color: color-mix(in srgb, var(--cell-accent, #3fb950) 22%, transparent);
+  background: color-mix(in srgb, var(--cell-accent, #3fb950) 8%, transparent);
 }
-.lc-node.done .lc-dot { background: color-mix(in srgb, var(--ok,#3fb950) 65%, var(--muted)); }
+.lc-node.done .lc-dot { background: color-mix(in srgb, var(--cell-accent, #3fb950) 65%, var(--muted)); }
 .lc-node.done .lc-lbl { color: color-mix(in srgb, var(--muted,#888) 55%, transparent); }
 
 /* Future step */
@@ -418,15 +425,15 @@
 
 /* Active — running */
 .lc-node.lc-running {
-  border-color: color-mix(in srgb, var(--ok,#3fb950) 55%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--ok,#3fb950) 18%, transparent) 0%, color-mix(in srgb, var(--ok,#3fb950) 10%, transparent) 100%);
-  box-shadow: 0 0 8px color-mix(in srgb, var(--ok,#3fb950) 30%, transparent), 0 2px 4px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.10);
+  border-color: color-mix(in srgb, var(--cell-accent, #3fb950) 55%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cell-accent, #3fb950) 18%, transparent) 0%, color-mix(in srgb, var(--cell-accent, #3fb950) 10%, transparent) 100%);
+  box-shadow: 0 0 8px color-mix(in srgb, var(--cell-accent, #3fb950) 30%, transparent), 0 2px 4px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.10);
 }
 .lc-node.lc-running .lc-dot {
-  background: var(--ok,#3fb950);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok,#3fb950) 28%, transparent);
+  background: var(--cell-accent, #3fb950);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-accent, #3fb950) 28%, transparent);
 }
-.lc-node.lc-running .lc-lbl { color: var(--ok,#3fb950); font-weight: 600; }
+.lc-node.lc-running .lc-lbl { color: var(--cell-accent, #3fb950); font-weight: 600; }
 
 /* Active — error (mapped to stopped slot) */
 .lc-node.lc-error { border-color: color-mix(in srgb, #f85149 50%, transparent); background: color-mix(in srgb, #f85149 10%, transparent); }
@@ -468,12 +475,12 @@
 }
 /* Done state: dark box, bright green dot+label to show step was completed */
 .lc-node.done:not(.lc-cfg-btn) .lc-dot {
-  background: color-mix(in srgb, var(--ok,#3fb950) 80%, var(--muted));
+  background: color-mix(in srgb, var(--cell-accent, #3fb950) 80%, var(--muted));
   border: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok,#3fb950) 22%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cell-accent, #3fb950) 22%, transparent);
 }
 .lc-node.done:not(.lc-cfg-btn) .lc-lbl {
-  color: color-mix(in srgb, var(--ok,#3fb950) 65%, var(--muted,#888));
+  color: color-mix(in srgb, var(--cell-accent, #3fb950) 65%, var(--muted,#888));
   font-weight: 600;
 }
 /* "configured" step turns green once the server leaves that stage — mirrors the */
@@ -481,21 +488,21 @@
 /* then settles to solid green once RUNNING. Covers both the clickable button     */
 /* (running/loading) and the plain span (starting) variants of the step.          */
 .lc-node.done.lc-cfg-live {
-  color: var(--ok,#3fb950);
-  border-color: color-mix(in srgb, var(--ok,#3fb950) 30%, transparent);
+  color: var(--cell-accent, #3fb950);
+  border-color: color-mix(in srgb, var(--cell-accent, #3fb950) 30%, transparent);
   background: linear-gradient(180deg,
-    color-mix(in srgb, var(--ok,#3fb950) 12%, transparent) 0%,
-    color-mix(in srgb, var(--ok,#3fb950) 6%, transparent) 100%);
+    color-mix(in srgb, var(--cell-accent, #3fb950) 12%, transparent) 0%,
+    color-mix(in srgb, var(--cell-accent, #3fb950) 6%, transparent) 100%);
   box-shadow: 0 2px 5px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.10);
 }
 .lc-node.done.lc-cfg-live .lc-dot {
-  background: var(--ok,#3fb950);
+  background: var(--cell-accent, #3fb950);
   border: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--ok,#3fb950) 22%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--cell-accent, #3fb950) 22%, transparent);
   animation: none;
 }
 .lc-node.done.lc-cfg-live .lc-lbl {
-  color: var(--ok,#3fb950);
+  color: var(--cell-accent, #3fb950);
   font-weight: 600;
 }
 /* STARTING — blink the whole step until the server settles into RUNNING */
@@ -508,13 +515,13 @@
 }
 /* Hover on the clickable configured step once it's green (server up) */
 .lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover {
-  border-color: var(--ok,#3fb950) !important;
-  background: color-mix(in srgb, var(--ok,#3fb950) 14%, transparent);
+  border-color: var(--cell-accent, #3fb950) !important;
+  background: color-mix(in srgb, var(--cell-accent, #3fb950) 14%, transparent);
 }
 .lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover .lc-dot {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok,#3fb950) 22%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cell-accent, #3fb950) 22%, transparent);
 }
-.lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover .lc-lbl { color: var(--ok,#3fb950) !important; }
+.lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover .lc-lbl { color: var(--cell-accent, #3fb950) !important; }
 
 /* Icon-only action buttons in server card header */
 .node-icon-btn {
@@ -525,13 +532,13 @@
 .node-icon-btn:hover { color: var(--fg, #eee); background: color-mix(in srgb, var(--muted) 18%, transparent); }
 .node-icon-btn.warn { color: color-mix(in srgb, var(--warn,#f59e0b) 55%, transparent); }
 .node-icon-btn.warn:hover { color: var(--warn,#f59e0b); background: color-mix(in srgb, var(--warn,#f59e0b) 10%, transparent); }
-.node-icon-btn.ok { color: color-mix(in srgb, var(--ok,#3fb950) 80%, transparent); }
-.node-icon-btn.ok:hover { color: var(--ok,#3fb950); }
+.node-icon-btn.ok { color: color-mix(in srgb, var(--cell-accent, #3fb950) 80%, transparent); }
+.node-icon-btn.ok:hover { color: var(--cell-accent, #3fb950); }
 .node-icon-btn.muted { color: color-mix(in srgb, var(--muted,#888) 60%, transparent); }
 /* Start button in stopped state — shows text label, slightly more prominent */
 .node-btn-start { font-size:11px; padding: 2px 7px; gap:4px;
-  border: 1px solid color-mix(in srgb, var(--ok,#3fb950) 40%, transparent); border-radius:4px; }
-.node-btn-start:hover { border-color: var(--ok,#3fb950); }
+  border: 1px solid color-mix(in srgb, var(--cell-accent, #3fb950) 40%, transparent); border-radius:4px; }
+.node-btn-start:hover { border-color: var(--cell-accent, #3fb950); }
 
 .node-btn-configure { font-size:11px; padding: 2px 7px; gap:4px;
   color: var(--accent,#6ea8fe);
@@ -550,8 +557,8 @@
   flex-shrink: 0;
 }
 .slot-chip.running {
-  background: color-mix(in srgb, var(--ok,#3fb950) 22%, transparent);
-  border-color: color-mix(in srgb, var(--ok,#3fb950) 40%, transparent);
+  background: color-mix(in srgb, var(--cell-accent, #3fb950) 22%, transparent);
+  border-color: color-mix(in srgb, var(--cell-accent, #3fb950) 40%, transparent);
   animation: slot-chip-pulse 1.8s ease-in-out infinite;
 }
 .slot-chip.queued {
@@ -570,7 +577,7 @@
 }
 .slot-chip-name {
   font-size: 11px; font-weight: 500;
-  color: var(--ok,#3fb950); overflow: hidden; text-overflow: ellipsis; max-width: 140px;
+  color: var(--cell-accent, #3fb950); overflow: hidden; text-overflow: ellipsis; max-width: 140px;
 }
 .slot-chip.queued .slot-chip-name,
 .slot-chip.preempting .slot-chip-name { color: var(--warn,#f59e0b); }
@@ -784,75 +791,15 @@
 .node-cpu-row { opacity: 0.85; }
 .node-cpu-row .node-gpu-head strong { color: var(--muted); }
 
-/* ── CPU cells: blue accent instead of green/amber ─────────────────────────
-   .cpu-cell = running with no GPU memory, or stopped with CPU pinned in the
-   config (set in topology-nodes.js next to the 🧮 CPU chip). The lifecycle
-   greens/ambers turn blue so the GPU-vs-CPU split reads at a glance. */
-.node-server.cpu-cell .lc-node.lc-running {
-  border-color: color-mix(in srgb, #4593ff 55%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, #4593ff 18%, transparent) 0%, color-mix(in srgb, #4593ff 10%, transparent) 100%);
-  box-shadow: 0 0 8px color-mix(in srgb, #4593ff 30%, transparent), 0 2px 4px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.10);
-}
-.node-server.cpu-cell .lc-node.lc-running .lc-dot {
-  background: #4593ff;
-  box-shadow: 0 0 0 3px color-mix(in srgb, #4593ff 28%, transparent);
-}
-.node-server.cpu-cell .lc-node.lc-running .lc-lbl { color: #4593ff; }
-
+/* ── CPU cells: the amber CONFIGURED state also turns blue ─────────────────
+   (that state colors via --warn, which stays amber on GPU cells). Everything
+   green follows --cell-accent automatically — see the declaration above. */
 .node-server.cpu-cell .lc-node.lc-configured {
-  border-color: color-mix(in srgb, #4593ff 40%, transparent);
-  background: color-mix(in srgb, #4593ff 10%, transparent);
+  border-color: color-mix(in srgb, var(--cell-accent, #4593ff) 40%, transparent);
+  background: color-mix(in srgb, var(--cell-accent, #4593ff) 10%, transparent);
 }
 .node-server.cpu-cell .lc-node.lc-configured .lc-dot {
-  background: color-mix(in srgb, #4593ff 65%, var(--muted,#888));
-  box-shadow: 0 0 0 3px color-mix(in srgb, #4593ff 18%, transparent);
+  background: color-mix(in srgb, var(--cell-accent, #4593ff) 65%, var(--muted,#888));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-accent, #4593ff) 18%, transparent);
 }
-.node-server.cpu-cell .lc-node.lc-configured .lc-lbl { color: color-mix(in srgb, #4593ff 80%, var(--muted,#888)); }
-
-.node-server.cpu-cell .lc-node.done .lc-dot { background: color-mix(in srgb, #4593ff 65%, var(--muted,#888)); }
-.node-server.cpu-cell .lc-node.done.lc-cfg-live {
-  color: #4593ff;
-  border-color: color-mix(in srgb, #4593ff 30%, transparent);
-  background: linear-gradient(180deg,
-    color-mix(in srgb, #4593ff 12%, transparent) 0%,
-    color-mix(in srgb, #4593ff 6%, transparent) 100%);
-}
-.node-server.cpu-cell .lc-node.done.lc-cfg-live .lc-dot {
-  background: #4593ff;
-  box-shadow: 0 0 0 2px color-mix(in srgb, #4593ff 22%, transparent);
-}
-.node-server.cpu-cell .lc-node.done.lc-cfg-live .lc-lbl { color: #4593ff; }
-.node-server.cpu-cell .lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover {
-  border-color: #4593ff !important;
-  background: color-mix(in srgb, #4593ff 14%, transparent);
-}
-.node-server.cpu-cell .lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover .lc-lbl { color: #4593ff !important; }
-
-/* Action buttons follow the blue accent on CPU cells: START / AUTOSTART wear
-   .ok (green) and the autostart-off hover hints green — all turn blue here.
-   STOP stays amber and DELETE red: those mean "stop/danger", not GPU-vs-CPU. */
-.node-server.cpu-cell .node-action-btn.ok {
-  color: #4593ff;
-  border-color: color-mix(in srgb, #4593ff 30%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, #4593ff 12%, transparent) 0%, color-mix(in srgb, #4593ff 6%, transparent) 100%);
-}
-.node-server.cpu-cell .node-action-btn.ok:not(:disabled):hover {
-  background: linear-gradient(180deg, color-mix(in srgb, #4593ff 16%, transparent) 0%, color-mix(in srgb, #4593ff 9%, transparent) 100%);
-  border-color: #4593ff;
-}
-.node-server.cpu-cell .node-action-btn.off:not(:disabled):hover {
-  color: #4593ff;
-  border-color: color-mix(in srgb, #4593ff 45%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, #4593ff 12%, transparent) 0%, color-mix(in srgb, #4593ff 6%, transparent) 100%);
-}
-.node-server.cpu-cell .lc-rail.done { background: color-mix(in srgb, #4593ff 55%, var(--line)); }
-.node-server.cpu-cell .lc-node.done {
-  border-color: color-mix(in srgb, #4593ff 22%, transparent);
-  background: color-mix(in srgb, #4593ff 8%, transparent);
-}
-/* The theme's --muted is sage-green — on a blue CPU card the done-step labels
-   (RESERVED/STARTING) read as green residue; shift their hue toward the blue. */
-.node-server.cpu-cell .lc-node.done .lc-lbl,
-.node-server.cpu-cell .lc-node.done:not(.lc-cfg-btn) .lc-lbl {
-  color: color-mix(in srgb, #4593ff 45%, var(--muted, #888));
-}
+.node-server.cpu-cell .lc-node.lc-configured .lc-lbl { color: color-mix(in srgb, var(--cell-accent, #4593ff) 80%, var(--muted,#888)); }
