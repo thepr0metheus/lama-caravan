@@ -177,8 +177,8 @@ export function renderRouterOutputsPanel(router) {
       <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
       ${isCloud ? "" : liveDot(out)}
       <span class="router-out-name">${escapeHtml(topologyRouterOutputLabel(out))}</span>
-      ${priceHtml}
       ${badge}
+      ${priceHtml}
     </label>`;
   };
 
@@ -280,8 +280,8 @@ export function renderServersBlockHtml(router) {
       <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
       ${isCloud ? "" : liveDot(out)}
       <span class="router-out-name">${escapeHtml(topologyRouterOutputLabel(out))}</span>
-      ${priceHtml}
       ${badge}
+      ${priceHtml}
     </label>`;
   };
 
