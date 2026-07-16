@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.3.34 — 2026-07-16
+
+- The Cloud Providers card renders the "＋ Add Model Block" button it
+  always had a handler for — until now a model block could only appear
+  via "Fetch models" or auto-create, never be added by hand.
+- The Add/Edit Model Block dialog grew a free-text "Custom model ID"
+  field that overrides the dropdown on save. Closes the trap where a
+  model retired from the pinned client_version list became impossible
+  to re-add the moment its last block was deleted (gpt-5.2 today).
+- Verified the full block delete → re-add cycle on a live fleet: bridges
+  and graph cables referencing `cb:<blockId>` reconnect by themselves
+  when the re-added model yields the same slug id. Two sharp edges
+  remain (documented, not yet fixed): a routers write that happens while
+  a referenced block is missing prunes the graph edge for good
+  (normalize_router_graph drops dangling refs — the queue's spill role
+  had to be re-wired by hand), and a re-added model whose slug is
+  already taken by another account's block gets a "-2" suffixed id, so
+  external references don't reattach.
+
 ## 1.3.33 — 2026-07-12
 
 - The via-proxy spend rows show each model's $/1M rate next to the name
