@@ -938,7 +938,8 @@ export function canvasNodes(router) {
     + `</div>`;
   // Entry port for an external app (a UI, a voice tool, …): router-routed like
   // agent traffic, but with its own data-plane API key — apps stop borrowing
-  // agent keys (the promie-ui incident: a stale shared key = 401 spam).
+  // agent keys (born from a live incident: an app polling an agent's keyed
+  // route without credentials = a steady 401 stream).
   const appPortHtml = `<div class="cv-app-port-row"><button class="cv-app-port-btn" type="button" data-cv-app-port title="${escapeHtml(t("cvAppPortHint"))}">＋ ${escapeHtml(t("cvAppPortBtn"))}</button></div>`;
   nodes.push({
     id: "inputs:block",
@@ -1891,7 +1892,7 @@ document.addEventListener("pointerdown", (e) => {
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest && e.target.closest("[data-cv-app-port]");
   if (!btn || btn.disabled) return;
-  const name = await appPrompt(t("cvAppPortName"), { placeholder: "promie-ui" });
+  const name = await appPrompt(t("cvAppPortName"), { placeholder: "my-app" });
   if (!name) return;
   btn.disabled = true;
   try {
