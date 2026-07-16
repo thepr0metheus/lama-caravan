@@ -1224,6 +1224,18 @@
   padding-left: 6px;
 }
 
+.cloud-block-row.stale .cloud-block-model {
+  color: var(--bad);
+}
+
+.cloud-block-stale {
+  font-size: 9.5px;
+  color: var(--bad);
+  white-space: nowrap;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
 .cloud-card {
   cursor: pointer;
   transition: border-color 0.15s, background 0.15s;

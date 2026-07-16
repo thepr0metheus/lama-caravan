@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.35 — 2026-07-16
+
+- Model blocks the provider no longer serves are painted red in the
+  provider card's model list, with a "⚠ not listed by provider" tag —
+  the fetched model list is treated as the provider's current truth
+  (no marks while a list hasn't loaded, so a failed fetch can't
+  false-flag anything).
+- The chatgpt.com model-list client_version pin is bumped 0.132.0 →
+  0.160.0: the old pin hid the gpt-5.6 family, which would have made
+  the new stale-marks lie (working 5.6 blocks would show as retired).
+  Verified upstream: retired models (gpt-5.2, gpt-5.3-codex) are absent
+  from the list at EVERY client_version and also refuse completions
+  ("model is not supported when using Codex with a ChatGPT account"),
+  so red = really dead, not just delisted.
+
 ## 1.3.34 — 2026-07-16
 
 - The Cloud Providers card renders the "＋ Add Model Block" button it

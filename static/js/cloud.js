@@ -128,9 +128,11 @@ export function renderTopologyCloudProviders() {
   const bridgesKey = (topology?.proxies || [])
     .filter((p) => p.kind === "service")
     .map((p) => `${p.port}:${p.providerId}`).join(",");
+  // Fetched model lists drive the "not listed by provider" marks — arrival must re-render.
+  const modelsKey = accounts.map((a) => `${a.id}:${(topologyCloudModelCache.get(a.id) || []).length}`).join("|");
   // The mint button shows the next fleet-wide port — any cell/port change must re-render.
   const key = JSON.stringify(accounts) + JSON.stringify(blocks) + usageKeys + pricingKey
-    + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${nextTopologyCellPort()}`;
+    + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${nextTopologyCellPort()}:ml${modelsKey}`;
   if (key === ui._lastCloudProvidersKey) return;
   ui._lastCloudProvidersKey = key;
   const addCloudBtn = `<button class="topology-add-wide-btn" type="button" data-topo-add-cloud>${escapeHtml(t("clAddProvider"))}</button>`;
@@ -156,14 +158,19 @@ export function renderTopologyCloudProviders() {
       : t("topologyCloudNeedsKey");
     const iconType = isSubscription ? "openai-subscription" : (acct.type || "");
     const meta = CLOUD_PICKER_META[iconType] || CLOUD_PICKER_META[acct.type || ""] || {};
+    // A non-empty fetched list is the provider's current truth: a block whose model
+    // fell out of it is retired upstream (empty list = fetch pending/failed → no marks).
+    const listedModels = topologyCloudModelCache.get(acct.id) || [];
     const blockRows = acctBlocks.map((b) => {
       const p = modelPricing[b.model || ""] || null;
       const pricingHtml = p
         ? `<span class="cloud-block-pricing">${formatPricePer1M(p.inputPer1M)} / ${formatPricePer1M(p.outputPer1M)} /1M</span>`
         : "";
+      const stale = listedModels.length > 0 && b.model && !listedModels.some((m) => m.id === b.model);
       return `
-      <div class="cloud-block-row" data-cloud-block="${escapeHtml(b.id)}" role="button" tabindex="0" title="${escapeHtml(b.model || b.id)}">
+      <div class="cloud-block-row${stale ? " stale" : ""}" data-cloud-block="${escapeHtml(b.id)}" role="button" tabindex="0" title="${escapeHtml(stale ? t("cloudModelUnlisted") : (b.model || b.id))}">
         <span class="cloud-block-model">${escapeHtml(b.model || "—")}</span>
+        ${stale ? `<span class="cloud-block-stale">⚠ ${escapeHtml(t("cloudModelUnlisted"))}</span>` : ""}
         ${pricingHtml}
       </div>
       `;

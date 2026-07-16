@@ -363,7 +363,11 @@ def fetch_subscription_models(account_id):
         raise AppError("unknown account", 404)
     token, account_id_header = _subscription_auth_headers(account)
     req = urllib.request.Request(
-        "https://chatgpt.com/backend-api/codex/models?client_version=0.132.0",
+        # chatgpt.com gates the list by client_version (a codex-CLI version string):
+        # 0.132.0 hides the 5.6 family, 0.150.0+ includes it. Retired models
+        # (gpt-5.2, gpt-5.3-codex) are absent at EVERY version — the UI paints
+        # blocks whose model left this list as "not listed by provider".
+        "https://chatgpt.com/backend-api/codex/models?client_version=0.160.0",
         headers={
             "Authorization": f"Bearer {token}",
             "chatgpt-account-id": account_id_header,
