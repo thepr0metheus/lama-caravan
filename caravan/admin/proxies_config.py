@@ -310,6 +310,56 @@ def normalize_routers(raw, routes):
         router["inputs"] = inputs_by_router.get(router["id"], [])
     return ordered
 
+def remap_router_output_refs(old_id, new_id):
+    """Follow a renamed output id everywhere a router can point at it: the
+    outputs list itself (so normalize doesn't reset a default that referenced
+    the old id before the next auto-sync), legacy rules (default /
+    dormantDefault / audio / embeddings / schedule / bySource / failover) and
+    graph edges (out:<id>). Persists + restarts the proxy when changed."""
+    payload = load_agent_proxy_config()
+    routers = payload.get("routers") or []
+    edge_old, edge_new = f"out:{old_id}", f"out:{new_id}"
+    changed = False
+    new_port = 0
+    if str(new_id).startswith("srv:"):
+        try:
+            new_port = int(str(new_id).split(":", 1)[1])
+        except ValueError:
+            pass
+    for router in routers:
+        for out in router.get("outputs") or []:
+            if out.get("id") == old_id:
+                out["id"] = new_id
+                if new_port:
+                    out["upstreamPort"] = new_port
+                changed = True
+        rules = router.get("rules") or {}
+        for key in ("default", "dormantDefault", "audioOutput", "embeddingsOutput"):
+            if rules.get(key) == old_id:
+                rules[key] = new_id
+                changed = True
+        for coll in ("schedule", "bySource"):
+            for r in rules.get(coll) or []:
+                if isinstance(r, dict) and r.get("output") == old_id:
+                    r["output"] = new_id
+                    changed = True
+        failover = rules.get("failover") or []
+        if old_id in failover:
+            rules["failover"] = [new_id if o == old_id else o for o in failover]
+            changed = True
+        graph = router.get("graph") or {}
+        for e in graph.get("edges") or []:
+            if isinstance(e, dict):
+                if e.get("from") == edge_old:
+                    e["from"] = edge_new
+                    changed = True
+                if e.get("to") == edge_old:
+                    e["to"] = edge_new
+                    changed = True
+    if changed:
+        save_agent_proxy_config(payload.get("routes") or [], routers)
+    return changed
+
 def cloud_block_refs(block_id):
     """Everything that references a cloud model-block — the delete-confirm
     preflight. Covers bridge routes (providerId), graph cables (out:cb:<id>),

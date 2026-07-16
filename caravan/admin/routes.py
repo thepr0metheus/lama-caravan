@@ -1251,6 +1251,14 @@ def _post_api_topology_server_cell_schedule(h, parsed, body):
         h.send_json(set_cell_schedule(body))
         return
 
+@_route(POST_ROUTES, '/api/topology/server-cell/reassign-port')
+def _post_api_topology_server_cell_reassign_port(h, parsed, body):
+        from caravan.admin.server_cells import reassign_server_slot_port
+        result = reassign_server_slot_port(body)
+        result["topology"] = topology_state(refresh_clients=False)
+        h.send_json(result)
+        return
+
 @_route(POST_ROUTES, '/api/topology/server-cell/save-config')
 def _post_api_topology_server_cell_save_config(h, parsed, body):
         h.send_json(server_cell_save_config(body))

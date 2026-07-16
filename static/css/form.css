@@ -965,3 +965,51 @@ button.cmd-dirty::after {
   line-height: 14px; border-radius: 50%; font-size: 10px; text-align: center;
   background: color-mix(in srgb, var(--muted, #888) 22%, transparent);
   color: var(--muted, #aaa); cursor: help; }
+
+/* ── Custom command tab: preset chips, device tiles, health switch ────────── */
+.cmd-preset-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.cmd-preset-chip {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  border: 1px dashed color-mix(in srgb, var(--muted,#888) 35%, transparent);
+  background: transparent;
+  color: var(--muted,#888);
+  cursor: pointer;
+  transition: color .12s, border-color .12s, background .12s;
+}
+.cmd-preset-chip:hover {
+  color: var(--accent,#6ea8fe);
+  border-color: color-mix(in srgb, var(--accent,#6ea8fe) 55%, transparent);
+  border-style: solid;
+  background: color-mix(in srgb, var(--accent,#6ea8fe) 8%, transparent);
+}
+
+.cmd-command-input { font-family: ui-monospace, Menlo, monospace; }
+
+/* Device tiles: reuse the Compute-target card look; the check only shows on
+   the active tile, and each device keeps its own accent (auto/GPU/CPU). */
+.cmd-device-tiles .compute-card .compute-card-check { visibility: hidden; }
+.cmd-device-tiles .compute-card.active .compute-card-check { visibility: visible; }
+.cmd-device-tiles .compute-card.active[data-device-tile="auto"] {
+  border-color: var(--accent,#6ea8fe);
+  background: color-mix(in srgb, var(--accent,#6ea8fe) 10%, transparent);
+}
+.cmd-device-tiles .compute-card.active[data-device-tile="auto"] .compute-card-check { color: var(--accent,#6ea8fe); }
+.cmd-device-tiles .compute-card.active[data-device-tile="cpu"] {
+  border-color: #4593ff;
+  background: color-mix(in srgb, #4593ff 10%, transparent);
+}
+.cmd-device-tiles .compute-card.active[data-device-tile="cpu"] .compute-card-check { color: #4593ff; }
+
+.cmd-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+@media (max-width: 720px) { .cmd-two-col { grid-template-columns: 1fr; } }
+
+.cmd-health-lbl { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
+.cmd-health-toggle { accent-color: var(--ok,#3fb950); width: 15px; height: 15px; cursor: pointer; }

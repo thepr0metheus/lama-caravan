@@ -1,5 +1,7 @@
 # LAMA CARAVAN
 
+**L**ocal **A**nd **M**ulti-backend **A**daptive **C**omputation **A**nd **R**outing **A**cross **V**arious **A**I **N**odes.
+
 Repository/service slug: `lama-caravan`.
 
 Local control plane for LAMA CARAVAN: controller topology, proxy routing, and

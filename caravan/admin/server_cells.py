@@ -99,6 +99,59 @@ def upsert_server_slot(host_id, port, config=None, model=None, label=None):
     save_admin_state()
     return slot
 
+def reassign_server_slot_port(body):
+    """Move a STOPPED cell slot to another FREE port (the fleet-wide pool:
+    cells on every host + agent/bridge proxy ports). The slot record, its
+    saved config PORT, controller start.sh artifacts and every router
+    reference to srv:<old> (graph cables, rules, embeddings/audio outputs)
+    all follow — the cell keeps its wiring on the new number."""
+    host_id = str(body.get("hostId") or "").strip()
+    old_port = int(body.get("port") or 0)
+    new_port = int(body.get("newPort") or 0)
+    if not host_id or not old_port or not new_port:
+        raise AppError("hostId, port and newPort are required", 400)
+    if new_port == old_port:
+        raise AppError("newPort equals the current port", 400)
+    store = topology_store()
+    old_key = server_slot_key(host_id, old_port)
+    slot = store.get("serverSlots", {}).get(old_key)
+    if not slot:
+        raise AppError(f"no server slot {old_key}", 404)
+    assert_server_cell_port_available(new_port, exclude_key=old_key)
+    # The UI only offers reassign on stopped cells; this is the backend belt —
+    # a running unit owns its old port (controller check only; a client cell's
+    # runtime lives on the scout and the board state already gates the button).
+    if host_id == "skynet":
+        try:
+            from caravan.admin.systemd_ctl import cell_service_status
+            if (cell_service_status(old_port) or {}).get("ActiveState") == "active":
+                raise AppError("stop the cell first — it is running", 409)
+        except AppError:
+            raise
+        except Exception:
+            pass
+    new_key = server_slot_key(host_id, new_port)
+    del store["serverSlots"][old_key]
+    slot["id"] = new_key
+    slot["port"] = new_port
+    slot["updatedAt"] = int(time.time())
+    cfg = slot.get("config")
+    if isinstance(cfg, dict) and cfg:
+        cfg["PORT"] = str(new_port)
+        if host_id == "skynet":
+            artifact = write_server_cell_artifacts(host_id, new_port, cfg)
+            if artifact:
+                slot["artifact"] = artifact
+    store["serverSlots"][new_key] = slot
+    save_admin_state()
+    # Cables follow the cell: srv:<old> → srv:<new> across every router.
+    try:
+        from caravan.admin.proxies_config import remap_router_output_refs
+        remap_router_output_refs(f"srv:{old_port}", f"srv:{new_port}")
+    except Exception:
+        pass
+    return {"ok": True, "key": new_key, "port": new_port}
+
 def set_server_slot_note(host_id, port, note):
     """Free-form user note on a cell slot (shown on the board card and in the
     cell detail modal). Empty note clears it."""

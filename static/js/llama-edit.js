@@ -414,6 +414,7 @@ export function applyConfigToForm(config, pfx = "") {
   if (envEl) envEl.value = config.ENV || "";
   const devSel = $(pfx + "CELL_DEVICE");
   if (devSel) devSel.value = _envDeviceState(config.ENV || "", config.COMMAND || "");
+  syncCmdExtras(pfx);
   const wdEl = $(pfx + "WORKDIR");
   if (wdEl) wdEl.value = config.WORKDIR || "";
   applyCellKindUI(pfx);
@@ -855,8 +856,8 @@ export function wireCellKindToggle(pfx) {
       el.addEventListener("change", () => renderCommandCellPreview(pfx));
     }
   });
-  // Device pin: the selector rewrites ENV (see _applyDeviceToEnv) and the ENV
-  // edits feed back into the selector, so hand-typed pins stay in sync.
+  // Device pin: the tiles drive the hidden select, the select rewrites ENV
+  // (see _applyDeviceToEnv), and hand-typed ENV pins feed back into both.
   const devSel = $(pfx + "CELL_DEVICE");
   const envEl = $(pfx + "ENV");
   if (devSel && envEl) {
@@ -866,6 +867,26 @@ export function wireCellKindToggle(pfx) {
     });
     envEl.addEventListener("input", () => {
       devSel.value = _envDeviceState(envEl.value, $(pfx + "COMMAND")?.value || "");
+      syncCmdExtras(pfx);
+    });
+    document.querySelector(`[data-device-tiles="${pfx}"]`)?.addEventListener("click", (e) => {
+      const tile = e.target.closest("[data-device-tile]");
+      if (!tile) return;
+      devSel.value = tile.dataset.deviceTile;
+      devSel.dispatchEvent(new Event("change", { bubbles: true }));
+      syncCmdExtras(pfx);
+    });
+  }
+  // Health switch: off = clear the path (plain TCP probe), on = /health seed.
+  const healthTog = $(pfx + "HEALTH_TOGGLE");
+  const healthPath = $(pfx + "HEALTH_PATH");
+  if (healthTog && healthPath) {
+    healthTog.addEventListener("change", () => {
+      healthPath.disabled = !healthTog.checked;
+      if (!healthTog.checked) healthPath.value = "";
+      else if (!healthPath.value.trim()) healthPath.value = "/health";
+      healthPath.dispatchEvent(new Event("input", { bubbles: true }));
+      if (healthTog.checked) healthPath.focus();
     });
   }
   overlay.dataset.cellKindWired = "1";
@@ -910,21 +931,57 @@ export const COMMAND_PRESETS = [
     COMMAND: "bash ~/run_tts.sh $PORT cosyvoice", HEALTH_PATH: "/health" },
 ];
 
+// Tiles/toggle ↔ hidden fields sync for the command tab: the Device tiles
+// mirror the hidden CELL_DEVICE select, the health switch mirrors whether
+// HEALTH_PATH is set (off = plain TCP port probe).
+export function syncCmdExtras(pfx) {
+  const devSel = $(pfx + "CELL_DEVICE");
+  const tiles = document.querySelector(`[data-device-tiles="${pfx}"]`);
+  if (devSel && tiles) {
+    tiles.querySelectorAll("[data-device-tile]").forEach((b) =>
+      b.classList.toggle("active", b.dataset.deviceTile === devSel.value));
+  }
+  const hp = $(pfx + "HEALTH_PATH");
+  const tog = $(pfx + "HEALTH_TOGGLE");
+  if (hp && tog) {
+    tog.checked = !!hp.value.trim();
+    hp.disabled = !tog.checked;
+  }
+}
+
 export function populateCommandPresets(pfx) {
   const sel = $(pfx + "CMD_PRESET");
   if (!sel || sel.dataset.filled) return;
   sel.innerHTML = COMMAND_PRESETS.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.labelKey ? t(p.labelKey) : p.label)}</option>`).join("");
   sel.dataset.filled = "1";
-  sel.addEventListener("change", () => {
-    const p = COMMAND_PRESETS.find((x) => x.id === sel.value);
-    sel.value = "";
-    if (!p || !p.id) return;
+  const applyPreset = (p) => {
     ["COMMAND", "ENV", "WORKDIR", "HEALTH_PATH"].forEach((k) => {
       const el = $(pfx + k);
       if (el) el.value = p[k] || "";
     });
+    const devSel = $(pfx + "CELL_DEVICE");
+    if (devSel) devSel.value = _envDeviceState(p.ENV || "", p.COMMAND || "");
+    syncCmdExtras(pfx);
     renderCommandCellPreview(pfx);
+  };
+  sel.addEventListener("change", () => {
+    const p = COMMAND_PRESETS.find((x) => x.id === sel.value);
+    sel.value = "";
+    if (p && p.id) applyPreset(p);
   });
+  // Chips row — the visible face of the presets (the select stays for compat).
+  const chips = $(pfx + "CMD_PRESET_CHIPS");
+  if (chips && !chips.dataset.filled) {
+    chips.innerHTML = COMMAND_PRESETS.filter((p) => p.id)
+      .map((p) => `<button type="button" class="cmd-preset-chip" data-cmd-preset="${escapeHtml(p.id)}">${escapeHtml(p.label)}</button>`).join("");
+    chips.dataset.filled = "1";
+    chips.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-cmd-preset]");
+      if (!b) return;
+      const p = COMMAND_PRESETS.find((x) => x.id === b.dataset.cmdPreset);
+      if (p) applyPreset(p);
+    });
+  }
 }
 
 export function _commandCellSlot(pfx) {

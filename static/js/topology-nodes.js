@@ -170,7 +170,7 @@ export function classifyLlamaError(raw) {
 // Shared lifecycle breadcrumb bar used by real server cards and the ghost "no server" card.
 // lcIdx: 0=reserved, 1=stopped, 2=starting, 3=running; -1 = all future (ghost card)
 // lcActiveStep: key for CSS colour class on the active dot (stopped/error/loading/running)
-export function serverLifecycleBar(lcIdx, lcActiveStep, uptimeTxt = "", cfgAttrs = "", reservedPort = "") {
+export function serverLifecycleBar(lcIdx, lcActiveStep, uptimeTxt = "", cfgAttrs = "", reservedPort = "", portAttrs = "") {
   const steps = ["reserved", "configured", "starting", "running"];
   const stepLabels = { reserved: t("lcReserved"), configured: t("lcConfigured"), starting: t("lcStarting"), running: t("lcRunning") };
   return `<div class="node-server-lc">${
@@ -192,7 +192,11 @@ export function serverLifecycleBar(lcIdx, lcActiveStep, uptimeTxt = "", cfgAttrs
       const inner = `${(i === 0 && reservedPort) ? "" : `<span class="lc-dot"></span>`}<span class="lc-lbl">${label}</span>`;
       const node = (i === 1 && cfgAttrs)
         ? `<button class="lc-node lc-cfg-btn ${nodeState} lc-${colorKey}${cfgLive}" type="button" ${cfgAttrs} title="${escapeHtml(t("nodeConfigure"))}">${inner}</button>`
-        : `<span class="lc-node ${nodeState} lc-${colorKey}${cfgLive}">${inner}</span>`;
+        // Reserved step becomes the port-reassign button while the cell is
+        // stopped: click → free-port picker (occupied ports highlighted).
+        : ((i === 0 && portAttrs)
+            ? `<button class="lc-node lc-port-btn ${nodeState} lc-${colorKey}" type="button" ${portAttrs} title="${escapeHtml(t("lcPortReassignTitle"))}">${inner}</button>`
+            : `<span class="lc-node ${nodeState} lc-${colorKey}${cfgLive}">${inner}</span>`);
       return `${i > 0 ? `<span class="lc-rail ${railCls}"></span>` : ""}${node}`;
     }).join("")
   }</div>`;
@@ -458,7 +462,12 @@ export function nodeServerCardHtml(node, s) {
 
     // ⚙ Configure — disabled only during starting / stopping / deleting
     const canConfigure = !isDeleting && !isCellBusy && phase !== "starting";
-    lifecycleBar = serverLifecycleBar(lcIdx, lcActiveStep, "", canConfigure ? cfgAttrs : "", port);
+    // ⇄ Reassign port — same window as delete: only a parked cell may move.
+    const canReassign = (isReserved || phase === "stopped" || isError) && !isDeleting && !isCellBusy;
+    const portAttrs = canReassign
+      ? `data-cell-port-reassign="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}"`
+      : "";
+    lifecycleBar = serverLifecycleBar(lcIdx, lcActiveStep, "", canConfigure ? cfgAttrs : "", port, portAttrs);
 
     // ▶ start — active when stopped or error (model already configured).
     // Launches the saved slot directly; server-cell/action handles both

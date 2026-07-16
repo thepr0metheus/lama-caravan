@@ -26,7 +26,7 @@ import {
 } from "./llama-edit.js";
 import { refreshComputeTarget } from "./memory.js";
 import { action, startMonitor } from "./polling.js";
-import { state, topology } from "./state.js";
+import { setTopology, state, topology } from "./state.js";
 import { topologyStatusPill } from "./topology-activity.js";
 import { openNodeServerDetail } from "./topology-nodes.js";
 import { _topologyRenderPending, markTopologyRenderPending, refreshTopology, renderTopology, topologyInteractionActive, topologyServerPhase } from "./topology-render.js";
@@ -170,6 +170,77 @@ export function startRemoteStartWatch() {
 export function openRemoteFormForHost(hostId, port = "") {
   const client = (topology?.clients || []).find((c) => c.id === hostId) || {};
   openLlamaRemoteEdit(hostId, (client.gpus && client.gpus[0] && client.gpus[0].name) || "", client.gpus || [], port);
+}
+
+// ── Port picker: move a parked cell to another free port ─────────────────────
+// Grid of the fleet-wide port pool (cells on every host + agent/bridge proxy
+// ports share the numbering). Occupied tiles are colored by owner kind and
+// carry the owner in the tooltip; a click on a free tile confirms and calls
+// the reassign endpoint — cables and rules follow the cell server-side.
+export function openPortPicker(hostId, port) {
+  const used = new Map();   // port -> {kind, label}
+  (topology?.nodes || []).forEach((n) => (n.servers || []).forEach((s) => {
+    const p = Number(s.port || 0);
+    if (!p) return;
+    const host = s.isController ? "skynet" : (s.clientId || n.id);
+    const what = (s.model || (s.config || {}).COMMAND || "cell").toString().slice(0, 48);
+    used.set(p, { kind: "cell", label: `${host} · ${what}` });
+  }));
+  (topology?.proxies || []).forEach((pr) => {
+    const p = Number(pr.port || 0);
+    if (!p) return;
+    used.set(p, { kind: pr.kind === "service" ? "bridge" : "proxy", label: pr.label || "" });
+  });
+  const cur = Number(port);
+  const maxUsed = Math.max(8030, ...used.keys());
+  let tiles = "";
+  for (let p = 8001; p <= maxUsed + 10; p++) {
+    const u = used.get(p);
+    const isCur = p === cur;
+    const cls = isCur ? "current" : (u ? `busy ${u.kind}` : "free");
+    const title = isCur
+      ? t("portPickerLegendCurrent")
+      : (u ? `${u.kind} · ${u.label}` : t("portPickerLegendFree"));
+    tiles += `<button type="button" class="port-tile ${cls}"${(!u && !isCur) ? ` data-pick-port="${p}"` : " disabled"} title="${escapeHtml(title)}">${p}</button>`;
+  }
+  const legend = [["free", t("portPickerLegendFree")], ["busy cell", t("portPickerLegendCell")],
+                  ["busy proxy", t("portPickerLegendProxy")], ["busy bridge", t("portPickerLegendBridge")],
+                  ["current", t("portPickerLegendCurrent")]]
+    .map(([cls, lbl]) => `<span class="port-picker-key"><span class="port-tile mini ${cls}"></span>${escapeHtml(lbl)}</span>`).join("");
+  const ovl = document.createElement("div");
+  ovl.className = "topology-policy-overlay port-picker-overlay";
+  ovl.innerHTML = `
+    <div class="topology-policy-modal port-picker-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("portPickerTitle", { port: String(cur) }))}">
+      <div class="topology-card-head">
+        <strong>${escapeHtml(t("portPickerTitle", { port: String(cur) }))}</strong>
+        <button class="icon-action compact" type="button" data-pp-close aria-label="×">×</button>
+      </div>
+      <div class="port-picker-legend">${legend}</div>
+      <div class="port-picker-grid">${tiles}</div>
+    </div>`;
+  const close = () => ovl.remove();
+  ovl.addEventListener("click", async (e) => {
+    if (e.target === ovl || e.target.closest("[data-pp-close]")) { close(); return; }
+    const tile = e.target.closest("[data-pick-port]");
+    if (!tile) return;
+    const newPort = Number(tile.dataset.pickPort);
+    if (!(await appConfirm(t("portPickerConfirm", { from: String(cur), to: String(newPort) }), { danger: false }))) return;
+    tile.disabled = true;
+    try {
+      const res = await api("/api/topology/server-cell/reassign-port", {
+        method: "POST",
+        body: JSON.stringify({ hostId, port: cur, newPort }),
+      });
+      if (res.topology) setTopology(res.topology);
+      renderTopology();
+      toast(t("portPickerDone", { port: String(newPort) }));
+      close();
+    } catch (err) {
+      toast(err.message);
+      tile.disabled = false;
+    }
+  });
+  document.body.appendChild(ovl);
 }
 
 export function nextTopologyCellPort() {
@@ -381,6 +452,14 @@ export function bindServerSlotControls(root) {
     }));
   root.querySelectorAll("[data-node-cell-boot]").forEach((b) =>
     b.addEventListener("click", () => cellServiceAction(b.dataset.nodeCellBoot, b.dataset.nodeCellPort, b.dataset.nodeCellBootAction)));
+  // ⇄ RESERVED step → the free-port picker (parked cells only; the render
+  // sets the attr under the same conditions as delete).
+  root.querySelectorAll("[data-cell-port-reassign]").forEach((b) =>
+    b.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const [hostId, p] = String(b.dataset.cellPortReassign).split(":");
+      openPortPicker(hostId, Number(p));
+    }));
   root.querySelectorAll("[data-node-reserve]").forEach((b) =>
     b.addEventListener("click", () => reserveServerCell(b.dataset.nodeReserve, b.dataset.nodeReservePort || "")));
   // Add server — controller routes to the local the controller add flow, clients to the

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.3.40 — 2026-07-16
+
+- Reassign a parked cell's port: the RESERVED :port lifecycle step turns
+  into a button on stopped cells and opens a fleet-wide port picker —
+  a grid of the shared pool where occupied tiles are colored by owner
+  (cell / agent port / bridge, owner in the tooltip) and free ones are
+  one click away. Server-side the slot record, its config PORT, the
+  controller start.sh artifacts and every router reference to
+  srv:<old> (graph cables, rules, embeddings/audio outputs) follow the
+  cell to the new number.
+- The Custom command tab got the same design language as the llama.cpp
+  form: preset chips instead of a dropdown, the Device pin as three
+  Compute-target-style tiles (auto probe / GPU / CPU — CPU glows blue
+  to match the cards), and the HTTP health-check as a switch (off =
+  plain TCP port probe).
+- README leads with the backronym; the GitHub repo description carries
+  it too.
+
 ## 1.3.39 — 2026-07-16
 
 - Every non-reserved cell card now wears a device chip: running cells

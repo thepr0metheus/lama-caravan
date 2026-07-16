@@ -435,18 +435,43 @@
             </div>
             <div class="field command-cell-fields" id="tr-commandFields" style="display:none">
               <div class="label-row"><label for="tr-CMD_PRESET">Preset</label></div>
-              <select id="tr-CMD_PRESET" class="cmd-preset" style="width:100%"></select>
-              <div class="label-row" style="margin-top:8px"><label for="tr-COMMAND">COMMAND</label></div>
-              <input id="tr-COMMAND" name="COMMAND" type="text" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%">
-              <p class="field-note">Runs on the client host. <code>$PORT</code> is exported to the cell's reserved port; the command is <code>exec</code>'d. Don't prefix with <code>exec</code> — it's added.</p>
-              <div class="label-row" style="margin-top:8px"><label for="tr-CELL_DEVICE" data-i18n="cellDeviceLabel">Device</label><span class="inline-tip help-tip" tabindex="0">?<span class="tooltip" data-i18n="cellDeviceHelp">Pins the launch device via ENV (TTS_DEVICE / CUDA_VISIBLE_DEVICES); auto keeps the runner's own probe.</span></span></div><select id="tr-CELL_DEVICE" style="width:100%"><option value="auto" data-i18n="cellDeviceAuto">auto — probe at start</option><option value="gpu" data-i18n="cellDeviceGpu">GPU (pin)</option><option value="cpu" data-i18n="cellDeviceCpu">CPU (pin)</option></select>
-              <div class="label-row" style="margin-top:8px"><label for="tr-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
+              <div class="cmd-preset-chips" id="tr-CMD_PRESET_CHIPS"></div>
+              <select id="tr-CMD_PRESET" class="cmd-preset" hidden></select>
+              <div class="label-row" style="margin-top:10px"><label for="tr-COMMAND">COMMAND</label></div>
+              <input id="tr-COMMAND" name="COMMAND" type="text" class="cmd-command-input" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%">
+              <p class="field-note"><code>$PORT</code> is exported to the cell's reserved port; the command is <code>exec</code>'d. Don't prefix with <code>exec</code> — it's added.</p>
+              <div class="compute-target">
+                <div class="compute-label"><span data-i18n="cellDeviceLabel">Device</span> <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip" data-i18n="cellDeviceHelp">Pins the launch device via ENV (TTS_DEVICE / CUDA_VISIBLE_DEVICES); auto keeps the runner's own probe.</span></span></div>
+                <div class="compute-cards cmd-device-tiles" data-device-tiles="tr-">
+                  <button type="button" class="compute-card" data-device-tile="auto">
+                    <span class="compute-card-head"><span class="compute-card-icon">🎲</span> auto<span class="compute-card-check">✓</span></span>
+                    <span class="compute-card-sub" data-i18n="devTileAutoSub">probe at start: GPU if VRAM is free, else CPU</span>
+                  </button>
+                  <button type="button" class="compute-card" data-device-tile="gpu">
+                    <span class="compute-card-head"><span class="compute-card-icon">🎮</span> GPU<span class="compute-card-check">✓</span></span>
+                    <span class="compute-card-sub" data-i18n="devTileGpuSub">pin: TTS_DEVICE=cuda</span>
+                  </button>
+                  <button type="button" class="compute-card" data-device-tile="cpu">
+                    <span class="compute-card-head"><span class="compute-card-icon">🧮</span> CPU<span class="compute-card-check">✓</span></span>
+                    <span class="compute-card-sub" data-i18n="devTileCpuSub">pin: the GPU is hidden from the process</span>
+                  </button>
+                </div>
+              </div>
+              <select id="tr-CELL_DEVICE" hidden><option value="auto">auto</option><option value="gpu">GPU</option><option value="cpu">CPU</option></select>
+              <div class="label-row" style="margin-top:10px"><label for="tr-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
               <textarea id="tr-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace"></textarea>
               <p class="field-note">One <code>KEY=VALUE</code> per line → <code>export</code>ed before the command.</p>
-              <div class="label-row" style="margin-top:8px"><label for="tr-WORKDIR">WORKDIR <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
-              <input id="tr-WORKDIR" name="WORKDIR" type="text" placeholder="~/whisper — cd before exec" style="width:100%">
-              <div class="label-row" style="margin-top:8px"><label for="tr-HEALTH_PATH">HEALTH_PATH <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
-              <input id="tr-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health — empty = TCP port probe" style="width:100%">
+              <div class="cmd-two-col">
+                <div>
+                  <div class="label-row"><label for="tr-WORKDIR">WORKDIR <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
+                  <input id="tr-WORKDIR" name="WORKDIR" type="text" placeholder="~/whisper — cd before exec" style="width:100%">
+                </div>
+                <div>
+                  <div class="label-row"><label class="cmd-health-lbl" for="tr-HEALTH_TOGGLE"><input type="checkbox" id="tr-HEALTH_TOGGLE" class="cmd-health-toggle"> <span data-i18n="cmdHealthToggle">HTTP health-check</span></label></div>
+                  <input id="tr-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health" style="width:100%" disabled>
+                  <p class="field-note" data-i18n="cmdHealthOffNote">off = plain TCP port probe</p>
+                </div>
+              </div>
             </div>
             <div class="field vllm-cell-fields" id="tr-vllmFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="tr-VLLM_MODEL">VLLM_MODEL</label></div>
@@ -634,18 +659,43 @@
             </div>
             <div class="field command-cell-fields" id="te-commandFields" style="display:none">
               <div class="label-row"><label for="te-CMD_PRESET">Preset</label></div>
-              <select id="te-CMD_PRESET" class="cmd-preset" style="width:100%"></select>
-              <div class="label-row" style="margin-top:8px"><label for="te-COMMAND">COMMAND</label></div>
-              <input id="te-COMMAND" name="COMMAND" type="text" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%">
+              <div class="cmd-preset-chips" id="te-CMD_PRESET_CHIPS"></div>
+              <select id="te-CMD_PRESET" class="cmd-preset" hidden></select>
+              <div class="label-row" style="margin-top:10px"><label for="te-COMMAND">COMMAND</label></div>
+              <input id="te-COMMAND" name="COMMAND" type="text" class="cmd-command-input" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%">
               <p class="field-note"><code>$PORT</code> is exported to the cell's reserved port; the command is <code>exec</code>'d. Don't prefix with <code>exec</code> — it's added.</p>
-              <div class="label-row" style="margin-top:8px"><label for="te-CELL_DEVICE" data-i18n="cellDeviceLabel">Device</label><span class="inline-tip help-tip" tabindex="0">?<span class="tooltip" data-i18n="cellDeviceHelp">Pins the launch device via ENV (TTS_DEVICE / CUDA_VISIBLE_DEVICES); auto keeps the runner's own probe.</span></span></div><select id="te-CELL_DEVICE" style="width:100%"><option value="auto" data-i18n="cellDeviceAuto">auto — probe at start</option><option value="gpu" data-i18n="cellDeviceGpu">GPU (pin)</option><option value="cpu" data-i18n="cellDeviceCpu">CPU (pin)</option></select>
-              <div class="label-row" style="margin-top:8px"><label for="te-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
+              <div class="compute-target">
+                <div class="compute-label"><span data-i18n="cellDeviceLabel">Device</span> <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip" data-i18n="cellDeviceHelp">Pins the launch device via ENV (TTS_DEVICE / CUDA_VISIBLE_DEVICES); auto keeps the runner's own probe.</span></span></div>
+                <div class="compute-cards cmd-device-tiles" data-device-tiles="te-">
+                  <button type="button" class="compute-card" data-device-tile="auto">
+                    <span class="compute-card-head"><span class="compute-card-icon">🎲</span> auto<span class="compute-card-check">✓</span></span>
+                    <span class="compute-card-sub" data-i18n="devTileAutoSub">probe at start: GPU if VRAM is free, else CPU</span>
+                  </button>
+                  <button type="button" class="compute-card" data-device-tile="gpu">
+                    <span class="compute-card-head"><span class="compute-card-icon">🎮</span> GPU<span class="compute-card-check">✓</span></span>
+                    <span class="compute-card-sub" data-i18n="devTileGpuSub">pin: TTS_DEVICE=cuda</span>
+                  </button>
+                  <button type="button" class="compute-card" data-device-tile="cpu">
+                    <span class="compute-card-head"><span class="compute-card-icon">🧮</span> CPU<span class="compute-card-check">✓</span></span>
+                    <span class="compute-card-sub" data-i18n="devTileCpuSub">pin: the GPU is hidden from the process</span>
+                  </button>
+                </div>
+              </div>
+              <select id="te-CELL_DEVICE" hidden><option value="auto">auto</option><option value="gpu">GPU</option><option value="cpu">CPU</option></select>
+              <div class="label-row" style="margin-top:10px"><label for="te-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
               <textarea id="te-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace"></textarea>
               <p class="field-note">One <code>KEY=VALUE</code> per line → <code>export</code>ed before the command.</p>
-              <div class="label-row" style="margin-top:8px"><label for="te-WORKDIR">WORKDIR <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
-              <input id="te-WORKDIR" name="WORKDIR" type="text" placeholder="~/whisper — cd before exec" style="width:100%">
-              <div class="label-row" style="margin-top:8px"><label for="te-HEALTH_PATH">HEALTH_PATH <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
-              <input id="te-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health — empty = TCP port probe" style="width:100%">
+              <div class="cmd-two-col">
+                <div>
+                  <div class="label-row"><label for="te-WORKDIR">WORKDIR <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
+                  <input id="te-WORKDIR" name="WORKDIR" type="text" placeholder="~/whisper — cd before exec" style="width:100%">
+                </div>
+                <div>
+                  <div class="label-row"><label class="cmd-health-lbl" for="te-HEALTH_TOGGLE"><input type="checkbox" id="te-HEALTH_TOGGLE" class="cmd-health-toggle"> <span data-i18n="cmdHealthToggle">HTTP health-check</span></label></div>
+                  <input id="te-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health" style="width:100%" disabled>
+                  <p class="field-note" data-i18n="cmdHealthOffNote">off = plain TCP port probe</p>
+                </div>
+              </div>
             </div>
             <div class="field vllm-cell-fields" id="te-vllmFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="te-VLLM_MODEL">VLLM_MODEL</label></div>
