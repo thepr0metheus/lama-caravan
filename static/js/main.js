@@ -87,6 +87,9 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (window.ROUTER_STANDALONE) {
     initRouterStandalonePage();
+    // The standalone boot exits before the shared boot tail below — fetch the
+    // pricing map here too, or the kanban's $/1M tags stay empty forever.
+    fetchModelPricing().catch(() => {});
     return;
   }
 

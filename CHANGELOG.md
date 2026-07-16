@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.32 — 2026-07-11
+
+- Cloud output rows on the kanban servers block (and the Outputs panel)
+  show the model's $in/$out per-1M price tag right next to the name;
+  ":free" OpenRouter models get a FREE chip.
+- Manual price overrides (📊 Statistics → per-model $/1M) now overlay the
+  LiteLLM table in the DISPLAYED pricing map too, not only in spend
+  accounting — a hand-entered price shows up on the cards and the kanban.
+  Entered the official gpt-5.6 rates (sol $5/$30, terra $2.5/$15,
+  luna $1/$6) as overrides until LiteLLM's table catches up.
+
 ## 1.3.31 — 2026-07-11
 
 - Canvas nodes refuse to overlap: on drop, a node that lands on another

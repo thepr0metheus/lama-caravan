@@ -1229,3 +1229,7 @@ select.cv-pin { width: 100%; }
 .cv-svg.edge-focus .cv-edge-grp:not(.focus) path:not(.cv-edge-hit) { opacity: .07; }
 .cv-svg.edge-focus .cv-junction { opacity: .07; }
 .cv-svg.edge-focus .cv-edge-grp.focus path[data-cv-edge]:not(.cv-edge-hit) { opacity: 1; }
+
+/* $in/$out per-1M tag on cloud output rows (kanban servers block + panel). */
+.router-out-price { margin-left: auto; font-size: 9px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.router-out-price.free { color: #4ade80; font-weight: 600; }

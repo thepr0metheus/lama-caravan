@@ -712,7 +712,17 @@ def _get_api_proxy_daily_stats(h, parsed):
 
 @_route(GET_ROUTES, '/api/model-pricing')
 def _get_api_model_pricing(h, parsed):
-        h.send_json({"ok": True, "pricing": fetch_model_pricing()})
+        # LiteLLM community table overlaid with the manual apiPricing overrides,
+        # so a hand-entered price shows up next to the model everywhere the UI
+        # displays price tags — not only in the spend accounting.
+        pricing = dict(fetch_model_pricing())
+        for model, row in (admin_state.get("apiPricing") or {}).items():
+            base = dict(pricing.get(model) or {})
+            base["inputPer1M"] = row.get("inputPer1M", 0)
+            base["outputPer1M"] = row.get("outputPer1M", 0)
+            base.setdefault("provider", "manual")
+            pricing[model] = base
+        h.send_json({"ok": True, "pricing": pricing})
         return
 
 @_route(GET_ROUTES, '/api/state')

@@ -68,6 +68,19 @@ export function topologyRouterOutputLabel(out) {
   return out.label || `${out.upstreamHost}:${out.upstreamPort}`;
 }
 
+// Price tag for a cloud output row: resolve the model via its provider block
+// and look it up in the pricing map (LiteLLM + manual overrides). ":free"
+// OpenRouter models get a FREE chip instead of $0/$0.
+function _outPriceTag(out) {
+  const block = (topology?.cloudProviders || []).find((b) => b.id === out.providerId);
+  const model = block?.model || "";
+  if (!model) return "";
+  if (model.endsWith(":free")) return `<span class="router-out-price free">FREE</span>`;
+  const mp = modelPricing[model];
+  if (!mp || (!mp.inputPer1M && !mp.outputPer1M)) return "";
+  return `<span class="router-out-price">${formatPricePer1M(mp.inputPer1M)}/${formatPricePer1M(mp.outputPer1M)}</span>`;
+}
+
 export function renderTopologyRouterCard(router) {
   const activity = topologyRouterActivity(router);
   const outputs = router.outputs || [];
@@ -157,12 +170,14 @@ export function renderRouterOutputsPanel(router) {
   const outputRow = (out, extraCls) => {
     const isDef = out.id === defaultId;
     const isCloud = String(out.upstreamType || "") === "cloud";
+    const priceHtml = isCloud ? _outPriceTag(out) : "";
     const badge = isDef ? `<span class="router-out-badge">★ default</span>` : "";
     return `<label class="router-out-row ${isDef ? "is-default" : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}">
       <span class="router-out-handle" data-cv-node="out:${escapeHtml(out.id)}" data-cv-panel-out="out:${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleDragCable"))}"></span>
       <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
       ${isCloud ? "" : liveDot(out)}
       <span class="router-out-name">${escapeHtml(topologyRouterOutputLabel(out))}</span>
+      ${priceHtml}
       ${badge}
     </label>`;
   };
@@ -259,11 +274,13 @@ export function renderServersBlockHtml(router) {
   const outputRow = (out, extraCls) => {
     const isDef = out.id === defaultId;
     const isCloud = String(out.upstreamType || "") === "cloud";
+    const priceHtml = isCloud ? _outPriceTag(out) : "";
     const badge = isDef ? `<span class="router-out-badge">default</span>` : "";
     return `<label class="router-out-row ${isDef ? "is-default" : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}">
       <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
       ${isCloud ? "" : liveDot(out)}
       <span class="router-out-name">${escapeHtml(topologyRouterOutputLabel(out))}</span>
+      ${priceHtml}
       ${badge}
     </label>`;
   };
