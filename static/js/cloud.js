@@ -545,7 +545,16 @@ export function renderTopologyCloudBlockModal() {
             <span class="cloud-type-badge-name">${escapeHtml(account.name || account.id)}</span>
           </div>` : ""}
           <label>${escapeHtml(t("topologyCloudModel"))}${(() => {
-            const models = topologyCloudModelCache.get(f.accountId) || [];
+            // The live endpoint list can lag (chatgpt.com gates models by the
+            // pinned client_version) — union it with the models the account's
+            // blocks already use, plus the block's current value, so anything
+            // known is always pickable.
+            const byId = new Map();
+            (topologyCloudModelCache.get(f.accountId) || []).forEach((m) => { if (m.id) byId.set(m.id, m); });
+            (topology?.cloudProviders || []).filter((b) => b.accountId === f.accountId && b.model)
+              .forEach((b) => { if (!byId.has(b.model)) byId.set(b.model, { id: b.model, name: b.model }); });
+            if (f.model && !byId.has(f.model)) byId.set(f.model, { id: f.model, name: f.model });
+            const models = [...byId.values()];
             return models.length
               ? `<select data-block-field="model">${models.map((m) => `<option value="${escapeHtml(m.id)}"${m.id === f.model ? " selected" : ""}>${escapeHtml(m.name || m.id)}</option>`).join("")}</select>`
               : `<input type="text" data-block-field="model" value="${escapeHtml(f.model)}" placeholder="gpt-4o-mini">`;

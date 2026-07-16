@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.33 — 2026-07-12
+
+- The via-proxy spend rows show each model's $/1M rate next to the name
+  (case-insensitive lookup — spend rows carry display-cased names).
+- The Edit Model Block dialog's model dropdown is no longer limited to
+  what chatgpt.com returns for the pinned client_version: it unions the
+  live endpoint list with every model the account's blocks already use,
+  so the 5.6 family (and anything added manually) is always pickable.
+
 ## 1.3.32 — 2026-07-11
 
 - Cloud output rows on the kanban servers block (and the Outputs panel)
