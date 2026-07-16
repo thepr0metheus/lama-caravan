@@ -313,6 +313,24 @@ export function nodeServerCardHtml(node, s) {
     ? mbadge("sched", `⏱ ${escapeHtml(s.schedule.start)}–${escapeHtml(s.schedule.stop)}`,
              t("schedChipTitle"))
     : "";
+  // Device chip — GPU or CPU, right on the card. Runtime truth first: a
+  // RUNNING cell whose unit pids hold no GPU memory computes on the CPU
+  // (command cells included — the pid→GPU binder covers every runner kind).
+  // Stopped cells fall back to explicit config: -ngl 0, or a command that
+  // pins the device to cpu (TTS_DEVICE=cpu / --device cpu).
+  const cfgSaysCpu = String(_scfg.N_GPU_LAYERS ?? "").trim() === "0"
+    || /(?:^|[\s;])(?:TTS_DEVICE|DEVICE)=cpu\b|--device[=\s]+cpu\b/i.test(String(_scfg.COMMAND || ""));
+  const devGpuTxt = (s.gpuIndexes || []).map((i) => {
+    const mib = (s.gpuMem || {})[String(i)];
+    return `GPU${i}${mib ? ` ${(mib / 1024).toFixed(1)}G` : ""}`;
+  }).join(" · ");
+  // One truth for the chip AND the card accent (.cpu-cell → blue instead of
+  // green/amber): running with no GPU memory, or stopped with CPU pinned in
+  // the config.
+  const isCpuCell = (running && !devGpuTxt) || (!running && cfgSaysCpu && !isReserved);
+  const deviceChip = (running && devGpuTxt)
+    ? mbadge("gpu", `⚡ ${escapeHtml(devGpuTxt)}`)
+    : (isCpuCell ? mbadge("cpu", "🧮 CPU", t("topologyCpuCellsHint")) : "");
   const modelBlock = s.model ? `
     <div class="node-model-block" role="button" tabindex="0"
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
@@ -320,7 +338,7 @@ export function nodeServerCardHtml(node, s) {
         ${runnerChipHtml("llama-server")}
         <strong class="node-model-name" title="${escapeHtml(s.modelPath || s.model)}">${escapeHtml(parsed.label || s.model)}</strong>
       </div>
-      ${statusRow || (chips || schedChip ? `<div class="node-model-row2"><span class="model-chips">${chips}${schedChip}</span></div>` : "")}
+      ${statusRow || (deviceChip || chips || schedChip ? `<div class="node-model-row2"><span class="model-chips">${deviceChip}${chips}${schedChip}</span></div>` : "")}
     </div>` : "";
   const emptyCellBlock = isReserved ? `
     <div class="node-model-block node-model-block-empty">
@@ -340,7 +358,7 @@ export function nodeServerCardHtml(node, s) {
         ${runnerChipHtml("custom")}
         <strong class="node-model-name" title="${escapeHtml(cmdText)}">${escapeHtml(cmdText || t("commandCellFallback"))}</strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
     </div>` : "";
   // vLLM runner cell: no MODEL_FILE — the artifact lives in VLLM_MODEL. Same
   // body layout as a llama cell: model icon + model NAME, then runner chips.
@@ -371,7 +389,7 @@ export function nodeServerCardHtml(node, s) {
         ${runnerChipHtml("vllm")}
         <strong class="node-model-name" title="${escapeHtml(vllmModel || vllmName)}${vllmAlias ? escapeHtml(` · served as ${vllmAlias}`) : ""}">${escapeHtml(vllmName)}</strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${vllmFmt ? mbadge("quant", `🎛 ${escapeHtml(vllmFmt)}`) : ""}${s.vllmStats ? mbadge("cmd", `▶ ${s.vllmStats.requestsRunning}${s.vllmStats.requestsWaiting ? " ⏳" + s.vllmStats.requestsWaiting : ""}`, "running / queued requests") : ""}${s.vllmStats && s.vllmStats.genTps != null ? mbadge("bench", `${formatTps(s.vllmStats.genTps)} t/s`) : ""}${mbadge("cmd", "❤ /v1/models")}${_scfg.MAX_MODEL_LEN ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.MAX_MODEL_LEN)))}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${vllmFmt ? mbadge("quant", `🎛 ${escapeHtml(vllmFmt)}`) : ""}${s.vllmStats ? mbadge("cmd", `▶ ${s.vllmStats.requestsRunning}${s.vllmStats.requestsWaiting ? " ⏳" + s.vllmStats.requestsWaiting : ""}`, "running / queued requests") : ""}${s.vllmStats && s.vllmStats.genTps != null ? mbadge("bench", `${formatTps(s.vllmStats.genTps)} t/s`) : ""}${mbadge("cmd", "❤ /v1/models")}${_scfg.MAX_MODEL_LEN ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.MAX_MODEL_LEN)))}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
     </div>` : "";
   // whisper runner cell: the "model" is a faster-whisper size name.
   const isWhisperCell = String(_scfg.RUNNER || "").toLowerCase() === "whisper";
@@ -383,7 +401,7 @@ export function nodeServerCardHtml(node, s) {
         ${runnerChipHtml("whisper")}
         <strong class="node-model-name" title="faster-whisper ${escapeHtml(whisperSize)}">${escapeHtml(whisperSize)}</strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
     </div>` : "";
   const bodyBlock = modelBlock || vllmBlock || whisperBlock || commandBlock || emptyCellBlock;
   // No model/command block to host the status (e.g. a bare stopped server) —
@@ -396,6 +414,7 @@ export function nodeServerCardHtml(node, s) {
     isStopping ? "stopping" : (isDeleting ? "deleting" : (running ? "running" : (isError ? "error" : (isStopped ? (isConfiguredCell ? "configured-cell" : "stopped") : "loading")))),
     isReserved ? "reserved-cell" : "",
     isNewReserved ? "reserved-new" : "",
+    isCpuCell ? "cpu-cell" : "",
   ].filter(Boolean).join(" ");
   const pillPhase = isStopping ? "stopping" : (running ? "running" : (isError ? "failed" : (phase === "stopped" ? "stopped" : (isWarming ? "warming" : "loading"))));
   // Lifecycle breadcrumb — reserved(0) → configured(1) → starting(2) → running(3)
@@ -511,7 +530,7 @@ export function nodeServerCardHtml(node, s) {
       <div class="node-server-head">
         <a href="http://${escapeHtml(addr)}" target="_blank" rel="noopener" class="topology-addr-link" onclick="event.stopPropagation()">${escapeHtml(addr)}</a>
         ${firewallBadge(s.firewall)}
-        ${gpuBadges}
+        ${gpuBadges || (running ? `<span class="node-gpu-badge node-cpu-badge" title="${escapeHtml(t("topologyCpuCellsHint"))}">CPU</span>` : "")}
         <span style="flex:1"></span>
         ${controls}
       </div>
@@ -692,7 +711,7 @@ export function openNodeServerDetail(nodeId, port) {
           <button class="icon-action compact" id="nodeServerDetailClose" aria-label="Close">✕</button>
         </div>
         <div class="nsd-body">
-          ${row("Status", `${topologyStatusPill(running ? "running" : (phase === "error" ? "failed" : phase))} ${firewallBadge(fw)} ${statusGpuBadges}`)}
+          ${row("Status", `${topologyStatusPill(running ? "running" : (phase === "error" ? "failed" : phase))} ${firewallBadge(fw)} ${statusGpuBadges || (running ? `<span class="node-gpu-badge node-cpu-badge" title="${escapeHtml(t("topologyCpuCellsHint"))}">CPU</span>` : "")}`)}
           ${row("Address", `<a href="http://${escapeHtml(addr)}" target="_blank" rel="noopener" class="topology-addr-link nsd-addr-link" onclick="event.stopPropagation()">${escapeHtml(addr)} ↗</a>`)}
           ${isCmd
             ? row("Command", `<code class="nsd-cmd-inline">${escapeHtml(String(_scfg.COMMAND || "").replace(/^\s*exec\s+/, "") || "—")}</code>`)
@@ -706,7 +725,7 @@ export function openNodeServerDetail(nodeId, port) {
           ${isCmd
             ? (row("Health", _scfg.HEALTH_PATH ? `<code>${escapeHtml(_scfg.HEALTH_PATH)}</code>` : "") + row("Workdir", _scfg.WORKDIR ? `<code>${escapeHtml(_scfg.WORKDIR)}</code>` : ""))
             : (() => { const chips = [parsed.quant ? mbadge("quant", `🎛 ${escapeHtml(parsed.quant)}`) : "", parsed.size ? mbadge("size", `⚖ ${escapeHtml(parsed.size)}`) : "", parsed.variant ? mbadge("it", `🤖 ${escapeHtml(parsed.variant)}`) : "", s.mmproj ? mbadge("mmproj", "📷 mmproj") : "", hasMtp ? mbadge("mtp", "⚡ mtp") : "", nsdCtxChip].filter(Boolean).join(""); return chips ? `<div class="nsd-row"><span class="nsd-k"></span><span class="nsd-v"><span class="model-chips">${chips}</span></span></div>` : ""; })()}
-          ${row("GPU", escapeHtml(gpuLines))}
+          ${row("GPU", gpuLines ? escapeHtml(gpuLines) : (running ? "CPU" : ""))}
           ${row(t("topologyTokenSpeedHead"), (s.promptTps != null || s.genTps != null) ? `${formatTps(s.promptTps || 0)} / ${formatTps(s.genTps || 0)} t/s (${t("topologyPromptGen")})` : "")}
           ${row("Context", s.ctxMax ? `${s.ctxUsed != null ? escapeHtml(formatCtxTokens(s.ctxUsed)) : "—"} / ${escapeHtml(formatCtxTokens(s.ctxMax))} ${escapeHtml(t("topologyLlamaContextWindow").toLowerCase())}` : "")}
           ${row("Activity", [activity.label, activity.summary].filter(Boolean).map(escapeHtml).join(" · "))}

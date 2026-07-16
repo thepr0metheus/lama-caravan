@@ -1287,6 +1287,7 @@
 .node-server-head { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
 .node-server-model { font-size:12px; color:var(--muted,#aaa); margin-top:4px; word-break:break-all; }
 .node-gpu-badge { font-size:10px; padding:1px 5px; border-radius:3px; white-space:nowrap; background:color-mix(in srgb,var(--accent,#6ea8fe) 18%, transparent); color:var(--accent,#6ea8fe); }
+.node-cpu-badge { background:color-mix(in srgb,#94a3b8 16%, transparent); color:#cbd5e1; }
 .node-gpu-row { padding:8px 14px; border-bottom:1px solid var(--line); }
 .node-gpus > .node-gpu-row:last-child { border-bottom:none; }
 .node-gpu-head { display:flex; align-items:center; gap:8px; font-size:13px; }
@@ -1307,3 +1308,13 @@
 .topology-nodes-view[hidden] { display: none !important; }
 
 /* Node cards rendered inside the Llama Servers lane (cable targets) */
+
+/* CPU cells (running on CPU / stopped with CPU pinned): blue card accent. */
+.node-server.cpu-cell.running {
+  border-left-color: #4593ff;
+  background: color-mix(in srgb, #4593ff 7%, transparent);
+}
+.node-server.cpu-cell.configured-cell {
+  border-left-color: color-mix(in srgb, #4593ff 75%, var(--line));
+  background: color-mix(in srgb, #4593ff 5%, transparent);
+}

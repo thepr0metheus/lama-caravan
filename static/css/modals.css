@@ -666,6 +666,9 @@
 .mbadge-vision { background: color-mix(in srgb, #38bdf8 12%, transparent); color: #bae6fd; border-color: color-mix(in srgb, #38bdf8 30%, transparent); }
 .mbadge-audio  { background: color-mix(in srgb, #c084fc 12%, transparent); color: #e9d5ff; border-color: color-mix(in srgb, #c084fc 30%, transparent); }
 .mbadge-video  { background: color-mix(in srgb, #f472b6 12%, transparent); color: #fbcfe8; border-color: color-mix(in srgb, #f472b6 30%, transparent); }
+/* device chips on server cards: where does this cell compute? */
+.mbadge-gpu    { background: color-mix(in srgb, var(--good,#4ade80) 12%, transparent); color: #86efac; border-color: color-mix(in srgb, var(--good,#4ade80) 30%, transparent); }
+.mbadge-cpu    { background: color-mix(in srgb, #4593ff 12%, transparent); color: #9cc4ff; border-color: color-mix(in srgb, #4593ff 32%, transparent); }
 
 /* llama.cpp version chip in node header */
 .llama-ver-chip {

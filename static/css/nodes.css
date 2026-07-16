@@ -783,3 +783,47 @@
 /* CPU pseudo-row in the GPUs column: running cells that use no VRAM */
 .node-cpu-row { opacity: 0.85; }
 .node-cpu-row .node-gpu-head strong { color: var(--muted); }
+
+/* ── CPU cells: blue accent instead of green/amber ─────────────────────────
+   .cpu-cell = running with no GPU memory, or stopped with CPU pinned in the
+   config (set in topology-nodes.js next to the 🧮 CPU chip). The lifecycle
+   greens/ambers turn blue so the GPU-vs-CPU split reads at a glance. */
+.node-server.cpu-cell .lc-node.lc-running {
+  border-color: color-mix(in srgb, #4593ff 55%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, #4593ff 18%, transparent) 0%, color-mix(in srgb, #4593ff 10%, transparent) 100%);
+  box-shadow: 0 0 8px color-mix(in srgb, #4593ff 30%, transparent), 0 2px 4px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.10);
+}
+.node-server.cpu-cell .lc-node.lc-running .lc-dot {
+  background: #4593ff;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #4593ff 28%, transparent);
+}
+.node-server.cpu-cell .lc-node.lc-running .lc-lbl { color: #4593ff; }
+
+.node-server.cpu-cell .lc-node.lc-configured {
+  border-color: color-mix(in srgb, #4593ff 40%, transparent);
+  background: color-mix(in srgb, #4593ff 10%, transparent);
+}
+.node-server.cpu-cell .lc-node.lc-configured .lc-dot {
+  background: color-mix(in srgb, #4593ff 65%, var(--muted,#888));
+  box-shadow: 0 0 0 3px color-mix(in srgb, #4593ff 18%, transparent);
+}
+.node-server.cpu-cell .lc-node.lc-configured .lc-lbl { color: color-mix(in srgb, #4593ff 80%, var(--muted,#888)); }
+
+.node-server.cpu-cell .lc-node.done .lc-dot { background: color-mix(in srgb, #4593ff 65%, var(--muted,#888)); }
+.node-server.cpu-cell .lc-node.done.lc-cfg-live {
+  color: #4593ff;
+  border-color: color-mix(in srgb, #4593ff 30%, transparent);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, #4593ff 12%, transparent) 0%,
+    color-mix(in srgb, #4593ff 6%, transparent) 100%);
+}
+.node-server.cpu-cell .lc-node.done.lc-cfg-live .lc-dot {
+  background: #4593ff;
+  box-shadow: 0 0 0 2px color-mix(in srgb, #4593ff 22%, transparent);
+}
+.node-server.cpu-cell .lc-node.done.lc-cfg-live .lc-lbl { color: #4593ff; }
+.node-server.cpu-cell .lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover {
+  border-color: #4593ff !important;
+  background: color-mix(in srgb, #4593ff 14%, transparent);
+}
+.node-server.cpu-cell .lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover .lc-lbl { color: #4593ff !important; }
