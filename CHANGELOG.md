@@ -1,5 +1,53 @@
 # Changelog
 
+## 1.3.36 — 2026-07-16
+
+Model-block lifecycle hardening — everything the live delete/re-add drill
+uncovered, in one release:
+
+- **Delete preflight.** The delete-block confirm now lists everything that
+  references the block (bridge ports, queue admit/spill roles, router rules,
+  graph cables) via GET /api/cloud-blocks/refs — deleting stops being a
+  silent wire-cutter. An unlisted (provider-retired) model is called out
+  right in the dialog.
+- **Wiring survives deletion.** Graph cables to cloud outputs are now
+  preserved like local srv: ones when the target vanishes (block deleted) —
+  the cable doesn't render, the walker falls back to legacy rules, and the
+  moment a block with the same id returns, cables AND queue roles reconnect
+  themselves. rules.default gets the same treatment via a dormantDefault
+  stash (an explicit user pick clears it).
+- **Honest bridge /health.** A bridge whose providerId dangles or whose
+  account has no stored credential answers 503 {status:"degraded", reason}
+  instead of {"ok"} — external consumers see the truth without sending a
+  paid completion.
+- **Model catalog on the server.** Per-account model lists are cached for
+  1h (state/model-catalog.json), refreshed in a background thread, and
+  blocks whose model left the provider's list carry `unlisted: true` in
+  topology — the red ⚠ marks now show on the kanban outputs checklist,
+  output rows, bridge rows and dropdowns, the block modal options, and the
+  queue node warns when its main/overflow target is dead or delisted.
+- **Endpoint circuit breaker.** Upstream helper calls (model lists,
+  subscription usage, costs, openrouter limits, npm version probe) that fail
+  3× in a row are disabled with exponential backoff (6h→48h) and reported in
+  an "API issues" panel on the provider card with a retry button — we stop
+  hammering a broken endpoint, and nothing fails silently anymore.
+- **codex client_version self-updates.** The chatgpt.com model-list version
+  is now env override (CARAVAN_CODEX_CLIENT_VERSION) → the newest of npm
+  "@openai/codex" latest (cached a day) and a built-in floor (0.160.0). The
+  floor matters: gating references versions ABOVE the published CLI (5.6
+  unlocks at 0.150.0 while npm latest was 0.144.5). The effective version
+  and its source are shown on the subscription card.
+- **Cloud model lists sort by price**, expensive → cheap (checklists, output
+  rows, provider-card flyout); unknown-price models sink to the bottom.
+- **Block modal:** edit view shows the read-only Block ID; changing an
+  existing block's model asks for confirmation (that silent rewire is
+  exactly how terra once became a second sol); adding a duplicate model
+  warns; new blocks get an "Expose as router output" checkbox (on by
+  default) so exposing no longer needs a trip to the kanban checklist.
+- **"Fetch models" skips non-chat junk** (tts/whisper/embeddings/moderation/
+  image/video/audio/realtime/legacy bases) — no more 60 unusable blocks on
+  an API account; the toast reports how many were skipped.
+
 ## 1.3.35 — 2026-07-16
 
 - Model blocks the provider no longer serves are painted red in the

@@ -624,10 +624,31 @@ export function queueNodeBodyHtml(router, n) {
     ${histOpen ? `<div class="cv-q-hist-body">${_renderQueueHistHtml(n.id)}</div>` : ""}
   </div>`;
 
+  // Dead-target warnings: the cable exists, but its output vanished (block
+  // deleted — edge preserved for auto-restore) or the block's model is no
+  // longer listed by the provider (requests will 400 upstream).
+  const edgeTargetIssue = (edge) => {
+    const to = String(edge?.to || "");
+    if (!to.startsWith("out:")) return "";
+    const outId = to.slice(4);
+    const out = (router.outputs || []).find((o) => o.id === outId);
+    if (!out) return t("cvQTargetMissing");
+    if (outId.startsWith("cb:")) {
+      const blk = (topology?.cloudProviders || []).find((b) => b.id === String(out.providerId || outId.slice(3)));
+      if (blk?.unlisted) return t("cloudModelUnlisted");
+    }
+    return "";
+  };
+  const warnRow = (name, edge) => {
+    const issue = edge ? edgeTargetIssue(edge) : "";
+    return issue ? `<div class="cv-q-warn">⚠ ${name}: ${escapeHtml(issue)}</div>` : "";
+  };
   return `<div class="cv-q-body">`
     // routing first: main / overflow destinations (point 4 — above the live lists)
     + destRow("admit", admitLabel, !!admitEdge)
     + destRow("spill", spillLabel, !!spillEdge)
+    + warnRow("main", admitEdge)
+    + warnRow("overflow", spillEdge)
     + paramsGrid
     // live state below — wrapped in a stable container so syncQueueNodesLive() can
     // re-patch just this region every monitor tick (the rest of the card stays put).

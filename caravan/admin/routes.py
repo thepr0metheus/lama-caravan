@@ -1123,6 +1123,21 @@ def _post_api_cloud_accounts_oauth_start(h, parsed, body):
         h.send_json({"ok": True, **result})
         return
 
+@_route(GET_ROUTES, '/api/cloud-blocks/refs')
+def _get_api_cloud_blocks_refs(h, parsed):
+        from caravan.admin.proxies_config import cloud_block_refs
+        query = urllib.parse.parse_qs(parsed.query or "")
+        block_id = (query.get("id") or [""])[0].strip()
+        h.send_json({"ok": True, "refs": cloud_block_refs(block_id)})
+        return
+
+@_route(POST_ROUTES, '/api/cloud-api-health/retry')
+def _post_api_cloud_api_health_retry(h, parsed, body):
+        from caravan.admin import model_catalog
+        model_catalog.retry_endpoint(str(body.get("key") or ""))
+        h.send_json({"ok": True, "topology": topology_state(refresh_clients=False)})
+        return
+
 @_route(POST_ROUTES, '/api/cloud-blocks/save')
 def _post_api_cloud_blocks_save(h, parsed, body):
         block = upsert_cloud_block(body.get("block") or {})

@@ -16,6 +16,7 @@ from caravan.proxy.cloud_auth import (
     CLOUD_PROVIDER_AUTH,
     load_cloud_account,
     load_cloud_provider,
+    provider_secret_present,
     load_provider_secret,
 )
 from caravan.proxy.config import current_config, live_route_for_port
@@ -911,9 +912,17 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if str(route.get("upstreamType") or "llama") == "cloud":
                 # Bridge health is the port itself: cloud APIs have no /health,
                 # so forwarding answered 405 and painted the activity strip red
-                # every time an external consumer probed its endpoint.
-                body = json.dumps({"status": "ok"}).encode("utf-8")
-                self.send_response(200)
+                # every time an external consumer probed its endpoint. But "the
+                # port answers" must not mean "requests will work": a dangling
+                # providerId (model block deleted) or a missing credential fails
+                # every real call with "cloud provider not configured" — report
+                # that as degraded/503 instead of lying with ok.
+                provider = load_cloud_provider(route.get("providerId") or "")
+                reason = ("" if provider and provider_secret_present(provider)
+                          else ("no credentials for account" if provider else "cloud provider not configured"))
+                payload = {"status": "ok"} if not reason else {"status": "degraded", "reason": reason}
+                body = json.dumps(payload).encode("utf-8")
+                self.send_response(200 if not reason else 503)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
                 self.send_header("Connection", "close")

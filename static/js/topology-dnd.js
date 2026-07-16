@@ -273,12 +273,30 @@ export function bindTopologyDragAndDrop() {
   document.querySelector("[data-cloud-block-save]")?.addEventListener("click", () => {
     saveCloudBlock().catch((err) => toast(err.message));
   });
-  document.querySelector("[data-cloud-delete-block]")?.addEventListener("click", () => {
-    const model = topologyCloudBlockForm?.model || topologyCloudBlockForm?.blockName || topologyCloudBlockForm?.blockId || "this model block";
+  document.querySelector("[data-cloud-delete-block]")?.addEventListener("click", async () => {
+    const blockId = topologyCloudBlockForm?.blockId || "";
+    const model = topologyCloudBlockForm?.model || topologyCloudBlockForm?.blockName || blockId || "this model block";
+    // Preflight: list everything that references this block (bridges, queue
+    // roles, rules, cables) so "delete" stops being a silent wire-cutter.
+    const refLines = [];
+    try {
+      const res = await api(`/api/cloud-blocks/refs?id=${encodeURIComponent(blockId)}`);
+      const refs = res.refs || {};
+      (refs.bridges || []).forEach((b) => refLines.push(t("refBridge", { port: String(b.port) }) + (b.label ? ` · ${b.label}` : "")));
+      (refs.queueRoles || []).forEach((q) => refLines.push(t("refQueueRole", { role: q.role })));
+      (refs.rules || []).forEach((r) => refLines.push(t("refRule", { rule: r.rule })));
+      if ((refs.edges || []).length) refLines.push(t("refCables", { n: String(refs.edges.length) }));
+    } catch (_) { /* advisory only — deletion must not depend on the preflight */ }
+    const block = (topology?.cloudProviders || []).find((b) => b.id === blockId);
     $("confirmTitle").textContent = t("topologyCloudDeleteBlock");
     $("confirmText").textContent = t("removeCloudBlockText", { model });
-    $("confirmMeta").hidden = true;
-    $("confirmPath").textContent = "";
+    const metaLines = [];
+    if (block?.unlisted) metaLines.push(`⚠ ${t("cloudModelUnlisted")}`);
+    metaLines.push(refLines.length
+      ? `${t("refsUsedBy")}\n${refLines.map((l) => `• ${l}`).join("\n")}`
+      : t("refsNone"));
+    $("confirmPath").textContent = metaLines.join("\n");
+    $("confirmMeta").hidden = false;
     $("confirmDelete").textContent = t("topologyCloudDeleteBlock");
     $("confirmDelete").classList.add("danger");
     ui.pendingConfirm = () => { closeConfirmModal(); deleteCloudBlock().catch((err) => toast(err.message)); };
@@ -711,7 +729,9 @@ export function bindTopologyDragAndDrop() {
         closeConfirmModal();
         saveRouters((routers) => {
           const s = routerById(routers, routerId);
-          if (s) { s.rules = s.rules || {}; s.rules.default = outId; }
+          // An explicit pick also clears any stashed dormantDefault — the user
+          // decided, the old auto-stashed default must not come back on its own.
+          if (s) { s.rules = s.rules || {}; s.rules.default = outId; delete s.rules.dormantDefault; }
         }).catch((e) => toast(e.message));
       };
       $("confirmOverlay").hidden = false;

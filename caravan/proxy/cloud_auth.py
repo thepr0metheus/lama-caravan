@@ -122,6 +122,23 @@ def _refresh_oauth(provider, entry):
             _write_provider_secrets(parsed)
     return oauth.get("accessToken")
 
+def provider_secret_present(provider):
+    """Cheap presence check for /health: is ANY credential stored for the
+    provider's account? No refresh, no network — health must not mutate tokens."""
+    account_id = str((provider or {}).get("accountId") or "").strip()
+    if not account_id or not PROVIDER_SECRETS_FILE.exists():
+        return False
+    try:
+        parsed = json.loads(PROVIDER_SECRETS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    entry = parsed.get(account_id) if isinstance(parsed, dict) else None
+    if isinstance(entry, str):
+        return bool(entry)
+    if not isinstance(entry, dict):
+        return False
+    return bool(entry.get("apiKey") or (entry.get("oauth") or {}).get("accessToken"))
+
 def load_provider_secret(provider):
     """Return the auth header tuple (header_name, header_value) for an effective
     provider dict, or None if no usable credential."""

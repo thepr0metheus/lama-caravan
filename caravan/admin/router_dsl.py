@@ -85,7 +85,10 @@ def normalize_router(router):
         # checks them before the graph). Preserved only when they name a real output.
         "rules": {"default": default_out, "schedule": schedule, "bySource": by_source, "failover": failover,
                   **({"audioOutput": str(rules.get("audioOutput"))} if str(rules.get("audioOutput") or "") in out_ids else {}),
-                  **({"embeddingsOutput": str(rules.get("embeddingsOutput"))} if str(rules.get("embeddingsOutput") or "") in out_ids else {})},
+                  **({"embeddingsOutput": str(rules.get("embeddingsOutput"))} if str(rules.get("embeddingsOutput") or "") in out_ids else {}),
+                  # The default that pointed at a vanished output — stashed by
+                  # sync_router_outputs and restored by it when the output returns.
+                  **({"dormantDefault": str(rules.get("dormantDefault"))} if str(rules.get("dormantDefault") or "").strip() else {})},
         # Optional n8n-style routing graph (Stage B). Empty ⇒ legacy `rules` apply.
         "graph": normalize_router_graph(router.get("graph"), out_ids),
     }
@@ -106,11 +109,13 @@ def _valid_edge_ref(ref, node_ids, out_ids):
         return ref[5:] in node_ids
     if ref.startswith("out:"):
         out_id = ref[4:]
-        # srv:<port> outputs are port-keyed and stable — keep canvas edges even
-        # when the server is temporarily offline (slot deleted / restarting).
-        # The cable simply won't render until the output reappears, but the
-        # edge is preserved so connections auto-restore on next start.
-        if out_id.startswith("srv:"):
+        # srv:<port> / cb:<blockId> outputs are stable-keyed — keep canvas edges
+        # even when the target is temporarily gone (server offline / model block
+        # deleted). The cable simply won't render and the graph walker returns
+        # None for the missing output (→ legacy-rules fallback), but the edge —
+        # and any queue admit/spill role naming it — is preserved, so the wiring
+        # auto-restores the moment an output with the same id reappears.
+        if out_id.startswith("srv:") or out_id.startswith("cb:"):
             return True
         return out_id in out_ids
     return False

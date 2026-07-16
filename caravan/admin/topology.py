@@ -626,6 +626,16 @@ def topology_state(refresh_clients=True):
     except Exception:
         pass
     clients = topology_clients()
+    # Cloud state + catalog annotation: unlisted marks on blocks, background
+    # model-list refreshes, endpoint-health report. Annotation must never sink
+    # the board — degrade to plain state on any failure.
+    cloud_accounts = cloud_accounts_state()
+    cloud_blocks = cloud_blocks_state()
+    try:
+        from caravan.admin.cloud_api import annotate_cloud_topology
+        cloud_api_health = annotate_cloud_topology(cloud_accounts, cloud_blocks)
+    except Exception:
+        cloud_api_health = {"endpoints": {}, "codexClientVersion": {}}
     # Crash watchdog verdict (cached 60s inside): a fresh llama.cpp build plus
     # crashing cells → the board banner offers a consented rollback.
     from caravan.admin.status import llama_crash_suspect
@@ -655,8 +665,11 @@ def topology_state(refresh_clients=True):
         "clientAliases": store.get("clientAliases", {}),
         "layout": store.get("layout", {}),
         "openclawConfigs": openclaw_configs_snapshot(),
-        "cloudAccounts": cloud_accounts_state(),
-        "cloudProviders": cloud_blocks_state(),
+        "cloudAccounts": cloud_accounts,
+        "cloudProviders": cloud_blocks,
+        # Tripped upstream endpoints + effective codex client_version — the
+        # provider cards render this as the "API issues" panel.
+        "cloudApiHealth": cloud_api_health,
         "cloudProviderPresets": cloud_provider_presets_public(),
         "time": int(time.time()),
     }

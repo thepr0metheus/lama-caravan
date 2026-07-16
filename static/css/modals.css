@@ -2031,3 +2031,66 @@
 /* Script preview panel in the command-cell aside: scrollable read-only peek. */
 .script-preview { max-height: 300px; overflow: auto; white-space: pre; }
 .script-meta { font-size: 10px; color: var(--muted); word-break: break-all; margin-bottom: 4px; }
+
+/* Delete-block preflight: multi-line "used by" list in the confirm dialog. */
+#confirmPath { white-space: pre-line; }
+
+.cloud-bridge-row.unlisted .cloud-bridge-model { color: var(--bad); }
+
+/* Add-modal inline expose checkbox: sits in the grid like a field, not a label-stack. */
+.cloud-expose-line {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+/* "API issues" panel on provider cards: breaker-tripped endpoints + retry. */
+.cloud-api-issues {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid color-mix(in srgb, var(--bad) 35%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--bad) 7%, transparent);
+}
+
+.cloud-api-issues-title {
+  font-size: 10px;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--bad);
+  margin-bottom: 3px;
+}
+
+.cloud-api-issue {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+  padding: 1px 0;
+}
+
+.cloud-api-issue-name { font-family: ui-monospace, Menlo, monospace; }
+
+.cloud-api-issue-state { color: var(--muted); white-space: nowrap; }
+
+.cloud-api-issue.off .cloud-api-issue-state { color: var(--bad); }
+
+.cloud-api-issue-err {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.cloud-api-retry { margin-left: auto; flex-shrink: 0; font-size: 10px; padding: 1px 8px; }
+
+.cloud-api-version {
+  margin-top: 4px;
+  font-size: 10px;
+  font-family: ui-monospace, Menlo, monospace;
+  color: var(--muted);
+  opacity: .75;
+}

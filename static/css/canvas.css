@@ -1244,3 +1244,20 @@ select.cv-pin { width: 100%; }
 /* $in/$out per-1M tag on cloud output rows (kanban servers block + panel). */
 .router-out-price { margin-left: auto; font-size: 9px; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .router-out-price.free { color: #4ade80; font-weight: 600; }
+
+/* ── "provider no longer lists this model" marks + queue dead-target warns ── */
+.router-out-row.unlisted .router-out-name,
+.router-prov-model.unlisted .router-prov-model-name { color: var(--bad); }
+
+.router-out-unlisted-warn {
+  font-size: 10px;
+  color: var(--bad);
+  flex-shrink: 0;
+  cursor: help;
+}
+
+.cv-q-warn {
+  font-size: 9.5px;
+  color: var(--bad);
+  padding: 1px 6px 2px 24px;
+}

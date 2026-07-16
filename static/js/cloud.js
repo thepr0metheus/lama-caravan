@@ -50,6 +50,17 @@ function bindCloudCardDelegates(cpEl) {
     if (edit) { e.stopPropagation(); openCloudAccountModal(edit.dataset.cloudEditAccount); return; }
     const addBlock = e.target.closest("[data-cloud-add-block]");
     if (addBlock) { e.stopPropagation(); openCloudBlockModal(null, addBlock.dataset.cloudAddBlock); return; }
+    const retryBtn = e.target.closest("[data-api-retry]");
+    if (retryBtn) {
+      e.stopPropagation();
+      retryBtn.disabled = true;
+      try {
+        const res = await api("/api/cloud-api-health/retry", { method: "POST", body: JSON.stringify({ key: retryBtn.dataset.apiRetry }) });
+        if (res.topology) setTopology(res.topology);
+        renderTopology();
+      } catch (err) { toast(err.message); retryBtn.disabled = false; }
+      return;
+    }
     const fetchBtn = e.target.closest("[data-cloud-fetch-models]");
     if (fetchBtn) {
       e.stopPropagation();
@@ -130,9 +141,11 @@ export function renderTopologyCloudProviders() {
     .map((p) => `${p.port}:${p.providerId}`).join(",");
   // Fetched model lists drive the "not listed by provider" marks — arrival must re-render.
   const modelsKey = accounts.map((a) => `${a.id}:${(topologyCloudModelCache.get(a.id) || []).length}`).join("|");
+  // Endpoint-health panel (breaker trips / retries / codex version) re-renders too.
+  const healthKey = JSON.stringify(topology?.cloudApiHealth || {});
   // The mint button shows the next fleet-wide port — any cell/port change must re-render.
   const key = JSON.stringify(accounts) + JSON.stringify(blocks) + usageKeys + pricingKey
-    + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${nextTopologyCellPort()}:ml${modelsKey}`;
+    + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${nextTopologyCellPort()}:ml${modelsKey}:ah${healthKey}`;
   if (key === ui._lastCloudProvidersKey) return;
   ui._lastCloudProvidersKey = key;
   const addCloudBtn = `<button class="topology-add-wide-btn" type="button" data-topo-add-cloud>${escapeHtml(t("clAddProvider"))}</button>`;
@@ -144,10 +157,19 @@ export function renderTopologyCloudProviders() {
     return;
   }
   cpEl.innerHTML = accounts.map((acct) => {
+    // Expensive → cheap (price is what you scan this list for); unknown-price
+    // models sink to the bottom, name breaks ties.
+    const _rank = (m) => {
+      const p = modelPricing[m || ""];
+      return p ? [Number(p.inputPer1M) || 0, Number(p.outputPer1M) || 0] : [-1, -1];
+    };
     const acctBlocks = blocks
       .filter((b) => b.accountId === acct.id)
-      .sort((a, b) => String(b.model || b.name || b.id)
-        .localeCompare(String(a.model || a.name || a.id), undefined, { numeric: true, sensitivity: "base" }));
+      .sort((a, b) => {
+        const ra = _rank(a.model), rb = _rank(b.model);
+        return (rb[0] - ra[0]) || (rb[1] - ra[1])
+          || String(a.model || a.name || a.id).localeCompare(String(b.model || b.name || b.id), undefined, { numeric: true, sensitivity: "base" });
+      });
     const isSubscription = acct.accountType === "openai-subscription" || String(acct.baseUrl || "").includes("chatgpt.com");
     const credLine = acct.hasCredential
       ? (acct.credentialKind === "noKey"
@@ -158,15 +180,15 @@ export function renderTopologyCloudProviders() {
       : t("topologyCloudNeedsKey");
     const iconType = isSubscription ? "openai-subscription" : (acct.type || "");
     const meta = CLOUD_PICKER_META[iconType] || CLOUD_PICKER_META[acct.type || ""] || {};
-    // A non-empty fetched list is the provider's current truth: a block whose model
-    // fell out of it is retired upstream (empty list = fetch pending/failed → no marks).
+    // Server-annotated truth (topology.cloudProviders[].unlisted, backed by the
+    // 1h model-catalog cache); the page-load frontend cache doubles as fallback.
     const listedModels = topologyCloudModelCache.get(acct.id) || [];
     const blockRows = acctBlocks.map((b) => {
       const p = modelPricing[b.model || ""] || null;
       const pricingHtml = p
         ? `<span class="cloud-block-pricing">${formatPricePer1M(p.inputPer1M)} / ${formatPricePer1M(p.outputPer1M)} /1M</span>`
         : "";
-      const stale = listedModels.length > 0 && b.model && !listedModels.some((m) => m.id === b.model);
+      const stale = !!b.unlisted || (listedModels.length > 0 && b.model && !listedModels.some((m) => m.id === b.model));
       return `
       <div class="cloud-block-row${stale ? " stale" : ""}" data-cloud-block="${escapeHtml(b.id)}" role="button" tabindex="0" title="${escapeHtml(stale ? t("cloudModelUnlisted") : (b.model || b.id))}">
         <span class="cloud-block-model">${escapeHtml(b.model || "—")}</span>
@@ -191,6 +213,8 @@ export function renderTopologyCloudProviders() {
     // Local proxy spend-meter (our token counts × pricing) — for every cloud account.
     fetchProxySpend();
     usagePanel += proxySpendHtml(acct.id);
+    // Tripped upstream endpoints (breaker) + effective codex client_version.
+    usagePanel += cloudApiIssuesHtml(acct, isSubscription);
     // Bridge ports: OpenAI-compatible entry points for EXTERNAL consumers
     // (a voice app, an IDE plugin, …) pinned to one of this account's model blocks. Not agents:
     // kind="service" routes never join the kanban graph.
@@ -199,7 +223,8 @@ export function renderTopologyCloudProviders() {
       .filter((p) => p.kind === "service" && blockById.has(p.providerId))
       .sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
     const bridgeRows = bridges.map((p) => {
-      const model = blockById.get(p.providerId)?.model || p.providerId;
+      const blk = blockById.get(p.providerId);
+      const model = blk?.model || p.providerId;
       const url = `http://${location.hostname}:${p.port}`;
       const mp = modelPricing[model];
       const priceHtml = String(model).endsWith(":free")
@@ -207,9 +232,9 @@ export function renderTopologyCloudProviders() {
         : (mp && (mp.inputPer1M || mp.outputPer1M))
           ? `<span class="cloud-bridge-price">${formatPricePer1M(mp.inputPer1M)}/${formatPricePer1M(mp.outputPer1M)}</span>`
           : "";
-      return `<div class="cloud-bridge-row">
+      return `<div class="cloud-bridge-row${blk?.unlisted ? " unlisted" : ""}">
         <code class="cloud-bridge-port">:${escapeHtml(String(p.port))}</code>
-        <span class="cloud-bridge-model" title="${escapeHtml(`${p.label || ""} → ${model}`)}">→ ${escapeHtml(model)}</span>
+        <span class="cloud-bridge-model" title="${escapeHtml(blk?.unlisted ? t("cloudModelUnlisted") : `${p.label || ""} → ${model}`)}">→ ${escapeHtml(model)}${blk?.unlisted ? " ⚠" : ""}</span>
         ${priceHtml}
         <button class="icon-action compact" type="button" data-bridge-copy="${escapeHtml(url)}" title="${escapeHtml(t("cloudBridgeCopy"))}">⧉</button>
         <button class="icon-action compact" type="button" data-bridge-delete="${escapeHtml(String(p.port))}" title="${escapeHtml(t("cloudBridgeDelete"))}">✕</button>
@@ -224,10 +249,10 @@ export function renderTopologyCloudProviders() {
       .map((b) => {
         const model = b.model || b.name || b.id;
         const mp = modelPricing[b.model || ""];
-        const suffix = String(b.model || "").endsWith(":free") ? " · FREE"
+        const suffix = (String(b.model || "").endsWith(":free") ? " · FREE"
           : (mp && (mp.inputPer1M || mp.outputPer1M))
             ? ` · ${formatPricePer1M(mp.inputPer1M)}/${formatPricePer1M(mp.outputPer1M)}`
-            : "";
+            : "") + (b.unlisted ? " ⚠" : "");
         return `<option value="${escapeHtml(b.id)}"${b.id === chosenBlock ? " selected" : ""}>${escapeHtml(model + suffix)}</option>`;
       }).join("");
     // Same ghost styling and "next free port" promise as the Reserve-cell
@@ -269,6 +294,38 @@ export function renderTopologyCloudProviders() {
       </article>
     `;
   }).join("") + addCloudBtn;
+}
+
+// "API issues" panel: endpoints the breaker tripped (we stopped calling them —
+// the list is the user's cue to fix or retry), plus, on the subscription card,
+// the effective codex client_version we send to chatgpt.com and where it came
+// from (env override / npm latest / built-in floor).
+function cloudApiIssuesHtml(acct, isSubscription) {
+  const health = topology?.cloudApiHealth || {};
+  const eps = health.endpoints || {};
+  const mine = Object.entries(eps)
+    .filter(([key]) => key.startsWith(`${acct.id}:`) || (isSubscription && key === "global:codex-npm"));
+  let html = "";
+  if (mine.length) {
+    const rows = mine.map(([key, st]) => {
+      const what = key.split(":").pop();
+      const state = st.disabled
+        ? t("cloudApiIssueOff", { n: String(st.failCount || 0) })
+        : t("cloudApiIssueFails", { n: String(st.failCount || 0) });
+      const when = st.lastErrorAt ? new Date(st.lastErrorAt * 1000).toLocaleString() : "";
+      return `<div class="cloud-api-issue${st.disabled ? " off" : ""}">
+        <span class="cloud-api-issue-name">${escapeHtml(what)}</span>
+        <span class="cloud-api-issue-state">${escapeHtml(state)}</span>
+        <span class="cloud-api-issue-err" title="${escapeHtml(st.lastError || "")}">${escapeHtml((st.lastError || "").slice(0, 70))}${when ? ` · ${escapeHtml(when)}` : ""}</span>
+        <button class="ghost-action cloud-api-retry" type="button" data-api-retry="${escapeHtml(key)}">${escapeHtml(t("cloudApiIssueRetry"))}</button>
+      </div>`;
+    }).join("");
+    html += `<div class="cloud-api-issues"><div class="cloud-api-issues-title">⚠ ${escapeHtml(t("cloudApiIssuesTitle"))}</div>${rows}</div>`;
+  }
+  if (isSubscription && health.codexClientVersion?.value) {
+    html += `<div class="cloud-api-version" title="${escapeHtml(t("cloudApiVersionHint"))}">codex client_version: ${escapeHtml(health.codexClientVersion.value)} · ${escapeHtml(health.codexClientVersion.source || "")}</div>`;
+  }
+  return html;
 }
 
 export function topologyCloudPresetByType(type) {
@@ -340,6 +397,7 @@ export function openCloudBlockModal(blockId, accountId) {
     accountId: block?.accountId || accountId || "",
     blockName: block?.name || "",
     model: block?.model || "",
+    origModel: block?.model || "",   // to warn when an EDIT rewires the block to another model
     modelMode: block?.modelMode || "rewrite",
   };
   topologyCloudBlockModalOpen = true;
@@ -542,13 +600,18 @@ export function renderTopologyCloudBlockModal() {
   const title = f.isNew ? t("topologyCloudBlockModalTitleNew") : t("topologyCloudBlockModalTitleEdit");
   // The live endpoint list can lag (chatgpt.com gates models by the pinned
   // client_version) — union it with the models the account's blocks already use,
-  // plus the block's current value, so anything known is always pickable.
+  // plus the block's current value, so anything known is always pickable. Models
+  // that are NOT in the fetched list get a ⚠ suffix (provider no longer serves).
+  const fetched = topologyCloudModelCache.get(f.accountId) || [];
+  const fetchedIds = new Set(fetched.map((m) => m.id));
   const modelById = new Map();
-  (topologyCloudModelCache.get(f.accountId) || []).forEach((m) => { if (m.id) modelById.set(m.id, m); });
+  fetched.forEach((m) => { if (m.id) modelById.set(m.id, m); });
   (topology?.cloudProviders || []).filter((b) => b.accountId === f.accountId && b.model)
     .forEach((b) => { if (!modelById.has(b.model)) modelById.set(b.model, { id: b.model, name: b.model }); });
   if (f.model && !modelById.has(f.model)) modelById.set(f.model, { id: f.model, name: f.model });
-  const models = [...modelById.values()];
+  const models = [...modelById.values()].map((m) => (fetchedIds.size && !fetchedIds.has(m.id)
+    ? { ...m, name: `${m.name || m.id} ⚠` }
+    : m));
   return `
     <div class="topology-policy-overlay" data-topology-cloud-block-overlay>
       <div class="topology-policy-modal cloud-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
@@ -569,6 +632,9 @@ export function renderTopologyCloudBlockModal() {
             <option value="rewrite"${(f.modelMode || "rewrite") !== "passthrough" ? " selected" : ""}>${escapeHtml(t("topologyCloudModelRewrite"))}</option>
             <option value="passthrough"${(f.modelMode || "rewrite") === "passthrough" ? " selected" : ""}>${escapeHtml(t("topologyCloudModelPassthrough"))}</option>
           </select></label>
+          ${f.isNew
+            ? `<label class="cloud-expose-line"><input type="checkbox" data-block-field-expose checked> ${escapeHtml(t("topologyCloudExposeNew"))}</label>`
+            : `<label>${escapeHtml(t("topologyCloudBlockId"))}<input type="text" value="${escapeHtml(f.blockId)}" disabled title="${escapeHtml(t("topologyCloudBlockIdHint"))}"></label>`}
         </div>
         <div class="topology-priority-actions cloud-actions">
           ${!f.isNew ? `<button class="ghost-action danger" type="button" data-cloud-delete-block>${escapeHtml(t("topologyCloudDeleteBlock"))}</button>` : ""}
@@ -661,7 +727,18 @@ export async function saveCloudBlock() {
   if (customModel) f.model = customModel;
   const modeEl = document.querySelector('[data-block-field="modelMode"]');
   if (modeEl && modeEl.value) f.modelMode = modeEl.value;
+  const exposeNew = !!document.querySelector("[data-block-field-expose]")?.checked;
   if (!f.model) { toast("Pick a model first"); return; }
+  // Editing an existing block to another model keeps its id (and every cb:<id>
+  // reference) but silently rewires them — exactly how terra once became a
+  // second sol. Make that an explicit decision.
+  if (!f.isNew && f.origModel && f.model !== f.origModel) {
+    if (!(await appConfirm(t("topologyCloudModelChangeWarn", { id: f.blockId, from: f.origModel, to: f.model })))) return;
+  }
+  // A second block for the same model is almost always a mis-click, not intent.
+  if (f.isNew && (topology?.cloudProviders || []).some((b) => b.accountId === f.accountId && b.model === f.model)) {
+    if (!(await appConfirm(t("topologyCloudDupBlockWarn", { model: f.model })))) return;
+  }
   topologyCloudBusy = true;
   renderTopology();
   try {
@@ -670,7 +747,8 @@ export async function saveCloudBlock() {
       : f.blockId;
     const blockRes = await api("/api/cloud-blocks/save", {
       method: "POST",
-      body: JSON.stringify({ block: { id: blockId, accountId: f.accountId, name: f.model || blockId, model: f.model, modelMode: f.modelMode || "rewrite" } }),
+      body: JSON.stringify({ block: { id: blockId, accountId: f.accountId, name: f.model || blockId, model: f.model, modelMode: f.modelMode || "rewrite",
+        ...(f.isNew ? { exposed: exposeNew } : {}) } }),
     });
     if (blockRes.topology) setTopology(blockRes.topology);
     toast(t("topologyCloudSaved"));

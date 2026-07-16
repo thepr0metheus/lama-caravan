@@ -72,13 +72,40 @@ export function topologyRouterOutputLabel(out) {
 // and look it up in the pricing map (LiteLLM + manual overrides). ":free"
 // OpenRouter models get a FREE chip instead of $0/$0.
 function _outPriceTag(out) {
-  const block = (topology?.cloudProviders || []).find((b) => b.id === out.providerId);
+  const block = _blockForOut(out);
   const model = block?.model || "";
   if (!model) return "";
   if (model.endsWith(":free")) return `<span class="router-out-price free">FREE</span>`;
   const mp = modelPricing[model];
   if (!mp || (!mp.inputPer1M && !mp.outputPer1M)) return "";
   return `<span class="router-out-price">${formatPricePer1M(mp.inputPer1M)}/${formatPricePer1M(mp.outputPer1M)}</span>`;
+}
+
+function _blockForOut(out) {
+  return (topology?.cloudProviders || []).find((b) => b.id === String(out?.providerId || "")) || null;
+}
+
+// ⚠ mark for a block whose model the provider no longer lists (server-annotated).
+function _unlistedTag(block) {
+  return block?.unlisted
+    ? `<span class="router-out-unlisted-warn" title="${escapeHtml(t("cloudModelUnlisted"))}">⚠</span>`
+    : "";
+}
+
+// Cloud model lists sort expensive→cheap (price = the interesting attribute);
+// unknown-price models sink to the bottom, name breaks ties.
+function _priceRank(model) {
+  const mp = modelPricing[model || ""];
+  return mp ? [Number(mp.inputPer1M) || 0, Number(mp.outputPer1M) || 0] : [-1, -1];
+}
+
+function _byPriceDesc(modelOf) {
+  return (a, b) => {
+    const ra = _priceRank(modelOf(a));
+    const rb = _priceRank(modelOf(b));
+    return (rb[0] - ra[0]) || (rb[1] - ra[1])
+      || String(modelOf(a) || "").localeCompare(String(modelOf(b) || ""));
+  };
 }
 
 export function renderTopologyRouterCard(router) {
@@ -170,13 +197,15 @@ export function renderRouterOutputsPanel(router) {
   const outputRow = (out, extraCls) => {
     const isDef = out.id === defaultId;
     const isCloud = String(out.upstreamType || "") === "cloud";
+    const blk = isCloud ? _blockForOut(out) : null;
     const priceHtml = isCloud ? _outPriceTag(out) : "";
     const badge = isDef ? `<span class="router-out-badge">★ default</span>` : "";
-    return `<label class="router-out-row ${isDef ? "is-default" : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}">
+    return `<label class="router-out-row ${isDef ? "is-default" : ""}${blk?.unlisted ? " unlisted" : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}">
       <span class="router-out-handle" data-cv-node="out:${escapeHtml(out.id)}" data-cv-panel-out="out:${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleDragCable"))}"></span>
       <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
       ${isCloud ? "" : liveDot(out)}
       <span class="router-out-name">${escapeHtml(topologyRouterOutputLabel(out))}</span>
+      ${_unlistedTag(blk)}
       ${badge}
       ${priceHtml}
     </label>`;
@@ -224,24 +253,25 @@ export function renderRouterOutputsPanel(router) {
     </button>`;
     const checklist = expanded
       ? (accBlocks.length
-          ? `<div class="router-prov-models">` + accBlocks.slice().sort((a, b) => (b.exposed ? 1 : 0) - (a.exposed ? 1 : 0) || (a.model || a.id || "").localeCompare(b.model || b.id || "")).map((b) => {
+          ? `<div class="router-prov-models">` + accBlocks.slice().sort((a, b) => (b.exposed ? 1 : 0) - (a.exposed ? 1 : 0) || _byPriceDesc((x) => x.model)(a, b)).map((b) => {
               const mp = modelPricing[b.model || ""] || null;
               const priceHtml = mp
                 ? `<span class="router-prov-model-price">${formatPricePer1M(mp.inputPer1M)} in / ${formatPricePer1M(mp.outputPer1M)} out /1M</span>`
                 : "";
-              return `<label class="router-prov-model" title="${escapeHtml(b.model || b.name || b.id)}">
+              return `<label class="router-prov-model${b.unlisted ? " unlisted" : ""}" title="${escapeHtml(b.unlisted ? t("cloudModelUnlisted") : (b.model || b.name || b.id))}">
                 <input type="checkbox" data-router-expose="${escapeHtml(b.id)}" ${b.exposed ? "checked" : ""}>
                 <div class="router-prov-model-info">
                   <span class="router-prov-model-name">${escapeHtml(b.model || b.name || b.id)}</span>
                   ${priceHtml}
                 </div>
+                ${_unlistedTag(b)}
                 ${aaBadgeHtml(b.model)}
               </label>`;
             }).join("")
             + `</div>`
           : `<div class="router-cfg-muted router-prov-empty">${escapeHtml(t("rtNoModelsYet"))}</div>`)
       : "";
-    const rows = exposedOuts.map((o) => outputRow(o, "cloud")).join("");
+    const rows = exposedOuts.slice().sort(_byPriceDesc((o) => _blockForOut(o)?.model)).map((o) => outputRow(o, "cloud")).join("");
     return `<div class="router-prov ${expanded ? "open" : ""}">${header}${checklist}${rows}</div>`;
   }).join("") || `<div class="router-cfg-muted">${t("rtNoCloudProviders")}</div>`;
 
@@ -274,12 +304,14 @@ export function renderServersBlockHtml(router) {
   const outputRow = (out, extraCls) => {
     const isDef = out.id === defaultId;
     const isCloud = String(out.upstreamType || "") === "cloud";
+    const blk = isCloud ? _blockForOut(out) : null;
     const priceHtml = isCloud ? _outPriceTag(out) : "";
     const badge = isDef ? `<span class="router-out-badge">default</span>` : "";
-    return `<label class="router-out-row ${isDef ? "is-default" : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}">
+    return `<label class="router-out-row ${isDef ? "is-default" : ""}${blk?.unlisted ? " unlisted" : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}">
       <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
       ${isCloud ? "" : liveDot(out)}
       <span class="router-out-name">${escapeHtml(topologyRouterOutputLabel(out))}</span>
+      ${_unlistedTag(blk)}
       ${badge}
       ${priceHtml}
     </label>`;
@@ -335,7 +367,7 @@ export function renderServersBlockHtml(router) {
       </button>
       <button class="router-group-fold" type="button" data-router-group-fold="${escapeHtml(foldKey)}" title="${escapeHtml(folded ? t("expand") : t("collapse"))}">${folded ? "▸" : "▾"}</button>
     </div>`;
-    const sortedBlocks = accBlocks.slice().sort((a, b) => (b.exposed ? 1 : 0) - (a.exposed ? 1 : 0) || (a.model || a.id || "").localeCompare(b.model || b.id || ""));
+    const sortedBlocks = accBlocks.slice().sort((a, b) => (b.exposed ? 1 : 0) - (a.exposed ? 1 : 0) || _byPriceDesc((x) => x.model)(a, b));
     if (expanded) sortedBlocks.forEach((b) => { if (b.model) _aaWant.push(b.model); });
     const checklist = expanded
       ? (accBlocks.length
@@ -345,18 +377,19 @@ export function renderServersBlockHtml(router) {
               const priceHtml = isFree
                 ? `<span class="router-prov-model-free">FREE</span>`
                 : (mp ? `<span class="router-prov-model-price">${formatPricePer1M(mp.inputPer1M)} in / ${formatPricePer1M(mp.outputPer1M)} out /1M</span>` : "");
-              return `<label class="router-prov-model${isFree ? " is-free" : ""}">
+              return `<label class="router-prov-model${isFree ? " is-free" : ""}${b.unlisted ? " unlisted" : ""}"${b.unlisted ? ` title="${escapeHtml(t("cloudModelUnlisted"))}"` : ""}>
                 <input type="checkbox" data-router-expose="${escapeHtml(b.id)}" ${b.exposed ? "checked" : ""}>
                 <div class="router-prov-model-info">
                   <span class="router-prov-model-name">${escapeHtml(b.model || b.name || b.id)}</span>
                   ${priceHtml}
                 </div>
+                ${_unlistedTag(b)}
                 ${aaBadgeHtml(b.model)}
               </label>`;
             }).join("") + `</div>`
           : `<div class="router-cfg-muted router-prov-empty">${escapeHtml(t("rtNoModelsYet"))}</div>`)
       : "";
-    const rows = folded ? "" : exposedOuts.map((o) => outputRow(o, "cloud")).join("");
+    const rows = folded ? "" : exposedOuts.slice().sort(_byPriceDesc((o) => _blockForOut(o)?.model)).map((o) => outputRow(o, "cloud")).join("");
     return `<div class="router-prov ${expanded ? "open" : ""}${folded ? " folded" : ""}" data-cv-group-outs="${escapeHtml(exposedOuts.map((o) => o.id).join(","))}">${header}${folded ? "" : checklist}${rows}</div>`;
   }).join("") || `<div class="router-cfg-muted router-prov-empty">${t("rtNoCloudProviders")}</div>`;
   requestAaScores(_aaWant);

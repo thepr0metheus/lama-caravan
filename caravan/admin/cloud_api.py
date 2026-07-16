@@ -17,6 +17,7 @@ from caravan.admin.cloud import (
     save_cloud_data,
     save_provider_secrets,
 )
+from caravan.admin import model_catalog
 from caravan.admin.oauth import refresh_oauth_token
 from caravan.admin.paths import AGENT_PROXY_LOG_DIR
 from caravan.admin.pricing import fetch_model_pricing
@@ -79,13 +80,18 @@ def fetch_account_models(account_id):
     headers = account_auth_headers(account, secret)
     url = account["baseUrl"].rstrip("/") + test_path
     req = urllib.request.Request(url, headers={**headers, "Accept": "application/json"}, method="GET")
-    try:
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        raise AppError(f"HTTP {e.code}: {e.read().decode()[:200]}", 502)
-    except Exception as e:
-        raise AppError(f"failed to fetch models: {e}", 502)
+
+    def _do():
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            raise AppError(f"HTTP {e.code}: {e.read().decode()[:200]}", 502)
+        except AppError:
+            raise
+        except Exception as e:
+            raise AppError(f"failed to fetch models: {e}", 502)
+    data = model_catalog.guarded_call(f"{account_id}:models", _do)
     # OpenAI format: {"data": [...]} · Ollama native format: {"models": [...]}
     items = (data.get("data") or data.get("models") or []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
     models = []
@@ -117,6 +123,14 @@ def fetch_account_costs(account_id, days=30):
     start = int(time.time()) - int(days) * 86400
     url = f"{base}/organization/costs?start_time={start}&bucket_width=1d&limit={int(days) + 1}"
     req = urllib.request.Request(url, headers=headers, method="GET")
+    # Breaker covers HARD failures only (timeouts, DNS, 5xx-as-exception). A
+    # 401/403 is the provider answering — that's a scope problem the panel
+    # explains, not a broken endpoint to stop calling.
+    ep_key = f"{account_id}:costs"
+    if model_catalog.endpoint_blocked(ep_key):
+        st = model_catalog.endpoint_state(ep_key)
+        return {"ok": False, "disabled": True,
+                "error": f"disabled after {st.get('failCount', 0)} failures: {st.get('lastError', '')[:120]}"}
     try:
         with urllib.request.urlopen(req, timeout=12) as r:
             data = json.loads(r.read().decode())
@@ -126,9 +140,12 @@ def fetch_account_costs(account_id, days=30):
             return {"ok": False, "error": "needs an API key with the api.usage.read scope (Admin key or a key granted Usage read)"}
         if e.code in (401, 403):
             return {"ok": False, "error": f"not permitted ({e.code})"}
+        model_catalog.record_fail(ep_key, f"HTTP {e.code}")
         return {"ok": False, "error": f"HTTP {e.code}"}
     except Exception as e:
+        model_catalog.record_fail(ep_key, str(e))
         return {"ok": False, "error": str(e)}
+    model_catalog.record_ok(ep_key)
     total = 0.0
     currency = "usd"
     series = []
@@ -152,15 +169,23 @@ def fetch_openrouter_limits(account_id):
     url = f"{base}/auth/key"
     headers = {**account_auth_headers(account, account_secret_entry(account_id)), "Accept": "application/json"}
     req = urllib.request.Request(url, headers=headers, method="GET")
+    ep_key = f"{account_id}:limits"
+    if model_catalog.endpoint_blocked(ep_key):
+        st = model_catalog.endpoint_state(ep_key)
+        return {"ok": False, "disabled": True,
+                "error": f"disabled after {st.get('failCount', 0)} failures: {st.get('lastError', '')[:120]}"}
     try:
         with urllib.request.urlopen(req, timeout=10) as r:
             data = json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
         if e.code in (401, 403):
             return {"ok": False, "authError": True, "error": "key invalid or revoked"}
+        model_catalog.record_fail(ep_key, f"HTTP {e.code}")
         return {"ok": False, "error": f"HTTP {e.code}"}
     except Exception as e:
+        model_catalog.record_fail(ep_key, str(e))
         return {"ok": False, "error": str(e)}
+    model_catalog.record_ok(ep_key)
     kd = data.get("data") or {}
     rl = kd.get("rate_limit") or {}
     return {
@@ -362,12 +387,14 @@ def fetch_subscription_models(account_id):
     if not account:
         raise AppError("unknown account", 404)
     token, account_id_header = _subscription_auth_headers(account)
+    # chatgpt.com gates the list by client_version (a codex-CLI version string) and
+    # gating may reference versions ABOVE the published CLI — the effective version
+    # is env override → max(npm latest, floor); see model_catalog. Retired models
+    # (gpt-5.2, gpt-5.3-codex) are absent at EVERY version — the UI paints blocks
+    # whose model left this list as "not listed by provider".
+    version, _src = model_catalog.effective_codex_client_version()
     req = urllib.request.Request(
-        # chatgpt.com gates the list by client_version (a codex-CLI version string):
-        # 0.132.0 hides the 5.6 family, 0.150.0+ includes it. Retired models
-        # (gpt-5.2, gpt-5.3-codex) are absent at EVERY version — the UI paints
-        # blocks whose model left this list as "not listed by provider".
-        "https://chatgpt.com/backend-api/codex/models?client_version=0.160.0",
+        f"https://chatgpt.com/backend-api/codex/models?client_version={urllib.parse.quote(version)}",
         headers={
             "Authorization": f"Bearer {token}",
             "chatgpt-account-id": account_id_header,
@@ -375,13 +402,18 @@ def fetch_subscription_models(account_id):
         },
         method="GET",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=15) as r:
-            data = json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        raise AppError(f"chatgpt.com returned {e.code}: {e.read().decode()[:200]}", 502)
-    except Exception as e:
-        raise AppError(f"failed to fetch models: {e}", 502)
+
+    def _do():
+        try:
+            with urllib.request.urlopen(req, timeout=15) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            raise AppError(f"chatgpt.com returned {e.code}: {e.read().decode()[:200]}", 502)
+        except AppError:
+            raise
+        except Exception as e:
+            raise AppError(f"failed to fetch models: {e}", 502)
+    data = model_catalog.guarded_call(f"{account_id}:models", _do)
     models = [
         {"id": m["slug"], "name": m.get("display_name") or m["slug"]}
         for m in data.get("models", [])
@@ -389,15 +421,28 @@ def fetch_subscription_models(account_id):
     ]
     return models
 
+# Model ids that make no sense as chat routing targets: TTS/STT, embeddings,
+# moderation, image/video/audio generators, legacy completion bases. Matched as
+# a delimited token so chat models like "...-instruct" or "chat-latest" pass.
+NON_CHAT_MODEL_RE = re.compile(
+    r"(?:^|[-/_.:])(tts|whisper|embed|embedding|embeddings|moderation|dall-e|dalle|sora|image"
+    r"|audio|transcribe|realtime|search|babbage|davinci|computer-use)(?:$|[-/_.:0-9])", re.I)
+
+
 def auto_create_blocks(account_id):
-    """Fetch all models for an account and create a block for each missing one."""
+    """Fetch all models for an account and create a block for each missing one.
+    Non-chat models (TTS, embeddings, moderation, image/video…) are skipped —
+    they'd only clutter the routing lists; add one by hand if you need it."""
     account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == str(account_id or "")), None)
     if not account:
         raise AppError("unknown account", 404)
     is_subscription = (account.get("accountType") or "") == "openai-subscription"
     models = fetch_subscription_models(account_id) if is_subscription else fetch_account_models(account_id)
+    model_catalog.store_models(account_id, models)   # "Fetch models" refreshes the catalog too
+    skipped = sum(1 for m in models if NON_CHAT_MODEL_RE.search(str(m.get("id") or "")))
+    models = [m for m in models if not NON_CHAT_MODEL_RE.search(str(m.get("id") or ""))]
     if not models:
-        return {"created": 0, "total": 0}
+        return {"created": 0, "total": 0, "skipped": skipped}
     data = load_cloud_data()
     existing_ids = {b["id"] for b in data["blocks"]}
     existing_models = {b["model"] for b in data["blocks"] if b.get("accountId") == account_id}
@@ -415,7 +460,43 @@ def auto_create_blocks(account_id):
         created += 1
     if created:
         save_cloud_data(data)
-    return {"created": created, "total": len(models)}
+    return {"created": created, "total": len(models), "skipped": skipped}
+
+
+def refresh_account_models_cache(account_id, account=None):
+    """Blocking model-list refresh into the catalog (breaker-guarded inside the
+    fetchers). Used by the background refresher; raises on failure."""
+    account = account or next((a for a in load_cloud_data()["accounts"] if a.get("id") == str(account_id or "")), None)
+    if not account:
+        raise AppError("unknown account", 404)
+    is_subscription = ((account.get("accountType") or "") == "openai-subscription"
+                       or "chatgpt.com" in str(account.get("baseUrl") or ""))
+    models = fetch_subscription_models(account_id) if is_subscription else fetch_account_models(account_id)
+    return models
+
+
+def annotate_cloud_topology(accounts_state, blocks_state):
+    """Topology glue: mark blocks whose model the provider no longer lists
+    (`unlisted: true`, only when a fetched list exists — no list, no verdict),
+    kick stale per-account refreshes in the background, and return the
+    cloudApiHealth panel payload (tripped endpoints + effective codex version)."""
+    creds_by_id = {a.get("id"): bool(a.get("hasCredential")) for a in (accounts_state or [])}
+    for account in (accounts_state or []):
+        acc_id = account.get("id")
+        if not acc_id or not creds_by_id.get(acc_id):
+            continue
+        if model_catalog.models_stale(acc_id) and not model_catalog.endpoint_blocked(f"{acc_id}:models"):
+            model_catalog.kick_refresh(acc_id, lambda aid=acc_id: refresh_account_models_cache(aid))
+    for block in (blocks_state or []):
+        ids = model_catalog.cached_model_ids(block.get("accountId"))
+        if ids is not None and block.get("model") and block["model"] not in ids:
+            block["unlisted"] = True
+    version, source = model_catalog.effective_codex_client_version()
+    return {
+        "endpoints": model_catalog.endpoints_report(),
+        "codexClientVersion": {"value": version, "source": source},
+    }
+
 
 def _subscription_auth_headers(account):
     """Return (token, account_id_header) for a subscription account, refreshing if needed."""
@@ -478,16 +559,21 @@ def fetch_subscription_usage(account_id):
     # (codex/usage, agentic_usage) never answered and only produced extra
     # 404 probes at chatgpt.com whenever wham hiccuped — dropped.
     url = "https://chatgpt.com/backend-api/wham/usage"
-    try:
-        req = urllib.request.Request(url, headers=base_headers, method="GET")
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read().decode())
-    except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
-            raise AppError(f"auth error: {e.code}", 401)
-        raise AppError(f"usage endpoint: HTTP {e.code}", 502)
-    except Exception as e:
-        raise AppError(f"usage endpoint: {e}", 502)
+
+    def _do():
+        try:
+            req = urllib.request.Request(url, headers=base_headers, method="GET")
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return json.loads(r.read().decode())
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                raise AppError(f"auth error: {e.code}", 401)
+            raise AppError(f"usage endpoint: HTTP {e.code}", 502)
+        except AppError:
+            raise
+        except Exception as e:
+            raise AppError(f"usage endpoint: {e}", 502)
+    data = model_catalog.guarded_call(f"{account_id}:usage", _do)
     return _normalize_subscription_usage(data)
 
 def _normalize_subscription_usage(data):

@@ -256,8 +256,20 @@ def sync_router_outputs(routers, server_obj, cloud_accounts=None, cloud_blocks=N
             changed = True
         ids = {o["id"] for o in desired}
         rules = router.setdefault("rules", {})
+        # A previously stashed default whose output came back wins the slot again
+        # (an explicit user default-pick clears the stash on the frontend).
+        dormant = str(rules.get("dormantDefault") or "")
+        if dormant and dormant in ids:
+            rules["default"] = dormant
+            rules.pop("dormantDefault", None)
+            changed = True
         # Default prefers a local server (cloud is overflow, not the primary).
         if rules.get("default") not in ids:
+            old_default = str(rules.get("default") or "")
+            # Stash a stable-keyed default (srv:/cb:) so it survives the rewrite
+            # and auto-restores when its output reappears.
+            if old_default.startswith(("srv:", "cb:")) and not rules.get("dormantDefault"):
+                rules["dormantDefault"] = old_default
             local_ids = [o["id"] for o in desired if o["upstreamType"] != "cloud"]
             rules["default"] = (local_ids or [o["id"] for o in desired] or [""])[0]
             changed = True
@@ -296,6 +308,47 @@ def normalize_routers(raw, routes):
     for router in ordered:
         router["inputs"] = inputs_by_router.get(router["id"], [])
     return ordered
+
+def cloud_block_refs(block_id):
+    """Everything that references a cloud model-block — the delete-confirm
+    preflight. Covers bridge routes (providerId), graph cables (out:cb:<id>),
+    queue-node roles whose edge lands on the block, and legacy rules."""
+    block_id = str(block_id or "").strip()
+    out_ref = f"cb:{block_id}"
+    edge_ref = f"out:{out_ref}"
+    cfg = load_agent_proxy_config()
+    bridges = [{"port": r.get("port"), "label": r.get("label") or ""}
+               for r in (cfg.get("routes") or [])
+               if r.get("kind") == "service" and str(r.get("providerId") or "") == block_id]
+    edges, queue_roles, rule_hits = [], [], []
+    for router in (cfg.get("routers") or []):
+        rid = router.get("id")
+        graph = router.get("graph") or {}
+        hit_edges = [e for e in (graph.get("edges") or [])
+                     if str(e.get("to") or "") == edge_ref or str(e.get("from") or "") == edge_ref]
+        hit_ids = {str(e.get("id")) for e in hit_edges}
+        for e in hit_edges:
+            edges.append({"router": rid, "id": e.get("id"), "from": e.get("from"), "to": e.get("to")})
+        for n in (graph.get("nodes") or []):
+            if n.get("type") != "queue":
+                continue
+            cfg_n = n.get("config") or {}
+            for role in ("admitEdge", "spillEdge"):
+                if str(cfg_n.get(role) or "") in hit_ids:
+                    queue_roles.append({"router": rid, "node": n.get("id"),
+                                        "role": "admit" if role == "admitEdge" else "spill"})
+        rules = router.get("rules") or {}
+        if str(rules.get("default") or "") == out_ref:
+            rule_hits.append({"router": rid, "rule": "default"})
+        for kind in ("schedule", "bySource"):
+            if any(str((r or {}).get("output") or "") == out_ref for r in (rules.get(kind) or [])):
+                rule_hits.append({"router": rid, "rule": kind})
+        if out_ref in (rules.get("failover") or []):
+            rule_hits.append({"router": rid, "rule": "failover"})
+        for kind in ("audioOutput", "embeddingsOutput"):
+            if str(rules.get(kind) or "") == out_ref:
+                rule_hits.append({"router": rid, "rule": kind})
+    return {"bridges": bridges, "edges": edges, "queueRoles": queue_roles, "rules": rule_hits}
 
 def save_agent_proxy_config(routes, routers=None):
     cleaned = []
