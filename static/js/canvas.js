@@ -1155,10 +1155,35 @@ export function rewireGraphEdge(fromRef, oldTo, newTo) {
     const oldEdge = (s.graph.edges || []).find((e) => e.from === fromRef && e.to === oldTo);
     const inherited = oldEdge?.schedPortId ? { schedPortId: oldEdge.schedPortId } : {};
     s.graph.edges = (s.graph.edges || []).filter((e) => !(e.from === fromRef && e.to === oldTo));
-    if (fromRef !== newTo && !s.graph.edges.some((e) => e.from === fromRef && e.to === newTo)) {
-      s.graph.edges.push({ id: _newId("e"), from: fromRef, to: newTo, ...inherited });
+    let edge = null;
+    if (fromRef !== newTo) {
+      edge = s.graph.edges.find((e) => e.from === fromRef && e.to === newTo) || null;
+      if (!edge) { edge = { id: _newId("e"), from: fromRef, to: newTo, ...inherited }; s.graph.edges.push(edge); }
     }
+    // A queue role cable keeps its role when re-pointed: move the admitEdge/spillEdge
+    // pointer from the deleted edge onto its replacement — otherwise the pointer dangles
+    // and the new edge is drawn roleless (a stray cable the walker ignores).
+    const qnode = (s.graph.nodes || []).find((n) => `rule:${n.id}` === fromRef && n.type === "queue");
+    if (qnode?.config && oldEdge) {
+      for (const k of ["admitEdge", "spillEdge"]) {
+        const other = k === "admitEdge" ? "spillEdge" : "admitEdge";
+        if (qnode.config[k] === oldEdge.id) qnode.config[k] = (edge && edge.id !== qnode.config[other]) ? edge.id : "";
+      }
+    }
+    _pruneQueueRolePointers(s);
   }).catch((e) => toast(e.message));
+}
+
+// Queue role pointers must reference live edges; clear any left dangling by an edge
+// delete or re-point (healQueueNodeEdges may then re-adopt a stray one as admit).
+function _pruneQueueRolePointers(s) {
+  const ids = new Set((s.graph?.edges || []).map((e) => e.id));
+  for (const n of (s.graph?.nodes || [])) {
+    if (n.type !== "queue" || !n.config) continue;
+    for (const k of ["admitEdge", "spillEdge"]) {
+      if (n.config[k] && !ids.has(n.config[k])) n.config[k] = "";
+    }
+  }
 }
 
 // Ask before removing a cable. Uses the shared confirm modal; raised above the
@@ -1181,6 +1206,7 @@ export function deleteGraphEdgesBetween(domFrom, domTo) {
     const expand = (ref) => ref.startsWith("inc:") ? clientProxyInputRefs(s, ref.slice(4)) : [ref];
     const froms = new Set(expand(domFrom)), tos = new Set(expand(domTo));
     s.graph.edges = (s.graph.edges || []).filter((e) => !(froms.has(e.from) && tos.has(e.to)));
+    _pruneQueueRolePointers(s);
   }).catch((e) => toast(e.message));
 }
 
@@ -1883,6 +1909,47 @@ document.addEventListener("pointerout", (e) => {
   grp.classList.remove("focus");
   grp.closest("svg")?.classList.remove("edge-focus");
 });
+// Cable grab (re-point) and its midpoint ✕ (delete) — document-level for the same
+// reason as the hover pair above: background ticks tear down and rebuild the svg,
+// and any listener bound to the svg dies with it (the first grab after a tick went
+// dead). Capture phase: the world's pan/node-drag pointerdown must never see a
+// grab that starts on a cable (the old svg-bound handler cut the bubble before it
+// reached the world; capture cuts it earlier still).
+document.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 || !e.target.closest) return;
+  if (e.target.closest("[data-cv-edge-del]")) return;    // the ✕ acts on click, not grab
+  const path = e.target.closest("[data-cv-edge]");
+  if (!path || !path.closest("[data-cv-svg]")) return;
+  e.stopPropagation(); e.preventDefault();
+  const [from, to] = (path.dataset.cvEdge || "").split("|");
+  if (!from || !to) return;
+  const cur = _cvClientToWorld(e.clientX, e.clientY);
+  _cvDrag = { kind: "rewire", id: from, oldTo: to, from: _cvAnchorFrom(from) || cur, cur };
+  drawCanvasConnectors();
+}, true);
+document.addEventListener("click", (e) => {
+  const del = e.target.closest && e.target.closest("[data-cv-edge-del]");
+  if (!del) return;
+  e.stopPropagation();
+  const [a, b] = (del.dataset.cvEdgeDel || "").split("|");
+  if (a && b) confirmDeleteGraphEdge(a, b);
+}, true);
+// The grab completes through _cvOnMove/_cvOnUp — bind them here too, or a cable
+// grabbed on a page where bindCanvasInteractions never ran would never drop.
+if (!_cvWindowBound) {
+  _cvWindowBound = true;
+  window.addEventListener("pointermove", _cvOnMove);
+  window.addEventListener("pointerup", _cvOnUp);
+}
+// Pan/zoom, node drag and port drag bind to the viewport/world elements in
+// bindCanvasInteractions — and died whenever a re-render path rebuilt the canvas
+// DOM without renderTopology's rAF rebind (the memo-keyed cloud re-render on the
+// standalone kanban does exactly that, leaving the board view-only). Watch for a
+// fresh world element and rewire it; the per-generation guard inside
+// bindCanvasInteractions makes overlapping calls harmless, and per-tick svg
+// innerHTML rewrites keep element identity so quiet frames no-op.
+new MutationObserver(() => bindCanvasInteractions())
+  .observe(document.documentElement, { childList: true, subtree: true });
 // ＋ App port — mint a router-routed entry port with its own API key for an
 // external app. Document-level delegation at module load (same reason as the
 // edge hover above: bindCanvasInteractions is late/never on standalone kanban,
@@ -1917,6 +1984,11 @@ export function bindCanvasInteractions() {
   const viewport = document.querySelector("[data-cv-viewport]");
   const world = document.querySelector("[data-cv-world]");
   if (!viewport || !world) return;
+  // One wiring per world generation: the module-load rebind observer and the rAF
+  // after renderTopology may both land on the same fresh DOM — double-bound click
+  // handlers would double-fire saveRouters.
+  if (world.dataset.cvBound) return;
+  world.dataset.cvBound = "1";
   if (!_cvWindowBound) {
     _cvWindowBound = true;
     window.addEventListener("pointermove", _cvOnMove);
@@ -1965,7 +2037,13 @@ export function bindCanvasInteractions() {
     });
   });
   // Stage C graph editing: palette add, node delete, port-drag connect, edge delete.
-  document.querySelectorAll("[data-cv-add]").forEach((b) => b.addEventListener("click", () => addRuleNode(b.dataset.cvAdd)));
+  // These buttons live in the standalone page's static header — they survive world
+  // rebuilds, so guard against stacking a listener per rebind.
+  document.querySelectorAll("[data-cv-add]").forEach((b) => {
+    if (b.dataset.cvAddBound) return;
+    b.dataset.cvAddBound = "1";
+    b.addEventListener("click", () => addRuleNode(b.dataset.cvAdd));
+  });
   world.querySelectorAll("[data-cv-delnode]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); deleteRuleNode(b.dataset.cvDelnode); }));
   // Per-input wait-budget override on client nodes. Don't let them start a node drag.
   world.querySelectorAll(".cv-in-wait-in[data-cv-wait]").forEach((inp) => {
@@ -2027,32 +2105,9 @@ export function bindCanvasInteractions() {
     const from = _cvWorldPoint(port, "right");
     _cvDrag = { kind: "connect", id: ref, qrole, schedPortId, from, cur: from, replaceFrom: _isSingleOut(ref) ? ref : null };
   });
-  // Delegated on the SVG (paths are re-created every redraw): grab a cable anywhere
-  // along its length to re-point its target end; click the ✕ at its midpoint (shown
-  // on hover) to delete it. Applies to both cv-svg (canvas) and cv-overlay-svg (panel).
-  const _bindSvgEdgeEvents = (svgEl) => {
-    if (!svgEl) return;
-    svgEl.addEventListener("pointerdown", (e) => {
-      if (e.button !== 0) return;
-      if (e.target.closest && e.target.closest("[data-cv-edge-del]")) return;
-      const path = e.target.closest && e.target.closest("[data-cv-edge]");
-      if (!path) return;
-      e.stopPropagation(); e.preventDefault();
-      const [from, to] = (path.dataset.cvEdge || "").split("|");
-      if (!from || !to) return;
-      const cur = _cvClientToWorld(e.clientX, e.clientY);
-      _cvDrag = { kind: "rewire", id: from, oldTo: to, from: _cvAnchorFrom(from) || cur, cur };
-      drawCanvasConnectors();
-    });
-    svgEl.addEventListener("click", (e) => {
-      const del = e.target.closest && e.target.closest("[data-cv-edge-del]");
-      if (!del) return;
-      e.stopPropagation();
-      const [a, b2] = (del.dataset.cvEdgeDel || "").split("|");
-      if (a && b2) confirmDeleteGraphEdge(a, b2);
-    });
-  };
-  _bindSvgEdgeEvents(document.querySelector("[data-cv-svg]"));
+  // Cable re-point and ✕ delete moved to document-level delegation at module load
+  // (see the block above bindCanvasInteractions) — svg-bound listeners died with
+  // every background-tick rebuild of the svg.
 
   // Sync block port dots after initial render and on body scroll. Also schedule a rAF
   // pass in case getBoundingClientRect() returned zeros before layout was complete.
