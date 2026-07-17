@@ -93,6 +93,9 @@ and concurrent writers cannot clobber each other.
 | `~/.config/llamacpp-easy-admin/provider-secrets.json` | admin, proxy (OAuth refresh) | both | API keys / OAuth tokens, mode 0600, outside the repo tree. |
 | `~/.local/state/llamacpp-easy-admin/admin.json` | admin | admin | Persistent admin state: topology store, pricing, HF token/favorites, starred fields. |
 | `client-labels.json`, `token-history.json` | admin | admin | Monitor labels; token-rate history (14 d). |
+| `state/model-catalog.json` | admin | admin | Provider model lists (1 h TTL), endpoint circuit-breaker state, cached codex client version. Legacy installs keep it at the repo root. |
+| `~/.local/state/llamacpp-easy-admin/auth.db` | admin | admin | Accounts, sessions and the fleet token (stdlib SQLite, 0600). Auth is off until the first user exists. |
+| `var/vllm-versions.json` | admin | admin | vLLM venv pip history — the rollback points for `/api/vllm/update`. |
 | `~/.config/llamacpp-easy-admin/openclaw-config-cache.json` | admin | admin | Last-known-good OpenClaw configs (may contain credentials → 0600, outside repo). |
 | `var/server-cells/<port>/{cell.json,start.sh}` | admin | `lama-cell@.service` | Generated launch artifacts; `cell.json` is the source of truth, `start.sh` the runnable. |
 | `var/server-backups/<host>/<gpu-or-CPU>/…` | admin | admin | Named launch-config snapshots for every node, kept on the controller so they survive the client. |
@@ -131,12 +134,12 @@ restart just that `lama-cell@<port>` unit.
 app.py, agent-proxies.py   thin launchers (do not rename/move)
 caravan/
 ├── common/                stdlib helpers shared by both daemons
-├── admin/                 admin server (30 modules)   → docs/backend-admin.md
+├── admin/                 admin server (38 modules)   → docs/backend-admin.md
 └── proxy/                 proxy daemon (14 modules)   → docs/backend-proxy.md
 static/
-├── js/                    32 ES modules (entry main.js) → docs/frontend.md
-├── css/                   9 cascade-ordered stylesheets
-└── index.html / kanban.html / hf.html / hf.js
+├── js/                    36 ES modules (entry main.js) → docs/frontend.md
+├── css/                   10 cascade-ordered stylesheets
+└── index.html / kanban.html / hf.html / models.html / system.html / hf.js
 scripts/                   install/start scripts, queue-node unit tests, refactor tooling
 systemd/                   unit files installed on the controller
 whisper/                   faster-whisper command-cell example

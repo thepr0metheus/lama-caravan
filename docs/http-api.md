@@ -33,7 +33,14 @@ fails at import time.
 | `POST /api/repair/user-service` | Rewrite/repair the `systemd --user` unit for the managed service. |
 | `GET /api/raw/start-server` | Raw text of `start-server.sh`. |
 | `GET /api/llamacpp` | llama.cpp build/version info (`?fetch_remote=1` compares upstream). |
-| `POST /api/llamacpp/update` | Pull + rebuild llama.cpp from git. |
+| `POST /api/llamacpp/update` | Pull + rebuild llama.cpp from git (background job). |
+| `GET /api/llamacpp/update-status` | Progress/log stream of the running build job. |
+| `GET /api/llamacpp/builds` | Archived controller builds (rollback points). |
+| `POST /api/llamacpp/restore` | Restore an archived build over the current binary. |
+| `POST /api/llamacpp/suspect-dismiss` | Dismiss the crash-watchdog "suspect build" banner (server-side, survives reloads). |
+| `GET /api/vllm` / `POST /api/vllm/update` | vLLM venv version/pip history / update or roll back the pinned version. |
+| `GET /api/controller-info` | System page payload: services, cells, git, python, models-disk numbers. |
+| `GET /api/script-preview?host=&port=` | Rendered start.sh preview for a cell (read-only, $HOME-scoped, 64 KB cap). |
 
 ## Models & HuggingFace browser
 
@@ -41,6 +48,10 @@ fails at import time.
 |---|---|
 | `GET /api/models` | Local GGUF catalog (families, sizes, metadata). |
 | `GET /api/models/download?path=` | Stream a local GGUF file to the browser. |
+| `GET /api/models/disk` | Models-disk tree with per-directory size rollups (the `/models` page). |
+| `GET /api/models/unused` | GGUFs no cell/config references (multi-part groups counted as one). |
+| `POST /api/models/gc` | Delete selected unreferenced model files (server re-checks references). |
+| `GET /api/hf/model-tree?repo=` | Quantizations/siblings of a repo via the HF model-tree filter. |
 | `GET /api/hf/search?q=&limit=` | HuggingFace model search. |
 | `GET /api/hf/files?repo=` | GGUF file listing of a repo (classified by quant/type). |
 | `GET /api/hf/local-check?repo=` | Which files of the repo already exist locally. |
@@ -90,6 +101,11 @@ fails at import time.
 | `POST /api/topology/server-slot/add` / `…/delete` | Declare/remove a persistent host:port server slot. |
 | `POST /api/topology/server-cell/action` | Cell lifecycle `{action: start\|stop\|restart\|delete}` (controller systemd or client via agent). |
 | `POST /api/topology/server-cell/save-config` | Save a cell's config without starting it. |
+| `POST /api/topology/server-cell/schedule` | Save a cell's start/stop window (`{enabled, start, stop, days[]}`). |
+| `POST /api/topology/server-cell/reassign-port` | Move a parked cell to a free port (fleet-wide check; router refs remapped `srv:old→srv:new`). |
+| `POST /api/topology/server-slot/note` | Save the free-text note on a cell card. |
+| `POST /api/fleet/llama-update` / `…/llama-restore` | Build/update llama.cpp on a client host via its scout / restore an archived client build. |
+| `GET /api/fleet/llama-update-status?hostId=` / `GET /api/fleet/llama-builds?hostId=` | Client build-job progress / archived builds on a client. |
 | `GET /api/topology/agent-openclaw?client=&agent=` | Fetch one agent's OpenClaw state through the route-agent. |
 | `GET /api/openclaw-config?client=&refresh=` | Cached OpenClaw config snapshot per manager. |
 | `GET /api/queue-thresholds` / `POST /api/queue-thresholds/recalc` | Computed queue wait thresholds / force resync from OpenClaw. |
@@ -119,9 +135,33 @@ fails at import time.
 | `GET /api/cloud-accounts/openrouter-limits?id=` | OpenRouter key limits/credits. |
 | `GET /api/cloud-accounts/proxy-spend` | Spend summary accumulated by the proxy per account. |
 | `POST /api/cloud-blocks/save` / `…/delete` / `…/expose` | Manage model blocks; `expose` toggles routability as a router output. |
-| `POST /api/cloud-accounts/auto-create-blocks` | Discover models and create blocks in bulk. |
+| `GET /api/cloud-blocks/refs?id=` | Everything referencing a block (bridges, queue roles, rules, cables) — the delete-confirm preflight. |
+| `POST /api/cloud-accounts/auto-create-blocks` | Discover models and create blocks in bulk (non-chat artifacts filtered). |
+| `POST /api/cloud-accounts/bridge-port` / `…/bridge-port-delete` | Mint / remove a `kind=service` bridge port that pins one cloud block for an external consumer. |
+| `POST /api/app-port` | Mint a router-routed entry port with its own data-plane API key for an external app (`{name}` → `{port, key}`). |
+| `GET /api/cloud-upstream-errors?hours=` | Data-plane cloud failures aggregated per account → (model, code) from proxy event logs. |
+| `POST /api/cloud-api-health/retry` | Reset a circuit-broken provider endpoint and retry it now. |
 | `GET /api/model-pricing` | LiteLLM price table (24 h cache). |
 | `GET/POST /api/local-pricing`, `GET/POST /api/api-pricing` | Manual $/1M-token prices for local models / per-model API overrides. |
+
+## Auth & fleet security
+
+Sign-in is OFF until the first account exists (see [security.md](security.md)).
+Once on, every route except the login page, the auth bootstrap endpoints and
+the machine endpoints (scout heartbeats, `/metrics` — those switch to the
+fleet token) requires the `caravan_session` cookie.
+
+| Method & path | Purpose |
+|---|---|
+| `GET /login` | Sign-in page (all other pages redirect here when auth is on). |
+| `POST /api/auth/setup` | Create the FIRST account (only works while no users exist) — turns the guard on. |
+| `POST /api/auth/login` / `POST /api/auth/logout` | Session cookie issue / revoke (rate-limited per IP). |
+| `GET /api/auth/me` | Current session's user/role (the UI header). |
+| `GET /api/auth/overview` | Users + live sessions + fleet-token status (Security panel). |
+| `POST /api/auth/users` | Create/delete accounts, set passwords. |
+| `POST /api/auth/sessions/revoke` | Revoke other sessions. |
+| `POST /api/auth/fleet-token` | Rotate the machine token scouts use. |
+| `GET /metrics` | Prometheus exposition (routes, queues, cells, GPUs, models disk); wants the fleet token when auth is on. |
 
 ## Pages & static
 
@@ -130,6 +170,8 @@ fails at import time.
 | `GET /`, `/index.html` | Topology board UI. |
 | `GET /kanban`, `/router` | Standalone router canvas (`?id=router:<id>`). |
 | `GET /hf` | HuggingFace browser page. |
+| `GET /models` | Models-disk page: GGUF tree, size rollups, unreferenced-file cleanup. |
+| `GET /system` | System page: Controller / llama.cpp / Security / Diagnostics tabs. |
 | `GET /js/<name>.js`, `/css/<name>.css` | ES modules / stylesheets (traversal-safe name class, ETag + no-cache). |
 | `GET /hf.js`, `/favicon.svg`, `/favicon.ico` | Remaining whitelisted static files. |
 

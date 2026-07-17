@@ -1,17 +1,19 @@
 # Frontend module reference
 
-The UI is 29 native ES modules under `static/js/` plus one page-scoped module at `static/hf.js`.
+The UI is 36 native ES modules under `static/js/` plus one page-scoped module at `static/hf.js`.
 There is no bundler, no framework, no npm and no build step: the browser loads `/js/main.js` as a
-`type="module"` script and follows real `import` statements from there. The modules were split out
+`type="module"` script and follows real `import` statements from there. The core was split out
 of a single 26,720-line `static/app.js` (the split tooling survives in `scripts/refactor/`).
 
-Three pages share the code:
+Five pages share the code:
 
 | page | route(s) | entry | notes |
 |---|---|---|---|
 | `static/index.html` | `/`, `/index.html` | `/js/main.js` | the topology board (main app) |
 | `static/kanban.html` | `/kanban`, `/router` | `/js/main.js` | standalone router workspace; an inline classic script sets `window.ROUTER_STANDALONE = true` — it runs immediately, before the (deferred) module executes, so `main.js` sees the flag. Deep-link a router with `?id=<routerId>` (default `router:default`) |
 | `static/hf.html` | `/hf` | `/hf.js` | HuggingFace model browser; imports only from `/js/utils.js` |
+| `static/models.html` | `/models` | `/js/models-page.js` | models-disk tree with size rollups and unreferenced-file cleanup |
+| `static/system.html` | `/system` | `/js/system-page.js` | Controller / llama.cpp / Security / Diagnostics tabs (the former System modal) |
 
 Serving: the Python backend (`caravan/admin/routes.py`) serves every static file through
 `Handler.send_file`, which sets an mtime+size `ETag` and `Cache-Control: no-cache` — the browser
@@ -193,6 +195,24 @@ i18n-free so the HF page never pulls the 11.7k-line translations module.
 - Owns: nothing mutable.
 - Key exports: `$`, `escapeHtml`, `api`, `toast`, `pill`, `formatMemoryMiB`, `bindTooltips`.
 
+## dialogs.js
+
+Styled in-app replacements for `window.confirm()`/`window.prompt()`: Promise wrappers over the
+shared `#confirmOverlay` dialog. Native dialogs block the renderer (they froze CDP evaluation
+during a live audit once) and look foreign — nothing in the app should call them directly.
+
+- Owns: the pending-dialog resolver.
+- Key exports: `appConfirm`, `appPrompt`.
+
+## dialog-llamas.js
+
+Animated pixel llamas for the shared confirm dialog: scene kinds match the action being confirmed
+("delete" stomps a crate flat, "change" nose-flips a toggle, "start" launches a rocket, a neutral
+idle for the rest). Pure presentation over the dialog markup.
+
+- Owns: the scene timers.
+- Key exports: `initDialogLlamas` (scene selection is internal — it keys off the confirm text).
+
 ## main.js
 
 The entry point for both board pages. On `DOMContentLoaded` it applies language/theme, then either
@@ -204,6 +224,25 @@ redraws, all launch-form input listeners (main and `te-` prefixed), then `loadSt
 
 - Owns: the DOMContentLoaded wiring only.
 - Key exports: none (side-effect module; both pages load it as the module entry).
+
+## models-page.js
+
+`/models` page entry: the tree of downloaded GGUFs (model → author → quant → files) with size
+rollups, which cells reference each file, and deletion of the unreferenced ones. Data:
+`/api/models/unused` + `/api/models/disk`; deletion goes through `/api/models/gc`, which refuses
+referenced files server-side too.
+
+- Owns: the page's selection state.
+- Key exports: none (page entry).
+
+## system-page.js
+
+`/system` page entry: tabs over the Controller / llama.cpp / Security / Diagnostics panels (the
+former System modal) plus a hero strip with the numbers an operator checks first. The section
+renderers are shared with `system-panels.js` — this file only orchestrates the page.
+
+- Owns: the tab state.
+- Key exports: none (page entry).
 
 **Launch form**
 

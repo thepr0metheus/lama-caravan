@@ -65,6 +65,23 @@ Owns: `admin_state` (in-memory), `admin.json` on disk.
 Key functions: `load_admin_state` (tolerant read), `save_admin_state` (atomic write of the live
 object), `topology_store` (defaults-ensured topology sub-store).
 
+## `auth.py`
+
+Accounts, sessions and the fleet token — stdlib `sqlite3`, one `auth.db` next to `admin.json`
+(0600, `LLAMA_ADMIN_AUTH_DB` to override). Auth is OFF until the first user exists (open homelab
+default); creating one (Security panel or `python3 -m caravan.admin.auth create-user`) turns the
+guard on for every route except the login page, the auth bootstrap endpoints and the machine
+endpoints (heartbeats, `/metrics`), which switch to the **fleet token** — a shared machine secret
+scouts carry in their config. Passwords are PBKDF2 (per-user salt, constant-ish-time compare with
+a timing pad on unknown users, per-IP lockout after 5 failures); sessions are random tokens stored
+as SHA-256 hashes with a TTL and a 5 s in-process cache. A CLI (`python3 -m caravan.admin.auth …`)
+covers create-user / set-password / fleet-token for headless bootstrap.
+Owns: `auth.db`, the session cache, `_LOGIN_FAILS`.
+Key functions: `auth_enabled`, `create_user`/`set_password`/`delete_user`/`list_users`,
+`verify_login`, `create_session`/`validate_session`/`delete_session`, `list_sessions`,
+`revoke_other_sessions`, `fleet_token_get`/`fleet_token_regenerate`/`fleet_token_verify`,
+`session_from_handler`, `session_cookie_header`.
+
 ## `config_builder.py`
 
 The launch-config contract. `CONFIG_FIELDS` (~90 keys, including the command-cell keys
@@ -82,6 +99,19 @@ Key functions: `parse_config` (read start-server.sh), `parse_config_from_text`/`
 `build_config_block` (validates MODEL_FILE/PORT/numerics), `build_llama_args`,
 `build_remote_llama_args` (placeholders, no host-local flags), `build_local_llama_command` (absolute
 paths + binary), `parse_extra_args`, `is_command_cell`, `models_dir_from_config`.
+
+## `runners.py`
+
+Runner registry: which inference engines a cell can launch and which model formats each accepts.
+The cell config carries the flavour in `RUNNER` (`llama-server` 🦙 / `vllm` ⚡ / `whisper` 🎙 /
+`custom` 🛠); legacy configs predate the field and map from `CELL_KIND` (`command` → custom, else
+llama-server) so every saved config/snapshot/backup keeps working. Non-llama runners resolve to the
+command path: `build_vllm_command` (self-provisioned `~/vllm-venv`, format gates like
+nvfp4 ≥ CC 10.0 / fp8 ≥ 8.9 against the host GPU) and `build_whisper_command` render the managed
+command a cell runs; `effective_command`/`effective_health_path` are what launch/probing consume.
+Owns: the runner table and format requirements.
+Key functions: `runner_id`, `uses_command_path`, `build_vllm_command`, `build_whisper_command`,
+`effective_command`, `effective_health_path`.
 
 ## `launch.py`
 
@@ -116,6 +146,17 @@ Owns: `FAMILY_DEFAULTS`.
 Key functions: `read_gguf_metadata`, `extract_runtime_meta`, `detect_family`,
 `embedding_family_defaults`, `list_models`, `list_chat_templates`, `serve_model_file` (GET
 `/api/models/download`), `list_gguf_models` (grouped listing for remote start).
+
+## `model_gc.py`
+
+Models-disk garbage collection (the `/models` page backend). "Referenced" = mentioned by any
+server slot's saved config (`MODEL_FILE`/`MMPROJ_FILE`/`SPEC_DRAFT_MODEL_FILE`) or by the legacy
+start-server.sh; multi-part GGUFs (`…-00001-of-00004.gguf`) are grouped — if any part is
+referenced, every part is. `list_unused_models` reports unreferenced files with sizes;
+`delete_models` re-checks references server-side before removing (the UI cannot talk it into
+deleting a referenced file) and prunes emptied directories.
+Owns: —.
+Key functions: `list_unused_models`, `delete_models`.
 
 ## `systemd_ctl.py`
 
@@ -300,6 +341,16 @@ Key functions: `monitor_sampler_loop`, `collect_monitor_sample`, `system_monitor
 `llama_activity_sample`, `gpu_state`/`cpu_state`/`memory_state`, `runtime_api`, `monitor_snapshot`,
 `set_monitor_retention`.
 
+## `metrics.py`
+
+Prometheus text exposition for `GET /metrics` — cheap reads only, no probes: the proxy daemon's
+live state file (route activity/queues), today's proxy log (request counters), the topology store
+(clients, cells), the cached `gpu_state()` and models-disk usage. When sign-in is enabled the
+endpoint authenticates with the **fleet token** (`X-Caravan-Token` or `Authorization: Bearer`), so
+an external Prometheus can scrape without a browser session.
+Owns: —.
+Key functions: `build_metrics_text`.
+
 ## `openclaw.py`
 
 Sync with the configured OpenClaw config managers. `fetch_openclaw_config_for` pulls an agent
@@ -351,6 +402,23 @@ Key functions: `test_account_key`, `set_account_key`, `fetch_account_models`,
 `fetch_subscription_models`, `fetch_subscription_usage`, `fetch_account_costs`,
 `fetch_openrouter_limits`, `auto_create_blocks`, `cloud_spend_summary`, `usage_stats`.
 
+## `model_catalog.py`
+
+Provider model-catalog cache + upstream endpoint health, one small state file
+(`state/model-catalog.json`; legacy installs land it at the repo root). Three jobs: (1) per-account
+model lists with a 1 h TTL refreshed by a background thread (`kick_refresh` + a guarded fetcher) —
+blocks whose model fell out of the list paint "unlisted" in the UI; (2) a circuit breaker around
+every provider endpoint (`guarded_call(key, fn)`: 3 consecutive failures open the breaker with
+exponential 6 h→48 h backoff; `endpoints_report` feeds the "API issues" panel and
+`retry_endpoint` the panel's retry button — 401/403 on spend/limit endpoints stay soft); (3) the
+codex `client_version`: `CARAVAN_CODEX_CLIENT_VERSION` env verbatim, else
+max(npm `@openai/codex` latest cached 24 h, floor 0.160.0) — the floor matters because npm lags
+behind the version gate newer subscription models require.
+Owns: `state/model-catalog.json`, the refresh thread, breaker state.
+Key functions: `guarded_call`, `record_ok`/`record_fail`, `endpoint_blocked`, `endpoints_report`,
+`retry_endpoint`, `effective_codex_client_version`, `cached_model_ids`, `store_models`,
+`models_stale`, `kick_refresh`.
+
 ## `pricing.py`
 
 The LiteLLM model-pricing table (`model_prices_and_context_window.json` from GitHub raw), reduced to
@@ -386,7 +454,20 @@ artifacts for controller (`skynet`) slots.
 Owns: the `serverSlots` records inside admin state.
 Key functions: `server_slot_key`, `next_server_cell_port`, `used_server_cell_ports`,
 `assert_server_cell_port_available`, `upsert_server_slot`, `reserve_server_cell`,
-`move_server_cell`, `delete_server_slot`, `normalize_topology_agent`.
+`move_server_cell`, `delete_server_slot`, `reassign_server_slot_port` (fleet-wide free check,
+refuses a running controller cell, remaps router refs `srv:old→srv:new`),
+`normalize_topology_agent`.
+
+## `cell_schedule.py`
+
+Per-cell start/stop schedule. A slot may carry `schedule = {enabled, start "HH:MM", stop "HH:MM",
+days [0..6]}` (empty days = daily); a background tick (1/min, started by `main()`) acts only on
+window **edges** — so a manual stop inside a window sticks until the next window opens
+(`schedState` on the slot remembers the last applied edge). Start/stop go through the same
+`server_cell_action` path the buttons use.
+Owns: the scheduler thread, `schedState` on slots.
+Key functions: `normalize_schedule`, `set_cell_schedule`, `in_window`, `scheduler_tick`,
+`start_scheduler_thread`.
 
 ## `fleet_clients.py`
 
@@ -441,6 +522,16 @@ appends `stopRequests` entries (by request id, or every active request on a port
 Owns: —.
 Key functions: `reconcile_agent_proxies`, `stop_agent_proxy_route`.
 
+## `proxy_supervisor.py`
+
+Container-mode supervision of the proxy daemon. Native deployments run `agent-proxies.py` as its
+own `systemd --user` unit; inside the Docker image (`CARAVAN_CONTAINER`) there is no systemd, so
+the admin owns the proxy as a child process instead: spawned at startup, respawned by a watchdog
+when it dies, restarted in place when a config save asks for it. `tail` serves the child's recent
+output for diagnostics. On native installs this module is inert.
+Owns: the child process handle + watchdog thread (container mode only).
+Key functions: `start`, `restart`, `status`, `tail`.
+
 ## `backups.py`
 
 Controller `start-server.sh` backups (the `*.bak.*` files written by `snapshot_config`). `backups()`
@@ -492,8 +583,10 @@ body on an unknown path is a 500, not a 404; `do_DELETE` has no `AppError` claus
 from a DELETE handler surfaces as 500 (GET/POST map it to its status). `Handler` provides
 `send_json` (via `json_bytes`), `send_file` (mtime+size ETag with `Cache-Control: no-cache` —
 redeploys show up immediately, unchanged files answer 304) and `read_body` (empty body → `{}`).
-Roughly 60 GET, 55 POST and one DELETE route (`/api/hf/local-file`); static pages `/`, `/hf`,
-`/kanban` (alias `/router`) come from `static/`.
+Roughly 63 GET, 69 POST and one DELETE route (`/api/hf/local-file`); static pages `/`, `/hf`,
+`/kanban` (alias `/router`), `/models`, `/system` and `/login` come from `static/`. When sign-in
+is enabled (`auth.py`), dispatch guards every route except the login page, auth bootstrap and the
+machine endpoints (heartbeats, `/metrics` — fleet token).
 Owns: the four route tables; `Handler`.
 Key functions: `_route`, `Handler.do_GET`/`do_POST`/`do_DELETE`,
 `Handler.send_json`/`send_file`/`read_body`.
