@@ -7,6 +7,16 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.44 — 2026-07-17
+
+- Dead agents got a visible home: a red dashed strip at the bottom of the
+  kanban CLIENTS block lists assignments whose agent the host no longer
+  reports (agent · client, the ports they still hold) with a ✕ that deletes
+  the assignment and frees the ports. Rendered only when there is something
+  to clean; the delete lost its UI when the registry modal was retired.
+- Orphaned agents are part of the board's structure fingerprint, so the
+  strip appears and disappears live on the main board's workspace.
+
 ## 1.3.43 — 2026-07-17
 
 - Parked cells (stopped / reserved / error) show a dashed ≈VRAM badge next

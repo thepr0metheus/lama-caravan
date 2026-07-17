@@ -8,7 +8,7 @@ import time
 from caravan.admin.cloud import cloud_accounts_state, cloud_blocks_state, cloud_provider_presets_public
 from caravan.admin.config_builder import models_dir_from_config, parse_config
 from caravan.admin.runners import effective_health_path, uses_command_path
-from caravan.admin.fleet_clients import refresh_topology_clients_from_agents, topology_clients
+from caravan.admin.fleet_clients import assignment_port_claims, refresh_topology_clients_from_agents, topology_clients
 from caravan.admin.llama_metrics import runtime_metrics_sample, runtime_phase, vllm_metrics_sample
 from caravan.admin.monitoring import (
     cpu_snapshot,
@@ -590,6 +590,10 @@ def _compute_orphaned_agents(clients, store):
     Each carries the proxy ports it still holds so deleting it frees them."""
     assignments_store = store.get("assignments") or {}
     by_id = {c.get("id"): c for c in clients}
+    # Deleting an orphan only frees ports it is the SOLE claimant of (a rename
+    # successor may share them) — show exactly those, so the strip's port list
+    # matches what the ✕ will actually free.
+    claims = assignment_port_claims(store)
     orphaned = []
     for host_id, host_entry in assignments_store.items():
         client = by_id.get(host_id)
@@ -605,14 +609,16 @@ def _compute_orphaned_agents(clients, store):
                 pid = str(route.get("proxyId") or "")
                 if pid.startswith("skynet:proxy:"):
                     try:
-                        ports.append(int(pid.split(":")[-1]))
+                        port = int(pid.split(":")[-1])
                     except ValueError:
-                        pass
+                        continue
+                    if claims.get(port, 0) <= 1:
+                        ports.append(port)
             orphaned.append({
                 "clientId": host_id,
                 "clientName": client.get("name") or host_id,
                 "agentId": agent_id,
-                "ports": sorted(ports),
+                "ports": sorted(set(ports)),
             })
     return orphaned
 

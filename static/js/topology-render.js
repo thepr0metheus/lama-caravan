@@ -445,7 +445,12 @@ export function topologyStructureFingerprint() {
   // the card even when the server-side topology has not moved yet.
   const pendingCells = `${[..._pendingCellActions.keys()].sort().join("+")}:${[..._stoppingCells].sort().join("+")}`;
   const modals = `${ui.topologyProxyFormOpen ? 1 : 0}:${topologyQueuePriorityModalOpen ? 1 : 0}:${topologyRouteDetail?.proxyId || ""}`;
-  return [clients, classicSrv, nodeSrv, gpus, prox, cloud, llamaVer, view, pendingCells, modals].join("||");
+  // Dead-agent assignments render as a strip in the kanban CLIENTS block —
+  // one appearing or being deleted must trigger a full rebuild.
+  const orphans = (topology.orphanedAgents || [])
+    .map((o) => `${o.clientId}/${o.agentId}:${(o.ports || []).join(".")}`)
+    .sort().join(",");
+  return [clients, classicSrv, nodeSrv, gpus, prox, cloud, llamaVer, view, pendingCells, modals, orphans].join("||");
 }
 
 // ── llama.cpp crash-watchdog banner ──────────────────────────────────────────

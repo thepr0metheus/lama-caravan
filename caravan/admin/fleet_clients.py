@@ -403,6 +403,28 @@ def topology_client_agent_delete(body: dict) -> dict:
     save_admin_state()
     return {"ok": True, "clientId": client_id, "agentId": agent_id}
 
+def assignment_port_claims(store) -> dict:
+    """port → how many assignment entries (any host, any agent) route through it.
+    A dead agent's port is only truly free when its own assignment is the SOLE
+    claim — after a VM rename the successor agent adopts the same ports, and
+    deleting the dead twin must not cut the live route."""
+    claims = {}
+    for host_entry in (store.get("assignments") or {}).values():
+        for assignment in (host_entry.get("assignments") or []):
+            seen = set()   # a port listed twice within ONE assignment is one claim
+            for route in (assignment.get("routes") or []):
+                pid = str(route.get("proxyId") or "")
+                if pid.startswith("skynet:proxy:"):
+                    try:
+                        port = int(pid.split(":")[-1])
+                    except ValueError:
+                        continue
+                    if port not in seen:
+                        seen.add(port)
+                        claims[port] = claims.get(port, 0) + 1
+    return claims
+
+
 def topology_orphan_assignment_delete(body: dict) -> dict:
     """Delete a dead-agent assignment (agentId no longer reported by the host) and
     free the proxy ports it held. Routes are removed from agent-proxies.json; the
@@ -430,6 +452,11 @@ def topology_orphan_assignment_delete(body: dict) -> dict:
                 ports.add(int(pid.split(":")[-1]))
             except ValueError:
                 pass
+    # Only free ports whose SOLE claim is this dead assignment — a successor
+    # agent (VM rename) may have adopted the same ports, and dropping their
+    # routes would cut its live path.
+    claims = assignment_port_claims(store)
+    ports = {p for p in ports if claims.get(p, 0) <= 1}
     # Drop the assignment entry.
     host_entry["assignments"] = [a for a in assignments if str(a.get("agentId") or "") != agent_id]
     save_admin_state()

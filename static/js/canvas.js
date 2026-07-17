@@ -4,6 +4,7 @@ import { option } from "./form.js";
 import { t } from "./i18n.js";
 import { closeConfirmModal } from "./llama-edit.js";
 import { action } from "./polling.js";
+import { deleteOrphanAgent } from "./remote-cells.js";
 import {
   renderServersBlockHtml,
   routerById,
@@ -943,12 +944,28 @@ export function canvasNodes(router) {
   // agent keys (born from a live incident: an app polling an agent's keyed
   // route without credentials = a steady 401 stream).
   const appPortHtml = `<div class="cv-app-port-row"><button class="cv-app-port-btn" type="button" data-cv-app-port title="${escapeHtml(t("cvAppPortHint"))}">＋ ${escapeHtml(t("cvAppPortBtn"))}</button></div>`;
+  // Dead agents — assignments whose agent the host no longer reports. Their
+  // delete (which frees the ports they still hold) lived in the retired
+  // Proxy-ports registry modal; this strip is its new home. Renders only when
+  // there is something to clean up.
+  const orphanAgents = topology?.orphanedAgents || [];
+  const orphanAgentsHtml = !orphanAgents.length ? "" : `<div class="cv-orphan-agents">`
+    + `<div class="cv-orphan-head" title="${escapeHtml(t("deadAgentsHint"))}">☠ ${escapeHtml(t("cvOrphanAgentsHead"))}</div>`
+    + orphanAgents.map((o) => {
+        const ports = (o.ports && o.ports.length) ? o.ports.map((p) => ":" + p).join(" ") : "—";
+        return `<div class="cv-orphan-row" title="${escapeHtml(t("deadAgentTitle"))}">`
+          + `<span class="cv-orphan-name">${escapeHtml(o.agentId)} · ${escapeHtml(o.clientName || o.clientId)}</span>`
+          + `<span class="cv-orphan-ports">${escapeHtml(ports)}</span>`
+          + `<button class="cv-orphan-del" type="button" data-cv-orphan-agent="${escapeHtml(o.agentId)}" data-cv-orphan-client="${escapeHtml(o.clientId)}" title="${escapeHtml(t("deleteDeadAgent"))}">✕</button>`
+          + `</div>`;
+      }).join("")
+    + `</div>`;
   nodes.push({
     id: "inputs:block",
     type: "inputs",
     cls: "cv-inputs-block",
     fixed: { x: 20, y: 20 },
-    html: `<div class="cv-inputs-head">${escapeHtml(t("cvLabelClients"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipClients")}</span></span></div><div class="cv-inputs-body">${inputsBodyHtml || '<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>'}</div>${embedSlotHtml}${appPortHtml}`,
+    html: `<div class="cv-inputs-head">${escapeHtml(t("cvLabelClients"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipClients")}</span></span></div><div class="cv-inputs-body">${inputsBodyHtml || '<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>'}</div>${orphanAgentsHtml}${embedSlotHtml}${appPortHtml}`,
   });
   // Rule nodes (graph mode) — positioned by their stored x/y; input + output ports.
   const RULE_GLYPH = { schedule: "⏱", weighted: "⚖", roundRobin: "🔁", failover: "⚡", queue: "⏳", requestType: "🔀", requestSize: "📏" };
@@ -1963,6 +1980,14 @@ document.addEventListener("click", (e) => {
   if (!btn) return;
   e.stopPropagation();
   editTopologyProxy(btn.dataset.cvPortEdit);
+});
+// ✕ on a dead-agent row (CLIENTS block strip): delete the orphaned assignment
+// and free its ports. Same document-level home as the other strip controls.
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest && e.target.closest("[data-cv-orphan-agent]");
+  if (!btn) return;
+  e.stopPropagation();
+  deleteOrphanAgent(btn.dataset.cvOrphanClient, btn.dataset.cvOrphanAgent);
 });
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest && e.target.closest("[data-cv-app-port]");

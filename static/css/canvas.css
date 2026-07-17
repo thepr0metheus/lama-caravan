@@ -496,6 +496,28 @@ select.cv-pin { width: 100%; }
   overflow-x: hidden;
   padding: 4px 10px 8px;
 }
+/* Dead-agent strip in the Clients block: assignments whose agent the host no
+   longer reports, still holding ports. Shown only when non-empty; ✕ deletes
+   the assignment and frees its ports. */
+.cv-orphan-agents {
+  margin: 4px 8px 2px; padding: 6px 9px 7px; border-radius: 8px;
+  border: 1px dashed color-mix(in srgb, #ef4444 45%, var(--line));
+  background: color-mix(in srgb, #ef4444 7%, transparent);
+}
+.cv-orphan-head {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: color-mix(in srgb, #ef4444 65%, var(--fg)); margin-bottom: 4px;
+}
+.cv-orphan-row { display: flex; align-items: center; gap: 6px; font-size: 11.5px; padding: 2px 0; }
+.cv-orphan-name { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cv-orphan-ports { color: var(--muted); font-family: var(--font-mono, monospace); font-size: 10.5px; margin-left: auto; }
+.cv-orphan-del {
+  flex: 0 0 auto; width: 18px; height: 18px; border-radius: 5px; line-height: 1;
+  border: 1px solid color-mix(in srgb, #ef4444 45%, var(--line));
+  background: transparent; color: color-mix(in srgb, #ef4444 75%, var(--fg));
+  font-size: 11px; cursor: pointer;
+}
+.cv-orphan-del:hover { background: color-mix(in srgb, #ef4444 20%, transparent); }
 /* Embeddings slot at the bottom of the Clients block — one global /v1/embeddings target */
 .cv-embed-slot {
   margin: 4px 8px 6px; padding: 7px 9px; border-radius: 8px;
