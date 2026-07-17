@@ -2139,6 +2139,18 @@ export function bindCanvasInteractions() {
   _cvSyncInputsBlockPortDots();
   _cvSyncServersPortDots();
   requestAnimationFrame(() => { _cvSyncInputsBlockPortDots(); _cvSyncServersPortDots(); drawCanvasConnectors(); });
+  // First-open de-overlap: a rule node's stored position can end up UNDER the
+  // CLIENTS/SERVERS blocks as those grow over time (more cells, more models) —
+  // the node hides until dragged. Run the same resolver a drag-end uses, for
+  // every rule node, top-to-bottom for a deterministic cascade. Visual only
+  // (nothing persists — no config write on mere open); it converges, so extra
+  // runs after rebuilds are no-ops when nothing overlaps.
+  requestAnimationFrame(() => {
+    if (_cvDrag) return;
+    [...world.querySelectorAll('.cv-node[data-cv-node^="rule:"]')]
+      .sort((a, b) => a.offsetTop - b.offsetTop)
+      .forEach((n) => _cvResolveOverlap(n));
+  });
   const serversBody = document.querySelector(".cv-servers-body");
   if (serversBody && !serversBody._cvPortSyncBound) {
     serversBody._cvPortSyncBound = true;

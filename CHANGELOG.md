@@ -7,6 +7,14 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.48 — 2026-07-17
+
+- No more hidden rule nodes on first open: a stored node position can end up
+  underneath the CLIENTS/SERVERS blocks as those grow (more cells, more
+  models). The board now runs the same de-overlap resolver a drag-end uses
+  for every rule node right after render — visual only, nothing is written
+  until you actually drag the node.
+
 ## 1.3.47 — 2026-07-17
 
 - The breathing ring is gone; the border comet now runs the whole time a
