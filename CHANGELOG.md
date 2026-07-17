@@ -7,6 +7,13 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.49 — 2026-07-17
+
+- Host cells keep their place when you start or stop them. They were ordered
+  by state under the hood (live cells assembled ahead of stopped slots), so
+  STARTING a cell made it jump up the list. Each host's cells now sort by
+  port number only — the card stays put through every state change.
+
 ## 1.3.48 — 2026-07-17
 
 - No more hidden rule nodes on first open: a stored node position can end up

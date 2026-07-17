@@ -497,6 +497,17 @@ def _bind_servers_to_gpus(gpus, compute_apps, servers):
                                   key=lambda x: (x is None, x))
     return servers, gpus
 
+def _server_port_key(s):
+    """Stable per-host ordering: by port number only, so a cell keeps its place
+    on the card regardless of state. Without this, live cells (assembled from
+    heartbeats) sort ahead of stopped slots (appended later), so STARTING a cell
+    made it jump up the list."""
+    try:
+        return int(s.get("port") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def topology_nodes(config, server_obj, clients):
     """Host-centric view: one node per machine, each with its GPUs + the
     llama-servers running/declared on it + CPU/RAM. Server↔GPU is bound via
@@ -507,6 +518,7 @@ def topology_nodes(config, server_obj, clients):
     ctrl_gpus = [dict(g) for g in (server_obj.get("gpus") or [])]
     ctrl_servers = [dict(s) for s in (server_obj.get("llamaServers") or [])
                     if not s.get("isRemote")]
+    ctrl_servers.sort(key=_server_port_key)
     _bind_servers_to_gpus(ctrl_gpus, gpu_compute_apps(), ctrl_servers)
     _record_gpu_history(server_obj.get("id") or "skynet", ctrl_gpus)
     for s in ctrl_servers:
@@ -559,6 +571,7 @@ def topology_nodes(config, server_obj, clients):
             except (TypeError, ValueError):
                 g["index"] = None
         servers = remote_by_client.get(cid, [])
+        servers.sort(key=_server_port_key)
         _bind_servers_to_gpus(cgpus, client.get("computeApps"), servers)
         _record_gpu_history(cid, cgpus)
         for s in servers:

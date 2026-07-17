@@ -1,3 +1,3 @@
 """LAMA CARAVAN — fleet control plane for llama.cpp servers and AI agents."""
 
-__version__ = "1.3.48"
+__version__ = "1.3.49"
