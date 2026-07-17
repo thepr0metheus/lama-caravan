@@ -17,7 +17,6 @@ import { _proxyUpstreamStr, proxyEffectiveWaitTimeout } from "./topology-activit
 import {
   topologyGpuModalOpen,
   topologyLlamaDetailOpen,
-  topologyProxySummaryOpen,
   topologyScheduleGrid,
   topologySchedulePaintOutput,
   topologyScheduleRouterId,
@@ -500,91 +499,6 @@ export function closeRawConfigViewer() {
   topologyRawConfigOpen = false;
   topologyRawConfigText = "";
   renderTopology();
-}
-
-// Proxy Ports registry — the place to manage who owns which port, which router
-// it feeds, and to delete ports of permanently-removed agents (manual, user-decided).
-// Ports persist independently of whether the agent is currently online.
-export function renderTopologyProxySummaryModal() {
-  if (!topologyProxySummaryOpen) return "";
-  const proxies = (topology?.proxies || []).slice().sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
-  const routers = topology?.routers || [];
-  const onlineClientIds = new Set((topology?.clients || []).map((c) => c.id));
-  const rows = proxies.map((p) => {
-    // Bridge ports are not agents: no owner, no router — a cloud pin instead.
-    const isBridge = p.kind === "service";
-    const owner = isBridge ? null : topologyProxyOwner(p.id);
-    // Orphan = no LIVE agent uses this port: either no assignment at all, or the
-    // assigned agent is no longer reported by the host (dead agent). Its settings
-    // are kept; this is where you decide to delete it.
-    const orphan = !isBridge && !(owner && owner.live);
-    const role = p.role || (String(p.label || "").match(/(primary|fallback)$/i)?.[1]?.toLowerCase()) || "";
-    const ownerName = owner?.title || p.label || "—";
-    const routerOptions = routers.length
-      ? routers.map((s) => `<option value="${escapeHtml(s.id)}"${s.id === (p.routerId || "router:default") ? " selected" : ""}>${escapeHtml(s.name || s.id)}</option>`).join("")
-      : `<option value="router:default">Default</option>`;
-    const bridgeModel = isBridge
-      ? ((topology?.cloudProviders || []).find((b) => b.id === p.providerId)?.model || p.providerId || "cloud")
-      : "";
-    return `
-      <div class="proxy-reg-row ${orphan ? "orphan" : ""}">
-        <span class="proxy-reg-port">:${escapeHtml(p.port)}</span>
-        <span class="proxy-reg-owner">${orphan ? `<span class="proxy-reg-orphan" title="${escapeHtml(t("orphanPortTitle"))}">orphan</span>` : ""}${isBridge ? `<span class="proxy-reg-bridge" title="${escapeHtml(t("cloudBridgeHint"))}">bridge</span>` : ""}<span class="proxy-reg-owner-name">${escapeHtml(ownerName)}</span></span>
-        <span class="proxy-reg-role ${escapeHtml(role)}">${escapeHtml(role || "—")}</span>
-        ${isBridge
-          ? `<span class="proxy-reg-router proxy-reg-bridge-target" title="${escapeHtml(t("cloudBridgeHint"))}">☁ ${escapeHtml(bridgeModel)}</span>`
-          : `<select class="proxy-reg-router" data-proxy-reg-router="${escapeHtml(p.id)}" title="${escapeHtml(t("tmTitleRouterFeeds"))}">${routerOptions}</select>`}
-        <span class="proxy-reg-actions">
-          <button class="icon-action compact" type="button" data-topology-proxy-edit="${escapeHtml(p.id)}" aria-label="${escapeHtml(t("rtTitleRenamePort"))}" title="${escapeHtml(t("rtTitleRenamePort"))}">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
-          </button>
-          <button class="icon-action compact danger" type="button" data-topology-proxy-delete="${escapeHtml(p.id)}" aria-label="${escapeHtml(t("rtTitleDeletePort"))}" title="${escapeHtml(t("rtTitleDeletePort"))}">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-          </button>
-        </span>
-      </div>`;
-  }).join("") || `<div class="topology-muted">${t("cvNoProxyPorts")}</div>`;
-  // Dead agents: assignment entries whose agent is no longer reported by the host
-  // (left behind after a rename/removal). Listed separately so they can be deleted
-  // — which removes the assignment and frees any proxy ports it still holds.
-  const orphanedAgents = topology?.orphanedAgents || [];
-  const orphanRows = orphanedAgents.map((o) => {
-    const portsLabel = (o.ports && o.ports.length) ? o.ports.map((p) => `:${p}`).join(" ") : "—";
-    return `
-      <div class="proxy-reg-row orphan">
-        <span class="proxy-reg-port">${escapeHtml(portsLabel)}</span>
-        <span class="proxy-reg-owner"><span class="proxy-reg-orphan" title="${escapeHtml(t("deadAgentTitle"))}">dead</span><span class="proxy-reg-owner-name">${escapeHtml(o.agentId)} · ${escapeHtml(o.clientName)}</span></span>
-        <span class="proxy-reg-role">—</span>
-        <span></span>
-        <span class="proxy-reg-actions">
-          <button class="icon-action compact danger" type="button" data-orphan-agent-delete-client="${escapeHtml(o.clientId)}" data-orphan-agent-delete-id="${escapeHtml(o.agentId)}" aria-label="${escapeHtml(t("deleteDeadAgent"))}" title="${escapeHtml(t("deleteDeadAgent"))}">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
-          </button>
-        </span>
-      </div>`;
-  }).join("");
-  const orphanSection = orphanedAgents.length ? `
-        <div class="topology-policy-hint proxy-reg-deadhead">${escapeHtml(t("deadAgentsHint"))}</div>
-        <div class="proxy-reg-list">${orphanRows}</div>` : "";
-  return `
-    <div class="topology-policy-overlay" data-topology-proxy-summary-overlay>
-      <div class="topology-policy-modal proxy-registry-modal" role="dialog" aria-modal="true" aria-label="Proxy ports">
-        <div class="topology-card-head">
-          <strong>Proxy ports</strong>
-          <span class="topology-policy-head-actions">
-            <button class="icon-action compact prominent" type="button" data-proxy-reg-add aria-label="Add port" title="Add a proxy port">＋</button>
-            <button class="icon-action compact" type="button" data-topology-proxy-summary-close aria-label="Close" title="Close">×</button>
-          </span>
-        </div>
-        <div class="topology-policy-hint">${escapeHtml(t("proxyPortsHint"))}</div>
-        <div class="proxy-reg-head">
-          <span>port</span><span>owner</span><span>role</span><span>router</span><span></span>
-        </div>
-        <div class="proxy-reg-list">${rows}</div>
-        ${orphanSection}
-      </div>
-    </div>
-  `;
 }
 
 export function renderTopologyAgentConfigModal() {

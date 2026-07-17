@@ -337,7 +337,9 @@ export function nodeServerCardHtml(node, s) {
   const _vramSplit = _gpuList.filter((g) => g.mib).map((g) => `GPU${g.i}: ${(g.mib / 1024).toFixed(1)} GiB`).join(" · ");
   const memBadge = (running && _vramMib)
     ? mbadge("vram", `${escapeHtml((_vramMib / 1024).toFixed(1))}G`, `${t("vramChipTitle")}${_vramSplit ? ` — ${_vramSplit}` : ""}`)
-    : "";
+    : ((!running && Number(s.modelSizeBytes) > 0)
+        ? mbadge("vram-est", `≈${escapeHtml((Number(s.modelSizeBytes) / 2 ** 30).toFixed(1))}G`, t("vramEstChipTitle"))
+        : "");
   // One truth for the chip AND the card accent (.cpu-cell → blue instead of
   // green/amber): running with no GPU memory, or stopped with CPU pinned in
   // the config.

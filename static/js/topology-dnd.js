@@ -27,7 +27,6 @@ import {
 import { openRequestHistory } from "./history.js";
 import { t } from "./i18n.js";
 import { closeConfirmModal } from "./llama-edit.js";
-import { deleteOrphanAgent } from "./remote-cells.js";
 import {
   routerById,
   saveRouters,
@@ -89,44 +88,10 @@ export let topologySchedulePaintOutput = "";  // output id currently selected fo
 export let topologyScheduleGrid = null;       // working [7][24] grid of outputId|"" while editing
 export let _schedulePainting = false;
 export let _schedulePointerUpBound = false;
-export let topologyProxySummaryOpen = false; // proxy port summary JSON viewer
 export let topologyLlamaDetailOpen = false;
 export let topologyGpuModalOpen = false;
 export let topologyRouteDetail = null;
 export function bindTopologyDragAndDrop() {
-  const summaryButton = $("topologyProxySummaryBtn");
-  if (summaryButton) summaryButton.onclick = () => {
-    topologyProxySummaryOpen = true;
-    renderTopology();
-  };
-  document.querySelector("[data-topology-proxy-summary-close]")?.addEventListener("click", () => {
-    topologyProxySummaryOpen = false;
-    renderTopology();
-  });
-  document.querySelector("[data-topology-proxy-summary-overlay]")?.addEventListener("click", (event) => {
-    if (event.target?.dataset?.topologyProxySummaryOverlay !== undefined) {
-      topologyProxySummaryOpen = false;
-      renderTopology();
-    }
-  });
-  // Proxy Ports registry: router reassign + add port
-  document.querySelectorAll("[data-proxy-reg-router]").forEach((sel) => {
-    sel.addEventListener("change", () => {
-      setTopologyProxyRoutePolicy(sel.dataset.proxyRegRouter, { routerId: sel.value }).catch((e) => toast(e.message));
-    });
-  });
-  document.querySelector("[data-proxy-reg-add]")?.addEventListener("click", () => {
-    ui.topologyProxyEditingId = "";
-    ui.topologyProxyFormOpen = true;
-    renderTopology();
-  });
-  // Dead-agent rows: delete the orphaned assignment + free its ports.
-  document.querySelectorAll("[data-orphan-agent-delete-client]").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      deleteOrphanAgent(btn.dataset.orphanAgentDeleteClient, btn.dataset.orphanAgentDeleteId);
-    });
-  });
   // ── Agent openclaw config viewer ─────────────────────────────────────────
   document.querySelectorAll("[data-agent-config-open]").forEach((btn) => {
     btn.addEventListener("click", (e) => {

@@ -670,6 +670,9 @@
 .mbadge-gpu    { background: color-mix(in srgb, var(--good,#4ade80) 12%, transparent); color: #86efac; border-color: color-mix(in srgb, var(--good,#4ade80) 30%, transparent); }
 .mbadge-cpu    { background: color-mix(in srgb, #4593ff 12%, transparent); color: #9cc4ff; border-color: color-mix(in srgb, #4593ff 32%, transparent); }
 .mbadge-vram   { background: color-mix(in srgb, var(--good,#4ade80) 14%, transparent); color: #a7f3c7; border-color: color-mix(in srgb, var(--good,#4ade80) 35%, transparent); font-weight: 700; font-variant-numeric: tabular-nums; }
+/* Estimate variant on parked cells: dashed + muted so it reads as a forecast,
+   and it drinks from --cell-accent so CPU-pinned cells get the blue family. */
+.mbadge-vram-est { background: color-mix(in srgb, var(--cell-accent, var(--good,#4ade80)) 7%, transparent); color: color-mix(in srgb, var(--cell-accent, var(--good,#4ade80)) 65%, var(--fg,#e6edf3)); border: 1px dashed color-mix(in srgb, var(--cell-accent, var(--good,#4ade80)) 35%, transparent); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 /* llama.cpp version chip in node header */
 .llama-ver-chip {

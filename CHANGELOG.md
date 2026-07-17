@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+- The whisper cell honors an optional `task=translate` multipart field
+  (whisper's built-in any→English translation) — a voice-translation app's
+  speak-for-me and interview-trainer flows use it for single-hop RU speech
+  → EN text. Servers that don't know the field keep ignoring it.
+
+## 1.3.43 — 2026-07-17
+
+- Parked cells (stopped / reserved / error) show a dashed ≈VRAM badge next
+  to the model name: the weights-on-disk size (multi-part GGUFs sum their
+  parts; client cells resolve by basename in the controller models tree).
+  The tooltip notes that real VRAM adds context/KV overhead on top.
+- The dead Proxy-ports registry modal is gone along with its unreachable
+  wiring — both of its openers had died in earlier redesigns; the ✎ on the
+  kanban client port rows is the living entry to the route form.
+
+## 1.3.42 — 2026-07-16
+
+- A re-pointed queue cable keeps its admit/spill role: dragging the endpoint
+  moves the role pointer onto the replacement edge and prunes stale pointers
+  — no more phantom roleless cables left behind.
+- Kanban canvas interactions (pan, zoom, node/port/cable drag, the ✕ delete)
+  survive background re-renders: cable grab and ✕ moved to document-level
+  delegation, and a rebind observer rewires the rest whenever a re-render
+  rebuilds the canvas DOM.
+
 ## 1.3.41 — 2026-07-16
 
 - The device chip and the memory figure split: the chip in the state row

@@ -1,10 +1,12 @@
 """Topology assembly: the /api/topology tree (clients, servers, GPUs, proxies,
 routers) built from heartbeats, probes, systemd and the proxy state files."""
+import glob
 import os
+import re
 import time
 
 from caravan.admin.cloud import cloud_accounts_state, cloud_blocks_state, cloud_provider_presets_public
-from caravan.admin.config_builder import parse_config
+from caravan.admin.config_builder import models_dir_from_config, parse_config
 from caravan.admin.runners import effective_health_path, uses_command_path
 from caravan.admin.fleet_clients import refresh_topology_clients_from_agents, topology_clients
 from caravan.admin.llama_metrics import runtime_metrics_sample, runtime_phase, vllm_metrics_sample
@@ -44,6 +46,41 @@ from caravan.admin.telemetry import (
 )
 from caravan.common.errors import AppError
 from caravan.common.fetch import post_json
+
+
+_SLOT_MODEL_SIZE_CACHE = {}  # model path → (bytes, checked_at)
+
+
+def _slot_model_size_bytes(model_path, models_dir):
+    """Weights-on-disk for a stopped cell's ≈VRAM badge. Controller paths stat
+    directly (multi-part GGUFs sum their siblings); client paths fall back to a
+    same-basename file under the controller models tree — clients run the same
+    GGUFs. 0 = unknown → no badge."""
+    if not model_path:
+        return 0
+    now = time.time()
+    hit = _SLOT_MODEL_SIZE_CACHE.get(model_path)
+    if hit and now - hit[1] < 300:
+        return hit[0]
+    size = 0
+    try:
+        path = model_path
+        if not os.path.isfile(path) and models_dir:
+            base = os.path.basename(model_path)
+            for root, _dirs, files in os.walk(models_dir):
+                if base in files:
+                    path = os.path.join(root, base)
+                    break
+        if os.path.isfile(path):
+            size = os.path.getsize(path)
+            part = re.search(r"-(\d{5})-of-(\d{5})\.gguf$", path)
+            if part:
+                size = sum(os.path.getsize(p) for p in glob.glob(
+                    path[: -len(part.group(0))] + "-*-of-" + part.group(2) + ".gguf"))
+    except OSError:
+        size = 0
+    _SLOT_MODEL_SIZE_CACHE[model_path] = (size, now)
+    return size
 
 
 def topology_server(config=None):
@@ -395,6 +432,11 @@ def topology_server(config=None):
             "downloadedBytes": _cdl,
             "totalBytes": _ctot,
             "ctxMax": _slot_ctx_max(host_id, port),
+            # ≈VRAM hint for a parked cell: weights-on-disk size (context/KV
+            # overhead not included). Live phases get the real figure from GPU
+            # process memory instead.
+            "modelSizeBytes": (_slot_model_size_bytes(model_path, str(models_dir_from_config(config)))
+                               if slot_phase in ("stopped", "reserved", "error") else 0),
             "promptTps": cell_metrics.get("promptTokensPerSecond") if cell_metrics.get("ok") else None,
             "genTps": cell_metrics.get("predictedTokensPerSecond") if cell_metrics.get("ok") else None,
             "vllmStats": slot_vllm_stats,
