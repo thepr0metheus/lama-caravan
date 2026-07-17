@@ -250,32 +250,21 @@
 .node-server { --cell-accent: var(--ok, #3fb950); }
 .node-server.cpu-cell { --cell-accent: #4593ff; }
 
-/* ── Running-cell life. Two layers, both drinking from --cell-accent:
-   a quiet breathing ring on every running cell (opacity-only — compositor),
-   and a border comet that appears ONLY while tokens actually flow — the 1 s
-   activity tick stamps .activity-active on the card, no rebuild involved.
-   Loops are seamless, so the full-board innerHTML rebuild restarts them
-   invisibly. Both die under prefers-reduced-motion. ── */
-.node-server.running::after {
-  content: ""; position: absolute; inset: -1px; border-radius: 8px;
-  pointer-events: none;
-  border: 1px solid color-mix(in srgb, var(--cell-accent, #3fb950) 80%, transparent);
-  box-shadow: 0 0 18px 3px color-mix(in srgb, var(--cell-accent, #3fb950) 70%, transparent),
-              inset 0 0 14px color-mix(in srgb, var(--cell-accent, #3fb950) 30%, transparent);
-  opacity: .3;
-  animation: cell-breath 3.2s ease-in-out infinite;
-}
-.node-server.running.activity-active::after { animation-duration: 1.6s; }
-@keyframes cell-breath { 50% { opacity: 1; } }
+/* ── Running-cell life: the border comet, always on while the cell runs.
+   (The breathing ring was tried in v1.3.45/46 and retired — "processing"
+   is already told by the slot bar's agent chip, so the comet alone marks
+   "running".) A masked ring child (.cell-beam, rendered only on running
+   cards) clips an oversized rotating conic gradient — transform-only, so
+   the compositor does the work; the seamless loop survives full board
+   rebuilds invisibly. Drinks from --cell-accent (CPU cells get blue).
+   Dies under prefers-reduced-motion. ── */
 .cell-beam {
   position: absolute; inset: -1px; border-radius: 8px; padding: 2px;
   pointer-events: none; overflow: hidden;
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
           mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor; mask-composite: exclude;
-  opacity: 0; transition: opacity .45s ease;
 }
-.node-server.running.activity-active .cell-beam { opacity: 1; }
 .cell-beam::before {
   content: ""; position: absolute; left: 50%; top: 50%; width: 280%; aspect-ratio: 1;
   transform: translate(-50%, -50%) rotate(0turn);
@@ -286,8 +275,7 @@
 }
 @keyframes cell-orbit { to { transform: translate(-50%, -50%) rotate(1turn); } }
 @media (prefers-reduced-motion: reduce) {
-  .node-server.running::after, .cell-beam::before { animation: none; }
-  .cell-beam { opacity: 0 !important; }
+  .cell-beam { display: none; }
 }
 
 /* ── Server lifecycle breadcrumb: stopped → starting → running ───────────── */

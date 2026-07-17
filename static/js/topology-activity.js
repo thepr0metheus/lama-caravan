@@ -615,12 +615,24 @@ export function topologyRuntimePanelHtml(group = "") {
     return `<span class="slot-chip ${escapeHtml(row.state)}" title="${escapeHtml(label)}: ${escapeHtml(row.name)}${row.text ? ` · ${row.text}` : ""}">${slotCrown}<span class="slot-chip-name">${escapeHtml(row.name)}</span>${row.text ? `<span class="slot-chip-sub">${escapeHtml(row.text)}</span>` : ""}</span>`;
   };
   const slotsHtml = slotMap.map(renderSlotRow).join("");
+  // Generation speed for the slots head — the server whose upstream matches
+  // this group. genTps rides the topology poll, so the per-second panel
+  // rebuild picks fresh numbers without extra requests.
+  const allSrv = [
+    ...(topology?.server?.llamaServers || []),
+    ...((topology?.nodes || []).flatMap((n) => n.servers || [])),
+  ];
+  const srv = group ? allSrv.find((x) => topologyServerGroup(x) === group) : null;
+  const gen = Number(srv?.genTps || 0);
+  const tpsHtml = gen > 0
+    ? `<span class="slots-head-tps" title="${escapeHtml(t("tokenSpeedHelp"))}">${escapeHtml(gen.toFixed(1))} t/s</span>`
+    : "";
   // The queue lane moved to the Router canvas (queue nodes). This classic panel now
   // shows live SLOTS only.
   return `
     <div class="topology-runtime-panel llama" data-topology-runtime-panel="${escapeHtml(group)}">
       <div class="topology-runtime-slots-head">
-        <strong>${escapeHtml(t("topologySlots"))} <span class="topology-muted">${totalSlots}</span></strong>
+        <strong>${escapeHtml(t("topologySlots"))} <span class="topology-muted">${totalSlots}</span></strong>${tpsHtml}
       </div>
       <div class="topology-runtime-slots slot-chips-row">${slotsHtml}</div>
     </div>

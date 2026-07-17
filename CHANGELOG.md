@@ -7,6 +7,15 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.47 — 2026-07-17
+
+- The breathing ring is gone; the border comet now runs the whole time a
+  cell is running. "Processing right now" already reads from the slot bar's
+  agent chip — one constant motion beats two competing ones.
+- Generation speed sits at the right edge of the SLOTS head (mono, tinted
+  by the cell accent) whenever llama.cpp reports a non-zero rate — refreshed
+  by the same per-second panel rebuild, no extra polling.
+
 ## 1.3.46 — 2026-07-17
 
 - The running-cell breathing ring got noticeably stronger: a pulsing 1 px

@@ -764,6 +764,9 @@
   color: var(--muted);
 }
 
+/* Compound selector: .topology-runtime-panel div (grid) outweighs a lone
+   class — the head must stay a flex row so the t/s figure sits at the right. */
+.topology-runtime-panel .topology-runtime-slots-head,
 .topology-runtime-slots-head {
   display: flex;
   align-items: center;
@@ -780,6 +783,15 @@
 
 .topology-runtime-slots-head .topology-muted {
   font-weight: 700;
+}
+
+/* Generation speed at the right edge of the SLOTS head (v1.3.47) */
+.slots-head-tps {
+  margin-left: auto;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--cell-accent, var(--ok, #3fb950)) 70%, var(--muted));
 }
 
 .topology-policy-edit-button svg {
