@@ -10,6 +10,10 @@ agent-proxies.json
 client-labels.json
 cloud-providers.json
 token-history.json
+# Provider model-catalog cache. With CARAVAN_DATA_DIR it lives in state/;
+# without it (bare native install) it lands in the repo root — ignore it there
+# so it doesn't show as a dirty "+1" in the header's git indicator.
+model-catalog.json
 provider-secrets.json
 *.secret.json
 *-secrets.json
