@@ -178,13 +178,16 @@ export function openRemoteFormForHost(hostId, port = "") {
 // carry the owner in the tooltip; a click on a free tile confirms and calls
 // the reassign endpoint — cables and rules follow the cell server-side.
 export function openPortPicker(hostId, port) {
-  const used = new Map();   // port -> {kind, label}
+  const used = new Map();   // port -> {kind, label, host, name, swappable}
+  const SWAPPABLE = new Set(["stopped", "reserved", "error"]);
   (topology?.nodes || []).forEach((n) => (n.servers || []).forEach((s) => {
     const p = Number(s.port || 0);
     if (!p) return;
     const host = s.isController ? "skynet" : (s.clientId || n.id);
     const what = (s.model || (s.config || {}).COMMAND || "cell").toString().slice(0, 48);
-    used.set(p, { kind: "cell", label: `${host} · ${what}` });
+    const phase = s.phase || (s.status && s.status.phase) || "";
+    used.set(p, { kind: "cell", label: `${host} · ${what}`, host, name: what,
+                  swappable: SWAPPABLE.has(phase) });
   }));
   (topology?.proxies || []).forEach((pr) => {
     const p = Number(pr.port || 0);
@@ -196,15 +199,24 @@ export function openPortPicker(hostId, port) {
   // stretches further if something already sits above it.
   const maxUsed = Math.max(8030, ...used.keys());
   const upper = Math.max(8199, maxUsed + 10);
+  const curName = used.get(cur)?.name || "";
   let tiles = "";
   for (let p = 8001; p <= upper; p++) {
     const u = used.get(p);
     const isCur = p === cur;
-    const cls = isCur ? "current" : (u ? `busy ${u.kind}` : "free");
-    const title = isCur
-      ? t("portPickerLegendCurrent")
-      : (u ? `${u.kind} · ${u.label}` : t("portPickerLegendFree"));
-    tiles += `<button type="button" class="port-tile ${cls}"${(!u && !isCur) ? ` data-pick-port="${p}"` : " disabled"} title="${escapeHtml(title)}">${p}</button>`;
+    let cls, attr, title;
+    if (isCur) {
+      cls = "current"; attr = " disabled"; title = t("portPickerLegendCurrent");
+    } else if (!u) {
+      cls = "free"; attr = ` data-pick-port="${p}"`; title = t("portPickerLegendFree");
+    } else if (u.kind === "cell" && u.swappable) {
+      // A stopped cell → offer a port swap (both cells trade ports + wiring).
+      cls = "busy cell swappable"; attr = ` data-swap-port="${p}"`;
+      title = t("portPickerSwapTitle", { p: String(p), name: u.name });
+    } else {
+      cls = `busy ${u.kind}`; attr = " disabled"; title = `${u.kind} · ${u.label}`;
+    }
+    tiles += `<button type="button" class="port-tile ${cls}"${attr} title="${escapeHtml(title)}">${p}</button>`;
   }
   const legend = [["free", t("portPickerLegendFree")], ["busy cell", t("portPickerLegendCell")],
                   ["busy proxy", t("portPickerLegendProxy")], ["busy bridge", t("portPickerLegendBridge")],
@@ -219,24 +231,36 @@ export function openPortPicker(hostId, port) {
         <button class="icon-action compact" type="button" data-pp-close aria-label="×">×</button>
       </div>
       <div class="port-picker-legend">${legend}</div>
+      <div class="port-picker-hint">${escapeHtml(t("portPickerSwapHint"))}</div>
       <div class="port-picker-grid">${tiles}</div>
     </div>`;
   const close = () => ovl.remove();
   ovl.addEventListener("click", async (e) => {
     if (e.target === ovl || e.target.closest("[data-pp-close]")) { close(); return; }
-    const tile = e.target.closest("[data-pick-port]");
+    const freeTile = e.target.closest("[data-pick-port]");
+    const swapTile = e.target.closest("[data-swap-port]");
+    const tile = freeTile || swapTile;
     if (!tile) return;
-    const newPort = Number(tile.dataset.pickPort);
-    if (!(await appConfirm(t("portPickerConfirm", { from: String(cur), to: String(newPort) }), { danger: false }))) return;
+    // Free tile → reassign to a free port; stopped-cell tile → swap the two cells.
+    const swap = !!swapTile;
+    const target = Number(tile.dataset.pickPort || tile.dataset.swapPort);
+    const prompt = swap
+      ? t("portPickerSwapConfirm", { a: String(cur), an: curName || String(cur),
+                                     b: String(target), bn: used.get(target)?.name || String(target) })
+      : t("portPickerConfirm", { from: String(cur), to: String(target) });
+    if (!(await appConfirm(prompt, { danger: false }))) return;
     tile.disabled = true;
     try {
-      const res = await api("/api/topology/server-cell/reassign-port", {
+      const res = await api(swap ? "/api/topology/server-cell/swap-port"
+                                 : "/api/topology/server-cell/reassign-port", {
         method: "POST",
-        body: JSON.stringify({ hostId, port: cur, newPort }),
+        body: JSON.stringify(swap ? { hostId, port: cur, targetPort: target }
+                                  : { hostId, port: cur, newPort: target }),
       });
       if (res.topology) setTopology(res.topology);
       renderTopology();
-      toast(t("portPickerDone", { port: String(newPort) }));
+      toast(swap ? t("portPickerSwapDone", { a: String(cur), b: String(target) })
+                 : t("portPickerDone", { port: String(target) }));
       close();
     } catch (err) {
       toast(err.message);

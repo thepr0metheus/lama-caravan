@@ -7,6 +7,14 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.51 — 2026-07-17
+
+- Swap ports between two stopped cells: in the port picker, a click on another
+  stopped cell's tile trades the two cells' ports (with a confirm) — both slot
+  records, config PORT, controller artifacts and every router reference follow
+  each cell atomically. Running cells and proxy/bridge ports stay
+  non-clickable; swappable tiles are dashed and hinted.
+
 ## 1.3.50 — 2026-07-17
 
 - The bundled TTS command-cell server now advertises its engine in `/health`

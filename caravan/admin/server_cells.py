@@ -152,6 +152,79 @@ def reassign_server_slot_port(body):
         pass
     return {"ok": True, "key": new_key, "port": new_port}
 
+
+def _assert_cell_stopped(host_id, port):
+    """Belt for the controller: a running unit owns its port. Client cells run
+    on the scout — the board state gates the UI there, same as reassign."""
+    if host_id != "skynet":
+        return
+    try:
+        from caravan.admin.systemd_ctl import cell_service_status
+        if (cell_service_status(port) or {}).get("ActiveState") == "active":
+            raise AppError(f"stop cell :{port} first — it is running", 409)
+    except AppError:
+        raise
+    except Exception:
+        pass
+
+
+def swap_server_slot_ports(body):
+    """Swap the ports of two STOPPED cells (fleet-wide, any hosts). Both slot
+    records, their config PORT, controller start.sh artifacts and every router
+    reference (srv:<a> ↔ srv:<b>) trade places — each cell's cables follow it.
+    Neither may be running."""
+    host_a = str(body.get("hostId") or "").strip()
+    port_a = int(body.get("port") or 0)
+    port_b = int(body.get("targetPort") or 0)
+    if not host_a or not port_a or not port_b:
+        raise AppError("hostId, port and targetPort are required", 400)
+    if port_a == port_b:
+        raise AppError("a cell cannot swap with itself", 400)
+    slots = topology_store().get("serverSlots", {})
+    key_a = server_slot_key(host_a, port_a)
+    slot_a = slots.get(key_a)
+    if not slot_a:
+        raise AppError(f"no server slot {key_a}", 404)
+    # Resolve the OTHER cell by port (fleet-wide; a cell port is globally unique).
+    key_b = next((k for k, s in slots.items() if int(s.get("port") or 0) == port_b), "")
+    slot_b = slots.get(key_b) if key_b else None
+    if not slot_b:
+        raise AppError(f"port :{port_b} is not a cell — only two cells can swap", 400)
+    host_b = str(slot_b.get("hostId") or key_b.rsplit(":", 1)[0])
+    _assert_cell_stopped(host_a, port_a)
+    _assert_cell_stopped(host_b, port_b)
+
+    def _move(slot, host_id, new_port):
+        slot["id"] = server_slot_key(host_id, new_port)
+        slot["port"] = new_port
+        slot["updatedAt"] = int(time.time())
+        cfg = slot.get("config")
+        if isinstance(cfg, dict) and cfg:
+            cfg["PORT"] = str(new_port)
+            if host_id == "skynet":
+                art = write_server_cell_artifacts(host_id, new_port, cfg)
+                if art:
+                    slot["artifact"] = art
+        return slot
+
+    # Detach both, then reattach on the swapped ports (avoids a key collision
+    # when the two cells live on the same host).
+    del slots[key_a]
+    del slots[key_b]
+    _move(slot_a, host_a, port_b)
+    _move(slot_b, host_b, port_a)
+    slots[slot_a["id"]] = slot_a
+    slots[slot_b["id"]] = slot_b
+    save_admin_state()
+    # Cables follow their cells: srv:<a> ↔ srv:<b> across every router.
+    try:
+        from caravan.admin.proxies_config import swap_router_output_refs
+        swap_router_output_refs(f"srv:{port_a}", f"srv:{port_b}")
+    except Exception:
+        pass
+    return {"ok": True, "a": {"host": host_a, "port": port_b},
+            "b": {"host": host_b, "port": port_a}}
+
 def set_server_slot_note(host_id, port, note):
     """Free-form user note on a cell slot (shown on the board card and in the
     cell detail modal). Empty note clears it."""

@@ -360,6 +360,60 @@ def remap_router_output_refs(old_id, new_id):
         save_agent_proxy_config(payload.get("routes") or [], routers)
     return changed
 
+def swap_router_output_refs(id_a, id_b):
+    """Swap two output ids everywhere a router points at either — the mirror of
+    remap for a port SWAP between two cells, so each cable follows its own cell.
+    Done in a single pass (an `a`→`b` remap then a `b`→`a` remap would clobber:
+    the second flips the just-written `b`s back). Persists + restarts once."""
+    payload = load_agent_proxy_config()
+    routers = payload.get("routers") or []
+    e_a, e_b = f"out:{id_a}", f"out:{id_b}"
+    port_a = int(str(id_a).split(":", 1)[1]) if str(id_a).startswith("srv:") else 0
+    port_b = int(str(id_b).split(":", 1)[1]) if str(id_b).startswith("srv:") else 0
+    changed = False
+
+    def swap(v):
+        return id_b if v == id_a else (id_a if v == id_b else v)
+
+    for router in routers:
+        for out in router.get("outputs") or []:
+            if out.get("id") == id_a:
+                out["id"] = id_b
+                if port_b:
+                    out["upstreamPort"] = port_b
+                changed = True
+            elif out.get("id") == id_b:
+                out["id"] = id_a
+                if port_a:
+                    out["upstreamPort"] = port_a
+                changed = True
+        rules = router.get("rules") or {}
+        for key in ("default", "dormantDefault", "audioOutput", "embeddingsOutput"):
+            if rules.get(key) in (id_a, id_b):
+                rules[key] = swap(rules[key])
+                changed = True
+        for coll in ("schedule", "bySource"):
+            for r in rules.get(coll) or []:
+                if isinstance(r, dict) and r.get("output") in (id_a, id_b):
+                    r["output"] = swap(r["output"])
+                    changed = True
+        failover = rules.get("failover") or []
+        if any(o in (id_a, id_b) for o in failover):
+            rules["failover"] = [swap(o) for o in failover]
+            changed = True
+        for e in (router.get("graph") or {}).get("edges") or []:
+            if not isinstance(e, dict):
+                continue
+            if e.get("from") in (e_a, e_b):
+                e["from"] = e_b if e["from"] == e_a else e_a
+                changed = True
+            if e.get("to") in (e_a, e_b):
+                e["to"] = e_b if e["to"] == e_a else e_a
+                changed = True
+    if changed:
+        save_agent_proxy_config(payload.get("routes") or [], routers)
+    return changed
+
 def cloud_block_refs(block_id):
     """Everything that references a cloud model-block — the delete-confirm
     preflight. Covers bridge routes (providerId), graph cables (out:cb:<id>),

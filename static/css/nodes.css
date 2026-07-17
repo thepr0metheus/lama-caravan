@@ -912,3 +912,17 @@
   cursor: default;
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent,#6ea8fe) 25%, transparent);
 }
+/* A stopped cell is swappable: undo the busy dimming, dash the border to say
+   "clickable", and turn the hover into a swap-target accent. */
+.port-tile.busy.cell.swappable {
+  cursor: pointer;
+  opacity: 1;
+  border-style: dashed;
+}
+.port-tile.busy.cell.swappable:hover {
+  border-color: var(--accent,#6ea8fe);
+  background: color-mix(in srgb, var(--accent,#6ea8fe) 16%, transparent);
+  color: var(--accent,#6ea8fe);
+  transform: translateY(-1px);
+}
+.port-picker-hint { font-size: 11px; color: var(--muted,#888); padding: 0 2px 8px; }
