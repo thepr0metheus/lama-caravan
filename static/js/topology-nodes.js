@@ -511,6 +511,7 @@ export function nodeServerCardHtml(node, s) {
     return `
       <article class="node-server ${cardCls}"
                data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}">
+        ${running ? '<span class="cell-beam" aria-hidden="true"></span>' : ""}
         <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
               data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>
         <div class="node-ctrl-row">
@@ -560,6 +561,7 @@ export function nodeServerCardHtml(node, s) {
   return `
     <article class="node-server ${cardCls}"
              data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}">
+      ${running ? '<span class="cell-beam" aria-hidden="true"></span>' : ""}
       <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
             data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>
       ${lifecycleBar}

@@ -7,6 +7,14 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.45 — 2026-07-17
+
+- Running cells came alive: a quiet breathing ring on every running cell, and
+  a border comet that appears only while tokens actually flow (driven by the
+  existing 1 s activity tick — no extra polling). Both take the cell's accent
+  color, so CPU cells breathe blue; everything stops under
+  `prefers-reduced-motion`, and the loops are seamless across board rebuilds.
+
 ## 1.3.44 — 2026-07-17
 
 - Dead agents got a visible home: a red dashed strip at the bottom of the

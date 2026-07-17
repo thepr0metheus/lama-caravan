@@ -250,6 +250,45 @@
 .node-server { --cell-accent: var(--ok, #3fb950); }
 .node-server.cpu-cell { --cell-accent: #4593ff; }
 
+/* ── Running-cell life. Two layers, both drinking from --cell-accent:
+   a quiet breathing ring on every running cell (opacity-only — compositor),
+   and a border comet that appears ONLY while tokens actually flow — the 1 s
+   activity tick stamps .activity-active on the card, no rebuild involved.
+   Loops are seamless, so the full-board innerHTML rebuild restarts them
+   invisibly. Both die under prefers-reduced-motion. ── */
+.node-server.running::after {
+  content: ""; position: absolute; inset: -1px; border-radius: 8px;
+  pointer-events: none;
+  box-shadow: 0 0 12px 1px color-mix(in srgb, var(--cell-accent, #3fb950) 50%, transparent),
+              inset 0 0 9px color-mix(in srgb, var(--cell-accent, #3fb950) 18%, transparent);
+  opacity: .22;
+  animation: cell-breath 3.6s ease-in-out infinite;
+}
+.node-server.running.activity-active::after { animation-duration: 1.6s; }
+@keyframes cell-breath { 50% { opacity: .8; } }
+.cell-beam {
+  position: absolute; inset: -1px; border-radius: 8px; padding: 2px;
+  pointer-events: none; overflow: hidden;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+          mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+  opacity: 0; transition: opacity .45s ease;
+}
+.node-server.running.activity-active .cell-beam { opacity: 1; }
+.cell-beam::before {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 280%; aspect-ratio: 1;
+  transform: translate(-50%, -50%) rotate(0turn);
+  background: conic-gradient(transparent 0 80%,
+    color-mix(in srgb, var(--cell-accent, #3fb950) 55%, transparent) 90%,
+    color-mix(in srgb, var(--cell-accent, #3fb950) 90%, #fff) 97%, transparent 100%);
+  animation: cell-orbit 3.2s linear infinite;
+}
+@keyframes cell-orbit { to { transform: translate(-50%, -50%) rotate(1turn); } }
+@media (prefers-reduced-motion: reduce) {
+  .node-server.running::after, .cell-beam::before { animation: none; }
+  .cell-beam { opacity: 0 !important; }
+}
+
 /* ── Server lifecycle breadcrumb: stopped → starting → running ───────────── */
 /* Wrapper row: lifecycle bar + ✕ delete button in same row */
 .node-lc-row {
