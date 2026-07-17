@@ -7,6 +7,15 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.50 — 2026-07-17
+
+- The bundled TTS command-cell server now advertises its engine in `/health`
+  even when ready — it used to answer a bare `ok` (indistinguishable from any
+  other healthy server), so a voice app's LAN discovery couldn't identify a
+  running f5/cosyvoice cell and dropped it. Ready now returns
+  `{"status":"ok","engine":<engine>}`; the caravan board reads it as running
+  exactly as before.
+
 ## 1.3.49 — 2026-07-17
 
 - Host cells keep their place when you start or stop them. They were ordered

@@ -213,7 +213,14 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if _state["ready"]:
-            self._send(200, b"ok")
+            # Advertise the engine even when ready. A bare "ok" is
+            # indistinguishable from any other healthy server, so LAN discovery
+            # (the voice app's scan) couldn't tell a ready TTS cell apart from a
+            # plain-"ok" endpoint and dropped it. The caravan board's own
+            # command-cell probe reads status=ok all the same.
+            self._send(200,
+                       json.dumps({"status": "ok", "engine": ENGINE}).encode(),
+                       "application/json")
             return
         payload = json.dumps({
             "status": _state["phase"], "engine": ENGINE,
