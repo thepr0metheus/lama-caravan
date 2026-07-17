@@ -7,6 +7,12 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.46 — 2026-07-17
+
+- The running-cell breathing ring got noticeably stronger: a pulsing 1 px
+  accent border plus a wider, brighter glow (peak opacity 1), breathing a
+  touch faster. The slot bar and its agent-name display stay untouched.
+
 ## 1.3.45 — 2026-07-17
 
 - Running cells came alive: a quiet breathing ring on every running cell, and

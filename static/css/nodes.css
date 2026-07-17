@@ -259,13 +259,14 @@
 .node-server.running::after {
   content: ""; position: absolute; inset: -1px; border-radius: 8px;
   pointer-events: none;
-  box-shadow: 0 0 12px 1px color-mix(in srgb, var(--cell-accent, #3fb950) 50%, transparent),
-              inset 0 0 9px color-mix(in srgb, var(--cell-accent, #3fb950) 18%, transparent);
-  opacity: .22;
-  animation: cell-breath 3.6s ease-in-out infinite;
+  border: 1px solid color-mix(in srgb, var(--cell-accent, #3fb950) 80%, transparent);
+  box-shadow: 0 0 18px 3px color-mix(in srgb, var(--cell-accent, #3fb950) 70%, transparent),
+              inset 0 0 14px color-mix(in srgb, var(--cell-accent, #3fb950) 30%, transparent);
+  opacity: .3;
+  animation: cell-breath 3.2s ease-in-out infinite;
 }
 .node-server.running.activity-active::after { animation-duration: 1.6s; }
-@keyframes cell-breath { 50% { opacity: .8; } }
+@keyframes cell-breath { 50% { opacity: 1; } }
 .cell-beam {
   position: absolute; inset: -1px; border-radius: 8px; padding: 2px;
   pointer-events: none; overflow: hidden;
