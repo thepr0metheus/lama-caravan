@@ -4,7 +4,7 @@ import time
 
 from caravan.admin.config_builder import is_command_cell
 from caravan.admin.launch import write_server_cell_artifacts
-from caravan.admin.paths import SERVER_CELL_BASE_PORT
+from caravan.admin.paths import SERVER_CELL_BASE_PORT, is_controller_host
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.common.errors import AppError
 
@@ -91,7 +91,7 @@ def upsert_server_slot(host_id, port, config=None, model=None, label=None):
                                 "ts": int(time.time())})
                 slot["commandHistory"] = hist[:10]
         slot["config"] = {k: v for k, v in config.items() if v is not None}
-        if str(host_id).strip() == "skynet":
+        if is_controller_host(host_id):
             artifact = write_server_cell_artifacts(host_id, port, config)
             if artifact:
                 slot["artifact"] = artifact
@@ -121,7 +121,7 @@ def reassign_server_slot_port(body):
     # The UI only offers reassign on stopped cells; this is the backend belt —
     # a running unit owns its old port (controller check only; a client cell's
     # runtime lives on the scout and the board state already gates the button).
-    if host_id == "skynet":
+    if is_controller_host(host_id):
         try:
             from caravan.admin.systemd_ctl import cell_service_status
             if (cell_service_status(old_port) or {}).get("ActiveState") == "active":
@@ -138,7 +138,7 @@ def reassign_server_slot_port(body):
     cfg = slot.get("config")
     if isinstance(cfg, dict) and cfg:
         cfg["PORT"] = str(new_port)
-        if host_id == "skynet":
+        if is_controller_host(host_id):
             artifact = write_server_cell_artifacts(host_id, new_port, cfg)
             if artifact:
                 slot["artifact"] = artifact
@@ -156,7 +156,7 @@ def reassign_server_slot_port(body):
 def _assert_cell_stopped(host_id, port):
     """Belt for the controller: a running unit owns its port. Client cells run
     on the scout — the board state gates the UI there, same as reassign."""
-    if host_id != "skynet":
+    if not is_controller_host(host_id):
         return
     try:
         from caravan.admin.systemd_ctl import cell_service_status
@@ -201,7 +201,7 @@ def swap_server_slot_ports(body):
         cfg = slot.get("config")
         if isinstance(cfg, dict) and cfg:
             cfg["PORT"] = str(new_port)
-            if host_id == "skynet":
+            if is_controller_host(host_id):
                 art = write_server_cell_artifacts(host_id, new_port, cfg)
                 if art:
                     slot["artifact"] = art

@@ -21,7 +21,7 @@ from caravan.admin.monitoring import (
     runtime_api,
 )
 from caravan.admin.openclaw import openclaw_configs_snapshot
-from caravan.admin.paths import IS_CONTAINER, SERVICE_NAME, TOPOLOGY_SERVER_IP
+from caravan.admin.paths import IS_CONTAINER, SERVICE_NAME, TOPOLOGY_SERVER_IP, is_controller_host
 from caravan.admin.proxies_config import (
     load_agent_proxy_config,
     read_agent_proxy_payload,
@@ -299,7 +299,7 @@ def topology_server(config=None):
         port = slot.get("port")
         if (host_id, port) in live_keys:
             continue
-        is_controller_slot = host_id == "skynet"
+        is_controller_slot = is_controller_host(host_id)
         client = {} if is_controller_slot else (clients_by_id.get(host_id) or {})
         client_ip = str(client.get("ip") or "").strip()
         gpu_name = ""

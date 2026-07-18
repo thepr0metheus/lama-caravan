@@ -9,7 +9,7 @@ import time
 
 from caravan.admin.config_builder import parse_config
 from caravan.admin.llama_metrics import runtime_metrics_sample
-from caravan.admin.paths import TOKEN_HISTORY_FILE, TOKEN_HISTORY_MAX, TOKEN_HISTORY_RETENTION_SEC
+from caravan.admin.paths import TOKEN_HISTORY_FILE, TOKEN_HISTORY_MAX, TOKEN_HISTORY_RETENTION_SEC, is_controller_host
 from caravan.admin.state import topology_store
 from caravan.common.fsio import atomic_write_text
 
@@ -141,7 +141,7 @@ def controller_llama_ports():
             # is_controller_slot in topology_server); client cells carry their
             # own hostId and must NOT be summed into the controller's throughput.
             host_id = str(slot.get("hostId") or str(key).split(":")[0] or "")
-            if host_id == "skynet":
+            if is_controller_host(host_id):
                 try:
                     ports.append(int(slot.get("port") or str(key).rsplit(":", 1)[-1]))
                 except (TypeError, ValueError):

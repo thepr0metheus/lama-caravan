@@ -15,6 +15,7 @@ from caravan.admin.server_cells import (
     upsert_server_slot,
 )
 from caravan.admin.monitoring import gpu_state
+from caravan.admin.paths import is_controller_host
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.admin.status import state
 from caravan.admin.systemd_ctl import cell_service_action, cell_service_name, cell_service_status, systemctl
@@ -48,7 +49,7 @@ def _vllm_vram_gate(port, cfg):
     holders = []
     for slot in topology_store().get("serverSlots", {}).values():
         s_port = int(slot.get("port") or 0)
-        if str(slot.get("hostId")) != "skynet" or s_port == port or not s_port:
+        if not is_controller_host(slot.get("hostId")) or s_port == port or not s_port:
             continue
         try:
             if cell_service_status(s_port).get("ActiveState") == "active":
@@ -93,7 +94,7 @@ def client_server_slot_delete(body: dict) -> dict:
     # A client cell IS the agent's llama-node (not just a stored slot), so also
     # tell the agent to stop/clear it — otherwise a configured/failed cell keeps
     # coming back from the agent's heartbeat and can't be deleted from the UI.
-    if host_id != "skynet":
+    if not is_controller_host(host_id):
         try:
             client_llama_stop({"hostId": host_id, "port": port})
         except Exception:
@@ -123,7 +124,7 @@ def server_cell_save_config(body: dict) -> dict:
     if not host_id or not port:
         raise AppError("hostId and port are required", 400)
     slot = upsert_server_slot(host_id, port, config=config, model=model)
-    if host_id == "skynet":
+    if is_controller_host(host_id):
         # A new config invalidates the previous crash: clear the unit's failed
         # state so the card stops shouting about a config that no longer exists.
         try:
@@ -131,7 +132,7 @@ def server_cell_save_config(body: dict) -> dict:
                 systemctl("reset-failed", cell_service_name(port), timeout=5)
         except Exception:
             pass
-    if host_id != "skynet":
+    if not is_controller_host(host_id):
         slot["cacheModels"] = bool(body.get("cacheModels", False))
         topology_store()["serverSlots"][server_slot_key(host_id, port)] = slot
         save_admin_state()
@@ -145,7 +146,7 @@ def server_cell_action(body: dict) -> dict:
         raise AppError("hostId and port are required", 400)
     if action_name not in {"start", "stop", "restart", "enable", "disable"}:
         raise AppError("action must be start, stop, restart, enable, or disable", 400)
-    if host_id == "skynet":
+    if is_controller_host(host_id):
         slot = topology_store().get("serverSlots", {}).get(server_slot_key(host_id, port)) or {}
         cfg = slot.get("config") if isinstance(slot.get("config"), dict) else {}
         if action_name in {"start", "restart"} and runner_id(cfg) == "vllm":

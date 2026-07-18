@@ -7,6 +7,19 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.66 — 2026-07-18
+
+- "Is this the controller?" is now a question the code asks, not a hostname it
+  compares. A dozen checks read `host_id == "skynet"` — and those checks decide
+  real behaviour: whether a delete stops a systemd unit, whether a start is
+  forwarded to an agent, whether a cell's crash state gets cleared. Spelled that
+  way they read like a hostname test, which is the wrong question on any fleet
+  whose controller is not called that (or, worse, whose CLIENT is). They call
+  `is_controller_host()` now, against a `CONTROLLER_HOST_ID` sentinel that stays
+  "skynet" on purpose: slot keys, cell notes and schedules are all persisted
+  with it, so the VALUE cannot change without migrating every stored key — but
+  the meaning no longer hides behind a name.
+
 ## 1.3.65 — 2026-07-18
 
 - Deleting a controller cell stops it. The delete handler told a CLIENT's agent

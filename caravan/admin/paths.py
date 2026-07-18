@@ -98,3 +98,22 @@ _BENCH_CACHE_DIR = Path(_default("state/bench-cache", PROJECT_ROOT / ".bench_cac
 OPENCLAW_CONFIG_CACHE_FILE = Path(os.environ.get("OPENCLAW_CONFIG_CACHE_FILE")
     or _default("secrets/openclaw-config-cache.json",
                 Path.home() / ".config" / "llamacpp-easy-admin" / "openclaw-config-cache.json"))
+
+# ── Controller identity ─────────────────────────────────────────────────────
+# The controller's host id in STORED state. A sentinel, not a hostname: slot
+# keys ("<hostId>:<port>"), cell notes and schedules are all persisted with it,
+# so it cannot be renamed without migrating every stored key. The controller's
+# DISPLAY name is a separate, configurable thing (LLAMA_TOPOLOGY_SERVER_NAME).
+CONTROLLER_HOST_ID = "skynet"
+
+
+def is_controller_host(host_id) -> bool:
+    """True when a slot/cell belongs to the controller rather than a client.
+
+    Ask this instead of comparing to the literal. These checks decide real
+    behaviour — whether a delete stops a systemd unit, whether a start is
+    forwarded to an agent — and spelled out as `host_id != "skynet"` they read
+    like a hostname test, which is the wrong question on any fleet whose
+    controller is not called that (or whose CLIENT is).
+    """
+    return str(host_id or "").strip() == CONTROLLER_HOST_ID
