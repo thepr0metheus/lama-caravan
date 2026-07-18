@@ -7,6 +7,18 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.61 — 2026-07-18
+
+- The GPU half of a node block follows the scroll. On a node with a long cell
+  list the VRAM bar scrolled away, so the hover highlight added in 1.3.59 had
+  nothing visible left to point at. The panel is sticky under the topbar now,
+  and stays inside its own node — it travels out with the block when that block
+  ends rather than riding over the next one. Two things make it work: a grid
+  item stretches by default and a full-height box has nowhere to stick, so the
+  panel shrinks to its content; and it carries its own scroll, so pinning it
+  never puts ROUTE ACTIVITY out of reach on a short window. Two-column body
+  only — stacked, it would pin over the cells.
+
 ## 1.3.60 — 2026-07-18
 
 - The board gives up its cable gutters before its columns. 1.3.59 fixed the

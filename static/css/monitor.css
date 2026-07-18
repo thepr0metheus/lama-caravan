@@ -1161,6 +1161,21 @@
 .node-subtitle { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted,#888); padding:10px 14px 6px 16px; }
 .node-servers { display:flex; flex-direction:column; gap:8px; padding:8px 10px; }
 .node-gpus { display:flex; flex-direction:column; gap:0; padding:0; }
+/* The GPU half follows the scroll, so deep in a long cell list you can still see
+   which bar the model you are hovering belongs to. Two things make it work: a
+   grid item stretches by default and a full-height box has nowhere to stick, so
+   it shrinks to its content (align-self); and the panel gets its own scroll, so
+   pinning it never puts ROUTE ACTIVITY out of reach on a short window. Only in
+   the two-column body — stacked, this would pin the panel over the cells. */
+@media (min-width: 901px) {
+  .node-gpus {
+    position: sticky;
+    top: 68px;                                   /* 60px sticky topbar + 8px air */
+    align-self: start;
+    max-height: calc(100vh - 84px);
+    overflow-y: auto;
+  }
+}
 .node-server {
   position:relative; display:block; padding:9px 12px 10px 16px;
   border:1px solid var(--line);
