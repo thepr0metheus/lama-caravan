@@ -7,6 +7,18 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.65 — 2026-07-18
+
+- Deleting a controller cell stops it. The delete handler told a CLIENT's agent
+  to stop the cell but skipped the controller's own — `if host_id != "skynet"`
+  guarded the whole stop — so removing a running controller cell dropped the
+  slot from the store while `lama-cell@<port>.service` kept serving. The result
+  is invisible by construction: the board renders what the store holds, so the
+  cell disappears from the UI while its llama-server holds its VRAM, and there
+  is no card left to stop it by. Found one on the controller sitting on 26.9 GB
+  of a 31.8 GB card, healthy and routed to by nothing, while two other cells
+  failed to start for want of that memory and the UI showed no model at all.
+
 ## 1.3.64 — 2026-07-18
 
 - A cell that runs out of VRAM says so, instead of blaming the model file. The

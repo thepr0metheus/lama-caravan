@@ -98,6 +98,20 @@ def client_server_slot_delete(body: dict) -> dict:
             client_llama_stop({"hostId": host_id, "port": port})
         except Exception:
             pass
+    else:
+        # The controller's cell IS a systemd unit, and dropping the slot does not
+        # touch it: delete a running one and llama-server keeps serving, holding
+        # its VRAM, with nothing left on the board to stop it BY — the card is
+        # gone. That is how :8011 came to sit on 27 GB of a 32 GB card while two
+        # other cells failed to start and the UI showed no model at all.
+        try:
+            cell_service_action(port, "stop")
+        except Exception:
+            pass
+        try:
+            systemctl("reset-failed", cell_service_name(port), timeout=5)
+        except Exception:
+            pass
     return {"ok": True, "removed": removed}
 
 def server_cell_save_config(body: dict) -> dict:
