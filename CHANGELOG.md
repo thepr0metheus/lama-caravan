@@ -7,6 +7,13 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.57 — 2026-07-18
+
+- Apply on a cell's config no longer promises a start. It saves and returns
+  (the start is the card's play button), but the confirm asked "Start the
+  server on :N?" — so a save read as a failed start. It now asks the same
+  "Apply the cell configuration changes?" the controller's Apply uses.
+
 ## 1.3.56 — 2026-07-18
 
 - The t/s figure in the SLOTS head is labeled "last" — it's the generation

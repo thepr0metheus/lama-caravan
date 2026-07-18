@@ -909,10 +909,20 @@ export async function submitRemoteLlamaStart() {
   const gpuLayers      = parseInt(config.N_GPU_LAYERS || "999", 10);
   const ctxSize        = parseInt(config.CTX_SIZE || "4096", 10);
   const cacheModels    = !!$("tr-cacheModels")?.checked;
-  const _startMsg = isCommandPath || !modelPath
-    ? t("dlgStartPort", { port: String(port) })
-    : t("dlgStartModel", { model: modelPath.split("/").pop(), port: String(port) });
-  if (!(await appConfirm(_startMsg, { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;
+  // A CELL's Apply only saves the config (the start is the card's ▶ button), so
+  // it must not promise a start — it used to ask "Start the server on :N?" and
+  // then just save, which reads as a failed start.
+  const _isCellSave = !!_trCellPort;
+  const _startMsg = _isCellSave
+    ? t("dlgApplyCellConfig")
+    : (isCommandPath || !modelPath
+        ? t("dlgStartPort", { port: String(port) })
+        : t("dlgStartModel", { model: modelPath.split("/").pop(), port: String(port) }));
+  if (!(await appConfirm(_startMsg, {
+    danger: false,
+    confirmLabel: _isCellSave ? "OK" : t("dlgStartLabel"),
+    scene: "start",
+  }))) return;
   if (isCommand) {
     if (!(config.COMMAND || "").trim()) { toast(t("enterCommand")); return; }
   } else if (runnerId === "vllm") {
