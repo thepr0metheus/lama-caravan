@@ -7,6 +7,13 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.55 — 2026-07-18
+
+- STOP stays amber on every cell again. It followed the cell hue (blue on CPU
+  cells) after the button-color unification; a warm stop action reads better
+  the same everywhere, so it's back to a constant amber. START/AUTOSTART still
+  follow the cell accent, CONFIGURED/STARTING still follow the cell hue.
+
 ## 1.3.54 — 2026-07-18
 
 - Port picker colors read right: cell tiles (the swappable ones) are now amber
