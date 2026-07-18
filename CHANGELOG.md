@@ -7,6 +7,19 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.64 — 2026-07-18
+
+- A cell that runs out of VRAM says so, instead of blaming the model file. The
+  failure classifier matched its patterns in order, first hit wins, and `model`
+  sat above `oom` — but llama.cpp reports an allocation failure by *also*
+  logging "error loading model" / "failed to load model", so every card that
+  simply did not fit read "model file missing or unreadable — re-download it or
+  pick another" while the file sat there, 22 GB and perfectly readable. Two
+  cells on the controller showed that today; the journal underneath said
+  `cudaMalloc failed: out of memory`. `oom` is now matched first. The reverse
+  mix-up cannot happen: a genuinely missing file fails at open, before a single
+  allocation is attempted, so its log carries no oom wording.
+
 ## 1.3.63 — 2026-07-18
 
 - A GPU-pinned cell is no longer labeled a CPU cell while it has yet to

@@ -100,11 +100,20 @@ def cell_service_status(port):
 # problems also mention memory-sounding words further down the log).
 _CELL_ERR_PATTERNS = (
     ("exec", ("status=203", "203/exec", "failed to locate executable", "permission denied")),
+    # oom BEFORE model: a card that cannot fit the weights always ends with
+    # "error loading model" / "failed to load model" too, because that is how
+    # llama.cpp reports the consequence — so matching model first told the user
+    # the file was missing while it sat there, 22 GB and perfectly readable:
+    #   cudaMalloc failed: out of memory
+    #   alloc_tensor_range: failed to allocate CUDA0 buffer of size 22593124608
+    #   llama_model_load: error loading model: unable to allocate CUDA0 buffer
+    # The reverse mix-up cannot happen: a genuinely missing file fails at open,
+    # before a single allocation is attempted, so its log has no oom wording.
+    ("oom", ("out of memory", "cudamalloc", "failed to allocate", "unable to allocate",
+             "erroroutofdevicememory", "not enough memory", "insufficient memory")),
     ("model", ("gguf_init_from_file", "error loading model", "failed to load model",
                "no such file or directory")),
     ("port", ("address already in use", "couldn't bind", "failed to bind")),
-    ("oom", ("out of memory", "cudamalloc", "failed to allocate", "unable to allocate",
-             "erroroutofdevicememory", "not enough memory", "insufficient memory")),
 )
 _cell_err_cache = {}
 
