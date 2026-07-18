@@ -7,6 +7,19 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.63 — 2026-07-18
+
+- A GPU-pinned cell is no longer labeled a CPU cell while it has yet to
+  allocate. Both the card's device chip and the node's "cells on CPU" line
+  decided by measured VRAM alone — running with no `gpuIndexes` meant CPU. But
+  a model reads its weights off disk for the first 13-18 seconds and allocates
+  nothing on the card in that window, and the host's GPU-to-process mapping
+  refreshes on its own beat after that. So a cell carrying `TTS_DEVICE=cuda`
+  came up as a blue CPU card right after starting, which reads as the Device
+  setting having been ignored — while the process was in fact on the GPU. An
+  explicit pin now counts for both: the launcher either lands on the GPU or
+  fails outright, it never quietly falls back.
+
 ## 1.3.62 — 2026-07-18
 
 - The router's server list says what a command cell runs. Only llama cells

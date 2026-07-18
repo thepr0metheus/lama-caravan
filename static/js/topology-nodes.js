@@ -50,6 +50,19 @@ function runnerChipHtml(runnerId) {
   return `<span class="mbadge mbadge-cmd node-runner-chip">${meta[0]} ${meta[1]}</span>`;
 }
 
+// A cell explicitly pinned to the GPU — TTS_DEVICE/DEVICE=cuda|gpu or
+// --device cuda in its ENV/COMMAND. The pin is authoritative even when the cell
+// currently holds no VRAM: with an explicit pin the launcher either lands on the
+// GPU or fails outright, it never quietly falls back. Measured VRAM alone is not
+// enough to call a cell "CPU" — a model reads its weights off disk for the first
+// 13-18s and allocates nothing on the card in that window, and the host's
+// GPU→process mapping refreshes on its own beat after that.
+function cellPinnedToGpu(srv) {
+  const cfg = (srv && srv.slotConfig) || {};
+  const envCmd = `${String(cfg.ENV || "")}\n${String(cfg.COMMAND || "")}`;
+  return /(?:^|[\s;,])(?:TTS_DEVICE|DEVICE)=(?:cuda|gpu)\b|--device[=\s]+(?:cuda|gpu)\b/i.test(envCmd);
+}
+
 // Compact age for status lines: 45s / 12m / 5h / 3d.
 function _agoShort(epoch) {
   const s = Math.max(0, Math.floor(Date.now() / 1000 - Number(epoch)));
@@ -328,7 +341,7 @@ export function nodeServerCardHtml(node, s) {
   const cfgSaysCpu = String(_scfg.N_GPU_LAYERS ?? "").trim() === "0"
     || /(?:^|[\s;,])(?:TTS_DEVICE|DEVICE)=cpu\b|--device[=\s]+cpu\b/i.test(_envCmd)
     || /(?:^|[\n,;\s])CUDA_VISIBLE_DEVICES=(?:""|'')?(?:[\n,;\s]|$)/.test(_envStr);
-  const cfgSaysGpu = /(?:^|[\s;,])(?:TTS_DEVICE|DEVICE)=(?:cuda|gpu)\b|--device[=\s]+(?:cuda|gpu)\b/i.test(_envCmd);
+  const cfgSaysGpu = cellPinnedToGpu(s);
   // Device chip carries WHERE (⚡ GPU0); the memory badge carries HOW MUCH and
   // sits next to the model name — live VRAM held by the cell's processes
   // (multi-GPU sums up, the per-GPU split lives in the tooltip).
@@ -348,9 +361,11 @@ export function nodeServerCardHtml(node, s) {
         ? mbadge("vram-est", `≈${escapeHtml((Number(s.modelSizeBytes) / 2 ** 30).toFixed(1))}G`, t("vramEstChipTitle"))
         : "");
   // One truth for the chip AND the card accent (.cpu-cell → blue instead of
-  // green/amber): running with no GPU memory, or stopped with CPU pinned in
-  // the config.
-  const isCpuCell = (running && !devGpuTxt) || (!running && cfgSaysCpu && !isReserved);
+  // green/amber): running with no GPU memory AND no GPU pin, or stopped with
+  // CPU pinned in the config. The pin has to count — measuring VRAM alone
+  // labeled a GPU-pinned cell "CPU" for the whole window before it allocates,
+  // which reads as the Device setting having been ignored.
+  const isCpuCell = (running && !devGpuTxt && !cfgSaysGpu) || (!running && cfgSaysCpu && !isReserved);
   // Stopped without a pin: llama (with offload) and vLLM are GPU by nature,
   // whisper's launcher is CUDA-first; a bare custom command resolves its
   // device at start (VRAM probe) → "auto".
@@ -960,7 +975,9 @@ export function nodesLaneHtml() {
       // them their own CPU line — otherwise a running CPU cell looks missing.
       const cpuPorts = servers.filter((srv) => {
         const ph = srv.phase || (srv.status && srv.status.phase) || "";
-        return ph === "running" && !(srv.gpuIndexes || []).length;
+        // Same rule as the card's chip: a GPU-pinned cell is never a CPU cell,
+        // even in the window where it holds no VRAM yet.
+        return ph === "running" && !(srv.gpuIndexes || []).length && !cellPinnedToGpu(srv);
       }).map((srv) => srv.port).filter(Boolean);
       const cpuRowHtml = cpuPorts.length ? `
         <div class="node-gpu-row node-cpu-row" title="${escapeHtml(t("topologyCpuCellsHint"))}">
