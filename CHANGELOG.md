@@ -7,6 +7,12 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.52 — 2026-07-17
+
+- The cell's port button no longer hovers green on a blue CPU cell: it drew
+  from the app's teal accent instead of the cell accent. Now it matches its
+  cell — green on GPU cells, blue on CPU cells.
+
 ## 1.3.51 — 2026-07-17
 
 - Swap ports between two stopped cells: in the port picker, a click on another
