@@ -447,10 +447,61 @@ export async function deleteServerSlot(hostId, port) {
   }
 }
 
+// ── VRAM share on hover ─────────────────────────────────────────────────────
+// Hovering a running cell lights up its own slice of the node's VRAM bar, so
+// "how much of the card is this model?" is answerable without reading numbers.
+function _vramClaims(card) {
+  return String(card?.dataset?.cellVram || "").split(",").filter(Boolean)
+    .map((pair) => { const [i, mib] = pair.split(":"); return { i, mib: Number(mib) || 0 }; });
+}
+
+function _clearVramSlices() {
+  document.querySelectorAll(".node-vram-slice:not([hidden])").forEach((el) => { el.hidden = true; });
+}
+
+function _showVramSlice(card) {
+  _clearVramSlices();
+  const nodeId = card.dataset.cellNode || "";
+  const port = Number(card.dataset.llamaPort || 0);
+  if (!nodeId) return;
+  // Cells sharing this node — used to stack bands left-to-right by port so the
+  // hovered one sits where its memory actually is, not always at zero.
+  const peers = [...document.querySelectorAll("[data-cell-vram][data-cell-node]")]
+    .filter((p) => p.dataset.cellNode === nodeId);
+  _vramClaims(card).forEach(({ i, mib }) => {
+    const bar = document.querySelector(`[data-gpu-row="${CSS.escape(`${nodeId}:${i}`)}"] .node-vram-bar`);
+    const slice = bar?.querySelector(".node-vram-slice");
+    const total = Number(bar?.dataset.vramTotal || 0);
+    if (!slice || !(total > 0) || !(mib > 0)) return;
+    const before = peers
+      .filter((p) => Number(p.dataset.llamaPort || 0) < port)
+      .reduce((a, p) => a + (_vramClaims(p).find((c) => c.i === i)?.mib || 0), 0);
+    slice.style.left = `${Math.min(100, (before / total) * 100)}%`;
+    slice.style.width = `${Math.min(100, (mib / total) * 100)}%`;
+    slice.hidden = false;
+  });
+}
+
+// Delegated on document and bound once: the board rebuilds itself on every
+// structure change, so listeners living on the cards themselves come unstuck.
+function bindVramHoverOnce() {
+  if (document.body.dataset.vramHoverBound) return;
+  document.body.dataset.vramHoverBound = "1";
+  document.addEventListener("mouseover", (e) => {
+    const card = e.target?.closest?.("[data-cell-vram]");
+    if (card) _showVramSlice(card);
+  });
+  document.addEventListener("mouseout", (e) => {
+    const card = e.target?.closest?.("[data-cell-vram]");
+    if (card && !card.contains(e.relatedTarget)) _clearVramSlices();
+  });
+}
+
 // Bind data-node-start / data-node-slot-del within a root element (scoped so
 // classic board and node view don't double-bind each other's buttons).
 export function bindServerSlotControls(root) {
   if (!root) return;
+  bindVramHoverOnce();
   root.querySelectorAll("[data-node-start]").forEach((b) =>
     b.addEventListener("click", () => openRemoteFormForHost(b.dataset.nodeStart, b.dataset.nodeStartPort || "")));
   root.querySelectorAll("[data-node-cell-start]").forEach((b) =>

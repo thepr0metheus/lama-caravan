@@ -7,6 +7,22 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.59 — 2026-07-18
+
+- The board stacks into one column at 1479px instead of 1100px — the width
+  where its two columns actually stop fitting. `.topology-lanes` is the binding
+  constraint (four floors 210 + 36 + 390 + 260 plus three 44px gaps = 1028px,
+  and the right board column only reaches that around 1480), so every viewport
+  from 1101 to 1479 kept the column minimums and overflowed to the RIGHT: 254px
+  of it at 1150. The left padding survived, the right one was eaten by the
+  overflow, and the panels on that edge came out clipped — the page read as
+  shifted, with an indent on one side only.
+- Hovering a running cell lights up its own slice of the node's VRAM bar, so
+  "how much of this card is that model?" is answerable at a glance. The bar
+  knows only the node-wide total, so each card carries its per-GPU claim and
+  the handler stacks the bands by port — two cells sharing a GPU read as
+  adjacent segments instead of two overlapping ones both starting at zero.
+
 ## 1.3.58 — 2026-07-18
 
 - The start confirm for a command cell says what actually happens. It used to

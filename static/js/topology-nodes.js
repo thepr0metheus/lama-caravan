@@ -110,7 +110,8 @@ export function nodeGpuRowHtml(node, g) {
         <span class="node-gpu-name">${escapeHtml(g.name || "GPU")}</span>
         <span class="node-gpu-util" data-live-gpuutil>${escapeHtml(String(util))}% · ${escapeHtml(String(temp))}°C · ${escapeHtml(String(power))}W</span>
       </div>
-      <div class="node-vram-bar" data-live-gpuvrambar title="${usedGb} / ${totalGb} GB"><span style="width:${pct}%"></span></div>
+      <div class="node-vram-bar" data-live-gpuvrambar data-vram-total="${escapeHtml(String(total))}"
+           title="${usedGb} / ${totalGb} GB"><span style="width:${pct}%"></span><i class="node-vram-slice" hidden></i></div>
       <div class="node-gpu-meta">
         <span data-live-gpuvram>VRAM ${usedGb} / ${totalGb} GB</span>
         ${ports.length ? `<span class="node-gpu-ports">▶ ${ports.map((p) => escapeHtml(String(p))).join(", ")}</span>` : `<span class="topology-muted">idle</span>`}
@@ -335,6 +336,12 @@ export function nodeServerCardHtml(node, s) {
   const devGpuTxt = _gpuList.map((g) => `GPU${g.i}`).join(" · ");
   const _vramMib = _gpuList.reduce((a, g) => a + g.mib, 0);
   const _vramSplit = _gpuList.filter((g) => g.mib).map((g) => `GPU${g.i}: ${(g.mib / 1024).toFixed(1)} GiB`).join(" · ");
+  // Hovering the card lights up this cell's slice of the node's VRAM bar. The
+  // bar knows only the node-wide total in use, so the card has to carry its own
+  // per-GPU claim ("<gpuIndex>:<MiB>") for the hover handler to size the band.
+  const _vramClaim = running
+    ? _gpuList.filter((g) => g.mib > 0).map((g) => `${g.i}:${g.mib}`).join(",")
+    : "";
   const memBadge = (running && _vramMib)
     ? mbadge("vram", `${escapeHtml((_vramMib / 1024).toFixed(1))}G`, `${t("vramChipTitle")}${_vramSplit ? ` — ${_vramSplit}` : ""}`)
     : ((!running && Number(s.modelSizeBytes) > 0)
@@ -515,7 +522,8 @@ export function nodeServerCardHtml(node, s) {
 
     return `
       <article class="node-server ${cardCls}"
-               data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}">
+               data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}"
+               ${_vramClaim ? `data-cell-node="${escapeHtml(String(node.id))}" data-cell-vram="${escapeHtml(_vramClaim)}"` : ""}>
         ${running ? '<span class="cell-beam" aria-hidden="true"></span>' : ""}
         <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
               data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>

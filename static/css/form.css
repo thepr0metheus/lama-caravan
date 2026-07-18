@@ -676,14 +676,8 @@ button.cmd-dirty::after {
 }
 
 @media (max-width: 1100px) {
-  .topology-divider-lane {
-    display: none;
-  }
-
   .status-grid,
-  .workspace,
-  .topology-board,
-  .topology-lanes {
+  .workspace {
     grid-template-columns: 1fr;
   }
 

@@ -830,3 +830,22 @@ details.topology-server-stats-card > .topology-processes-details {
 .router-cfg-failover .mini-link.active { color: var(--accent); }
 .router-cfg-failover-chain { font-size: 11px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
 
+
+/* Stack where the two columns actually stop fitting. The binding constraint is
+   .topology-lanes, not the board: its four fixed floors (210 + 36 + 390 + 260)
+   plus three 44px gaps need 1028px, and the right board column only reaches
+   that once the viewport hits ~1480 (it takes 1.72fr of the free space after
+   the 72px gap, with main padding 24px either side). The stack used to kick in
+   at 1100, so every width from 1101 to 1479 kept the column minimums and
+   overflowed to the RIGHT — 254px of it at 1150. The left padding survived,
+   the right one was eaten and the panels on that edge came out clipped. */
+@media (max-width: 1479px) {
+  .topology-board,
+  .topology-lanes {
+    grid-template-columns: 1fr;
+  }
+
+  .topology-divider-lane {
+    display: none;
+  }
+}
