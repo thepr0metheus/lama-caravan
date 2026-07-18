@@ -247,8 +247,14 @@
    cells (.cpu-cell is computed next to the device chip in topology-nodes.js).
    Every state rule below drinks from this var — recoloring a cell kind is a
    one-liner: no per-rule overrides, no specificity wars. */
-.node-server { --cell-accent: var(--ok, #3fb950); }
-.node-server.cpu-cell { --cell-accent: #4593ff; }
+/* Two hue tokens per cell drive EVERY button/step: --cell-accent for the "go"
+   family (START, AUTOSTART, done/reserved/running), --cell-caution for the
+   "in-progress" family (STOP, CONFIGURED, STARTING). On GPU cells accent=green,
+   caution=amber; on CPU cells both are blue, so the whole card reads blue.
+   Destructive stays red and neutral stays grey — those are constants, not
+   cell-typed. Recoloring a cell kind is these two lines, nothing else. */
+.node-server { --cell-accent: var(--ok, #3fb950); --cell-caution: var(--warn, #f59e0b); }
+.node-server.cpu-cell { --cell-accent: #4593ff; --cell-caution: #4593ff; }
 
 /* ── Running-cell life: the border comet, always on while the cell runs.
    (The breathing ring was tried in v1.3.45/46 and retired — "processing"
@@ -309,9 +315,9 @@
   box-shadow: 0 2px 5px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.10);
 }
 .node-action-btn.warn{
-  color: var(--warn,#f59e0b);
-  border-color: color-mix(in srgb, var(--warn,#f59e0b) 30%, transparent);
-  background: linear-gradient(180deg, color-mix(in srgb, var(--warn,#f59e0b) 14%, transparent) 0%, color-mix(in srgb, var(--warn,#f59e0b) 7%, transparent) 100%);
+  color: var(--cell-caution,#f59e0b);
+  border-color: color-mix(in srgb, var(--cell-caution,#f59e0b) 30%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cell-caution,#f59e0b) 14%, transparent) 0%, color-mix(in srgb, var(--cell-caution,#f59e0b) 7%, transparent) 100%);
   box-shadow: 0 2px 5px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.10);
 }
 .node-action-btn.del {
@@ -339,7 +345,7 @@
   background: linear-gradient(180deg, color-mix(in srgb, var(--cell-accent, #3fb950) 12%, transparent) 0%, color-mix(in srgb, var(--cell-accent, #3fb950) 6%, transparent) 100%);
 }
 .node-action-btn.ok:not(:disabled):hover  { background: linear-gradient(180deg, color-mix(in srgb, var(--cell-accent, #3fb950) 16%, transparent) 0%, color-mix(in srgb, var(--cell-accent, #3fb950) 9%, transparent) 100%); border-color: var(--cell-accent, #3fb950); }
-.node-action-btn.warn:not(:disabled):hover{ background: linear-gradient(180deg, color-mix(in srgb, var(--warn,#f59e0b) 18%, transparent) 0%, color-mix(in srgb, var(--warn,#f59e0b) 10%, transparent) 100%); border-color: var(--warn,#f59e0b); }
+.node-action-btn.warn:not(:disabled):hover{ background: linear-gradient(180deg, color-mix(in srgb, var(--cell-caution,#f59e0b) 18%, transparent) 0%, color-mix(in srgb, var(--cell-caution,#f59e0b) 10%, transparent) 100%); border-color: var(--cell-caution,#f59e0b); }
 .node-action-btn.del:not(:disabled):hover { color: var(--bad,#ff8585); border-color: color-mix(in srgb, var(--bad,#ff8585) 45%, transparent); background: linear-gradient(180deg, color-mix(in srgb, var(--bad,#ff8585) 12%, transparent) 0%, color-mix(in srgb, var(--bad,#ff8585) 6%, transparent) 100%); }
 .node-action-btn.ok:not(:disabled):active,
 .node-action-btn.warn:not(:disabled):active,
@@ -383,18 +389,18 @@
 }
 /* override state bg/border to always signal "this is clickable" */
 .lc-node.lc-cfg-btn:not(:disabled) {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--warn,#f59e0b) 14%, transparent) 0%, color-mix(in srgb, var(--warn,#f59e0b) 7%, transparent) 100%);
-  border-color: color-mix(in srgb, var(--warn,#f59e0b) 40%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cell-caution,#f59e0b) 14%, transparent) 0%, color-mix(in srgb, var(--cell-caution,#f59e0b) 7%, transparent) 100%);
+  border-color: color-mix(in srgb, var(--cell-caution,#f59e0b) 40%, transparent);
   box-shadow: 0 2px 5px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.10);
 }
 .lc-cfg-btn:not(:disabled):hover {
-  border-color: var(--warn,#f59e0b) !important;
-  background: color-mix(in srgb, var(--warn,#f59e0b) 12%, transparent);
+  border-color: var(--cell-caution,#f59e0b) !important;
+  background: color-mix(in srgb, var(--cell-caution,#f59e0b) 12%, transparent);
 }
 .lc-cfg-btn:not(:disabled):hover .lc-dot {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn,#f59e0b) 22%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cell-caution,#f59e0b) 22%, transparent);
 }
-.lc-cfg-btn:not(:disabled):hover .lc-lbl { color: var(--warn,#f59e0b) !important; }
+.lc-cfg-btn:not(:disabled):hover .lc-lbl { color: var(--cell-caution,#f59e0b) !important; }
 .lc-cfg-btn:disabled { cursor: default; opacity: 0.4; }
 .lc-uptime { font-size: 7px; opacity: .65; text-transform: none; letter-spacing: 0; }
 /* fixed tiny connector — boxes take all the space, rails are just decoration */
@@ -425,31 +431,31 @@
 .lc-node.lc-stopped .lc-dot { background: var(--muted,#888); }
 .lc-node.lc-stopped .lc-lbl { color: var(--muted,#888); }
 
-/* Active — configured (has model, not running) */
-.lc-node.lc-configured { border-color: color-mix(in srgb, var(--warn,#f59e0b) 40%, transparent); background: color-mix(in srgb, var(--warn,#f59e0b) 10%, transparent); }
+/* Active — configured (has model, not running) → caution hue */
+.lc-node.lc-configured { border-color: color-mix(in srgb, var(--cell-caution,#f59e0b) 40%, transparent); background: color-mix(in srgb, var(--cell-caution,#f59e0b) 10%, transparent); }
 .lc-node.lc-configured .lc-dot {
-  background: color-mix(in srgb, var(--warn,#f59e0b) 65%, var(--muted,#888));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn,#f59e0b) 18%, transparent);
+  background: color-mix(in srgb, var(--cell-caution,#f59e0b) 65%, var(--muted,#888));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-caution,#f59e0b) 18%, transparent);
   animation: lc-pulse-configured 2.8s ease-in-out infinite;
 }
-.lc-node.lc-configured .lc-lbl { color: color-mix(in srgb, var(--warn,#f59e0b) 75%, var(--muted,#888)); font-weight: 600; }
+.lc-node.lc-configured .lc-lbl { color: color-mix(in srgb, var(--cell-caution,#f59e0b) 75%, var(--muted,#888)); font-weight: 600; }
 
-/* Active — reserved cell */
-.lc-node.lc-reserved { border-color: color-mix(in srgb, var(--accent,#6ea8fe) 45%, transparent); background: color-mix(in srgb, var(--accent,#6ea8fe) 10%, transparent); }
+/* Active — reserved cell → accent hue (was the teal global --accent) */
+.lc-node.lc-reserved { border-color: color-mix(in srgb, var(--cell-accent,#3fb950) 45%, transparent); background: color-mix(in srgb, var(--cell-accent,#3fb950) 10%, transparent); }
 .lc-node.lc-reserved .lc-dot {
-  background: var(--accent,#6ea8fe);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent,#6ea8fe) 18%, transparent);
+  background: var(--cell-accent,#3fb950);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-accent,#3fb950) 18%, transparent);
 }
-.lc-node.lc-reserved .lc-lbl { color: var(--accent,#6ea8fe); font-weight: 600; }
+.lc-node.lc-reserved .lc-lbl { color: var(--cell-accent,#3fb950); font-weight: 600; }
 
-/* Active — loading/starting */
-.lc-node.lc-loading { border-color: color-mix(in srgb, var(--warn,#f59e0b) 45%, transparent); background: color-mix(in srgb, var(--warn,#f59e0b) 10%, transparent); }
+/* Active — loading/starting → caution hue */
+.lc-node.lc-loading { border-color: color-mix(in srgb, var(--cell-caution,#f59e0b) 45%, transparent); background: color-mix(in srgb, var(--cell-caution,#f59e0b) 10%, transparent); }
 .lc-node.lc-loading .lc-dot {
-  background: var(--warn,#f59e0b);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn,#f59e0b) 25%, transparent);
+  background: var(--cell-caution,#f59e0b);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-caution,#f59e0b) 25%, transparent);
   animation: lc-pulse-amber 1.4s ease-in-out infinite;
 }
-.lc-node.lc-loading .lc-lbl { color: var(--warn,#f59e0b); }
+.lc-node.lc-loading .lc-lbl { color: var(--cell-caution,#f59e0b); }
 
 /* Active — running */
 .lc-node.lc-running {
@@ -486,12 +492,12 @@
 
 @keyframes lc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 @keyframes lc-pulse-amber {
-  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn,#f59e0b) 25%, transparent); }
-  50%       { box-shadow: 0 0 0 6px color-mix(in srgb, var(--warn,#f59e0b) 0%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-caution,#f59e0b) 25%, transparent); }
+  50%       { box-shadow: 0 0 0 6px color-mix(in srgb, var(--cell-caution,#f59e0b) 0%, transparent); }
 }
 @keyframes lc-pulse-configured {
-  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn,#f59e0b) 20%, transparent); }
-  50%       { box-shadow: 0 0 0 5px color-mix(in srgb, var(--warn,#f59e0b) 0%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-caution,#f59e0b) 20%, transparent); }
+  50%       { box-shadow: 0 0 0 5px color-mix(in srgb, var(--cell-caution,#f59e0b) 0%, transparent); }
 }
 
 /* ── State nodes (RESERVED, STARTING, RUNNING) — always dark inset box ──── */
@@ -819,18 +825,8 @@
 .node-cpu-row { opacity: 0.85; }
 .node-cpu-row .node-gpu-head strong { color: var(--muted); }
 
-/* ── CPU cells: the amber CONFIGURED state also turns blue ─────────────────
-   (that state colors via --warn, which stays amber on GPU cells). Everything
-   green follows --cell-accent automatically — see the declaration above. */
-.node-server.cpu-cell .lc-node.lc-configured {
-  border-color: color-mix(in srgb, var(--cell-accent, #4593ff) 40%, transparent);
-  background: color-mix(in srgb, var(--cell-accent, #4593ff) 10%, transparent);
-}
-.node-server.cpu-cell .lc-node.lc-configured .lc-dot {
-  background: color-mix(in srgb, var(--cell-accent, #4593ff) 65%, var(--muted,#888));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-accent, #4593ff) 18%, transparent);
-}
-.node-server.cpu-cell .lc-node.lc-configured .lc-lbl { color: color-mix(in srgb, var(--cell-accent, #4593ff) 80%, var(--muted,#888)); }
+/* (The one-off CPU override for the amber CONFIGURED state is gone — CONFIGURED
+   now colors via --cell-caution, which is already blue on CPU cells.) */
 
 /* ── Port picker: reassign a parked cell to a free port ────────────────────
    The "reserved :port" step is a BUTTON while the cell is parked — raised

@@ -7,6 +7,17 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.53 — 2026-07-18
+
+- One coloring mechanism for every cell button and lifecycle step, driven by
+  two per-cell hue tokens: the "go" family (START, AUTOSTART, done, reserved,
+  running) follows --cell-accent, the "in-progress" family (STOP, CONFIGURED,
+  STARTING) follows --cell-caution. On GPU cells that's green + amber; on CPU
+  cells both are blue, so the whole card reads blue. Destructive (DELETE,
+  error, stopping) stays red. Fixes buttons that used to each follow their own
+  rule — the RESERVED step drew from the app's teal accent, and STARTING/STOP
+  stayed amber on blue cells.
+
 ## 1.3.52 — 2026-07-17
 
 - The cell's port button no longer hovers green on a blue CPU cell: it drew
