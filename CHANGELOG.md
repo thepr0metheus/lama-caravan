@@ -7,6 +7,12 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.56 — 2026-07-18
+
+- The t/s figure in the SLOTS head is labeled "last" — it's the generation
+  speed of the last completed request (llama.cpp holds it while the slot is
+  idle), not a live rate, so it no longer reads as current.
+
 ## 1.3.55 — 2026-07-18
 
 - STOP stays amber on every cell again. It followed the cell hue (blue on CPU

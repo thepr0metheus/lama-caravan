@@ -785,13 +785,22 @@
   font-weight: 700;
 }
 
-/* Generation speed at the right edge of the SLOTS head (v1.3.47) */
+/* Generation speed at the right edge of the SLOTS head (v1.3.47) — the LAST
+   completed request's rate, so it carries a muted "last" label (v1.3.56). */
 .slots-head-tps {
   margin-left: auto;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
   color: color-mix(in srgb, var(--cell-accent, var(--ok, #3fb950)) 70%, var(--muted));
+}
+.slots-head-tps-lbl {
+  font-family: inherit;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  font-size: 8px;
+  opacity: .6;
+  color: var(--muted);
 }
 
 .topology-policy-edit-button svg {

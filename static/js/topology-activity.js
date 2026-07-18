@@ -624,8 +624,10 @@ export function topologyRuntimePanelHtml(group = "") {
   ];
   const srv = group ? allSrv.find((x) => topologyServerGroup(x) === group) : null;
   const gen = Number(srv?.genTps || 0);
+  // genTps is the LAST completed request's rate — llama.cpp holds it while the
+  // slot is idle, so label it "last" to not read as a live figure.
   const tpsHtml = gen > 0
-    ? `<span class="slots-head-tps" title="${escapeHtml(t("tokenSpeedHelp"))}">${escapeHtml(gen.toFixed(1))} t/s</span>`
+    ? `<span class="slots-head-tps" title="${escapeHtml(t("tpsLastHelp"))}"><span class="slots-head-tps-lbl">${escapeHtml(t("tpsLastLabel"))}</span> ${escapeHtml(gen.toFixed(1))} t/s</span>`
     : "";
   // The queue lane moved to the Router canvas (queue nodes). This classic panel now
   // shows live SLOTS only.
