@@ -1,5 +1,6 @@
 // Host-centric nodes view: server cards, telemetry mounts, incidents, models bar.
 import { drawTopologyCables } from "./cables.js";
+import { CONTROLLER_HOST_ID } from "./constants.js";
 import { nodeTelemetryRowsHtml, renderTopologyIncidents } from "./charts.js";
 import { effectiveModelsDir } from "./command-preview.js";
 import { badge, mbadge, renderModelSelects } from "./form.js";
@@ -219,7 +220,7 @@ export function serverLifecycleBar(lcIdx, lcActiveStep, uptimeTxt = "", cfgAttrs
 export function nodeServerCardHtml(node, s) {
   const isStopping = !s.isController && _stoppingHosts.has(node.id);
   const port = s.port;
-  const slotHostId = s.isController ? "skynet" : node.id;
+  const slotHostId = s.isController ? CONTROLLER_HOST_ID : node.id;
   const slotKey = `${slotHostId}:${port}`;
   const cellKey = slotKey;  // alias used in controls + config block
   const isDeleting = _deletingSlots.has(slotKey);
@@ -484,7 +485,7 @@ export function nodeServerCardHtml(node, s) {
     const cellHostId = slotHostId;
     const isCellStopping = _stoppingCells.has(cellKey) || pendingCellAction === "stop";
     const isCellBusy = isCellStopping || !!pendingCellAction;
-    const cfgAttrs = `data-node-cell-start="${escapeHtml(s.isController ? "skynet" : node.id)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-role="${escapeHtml(node.role)}"`;
+    const cfgAttrs = `data-node-cell-start="${escapeHtml(s.isController ? CONTROLLER_HOST_ID : node.id)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-role="${escapeHtml(node.role)}"`;
 
     // ✕ delete — active only when reserved / stopped / error
     const canDelete = (isReserved || phase === "stopped" || isError) && !isDeleting && !isCellBusy;
@@ -802,7 +803,7 @@ export function openNodeServerDetail(nodeId, port) {
           <div class="nsd-cfg-section nsd-note-section">
             <div class="nsd-cfg-head">${escapeHtml(t("cellNoteHead"))}</div>
             <textarea class="nsd-note-input" maxlength="280" rows="2"
-              placeholder="${escapeHtml(t("cellNotePlaceholder"))}">${escapeHtml((topology?.cellNotes || {})[`${s.isController ? "skynet" : node.id}:${s.port}`] || "")}</textarea>
+              placeholder="${escapeHtml(t("cellNotePlaceholder"))}">${escapeHtml((topology?.cellNotes || {})[`${s.isController ? CONTROLLER_HOST_ID : node.id}:${s.port}`] || "")}</textarea>
             <button class="nsd-note-save" type="button">${escapeHtml(t("cellNoteSave"))}</button>
           </div>
         </div>
@@ -833,7 +834,7 @@ export function openNodeServerDetail(nodeId, port) {
     try {
       await api("/api/topology/server-slot/note", {
         method: "POST",
-        body: JSON.stringify({ hostId: s.isController ? "skynet" : node.id, port: s.port, note }),
+        body: JSON.stringify({ hostId: s.isController ? CONTROLLER_HOST_ID : node.id, port: s.port, note }),
       });
       toast(t("cellNoteSaved"));
       await refreshTopology();

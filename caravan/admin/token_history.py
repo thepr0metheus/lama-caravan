@@ -137,7 +137,8 @@ def controller_llama_ports():
     try:
         store = topology_store()
         for key, slot in (store.get("serverSlots") or {}).items():
-            # Controller slots are always keyed/tagged "skynet" (see
+            # Controller slots are always keyed/tagged with the controller
+            # sentinel (see
             # is_controller_slot in topology_server); client cells carry their
             # own hostId and must NOT be summed into the controller's throughput.
             host_id = str(slot.get("hostId") or str(key).split(":")[0] or "")

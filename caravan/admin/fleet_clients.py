@@ -14,6 +14,7 @@ from caravan.admin.runners import effective_command, effective_health_path, uses
 from caravan.admin.launch import _sanitize_snapshot_name
 from caravan.admin.paths import (
     CONTROLLER_HOST_ID,
+    LEGACY_CONTROLLER_HOST_IDS,
     FLEET_REGISTRY_URL,
     TOPOLOGY_SERVER_IP,
     SERVER_BACKUPS_DIR,
@@ -525,8 +526,11 @@ def topology_client_from_heartbeat(payload):
     # the predicate decides behaviour, so it must never take a client whose id
     # differs only in case FOR the controller. A fleet holding both spellings is
     # a reading trap regardless — so refuse the near-miss at the door instead.
-    if host_id.casefold() == CONTROLLER_HOST_ID.casefold():
-        raise AppError(f'host.id "{CONTROLLER_HOST_ID}" is reserved for the controller — '
+    # LEGACY ids stay reserved forever: stale frontends still send them meaning
+    # "the controller", so a client under that name would be unaddressable.
+    _reserved = (CONTROLLER_HOST_ID,) + LEGACY_CONTROLLER_HOST_IDS
+    if any(host_id.casefold() == r.casefold() for r in _reserved):
+        raise AppError(f'host.id "{host_id}" is reserved for the controller — '
                        f"give this client a different hostId", 400)
     agents = []
     for agent in payload.get("agents") or []:

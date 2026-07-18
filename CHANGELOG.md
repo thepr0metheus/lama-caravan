@@ -7,6 +7,21 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.69 — 2026-07-19
+
+- The controller's stored host id is the role name `controller`, not a
+  machine's name. Slot keys (and the notes and schedules living inside them)
+  migrate on load, once and idempotently; the API keeps accepting the legacy
+  spelling from stale cached frontends and maps it to the canonical id at the
+  single choke point every slot lookup goes through, so one cell can never
+  exist under two keys. The legacy id stays RESERVED against client heartbeats
+  forever — an id that ever meant "the controller" may never come to mean one
+  of its clients. The display name is unchanged and still comes from
+  `LLAMA_TOPOLOGY_SERVER_NAME`. Proxy-route ids (`…:proxy:<port>`) are a
+  separate wire-format namespace and deliberately keep their spelling — they
+  are stored in client-side scout state, which a controller-side migration
+  cannot reach.
+
 ## 1.3.68 — 2026-07-19
 
 - Deleting a controller cell removes its artifacts too. `write_server_cell_artifacts()`

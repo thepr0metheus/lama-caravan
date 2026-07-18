@@ -5,7 +5,12 @@ object and mutates it in place, then calls save_admin_state(). Never rebind it.
 """
 import json
 
-from caravan.admin.paths import ADMIN_STATE_FILE, MONITOR_RETENTION_DEFAULT
+from caravan.admin.paths import (
+    ADMIN_STATE_FILE,
+    CONTROLLER_HOST_ID,
+    LEGACY_CONTROLLER_HOST_IDS,
+    MONITOR_RETENTION_DEFAULT,
+)
 from caravan.common.fsio import atomic_write_text
 
 
@@ -42,6 +47,35 @@ admin_state.setdefault("hfToken", "")
 admin_state.setdefault("hfFavorites", [])
 # Field keys the user starred to mirror into the launch-form "Favorites" tab.
 admin_state.setdefault("favFields", [])
+
+
+def _migrate_controller_host_id():
+    """One-time key migration: the controller's stored host id used to be the
+    literal "skynet"; slots (and the notes/schedules living inside them) move
+    to the role-based sentinel. Idempotent — a migrated store has no legacy
+    keys left to match. Never clobbers an existing canonical key: if both
+    spellings of one port somehow exist, the canonical record wins and the
+    legacy one is dropped."""
+    slots = (admin_state.get("topology") or {}).get("serverSlots")
+    if not isinstance(slots, dict):
+        return
+    changed = False
+    for key in list(slots):
+        head, sep, port = str(key).partition(":")
+        if not sep or head not in LEGACY_CONTROLLER_HOST_IDS:
+            continue
+        slot = slots.pop(key)
+        new_key = f"{CONTROLLER_HOST_ID}:{port}"
+        if isinstance(slot, dict):
+            slot["hostId"] = CONTROLLER_HOST_ID
+            slot["id"] = new_key
+        slots.setdefault(new_key, slot)
+        changed = True
+    if changed:
+        save_admin_state()
+
+
+_migrate_controller_host_id()
 
 
 def topology_store():

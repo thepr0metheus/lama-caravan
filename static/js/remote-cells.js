@@ -1,7 +1,7 @@
 // Remote cell lifecycle: reserve/start/stop, tr- edit form, remote backups.
 import { appConfirm, appPrompt } from "./dialogs.js";
 import { renderCommandPreview } from "./command-preview.js";
-import { defaultOnOptionalToggles } from "./constants.js";
+import { CONTROLLER_HOST_ID, defaultOnOptionalToggles } from "./constants.js";
 import { refreshFavoritesPanel } from "./favorites.js";
 import {
   badge,
@@ -183,7 +183,7 @@ export function openPortPicker(hostId, port) {
   (topology?.nodes || []).forEach((n) => (n.servers || []).forEach((s) => {
     const p = Number(s.port || 0);
     if (!p) return;
-    const host = s.isController ? "skynet" : (s.clientId || n.id);
+    const host = s.isController ? CONTROLLER_HOST_ID : (s.clientId || n.id);
     const what = (s.model || (s.config || {}).COMMAND || "cell").toString().slice(0, 48);
     const phase = s.phase || (s.status && s.status.phase) || "";
     used.set(p, { kind: "cell", label: `${host} · ${what}`, host, name: what,
@@ -772,7 +772,7 @@ export function renderSchedulePanel(pfx, hostId, cellPort, schedule) {
 export function findSlotEntry(hostId, port) {
   return ((topology?.server || {}).llamaServers || [])
     .find((sv) => String(sv.port) === String(port) &&
-                  ((sv.clientId || "") === (hostId === "skynet" ? "" : hostId)));
+                  ((sv.clientId || "") === (hostId === CONTROLLER_HOST_ID ? "" : hostId)));
 }
 
 export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") {

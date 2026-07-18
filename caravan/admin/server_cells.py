@@ -4,13 +4,16 @@ import time
 
 from caravan.admin.config_builder import is_command_cell
 from caravan.admin.launch import write_server_cell_artifacts
-from caravan.admin.paths import SERVER_CELL_BASE_PORT, is_controller_host
+from caravan.admin.paths import SERVER_CELL_BASE_PORT, is_controller_host, canonical_host_id
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.common.errors import AppError
 
 
 def server_slot_key(host_id, port):
-    return f"{str(host_id).strip()}:{int(port)}"
+    # Canonicalize here, at the single choke point every slot lookup and write
+    # goes through: a stale frontend still says "skynet" while a fresh one says
+    # "controller", and both must land on the same stored record.
+    return f"{canonical_host_id(host_id)}:{int(port)}"
 
 def used_server_cell_ports(exclude_key=None):
     store = topology_store()
@@ -59,7 +62,7 @@ def upsert_server_slot(host_id, port, config=None, model=None, label=None):
     slot = store["serverSlots"].get(key) or {"createdAt": int(time.time())}
     slot.update({
         "id": key,
-        "hostId": str(host_id).strip(),
+        "hostId": canonical_host_id(host_id),
         "port": int(port),
         "updatedAt": int(time.time()),
     })

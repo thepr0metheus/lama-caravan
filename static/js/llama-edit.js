@@ -7,7 +7,7 @@ import {
   renderCommandPreview,
   splitCommand,
 } from "./command-preview.js";
-import { dirtyOptionalToggles, modelFields, numericFields, toggleFields } from "./constants.js";
+import { CONTROLLER_HOST_ID, dirtyOptionalToggles, modelFields, numericFields, toggleFields } from "./constants.js";
 import { refreshFavoritesPanel } from "./favorites.js";
 import { findSlotEntry, renderSchedulePanel } from "./remote-cells.js";
 import {
@@ -176,7 +176,7 @@ export function syncTeModelsDirPreview() {
 
 export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
   _teCellPort = cellPort ? String(cellPort) : "";
-  renderSchedulePanel("te", "skynet", _teCellPort, findSlotEntry("skynet", _teCellPort)?.schedule);
+  renderSchedulePanel("te", CONTROLLER_HOST_ID, _teCellPort, findSlotEntry(CONTROLLER_HOST_ID, _teCellPort)?.schedule);
   if (!teLlamaFormReady) {
     renderFields("te-");
     wireCellKindToggle("te-");
@@ -987,7 +987,7 @@ export function populateCommandPresets(pfx) {
 export function _commandCellSlot(pfx) {
   const port = pfx === "te-" ? _teCellPort : (pfx === "tr-" ? _trCellPort : "");
   if (!port) return null;
-  const hostId = pfx === "tr-" ? _trHostId : "skynet";
+  const hostId = pfx === "tr-" ? _trHostId : CONTROLLER_HOST_ID;
   return (topology?.nodes || [])
     .flatMap((n) => n.servers || [])
     .find((s) => s.isSlot && String(s.port) === String(port) &&

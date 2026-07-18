@@ -21,7 +21,7 @@ from caravan.admin.monitoring import (
     runtime_api,
 )
 from caravan.admin.openclaw import openclaw_configs_snapshot
-from caravan.admin.paths import IS_CONTAINER, SERVICE_NAME, TOPOLOGY_SERVER_IP, is_controller_host
+from caravan.admin.paths import CONTROLLER_HOST_ID, IS_CONTAINER, SERVICE_NAME, TOPOLOGY_SERVER_IP, is_controller_host
 from caravan.admin.proxies_config import (
     load_agent_proxy_config,
     read_agent_proxy_payload,
@@ -290,7 +290,7 @@ def topology_server(config=None):
     # the proxy cable stays attached across stop / model change.
     store = _tstore
     live_keys = {
-        (s.get("clientId") if s.get("isRemote") else "skynet", s.get("port"))
+        (s.get("clientId") if s.get("isRemote") else CONTROLLER_HOST_ID, s.get("port"))
         for s in llama_servers
     }
     clients_by_id = store.get("clients", {})
@@ -401,7 +401,7 @@ def topology_server(config=None):
             probe_ip = "127.0.0.1" if is_controller_slot else client_ip
             if probe_ip:
                 slot_mods = remote_llama_modalities(probe_ip, port)
-        controller_name = os.environ.get("LLAMA_TOPOLOGY_SERVER_NAME", "skynet")
+        controller_name = os.environ.get("LLAMA_TOPOLOGY_SERVER_NAME", CONTROLLER_HOST_ID)
         controller_ip = TOPOLOGY_SERVER_IP
         llama_servers.append({
             "id": f"slot:{host_id}:{port}",
@@ -460,8 +460,8 @@ def topology_server(config=None):
         })
 
     return {
-        "id": "skynet",
-        "name": os.environ.get("LLAMA_TOPOLOGY_SERVER_NAME", "skynet"),
+        "id": CONTROLLER_HOST_ID,
+        "name": os.environ.get("LLAMA_TOPOLOGY_SERVER_NAME", CONTROLLER_HOST_ID),
         "ip": TOPOLOGY_SERVER_IP,
         "service": service,
         "runtime": runtime,
@@ -525,7 +525,7 @@ def topology_nodes(config, server_obj, clients):
                     if not s.get("isRemote")]
     ctrl_servers.sort(key=_server_port_key)
     _bind_servers_to_gpus(ctrl_gpus, gpu_compute_apps(), ctrl_servers)
-    _record_gpu_history(server_obj.get("id") or "skynet", ctrl_gpus)
+    _record_gpu_history(server_obj.get("id") or CONTROLLER_HOST_ID, ctrl_gpus)
     for s in ctrl_servers:
         s["tpsHistory"] = _record_tps_history(
             f"{server_obj.get('id') or 'skynet'}:{s.get('port')}", s.get("promptTps"), s.get("genTps"))
@@ -543,10 +543,10 @@ def topology_nodes(config, server_obj, clients):
             }
     except Exception:
         pass
-    ctrl_cpu["history"] = _record_cpu_history(server_obj.get("id") or "skynet", ctrl_cpu)
+    ctrl_cpu["history"] = _record_cpu_history(server_obj.get("id") or CONTROLLER_HOST_ID, ctrl_cpu)
     nodes.append({
-        "id": server_obj.get("id") or "skynet",
-        "name": server_obj.get("name") or "skynet",
+        "id": server_obj.get("id") or CONTROLLER_HOST_ID,
+        "name": server_obj.get("name") or CONTROLLER_HOST_ID,
         "ip": server_obj.get("ip"),
         "role": "controller",
         # In container mode the controller cannot host cells (no systemd) —

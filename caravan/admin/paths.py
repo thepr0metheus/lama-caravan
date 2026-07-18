@@ -100,20 +100,37 @@ OPENCLAW_CONFIG_CACHE_FILE = Path(os.environ.get("OPENCLAW_CONFIG_CACHE_FILE")
                 Path.home() / ".config" / "llamacpp-easy-admin" / "openclaw-config-cache.json"))
 
 # ── Controller identity ─────────────────────────────────────────────────────
-# The controller's host id in STORED state. A sentinel, not a hostname: slot
-# keys ("<hostId>:<port>"), cell notes and schedules are all persisted with it,
-# so it cannot be renamed without migrating every stored key. The controller's
-# DISPLAY name is a separate, configurable thing (LLAMA_TOPOLOGY_SERVER_NAME).
-CONTROLLER_HOST_ID = "skynet"
+# The controller's host id in STORED state — a role name, not a hostname. Slot
+# keys ("<hostId>:<port>"), and with them cell notes and schedules, are
+# persisted under it; state.py migrates legacy keys to this value on load. The
+# controller's DISPLAY name is a separate, configurable thing
+# (LLAMA_TOPOLOGY_SERVER_NAME).
+CONTROLLER_HOST_ID = "controller"
+
+# Ids that meant the controller in older stores and older cached frontends.
+# Stale tabs keep sending the old id for a while (Chrome serves cached ES
+# modules within a session), so the API keeps accepting these — and the
+# heartbeat guard keeps REJECTING them from clients: an id that ever meant
+# "the controller" may never come to mean one of its clients.
+LEGACY_CONTROLLER_HOST_IDS = ("skynet",)
+
+
+def canonical_host_id(host_id) -> str:
+    """Map any spelling of the controller's id to the canonical sentinel;
+    client ids pass through untouched. Call at every boundary where a hostId
+    enters from outside (API bodies, stored files) so one cell never exists
+    under two keys."""
+    hid = str(host_id or "").strip()
+    return CONTROLLER_HOST_ID if hid in LEGACY_CONTROLLER_HOST_IDS else hid
 
 
 def is_controller_host(host_id) -> bool:
     """True when a slot/cell belongs to the controller rather than a client.
 
-    Ask this instead of comparing to the literal. These checks decide real
+    Ask this instead of comparing to a literal. These checks decide real
     behaviour — whether a delete stops a systemd unit, whether a start is
-    forwarded to an agent — and spelled out as `host_id != "skynet"` they read
-    like a hostname test, which is the wrong question on any fleet whose
-    controller is not called that (or whose CLIENT is).
+    forwarded to an agent — and spelled as a hostname comparison they ask the
+    wrong question on any fleet whose controller is named differently (or
+    whose CLIENT happens to carry that name).
     """
-    return str(host_id or "").strip() == CONTROLLER_HOST_ID
+    return canonical_host_id(host_id) == CONTROLLER_HOST_ID

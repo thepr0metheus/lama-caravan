@@ -4,7 +4,7 @@ import json
 import secrets
 
 from caravan.admin.cloud import cloud_blocks_state, load_cloud_data, save_cloud_data
-from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE
+from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE, CONTROLLER_HOST_ID
 from caravan.admin.router_dsl import (
     DEFAULT_ROUTER_ID,
     normalize_agent_proxy_policy,
@@ -137,7 +137,7 @@ def _router_local_outputs(server_obj):
             continue
         seen.add(port)
         host = "127.0.0.1" if s.get("isController") else (s.get("clientIp") or "127.0.0.1")
-        node = "skynet" if s.get("isController") else (s.get("clientIp") or "node")
+        node = CONTROLLER_HOST_ID if s.get("isController") else (s.get("clientIp") or "node")
         model = str(s.get("model") or "").split("/")[-1]
         # A command cell has no MODEL_FILE, so it used to render as a bare
         # `:8018` in the router's server list — its own artifact label stands in.

@@ -35,6 +35,7 @@ from caravan.common.fsio import read_text
 from caravan.common.jsonx import _INF, _json_safe, json_bytes
 from caravan.common.procs import run, run_in
 from caravan.admin.paths import (
+    CONTROLLER_HOST_ID,
     ADMIN_STATE_FILE,
     AGENT_PROXY_CONFIG_FILE,
     AGENT_PROXY_LOG_DIR,
@@ -886,11 +887,11 @@ def _post_api_config(h, parsed, body):
             new_port = int((cfg or {}).get("PORT") or old_cell_port)
             cell_port = new_port
             if new_port != old_cell_port:
-                move_server_cell("skynet", old_cell_port, new_port,
+                move_server_cell(CONTROLLER_HOST_ID, old_cell_port, new_port,
                                  config=cfg, model=(cfg or {}).get("MODEL_FILE"))
             else:
-                assert_server_cell_port_available(new_port, exclude_key=server_slot_key("skynet", new_port))
-                upsert_server_slot("skynet", new_port, config=cfg, model=(cfg or {}).get("MODEL_FILE"))
+                assert_server_cell_port_available(new_port, exclude_key=server_slot_key(CONTROLLER_HOST_ID, new_port))
+                upsert_server_slot(CONTROLLER_HOST_ID, new_port, config=cfg, model=(cfg or {}).get("MODEL_FILE"))
         backup = None if cell_port else save_config(cfg)
         action_result = None
         if body.get("restart"):

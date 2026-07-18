@@ -1,3 +1,8 @@
+// The controller's host id in API bodies and slot keys — a role name the
+// backend also accepts under its legacy spellings; keep in sync with
+// caravan/admin/paths.py CONTROLLER_HOST_ID.
+export const CONTROLLER_HOST_ID = "controller";
+
 // Launch-form field definitions (shared by the config form and edit modals).
 export const numericFields = [
   "HOST", "PORT", "CTX_SIZE", "THREADS", "THREADS_BATCH", "BATCH_SIZE",
