@@ -39,6 +39,15 @@ def used_server_cell_ports(exclude_key=None):
                     pass
     except Exception:
         pass
+    # Live lama-cell@ units count as taken even when the registry lost them
+    # (an orphan holds its port as firmly as a registered cell does). Safe to
+    # consult now that orphans are VISIBLE on the board with a stop button —
+    # before that, this check would have blocked a port nobody could free.
+    try:
+        from caravan.admin.systemd_ctl import active_cell_unit_ports
+        used |= active_cell_unit_ports()
+    except Exception:
+        pass
     return {p for p in used if p > 0}
 
 def next_server_cell_port():

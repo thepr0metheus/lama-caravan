@@ -34,6 +34,41 @@ def restart_agent_proxy(timeout=30):
         return proxy_supervisor.restart()
     return systemctl("restart", AGENT_PROXY_SERVICE_NAME, timeout=timeout)
 
+def active_cell_unit_ports():
+    """Ports of lama-cell@ units systemd reports active/activating RIGHT NOW —
+    the ground truth for what is running, registry or not. The registry can
+    lose a cell (a crash mid-delete, a manual systemctl start) while the unit
+    keeps serving; everything that reasons about port ownership must consult
+    the units too, not just the store."""
+    if IS_CONTAINER:
+        return set()
+    res = systemctl("list-units", "lama-cell@*.service",
+                    "--no-legend", "--plain", timeout=5)
+    ports = set()
+    for line in (res.get("stdout") or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[2] in ("active", "activating"):
+            m = re.search(r"lama-cell@(\d+)\.service", parts[0])
+            if m:
+                ports.add(int(m.group(1)))
+    return ports
+
+
+def listening_pid(port):
+    """(pid, comm) of whoever LISTENs on the port; (0, "") when free. Only the
+    caller's own processes reveal a pid without root — an unknown pid with a
+    known-busy port still comes back as (0, "?")."""
+    res = run(["ss", "-ltnp"], timeout=5)
+    want = str(int(port))
+    for line in (res.get("stdout") or "").splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[3].rsplit(":", 1)[-1] == want:
+            m = re.search(r"pid=(\d+)", line)
+            c = re.search(r'\("([^"]+)"', line)
+            return (int(m.group(1)) if m else 0, c.group(1) if c else "?")
+    return (0, "")
+
+
 def cell_service_name(port):
     return f"lama-cell@{int(port)}.service"
 

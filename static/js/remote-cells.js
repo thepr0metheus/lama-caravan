@@ -525,6 +525,13 @@ export function bindServerSlotControls(root) {
       if (!(await appConfirm(msg, { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;
       cellServiceAction(b.dataset.nodeCellLaunch, port, "start");
     }));
+  // Orphan cells (running outside the registry): the strip's only action.
+  root.querySelectorAll("[data-orphan-stop]").forEach((b) =>
+    b.addEventListener("click", async () => {
+      const port = b.dataset.orphanStop;
+      if (!(await appConfirm(t("dlgStopPort", { port }), { confirmLabel: t("stop"), scene: "stop" }))) return;
+      cellServiceAction(CONTROLLER_HOST_ID, port, "stop");
+    }));
   root.querySelectorAll("[data-node-cell-stop]").forEach((b) =>
     b.addEventListener("click", async () => {
       const port = b.dataset.nodeCellPort;

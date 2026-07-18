@@ -1005,8 +1005,22 @@ export function nodesLaneHtml() {
       // Controller mounts the rich controller canvas widget; client nodes get the
       // same-looking telemetry rows built from per-node history.
       const gpuTelemetrySlot = isCtrl ? `<div class="node-ctrl-gpu-telemetry" data-ctrl-gpu-telemetry></div>` : nodeTelemetryRowsHtml(n);
+      // Cells running OUTSIDE the registry (live unit, no slot record): without
+      // this strip they are invisible by construction — the board renders the
+      // store — while holding their port and VRAM with nothing left to stop
+      // them BY. Red, dashed, with the one action that makes sense.
+      const _orphans = Array.isArray(n.orphanCells) ? n.orphanCells : [];
+      const orphanHtml = _orphans.length ? `
+        <div class="node-orphan-strip" title="${escapeHtml(t("topologyOrphanHint"))}">
+          <div class="node-orphan-head">☠ ${escapeHtml(t("topologyOrphanCells"))}</div>
+          ${_orphans.map((o) => `
+            <div class="node-orphan-row">
+              <span class="node-orphan-what">:${escapeHtml(String(o.port))}${o.model ? ` · ${escapeHtml(o.model)}` : ""}${o.vramMiB ? ` · ${escapeHtml((o.vramMiB / 1024).toFixed(1))}G VRAM` : ""}${o.pid ? ` · pid ${escapeHtml(String(o.pid))}` : ""}</span>
+              <button class="node-orphan-stop" type="button" data-orphan-stop="${escapeHtml(String(o.port))}">${escapeHtml(t("stop"))}</button>
+            </div>`).join("")}
+        </div>` : "";
       bodyHtml = `<div class="node-body">
-          <div class="node-servers">${serversSubtitle}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
+          <div class="node-servers">${serversSubtitle}${orphanHtml}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
           <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${gpuTelemetrySlot}</div>
         </div>`;
     }

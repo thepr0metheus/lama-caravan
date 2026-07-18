@@ -19,7 +19,7 @@ from caravan.admin.monitoring import gpu_state
 from caravan.admin.paths import is_controller_host
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.admin.status import state
-from caravan.admin.systemd_ctl import cell_service_action, cell_service_name, cell_service_status, systemctl
+from caravan.admin.systemd_ctl import cell_service_action, cell_service_name, cell_service_status, listening_pid, systemctl
 from caravan.common.errors import AppError
 
 
@@ -162,6 +162,21 @@ def server_cell_action(body: dict) -> dict:
         cfg = slot.get("config") if isinstance(slot.get("config"), dict) else {}
         if action_name in {"start", "restart"} and runner_id(cfg) == "vllm":
             _vllm_vram_gate(port, cfg)
+        # Preflight: llama.cpp reports a taken port as a bind error buried deep
+        # in its log. Say it up front, with WHO holds it — unless the holder is
+        # this cell's own unit (then start is a no-op / restart is the point).
+        if action_name in {"start", "restart"}:
+            try:
+                _own = cell_service_status(port).get("ActiveState") == "active"
+            except Exception:
+                _own = False
+            if not _own:
+                _lpid, _lcomm = listening_pid(port)
+                if _lpid or _lcomm:
+                    raise AppError(
+                        f"port {port} is already in use by "
+                        f"{_lcomm or 'another process'}"
+                        f"{f' (pid {_lpid})' if _lpid else ''} — stop it first", 409)
         if action_name in {"start", "restart", "enable"} and not (slot.get("artifact") or {}).get("startScript"):
             artifact = write_server_cell_artifacts(host_id, port, cfg)
             if artifact:

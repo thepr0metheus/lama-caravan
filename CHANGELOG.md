@@ -7,6 +7,21 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.70 — 2026-07-19
+
+- Orphan cells surface on the board. A live `lama-cell@` unit with no registry
+  record renders as a red dashed strip on the controller node — port, what it
+  runs, VRAM held, pid — with a stop button. The board renders the store, so
+  such a cell used to be invisible by construction while holding its port and
+  VRAM, with nothing left to stop it by.
+- An orphan's port counts as taken: the port guard consults the live units
+  too, so a new cell can no longer be handed a number something is still
+  serving on. Safe to enforce now that orphans are visible with a stop
+  button — enforced alone, this would have blocked ports nobody could free.
+- Starting a controller cell preflights its port and names the holder ("port
+  8019 is already in use by python3 (pid …) — stop it first") instead of the
+  bind error buried deep in llama.cpp's log.
+
 ## 1.3.69 — 2026-07-19
 
 - The controller's stored host id is the role name `controller`, not a

@@ -2,6 +2,7 @@
 routers) built from heartbeats, probes, systemd and the proxy state files."""
 import glob
 import os
+import pathlib
 import re
 import time
 
@@ -32,7 +33,7 @@ from caravan.admin.proxies_config import (
 from caravan.admin.router_dsl import normalize_agent_proxy_policy
 from caravan.admin.server_cells import server_slot_key
 from caravan.admin.state import save_admin_state, topology_store
-from caravan.admin.systemd_ctl import cell_last_error, cell_progress_note, cell_service_name, cell_service_status, cell_unit_pids, service_status, systemd_ts_epoch
+from caravan.admin.systemd_ctl import active_cell_unit_ports, cell_last_error, cell_progress_note, cell_service_name, cell_service_status, cell_unit_pids, service_status, systemd_ts_epoch
 from caravan.admin.telemetry import (
     _normalize_modalities,
     _record_cpu_history,
@@ -524,11 +525,12 @@ def topology_nodes(config, server_obj, clients):
     ctrl_servers = [dict(s) for s in (server_obj.get("llamaServers") or [])
                     if not s.get("isRemote")]
     ctrl_servers.sort(key=_server_port_key)
-    _bind_servers_to_gpus(ctrl_gpus, gpu_compute_apps(), ctrl_servers)
+    _ctrl_apps = gpu_compute_apps()
+    _bind_servers_to_gpus(ctrl_gpus, _ctrl_apps, ctrl_servers)
     _record_gpu_history(server_obj.get("id") or CONTROLLER_HOST_ID, ctrl_gpus)
     for s in ctrl_servers:
         s["tpsHistory"] = _record_tps_history(
-            f"{server_obj.get('id') or 'skynet'}:{s.get('port')}", s.get("promptTps"), s.get("genTps"))
+            f"{server_obj.get('id') or CONTROLLER_HOST_ID}:{s.get('port')}", s.get("promptTps"), s.get("genTps"))
     ctrl_cpu = {}
     try:
         ctrl_cpu["loadPct"] = cpu_snapshot()
@@ -544,6 +546,37 @@ def topology_nodes(config, server_obj, clients):
     except Exception:
         pass
     ctrl_cpu["history"] = _record_cpu_history(server_obj.get("id") or CONTROLLER_HOST_ID, ctrl_cpu)
+    # Cells running OUTSIDE the registry: a live lama-cell@ unit with no slot
+    # record. The board renders the store, so without this list such a cell is
+    # invisible by construction — the exact failure that once hid a 27 GB model
+    # while two other cells starved for the VRAM it held.
+    orphan_cells = []
+    if not IS_CONTAINER:
+        try:
+            known_ports = {int(s.get("port") or 0) for s in ctrl_servers}
+            for _op in sorted(active_cell_unit_ports() - known_ports):
+                _ost = cell_service_status(_op)
+                try:
+                    _opid = int(_ost.get("MainPID") or 0)
+                except (TypeError, ValueError):
+                    _opid = 0
+                _opids = cell_unit_pids(_op)
+                _ovram = sum(int(a.get("usedMiB") or 0) for a in (_ctrl_apps or [])
+                             if a.get("pid") in _opids)
+                _olabel = ""
+                try:
+                    _oargs = [a for a in pathlib.Path(f"/proc/{_opid}/cmdline")
+                              .read_bytes().decode(errors="replace").split("\0") if a]
+                    if "--model" in _oargs:
+                        _olabel = _oargs[_oargs.index("--model") + 1].split("/")[-1]
+                    elif _oargs:
+                        _olabel = " ".join(_oargs[-2:])[:48]
+                except Exception:
+                    pass
+                orphan_cells.append({"port": _op, "pid": _opid or None,
+                                     "model": _olabel, "vramMiB": _ovram})
+        except Exception:
+            orphan_cells = []
     nodes.append({
         "id": server_obj.get("id") or CONTROLLER_HOST_ID,
         "name": server_obj.get("name") or CONTROLLER_HOST_ID,
@@ -557,6 +590,7 @@ def topology_nodes(config, server_obj, clients):
         "cpu": ctrl_cpu,
         "gpus": ctrl_gpus,
         "servers": ctrl_servers,
+        "orphanCells": orphan_cells,
     })
 
     # ── client nodes ─────────────────────────────────────────────────────────
