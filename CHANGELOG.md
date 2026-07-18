@@ -7,6 +7,23 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.60 — 2026-07-18
+
+- The board gives up its cable gutters before its columns. 1.3.59 fixed the
+  right-hand overflow by stacking at 1479px, which threw away the two-column
+  layout on every window between 1100 and 1480 — the wrong thing to sacrifice.
+  The lane floors carry content and the divider column carries a 36px button,
+  but the board's 72px gap and the lanes' 44px gaps are only the air the cables
+  are drawn through, so those tighten to 28/20 first. Two columns now survive
+  down to 1330px, and only below that does the board stack. Measured at 1330,
+  1340, 1455 and 1480: no overflow, 24px of padding on both sides.
+- The bundled command-cell servers (`tts/`, `whisper/`) live in ONE place now,
+  the caravan-scout repo. They existed in both repos plus as the `$HOME` copies
+  that actually run, and had already drifted — this repo's `tts_server.py` had
+  the device fix and the scout's did not. The scout owns them because it is what
+  installs them: `scripts/install-{tts,whisper}.sh` copy them into `$HOME` on
+  the client. This repo installed them nowhere.
+
 ## 1.3.59 — 2026-07-18
 
 - The board stacks into one column at 1479px instead of 1100px — the width

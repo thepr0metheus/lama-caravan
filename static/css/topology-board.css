@@ -831,15 +831,23 @@ details.topology-server-stats-card > .topology-processes-details {
 .router-cfg-failover-chain { font-size: 11px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
 
 
-/* Stack where the two columns actually stop fitting. The binding constraint is
-   .topology-lanes, not the board: its four fixed floors (210 + 36 + 390 + 260)
-   plus three 44px gaps need 1028px, and the right board column only reaches
-   that once the viewport hits ~1480 (it takes 1.72fr of the free space after
-   the 72px gap, with main padding 24px either side). The stack used to kick in
-   at 1100, so every width from 1101 to 1479 kept the column minimums and
-   overflowed to the RIGHT — 254px of it at 1150. The left padding survived,
-   the right one was eaten and the panels on that edge came out clipped. */
+/* Below ~1480 the two columns stop fitting: .topology-lanes needs its four
+   floors (210 + 36 + 390 + 260) plus three 44px gaps = 1028px, and the right
+   board column only reaches that around 1480 — so from 1101 (where the stack
+   used to kick in) up to there the grid kept its minimums and overflowed to
+   the RIGHT, 254px of it at 1150. The left padding survived, the right one was
+   eaten by the overflow and the panels on that edge came out clipped.
+   Give up the GUTTERS before the columns. The lane floors carry content and the
+   divider column carries a 36px button, but the gaps are only the air the
+   cables are drawn through — shrinking them keeps the board two-column a good
+   150px further down instead of collapsing it early. */
 @media (max-width: 1479px) {
+  .topology-board { column-gap: 28px; }
+  .topology-lanes { column-gap: 20px; }
+}
+
+/* Even with the gutters at their tightest the columns need this much. */
+@media (max-width: 1329px) {
   .topology-board,
   .topology-lanes {
     grid-template-columns: 1fr;
