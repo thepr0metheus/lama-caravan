@@ -7,6 +7,18 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.62 — 2026-07-18
+
+- The router's server list says what a command cell runs. Only llama cells
+  carry a MODEL_FILE, so every whisper/TTS/vLLM cell rendered as a bare
+  `:8018` in the kanban SERVERS panel — a port with no clue what was behind it.
+  Each cell now carries a short artifact label: whisper and vLLM take it from
+  their own model field, a custom cell from its command with the boilerplate
+  stripped, so `bash ~/run_tts.sh $PORT cosyvoice` reads as
+  `run_tts.sh cosyvoice`. A vLLM path resolves to the model rather than the
+  quantization folder — `<Model>/<author>/<FORMAT>` labeled one cell "BF16",
+  which is true and useless.
+
 ## 1.3.61 — 2026-07-18
 
 - The GPU half of a node block follows the scroll. On a node with a long cell

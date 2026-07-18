@@ -7,7 +7,7 @@ import time
 
 from caravan.admin.cloud import cloud_accounts_state, cloud_blocks_state, cloud_provider_presets_public
 from caravan.admin.config_builder import models_dir_from_config, parse_config
-from caravan.admin.runners import effective_health_path, uses_command_path
+from caravan.admin.runners import cell_artifact_label, effective_health_path, uses_command_path
 from caravan.admin.fleet_clients import assignment_port_claims, refresh_topology_clients_from_agents, topology_clients
 from caravan.admin.llama_metrics import runtime_metrics_sample, runtime_phase, vllm_metrics_sample
 from caravan.admin.monitoring import (
@@ -246,6 +246,10 @@ def topology_server(config=None):
             "port": remote_port,
             "host": client_ip,
             "model": model_name,
+            # What a command cell runs — a llama cell says it with MODEL_FILE,
+            # these have only a command, and lists with no room for a card had
+            # nothing but the port to show.
+            "cellLabel": cell_artifact_label(_r_cfg),
             "modelPath": model_path,
             "mmproj": str(ln.get("mmprojPath") or ""),
             "specDraft": str(ln.get("specPath") or ""),
@@ -405,6 +409,7 @@ def topology_server(config=None):
             "port": port,
             "host": (controller_ip if is_controller_slot else client_ip),
             "model": model_path.split("/")[-1] if model_path else "",
+            "cellLabel": cell_artifact_label(slot.get("config") or {}),
             "modelPath": model_path,
             "mmproj": str(((slot.get("config") or {}).get("MMPROJ_FILE")) or ""),
             "specDraft": str(((slot.get("config") or {}).get("SPEC_DRAFT_MODEL_FILE")) or ""),

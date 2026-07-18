@@ -139,9 +139,12 @@ def _router_local_outputs(server_obj):
         host = "127.0.0.1" if s.get("isController") else (s.get("clientIp") or "127.0.0.1")
         node = "skynet" if s.get("isController") else (s.get("clientIp") or "node")
         model = str(s.get("model") or "").split("/")[-1]
+        # A command cell has no MODEL_FILE, so it used to render as a bare
+        # `:8018` in the router's server list — its own artifact label stands in.
+        what = model or str(s.get("cellLabel") or "")
         outs.append({
             "id": f"srv:{port}",
-            "label": (f"{model} " if model else "") + f":{port}",
+            "label": (f"{what} " if what else "") + f":{port}",
             "target": f"{node}:llama-server:{port}",
             "upstreamHost": host,
             "upstreamPort": int(port),

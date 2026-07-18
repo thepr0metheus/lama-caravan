@@ -13,6 +13,7 @@ safetensors support arrives); "*" accepts anything including no model at all.
 `minCompute` gates a runner on CUDA compute capability (e.g. NVFP4 checkpoints
 need >= 10.0) — None means no GPU requirement at all.
 """
+import re
 
 RUNNERS = [
     {
@@ -79,6 +80,45 @@ def runner_id(config) -> str:
     if str((config or {}).get("CELL_KIND") or "").strip().lower() == "command":
         return "custom"
     return "llama-server"
+
+
+def cell_artifact_label(config) -> str:
+    """What a cell RUNS, in one short phrase, for lists with no room for a card.
+
+    A llama cell's artifact is its MODEL_FILE and callers already show that;
+    these are the cells that carry a command instead, which is why the kanban's
+    server list rendered them as a bare `:8018`. whisper and vLLM name their
+    model in their own field. A custom cell has only the command, so drop the
+    boilerplate — the interpreter, the home prefix, the `$PORT` the launcher
+    substitutes — and keep what actually identifies it: `bash ~/run_tts.sh
+    $PORT cosyvoice` reads as `run_tts.sh cosyvoice`."""
+    cfg = config or {}
+    rid = runner_id(cfg)
+    if rid == "whisper":
+        return str(cfg.get("WHISPER_MODEL") or "").strip() or "whisper"
+    if rid == "vllm":
+        from caravan.admin.models import _ST_FORMAT_HINTS   # local: models imports config_builder
+        parts = [p for p in str(cfg.get("VLLM_MODEL") or "").strip().split("/") if p]
+        if not parts:
+            return "vLLM"
+        # Safetensors artifacts live at <Model>/<author>/<FORMAT>, so the last
+        # segment names the quantization, not the model — "BF16" on its own
+        # tells you nothing about which model the cell serves.
+        if len(parts) >= 3 and parts[-1].upper() in _ST_FORMAT_HINTS:
+            return f"{parts[-3]} {parts[-1].upper()}"
+        return parts[-1]
+    if rid != "custom":
+        return ""
+    cmd = str(cfg.get("COMMAND") or "").strip()
+    if not cmd:
+        return ""
+    cmd = re.sub(r"^(?:exec\s+)?(?:env\s+\S+=\S*\s+)*", "", cmd)
+    cmd = re.sub(r"^(?:bash|sh|python3?)\s+", "", cmd)
+    cmd = cmd.replace("$HOME/", "").replace("~/", "")
+    parts = [p for p in cmd.split() if p not in ('"$PORT"', "$PORT", "'$PORT'")]
+    if parts:                       # the script's own path adds nothing here
+        parts[0] = parts[0].rsplit("/", 1)[-1]
+    return " ".join(parts)[:40]
 
 
 VLLM_VENV = "$HOME/vllm-venv"
