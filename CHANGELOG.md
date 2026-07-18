@@ -16,7 +16,7 @@
   under one key. That is not hypothetical: a controller cell and a client cell
   ended up sharing port 8011 today, and the running one vanished from the board
   entirely while holding 27 GB of VRAM. The check is case-insensitive so a
-  fleet never holds both "skynet" and "Skynet", while `is_controller_host()`
+  fleet never holds two spellings of it, while `is_controller_host()`
   stays exact — it decides behaviour and must never mistake a client FOR the
   controller.
 

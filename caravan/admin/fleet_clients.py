@@ -522,9 +522,9 @@ def topology_client_from_heartbeat(payload):
     # the id here is whatever the client's own config says, so nothing but this
     # check stops it. Refuse the heartbeat rather than merge the two hosts.
     # Case-insensitively on purpose, while is_controller_host() stays exact:
-    # the predicate decides behaviour and must never mistake a client named
-    # "Skynet" FOR the controller, but a fleet holding both is a reading trap
-    # no one needs — refuse the near-miss at the door instead.
+    # the predicate decides behaviour, so it must never take a client whose id
+    # differs only in case FOR the controller. A fleet holding both spellings is
+    # a reading trap regardless — so refuse the near-miss at the door instead.
     if host_id.casefold() == CONTROLLER_HOST_ID.casefold():
         raise AppError(f'host.id "{CONTROLLER_HOST_ID}" is reserved for the controller — '
                        f"give this client a different hostId", 400)
