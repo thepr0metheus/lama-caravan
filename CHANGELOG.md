@@ -7,6 +7,27 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.58 — 2026-07-18
+
+- The start confirm for a command cell says what actually happens. It used to
+  ask "Start the server on :N?" — but a command cell starts a command, not a
+  model server, so the dialog described a different thing than the button did.
+- The same wording bug sat on the card's ▶ button, and worse: it filled the
+  model slot from the card's model-name row, which on a command cell holds the
+  command line. Starting the cosyvoice TTS cell asked "Start the server on
+  :8018 (bash ~/run_tts.sh $PORT cosyvoice)? The model will load into memory" —
+  a command announced as a model, plus a load that never happens. The render
+  now hands the runner to the click handler instead of guessing from the DOM.
+- The cosyvoice TTS loader asks `_pick_device()` like the xtts one already did.
+  CosyVoice2 takes no device argument (its own code picks cuda whenever a GPU
+  is visible), so a cell set to CPU only landed there via the
+  `CUDA_VISIBLE_DEVICES=` the Device tile writes; auto mode ignored the
+  free-VRAM guard entirely and `fp16=True` was requested even on CPU. The
+  chosen device is now stated in the log — previously nothing recorded it.
+- `tts/tts_server.py` in the repo had drifted behind the copies the clients
+  actually run: `_pick_device` existed only on the clients, while the engine
+  name in a ready `/health` existed only in the repo. Reconciled.
+
 ## 1.3.57 — 2026-07-18
 
 - Apply on a cell's config no longer promises a start. It saves and returns

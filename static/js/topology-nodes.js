@@ -487,8 +487,13 @@ export function nodeServerCardHtml(node, s) {
     // via client_llama_start). Reserved cells (no model yet) are configured via
     // the lifecycle-bar ⚙ (cfgAttrs → remote form for clients), not this button.
     const canPlay = (phase === "stopped" || isError) && !isCellBusy && !isDeleting;
+    // The confirm has to know what it is starting: a command-path cell runs a
+    // command, and its "model name" row holds that command line — only the
+    // render knows the runner, so hand it to the click handler.
+    const cellRunner = isCmdCell ? "custom"
+      : (String(_scfg.RUNNER || "").toLowerCase() || "llama-server");
     const playBtn = `<button class="node-action-btn ${canPlay ? "ok" : "muted"}" type="button"
-        ${canPlay ? `data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"` : "disabled"}
+        ${canPlay ? `data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-runner="${escapeHtml(cellRunner)}"` : "disabled"}
         title="${escapeHtml(canPlay ? t("nodeStartServer") : (isReserved ? t("nodeConfigureFirst") : t("nodeNotStopped")))}">▶<span class="nab-lbl">${escapeHtml(t("start"))}</span></button>`;
 
     // ⏹ stop — active when starting or running; spinner while stopping

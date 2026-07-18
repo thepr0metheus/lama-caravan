@@ -465,7 +465,12 @@ export function bindServerSlotControls(root) {
     b.addEventListener("click", async () => {
       const port = b.dataset.nodeCellPort;
       const model = b.closest("article")?.querySelector(".node-model-name")?.textContent?.trim();
-      const msg = model ? t("dlgStartModel", { model, port }) : t("dlgStartPort", { port });
+      // For a command-path cell that .node-model-name row is the command line,
+      // so the model wording announced "bash ~/run_tts.sh $PORT cosyvoice" as a
+      // model and promised it would load into memory — neither is true.
+      const msg = (b.dataset.nodeCellRunner || "llama-server") !== "llama-server"
+        ? t("dlgStartCommand", { port })
+        : (model ? t("dlgStartModel", { model, port }) : t("dlgStartPort", { port }));
       if (!(await appConfirm(msg, { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;
       cellServiceAction(b.dataset.nodeCellLaunch, port, "start");
     }));
@@ -913,11 +918,15 @@ export async function submitRemoteLlamaStart() {
   // it must not promise a start — it used to ask "Start the server on :N?" and
   // then just save, which reads as a failed start.
   const _isCellSave = !!_trCellPort;
+  // A command-path cell starts a command, not a model server — saying "the
+  // model will load into memory" (or even "server") describes something else.
   const _startMsg = _isCellSave
     ? t("dlgApplyCellConfig")
-    : (isCommandPath || !modelPath
-        ? t("dlgStartPort", { port: String(port) })
-        : t("dlgStartModel", { model: modelPath.split("/").pop(), port: String(port) }));
+    : isCommandPath
+      ? t("dlgStartCommand", { port: String(port) })
+      : (!modelPath
+          ? t("dlgStartPort", { port: String(port) })
+          : t("dlgStartModel", { model: modelPath.split("/").pop(), port: String(port) }));
   if (!(await appConfirm(_startMsg, {
     danger: false,
     confirmLabel: _isCellSave ? "OK" : t("dlgStartLabel"),

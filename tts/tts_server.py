@@ -44,13 +44,35 @@ def _log(msg):
 
 
 # --------------------------- engines ------------------------------------- #
+def _pick_device(need_gb: float = 2.5) -> str:
+    """cuda when TTS_DEVICE says so or enough VRAM is actually FREE, else cpu.
+    The GPU cells (gemma/whisper) usually own almost all VRAM — starting one
+    more CUDA model would OOM, and a CPU XTTS (~1-3 s per sentence) beats a
+    dead cell. TTS_DEVICE=cuda|cpu overrides the guess."""
+    dev = os.environ.get("TTS_DEVICE", "").lower()
+    if dev in ("cuda", "cpu"):
+        return dev
+    try:
+        import torch
+        if torch.cuda.is_available():
+            free, _total = torch.cuda.mem_get_info()
+            if free >= need_gb * 1024 ** 3:
+                return "cuda"
+            _log(f"device: only {free / 1024 ** 3:.1f} GB VRAM free "
+                 f"(< {need_gb} GB) -> cpu")
+    except Exception as e:
+        _log(f"device probe failed ({e}) -> cpu")
+    return "cpu"
+
+
 def _load_xtts():
     os.environ.setdefault("COQUI_TOS_AGREED", "1")
     from TTS.api import TTS                      # pip install coqui-tts
     import numpy as np
     _state["phase"] = "loading"
-    _log("xtts: loading tts_models/multilingual/multi-dataset/xtts_v2 …")
-    tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to("cuda")
+    dev = _pick_device()
+    _log(f"xtts: loading tts_models/multilingual/multi-dataset/xtts_v2 ({dev}) …")
+    tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(dev)
     lang_map = {"zh": "zh-cn"}                   # XTTS's one odd code
 
     def synth(text, lang, ref_path):
@@ -63,12 +85,22 @@ def _load_xtts():
 def _load_cosyvoice():
     # run_tts.sh puts ~/CosyVoice(+Matcha-TTS) on PYTHONPATH and downloads
     # pretrained_models/CosyVoice2-0.5B on first run.
+    # CosyVoice2 takes no device argument — cosyvoice/cli/model.py hardcodes
+    # cuda-if-visible, so a cell asking for CPU used to land there only via the
+    # CUDA_VISIBLE_DEVICES= the Device tile writes alongside TTS_DEVICE. Ask
+    # _pick_device anyway: it is what keeps a low-VRAM host off the GPU, fp16 is
+    # a CUDA-only ask, and this log line is the only place the device is stated.
+    dev = _pick_device()
+    if dev == "cpu":
+        # Bites only while nothing has touched CUDA yet — true for an explicit
+        # TTS_DEVICE=cpu, which returns above before torch is ever imported.
+        os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
     from cosyvoice.cli.cosyvoice import CosyVoice2
     _state["phase"] = "loading"
     model_dir = os.path.expanduser(
         os.environ.get("COSYVOICE_MODEL", "~/CosyVoice/pretrained_models/CosyVoice2-0.5B"))
-    _log(f"cosyvoice: loading {model_dir} …")
-    cv = CosyVoice2(model_dir, load_jit=False, load_trt=False, fp16=True)
+    _log(f"cosyvoice: loading {model_dir} ({dev}) …")
+    cv = CosyVoice2(model_dir, load_jit=False, load_trt=False, fp16=(dev == "cuda"))
 
     def synth(text, lang, ref_path):
         try:
