@@ -7,6 +7,13 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.54 — 2026-07-18
+
+- Port picker colors read right: cell tiles (the swappable ones) are now amber
+  and agent-port tiles are red. Red was on the cells you CAN act on and amber
+  on the ports you can't — swapped so red means hands-off. Bridges stay purple,
+  the current cell green.
+
 ## 1.3.53 — 2026-07-18
 
 - One coloring mechanism for every cell button and lifecycle step, driven by
