@@ -7,6 +7,18 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.68 — 2026-07-19
+
+- Deleting a controller cell removes its artifacts too. `write_server_cell_artifacts()`
+  lays down `var/server-cells/<port>/{cell.json,start.sh}` and delete left them
+  behind, so every removed cell added to a pile. Not merely litter: the port
+  outlives the cell and can be handed to a CLIENT next, while the stale
+  `start.sh` still describes a CONTROLLER cell on that number — one
+  `systemctl start lama-cell@<port>` away from putting two different cells on
+  one port again, which is the failure that hid a running 27 GB model from the
+  board. Eleven such directories had accumulated; four of them named ports that
+  now belong to a client.
+
 ## 1.3.67 — 2026-07-18
 
 - The controller's host id is reserved: a client heartbeat claiming it is

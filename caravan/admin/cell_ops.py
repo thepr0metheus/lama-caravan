@@ -2,11 +2,12 @@
 systemd cells and client cells via the route-agent). Sits above status because
 the handlers return the composite state()."""
 import os
+import shutil
 
 from caravan.admin.config_builder import is_command_cell
 from caravan.admin.runners import runner_id, uses_command_path
 from caravan.admin.fleet_clients import client_llama_start, client_llama_stop
-from caravan.admin.launch import write_server_cell_artifacts
+from caravan.admin.launch import server_cell_dir, write_server_cell_artifacts
 from caravan.admin.server_cells import (
     assert_server_cell_port_available,
     delete_server_slot,
@@ -111,6 +112,16 @@ def client_server_slot_delete(body: dict) -> dict:
             pass
         try:
             systemctl("reset-failed", cell_service_name(port), timeout=5)
+        except Exception:
+            pass
+        # Delete mirrors create: write_server_cell_artifacts() laid down
+        # var/server-cells/<port>/{cell.json,start.sh}, and leaving them behind
+        # is not merely litter. The port outlives the cell — it can be handed to
+        # a CLIENT next — and a stale start.sh still describes a controller cell
+        # on it, one `systemctl start lama-cell@<port>` away from putting two
+        # different cells on one number again.
+        try:
+            shutil.rmtree(server_cell_dir(port), ignore_errors=True)
         except Exception:
             pass
     return {"ok": True, "removed": removed}
