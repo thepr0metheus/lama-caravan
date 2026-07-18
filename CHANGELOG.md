@@ -7,6 +7,19 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.67 — 2026-07-18
+
+- The controller's host id is reserved: a client heartbeat claiming it is
+  refused. Slots are keyed `"<hostId>:<port>"`, and a client's id is whatever
+  its own config says — so a client answering to the controller's id would
+  write straight into the controller's namespace, putting two different cells
+  under one key. That is not hypothetical: a controller cell and a client cell
+  ended up sharing port 8011 today, and the running one vanished from the board
+  entirely while holding 27 GB of VRAM. The check is case-insensitive so a
+  fleet never holds both "skynet" and "Skynet", while `is_controller_host()`
+  stays exact — it decides behaviour and must never mistake a client FOR the
+  controller.
+
 ## 1.3.66 — 2026-07-18
 
 - "Is this the controller?" is now a question the code asks, not a hostname it

@@ -13,10 +13,12 @@ from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
 from caravan.admin.launch import _sanitize_snapshot_name
 from caravan.admin.paths import (
+    CONTROLLER_HOST_ID,
     FLEET_REGISTRY_URL,
     TOPOLOGY_SERVER_IP,
     SERVER_BACKUPS_DIR,
     TOPOLOGY_CLIENT_TTL,
+    is_controller_host,
 )
 from caravan.admin.proxies_config import (
     load_agent_proxy_config,
@@ -513,6 +515,19 @@ def topology_client_from_heartbeat(payload):
     host_id = str(host.get("id") or host.get("name") or "").strip()[:120]
     if not host_id:
         raise AppError("host.id is required", 400)
+    # The controller's own id is a reserved sentinel, and slots are keyed
+    # "<hostId>:<port>" — so a client answering to it would write straight into
+    # the controller's namespace: two different cells under one key. That is
+    # exactly how a running cell went missing from the board once already, and
+    # the id here is whatever the client's own config says, so nothing but this
+    # check stops it. Refuse the heartbeat rather than merge the two hosts.
+    # Case-insensitively on purpose, while is_controller_host() stays exact:
+    # the predicate decides behaviour and must never mistake a client named
+    # "Skynet" FOR the controller, but a fleet holding both is a reading trap
+    # no one needs — refuse the near-miss at the door instead.
+    if host_id.casefold() == CONTROLLER_HOST_ID.casefold():
+        raise AppError(f'host.id "{CONTROLLER_HOST_ID}" is reserved for the controller — '
+                       f"give this client a different hostId", 400)
     agents = []
     for agent in payload.get("agents") or []:
         row = normalize_topology_agent(agent)
