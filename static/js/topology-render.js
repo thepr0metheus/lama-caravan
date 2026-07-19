@@ -588,11 +588,13 @@ export function syncTopologyLive() {
     const nodeEl = document.querySelector(`.node-card[data-node-id="${CSS.escape(n.id)}"]`);
     if (!nodeEl) return;
 
-    // Node header: CPU/RAM sparklines + the "CPU x% · RAM y/z GB · platform" line.
+    // Header now carries only the platform. Live CPU load% and RAM moved into
+    // the CPU block below the GPUs, mirroring a GPU row's util/VRAM.
     const cpu = n.cpu || {}, ram = cpu.ram || {};
-    const cpuTxt = cpu.loadPct != null ? `CPU ${cpu.loadPct}%` : "";
-    const ramTxt = ram.usedGb != null ? `RAM ${ram.usedGb}/${ram.totalGb} GB` : (ram.totalGb != null ? `RAM ${ram.totalGb} GB` : "");
-    _liveSet(nodeEl, "[data-live-nodemeta]", [cpuTxt, ramTxt, n.platform].filter(Boolean).join(" · "));
+    _liveSet(nodeEl, "[data-live-nodemeta]", n.platform || "");
+    _liveSet(nodeEl, "[data-live-cpuload]", cpu.loadPct != null ? `${cpu.loadPct}%` : "");
+    _liveSet(nodeEl, "[data-live-cpuram]", ram.usedGb != null ? `RAM ${ram.usedGb}/${ram.totalGb} GB`
+      : (ram.totalGb != null ? `RAM ${ram.totalGb} GB` : ""));
 
     // Server cards: token speed, context usage, download progress.
     (n.servers || []).forEach((s) => {

@@ -7,6 +7,16 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.78 — 2026-07-19
+
+- The node panel's CPU block leads and carries its own load. CPU and GPU swapped
+  order (CPU first), and the CPU block now mirrors a GPU row — live load% in the
+  head, RAM used/total where a GPU shows VRAM, with "cells on CPU" ports as a
+  sub-line. Those two figures left the node header, which keeps only the platform.
+- The unified compute-target tiles are compact — tighter padding, smaller type,
+  a single-line detail row — roughly a third shorter, so the CPU/GPU/auto choice
+  no longer dominates the form.
+
 ## 1.3.77 — 2026-07-19
 
 - One device selector for every runner, above MODEL_FILE. The launch device

@@ -900,8 +900,6 @@ export function nodesLaneHtml() {
 
   const sections = nodes.map((n) => {
     const cpu = n.cpu || {}, ram = cpu.ram || {};
-    const cpuTxt = cpu.loadPct != null ? `CPU ${cpu.loadPct}%` : "";
-    const ramTxt = ram.usedGb != null ? `RAM ${ram.usedGb}/${ram.totalGb} GB` : (ram.totalGb != null ? `RAM ${ram.totalGb} GB` : "");
     // llama.cpp version chip
     const nodeVerStr = n.role === "controller" ? ctrlVersionStr : (n.llamaBinaryVersion || "");
     const nodeMtime = n.role === "controller" ? ctrlMtime : (n.llamaBinaryMtime || "");
@@ -1007,19 +1005,30 @@ export function nodesLaneHtml() {
         // even in the window where it holds no VRAM yet.
         return ph === "running" && !(srv.gpuIndexes || []).length && !cellPinnedToGpu(srv);
       }).map((srv) => srv.port).filter(Boolean);
-      const cpuRowHtml = cpuPorts.length ? `
+      // The CPU block mirrors a GPU row now: live load% in the head, RAM
+      // used/total where a GPU shows VRAM — those two moved out of the node
+      // header (which kept only the platform). The "cells on CPU" ports are a
+      // sub-line when any exist. Always rendered, so a host's CPU/RAM is visible
+      // even with no CPU cell running.
+      const cpuLoadTxt = cpu.loadPct != null ? `${cpu.loadPct}%` : "";
+      const cpuRamTxt = ram.usedGb != null ? `RAM ${ram.usedGb}/${ram.totalGb} GB`
+        : (ram.totalGb != null ? `RAM ${ram.totalGb} GB` : "");
+      const cpuRowHtml = `
         <div class="node-gpu-row node-cpu-row" title="${escapeHtml(t("topologyCpuCellsHint"))}">
           <div class="node-gpu-head">
             <strong>CPU</strong>
-            <span class="node-gpu-name">${escapeHtml(t("topologyCpuCellsLabel"))}</span>
+            <span class="node-gpu-util" data-live-cpuload>${escapeHtml(cpuLoadTxt)}</span>
           </div>
           <div class="node-gpu-meta">
-            <span class="node-gpu-ports">▶ ${cpuPorts.map((pp) => escapeHtml(String(pp))).join(", ")}</span>
+            <span data-live-cpuram>${escapeHtml(cpuRamTxt)}</span>
+            ${cpuPorts.length ? `<span class="node-gpu-ports">▶ ${cpuPorts.map((pp) => escapeHtml(String(pp))).join(", ")}</span>` : ""}
           </div>
-        </div>` : "";
-      const gpusHtml = ((n.gpus || []).length
+        </div>`;
+      // CPU first, then the GPUs (swapped on request — the CPU/RAM summary now
+      // lives here, so it leads).
+      const gpusHtml = cpuRowHtml + ((n.gpus || []).length
         ? n.gpus.map((g) => nodeGpuRowHtml(n, g)).join("")
-        : `<div class="topology-muted" style="font-size:12px">${escapeHtml(t("topologyNoGpu"))}</div>`) + cpuRowHtml;
+        : `<div class="topology-muted" style="font-size:12px">${escapeHtml(t("topologyNoGpu"))}</div>`);
       // Controller node hosts the deep controller telemetry (mounted, not rebuilt):
       // Server charts toggle under the "Servers" header; GPU charts live in the
       // GPUs column; Incidents open in a modal from the header button.
@@ -1064,7 +1073,7 @@ export function nodesLaneHtml() {
           <span style="flex:1"></span>
           ${(n.role === "controller")
             ? `<button class="node-incidents-btn" type="button" data-ctrl-incidents title="${escapeHtml(t("topologyIncidentsOpen"))}">⚠ <span data-ctrl-incidents-count>0</span></button>` : ""}
-          <span class="node-meta" data-live-nodemeta>${escapeHtml([cpuTxt, ramTxt, n.platform].filter(Boolean).join(" · "))}</span>
+          <span class="node-meta" data-live-nodemeta>${escapeHtml(n.platform || "")}</span>
         </header>
         ${bodyHtml}
       </section>`;
