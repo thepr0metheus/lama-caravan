@@ -21,6 +21,7 @@ from caravan.admin.paths import DEFAULT_MODELS_DIR, SERVER_CELLS_DIR, START_SCRI
 from caravan.common.errors import AppError
 from caravan.admin.runners import (
     VLLM_BOOTSTRAP_LINES,
+    build_moonshine_command,
     build_vllm_command,
     build_whisper_command,
     runner_id,
@@ -48,6 +49,7 @@ def render_command_cell_script(config):
         raise AppError("PORT must be a number")
     is_vllm = runner_id(merged) == "vllm"
     is_whisper = runner_id(merged) == "whisper"
+    is_moonshine = runner_id(merged) == "moonshine"
     if is_vllm:
         if not merged.get("VLLM_MODEL"):
             raise AppError("VLLM_MODEL is required for a vLLM cell")
@@ -58,6 +60,10 @@ def render_command_cell_script(config):
         if not merged.get("LLAMA_MODELS_DIR"):
             merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
         command = build_whisper_command(merged)
+    elif is_moonshine:
+        # Like whisper, the command is SYNTHESIZED from the runner's own field —
+        # requiring COMMAND here rejected a perfectly valid moonshine cell.
+        command = build_moonshine_command(merged)
     else:
         # Be forgiving: strip a leading `exec ` — we add our own.
         command = re.sub(r"^\s*exec\s+", "", merged.get("COMMAND") or "").strip()
@@ -68,6 +74,7 @@ def render_command_cell_script(config):
     block_keys = ("RUNNER", "CELL_KIND", "PORT", "HEALTH_PATH", "WORKDIR", "COMMAND",
                   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION",
                   "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL",
+                  "MOONSHINE_MODEL",
                   "LLAMA_MODELS_DIR", "ALIAS")
     block_lines = [CONFIG_BEGIN]
     for key in block_keys:

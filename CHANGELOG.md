@@ -7,6 +7,17 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.75 — 2026-07-19
+
+- A controller moonshine cell saves and starts. `write_server_cell_artifacts`
+  demanded a raw COMMAND from every command-path cell except vllm/whisper, so
+  saving a moonshine cell on the controller failed with "COMMAND is required" —
+  the runner synthesizes its command from MOONSHINE_MODEL, exactly like
+  whisper does from WHISPER_MODEL. The generated `start.sh` carries
+  MOONSHINE_MODEL in its config block now. Verified on the controller
+  end-to-end: cell saved from the tile, systemd unit started, health in 4 s,
+  44 s of speech transcribed in 4.8 s on the CPU.
+
 ## 1.3.74 — 2026-07-19
 
 - New runner: 🌙 **moonshine** — Moonshine v2 speech-to-text as a first-class
