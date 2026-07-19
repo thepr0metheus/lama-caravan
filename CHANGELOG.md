@@ -7,6 +7,19 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.76 — 2026-07-19
+
+- A moonshine cell created from the tile actually starts. Two bugs made a
+  freshly-configured moonshine cell un-launchable: the topology phase stayed
+  `reserved` instead of `stopped` (the command-path stopped-check knew whisper
+  but not moonshine), so the card never grew a Start button; and the device
+  chip read "auto" on a not-blue card because moonshine was missing from the
+  CPU-cell logic. Both fixed — moonshine reaches `stopped` with a Start button
+  and reads as a CPU cell in every state (its ONNX models are CPU-only).
+  Verified end-to-end through the UI on BOTH a controller cell (:8008) and a
+  client cell (:8023 on foreman): reserve → pick the 🌙 tile → Apply → Start →
+  health in 2 s → speech transcribed on the CPU, 0 VRAM.
+
 ## 1.3.75 — 2026-07-19
 
 - A controller moonshine cell saves and starts. `write_server_cell_artifacts`

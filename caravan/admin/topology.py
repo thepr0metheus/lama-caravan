@@ -313,7 +313,7 @@ def topology_server(config=None):
         # "configured" (stopped), not an empty "reserved" slot.
         slot_phase = "stopped" if (model_path or (slot_is_command and (
             slot_cfg.get("COMMAND") or slot_cfg.get("VLLM_MODEL")
-            or str(slot_cfg.get("RUNNER") or "").strip().lower() == "whisper"))) else "reserved"
+            or str(slot_cfg.get("RUNNER") or "").strip().lower() in ("whisper", "moonshine")))) else "reserved"
         service_name = SERVICE_NAME if is_controller_slot else ""
         cell_status = {}
         cell_pid = None

@@ -367,13 +367,17 @@ export function nodeServerCardHtml(node, s) {
   // CPU pinned in the config. The pin has to count — measuring VRAM alone
   // labeled a GPU-pinned cell "CPU" for the whole window before it allocates,
   // which reads as the Device setting having been ignored.
-  const isCpuCell = (running && !devGpuTxt && !cfgSaysGpu) || (!running && cfgSaysCpu && !isReserved);
   // Stopped without a pin: llama (with offload) and vLLM are GPU by nature,
-  // whisper's launcher is CUDA-first; moonshine is CPU-only by design (it
-  // deliberately stays OUT of runnerDefaultsGpu); a bare custom command resolves its
-  // device at start (VRAM probe) → "auto".
+  // whisper's launcher is CUDA-first; moonshine is CPU-only by design (its ONNX
+  // models have no GPU build), so it deliberately stays OUT of
+  // runnerDefaultsGpu AND counts as a CPU cell even without a TTS_DEVICE=cpu
+  // pin; a bare custom command resolves its device at start (VRAM probe) → "auto".
   const _runner = String(_scfg.RUNNER || (String(_scfg.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server")).toLowerCase();
   const runnerDefaultsGpu = _runner === "llama-server" || _runner === "vllm" || _runner === "whisper";
+  const runnerCpuOnly = _runner === "moonshine";
+  const isCpuCell = (running && !devGpuTxt && !cfgSaysGpu)
+    || (!running && (cfgSaysCpu || runnerCpuOnly) && !isReserved)
+    || (running && runnerCpuOnly);
   const deviceChip = (running && devGpuTxt)
     ? mbadge("gpu", `⚡ ${escapeHtml(devGpuTxt)}`)
     : (isCpuCell
