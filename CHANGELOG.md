@@ -7,6 +7,16 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.72 — 2026-07-19
+
+- The finished summary confesses a rescue. The rescue itself was recorded only
+  as `rescue_retry` events mid-journal, so the terminal `finished` record read
+  as if the request went to its final upstream directly — diagnosing "why did
+  this agent suddenly answer through the cloud" required scrolling back, an
+  easy step to miss. The summary now carries
+  `rescued: {hops, trail: [{from, status}]}` — the failed exits in order, with
+  the status each one failed with.
+
 ## 1.3.71 — 2026-07-19
 
 - New rule node: 🛟 **backup** (`onError`) — two exits, main and backup.

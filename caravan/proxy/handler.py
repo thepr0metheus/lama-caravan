@@ -412,6 +412,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             # output — the backup's stream continues into the same open pipe.
             _rescue_refs = list(route.get("rescueRefs") or [])
             _rescue_hops = 0
+            _rescue_trail = []
             while True:
                 _conn_exc = None
                 upstream = None
@@ -632,6 +633,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
                                           request_id=request_id, item=active, status=status,
                                           rescueRef=_resc_ref, hop=_rescue_hops,
                                           upstreamErrorBody=(upstream_error_body[:300] or None))
+                        _rescue_trail.append({
+                            "from": str(route.get("routedOutputId")
+                                        or f"{route.get('upstreamHost')}:{route.get('upstreamPort')}"),
+                            "status": int(status),
+                        })
                         route = _newr
                         route["label"] = route.get("label") or self.agent_name
                         route_is_cloud = str(route.get("upstreamType") or "llama") == "cloud"
@@ -925,6 +931,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 _tm = stream["timings"]
             if _tm:
                 result["timings"] = _tm
+            # The summary must confess the rescue. Without this the finished
+            # record reads as if the request went to its final upstream directly —
+            # the failed first leg was only visible by scrolling back to the
+            # rescue_retry events, an easy step to miss when diagnosing "why did
+            # this agent suddenly answer through the cloud".
+            if _rescue_trail:
+                result["rescued"] = {"hops": len(_rescue_trail), "trail": _rescue_trail}
             result["providerId"] = str(route.get("providerId") or "")
             result["cloudAccountId"] = str(route.get("cloudAccountId") or "")
             result["model"] = str((req_summary or {}).get("model") or "")
