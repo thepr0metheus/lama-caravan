@@ -155,6 +155,30 @@
 .compute-card-name { white-space: nowrap; flex-shrink: 0; }
 .compute-card-main { font-weight: 400; font-size: 10px; opacity: 0.7; white-space: nowrap; flex-shrink: 0; }
 .compute-card-sub { font-weight: 400; font-size: 10px; color: var(--muted, #8b93a1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+
+/* Multi-GPU sub-picker — appears under the tiles only in GPU mode on a host with
+   more than one card. Chips for a few, a checklist dropdown for many. */
+.compute-gpu-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 7px; }
+.compute-gpu-chip { display: inline-flex; align-items: center; gap: 5px; font: inherit; font-size: 11px; padding: 4px 9px; border-radius: 999px; border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.03); color: #cdd3db; white-space: nowrap; cursor: pointer; }
+.compute-gpu-chip:hover { border-color: rgba(255, 255, 255, 0.3); }
+.compute-gpu-chip.on { border-color: #34d399; color: #e6edf3; background: color-mix(in srgb, #34d399 12%, transparent); }
+.compute-gpu-chip-m { color: var(--muted, #8b93a1); font-size: 10px; }
+.compute-gpu-chip.on .compute-gpu-chip-m { color: #9fe1cb; }
+
+.compute-gpu-dd { position: relative; margin-top: 7px; }
+.compute-gpu-dd-sum { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; padding: 7px 11px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.03); color: #cdd3db; cursor: pointer; list-style: none; }
+.compute-gpu-dd-sum::-webkit-details-marker { display: none; }
+.compute-gpu-dd-sum:hover { border-color: rgba(255, 255, 255, 0.3); }
+.compute-gpu-dd-caret { color: var(--muted, #8b93a1); }
+.compute-gpu-dd[open] .compute-gpu-dd-caret { transform: rotate(180deg); }
+.compute-gpu-dd-panel { position: absolute; z-index: 6; margin-top: 6px; min-width: 300px; border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 10px; background: #161b22; padding: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4); }
+.compute-gpu-dd-row { display: flex; align-items: center; gap: 9px; width: 100%; font: inherit; font-size: 12px; padding: 7px 9px; border: 0; border-radius: 7px; background: transparent; color: inherit; cursor: pointer; text-align: left; }
+.compute-gpu-dd-row:hover { background: rgba(255, 255, 255, 0.05); }
+.compute-gpu-box { flex-shrink: 0; width: 15px; height: 15px; border-radius: 4px; border: 1px solid rgba(255, 255, 255, 0.3); display: flex; align-items: center; justify-content: center; font-size: 11px; color: #0d1117; }
+.compute-gpu-dd-row.on .compute-gpu-box { background: #34d399; border-color: #34d399; }
+.compute-gpu-dd-name { font-weight: 600; }
+.compute-gpu-dd-vram { margin-left: auto; color: var(--muted, #8b93a1); font-size: 11px; }
+.compute-gpu-dd-div { height: 1px; background: rgba(255, 255, 255, 0.08); margin: 5px 4px; }
 .link-button.apply-family-defaults {
   color: #fbbf24;
   font-weight: 600;

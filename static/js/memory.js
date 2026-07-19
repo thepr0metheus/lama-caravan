@@ -252,6 +252,8 @@ function applyComputeMode(pfx, sel) {
   refreshComputeTarget(pfx);
   renderCommandPreview(pfx);
 }
+// Keeps the multi-GPU dropdown open across the re-render each toggle triggers.
+let _computeGpuDdOpen = false;
 export function refreshComputeTarget(pfx) {
   const box = $(pfx + "computeTarget");
   if (!box) return;
@@ -275,40 +277,78 @@ export function refreshComputeTarget(pfx) {
   const cpuCard = card(mode === "cpu" && caps.cpu, !caps.cpu, `data-compute="cpu"`,
     "🧠", "CPU", `${cores} ${t("computeCores")}${ramGb ? ` · ${ramGb.toFixed(0)} GB` : ""}`,
     caps.cpu ? t("computeCpuSub") : na);
+  // GPU: ONE summary tile. A multi-GPU host picks its cards in the sub-picker
+  // below (chips, or a checklist dropdown for many), keeping CPU/GPU/auto a clean
+  // three-tile row. Off GPU-mode the tile previews "all cards" as the default.
+  const multi = isLlama && gpus.length > 1;
+  const allIdx = gpus.map((g) => Number(g.index));
+  const shownSel = mode === "gpu" ? [...sel].sort((a, b) => a - b) : allIdx;
   let gpuCards;
-  if (isLlama && gpus.length > 1) {
-    // Rich per-GPU tiles so a multi-GPU llama host keeps its card-level pick.
-    gpuCards = gpus.map((g) => {
-      const i = Number(g.index);
-      const vram = Number(g.memoryTotalMiB || 0) / 1024;
-      return card(mode === "gpu" && sel.has(i), false, `data-compute="gpu" data-gpu="${i}"`,
-        "🎮", `GPU${i}`, shortGpuName(g.name), vram ? `${formatSizeGb(vram)} VRAM` : t("computeGpuSub"));
-    }).join("");
+  if (multi) {
+    const vramSel = gpus.filter((g) => shownSel.includes(Number(g.index)))
+      .reduce((s, g) => s + Number(g.memoryTotalMiB || 0) / 1024, 0);
+    const allOn = shownSel.length === gpus.length;
+    gpuCards = card(mode === "gpu" && caps.gpu, !caps.gpu, `data-compute="gpu"`,
+      "🎮", "GPU", `${shownSel.length}/${gpus.length} · ${vramSel.toFixed(1)} GB`,
+      allOn ? t("computeGpuAll") : shownSel.map((i) => `GPU${i}`).join(" + "));
   } else {
     const g0 = gpus[0];
     const vram = Number(g0?.memoryTotalMiB || 0) / 1024;
-    gpuCards = card(mode === "gpu" && caps.gpu, !caps.gpu, `data-compute="gpu" data-gpu="${g0 ? Number(g0.index) : 0}"`,
+    gpuCards = card(mode === "gpu" && caps.gpu, !caps.gpu, `data-compute="gpu"`,
       "🎮", "GPU", g0 ? shortGpuName(g0.name) : "GPU",
       caps.gpu ? (vram ? `${formatSizeGb(vram)} VRAM` : t("computeGpuSub")) : na);
   }
   const autoCard = card(mode === "auto" && caps.auto, !caps.auto, `data-compute="auto"`,
     "🎲", t("computeAuto"), t("computeAutoMain"), caps.auto ? t("computeAutoSub") : na);
-  box.innerHTML = `<div class="compute-label">${t("computeTarget")}</div><div class="compute-cards">${cpuCard}${gpuCards}${autoCard}</div>`;
+  // Sub-picker for which cards: chips up to 4, a custom checklist dropdown for 5+.
+  // Only while GPU is the active mode. Each toggle edits the CUDA device set.
+  let subPicker = "";
+  if (multi && mode === "gpu") {
+    const allOn = shownSel.length === gpus.length;
+    const rows = gpus.map((g) => {
+      const i = Number(g.index);
+      const vram = Number(g.memoryTotalMiB || 0) / 1024;
+      return { i, on: sel.has(i), spec: `${shortGpuName(g.name)}${vram ? ` · ${vram.toFixed(1)} GB` : ""}` };
+    });
+    if (gpus.length >= 5) {
+      const summary = allOn ? t("computeGpuAll") : shownSel.map((i) => `GPU${i}`).join(" + ");
+      subPicker = `<details class="compute-gpu-dd"${_computeGpuDdOpen ? " open" : ""}>`
+        + `<summary class="compute-gpu-dd-sum">${escapeHtml(summary)}<span class="compute-gpu-dd-caret" aria-hidden="true">▾</span></summary>`
+        + `<div class="compute-gpu-dd-panel">`
+        + rows.map((r) => `<button type="button" class="compute-gpu-dd-row${r.on ? " on" : ""}" data-gpu="${r.i}"><span class="compute-gpu-box" aria-hidden="true">${r.on ? "✓" : ""}</span><span class="compute-gpu-dd-name">GPU${r.i}</span><span class="compute-gpu-dd-vram">${escapeHtml(r.spec)}</span></button>`).join("")
+        + `<div class="compute-gpu-dd-div"></div>`
+        + `<button type="button" class="compute-gpu-dd-row${allOn ? " on" : ""}" data-gpu-all="1"><span class="compute-gpu-box" aria-hidden="true">${allOn ? "✓" : ""}</span><span class="compute-gpu-dd-name">${escapeHtml(t("computeGpuAll"))}</span></button>`
+        + `</div></details>`;
+    } else {
+      subPicker = `<div class="compute-gpu-chips">`
+        + rows.map((r) => `<button type="button" class="compute-gpu-chip${r.on ? " on" : ""}" data-gpu="${r.i}">${r.on ? "✓ " : ""}GPU${r.i}<span class="compute-gpu-chip-m">${escapeHtml(r.spec)}</span></button>`).join("")
+        + `<button type="button" class="compute-gpu-chip${allOn ? " on" : ""}" data-gpu-all="1">${escapeHtml(t("computeGpuAll"))}</button>`
+        + `</div>`;
+    }
+  }
+  box.innerHTML = `<div class="compute-label">${t("computeTarget")}</div><div class="compute-cards">${cpuCard}${gpuCards}${autoCard}</div>${subPicker}`;
   box.querySelectorAll(".compute-card:not(.disabled)").forEach((btn) => btn.addEventListener("click", () => {
     const kind = btn.dataset.compute;
-    if (kind === "cpu") { applyComputeMode(pfx, { mode: "cpu" }); return; }
-    if (kind === "auto") { applyComputeMode(pfx, { mode: "auto" }); return; }
-    // GPU: multi-GPU llama toggles individual cards; everything else is a plain GPU pin.
-    if (isLlama && gpus.length > 1) {
-      const gi = Number(btn.dataset.gpu);
-      const cur = new Set(computeIsCpu(pfx) ? [] : computeSelectedGpuIdx(pfx));
-      if (cur.has(gi)) cur.delete(gi); else cur.add(gi);
-      if (!cur.size) cur.add(gi);
-      applyComputeMode(pfx, { mode: "gpu", gpuIdx: [...cur] });
-    } else {
-      applyComputeMode(pfx, { mode: "gpu" });
-    }
+    if (kind === "gpu" && mode === "gpu") return;   // already GPU — the sub-picker owns the card choice
+    applyComputeMode(pfx, { mode: kind });          // GPU (from cpu/auto) defaults to all cards
   }));
+  // Sub-picker toggles: flip one card in/out of the CUDA device set (never empty).
+  box.querySelectorAll("[data-gpu]").forEach((btn) => btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    const gi = Number(btn.dataset.gpu);
+    const cur = new Set(computeIsCpu(pfx) ? [] : computeSelectedGpuIdx(pfx));
+    if (cur.has(gi)) cur.delete(gi); else cur.add(gi);
+    if (!cur.size) cur.add(gi);
+    _computeGpuDdOpen = true;
+    applyComputeMode(pfx, { mode: "gpu", gpuIdx: [...cur] });
+  }));
+  box.querySelectorAll("[data-gpu-all]").forEach((btn) => btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    _computeGpuDdOpen = true;
+    applyComputeMode(pfx, { mode: "gpu" });          // empty DEVICE = every card
+  }));
+  const dd = box.querySelector(".compute-gpu-dd");
+  if (dd) dd.addEventListener("toggle", () => { _computeGpuDdOpen = dd.open; });
 }
 // VRAM/RAM headroom for the form's memory estimate, honoring the compute target.
 export function ramFitForPfx(runtimeSizeGb, pfx) {
