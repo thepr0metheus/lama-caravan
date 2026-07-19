@@ -574,6 +574,7 @@ export function renderTopologyRouterDetail() {
               <button class="cv-palette-btn" type="button" data-cv-add="roundRobin" title="${escapeHtml(t("rtTitleRoundRobin"))}">🔁 ${escapeHtml(t("cvNodeRoundRobin"))}</button>
               <button class="cv-palette-btn" type="button" data-cv-add="failover" title="${escapeHtml(t("rtTitleFailover"))}">⚡ ${escapeHtml(t("cvNodeFailover"))}</button>
               <button class="cv-palette-btn" type="button" data-cv-add="queue" title="${escapeHtml(t("rtTitleQueue"))}">⏳ ${escapeHtml(t("cvNodeQueue"))}</button>
+              <button class="cv-palette-btn" type="button" data-cv-add="onError" title="${escapeHtml(t("rtTitleOnError"))}">🛟 ${escapeHtml(t("cvNodeOnError"))}</button>
               <button class="cv-palette-btn" type="button" data-cv-add="requestType" title="${escapeHtml(t("rtTitleByType"))}">🔀 ${escapeHtml(t("cvNodeByType"))}</button>
               <button class="cv-palette-btn" type="button" data-cv-add="requestSize" title="${escapeHtml(t("rtTitleBySize"))}">📏 ${escapeHtml(t("cvNodeBySize"))}</button>
               <span class="rw-palette-save" title="${escapeHtml(t("rtTitleAutoSaveInstant"))}">⤓ ${escapeHtml(t("rtAutoSave"))}</span>

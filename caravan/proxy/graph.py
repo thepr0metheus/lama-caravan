@@ -212,6 +212,11 @@ def _eval_rule_node(router_id, node, outs, ctx, outputs, policy, now):
         # A queue node always routes its happy path down the admit edge; the wait +
         # spill behaviour is run by the handler from the spec resolve_graph surfaces.
         return edge_to(cfg.get("admitEdge")) or outs[0].get("to")
+    if ntype == "onError":
+        # Happy path always goes down the main edge; the rescue edge is not a
+        # routing choice — resolve_graph records it and the handler replays the
+        # request there only after the main upstream actually failed.
+        return edge_to(cfg.get("mainEdge")) or outs[0].get("to")
     return outs[0].get("to")
 
 def _queue_spec_from_node(node, policy):
@@ -329,6 +334,13 @@ def resolve_graph(router, route, ctx=None, policy=None, now=None, input_ref=None
                 spec = _queue_spec_from_node(node, policy)
                 spec["spillRef"] = spill_edge.get("to") if spill_edge else None
                 plan_out["spec"] = spec
+            if node.get("type") == "onError" and plan_out is not None:
+                # Collect every rescue exit crossed on the way to the output, in
+                # encounter order — the handler consumes them one failure at a time.
+                _oe_by_id = {str(e.get("id")): e for e in outs}
+                _oe_resc = _oe_by_id.get(str((node.get("config") or {}).get("rescueEdge")))
+                if _oe_resc and _oe_resc.get("to"):
+                    plan_out.setdefault("rescueRefs", []).append(str(_oe_resc.get("to")))
             nxt = _eval_rule_node(router_id, node, outs, ctx, outputs, policy, now)
         if not nxt:
             return None
@@ -382,6 +394,8 @@ def apply_router(route, config, ctx=None):
     if not out:
         route = dict(route); route["unrouted"] = "no output"; return route
     resolved = _overlay_output(route, out, plan.get("spec"))
+    if plan.get("rescueRefs"):
+        resolved["rescueRefs"] = plan["rescueRefs"]
     # Per-input override: graph.inputs[<proxyId>].clientTimeoutSeconds (set on the canvas input
     # node) wins over the auto-synced route value. input_ref is "in:<proxyId>".
     inputs = (router.get("graph") or {}).get("inputs") if isinstance(router.get("graph"), dict) else None
@@ -407,6 +421,7 @@ def _overlay_output(route, out, queue_spec=None):
         resolved["providerId"] = str(out.get("providerId") or "")
         resolved["cloudAccountId"] = str(out.get("accountId") or "")
     resolved.pop("queuePlan", None)
+    resolved.pop("rescueRefs", None)
     if queue_spec:
         resolved["queuePlan"] = {"spec": queue_spec}
     return resolved
@@ -424,4 +439,7 @@ def apply_router_spill(route, config, spill_ref, ctx=None):
                         input_ref=str(spill_ref), plan_out=plan)
     if not out:
         return None
-    return _overlay_output(route, out, plan.get("spec"))
+    resolved = _overlay_output(route, out, plan.get("spec"))
+    if plan.get("rescueRefs"):
+        resolved["rescueRefs"] = plan["rescueRefs"]
+    return resolved

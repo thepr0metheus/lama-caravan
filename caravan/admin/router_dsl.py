@@ -99,7 +99,7 @@ def normalize_router(router):
 # The runtime (agent-proxies.resolve_graph) walks it from the request's input node to
 # an output; an input not wired in the graph falls back to the legacy rules. Garbage
 # is dropped, never raised — a malformed graph just degrades to legacy routing.
-ROUTER_NODE_TYPES = ("byModel", "schedule", "weighted", "roundRobin", "failover", "queue", "requestType", "requestSize")
+ROUTER_NODE_TYPES = ("byModel", "schedule", "weighted", "roundRobin", "failover", "queue", "requestType", "requestSize", "onError")
 
 def _valid_edge_ref(ref, node_ids, out_ids):
     ref = str(ref or "")
@@ -215,6 +215,17 @@ def _normalize_node_config(node_type, cfg, edge_ids):
             "spillPct": _qint("spillPct", 20, 0, 100),
             "stickySlotSec": _qint("stickySlotSec", 20, 0, 120),
             "keepaliveSec": _qint("keepaliveSec", 20, 5, 120),
+        }
+    if node_type == "onError":
+        # Two-exit rescue node: requests route down mainEdge; when the upstream
+        # leg FAILS (connect error or HTTP >= 400) before a single byte reached
+        # the client, the handler replays the same request down rescueEdge.
+        # Capacity plays no part — this is redundancy, not load management.
+        main = str(cfg.get("mainEdge") or "")
+        resc = str(cfg.get("rescueEdge") or "")
+        return {
+            "mainEdge": main if main in edge_ids else "",
+            "rescueEdge": resc if resc in edge_ids else "",
         }
     if node_type == "requestSize":
         # Small-request branch: keep the max_tokens threshold (ports live on the

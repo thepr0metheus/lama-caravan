@@ -585,6 +585,30 @@ export function requestSizeNodeBodyHtml(router, n) {
     + `</div>`;
 }
 
+export function onErrorNodeBodyHtml(router, n) {
+  // Two exits: main (the normal path) and backup. The proxy replays the request
+  // down backup only when the MAIN upstream failed (connect error / HTTP >= 400)
+  // before a single response byte reached the client — redundancy, not load
+  // management. Reuses the queue card's dest-row classes: admit = main styling,
+  // spill = backup styling.
+  const cfg = n.config || {};
+  const edges = graphOutEdges(router, n.id);
+  const rescueEdge = edges.find((e) => e.id === cfg.rescueEdge);
+  const mainEdge = edges.find((e) => e.id === cfg.mainEdge) || edges.find((e) => e.id !== cfg.rescueEdge);
+  const mainLabel = mainEdge ? edgeTargetLabel(router, mainEdge) : "drag a cable →";
+  const rescueLabel = rescueEdge ? edgeTargetLabel(router, rescueEdge) : "drag a cable →";
+  const destRow = (role, name, label, wired, dragTip) =>
+    `<div class="cv-q-dest ${role === "main" ? "admit" : "spill"}${wired ? "" : " unset"}">`
+    + `<span class="cv-q-dot ${role === "main" ? "admit" : "spill"}"></span>`
+    + `<span class="cv-q-dl">${name}</span>`
+    + `<span class="cv-q-dt" title="${escapeHtml(label)}">${escapeHtml(label)}</span>`
+    + `<span class="cv-port out${wired ? "" : " unset"}" data-cv-port="out" data-cv-qrole="${role}" title="${escapeHtml(dragTip)}"></span>`
+    + `</div>`;
+  return `<span class="cv-sub">${escapeHtml(t("cvOnErrSub"))}</span>`
+    + destRow("main", "main", mainLabel, !!mainEdge, t("cvDragToMain"))
+    + destRow("rescue", "backup", rescueLabel, !!rescueEdge, t("cvDragToRescue"));
+}
+
 export function queueNodeBodyHtml(router, n) {
   const cfg = n.config || {};
   const edges = graphOutEdges(router, n.id);
@@ -968,13 +992,14 @@ export function canvasNodes(router) {
     html: `<div class="cv-inputs-head">${escapeHtml(t("cvLabelClients"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipClients")}</span></span></div><div class="cv-inputs-body">${inputsBodyHtml || '<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>'}</div>${orphanAgentsHtml}${embedSlotHtml}${appPortHtml}`,
   });
   // Rule nodes (graph mode) — positioned by their stored x/y; input + output ports.
-  const RULE_GLYPH = { schedule: "⏱", weighted: "⚖", roundRobin: "🔁", failover: "⚡", queue: "⏳", requestType: "🔀", requestSize: "📏" };
+  const RULE_GLYPH = { schedule: "⏱", weighted: "⚖", roundRobin: "🔁", failover: "⚡", queue: "⏳", requestType: "🔀", requestSize: "📏", onError: "🛟" };
   ruleNodes.forEach((n) => {
     const isQueue = n.type === "queue";
     const isSchedule = n.type === "schedule";
     const isReqType = n.type === "requestType";
     const isReqSize = n.type === "requestSize";
-    const ownPorts = isQueue || isReqType || isReqSize;  // render their own out-ports inside the body
+    const isOnErr = n.type === "onError";
+    const ownPorts = isQueue || isReqType || isReqSize || isOnErr;  // render their own out-ports inside the body
     if (isSchedule) {
       // Schedule nodes have inline expanded/collapsed body with own ports — no generic PORT_OUT.
       nodes.push({
@@ -991,12 +1016,16 @@ export function canvasNodes(router) {
       ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipRequestTypeNode")}</span></span>`
       : isReqSize
       ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipRequestSizeNode")}</span></span>`
+      : isOnErr
+      ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipOnErrorNode")}</span></span>`
       : `<button class="cv-act cv-rule-cfg" type="button" data-cv-cfgnode="${escapeHtml(n.id)}" title="${escapeHtml(t("cvConfigureNode"))}">⚙</button>`;
     const head = `<span class="cv-rule-head"><strong>${RULE_GLYPH[n.type] || "•"} ${escapeHtml(cvNodeTypeLabel(n.type))}</strong>`
       + `<span class="cv-rule-btns">${cfgBtn}`
       + `<button class="cv-act cv-rule-del" type="button" data-cv-delnode="${escapeHtml(n.id)}" title="${escapeHtml(t("cvTitleDeleteNode"))}">×</button></span></span>`;
     const body = isQueue
       ? queueNodeBodyHtml(router, n)
+      : isOnErr
+      ? onErrorNodeBodyHtml(router, n)
       : isReqType
       ? requestTypeNodeBodyHtml(router, n)
       : isReqSize
@@ -1005,7 +1034,7 @@ export function canvasNodes(router) {
     // Queue and request-type/size nodes carry their OWN out-ports inside the body;
     // other rule nodes use the single generic out-port.
     nodes.push({
-      id: `rule:${n.id}`, type: "rule", cls: isQueue ? "cv-rule-queue" : ((isReqType || isReqSize) ? "cv-rule-reqtype" : ""), fixed: { x: n.x || 0, y: n.y || 0 },
+      id: `rule:${n.id}`, type: "rule", cls: isQueue ? "cv-rule-queue" : (isOnErr ? "cv-rule-queue cv-rule-onerr" : ((isReqType || isReqSize) ? "cv-rule-reqtype" : "")), fixed: { x: n.x || 0, y: n.y || 0 },
       html: head + body + PORT_IN + (ownPorts ? "" : PORT_OUT),
     });
   });
@@ -1024,7 +1053,8 @@ export function canvasNodes(router) {
 // Localized display label for a rule-node type (palette buttons + card heads).
 export function cvNodeTypeLabel(type) {
   const key = { schedule: "cvNodeSchedule", weighted: "cvNodeWeighted", roundRobin: "cvNodeRoundRobin",
-    failover: "cvNodeFailover", queue: "cvNodeQueue", requestType: "cvNodeByType", requestSize: "cvNodeBySize" }[type];
+    failover: "cvNodeFailover", queue: "cvNodeQueue", requestType: "cvNodeByType", requestSize: "cvNodeBySize",
+    onError: "cvNodeOnError" }[type];
   return key ? t(key) : type;
 }
 
@@ -1110,11 +1140,14 @@ export function addGraphEdge(fromRef, toRef, queueRole, schedPortId) {
       return;
     }
     if (queueRole && fromRef.startsWith("rule:")) {
-      const node = (s.graph.nodes || []).find((n) => `rule:${n.id}` === fromRef && n.type === "queue");
+      const node = (s.graph.nodes || []).find((n) => `rule:${n.id}` === fromRef && (n.type === "queue" || n.type === "onError"));
       if (!node) return;
       node.config = node.config || {};
-      const roleKey = queueRole === "spill" ? "spillEdge" : "admitEdge";
-      const otherKey = queueRole === "spill" ? "admitEdge" : "spillEdge";
+      const ROLE_PAIRS = { admit: ["admitEdge", "spillEdge"], spill: ["spillEdge", "admitEdge"],
+                           main: ["mainEdge", "rescueEdge"], rescue: ["rescueEdge", "mainEdge"] };
+      const _pair = ROLE_PAIRS[queueRole];
+      if (!_pair) return;
+      const [roleKey, otherKey] = _pair;
       // Drop this role's previous edge (single-out per role). Keep the other role's edge.
       s.graph.edges = s.graph.edges.filter((e) => e.id !== node.config[roleKey]);
       // Reuse an existing from→to edge if present (e.g. the other role already points there
@@ -1138,27 +1171,35 @@ export function addGraphEdge(fromRef, toRef, queueRole, schedPortId) {
 // adopt the first unassigned outgoing edge as `admit` so it anchors at the main port and
 // the row shows its target. Persists only when something changes (converges, no loop).
 export function healQueueNodeEdges() {
+  // Heal queue/onError nodes authored before role-ports existed (or left with a
+  // stray edge): adopt the first unassigned outgoing edge as the MAIN role so it
+  // anchors at the main port and the row shows its target. Persists only when
+  // something changes (converges, no loop).
   const router = (topology?.routers || []).find((s) => s.id === ui.topologyCanvasRouterId);
   if (!router?.graph?.nodes?.length) return;
-  const needs = (g) => (g.nodes || []).some((n) => {
-    if (n.type !== "queue") return false;
+  const ROLE = { queue: ["admitEdge", "spillEdge"], onError: ["mainEdge", "rescueEdge"] };
+  const needsHeal = (g) => (g.nodes || []).some((n) => {
+    const pair = ROLE[n.type];
+    if (!pair) return false;
     const c = n.config || {};
     const outs = (g.edges || []).filter((e) => e.from === `rule:${n.id}`);
-    const admitOk = c.admitEdge && outs.some((e) => e.id === c.admitEdge);
-    return !admitOk && outs.some((e) => e.id !== c.spillEdge);
+    const mainOk = c[pair[0]] && outs.some((e) => e.id === c[pair[0]]);
+    return !mainOk && outs.some((e) => e.id !== c[pair[1]]);
   });
-  if (!needs(router.graph)) return;
+  if (!needsHeal(router.graph)) return;
   saveRouters((routers) => {
     const s = routerById(routers, ui.topologyCanvasRouterId);
-    for (const n of (s?.graph?.nodes || [])) {
-      if (n.type !== "queue") continue;
+    if (!s?.graph) return;
+    (s.graph.nodes || []).forEach((n) => {
+      const pair = ROLE[n.type];
+      if (!pair) return;
       n.config = n.config || {};
       const outs = (s.graph.edges || []).filter((e) => e.from === `rule:${n.id}`);
-      const admitOk = n.config.admitEdge && outs.some((e) => e.id === n.config.admitEdge);
-      if (admitOk) continue;
-      const free = outs.find((e) => e.id !== n.config.spillEdge);
-      if (free) n.config.admitEdge = free.id;
-    }
+      const mainOk = n.config[pair[0]] && outs.some((e) => e.id === n.config[pair[0]]);
+      if (mainOk) return;
+      const free = outs.find((e) => e.id !== n.config[pair[1]]);
+      if (free) n.config[pair[0]] = free.id;
+    });
   }).catch(() => {});
 }
 
@@ -1180,10 +1221,12 @@ export function rewireGraphEdge(fromRef, oldTo, newTo) {
     // A queue role cable keeps its role when re-pointed: move the admitEdge/spillEdge
     // pointer from the deleted edge onto its replacement — otherwise the pointer dangles
     // and the new edge is drawn roleless (a stray cable the walker ignores).
-    const qnode = (s.graph.nodes || []).find((n) => `rule:${n.id}` === fromRef && n.type === "queue");
+    const qnode = (s.graph.nodes || []).find((n) => `rule:${n.id}` === fromRef && (n.type === "queue" || n.type === "onError"));
     if (qnode?.config && oldEdge) {
-      for (const k of ["admitEdge", "spillEdge"]) {
-        const other = k === "admitEdge" ? "spillEdge" : "admitEdge";
+      const pairs = qnode.type === "queue"
+        ? [["admitEdge", "spillEdge"], ["spillEdge", "admitEdge"]]
+        : [["mainEdge", "rescueEdge"], ["rescueEdge", "mainEdge"]];
+      for (const [k, other] of pairs) {
         if (qnode.config[k] === oldEdge.id) qnode.config[k] = (edge && edge.id !== qnode.config[other]) ? edge.id : "";
       }
     }
@@ -1195,9 +1238,11 @@ export function rewireGraphEdge(fromRef, oldTo, newTo) {
 // delete or re-point (healQueueNodeEdges may then re-adopt a stray one as admit).
 function _pruneQueueRolePointers(s) {
   const ids = new Set((s.graph?.edges || []).map((e) => e.id));
+  const KEYS = { queue: ["admitEdge", "spillEdge"], onError: ["mainEdge", "rescueEdge"] };
   for (const n of (s.graph?.nodes || [])) {
-    if (n.type !== "queue" || !n.config) continue;
-    for (const k of ["admitEdge", "spillEdge"]) {
+    const keys = KEYS[n.type];
+    if (!keys || !n.config) continue;
+    for (const k of keys) {
       if (n.config[k] && !ids.has(n.config[k])) n.config[k] = "";
     }
   }
@@ -1472,17 +1517,19 @@ export function drawCanvasConnectors() {
   // non-spill edge (matches the engine + heals pre-role-port graphs). queueFroms lets us
   // anchor any stray queue edge at the main port instead of the node centre.
   const qRole = {};
-  const queueFroms = new Set();
+  const roleFroms = new Map();  // rule ref -> the main-path role for untagged edges
   (graph.nodes || []).forEach((n) => {
-    if (n.type !== "queue") return;
+    const isQ = n.type === "queue", isOE = n.type === "onError";
+    if (!isQ && !isOE) return;
     const ref = `rule:${n.id}`;
-    queueFroms.add(ref);
+    roleFroms.set(ref, isQ ? "admit" : "main");
     const c = n.config || {};
     const outs = (graph.edges || []).filter((e) => e.from === ref);
-    let admitId = (c.admitEdge && outs.some((e) => e.id === c.admitEdge)) ? c.admitEdge : null;
-    if (!admitId) { const f = outs.find((e) => e.id !== c.spillEdge); if (f) admitId = f.id; }
-    if (admitId) qRole[admitId] = "admit";
-    if (c.spillEdge) qRole[c.spillEdge] = "spill";
+    const mainKey = isQ ? "admitEdge" : "mainEdge", sideKey = isQ ? "spillEdge" : "rescueEdge";
+    let mainId = (c[mainKey] && outs.some((e) => e.id === c[mainKey])) ? c[mainKey] : null;
+    if (!mainId) { const f = outs.find((e) => e.id !== c[sideKey]); if (f) mainId = f.id; }
+    if (mainId) qRole[mainId] = isQ ? "admit" : "main";
+    if (c[sideKey]) qRole[c[sideKey]] = isQ ? "spill" : "rescue";
   });
   // Schedule nodes: map ref → outputs so we can distribute untagged edges by index.
   const schedOutputsMap = {}; // `rule:${nid}` -> outputs[]
@@ -1506,7 +1553,7 @@ export function drawCanvasConnectors() {
     // Queue admit/spill edges anchor at their dedicated role port.
     // Schedule node edges anchor at their per-output port (data-cv-sched-port).
     let a = null;
-    const role = qRole[e.id] || (queueFroms.has(from) ? "admit" : null);
+    const role = qRole[e.id] || roleFroms.get(from) || null;
     if (role) {
       const p = world.querySelector(`[data-cv-node="${CSS.escape(from)}"] .cv-port.out[data-cv-qrole="${role}"]`);
       if (p) a = _cvWorldPoint(p, "right");

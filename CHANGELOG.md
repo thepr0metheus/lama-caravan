@@ -7,6 +7,28 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.71 — 2026-07-19
+
+- New rule node: 🛟 **backup** (`onError`) — two exits, main and backup.
+  Requests route down main; when that upstream FAILS — connection refused or
+  any HTTP ≥ 400 — before a single response byte reached the client, the proxy
+  re-resolves the route down the backup edge and replays the same request
+  there. The SSE keepalive preamble does not count as output: the backup's
+  stream continues into the same open pipe. Chained backup nodes rescue in
+  encounter order (capped at 3 hops); every hop writes a `rescue_retry` event
+  with the failed status and error body. This is redundancy, not load
+  management, and it closes a real gap: the failover node picks by free
+  capacity BEFORE sending and the queue's spill fires on wait time — neither
+  ever sees the model's answer, so a 400 sailed through both. Live proof, the
+  context-overflow incident replayed: a 105k-token request → local cell 400
+  `exceed_context` → rescue → cloud 200 in ten seconds.
+- The queue card names the agent, not just its port. The owner lookup searched
+  only the client's LIVE report — partial by nature, a scout echoes just the
+  agents it currently supervises — so the card showed a bare `:8121` for an
+  agent the controller's stored assignments knew perfectly well. Stored rows
+  now fill the gaps (live rows stay first — they are the drift truth); the
+  queue history pane gets the same fix for free.
+
 ## 1.3.70 — 2026-07-19
 
 - Orphan cells surface on the board. A live `lama-cell@` unit with no registry

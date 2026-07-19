@@ -471,7 +471,15 @@ export function topologyProxyGroupInfo(proxy) {
 export function topologyProxyOwner(proxyId) {
   // Returns {clientId, clientName, agentId, agentName, title, role} if the proxy is assigned to a client agent.
   for (const client of (topology?.clients || [])) {
-    for (const assignment of topologyAssignmentsForHost(client.id)) {
+    // The live client report is ground truth but partial: a scout only echoes
+    // the agents it currently supervises, and often with an empty proxyId. The
+    // controller's STORED assignments know every agent↔proxy pair — so the
+    // queue card showed a bare ":8121" for an agent the store knew perfectly
+    // well. Search live first (drift truth), stored fills the gaps.
+    const live = topologyAssignmentsForHost(client.id);
+    const stored = topology?.assignments?.[client.id]?.assignments;
+    const rows = Array.isArray(stored) ? live.concat(stored) : live;
+    for (const assignment of rows) {
       for (const route of (assignment.routes || [])) {
         if (route.proxyId === proxyId) {
           const agent = (client.agents || []).find((a) => a.id === assignment.agentId);

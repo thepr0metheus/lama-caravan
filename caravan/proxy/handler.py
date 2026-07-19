@@ -403,187 +403,255 @@ class ProxyHandler(BaseHTTPRequestHandler):
             _hb_thread = threading.Thread(target=_heartbeat_loop, daemon=True)
             _hb_thread.start()
         try:
-            is_cloud = route_is_cloud or cloud_fallback_provider_id is not None
-            is_subscription = False
-            is_anthropic = False
-            send_body = body
-            completion_id = None
-            subscription_model = None
-            anthropic_model = None
-            if is_cloud:
-                effective_provider_id = cloud_fallback_provider_id or route.get("providerId")
-                # A block id resolves to a specific model; otherwise route to the cloud
-                # account directly (passthrough — forward the client's requested model).
-                provider = (load_cloud_provider(effective_provider_id) if effective_provider_id
-                            else load_cloud_account(route.get("cloudAccountId")))
-                if not provider:
-                    raise ProxyCloudError("cloud provider not configured")
-                auth_pair = load_provider_secret(provider)
-                if not auth_pair:
-                    raise ProxyCloudError("cloud account missing credential (API key or OAuth)")
-                base = urlsplit(provider.get("baseUrl") or "")
-                if not base.hostname:
-                    raise ProxyCloudError("cloud account baseUrl invalid")
-                is_subscription = (
-                    str(provider.get("accountType") or "") == "openai-subscription"
-                    or "chatgpt.com" in str(provider.get("baseUrl") or "")
-                )
-                use_tls = base.scheme != "http"
-                cloud_port = base.port or (443 if use_tls else 80)
-                if use_tls:
-                    conn = http.client.HTTPSConnection(base.hostname, cloud_port, timeout=600)
-                else:
-                    conn = http.client.HTTPConnection(base.hostname, cloud_port, timeout=600)
-                register_active_control(request_id, route["label"], conn)
-                headers = {
-                    key2: value for key2, value in self.headers.items()
-                    if key2.lower() not in HOP_HEADERS and key2.lower() not in (
-                        "host", "authorization", "x-api-key", "chatgpt-account-id",
-                        "originator", "openai-beta", "accept",
-                        # Exclude these — we set them explicitly to correct values below
-                        "content-length", "content-type", "accept-encoding", "accept-language",
-                    )
-                }
-                headers["Host"] = base.netloc
-                headers["Connection"] = "close"
-                headers["X-Agent-Proxy"] = route["label"]
-                headers["X-Agent-Proxy-Request-Id"] = request_id
-                if is_subscription:
-                    # Translate request to Responses API format
-                    model_override = provider.get("model") if str(provider.get("modelMode") or "rewrite") == "rewrite" else None
-                    send_body, subscription_model = _chat_to_responses_body(body, model_override)
-                    completion_id = "chatcmpl-" + str(_uuid.uuid4()).replace("-", "")[:24]
-                    token = auth_pair[1][7:]  # strip "Bearer "
-                    account_id = _extract_chatgpt_account_id(token) or ""
-                    headers["Authorization"] = auth_pair[1]
-                    headers["chatgpt-account-id"] = account_id
-                    headers["originator"] = "pi"
-                    headers["OpenAI-Beta"] = "responses=experimental"
-                    headers["Accept"] = "text/event-stream"
-                    headers["Content-Type"] = "application/json"
-                    headers["Content-Length"] = str(len(send_body))
-                    send_path = "/backend-api/codex/responses"
-                elif str(provider.get("type")) == "anthropic" and parsed.path.endswith("/chat/completions"):
-                    is_anthropic = True
-                    auth = CLOUD_PROVIDER_AUTH.get("anthropic", CLOUD_PROVIDER_AUTH["custom"])
-                    headers.update(auth.get("extraHeaders") or {})
-                    headers[auth_pair[0]] = auth_pair[1]
-                    base_path = base.path.rstrip("/")
-                    send_path = base_path + "/messages" + (f"?{parsed.query}" if parsed.query else "")
-                    completion_id = "chatcmpl-" + str(_uuid.uuid4()).replace("-", "")[:24]
-                    model_override = provider.get("model") if str(provider.get("modelMode") or "rewrite") == "rewrite" else None
-                    anthropic_model = model_override or (json.loads(body).get("model") if body else None) or "claude-opus-4-8"
-                    send_body = _chat_to_anthropic_body(body, model_override)
-                    headers["Content-Type"] = "application/json"
-                    headers["Content-Length"] = str(len(send_body))
-                    headers["Accept"] = "application/json"
-                else:
-                    auth = CLOUD_PROVIDER_AUTH.get(str(provider.get("type")), CLOUD_PROVIDER_AUTH["custom"])
-                    headers.update(auth.get("extraHeaders") or {})
-                    headers[auth_pair[0]] = auth_pair[1]
-                    base_path = base.path.rstrip("/")
-                    incoming = parsed.path
-                    if base_path.endswith("/v1") and incoming.startswith("/v1"):
-                        incoming = incoming[3:]
-                    send_path = base_path + incoming + (f"?{parsed.query}" if parsed.query else "")
-                    if str(provider.get("modelMode") or "rewrite") == "rewrite":
-                        send_body = rewrite_model_in_body(body, provider.get("model"))
-                    # The header filter above strips content-type/length and accept
-                    # "to set them explicitly below" — the subscription/anthropic
-                    # branches do, but this generic one never did: the cloud API got
-                    # a JSON body with no Content-Type and answered "you must
-                    # provide a model parameter". Restore them for ANY body,
-                    # rewritten or passed through.
-                    headers["Content-Type"] = self.headers.get("Content-Type") or "application/json"
-                    if self.headers.get("Accept"):
-                        headers["Accept"] = self.headers.get("Accept")
-                    if send_body is not None:
-                        headers["Content-Length"] = str(len(send_body))
-            else:
-                conn = http.client.HTTPConnection(route["upstreamHost"], route["upstreamPort"], timeout=600)
-                register_active_control(request_id, route["label"], conn)
-                headers = {
-                    key2: value for key2, value in self.headers.items()
-                    if key2.lower() not in HOP_HEADERS and key2.lower() != "host"
-                }
-                headers["Host"] = f"{route['upstreamHost']}:{route['upstreamPort']}"
-                headers["Connection"] = "close"
-                headers["X-Agent-Proxy"] = route["label"]
-                headers["X-Agent-Proxy-Request-Id"] = request_id
-                headers["X-Forwarded-For"] = client
-                send_path = path
-            update_active(str(route["port"]), request_id, {"phase": "upstream"})
-            # Build cloud request metadata for logging
-            cloud_meta = {}
-            if is_cloud and send_body:
-                try:
-                    req_payload = json.loads(send_body)
-                    cloud_meta = {
-                        "model": req_payload.get("model") or "",
-                        "toolCount": len(req_payload.get("tools") or []),
-                        "inputCount": len(req_payload.get("input") or req_payload.get("messages") or []),
-                    }
-                except Exception:
-                    pass
-            # Log outgoing headers for cloud routes to aid debugging
-            cloud_headers_debug = {k: (v if k.lower() != "authorization" else f"Bearer ...{str(v)[-8:]}") for k, v in headers.items()} if is_cloud else None
-            write_proxy_event("upstream_started", route_label=route["label"], request_id=request_id, item=active, queue=queue, cloudMeta=cloud_meta or None, cloudHeaders=cloud_headers_debug)
-            # ── Retry on llama "Loading model" 503 (brief window during startup) ─
-            # Time-based: keep retrying every 3s for up to loadingModelWaitSec (default 60s).
-            _lm_wait = float((current_config().get("policy") or DEFAULT_POLICY).get("loadingModelWaitSec") or 60)
-            _lm_retry_delay = 3.0
-            _lm_deadline = time.time() + _lm_wait
-            _lm_attempt = 0
-            upstream_error_body = ""
-            upstream_error_raw = b""
+            # ── Upstream leg loop ────────────────────────────────────────────
+            # Normally one pass. An onError node in the graph gives the route a
+            # rescue exit: when THIS leg fails (connect error or HTTP >= 400)
+            # before a single response byte reached the client, the loop
+            # re-resolves the route down the rescue edge and replays the same
+            # request there. The SSE keepalive preamble does not count as
+            # output — the backup's stream continues into the same open pipe.
+            _rescue_refs = list(route.get("rescueRefs") or [])
+            _rescue_hops = 0
             while True:
-                if _client_gone[0]:
-                    raise ConnectionResetError("client disconnected during upstream wait")
-                conn.request(self.command, send_path, body=send_body, headers=headers)
-                # Grab the raw socket now — getresponse() detaches conn.sock on
-                # Connection: close responses, and the abort path needs it.
-                _up_sock[0] = conn.sock
-                upstream = conn.getresponse()
-                status = upstream.status
-                upstream_headers = dict(upstream.getheaders())
-                content_type = upstream_headers.get("Content-Type", "")
-                is_event_stream = content_type.lower().startswith("text/event-stream")
-                if status >= 400:
-                    try:
-                        upstream_error_raw = upstream.read(4096)
-                        upstream_error_body = upstream_error_raw.decode("utf-8", errors="replace")
-                    except Exception:
-                        upstream_error_raw = b""
-                if (not is_cloud and status == 503
-                        and b"Loading model" in upstream_error_raw
-                        and time.time() < _lm_deadline):
-                    _lm_attempt += 1
-                    write_proxy_event("loading_model_retry", route_label=route["label"],
-                                      request_id=request_id, attempt=_lm_attempt,
-                                      retryDelaySec=_lm_retry_delay,
-                                      remainingSec=round(_lm_deadline - time.time(), 1))
-                    try:
-                        conn.close()
-                    except Exception:
-                        pass
-                    time.sleep(_lm_retry_delay)
+                _conn_exc = None
+                upstream = None
+                is_cloud = route_is_cloud or cloud_fallback_provider_id is not None
+                is_subscription = False
+                is_anthropic = False
+                send_body = body
+                completion_id = None
+                subscription_model = None
+                anthropic_model = None
+                if is_cloud:
+                    effective_provider_id = cloud_fallback_provider_id or route.get("providerId")
+                    # A block id resolves to a specific model; otherwise route to the cloud
+                    # account directly (passthrough — forward the client's requested model).
+                    provider = (load_cloud_provider(effective_provider_id) if effective_provider_id
+                                else load_cloud_account(route.get("cloudAccountId")))
+                    if not provider:
+                        raise ProxyCloudError("cloud provider not configured")
+                    auth_pair = load_provider_secret(provider)
+                    if not auth_pair:
+                        raise ProxyCloudError("cloud account missing credential (API key or OAuth)")
+                    base = urlsplit(provider.get("baseUrl") or "")
+                    if not base.hostname:
+                        raise ProxyCloudError("cloud account baseUrl invalid")
+                    is_subscription = (
+                        str(provider.get("accountType") or "") == "openai-subscription"
+                        or "chatgpt.com" in str(provider.get("baseUrl") or "")
+                    )
+                    use_tls = base.scheme != "http"
+                    cloud_port = base.port or (443 if use_tls else 80)
+                    if use_tls:
+                        conn = http.client.HTTPSConnection(base.hostname, cloud_port, timeout=600)
+                    else:
+                        conn = http.client.HTTPConnection(base.hostname, cloud_port, timeout=600)
+                    register_active_control(request_id, route["label"], conn)
+                    headers = {
+                        key2: value for key2, value in self.headers.items()
+                        if key2.lower() not in HOP_HEADERS and key2.lower() not in (
+                            "host", "authorization", "x-api-key", "chatgpt-account-id",
+                            "originator", "openai-beta", "accept",
+                            # Exclude these — we set them explicitly to correct values below
+                            "content-length", "content-type", "accept-encoding", "accept-language",
+                        )
+                    }
+                    headers["Host"] = base.netloc
+                    headers["Connection"] = "close"
+                    headers["X-Agent-Proxy"] = route["label"]
+                    headers["X-Agent-Proxy-Request-Id"] = request_id
+                    if is_subscription:
+                        # Translate request to Responses API format
+                        model_override = provider.get("model") if str(provider.get("modelMode") or "rewrite") == "rewrite" else None
+                        send_body, subscription_model = _chat_to_responses_body(body, model_override)
+                        completion_id = "chatcmpl-" + str(_uuid.uuid4()).replace("-", "")[:24]
+                        token = auth_pair[1][7:]  # strip "Bearer "
+                        account_id = _extract_chatgpt_account_id(token) or ""
+                        headers["Authorization"] = auth_pair[1]
+                        headers["chatgpt-account-id"] = account_id
+                        headers["originator"] = "pi"
+                        headers["OpenAI-Beta"] = "responses=experimental"
+                        headers["Accept"] = "text/event-stream"
+                        headers["Content-Type"] = "application/json"
+                        headers["Content-Length"] = str(len(send_body))
+                        send_path = "/backend-api/codex/responses"
+                    elif str(provider.get("type")) == "anthropic" and parsed.path.endswith("/chat/completions"):
+                        is_anthropic = True
+                        auth = CLOUD_PROVIDER_AUTH.get("anthropic", CLOUD_PROVIDER_AUTH["custom"])
+                        headers.update(auth.get("extraHeaders") or {})
+                        headers[auth_pair[0]] = auth_pair[1]
+                        base_path = base.path.rstrip("/")
+                        send_path = base_path + "/messages" + (f"?{parsed.query}" if parsed.query else "")
+                        completion_id = "chatcmpl-" + str(_uuid.uuid4()).replace("-", "")[:24]
+                        model_override = provider.get("model") if str(provider.get("modelMode") or "rewrite") == "rewrite" else None
+                        anthropic_model = model_override or (json.loads(body).get("model") if body else None) or "claude-opus-4-8"
+                        send_body = _chat_to_anthropic_body(body, model_override)
+                        headers["Content-Type"] = "application/json"
+                        headers["Content-Length"] = str(len(send_body))
+                        headers["Accept"] = "application/json"
+                    else:
+                        auth = CLOUD_PROVIDER_AUTH.get(str(provider.get("type")), CLOUD_PROVIDER_AUTH["custom"])
+                        headers.update(auth.get("extraHeaders") or {})
+                        headers[auth_pair[0]] = auth_pair[1]
+                        base_path = base.path.rstrip("/")
+                        incoming = parsed.path
+                        if base_path.endswith("/v1") and incoming.startswith("/v1"):
+                            incoming = incoming[3:]
+                        send_path = base_path + incoming + (f"?{parsed.query}" if parsed.query else "")
+                        if str(provider.get("modelMode") or "rewrite") == "rewrite":
+                            send_body = rewrite_model_in_body(body, provider.get("model"))
+                        # The header filter above strips content-type/length and accept
+                        # "to set them explicitly below" — the subscription/anthropic
+                        # branches do, but this generic one never did: the cloud API got
+                        # a JSON body with no Content-Type and answered "you must
+                        # provide a model parameter". Restore them for ANY body,
+                        # rewritten or passed through.
+                        headers["Content-Type"] = self.headers.get("Content-Type") or "application/json"
+                        if self.headers.get("Accept"):
+                            headers["Accept"] = self.headers.get("Accept")
+                        if send_body is not None:
+                            headers["Content-Length"] = str(len(send_body))
+                else:
                     conn = http.client.HTTPConnection(route["upstreamHost"], route["upstreamPort"], timeout=600)
                     register_active_control(request_id, route["label"], conn)
-                    upstream_error_raw = b""
-                    upstream_error_body = ""
-                    continue
+                    headers = {
+                        key2: value for key2, value in self.headers.items()
+                        if key2.lower() not in HOP_HEADERS and key2.lower() != "host"
+                    }
+                    headers["Host"] = f"{route['upstreamHost']}:{route['upstreamPort']}"
+                    headers["Connection"] = "close"
+                    headers["X-Agent-Proxy"] = route["label"]
+                    headers["X-Agent-Proxy-Request-Id"] = request_id
+                    headers["X-Forwarded-For"] = client
+                    send_path = path
+                update_active(str(route["port"]), request_id, {"phase": "upstream"})
+                # Build cloud request metadata for logging
+                cloud_meta = {}
+                if is_cloud and send_body:
+                    try:
+                        req_payload = json.loads(send_body)
+                        cloud_meta = {
+                            "model": req_payload.get("model") or "",
+                            "toolCount": len(req_payload.get("tools") or []),
+                            "inputCount": len(req_payload.get("input") or req_payload.get("messages") or []),
+                        }
+                    except Exception:
+                        pass
+                # Log outgoing headers for cloud routes to aid debugging
+                cloud_headers_debug = {k: (v if k.lower() != "authorization" else f"Bearer ...{str(v)[-8:]}") for k, v in headers.items()} if is_cloud else None
+                write_proxy_event("upstream_started", route_label=route["label"], request_id=request_id, item=active, queue=queue, cloudMeta=cloud_meta or None, cloudHeaders=cloud_headers_debug)
+                # ── Retry on llama "Loading model" 503 (brief window during startup) ─
+                # Time-based: keep retrying every 3s for up to loadingModelWaitSec (default 60s).
+                _lm_wait = float((current_config().get("policy") or DEFAULT_POLICY).get("loadingModelWaitSec") or 60)
+                _lm_retry_delay = 3.0
+                _lm_deadline = time.time() + _lm_wait
+                _lm_attempt = 0
+                upstream_error_body = ""
+                upstream_error_raw = b""
+                while True:
+                    if _client_gone[0]:
+                        raise ConnectionResetError("client disconnected during upstream wait")
+                    try:
+                        conn.request(self.command, send_path, body=send_body, headers=headers)
+                        # Grab the raw socket now — getresponse() detaches conn.sock on
+                        # Connection: close responses, and the abort path needs it.
+                        _up_sock[0] = conn.sock
+                        upstream = conn.getresponse()
+                    except (ConnectionError, OSError, http.client.HTTPException) as exc:
+                        # A dead upstream is as rescueable as an erroring one — but only
+                        # while a rescue exit exists; otherwise keep the old behaviour.
+                        # (_client_gone aborts tear this socket down on purpose — those
+                        # must keep raising, not turn into a rescue.)
+                        if not (_rescue_refs and _rescue_hops < 3 and bytes_out == 0
+                                and not _client_gone[0]):
+                            raise
+                        _conn_exc = exc
+                        status = 502
+                        upstream_headers = {}
+                        content_type = ""
+                        is_event_stream = False
+                        upstream_error_body = f"upstream connect failed: {exc}"
+                        upstream_error_raw = b""
+                        break
+                    status = upstream.status
+                    upstream_headers = dict(upstream.getheaders())
+                    content_type = upstream_headers.get("Content-Type", "")
+                    is_event_stream = content_type.lower().startswith("text/event-stream")
+                    if status >= 400:
+                        try:
+                            upstream_error_raw = upstream.read(4096)
+                            upstream_error_body = upstream_error_raw.decode("utf-8", errors="replace")
+                        except Exception:
+                            upstream_error_raw = b""
+                    if (not is_cloud and status == 503
+                            and b"Loading model" in upstream_error_raw
+                            and time.time() < _lm_deadline):
+                        _lm_attempt += 1
+                        write_proxy_event("loading_model_retry", route_label=route["label"],
+                                          request_id=request_id, attempt=_lm_attempt,
+                                          retryDelaySec=_lm_retry_delay,
+                                          remainingSec=round(_lm_deadline - time.time(), 1))
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                        time.sleep(_lm_retry_delay)
+                        conn = http.client.HTTPConnection(route["upstreamHost"], route["upstreamPort"], timeout=600)
+                        register_active_control(request_id, route["label"], conn)
+                        upstream_error_raw = b""
+                        upstream_error_body = ""
+                        continue
+                    break
+                update_active(str(route["port"]), request_id, {
+                    "phase": "streaming" if is_event_stream else "reading",
+                    "status": status,
+                    "response": {"contentType": content_type, "headers": {
+                        "server": upstream_headers.get("Server", ""),
+                        "xRequestId": upstream_headers.get("X-Request-Id", ""),
+                    }},
+                })
+                write_proxy_event("upstream_response", route_label=route["label"], request_id=request_id, status=status, contentType=content_type,
+                                  upstreamErrorBody=upstream_error_body if upstream_error_body else None,
+                                  cloudMeta=cloud_meta or None)
+                # ── onError rescue: replay the request down the backup exit ──
+                if (status >= 400 and _rescue_refs and _rescue_hops < 3
+                        and bytes_out == 0 and chunks == 0 and not _client_gone[0]):
+                    _resc_ref = _rescue_refs.pop(0)
+                    _newr = apply_router_spill(route, current_config(), _resc_ref,
+                                               ctx={"model": req_summary.get("model"),
+                                                    "maxTokens": req_summary.get("maxTokens"),
+                                                    "audio": ("/audio/" in parsed.path),
+                                                    "embeddings": parsed.path.rstrip("/").endswith("/embeddings")})
+                    if _newr and not _newr.get("unrouted"):
+                        _rescue_hops += 1
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                        write_proxy_event("rescue_retry", route_label=route["label"],
+                                          request_id=request_id, item=active, status=status,
+                                          rescueRef=_resc_ref, hop=_rescue_hops,
+                                          upstreamErrorBody=(upstream_error_body[:300] or None))
+                        route = _newr
+                        route["label"] = route.get("label") or self.agent_name
+                        route_is_cloud = str(route.get("upstreamType") or "llama") == "cloud"
+                        cloud_fallback_provider_id = None
+                        # A rescued route may cross its own onError node(s) — its
+                        # fresh exits take precedence over any remaining ones.
+                        _rescue_refs = list(route.get("rescueRefs") or []) + _rescue_refs
+                        update_active(str(route["port"]), request_id, {
+                            "upstream": f"{route['upstreamHost']}:{route['upstreamPort']}",
+                            "upstreamType": str(route.get("upstreamType") or "llama"),
+                            "providerId": str(route.get("providerId") or ""),
+                            "rescuedTo": str(route.get("routedOutputId") or ""),
+                        })
+                        status = 502
+                        upstream_error_body = ""
+                        upstream_error_raw = b""
+                        continue
+                if _conn_exc is not None:
+                    raise _conn_exc
                 break
-            update_active(str(route["port"]), request_id, {
-                "phase": "streaming" if is_event_stream else "reading",
-                "status": status,
-                "response": {"contentType": content_type, "headers": {
-                    "server": upstream_headers.get("Server", ""),
-                    "xRequestId": upstream_headers.get("X-Request-Id", ""),
-                }},
-            })
-            write_proxy_event("upstream_response", route_label=route["label"], request_id=request_id, status=status, contentType=content_type,
-                              upstreamErrorBody=upstream_error_body if upstream_error_body else None,
-                              cloudMeta=cloud_meta or None)
             if is_subscription and status == 200:
                 # Send chat/completions-compatible SSE headers (skip if already sent via keep-alive)
                 if not headers_sent:
