@@ -7,6 +7,14 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.73 — 2026-07-19
+
+- Rescues are visible in Request History. A rescued request wears an amber
+  🛟 badge next to its via tag — the tag names where the request ENDED, the
+  badge confesses the exits it failed on first, with the full trail in the
+  tooltip ("srv:8002 (400) → …"). The via filter gains a `rescued` option, so
+  "show me everything that needed the backup today" is one dropdown away.
+
 ## 1.3.72 — 2026-07-19
 
 - The finished summary confesses a rescue. The rescue itself was recorded only

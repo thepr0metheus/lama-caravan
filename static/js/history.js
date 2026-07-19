@@ -36,6 +36,7 @@ export function openRequestHistory() {
             <option value="">${escapeHtml(t("hsViaAll"))}</option>
             <option value="llama">llama</option>
             <option value="cloud">cloud</option>
+            <option value="rescued">🛟 ${escapeHtml(t("hsViaRescued"))}</option>
           </select>
           <select id="historyStatusSelect" class="history-date-select">
             <option value="">${escapeHtml(t("hsStatusAll"))}</option>
@@ -141,7 +142,11 @@ export function renderHistoryTable() {
       const client = String(item.client || "").toLowerCase();
       if (!route.includes(filter) && !client.includes(filter)) return false;
     }
-    if (historyViaFilter) {
+    if (historyViaFilter === "rescued") {
+      // Not an upstream TYPE but a path property: the request failed at least
+      // one exit before this answer. The via tag still shows where it ENDED.
+      if (!(item.rescued && Number(item.rescued.hops) > 0)) return false;
+    } else if (historyViaFilter) {
       const via = item.upstreamType || "llama";
       if (via !== historyViaFilter) return false;
     }
@@ -187,6 +192,12 @@ export function renderHistoryTable() {
     const handlerTag = upstreamType === "cloud"
       ? `<span class="history-tag history-tag-cloud">cloud</span>`
       : `<span class="history-tag history-tag-llama">llama</span>`;
+    // The via tag names where the request ENDED; the rescue badge confesses the
+    // exits it failed on first (trail in the tooltip: "srv:8002 (400) → …").
+    const rescued = item.rescued && Number(item.rescued.hops) > 0 ? item.rescued : null;
+    const rescueTag = rescued
+      ? `<span class="history-tag history-tag-rescued" title="${escapeHtml(t("hsRescuedTip") + " " + (rescued.trail || []).map((h) => `${h.from} (${h.status})`).join(" → "))}">🛟 ${escapeHtml(t("hsViaRescued"))}</span>`
+      : "";
 
     const durationMs = item.durationMs || 0;
     const durationStr = durationMs >= 60000 ? `${(durationMs / 60000).toFixed(1)}m`
@@ -215,7 +226,7 @@ export function renderHistoryTable() {
       <td class="history-td-time" title="${escapeHtml(new Date(startedAt * 1000).toLocaleString())}">${escapeHtml(timeStr)}<br><span class="history-sub">${escapeHtml(agoStr)}</span></td>
       <td class="history-td-client"><b>${escapeHtml(route)}</b>${clientSub}</td>
       <td class="history-td-model" title="${escapeHtml(model)}">${escapeHtml(modelShort || "—")}</td>
-      <td class="history-td-handler">${handlerTag}</td>
+      <td class="history-td-handler">${handlerTag}${rescueTag}</td>
       <td class="history-td-dur">${escapeHtml(durationStr)}</td>
       <td class="history-td-tok"${tokTitle}>${escapeHtml(tokStr)}</td>
       <td class="history-td-tps">${escapeHtml(tpsStr)}</td>

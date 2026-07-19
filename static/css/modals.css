@@ -271,6 +271,14 @@
   color: #a78bfa;
 }
 
+/* A rescued request wears its detour: it failed at least one exit before this
+   answer — amber, because something DID go wrong even though the client won. */
+.history-tag-rescued {
+  background: color-mix(in srgb, var(--warn, #f59e0b) 18%, transparent);
+  color: var(--warn, #f59e0b);
+  margin-left: 4px;
+}
+
 .history-status-ok { color: #4ade80; }
 .history-status-err { color: #f87171; }
 /* ── end Request History ─────────────────────────────────────────────────── */
