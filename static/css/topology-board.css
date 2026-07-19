@@ -33,24 +33,28 @@
 }
 
 .topology-board > .topology-column:first-of-type .topology-title {
-  display: grid;
-  grid-template-columns: 1fr;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  /* Center the title in a 34px band — the same height the Model Servers head
+     gets from its action buttons — so both column titles sit on one line. */
+  align-items: flex-start;
+  min-height: 34px;
+}
+
+/* Zero the title's bottom margin so it centers true in the band (the Model
+   Servers head h2 is already margin-0); otherwise the text hugs the top. */
+.topology-board > .topology-column:first-of-type .topology-title h2 {
+  margin: 0;
 }
 
 .topology-board > .topology-column:first-of-type .topology-title .button-row {
   justify-content: start;
 }
 
-/* Server column no longer has a title — its top row is a right-aligned toolbar
-   of the three board actions (stats / history / system). min-height keeps it the
-   same height as the "Clients" title so both columns start on the same line.
-   Two class names to outrank .section-title's justify-content: space-between. */
-.topology-title.topology-server-head {
-  justify-content: flex-end;
-  min-height: 34px;
-}
-
+/* The three board actions (stats / history / system) ride in the Model Servers
+   lane head, right-aligned by its justify-content: space-between — so the header
+   sits level with the "Clients" column title instead of a row above it. */
 .topology-head-actions {
   display: flex;
   align-items: center;
