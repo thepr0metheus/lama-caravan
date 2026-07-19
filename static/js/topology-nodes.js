@@ -1011,14 +1011,20 @@ export function nodesLaneHtml() {
       // sub-line when any exist. Always rendered, so a host's CPU/RAM is visible
       // even with no CPU cell running.
       const cpuLoadTxt = cpu.loadPct != null ? `${cpu.loadPct}%` : "";
+      const ramUsedGb = Number(ram.usedGb || 0), ramTotalGb = Number(ram.totalGb || 0);
+      const ramPct = ramTotalGb > 0 ? Math.min(100, Math.round((ramUsedGb / ramTotalGb) * 100)) : 0;
       const cpuRamTxt = ram.usedGb != null ? `RAM ${ram.usedGb}/${ram.totalGb} GB`
         : (ram.totalGb != null ? `RAM ${ram.totalGb} GB` : "");
+      // Mirrors a GPU row: a used/total RAM bar where the GPU has its VRAM bar
+      // (no per-cell slices — just the whole-host RAM), and the CPU-cell blue
+      // accent so the block matches the cells that run on it.
       const cpuRowHtml = `
         <div class="node-gpu-row node-cpu-row" title="${escapeHtml(t("topologyCpuCellsHint"))}">
           <div class="node-gpu-head">
             <strong>CPU</strong>
             <span class="node-gpu-util" data-live-cpuload>${escapeHtml(cpuLoadTxt)}</span>
           </div>
+          <div class="node-ram-bar" data-live-cpurambar title="${ramUsedGb.toFixed(1)} / ${ramTotalGb.toFixed(1)} GB"><span style="width:${ramPct}%"></span></div>
           <div class="node-gpu-meta">
             <span data-live-cpuram>${escapeHtml(cpuRamTxt)}</span>
             ${cpuPorts.length ? `<span class="node-gpu-ports">▶ ${cpuPorts.map((pp) => escapeHtml(String(pp))).join(", ")}</span>` : ""}

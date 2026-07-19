@@ -595,6 +595,14 @@ export function syncTopologyLive() {
     _liveSet(nodeEl, "[data-live-cpuload]", cpu.loadPct != null ? `${cpu.loadPct}%` : "");
     _liveSet(nodeEl, "[data-live-cpuram]", ram.usedGb != null ? `RAM ${ram.usedGb}/${ram.totalGb} GB`
       : (ram.totalGb != null ? `RAM ${ram.totalGb} GB` : ""));
+    const ramBar = nodeEl.querySelector("[data-live-cpurambar]");
+    if (ramBar) {
+      const rt = Number(ram.totalGb || 0), ru = Number(ram.usedGb || 0);
+      const rp = rt > 0 ? Math.min(100, Math.round((ru / rt) * 100)) : 0;
+      ramBar.title = `${ru.toFixed(1)} / ${rt.toFixed(1)} GB`;
+      const sp = ramBar.querySelector("span");
+      if (sp) sp.style.width = `${rp}%`;
+    }
 
     // Server cards: token speed, context usage, download progress.
     (n.servers || []).forEach((s) => {

@@ -7,6 +7,14 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.79 — 2026-07-19
+
+- The node's compute block reads as one system. Its header is "Compute" (not
+  "GPUs") now that CPU leads, the CPU row gains a used/total RAM bar mirroring a
+  GPU row's VRAM bar (whole-host, no per-cell slices), and the whole CPU block
+  wears the CPU-cell blue — accent stripe, bar fill, faint wash, blue ports — so
+  it matches the cells that run on it, the way each GPU row reads green.
+
 ## 1.3.78 — 2026-07-19
 
 - The node panel's CPU block leads and carries its own load. CPU and GPU swapped

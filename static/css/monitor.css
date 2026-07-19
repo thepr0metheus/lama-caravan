@@ -1310,6 +1310,13 @@
 .node-gpu-util { margin-left:auto; font-size:11px; color:var(--muted,#888); }
 .node-vram-bar { position:relative; height:6px; border-radius:3px; background:color-mix(in srgb,var(--line) 60%, transparent); overflow:hidden; margin:6px 0; }
 .node-vram-bar > span { display:block; height:100%; background:var(--accent,#6ea8fe); }
+/* CPU block: a RAM bar mirroring the GPU's VRAM bar, and the CPU-cell blue
+   (#4593ff) throughout — accent stripe, fill, and a faint wash — so the block
+   matches the cells that run on it. */
+.node-ram-bar { position:relative; height:6px; border-radius:3px; background:color-mix(in srgb,var(--line) 60%, transparent); overflow:hidden; margin:6px 0; }
+.node-ram-bar > span { display:block; height:100%; background:#4593ff; }
+.node-cpu-row { border-left:3px solid #4593ff; padding-left:11px; background:color-mix(in srgb,#4593ff 7%, transparent); }
+.node-cpu-row .node-gpu-ports { color:#4593ff; }
 /* Hovering a running cell lights up ITS share of this bar. Width comes from the
    card's own per-GPU claim; the offset stacks cells by port, so two cells on one
    GPU read as adjacent bands instead of two overlapping ones starting at zero. */
