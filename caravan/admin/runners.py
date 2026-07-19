@@ -57,6 +57,21 @@ RUNNERS = [
         "minCompute": None,
     },
     {
+        # Moonshine v2 speech-to-text (CPU-only by design): the launcher the
+        # installer drops in $HOME runs moonshine_server.py with a LANGUAGE
+        # argument. EN's medium-streaming model beats Whisper large-v3 WER at
+        # 250M params on a laptop core, so the GPUs stay free for LLMs. The
+        # "model" is a language code; the package downloads weights itself.
+        "id": "moonshine",
+        "icon": "🌙",
+        "labelKey": "runnerMoonshine",
+        "benefitsKey": "runnerMoonshineBenefits",
+        "formats": ["*"],
+        "health": "/health",
+        "api": "raw",
+        "minCompute": None,
+    },
+    {
         "id": "custom",
         "icon": "\U0001f6e0\ufe0f",
         "labelKey": "runnerCustom",
@@ -69,6 +84,11 @@ RUNNERS = [
 ]
 
 WHISPER_SIZES = ("tiny", "base", "small", "medium", "large-v3", "large-v3-turbo", "distil-large-v3")
+
+# Moonshine v2 language models. en is MIT; the rest ship under the free
+# Moonshine Community License (registration + attribution, < $1M/yr revenue).
+# No Russian — whisper stays the RU recognizer.
+MOONSHINE_LANGS = ("en", "es", "zh", "ja", "ko", "vi", "uk", "ar")
 
 
 def runner_id(config) -> str:
@@ -96,6 +116,8 @@ def cell_artifact_label(config) -> str:
     rid = runner_id(cfg)
     if rid == "whisper":
         return str(cfg.get("WHISPER_MODEL") or "").strip() or "whisper"
+    if rid == "moonshine":
+        return f"moonshine {str(cfg.get('MOONSHINE_MODEL') or 'en').strip().lower()}"
     if rid == "vllm":
         from caravan.admin.models import _ST_FORMAT_HINTS   # local: models imports config_builder
         parts = [p for p in str(cfg.get("VLLM_MODEL") or "").strip().split("/") if p]
@@ -158,7 +180,7 @@ VLLM_BOOTSTRAP_LINES = [
 def uses_command_path(config) -> bool:
     """True when the cell launches through the generic command machinery
     (custom cells always; vllm/whisper compile their fields into a command)."""
-    return runner_id(config) in {"custom", "vllm", "whisper"}
+    return runner_id(config) in {"custom", "vllm", "whisper", "moonshine"}
 
 
 def build_whisper_command(config) -> str:
@@ -174,6 +196,16 @@ def build_whisper_command(config) -> str:
         size = "large-v3"
     cache = '"${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/whisper"'
     return f'env HUGGINGFACE_HUB_CACHE={cache} bash $HOME/run_whisper.sh "$PORT" {size}'
+
+
+def build_moonshine_command(config) -> str:
+    """The run_moonshine.sh line for a moonshine cell. The script and its
+    ~/moonshine-venv are provisioned by scripts/install-moonshine.sh; the model
+    downloads itself on first start, keyed by the LANGUAGE argument."""
+    lang = str((config or {}).get("MOONSHINE_MODEL") or "").strip().lower() or "en"
+    if lang not in MOONSHINE_LANGS:
+        lang = "en"
+    return f'bash $HOME/run_moonshine.sh "$PORT" {lang}'
 
 
 def build_vllm_command(config) -> str:
@@ -223,6 +255,10 @@ def effective_command(config, with_bootstrap=False) -> str:
         # run_whisper.sh self-carries its env (venv python + cuDNN LD paths);
         # no bootstrap chain — a missing script fails with a clear exec error.
         return build_whisper_command(config)
+    if rid == "moonshine":
+        # Same shape as whisper: the launcher self-installs its venv on first
+        # run, so no bootstrap chain here either.
+        return build_moonshine_command(config)
     return str((config or {}).get("COMMAND") or "").strip()
 
 
@@ -233,6 +269,6 @@ def effective_health_path(config) -> str:
     rid = runner_id(config)
     if rid == "vllm":
         return "/v1/models"
-    if rid == "whisper":
+    if rid in ("whisper", "moonshine"):
         return "/health"
     return ""

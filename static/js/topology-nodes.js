@@ -46,7 +46,8 @@ const _ST_FMT = new Set(["NVFP4", "MXFP4", "AWQ", "GPTQ", "AUTOROUND", "FP8",
 // replaces the generic "chip" svg so the engine is readable at a glance.
 function runnerChipHtml(runnerId) {
   const meta = { "llama-server": ["🦙", "llama.cpp"], "vllm": ["⚡", "vLLM"],
-                 "whisper": ["🎙", "whisper"], "custom": ["🛠", "command"] }[runnerId];
+                 "whisper": ["🎙", "whisper"], "moonshine": ["🌙", "moonshine"],
+                 "custom": ["🛠", "command"] }[runnerId];
   if (!meta) return "";
   return `<span class="mbadge mbadge-cmd node-runner-chip">${meta[0]} ${meta[1]}</span>`;
 }
@@ -368,7 +369,8 @@ export function nodeServerCardHtml(node, s) {
   // which reads as the Device setting having been ignored.
   const isCpuCell = (running && !devGpuTxt && !cfgSaysGpu) || (!running && cfgSaysCpu && !isReserved);
   // Stopped without a pin: llama (with offload) and vLLM are GPU by nature,
-  // whisper's launcher is CUDA-first; a bare custom command resolves its
+  // whisper's launcher is CUDA-first; moonshine is CPU-only by design (it
+  // deliberately stays OUT of runnerDefaultsGpu); a bare custom command resolves its
   // device at start (VRAM probe) → "auto".
   const _runner = String(_scfg.RUNNER || (String(_scfg.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server")).toLowerCase();
   const runnerDefaultsGpu = _runner === "llama-server" || _runner === "vllm" || _runner === "whisper";
@@ -457,7 +459,20 @@ export function nodeServerCardHtml(node, s) {
       </div>
       ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
     </div>` : "";
-  const bodyBlock = modelBlock || vllmBlock || whisperBlock || commandBlock || emptyCellBlock;
+  // moonshine runner cell: the "model" is a language code, CPU-only.
+  const isMoonshineCell = String(_scfg.RUNNER || "").toLowerCase() === "moonshine";
+  const moonshineLang = String(_scfg.MOONSHINE_MODEL || "").trim().toLowerCase() || "en";
+  const moonshineBlock = (isMoonshineCell && !s.model) ? `
+    <div class="node-model-block" role="button" tabindex="0"
+         data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
+      <div class="node-model-row1">
+        ${runnerChipHtml("moonshine")}
+        ${memBadge}
+        <strong class="node-model-name" title="moonshine ${escapeHtml(moonshineLang)}">${escapeHtml(moonshineLang)}</strong>
+      </div>
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
+    </div>` : "";
+  const bodyBlock = modelBlock || vllmBlock || whisperBlock || moonshineBlock || commandBlock || emptyCellBlock;
   // No model/command block to host the status (e.g. a bare stopped server) —
   // fall back to the old below-the-body progress panel.
   const progressPanel = (!bodyBlock && statusRow)
@@ -647,6 +662,7 @@ export function openNodeServerDetail(nodeId, port) {
   const isCmd = String(_scfg.CELL_KIND || "").toLowerCase() === "command";
   const isVllm = String(_scfg.RUNNER || "").toLowerCase() === "vllm";
   const isWhisper = String(_scfg.RUNNER || "").toLowerCase() === "whisper";
+  const isMoonshine = String(_scfg.RUNNER || "").toLowerCase() === "moonshine";
   const nsdCtxChip = s.ctxMax
     ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(s.ctxMax))}`, t("topologyCtxUsageTip") || "Context window")
     : (_scfg.CTX_SIZE ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.CTX_SIZE)))}`) : "");
@@ -673,6 +689,10 @@ export function openNodeServerDetail(nodeId, port) {
   // Build formatted command block from slotConfig
   const cmdBlockHtml = (() => {
     const cfg = s.slotConfig || {};
+    if (isMoonshine) {
+      const lang = String(cfg.MOONSHINE_MODEL || "").trim().toLowerCase() || "en";
+      return [`export PORT=${port}`, `exec bash $HOME/run_moonshine.sh "$PORT" ${lang}`];
+    }
     if (isWhisper) {
       const size = String(cfg.WHISPER_MODEL || "").trim() || "large-v3";
       const lines = [`export PORT=${cfg.PORT || s.port || ""}`,
@@ -784,11 +804,14 @@ export function openNodeServerDetail(nodeId, port) {
             ? row("Command", `<code class="nsd-cmd-inline">${escapeHtml(String(_scfg.COMMAND || "").replace(/^\s*exec\s+/, "") || "—")}</code>`)
             : isVllm
             ? row("Model", `<code class="nsd-cmd-inline">${escapeHtml(String(_scfg.VLLM_MODEL || "") || "—")}</code>`)
+            : isMoonshine
+            ? row("Model", `<code class="nsd-cmd-inline">moonshine ${escapeHtml(String(_scfg.MOONSHINE_MODEL || "en"))}</code>`)
             : isWhisper
             ? row("Model", `<code class="nsd-cmd-inline">faster-whisper ${escapeHtml(String(_scfg.WHISPER_MODEL || "large-v3"))}</code>`)
             : row("Model", escapeHtml(parsed.label || s.model || ""))}
           ${isVllm ? row("Runner", `${mbadge("cmd", "⚡ vllm")}${mbadge("cmd", "❤ /v1/models")}`) : ""}
           ${isWhisper ? row("Runner", `${mbadge("cmd", "🎙 whisper")}${mbadge("cmd", "❤ /health")}`) : ""}
+          ${isMoonshine ? row("Runner", `${mbadge("cmd", "🌙 moonshine")}${mbadge("cmd", "❤ /health")}`) : ""}
           ${isCmd
             ? (row("Health", _scfg.HEALTH_PATH ? `<code>${escapeHtml(_scfg.HEALTH_PATH)}</code>` : "") + row("Workdir", _scfg.WORKDIR ? `<code>${escapeHtml(_scfg.WORKDIR)}</code>` : ""))
             : (() => { const chips = [parsed.quant ? mbadge("quant", `🎛 ${escapeHtml(parsed.quant)}`) : "", parsed.size ? mbadge("size", `⚖ ${escapeHtml(parsed.size)}`) : "", parsed.variant ? mbadge("it", `🤖 ${escapeHtml(parsed.variant)}`) : "", s.mmproj ? mbadge("mmproj", "📷 mmproj") : "", hasMtp ? mbadge("mtp", "⚡ mtp") : "", nsdCtxChip].filter(Boolean).join(""); return chips ? `<div class="nsd-row"><span class="nsd-k"></span><span class="nsd-v"><span class="model-chips">${chips}</span></span></div>` : ""; })()}

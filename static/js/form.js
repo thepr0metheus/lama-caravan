@@ -312,7 +312,9 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
       // Safetensors artifact: the value is a directory (<model>/<author>/<FORMAT>);
       // show the model folder as the name and the full dir underneath.
       if (item.kind === "st") { fname = item.stName || fname; dir = item.value; }
-      if (item.kind === "whisper") {
+      if (item.kind === "moonshine") {
+        fname = `moonshine · ${item.msLang}`;
+      } else if (item.kind === "whisper") {
         fname = `whisper · ${item.whSize}`;
         dir = item.value;
         if (!item.whOnDisk) el.classList.add("mc-dim");
@@ -336,6 +338,8 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
         runnerIcons = blocked
           ? `<span class="mc-runners" title="${escapeHtml(`${item.stFormat} · ${t("runnerNeedsCompute", { n: need })}`)}"><span class="mc-run-exp">⚡</span></span>`
           : `<span class="mc-runners" title="vLLM">⚡</span>`;
+      } else if (item.kind === "moonshine") {
+        runnerIcons = `<span class="mc-runners" title="moonshine (CPU speech-to-text)">🌙</span>`;
       } else if (item.kind === "whisper") {
         runnerIcons = `<span class="mc-runners" title="whisper (faster-whisper)">🎙</span>`;
       } else if (item.kind === "model" && !item.missing) {
@@ -432,6 +436,22 @@ export function renderModelSelects(pfx = "") {
         whSize: size,
         sizeLabel,
         whOnDisk: pfx === "tr-" || have.has(size),
+        mtime: 0,
+      }));
+  }
+  // Moonshine languages join the picker too (🌙): CPU-only STT, the model is a
+  // LANGUAGE code and downloads itself on the target host. en is MIT; the rest
+  // ship under the free Moonshine Community License — said right on the row.
+  {
+    [["en", "MIT · ~250 MB"], ["es", "Community license"], ["zh", "Community license"],
+     ["ja", "Community license"], ["ko", "Community license"], ["vi", "Community license"],
+     ["uk", "Community license"], ["ar", "Community license"]]
+      .forEach(([lang, sizeLabel]) => modelItems.push({
+        value: `moonshine/${lang}`,
+        kind: "moonshine",
+        msLang: lang,
+        sizeLabel,
+        whOnDisk: true,
         mtime: 0,
       }));
   }
@@ -1266,10 +1286,10 @@ export function readConfigForm(pfx = "") {
   config.ENV = $(pfx + "ENV")?.value || "";
   config.WORKDIR = ($(pfx + "WORKDIR")?.value || "").trim();
   ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL",
-   "WHISPER_MODEL"].forEach((k) => {
+   "WHISPER_MODEL", "MOONSHINE_MODEL"].forEach((k) => {
     config[k] = ($(pfx + k)?.value || "").trim();
   });
-  if (config.CELL_KIND === "command" || config.RUNNER === "vllm" || config.RUNNER === "whisper") {
+  if (config.CELL_KIND === "command" || config.RUNNER === "vllm" || config.RUNNER === "whisper" || config.RUNNER === "moonshine") {
     // Not a llama-server — don't carry a stale model/mmproj/draft into the slot.
     config.MODEL_FILE = "";
     config.MMPROJ_FILE = "";

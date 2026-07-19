@@ -386,12 +386,14 @@ export function applyConfigToForm(config, pfx = "") {
   });
   const whEl = $(pfx + "WHISPER_MODEL");
   if (whEl) whEl.value = config.WHISPER_MODEL || "large-v3";
+  const msEl = $(pfx + "MOONSHINE_MODEL");
+  if (msEl) msEl.value = config.MOONSHINE_MODEL || "en";
   // vLLM/whisper cells clear MODEL_FILE on save, and merging with the global
   // config would leak the main service's model into the picker. So the picker
   // ALWAYS shows the cell's own artifact (vLLM with a local path) or nothing
   // (HF repo id / whisper, whose model is a size name) — never the leak.
   const _rid = String(config.RUNNER || "").toLowerCase();
-  if (_rid === "vllm" || _rid === "whisper") {
+  if (_rid === "vllm" || _rid === "whisper" || _rid === "moonshine") {
     const vm = String(config.VLLM_MODEL || "").trim().replace(/\/+$/, "");
     const base = (state.paths?.modelsDir || "").replace(/\/+$/, "");
     let rel = "";
@@ -403,6 +405,10 @@ export function applyConfigToForm(config, pfx = "") {
       // Every size has a picker row now (undownloaded ones dimmed).
       const size = String(config.WHISPER_MODEL || "").trim() || "large-v3";
       rel = `whisper/models--Systran--faster-whisper-${size}`;
+    }
+    if (_rid === "moonshine") {
+      const lang = String(config.MOONSHINE_MODEL || "").trim().toLowerCase() || "en";
+      rel = `moonshine/${lang}`;
     }
     const mEl = $(pfx + "MODEL_FILE");
     if (mEl) {
@@ -694,7 +700,7 @@ function markWhisperOptions(pfx) {
 // Idempotent and re-run on every render so tooltips follow language switches.
 const _STATIC_TIP_FIELDS = ["COMMAND", "ENV", "WORKDIR", "HEALTH_PATH",
   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION",
-  "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL"];
+  "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL", "MOONSHINE_MODEL"];
 function injectStaticFieldTips(pfx) {
   _STATIC_TIP_FIELDS.forEach((f) => {
     const label = _cellKindOverlay(pfx)?.querySelector(`label[for="${pfx}${f}"]`);
@@ -725,7 +731,8 @@ export function renderRunnerTabs(pfx) {
   // Each tab carries a (?) with the full trade-off story: what the runner is
   // good at (benefitsKey) and what it costs (runner*Minus).
   const MINUS_KEY = { "llama-server": "runnerLlamaMinus", "vllm": "runnerVllmMinus",
-                      "whisper": "runnerWhisperMinus", "custom": "runnerCustomMinus" };
+                      "whisper": "runnerWhisperMinus", "moonshine": "runnerMoonshineMinus",
+                      "custom": "runnerCustomMinus" };
   wrap.innerHTML = runnerRegistry().map((r) => {
     const avail = runnerAvailability(r, pfx);
     const label = (r.icon ? r.icon + " " : "") + t(r.labelKey || r.id);
@@ -763,7 +770,8 @@ export function applyCellKindUI(pfx) {
   renderRunnerTabs(pfx);
   const isVllm = runner === "vllm";
   const isWhisper = runner === "whisper";
-  const nonLlama = isCommand || isVllm || isWhisper;
+  const isMoonshine = runner === "moonshine";
+  const nonLlama = isCommand || isVllm || isWhisper || isMoonshine;
   // Use inline display, not the [hidden] attr: .field has a stylesheet `display`
   // rule that would otherwise keep the command fields visible in llama mode.
   const llamaFields = $(pfx + "llamaFields");
@@ -776,6 +784,10 @@ export function applyCellKindUI(pfx) {
   // the container stays as the hidden carrier of the WHISPER_MODEL value.
   const whisperFields = $(pfx + "whisperFields");
   if (whisperFields) whisperFields.style.display = "none";
+  // Same pattern for moonshine: the LANGUAGE is picked in the shared model
+  // picker; the container stays as the hidden carrier of MOONSHINE_MODEL.
+  const moonshineFields = $(pfx + "moonshineFields");
+  if (moonshineFields) moonshineFields.style.display = "none";
   // Aside: llama VRAM/preview vs. the command preview + history (vllm/whisper
   // reuse the command aside — their exec line renders into the same preview).
   const llamaAside = $(pfx + "llamaAside");
@@ -796,6 +808,17 @@ export function wireCellKindToggle(pfx) {
     if (rEl) rEl.value = btn.dataset.runner || "";
     // Manual switch to whisper: aim the shared picker at the current size —
     // the dedicated select is hidden everywhere.
+    if ((btn.dataset.runner || "") === "moonshine") {
+      const mEl = $(pfx + "MODEL_FILE");
+      const lang = ($(pfx + "MOONSHINE_MODEL")?.value || "").trim().toLowerCase() || "en";
+      const want = `moonshine/${lang}`;
+      if (mEl && mEl.value !== want) {
+        mEl.value = want;
+        if (mEl.tagName === "SELECT") mcUpdateTrigger(mEl);
+      }
+      applyCellKindUI(pfx);
+      return;
+    }
     if ((btn.dataset.runner || "") === "whisper") {
       const mEl = $(pfx + "MODEL_FILE");
       const size = ($(pfx + "WHISPER_MODEL")?.value || "").trim() || "large-v3";
@@ -813,6 +836,15 @@ export function wireCellKindToggle(pfx) {
     const model = $(pfx + "MODEL_FILE")?.value || "";
     // A downloaded whisper model picked from the shared picker: flip the
     // runner to whisper with that size — same pattern as st→vLLM.
+    const ms = model.match(/^moonshine\/([a-z]{2})$/);
+    if (ms) {
+      const rEl = $(pfx + "RUNNER");
+      if (rEl) rEl.value = "moonshine";
+      const mEl2 = $(pfx + "MOONSHINE_MODEL");
+      if (mEl2) mEl2.value = ms[1];
+      applyCellKindUI(pfx);
+      return;
+    }
     const wh = model.match(/^whisper\/models--Systran--faster-whisper-(.+)$/);
     if (wh) {
       const rEl = $(pfx + "RUNNER");

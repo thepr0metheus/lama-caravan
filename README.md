@@ -154,7 +154,7 @@ The built-in HuggingFace GGUF browser:
 ## Tested versions
 
 The exact versions the development fleet runs — re-verified and updated here
-whenever a component is upgraded (last verified: **2026-07-10**):
+whenever a component is upgraded (last verified: **2026-07-19**):
 
 | Component | Verified version |
 |---|---|
@@ -168,7 +168,8 @@ whenever a component is upgraded (last verified: **2026-07-10**):
 | Docker (container mode) | 29.1 |
 | faster-whisper | 1.2.1 (CTranslate2 4.8.0) — whisper command cells |
 | vLLM | 0.24.0, pinned provisioning — controller cell `:8012` |
-| caravan-scout | v1.0.1 |
+| caravan-scout | v1.2.6 |
+| moonshine-voice | 0.0.69 — moonshine STT command cells (CPU-only) |
 
 > The build number `llama-server --version` prints counts commits in the *local
 > clone* — a shallow clone undercounts vs upstream `bNNNN` tags, so the commit

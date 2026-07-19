@@ -7,6 +7,21 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.74 — 2026-07-19
+
+- New runner: 🌙 **moonshine** — Moonshine v2 speech-to-text as a first-class
+  tile next to llama.cpp/vLLM/whisper, not a hand-typed custom command.
+  CPU-only by design: the EN model beats Whisper large-v3 accuracy at 250M
+  params and runs sub-second on a CPU core, so a moonshine cell can live on
+  any host — including one whose GPUs are fully booked by LLMs — and the card
+  correctly reads as a blue CPU cell. The "model" is a LANGUAGE
+  (en es zh ja ko vi uk ar) picked in the shared model picker, each row
+  stating its license up front: en is MIT, the others ship under the free
+  Moonshine Community License (registration + attribution, < $1M/yr revenue);
+  no Russian — whisper stays the RU recognizer. Serving files live with the
+  scout (`stt/` + `scripts/install-moonshine.sh`, caravan-scout ≥ 1.2.6),
+  same cell contract as the whisper server.
+
 ## 1.3.73 — 2026-07-19
 
 - Rescues are visible in Request History. A rescued request wears an amber

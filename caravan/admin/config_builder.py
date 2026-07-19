@@ -124,6 +124,8 @@ CONFIG_FIELDS = [
     "TENSOR_PARALLEL",         # --tensor-parallel-size
     # whisper runner (RUNNER="whisper"): run_whisper.sh "$PORT" <size>
     "WHISPER_MODEL",           # faster-whisper size: tiny…large-v3(-turbo)
+    # moonshine runner (RUNNER="moonshine"): run_moonshine.sh "$PORT" <lang>
+    "MOONSHINE_MODEL",         # moonshine language: en es zh ja ko vi uk ar
 ]
 
 FIELD_HELP = {
@@ -141,6 +143,7 @@ FIELD_HELP = {
     "DTYPE": "Activation dtype (--dtype): auto, bfloat16 or float16.",
     "TENSOR_PARALLEL": "GPUs to shard across (--tensor-parallel-size). 1 on single-GPU hosts.",
     "WHISPER_MODEL": "faster-whisper model size (tiny…large-v3). Downloaded automatically on first start; language is chosen per request.",
+    "MOONSHINE_MODEL": "Moonshine v2 language (en es zh ja ko vi uk ar) — CPU-only STT, the model downloads itself on first start. en is MIT-licensed; the rest need the free Moonshine Community License (registration + attribution). No Russian — use whisper for RU.",
     "PORT": "llama.cpp HTTP port. OpenAI-compatible API is /v1 on this port.",
     "LLAMA_MODELS_DIR": "Directory where local GGUF models and mmproj files are stored.",
     "MODEL_FILE": "GGUF model path relative to the models directory.",
