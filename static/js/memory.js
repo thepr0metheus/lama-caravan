@@ -266,11 +266,13 @@ export function refreshComputeTarget(pfx) {
   const na = t("computeUnavailable");
   // One row: icon + NAME + the primary detail (cores/GB, card name, "probe at
   // start") + the secondary note, all inline; the check floats to the far right.
+  // The full label goes on the button's title= so hovering reveals whatever the
+  // one-line tile had to ellipsise (long specs, long translations).
   const card = (active, disabled, attrs, icon, title, main, sub) =>
-    `<button type="button" class="compute-card${active ? " active" : ""}${disabled ? " disabled" : ""}" ${disabled ? "disabled" : ""} ${attrs}>
+    `<button type="button" class="compute-card${active ? " active" : ""}${disabled ? " disabled" : ""}" ${disabled ? "disabled" : ""} title="${escapeHtml([title, main, sub].filter(Boolean).join(" · "))}" ${attrs}>
       <span class="compute-card-head"><span class="compute-card-icon" aria-hidden="true">${icon}</span><span class="compute-card-name">${escapeHtml(title)}</span>${main ? `<span class="compute-card-main">${escapeHtml(main)}</span>` : ""}${sub ? `<span class="compute-card-sub">${escapeHtml(sub)}</span>` : ""}${active ? '<span class="compute-card-check" aria-hidden="true">✓</span>' : ""}</span>
     </button>`;
-  const cpuCard = card(mode === "cpu" && caps.cpu, !caps.cpu, `data-compute="cpu" title="${escapeHtml(caps.cpu ? "" : na)}"`,
+  const cpuCard = card(mode === "cpu" && caps.cpu, !caps.cpu, `data-compute="cpu"`,
     "🧠", "CPU", `${cores} ${t("computeCores")}${ramGb ? ` · ${ramGb.toFixed(0)} GB` : ""}`,
     caps.cpu ? t("computeCpuSub") : na);
   let gpuCards;
@@ -285,11 +287,11 @@ export function refreshComputeTarget(pfx) {
   } else {
     const g0 = gpus[0];
     const vram = Number(g0?.memoryTotalMiB || 0) / 1024;
-    gpuCards = card(mode === "gpu" && caps.gpu, !caps.gpu, `data-compute="gpu" data-gpu="${g0 ? Number(g0.index) : 0}" title="${escapeHtml(caps.gpu ? "" : na)}"`,
+    gpuCards = card(mode === "gpu" && caps.gpu, !caps.gpu, `data-compute="gpu" data-gpu="${g0 ? Number(g0.index) : 0}"`,
       "🎮", "GPU", g0 ? shortGpuName(g0.name) : "GPU",
       caps.gpu ? (vram ? `${formatSizeGb(vram)} VRAM` : t("computeGpuSub")) : na);
   }
-  const autoCard = card(mode === "auto" && caps.auto, !caps.auto, `data-compute="auto" title="${escapeHtml(caps.auto ? "" : na)}"`,
+  const autoCard = card(mode === "auto" && caps.auto, !caps.auto, `data-compute="auto"`,
     "🎲", t("computeAuto"), t("computeAutoMain"), caps.auto ? t("computeAutoSub") : na);
   box.innerHTML = `<div class="compute-label">${t("computeTarget")}</div><div class="compute-cards">${cpuCard}${gpuCards}${autoCard}</div>`;
   box.querySelectorAll(".compute-card:not(.disabled)").forEach((btn) => btn.addEventListener("click", () => {
