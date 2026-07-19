@@ -795,6 +795,9 @@ export function applyCellKindUI(pfx) {
   const cmdAside = $(pfx + "commandAside");
   if (cmdAside) cmdAside.style.display = nonLlama ? "" : "none";
   if (nonLlama) renderCommandCellPreview(pfx);
+  // The unified compute-target card sits above MODEL_FILE and serves EVERY
+  // runner — repaint it so its available/disabled tiles follow the new runner.
+  refreshComputeTarget(pfx);
 }
 
 export function wireCellKindToggle(pfx) {
@@ -888,25 +891,15 @@ export function wireCellKindToggle(pfx) {
       el.addEventListener("change", () => renderCommandCellPreview(pfx));
     }
   });
-  // Device pin: the tiles drive the hidden select, the select rewrites ENV
-  // (see _applyDeviceToEnv), and hand-typed ENV pins feed back into both.
+  // Device pin: the unified compute-target card above MODEL_FILE writes ENV for
+  // command-path runners (see applyComputeMode → _applyDeviceToEnv). A hand-typed
+  // ENV pin feeds back into the card so the two never disagree.
   const devSel = $(pfx + "CELL_DEVICE");
   const envEl = $(pfx + "ENV");
-  if (devSel && envEl) {
-    devSel.addEventListener("change", () => {
-      envEl.value = _applyDeviceToEnv(envEl.value, devSel.value);
-      envEl.dispatchEvent(new Event("input", { bubbles: true }));
-    });
+  if (envEl) {
     envEl.addEventListener("input", () => {
-      devSel.value = _envDeviceState(envEl.value, $(pfx + "COMMAND")?.value || "");
-      syncCmdExtras(pfx);
-    });
-    document.querySelector(`[data-device-tiles="${pfx}"]`)?.addEventListener("click", (e) => {
-      const tile = e.target.closest("[data-device-tile]");
-      if (!tile) return;
-      devSel.value = tile.dataset.deviceTile;
-      devSel.dispatchEvent(new Event("change", { bubbles: true }));
-      syncCmdExtras(pfx);
+      if (devSel) devSel.value = _envDeviceState(envEl.value, $(pfx + "COMMAND")?.value || "");
+      refreshComputeTarget(pfx);
     });
   }
   // Health switch: off = clear the path (plain TCP probe), on = /health seed.
@@ -963,16 +956,11 @@ export const COMMAND_PRESETS = [
     COMMAND: "bash ~/run_tts.sh $PORT cosyvoice", HEALTH_PATH: "/health" },
 ];
 
-// Tiles/toggle ↔ hidden fields sync for the command tab: the Device tiles
-// mirror the hidden CELL_DEVICE select, the health switch mirrors whether
+// Command-tab field sync: the device now lives in the unified compute-target
+// card above MODEL_FILE (repaint it), and the health switch mirrors whether
 // HEALTH_PATH is set (off = plain TCP port probe).
 export function syncCmdExtras(pfx) {
-  const devSel = $(pfx + "CELL_DEVICE");
-  const tiles = document.querySelector(`[data-device-tiles="${pfx}"]`);
-  if (devSel && tiles) {
-    tiles.querySelectorAll("[data-device-tile]").forEach((b) =>
-      b.classList.toggle("active", b.dataset.deviceTile === devSel.value));
-  }
+  refreshComputeTarget(pfx);
   const hp = $(pfx + "HEALTH_PATH");
   const tog = $(pfx + "HEALTH_TOGGLE");
   if (hp && tog) {

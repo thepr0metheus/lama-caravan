@@ -131,6 +131,13 @@
 .insight-family-item.off .insight-family-val { color: #fecaca; }
 /* Compute target (CPU vs GPU) — friendly cards over N_GPU_LAYERS/DEVICE/THREADS */
 .compute-target { margin: 10px 0 6px; }
+/* Unified device card above MODEL_FILE — a touch more air below to set it apart
+   from the model row it now governs. */
+.compute-target-top { margin: 0 0 14px; }
+/* A tile the current runner cannot target (e.g. auto on llama, GPU on moonshine):
+   visibly inert, no hover, no pointer. */
+.compute-card.disabled { opacity: 0.4; cursor: not-allowed; }
+.compute-card.disabled:hover { border-color: rgba(255, 255, 255, 0.12); }
 .compute-label { font-size: 12px; color: var(--muted, #8b93a1); margin-bottom: 6px; }
 .compute-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
 .compute-card { text-align: left; background: rgba(255, 255, 255, 0.025); border: 1px solid rgba(255, 255, 255, 0.12); border-radius: 10px; padding: 9px 11px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; color: inherit; font: inherit; }

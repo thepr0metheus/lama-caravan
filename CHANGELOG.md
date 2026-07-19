@@ -7,6 +7,19 @@
   speak-for-me and interview-trainer flows use it for single-hop RU speech
   → EN text. Servers that don't know the field keep ignoring it.
 
+## 1.3.77 — 2026-07-19
+
+- One device selector for every runner, above MODEL_FILE. The launch device
+  used to have two disconnected widgets — llama's CPU/GPU cards (writing
+  N_GPU_LAYERS) and the command tab's auto/GPU/CPU tiles (writing ENV). They are
+  one "Compute target" card now, in llama's richer styling (GPU tile names the
+  card and its VRAM), sitting above MODEL_FILE where it governs the whole cell.
+  What each runner can target differs, so unavailable tiles are DISABLED with a
+  reason, not hidden: llama = CPU + GPU (no start-probe → no auto), vLLM and
+  whisper = GPU only, moonshine = CPU only, custom = all three. A click writes
+  the right field per runner (N_GPU_LAYERS for llama, TTS_DEVICE/CUDA_VISIBLE
+  ENV pins for command-path); multi-GPU llama hosts keep their per-card pick.
+
 ## 1.3.76 — 2026-07-19
 
 - A moonshine cell created from the tile actually starts. Two bugs made a

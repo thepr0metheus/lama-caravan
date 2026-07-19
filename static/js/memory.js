@@ -1,6 +1,10 @@
 // VRAM/RAM estimation for the launch form (KV cache, buffers, compute target).
 import { renderCommandPreview } from "./command-preview.js";
 import { syncFavoriteMirrors } from "./favorites.js";
+// Device-in-ENV helpers for command-path runners. Imported for use inside
+// functions only (llama-edit.js also imports this module) — the runtime cycle
+// is safe because nothing here runs at module load.
+import { _applyDeviceToEnv, _envDeviceState } from "./llama-edit.js";
 import { modelsByPath, renderModelInsight } from "./form.js";
 import { t } from "./i18n.js";
 import { _trClientCpu, _trClientGpus } from "./remote-cells.js";
@@ -201,37 +205,107 @@ export function applyComputeTarget(pfx, sel) {
 export function shortGpuName(name) {
   return String(name || "GPU").replace(/NVIDIA\s+GeForce\s+/i, "").replace(/NVIDIA\s+/i, "").trim() || "GPU";
 }
+
+// ── Unified compute target: one CPU/GPU/auto control for EVERY runner ─────────
+// The launch device used to have two separate widgets — llama's rich CPU/GPU
+// cards (writing N_GPU_LAYERS) and the command tab's auto/GPU/CPU tiles (writing
+// ENV). They are one control now, sitting above MODEL_FILE. What each runner can
+// target differs, so the unavailable tiles are disabled rather than hidden:
+//   llama-server : CPU + GPU  (no start-probe → no auto)
+//   vLLM         : GPU only   (it reserves VRAM by utilization)
+//   whisper      : GPU only   (whisper_server.py hardcodes device=cuda)
+//   moonshine    : CPU only   (its ONNX models have no GPU build)
+//   custom       : CPU + GPU + auto  (generic managed process / TTS engines)
+function _runnerOf(pfx) {
+  const explicit = ($(pfx + "RUNNER")?.value || "").trim();
+  if (explicit) return explicit;
+  return ($(pfx + "CELL_KIND")?.value || "") === "command" ? "custom" : "llama-server";
+}
+export function runnerDeviceCaps(runner) {
+  switch (runner) {
+    case "vllm":      return { cpu: false, gpu: true,  auto: false };
+    case "whisper":   return { cpu: false, gpu: true,  auto: false };
+    case "moonshine": return { cpu: true,  gpu: false, auto: false };
+    case "custom":    return { cpu: true,  gpu: true,  auto: true  };
+    default:          return { cpu: true,  gpu: true,  auto: false };  // llama-server
+  }
+}
+// llama edits N_GPU_LAYERS; the command-path runners pin the device in ENV. A
+// forced runner (vllm/whisper=gpu, moonshine=cpu) reports that regardless.
+function currentComputeMode(pfx) {
+  const runner = _runnerOf(pfx);
+  const caps = runnerDeviceCaps(runner);
+  if (runner === "moonshine") return "cpu";
+  if (runner === "vllm" || runner === "whisper") return "gpu";
+  if (runner === "llama-server") return computeIsCpu(pfx) ? "cpu" : "gpu";
+  // custom (and any other command runner): read the ENV pin
+  const st = _envDeviceState($(pfx + "ENV")?.value || "", $(pfx + "COMMAND")?.value || "");
+  return caps[st] ? st : (caps.auto ? "auto" : caps.gpu ? "gpu" : "cpu");
+}
+function applyComputeMode(pfx, sel) {
+  if (_runnerOf(pfx) === "llama-server") { applyComputeTarget(pfx, sel); return; }
+  // command-path: device lives in ENV (TTS_DEVICE / CUDA_VISIBLE_DEVICES)
+  const env = $(pfx + "ENV");
+  if (env) env.value = _applyDeviceToEnv(env.value, sel.mode);
+  const devSel = $(pfx + "CELL_DEVICE");
+  if (devSel) devSel.value = sel.mode;
+  refreshComputeTarget(pfx);
+  renderCommandPreview(pfx);
+}
 export function refreshComputeTarget(pfx) {
   const box = $(pfx + "computeTarget");
   if (!box) return;
+  const runner = _runnerOf(pfx);
+  const caps = runnerDeviceCaps(runner);
+  const mode = currentComputeMode(pfx);
   const gpus = computeTargetGpus(pfx);
-  const cpuMode = computeIsCpu(pfx);
-  const sel = new Set(computeSelectedGpuIdx(pfx));
+  const isLlama = runner === "llama-server";
+  const sel = new Set(isLlama && !computeIsCpu(pfx) ? computeSelectedGpuIdx(pfx) : []);
   const cores = computeTargetCores(pfx);
   const ramGb = computeTargetRamGb(pfx);
-  const card = (active, attrs, icon, title, main, sub) =>
-    `<button type="button" class="compute-card${active ? " active" : ""}" ${attrs}>
+  const na = t("computeUnavailable");
+  const card = (active, disabled, attrs, icon, title, main, sub) =>
+    `<button type="button" class="compute-card${active ? " active" : ""}${disabled ? " disabled" : ""}" ${disabled ? "disabled" : ""} ${attrs}>
       <span class="compute-card-head"><span class="compute-card-icon" aria-hidden="true">${icon}</span><span>${escapeHtml(title)}</span>${active ? '<span class="compute-card-check" aria-hidden="true">✓</span>' : ""}</span>
       <span class="compute-card-main">${escapeHtml(main)}</span>
       <span class="compute-card-sub">${escapeHtml(sub)}</span>
     </button>`;
-  const cpuCard = card(cpuMode, `data-compute="cpu"`, "🧠", "CPU",
-    `${cores} ${t("computeCores")}${ramGb ? ` · ${ramGb.toFixed(0)} GB` : ""}`, t("computeCpuSub"));
-  const gpuCards = gpus.map((g) => {
-    const i = Number(g.index);
-    const on = !cpuMode && sel.has(i);
-    const vram = Number(g.memoryTotalMiB || 0) / 1024;
-    return card(on, `data-compute="gpu" data-gpu="${i}"`, "🎮",
-      gpus.length > 1 ? `GPU${i}` : "GPU", shortGpuName(g.name), vram ? `${formatSizeGb(vram)} VRAM` : t("computeGpuSub"));
-  }).join("");
-  box.innerHTML = `<div class="compute-label">${t("computeTarget")}</div><div class="compute-cards">${cpuCard}${gpuCards}</div>`;
-  box.querySelectorAll(".compute-card").forEach((btn) => btn.addEventListener("click", () => {
-    if (btn.dataset.compute === "cpu") { applyComputeTarget(pfx, { mode: "cpu" }); return; }
-    const gi = Number(btn.dataset.gpu);
-    const cur = new Set(computeIsCpu(pfx) ? [] : computeSelectedGpuIdx(pfx));
-    if (cur.has(gi)) cur.delete(gi); else cur.add(gi);
-    if (!cur.size) cur.add(gi);
-    applyComputeTarget(pfx, { mode: "gpu", gpuIdx: [...cur] });
+  const cpuCard = card(mode === "cpu" && caps.cpu, !caps.cpu, `data-compute="cpu" title="${escapeHtml(caps.cpu ? "" : na)}"`,
+    "🧠", "CPU", `${cores} ${t("computeCores")}${ramGb ? ` · ${ramGb.toFixed(0)} GB` : ""}`,
+    caps.cpu ? t("computeCpuSub") : na);
+  let gpuCards;
+  if (isLlama && gpus.length > 1) {
+    // Rich per-GPU tiles so a multi-GPU llama host keeps its card-level pick.
+    gpuCards = gpus.map((g) => {
+      const i = Number(g.index);
+      const vram = Number(g.memoryTotalMiB || 0) / 1024;
+      return card(mode === "gpu" && sel.has(i), false, `data-compute="gpu" data-gpu="${i}"`,
+        "🎮", `GPU${i}`, shortGpuName(g.name), vram ? `${formatSizeGb(vram)} VRAM` : t("computeGpuSub"));
+    }).join("");
+  } else {
+    const g0 = gpus[0];
+    const vram = Number(g0?.memoryTotalMiB || 0) / 1024;
+    gpuCards = card(mode === "gpu" && caps.gpu, !caps.gpu, `data-compute="gpu" data-gpu="${g0 ? Number(g0.index) : 0}" title="${escapeHtml(caps.gpu ? "" : na)}"`,
+      "🎮", "GPU", g0 ? shortGpuName(g0.name) : "GPU",
+      caps.gpu ? (vram ? `${formatSizeGb(vram)} VRAM` : t("computeGpuSub")) : na);
+  }
+  const autoCard = card(mode === "auto" && caps.auto, !caps.auto, `data-compute="auto" title="${escapeHtml(caps.auto ? "" : na)}"`,
+    "🎲", t("computeAuto"), t("computeAutoMain"), caps.auto ? t("computeAutoSub") : na);
+  box.innerHTML = `<div class="compute-label">${t("computeTarget")}</div><div class="compute-cards">${cpuCard}${gpuCards}${autoCard}</div>`;
+  box.querySelectorAll(".compute-card:not(.disabled)").forEach((btn) => btn.addEventListener("click", () => {
+    const kind = btn.dataset.compute;
+    if (kind === "cpu") { applyComputeMode(pfx, { mode: "cpu" }); return; }
+    if (kind === "auto") { applyComputeMode(pfx, { mode: "auto" }); return; }
+    // GPU: multi-GPU llama toggles individual cards; everything else is a plain GPU pin.
+    if (isLlama && gpus.length > 1) {
+      const gi = Number(btn.dataset.gpu);
+      const cur = new Set(computeIsCpu(pfx) ? [] : computeSelectedGpuIdx(pfx));
+      if (cur.has(gi)) cur.delete(gi); else cur.add(gi);
+      if (!cur.size) cur.add(gi);
+      applyComputeMode(pfx, { mode: "gpu", gpuIdx: [...cur] });
+    } else {
+      applyComputeMode(pfx, { mode: "gpu" });
+    }
   }));
 }
 // VRAM/RAM headroom for the form's memory estimate, honoring the compute target.

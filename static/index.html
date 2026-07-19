@@ -422,6 +422,7 @@
             <!-- Cell type: llama-server vs generic managed command (e.g. whisper) -->
             <!-- Model first, then the runner that launches it (llama-server /
                  custom now; vLLM next). Tabs render from state.runners. -->
+            <div id="tr-computeTarget" class="compute-target compute-target-top"></div>
             <div class="field model-file-field">
               <div class="label-row"><label for="tr-MODEL_FILE">MODEL_FILE</label></div>
               <select id="tr-MODEL_FILE" name="MODEL_FILE"></select>
@@ -440,23 +441,6 @@
               <div class="label-row" style="margin-top:10px"><label for="tr-COMMAND">COMMAND</label></div>
               <input id="tr-COMMAND" name="COMMAND" type="text" class="cmd-command-input" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%">
               <p class="field-note"><code>$PORT</code> is exported to the cell's reserved port; the command is <code>exec</code>'d. Don't prefix with <code>exec</code> — it's added.</p>
-              <div class="compute-target">
-                <div class="compute-label"><span data-i18n="cellDeviceLabel">Device</span> <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip" data-i18n="cellDeviceHelp">Pins the launch device via ENV (TTS_DEVICE / CUDA_VISIBLE_DEVICES); auto keeps the runner's own probe.</span></span></div>
-                <div class="compute-cards cmd-device-tiles" data-device-tiles="tr-">
-                  <button type="button" class="compute-card" data-device-tile="auto">
-                    <span class="compute-card-head"><span class="compute-card-icon">🎲</span> auto<span class="compute-card-check">✓</span></span>
-                    <span class="compute-card-sub" data-i18n="devTileAutoSub">probe at start: GPU if VRAM is free, else CPU</span>
-                  </button>
-                  <button type="button" class="compute-card" data-device-tile="gpu">
-                    <span class="compute-card-head"><span class="compute-card-icon">🎮</span> GPU<span class="compute-card-check">✓</span></span>
-                    <span class="compute-card-sub" data-i18n="devTileGpuSub">pin: TTS_DEVICE=cuda</span>
-                  </button>
-                  <button type="button" class="compute-card" data-device-tile="cpu">
-                    <span class="compute-card-head"><span class="compute-card-icon">🧮</span> CPU<span class="compute-card-check">✓</span></span>
-                    <span class="compute-card-sub" data-i18n="devTileCpuSub">pin: the GPU is hidden from the process</span>
-                  </button>
-                </div>
-              </div>
               <select id="tr-CELL_DEVICE" hidden><option value="auto">auto</option><option value="gpu">GPU</option><option value="cpu">CPU</option></select>
               <div class="label-row" style="margin-top:10px"><label for="tr-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
               <textarea id="tr-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace"></textarea>
@@ -558,7 +542,6 @@
               <div id="tr-chatTemplateHint" class="field-note"></div>
             </div>
             <div id="tr-modelInsight" class="model-insight"></div>
-            <div id="tr-computeTarget" class="compute-target"></div>
             <!-- Route-agent behaviour — not llama.cpp flags -->
             <div class="cache-toggle-row">
               <input type="checkbox" id="tr-cacheModels" checked>
@@ -659,6 +642,7 @@
             <!-- Cell type: llama-server vs generic managed command (e.g. whisper) -->
             <!-- Model first, then the runner that launches it (llama-server /
                  custom now; vLLM next). Tabs render from state.runners. -->
+            <div id="te-computeTarget" class="compute-target compute-target-top"></div>
             <div class="field model-file-field">
               <div class="label-row"><label for="te-MODEL_FILE">MODEL_FILE</label></div>
               <select id="te-MODEL_FILE" name="MODEL_FILE"></select>
@@ -678,23 +662,6 @@
               <div class="label-row" style="margin-top:10px"><label for="te-COMMAND">COMMAND</label></div>
               <input id="te-COMMAND" name="COMMAND" type="text" class="cmd-command-input" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%">
               <p class="field-note"><code>$PORT</code> is exported to the cell's reserved port; the command is <code>exec</code>'d. Don't prefix with <code>exec</code> — it's added.</p>
-              <div class="compute-target">
-                <div class="compute-label"><span data-i18n="cellDeviceLabel">Device</span> <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip" data-i18n="cellDeviceHelp">Pins the launch device via ENV (TTS_DEVICE / CUDA_VISIBLE_DEVICES); auto keeps the runner's own probe.</span></span></div>
-                <div class="compute-cards cmd-device-tiles" data-device-tiles="te-">
-                  <button type="button" class="compute-card" data-device-tile="auto">
-                    <span class="compute-card-head"><span class="compute-card-icon">🎲</span> auto<span class="compute-card-check">✓</span></span>
-                    <span class="compute-card-sub" data-i18n="devTileAutoSub">probe at start: GPU if VRAM is free, else CPU</span>
-                  </button>
-                  <button type="button" class="compute-card" data-device-tile="gpu">
-                    <span class="compute-card-head"><span class="compute-card-icon">🎮</span> GPU<span class="compute-card-check">✓</span></span>
-                    <span class="compute-card-sub" data-i18n="devTileGpuSub">pin: TTS_DEVICE=cuda</span>
-                  </button>
-                  <button type="button" class="compute-card" data-device-tile="cpu">
-                    <span class="compute-card-head"><span class="compute-card-icon">🧮</span> CPU<span class="compute-card-check">✓</span></span>
-                    <span class="compute-card-sub" data-i18n="devTileCpuSub">pin: the GPU is hidden from the process</span>
-                  </button>
-                </div>
-              </div>
               <select id="te-CELL_DEVICE" hidden><option value="auto">auto</option><option value="gpu">GPU</option><option value="cpu">CPU</option></select>
               <div class="label-row" style="margin-top:10px"><label for="te-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
               <textarea id="te-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace"></textarea>
@@ -796,7 +763,6 @@
               <div id="te-chatTemplateHint" class="field-note"></div>
             </div>
             <div id="te-modelInsight" class="model-insight"></div>
-            <div id="te-computeTarget" class="compute-target"></div>
             <div id="te-dynamicFields" class="field-grid"></div>
             </div><!-- /te-llamaFields -->
           </form>
