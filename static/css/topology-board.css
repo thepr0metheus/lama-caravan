@@ -42,6 +42,21 @@
   justify-content: start;
 }
 
+/* Server column no longer has a title — its top row is a right-aligned toolbar
+   of the three board actions (stats / history / system). min-height keeps it the
+   same height as the "Clients" title so both columns start on the same line.
+   Two class names to outrank .section-title's justify-content: space-between. */
+.topology-title.topology-server-head {
+  justify-content: flex-end;
+  min-height: 34px;
+}
+
+.topology-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .topology-stack {
   display: grid;
   gap: 10px;

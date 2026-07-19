@@ -277,10 +277,14 @@
       </div>
 
       <div class="topology-column topology-server-column">
-        <div class="section-title topology-title">
-          <h2 class="title-with-tip"><span data-i18n="topologyServerSection">LAMA CARAVAN Server</span><span id="topologyServerTip"></span></h2>
-          <span id="topologyUpdated" class="muted"></span>
-          <button id="usageStatsBtn" type="button" class="icon-action prominent" data-title-i18n="usageStatsBtn" aria-label="Usage &amp; spend statistics">📊</button>
+        <div class="section-title topology-title topology-server-head">
+          <div class="topology-head-actions">
+            <button id="usageStatsBtn" type="button" class="icon-action prominent" data-title-i18n="usageStatsBtn" aria-label="Usage &amp; spend statistics">📊</button>
+            <button id="topologyRequestHistoryBtn" type="button" class="icon-action prominent" data-title-i18n="requestHistoryTitle" title="Request history">
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </button>
+            <button id="systemInfoBtn" type="button" class="icon-action prominent" data-title-i18n="systemInfoTitle" title="System info — llama.cpp build &amp; known problems">🛠</button>
+          </div>
         </div>
         <div class="topology-lanes nodes-on">
           <section>
@@ -292,10 +296,6 @@
           <section class="lane-servers">
             <div class="topology-lane-head">
               <h2 class="title-with-tip"><span data-i18n="topologyLlamaServersSection">Model Servers</span><span id="topologyLlamaServersTip"></span></h2>
-              <button id="topologyRequestHistoryBtn" type="button" class="icon-action prominent" data-title-i18n="requestHistoryTitle" title="Request history">
-                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-              </button>
-              <button id="systemInfoBtn" type="button" class="icon-action prominent" data-title-i18n="systemInfoTitle" title="System info — llama.cpp build &amp; known problems">🛠</button>
             </div>
             <div id="topologyModelsBar" class="topology-models-bar"></div>
             <div id="topologyLlamaServers" class="topology-stack nodes-mode"></div>
