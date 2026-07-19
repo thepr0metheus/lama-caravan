@@ -264,11 +264,12 @@ export function refreshComputeTarget(pfx) {
   const cores = computeTargetCores(pfx);
   const ramGb = computeTargetRamGb(pfx);
   const na = t("computeUnavailable");
+  // Two lines: NAME + the primary detail (cores/GB, card name, "probe at start")
+  // share the head row; the secondary note sits under it. Was three rows.
   const card = (active, disabled, attrs, icon, title, main, sub) =>
     `<button type="button" class="compute-card${active ? " active" : ""}${disabled ? " disabled" : ""}" ${disabled ? "disabled" : ""} ${attrs}>
-      <span class="compute-card-head"><span class="compute-card-icon" aria-hidden="true">${icon}</span><span>${escapeHtml(title)}</span>${active ? '<span class="compute-card-check" aria-hidden="true">✓</span>' : ""}</span>
-      <span class="compute-card-main">${escapeHtml(main)}</span>
-      <span class="compute-card-sub">${escapeHtml(sub)}</span>
+      <span class="compute-card-head"><span class="compute-card-icon" aria-hidden="true">${icon}</span><span>${escapeHtml(title)}</span>${main ? `<span class="compute-card-main">${escapeHtml(main)}</span>` : ""}${active ? '<span class="compute-card-check" aria-hidden="true">✓</span>' : ""}</span>
+      ${sub ? `<span class="compute-card-sub">${escapeHtml(sub)}</span>` : ""}
     </button>`;
   const cpuCard = card(mode === "cpu" && caps.cpu, !caps.cpu, `data-compute="cpu" title="${escapeHtml(caps.cpu ? "" : na)}"`,
     "🧠", "CPU", `${cores} ${t("computeCores")}${ramGb ? ` · ${ramGb.toFixed(0)} GB` : ""}`,
