@@ -1243,7 +1243,9 @@ export async function refreshRouteErrBadges() {
   });
 }
 
-export function topologyAgentRouteRow(client, agent, role, route, active = true) {
+// usage: "confirmed" | "unused" | "unverified" (see topologyRouteUsage). It used
+// to be a boolean, which had no room for "the agent never told us".
+export function topologyAgentRouteRow(client, agent, role, route, usage = "confirmed") {
   const activity = route ? topologyProxyActivity(route.proxyId || "") : null;
   const incident = activity?.incident || topologyIncidentForItem(activity?.item);
   // The proxy port is now shown ON this route row (no separate proxy column). The
@@ -1251,7 +1253,8 @@ export function topologyAgentRouteRow(client, agent, role, route, active = true)
   // the agent doesn't currently use is "muted": still wired + provisioned, but faint.
   const proxy = route ? (topology?.proxies || []).find((p) => p.id === route.proxyId) : null;
   const port = proxy?.port || (route?.proxyId || "").split(":").pop() || "";
-  const muted = !!route && !active;
+  const muted = !!route && usage === "unused";
+  const unverified = !!route && usage === "unverified";
   const handle = route ? `
     <span class="topology-handle output ${escapeHtml(role)} ${muted ? "muted" : ""}"
       data-topology-route-handle="1"
@@ -1259,15 +1262,15 @@ export function topologyAgentRouteRow(client, agent, role, route, active = true)
       data-agent-id="${escapeHtml(agent.id || "")}"
       data-route-role="${escapeHtml(role)}"
       data-proxy-id="${escapeHtml(route.proxyId || "")}"
-      title="${escapeHtml(muted ? `${role} (inactive)` : role)}"></span>
+      title="${escapeHtml(muted ? `${role} (inactive)` : unverified ? `${role} — ${t("taTitleUnverifiedRoute")}` : role)}"></span>
   ` : "";
   const detailAttrs = route ? ` data-topology-route-detail="${escapeHtml(route.proxyId || "")}" data-client-ip="${escapeHtml(client?.ip || "")}" data-client-name="${escapeHtml(client?.name || client?.id || "")}" tabindex="0" role="button"` : "";
   const timeoutHtml = route ? topologyRouteTimeoutHtml(client, agent, route, activity) : "";
   return `
-    <div class="topology-agent-route ${escapeHtml(role)} ${route ? "" : "empty"} ${muted ? "muted" : ""} ${escapeHtml(topologyStateHealthClasses(activity))}"${detailAttrs}>
+    <div class="topology-agent-route ${escapeHtml(role)} ${route ? "" : "empty"} ${muted ? "muted" : ""} ${unverified ? "unverified" : ""} ${escapeHtml(topologyStateHealthClasses(activity))}"${detailAttrs}>
       ${handle}
       <span class="route-role-label">${escapeHtml(role)}${port ? `<span class="route-port-chip" title="${escapeHtml(t("taTitleProxyPort"))}">${escapeHtml(port)}</span>` : ""}${routeErrBadgeHtml(port)}</span>
-      <code>${route ? escapeHtml(route.endpoint || "") : "-"}${muted ? ` <span class="route-muted-tag" title="${escapeHtml(t("taTitleMutedRoute"))}">${escapeHtml(t("taInactive"))}</span>` : ""}</code>
+      <code>${route ? escapeHtml(route.endpoint || "") : "-"}${muted ? ` <span class="route-muted-tag" title="${escapeHtml(t("taTitleMutedRoute"))}">${escapeHtml(t("taInactive"))}</span>` : ""}${unverified ? ` <span class="route-unverified-tag" title="${escapeHtml(t("taTitleUnverifiedRoute"))}">${escapeHtml(t("taUnverified"))}</span>` : ""}</code>
       ${timeoutHtml}
       ${incident ? `<small class="topology-incident-line ${incident.kind === "failed" ? "failed" : ""}">${escapeHtml(`${incident.title}: ${incident.summary}`)}</small>` : ""}
     </div>

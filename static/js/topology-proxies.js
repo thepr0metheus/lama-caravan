@@ -55,8 +55,7 @@ export function topologyAgentCard(client, agent, routeMap) {
   const routes = routeMap.get(agent.id) || new Map();
   const primary = routes.get("primary");
   const fallback = routes.get("fallback");
-  const activeRoles = topologyAgentActiveRoles(client, agent.id);
-  const isActive = (role) => !activeRoles || activeRoles.has(role);
+  const usageOf = (role) => topologyRouteUsage(client, agent.id, role);
   const isOpenclaw = String(agent.kind || "") === "openclaw";
   const isDocker = topologyAgentGroup(agent) === "docker";
   const summaryAttrs = isOpenclaw
@@ -113,8 +112,8 @@ export function topologyAgentCard(client, agent, routeMap) {
         ${configBtns}
       </div>
       <div class="topology-agent-routes">
-        ${topologyAgentRouteRow(client, agent, "primary", primary, isActive("primary"))}
-        ${topologyAgentRouteRow(client, agent, "fallback", fallback, isActive("fallback"))}
+        ${topologyAgentRouteRow(client, agent, "primary", primary, usageOf("primary"))}
+        ${topologyAgentRouteRow(client, agent, "fallback", fallback, usageOf("fallback"))}
       </div>
     </div>
   `;
@@ -202,6 +201,21 @@ export function topologyBoardAssignmentsForHost(hostId) {
     if (fallback) routes.push({ ...fallback, role: "fallback" });
     return { agentId: id, routes };
   });
+}
+
+// Three distinct truths, not two. Caravan ALWAYS knows what it ASSIGNED; whether
+// the agent actually uses that route is only knowable when the agent reports its
+// own config, and several agents never do (a VM's openclaw config is not readable
+// from its host). Collapsing "unverified" into "confirmed" made a silent agent
+// look identical to a healthy one — the same defect as a dropped cable: absence
+// rendered as normality.
+//   confirmed  — the agent reported this role as one it uses
+//   unused     — the agent reported, and this role was NOT among them
+//   unverified — the agent reports nothing, so usage is simply unknown
+export function topologyRouteUsage(client, agentId, role) {
+  const roles = topologyAgentActiveRoles(client, agentId);
+  if (!roles) return "unverified";
+  return roles.has(role || "primary") ? "confirmed" : "unused";
 }
 
 // Which roles the agent actually USES right now (from the live client report).

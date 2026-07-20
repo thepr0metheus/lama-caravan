@@ -713,6 +713,24 @@ select.cv-pin { width: 100%; }
 .topology-handle.muted { opacity: .45; }
 .topology-handle.muted::after { background: var(--muted); }
 .topology-cable.muted { opacity: .35; stroke-dasharray: 4 4; }
+/* Third state: the agent never reports its config, so we do NOT know whether it
+   uses this route. Solid (it is not "off") but clearly faint (it is not
+   confirmed either) — the point is that it must not look identical to a
+   confirmed route. Never applies while the route is actually carrying traffic:
+   real activity is proof of use and outranks the doubt. */
+.topology-cable.unverified:not(.activity-active):not(.activity-recent):not(.activity-queued) {
+  opacity: .16;
+}
+.route-unverified-tag {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--muted);
+  border: 1px dotted var(--line);
+  border-radius: 4px;
+  padding: 0 4px;
+  opacity: .75;
+}
 
 /* Proxy Ports registry modal */
 .proxy-registry-modal { width: min(560px, 96vw); }

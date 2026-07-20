@@ -3,7 +3,8 @@ import { topologyOutputActivity } from "./routers.js";
 import { state, topology } from "./state.js";
 import { topologyProxyActivity, topologyStateHealthClasses } from "./topology-activity.js";
 import { topologyPointerDrag } from "./topology-dnd.js";
-import { topologyAgentActiveRoles, topologyBoardAssignmentsForHost } from "./topology-proxies.js";
+import { topologyBoardAssignmentsForHost, topologyRouteUsage } from "./topology-proxies.js";
+import { t } from "./i18n.js";
 import { $, escapeHtml } from "./utils.js";
 
 export function topologyBoardRect() {
@@ -149,14 +150,18 @@ export function drawTopologyCables() {
   (topology.clients || []).forEach((client) => {
     const assignments = topologyBoardAssignmentsForHost(client.id);
     assignments.forEach((assignment) => {
-      const activeRoles = topologyAgentActiveRoles(client, assignment.agentId);
       (assignment.routes || []).forEach((route) => {
         const role = route.role || "primary";
         const source = document.querySelector(`[data-topology-route-handle][data-host-id="${CSS.escape(client.id)}"][data-agent-id="${CSS.escape(assignment.agentId)}"][data-route-role="${CSS.escape(role)}"]`);
         const proxy = (topology?.proxies || []).find((row) => row.id === route.proxyId);
         const routerId = proxy?.routerId || "";
         const target = document.querySelector(`[data-topology-router-input][data-router-id="${CSS.escape(routerId)}"]`);
-        const muted = activeRoles ? !activeRoles.has(role) : false;
+        // "unverified" is NOT "in use": an agent that never reports its config
+        // used to be drawn exactly like a confirmed one, so a silent agent and a
+        // healthy one were indistinguishable.
+        const usage = topologyRouteUsage(client, assignment.agentId, role);
+        const muted = usage === "unused";
+        const unverified = usage === "unverified";
         const activity = topologyProxyActivity(route.proxyId || "");
         // Dim idle client→router cables (32 converge on one input) so the one
         // actually carrying a request stands out + animates — mirrors segment 3.
@@ -164,7 +169,8 @@ export function drawTopologyCables() {
         const cable = topologySvgPath(
           topologyPointFor(source, "right"),
           topologyPointFor(target, "left"),
-          `topology-cable ${escapeHtml(role)} ${muted ? "muted" : ""} ${idle ? "idle" : ""} ${Number(proxy?.priority || 0) > 0 ? "priority" : ""} ${topologyStateHealthClasses(activity)} ${topologyProxyClass(route.proxyId)} ${topologyRouteClass(client.id, assignment.agentId, role)}`,
+          `topology-cable ${escapeHtml(role)} ${muted ? "muted" : ""} ${unverified ? "unverified" : ""} ${idle ? "idle" : ""} ${Number(proxy?.priority || 0) > 0 ? "priority" : ""} ${topologyStateHealthClasses(activity)} ${topologyProxyClass(route.proxyId)} ${topologyRouteClass(client.id, assignment.agentId, role)}`,
+          unverified ? t("taTitleUnverifiedRoute") : "",
         );
         if (!cable) {
           noteCableDrop(`${client.id}/${assignment.agentId} ${role} -> router`, {
