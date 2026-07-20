@@ -1540,12 +1540,6 @@ export function drawCanvasConnectors() {
   (graph.nodes || []).forEach((n) => {
     if (n.type === "schedule") schedOutputsMap[`rule:${n.id}`] = (n.config?.outputs || []);
   });
-  // Node rectangles (world coords) — cables route around any they don't terminate on.
-  const nodeRects = [...world.querySelectorAll("[data-cv-node]")].map((el) => {
-    let x = 0, y = 0, e = el;
-    while (e && !(e.classList && e.classList.contains("cv-world"))) { x += e.offsetLeft; y += e.offsetTop; e = e.offsetParent; }
-    return { x, y, w: el.offsetWidth, h: el.offsetHeight };
-  });
   // First pass: resolve each edge's two anchor points + its CSS class.
   const cables = [];
   const seen = new Set();
@@ -1588,163 +1582,25 @@ export function drawCanvasConnectors() {
     else if (_cvDrag && _cvDrag.kind === "connect" && _cvDrag.replaceFrom && from === _cvDrag.replaceFrom) cls += " removing";
     cables.push({ a, b, cls, to, edgeKey: `${escapeHtml(from)}|${escapeHtml(to)}` });
   });
-  // Route each cable: obstacles = node rects that contain NEITHER endpoint (so a cable
-  // never avoids its own source/target block). Then collect every vertical segment so a
-  // horizontal run can hop over the OTHERS where they cross.
-  const _pad = 4;
-  const _contains = (r, p) => p.x > r.x - _pad && p.x < r.x + r.w + _pad && p.y > r.y - _pad && p.y < r.y + r.h + _pad;
-  cables.forEach((c) => {
-    const obstacles = nodeRects.filter((r) => !_contains(r, c.a) && !_contains(r, c.b));
-    c.obstacles = obstacles;
-    c.pts = _cvOrthoPts(c.a, c.b, 12, obstacles);
-  });
-  // Bus routing. Cables that share a corridor used to pile onto one x (or one
-  // y) and read as a single trunk. Instead of nudging only collisions, every
-  // segment that is FREE to move joins a "bus": segments whose coordinate falls
-  // within one corridor are clustered, then re-laid on an even PITCH around the
-  // cluster centre, ordered by where each cable continues to — an even-spaced
-  // fan with few crossings. Port-anchored horizontals (first/last runs) never
-  // move: their y IS the port. A track is reused by segments whose spans do not
-  // overlap, windows stay inside each cable's own corners (no new bends), and
-  // lanes avoid node blocks. Deterministic throughout.
-  {
-    const PITCH = 12, pad = 4, M = 13;
-    const collectSegs = (horizontal) => {
-      const segs = [];
-      cables.forEach((c) => {
-        for (let i = 1; i < c.pts.length; i++) {
-          const p0 = c.pts[i - 1], p1 = c.pts[i];
-          const isH = Math.abs(p0[1] - p1[1]) < 0.6 && Math.abs(p0[0] - p1[0]) > 8;
-          const isV = Math.abs(p0[0] - p1[0]) < 0.6 && Math.abs(p0[1] - p1[1]) > 8;
-          if (horizontal ? !isH : !isV) continue;
-          // A horizontal may move only if BOTH neighbours are verticals (a
-          // middle run) — first/last horizontals are pinned to port anchors.
-          if (horizontal && (i - 2 < 0 || i + 1 >= c.pts.length)) continue;
-          const A = horizontal ? 1 : 0;            // moving axis: y for horizontals, x for verticals
-          const S = horizontal ? 0 : 1;            // span axis
-          const refL = i >= 2 ? c.pts[i - 2][A] : (horizontal ? c.a.y : c.a.x);
-          const refR = i + 1 < c.pts.length ? c.pts[i + 1][A] : (horizontal ? c.b.y : c.b.x);
-          const lo = Math.min(refL, refR) + M, hi = Math.max(refL, refR) - M;
-          if (hi <= lo) continue;
-          const contPt = c.pts[i + 1] || [c.b.x, c.b.y];
-          segs.push({
-            c, i, pos: p0[A], s1: Math.min(p0[S], p1[S]), s2: Math.max(p0[S], p1[S]),
-            lo, hi, cont: contPt[S],               // where the cable heads next — fan order
-            obstacles: c.obstacles,
-          });
-        }
-      });
-      return segs;
-    };
-    const layout = (horizontal) => {
-      // Global registry of finalized segments — clusters are laid out around
-      // their own centres, and without this two neighbouring clusters expand
-      // into each other's territory and re-create the very overlaps this pass
-      // exists to remove (measured: it got WORSE than the naive nudging).
-      const done = [];
-      // Global guard is MINIMAL (4px): evenness inside a corridor comes from the
-      // slot grid; this only stops different clusters from truly coinciding.
-      const clashes = (posn, g) => done.some((d) =>
-        Math.abs(d.pos - posn) < 4 && d.s1 < g.s2 + 8 && d.s2 > g.s1 - 8);
-      const segs = collectSegs(horizontal).sort((a, b) => a.pos - b.pos);
-      // cluster: chain segments whose positions sit within one corridor
-      const clusters = [];
-      segs.forEach((g) => {
-        const last = clusters[clusters.length - 1];
-        if (last && g.pos - last[last.length - 1].pos <= PITCH * 2.4) last.push(g);
-        else clusters.push([g]);
-      });
-      // singletons first: they stay put, spread clusters must keep clear of them
-      clusters.forEach((cl) => { if (cl.length < 2) done.push({ pos: cl[0].pos, s1: cl[0].s1, s2: cl[0].s2 }); });
-      clusters.forEach((cl) => {
-        if (cl.length < 2) return;                 // nothing to space out
-        const centre = cl.reduce((a, g) => a + g.pos, 0) / cl.length;
-        // Adaptive pitch: a corridor is only as wide as the overlap of its
-        // members' windows — 12 cables into one node input share ~80px, and a
-        // fixed 12px pitch would need 144. Squeeze evenly down to 6px before
-        // giving up, so the comb always fits when it possibly can.
-        const comLo = Math.min(...cl.map((g) => g.lo)), comHi = Math.max(...cl.map((g) => g.hi));
-        const pitch = Math.max(6, Math.min(PITCH, (comHi - comLo) / Math.max(1, cl.length - 1)));
-        const offs = [0];
-        for (let k = 1; offs.length < cl.length * 2 + 2; k++) offs.push(k * pitch, -k * pitch);
-        const slots = offs.map((o) => centre + o);
-        const tracks = slots.map((posn) => ({ pos: posn, spans: [] }));
-        const fits = (tr, g) => {
-          if (tr.pos < g.lo || tr.pos > g.hi) return false;
-          if (clashes(tr.pos, g)) return false;
-          if (tr.spans.some((sp) => sp.s1 < g.s2 + 8 && sp.s2 > g.s1 - 8)) return false;
-          const hit = g.obstacles.some((o) => horizontal
-            ? (o.y - pad < tr.pos && tr.pos < o.y + o.h + pad && o.x - pad < g.s2 && o.x + o.w + pad > g.s1)
-            : (o.x - pad < tr.pos && tr.pos < o.x + o.w + pad && o.y - pad < g.s2 && o.y + o.h + pad > g.s1));
-          return !hit;
-        };
-        // fan order: by where each cable continues — parallel wires, few crossings
-        const ordered = [...cl].sort((a, b) => a.cont - b.cont || a.pos - b.pos);
-        const half = (ordered.length - 1) / 2;
-        ordered.forEach((g, rank) => {
-          const want = centre + (rank - half) * pitch;
-          const byPref = [...tracks].sort((t1, t2) =>
-            Math.abs(t1.pos - want) - Math.abs(t2.pos - want));
-          const tr = byPref.find((t) => fits(t, g));
-          const posn = tr ? tr.pos : g.pos;
-          if (tr) tr.spans.push({ s1: g.s1, s2: g.s2 });
-          done.push({ pos: posn, s1: g.s1, s2: g.s2 });
-          const A = horizontal ? 1 : 0;
-          if (posn !== g.pos) { g.c.pts[g.i - 1][A] = posn; g.c.pts[g.i][A] = posn; }
-        });
-      });
-    };
-    layout(false);   // verticals first — they define the trunks
-    layout(true);    // then the free middle horizontals, against updated corners
-  }
-  const verts = [];
-  cables.forEach((c, i) => {
-    for (let k = 1; k < c.pts.length; k++) {
-      const [px, py] = c.pts[k - 1], [cx, cy] = c.pts[k];
-      if (Math.abs(cx - px) < 0.6 && Math.abs(cy - py) > 0.6) verts.push({ x: cx, y1: Math.min(py, cy), y2: Math.max(py, cy), idx: i });
-    }
-  });
+  // Smooth cables — the same cubic the main board draws, at the kanban's
+  // full stroke width. Curves fan out on their own, so the orthogonal
+  // machinery they replace (lane buses, hop arcs, junction dots) is gone
+  // with the pipes it decorated.
   const paths = [];
-  cables.forEach((c, i) => {
-    const crossVerts = verts.filter((v) => v.idx !== i);
-    const [mx, my] = _cvPolyMid(c.pts);
-    // Invisible fat twin of the cable: a hover/drag corridor, so the mouse can
-    // travel from the wire to the ✕ without the group losing :hover.
+  cables.forEach((c) => {
+    const dx = Math.max(48, Math.abs(c.b.x - c.a.x) * 0.48);
+    const d = `M ${c.a.x} ${c.a.y} C ${c.a.x + dx} ${c.a.y}, ${c.b.x - dx} ${c.b.y}, ${c.b.x} ${c.b.y}`;
+    // cubic midpoint (t = 0.5) — where the ✕ delete puck sits
+    const mx = (c.a.x + 3 * (c.a.x + dx) + 3 * (c.b.x - dx) + c.b.x) / 8;
+    const my = (c.a.y + 3 * c.a.y + 3 * c.b.y + c.b.y) / 8;
     paths.push(`<g class="cv-edge-grp">`
       + `<title>${escapeHtml(t("cvTitleEdge"))}</title>`
-      + `<path class="cv-edge-hit" data-cv-edge="${c.edgeKey}" d="${_cvRoundedPolyD(c.pts, 12)}" fill="none"></path>`
-      + `<path data-cv-edge="${c.edgeKey}" d="${_cvCableD(c.pts, 12, crossVerts)}" class="${c.cls}" fill="none"></path>`
-      + `<g class="cv-edge-x" data-cv-edge-del="${c.edgeKey}" transform="translate(${mx},${my})">`
+      + `<path class="cv-edge-hit" data-cv-edge="${c.edgeKey}" d="${d}" fill="none"></path>`
+      + `<path data-cv-edge="${c.edgeKey}" d="${d}" class="${c.cls}" fill="none"></path>`
+      + `<g class="cv-edge-x" data-cv-edge-del="${c.edgeKey}" transform="translate(${Math.round(mx * 10) / 10},${Math.round(my * 10) / 10})">`
       + `<circle r="8"></circle><path d="M -3.2 -3.2 L 3.2 3.2 M 3.2 -3.2 L -3.2 3.2"></path>`
       + `</g></g>`);
   });
-  // Junction dots: where a horizontal run of one cable meets a vertical segment of a
-  // SIBLING (same destination), the wires really merge — mark the joint with a dot.
-  const horiz = [];
-  cables.forEach((c, i) => {
-    for (let k = 1; k < c.pts.length; k++) {
-      const [px, py] = c.pts[k - 1], [cx, cy] = c.pts[k];
-      if (Math.abs(cy - py) < 0.6 && Math.abs(cx - px) > 0.6) horiz.push({ y: cy, x1: Math.min(px, cx), x2: Math.max(px, cx), idx: i });
-    }
-  });
-  const junctions = new Map();
-  const EPS = 2.5;
-  horiz.forEach((h) => {
-    verts.forEach((v) => {
-      if (v.idx === h.idx || cables[v.idx].to !== cables[h.idx].to) return;
-      // Слияние = T-примыкание: вертикаль ЗАКАНЧИВАЕТСЯ на горизонтали (или
-      // горизонталь на вертикали). Сквозное пересечение — это мост, не точка.
-      const vEndsOnH = (Math.abs(h.y - v.y1) <= EPS || Math.abs(h.y - v.y2) <= EPS)
-        && v.x > h.x1 + EPS && v.x < h.x2 - EPS;
-      const hEndsOnV = (Math.abs(v.x - h.x1) <= EPS || Math.abs(v.x - h.x2) <= EPS)
-        && h.y > v.y1 + EPS && h.y < v.y2 - EPS;
-      if (!vEndsOnH && !hEndsOnV) return;
-      const bA = cables[h.idx].b, bB = cables[v.idx].b;
-      if (Math.hypot(v.x - bA.x, h.y - bA.y) < 16 || Math.hypot(v.x - bB.x, h.y - bB.y) < 16) return; // порт и так с точкой
-      junctions.set(`${Math.round(v.x)},${Math.round(h.y)}`, [v.x, h.y]);
-    });
-  });
-  junctions.forEach(([x, y]) => paths.push(`<circle class="cv-junction" cx="${Math.round(x * 10) / 10}" cy="${Math.round(y * 10) / 10}" r="6.5"></circle>`));
   if (_cvDrag && (_cvDrag.kind === "connect" || _cvDrag.kind === "rewire") && _cvDrag.cur) {
     paths.push(`<path d="${_cvPathD(_cvDrag.from, _cvDrag.cur)}" class="cv-cable connecting" fill="none"></path>`);
   }
@@ -1793,125 +1649,14 @@ export function _cvAnchorTo(ref) {
   return node ? _cvWorldPoint(node.querySelector(".cv-port.in") || node, "left") : null;
 }
 
-// Midpoint measured ALONG the polyline (not between endpoints): the delete ✕
-// must sit ON the cable, or hovering toward it leaves the group and it fades.
-function _cvPolyMid(pts) {
-  let total = 0;
-  for (let i = 1; i < pts.length; i++) total += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
-  let rest = total / 2;
-  for (let i = 1; i < pts.length; i++) {
-    const seg = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
-    if (seg >= rest) {
-      const k = seg ? rest / seg : 0;
-      return [pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * k, pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * k];
-    }
-    rest -= seg;
-  }
-  return pts[pts.length - 1] || [0, 0];
-}
 
-// Path `d` attribute only (so callers can add their own attributes).
-// Path d-string through a polyline of [x,y] points, with rounded corners (radius R,
-// clamped per-corner so it never overshoots a short segment). Circuit-schematic look.
-export function _cvRoundedPolyD(pts, R) {
-  if (!pts || pts.length < 2) return "";
-  const f = (n) => (Math.round(n * 10) / 10);
-  let d = `M ${f(pts[0][0])} ${f(pts[0][1])}`;
-  for (let i = 1; i < pts.length - 1; i++) {
-    const [px, py] = pts[i - 1], [cx, cy] = pts[i], [nx, ny] = pts[i + 1];
-    const l1 = Math.hypot(cx - px, cy - py) || 1, l2 = Math.hypot(nx - cx, ny - cy) || 1;
-    const r = Math.min(R, l1 / 2, l2 / 2);
-    const a1x = cx - (cx - px) / l1 * r, a1y = cy - (cy - py) / l1 * r;
-    const a2x = cx + (nx - cx) / l2 * r, a2y = cy + (ny - cy) / l2 * r;
-    d += ` L ${f(a1x)} ${f(a1y)} Q ${f(cx)} ${f(cy)} ${f(a2x)} ${f(a2y)}`;
-  }
-  const last = pts[pts.length - 1];
-  d += ` L ${f(last[0])} ${f(last[1])}`;
-  return d;
-}
 
-// Orthogonal corner points from out-port `a` (exits right) to in-port `b` (enters from
-// the left). Forward (b right of a) → 3-segment elbow via the mid-x. Backward / too
-// close → a C-route: right stub, vertical to mid-y, left, vertical, right stub into b.
-export function _cvOrthoPts(a, b, R, obstacles) {
-  if (Math.abs(b.y - a.y) < 0.6) return [[a.x, a.y], [b.x, b.y]];
-  if (b.x - a.x >= 2 * R + 12) {
-    let mx = (a.x + b.x) / 2;
-    if (obstacles && obstacles.length) mx = _cvClearMidX(mx, a, b, obstacles, R);
-    return [[a.x, a.y], [mx, a.y], [mx, b.y], [b.x, b.y]];
-  }
-  const s = 30, my = (a.y + b.y) / 2;
-  return [[a.x, a.y], [a.x + s, a.y], [a.x + s, my], [b.x - s, my], [b.x - s, b.y], [b.x, b.y]];
-}
-// Nudge the vertical mid-segment's x out of any block it would pass through, into the
-// nearest clear channel (clamped between the two ports). Best-effort — gives up if no
-// clear x exists in range. Keeps cables from hiding under nodes.
-export function _cvClearMidX(mx, a, b, obstacles, R) {
-  const ylo = Math.min(a.y, b.y), yhi = Math.max(a.y, b.y), pad = 16;
-  const minX = a.x + R + 6, maxX = b.x - R - 6;
-  if (maxX <= minX) return mx;
-  const blocks = obstacles.filter((o) => o.y - pad < yhi && o.y + o.h + pad > ylo);
-  const hits = (x) => blocks.some((o) => o.x - pad < x && x < o.x + o.w + pad);
-  if (!hits(mx)) return mx;
-  const inside = blocks.filter((o) => o.x - pad < mx && mx < o.x + o.w + pad);
-  const right = Math.min(maxX, Math.max(...inside.map((o) => o.x + o.w)) + pad);
-  const left = Math.max(minX, Math.min(...inside.map((o) => o.x)) - pad);
-  if (right <= maxX && !hits(right)) return right;
-  if (left >= minX && !hits(left)) return left;
-  return mx;
-}
 
 export function _cvPathD(a, b) {
-  const R = 12;
-  return _cvRoundedPolyD(_cvOrthoPts(a, b, R), R);
+  const dx = Math.max(48, Math.abs(b.x - a.x) * 0.48);
+  return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`;
 }
 
-// Cable through its orthogonal polyline with rounded corners AND a small "hop" arc
-// wherever a horizontal run crosses one of `crossVerts` (the vertical segments of OTHER
-// cables) — the circuit-schematic jump-over so crossing wires read as not-connected.
-export function _cvCableD(pts, R, crossVerts) {
-  if (!pts || pts.length < 2) return "";
-  const f = (n) => Math.round(n * 10) / 10;
-  const HR = 11;
-  let d = `M ${f(pts[0][0])} ${f(pts[0][1])}`;
-  let pen = [pts[0][0], pts[0][1]];
-  const lineTo = (x, y) => {
-    if (crossVerts && crossVerts.length && Math.abs(y - pen[1]) < 0.6 && Math.abs(x - pen[0]) > 0.6) {
-      const yv = pen[1], x1 = pen[0], dir = Math.sign(x - x1);
-      const lo = Math.min(x1, x) + HR, hi = Math.max(x1, x) - HR;
-      const hops = crossVerts
-        .filter((v) => v.y1 + 2 < yv && yv < v.y2 - 2 && v.x > lo && v.x < hi)
-        .map((v) => v.x).sort((p, q) => dir * (p - q));
-      // A bus of parallel lanes is jumped with ONE wide arc, not a caterpillar
-      // of per-wire bumps: crossings closer than ~2 radii chain into a group,
-      // and the arc spans the whole group at the same hop height.
-      const groups = [];
-      for (const hx of hops) {
-        const g = groups[groups.length - 1];
-        if (g && Math.abs(hx - g[g.length - 1]) <= HR * 2.2) g.push(hx);
-        else groups.push([hx]);
-      }
-      for (const g of groups) {
-        const x1 = g[0] - dir * HR, x2 = g[g.length - 1] + dir * HR;
-        const rx = Math.max(HR, Math.abs(x2 - x1) / 2);
-        d += ` L ${f(x1)} ${f(yv)} A ${f(rx)} ${HR} 0 0 ${dir > 0 ? 1 : 0} ${f(x2)} ${f(yv)}`;
-      }
-    }
-    d += ` L ${f(x)} ${f(y)}`;
-    pen = [x, y];
-  };
-  for (let i = 1; i < pts.length - 1; i++) {
-    const [px, py] = pts[i - 1], [cx, cy] = pts[i], [nx, ny] = pts[i + 1];
-    const l1 = Math.hypot(cx - px, cy - py) || 1, l2 = Math.hypot(nx - cx, ny - cy) || 1;
-    const r = Math.min(R, l1 / 2, l2 / 2);
-    lineTo(cx - (cx - px) / l1 * r, cy - (cy - py) / l1 * r);
-    const a2x = cx + (nx - cx) / l2 * r, a2y = cy + (ny - cy) / l2 * r;
-    d += ` Q ${f(cx)} ${f(cy)} ${f(a2x)} ${f(a2y)}`;
-    pen = [a2x, a2y];
-  }
-  lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
-  return d;
-}
 
 // Convert a world-space point to rw-cols-relative coordinates (for overlay SVG).
 // Uses the cv-viewport's screen position + current pan/zoom transform.
