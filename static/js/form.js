@@ -574,43 +574,48 @@ export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false) {
     el.innerHTML = `<span class="aside-vram-empty">${escapeHtml(t("selectModelEstimate"))}</span>`;
     return;
   }
-  // The pool follows the unified compute target, not llama's N_GPU_LAYERS —
-  // moonshine is CPU-only, so its bar must read RAM even though it is a cell.
-  const cpuMode = currentComputeMode(pfx) === "cpu";
-  let totalGb = 0, freeGb = 0, poolLabel = "VRAM";
-  if (cpuMode) {
-    poolLabel = "RAM";
-    if (pfx === "tr-") {
-      const ram = (_trClientCpu && _trClientCpu.ram) || {};
-      totalGb = Number(ram.totalGb || 0);
-      freeGb = Math.max(0, totalGb - Number(ram.usedGb || 0));
-    } else {
-      totalGb = Number(state.memory?.totalMiB || 0) / 1024;
-      freeGb = Number(state.memory?.availableMiB || 0) / 1024;
-    }
-  } else {
-    const all = computeTargetGpus(pfx);
-    const sel = computeSelectedGpuIdx(pfx);
-    const gs = (sel && sel.length) ? all.filter((g) => sel.includes(Number(g.index))) : all;
-    totalGb = gs.reduce((sum, g) => sum + Number(g.memoryTotalMiB || 0) / 1024, 0);
-    freeGb = gs.reduce((sum, g) => sum + gpuFreeMiB(g) / 1024, 0);
-  }
-  // Stacked segments over TOTAL: [already in use] + [this model] + [free].
-  const usedGb = Math.max(0, totalGb - freeGb);
-  const overflow = totalGb && runtimeSizeGb > freeGb + 1;
-  const usedPct = totalGb ? Math.min(100, (usedGb / totalGb) * 100) : 0;
-  const runPct = totalGb ? Math.min(100 - usedPct, (runtimeSizeGb / totalGb) * 100) : 0;
-  const kind = !totalGb ? "good" : overflow ? "bad" : (freeGb - runtimeSizeGb < 1 ? "warn" : "good");
-  el.innerHTML = `
-    <div class="aside-vram-track" title="${formatSizeGb(usedGb)} already in use · ${formatSizeGb(runtimeSizeGb)} this model · ${formatSizeGb(totalGb)} total ${poolLabel}">
-      <div class="aside-vram-fill used" style="width:${usedPct.toFixed(1)}%"></div>
-      <div class="aside-vram-fill ${kind}" style="width:${runPct.toFixed(1)}%"></div>
-    </div>
-    <div class="aside-vram-label">
-      ${runtimeSizeGb ? `<span>Runtime ≈ <strong>${formatSizeGb(runtimeSizeGb)}</strong>${overflow ? `<span class="aside-vram-overflow"> ✗ won't fit</span>` : ""}</span>` : ""}
-      ${totalGb ? `<span>${usedGb > 0.05 ? `${formatSizeGb(usedGb)} used · ` : ""}${formatSizeGb(freeGb)} free / ${formatSizeGb(totalGb)} ${poolLabel}</span>` : ""}
-    </div>
-  `;
+  // BOTH pools are drawn. The cell's runtime lands on exactly one of them —
+  // whichever the unified compute target points at (llama's N_GPU_LAYERS is not
+  // consulted: moonshine is CPU-only, so its weight belongs on RAM) — and the
+  // other pool is still shown, with its current use but no cell segment, so the
+  // whole memory picture of the host is visible while planning.
+  const onCpu = currentComputeMode(pfx) === "cpu";
+  const clientRam = (pfx === "tr-" && _trClientCpu && _trClientCpu.ram) || {};
+  const ramTotal = pfx === "tr-" ? Number(clientRam.totalGb || 0)
+    : Number(state.memory?.totalMiB || 0) / 1024;
+  const ramFree = pfx === "tr-" ? Math.max(0, ramTotal - Number(clientRam.usedGb || 0))
+    : Number(state.memory?.availableMiB || 0) / 1024;
+  const allGpus = computeTargetGpus(pfx);
+  const selIdx = computeSelectedGpuIdx(pfx);
+  const gs = (selIdx && selIdx.length) ? allGpus.filter((g) => selIdx.includes(Number(g.index))) : allGpus;
+  const vramTotal = gs.reduce((sum, g) => sum + Number(g.memoryTotalMiB || 0) / 1024, 0);
+  const vramFree = gs.reduce((sum, g) => sum + gpuFreeMiB(g) / 1024, 0);
+
+  // Stacked segments over TOTAL: [already in use] + [this cell] + [free].
+  const pool = (icon, label, totalGb, freeGb, runGb) => {
+    if (!totalGb) return "";
+    const usedGb = Math.max(0, totalGb - freeGb);
+    const overflow = runGb > freeGb + 1;
+    const usedPct = Math.min(100, (usedGb / totalGb) * 100);
+    const runPct = Math.min(100 - usedPct, (runGb / totalGb) * 100);
+    const kind = !runGb ? "good" : overflow ? "bad" : (freeGb - runGb < 1 ? "warn" : "good");
+    return `
+      <div class="aside-pool">
+        <div class="aside-pool-head">
+          <span class="aside-pool-name">${icon} ${label}</span>
+          ${runGb ? `<span>≈ <strong>${formatSizeGb(runGb)}</strong>${overflow ? `<span class="aside-vram-overflow"> ✗ won't fit</span>` : ""}</span>` : ""}
+        </div>
+        <div class="aside-vram-track" title="${formatSizeGb(usedGb)} already in use${runGb ? ` · ${formatSizeGb(runGb)} this cell` : ""} · ${formatSizeGb(totalGb)} total ${label}">
+          <div class="aside-vram-fill used" style="width:${usedPct.toFixed(1)}%"></div>
+          ${runGb ? `<div class="aside-vram-fill ${kind}" style="width:${runPct.toFixed(1)}%"></div>` : ""}
+        </div>
+        <div class="aside-vram-label">
+          <span>${usedGb > 0.05 ? `${formatSizeGb(usedGb)} used · ` : ""}${formatSizeGb(freeGb)} free / ${formatSizeGb(totalGb)}</span>
+        </div>
+      </div>`;
+  };
+  el.innerHTML = pool("🧠", "RAM", ramTotal, ramFree, onCpu ? runtimeSizeGb : 0)
+    + pool("🎮", "VRAM", vramTotal, vramFree, onCpu ? 0 : runtimeSizeGb);
 }
 
 // Returns family default fields that differ from current form / saved config values.
