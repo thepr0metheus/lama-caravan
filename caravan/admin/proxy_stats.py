@@ -120,6 +120,59 @@ def list_agent_proxy_log_dates():
             dates.append(path.stem)
     return sorted(dates, reverse=True)
 
+# {date: {"size": bytes already parsed, "ports": {port: last epoch}}}
+_PORTS_SEEN_CACHE: dict = {}
+_PORT_RE = re.compile(r'"port":(\d+)')
+_TIME_RE = re.compile(r'"time":(\d+)')
+
+def proxy_ports_last_seen(days=7):
+    """{proxy port: epoch of its most recent logged request} over the recent days.
+
+    Traffic through a proxy is the strongest available evidence that its route is
+    really in use — stronger than reading an agent's config, which most agents
+    never expose (a VM keeps its openclaw config where the host cannot read it).
+    The board leans on this to promote a route from "unverified" to "confirmed".
+
+    Cost is kept low by parsing each day file once: a finished day never changes,
+    so it is read once per process; today's file grows, and only its appended
+    bytes are re-read. A regex avoids json.loads on every line — "port": matches
+    the exact key, never upstreamPort.
+    """
+    out: dict = {}
+    cutoff = time.time() - max(1, int(days)) * 86400
+    for date_text in list_agent_proxy_log_dates()[:max(1, int(days))]:
+        path = AGENT_PROXY_LOG_DIR / f"{date_text}.jsonl"
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        cached = _PORTS_SEEN_CACHE.get(date_text)
+        if cached and cached["size"] == size:
+            ports = cached["ports"]
+        else:
+            ports = dict(cached["ports"]) if cached else {}
+            start = cached["size"] if (cached and cached["size"] <= size) else 0
+            try:
+                with path.open("r", encoding="utf-8", errors="replace") as fh:
+                    fh.seek(start)
+                    for line in fh:
+                        m = _PORT_RE.search(line)
+                        if not m:
+                            continue
+                        t = _TIME_RE.search(line)
+                        if not t:
+                            continue
+                        port, when = int(m.group(1)), int(t.group(1))
+                        if when > ports.get(port, 0):
+                            ports[port] = when
+            except OSError:
+                continue
+            _PORTS_SEEN_CACHE[date_text] = {"size": size, "ports": ports}
+        for port, when in ports.items():
+            if when > out.get(port, 0):
+                out[port] = when
+    return {port: when for port, when in out.items() if when >= cutoff}
+
 def load_agent_proxy_logs(date_text="", limit=200, event_filter="",
                           port="", route="", client="", errors=False, slim=False,
                           summary=False, since=""):

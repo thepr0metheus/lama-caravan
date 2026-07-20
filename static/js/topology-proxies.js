@@ -55,7 +55,7 @@ export function topologyAgentCard(client, agent, routeMap) {
   const routes = routeMap.get(agent.id) || new Map();
   const primary = routes.get("primary");
   const fallback = routes.get("fallback");
-  const usageOf = (role) => topologyRouteUsage(client, agent.id, role);
+  const usageOf = (role, route) => topologyRouteUsage(client, agent.id, role, route);
   const isOpenclaw = String(agent.kind || "") === "openclaw";
   const isDocker = topologyAgentGroup(agent) === "docker";
   const summaryAttrs = isOpenclaw
@@ -112,8 +112,8 @@ export function topologyAgentCard(client, agent, routeMap) {
         ${configBtns}
       </div>
       <div class="topology-agent-routes">
-        ${topologyAgentRouteRow(client, agent, "primary", primary, usageOf("primary"))}
-        ${topologyAgentRouteRow(client, agent, "fallback", fallback, usageOf("fallback"))}
+        ${topologyAgentRouteRow(client, agent, "primary", primary, usageOf("primary", primary))}
+        ${topologyAgentRouteRow(client, agent, "fallback", fallback, usageOf("fallback", fallback))}
       </div>
     </div>
   `;
@@ -212,10 +212,22 @@ export function topologyBoardAssignmentsForHost(hostId) {
 //   confirmed  — the agent reported this role as one it uses
 //   unused     — the agent reported, and this role was NOT among them
 //   unverified — the agent reports nothing, so usage is simply unknown
-export function topologyRouteUsage(client, agentId, role) {
+export function topologyRouteUsage(client, agentId, role, route) {
+  // Order matters, and it is not "evidence always wins". The agent's own report is
+  // CURRENT and authoritative about intent; traffic is HISTORICAL. A route the
+  // agent has since stopped using still has yesterday's requests in the log, and
+  // letting those override the agent's word would relabel a genuinely retired
+  // route as healthy. So: a live report is taken at face value, and traffic is
+  // what fills the gap when the agent says nothing at all.
   const roles = topologyAgentActiveRoles(client, agentId);
-  if (!roles) return "unverified";
-  return roles.has(role || "primary") ? "confirmed" : "unused";
+  if (roles) return roles.has(role || "primary") ? "confirmed" : "unused";
+  // Silent agent — fall back to evidence. The backend only reports lastRequestAt
+  // inside the log retention window, so a long-abandoned route stops vouching
+  // for itself instead of being confirmed forever.
+  const proxy = route?.proxyId
+    ? (topology?.proxies || []).find((p) => p.id === route.proxyId)
+    : null;
+  return Number(proxy?.lastRequestAt || 0) > 0 ? "confirmed" : "unverified";
 }
 
 // Which roles the agent actually USES right now (from the live client report).

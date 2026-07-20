@@ -159,7 +159,7 @@ export function drawTopologyCables() {
         // "unverified" is NOT "in use": an agent that never reports its config
         // used to be drawn exactly like a confirmed one, so a silent agent and a
         // healthy one were indistinguishable.
-        const usage = topologyRouteUsage(client, assignment.agentId, role);
+        const usage = topologyRouteUsage(client, assignment.agentId, role, route);
         const muted = usage === "unused";
         const unverified = usage === "unverified";
         const activity = topologyProxyActivity(route.proxyId || "");

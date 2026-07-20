@@ -6,6 +6,7 @@ import pathlib
 import re
 import time
 
+from caravan.admin.proxy_stats import proxy_ports_last_seen
 from caravan.admin.cloud import cloud_accounts_state, cloud_blocks_state, cloud_provider_presets_public
 from caravan.admin.config_builder import models_dir_from_config, parse_config
 from caravan.admin.runners import cell_artifact_label, effective_health_path, uses_command_path
@@ -691,12 +692,17 @@ def topology_state(refresh_clients=True):
             pass
     proxies = []
     _routers_by_id = {str(r.get("id")): r for r in (proxy_config.get("routers") or [])}
+    # Traffic is proof a route is used — the board promotes "unverified" to
+    # "confirmed" on it, since most agents never report their own config.
+    _last_seen = proxy_ports_last_seen()
     for route in proxy_config.get("routes", []):
+        _served = _last_seen.get(int(route.get("port") or 0) or -1)
         proxy = {
             **route,
             "id": f"skynet:proxy:{route.get('port')}",
             "endpoint": f"http://{TOPOLOGY_SERVER_IP}:{route.get('port')}/v1",
             "upstreamId": f"skynet:llama-server:{route.get('upstreamPort')}",
+            "lastRequestAt": int(_served) if _served else 0,
         }
         # Resolve the actual upstream the proxy routes to via its router graph outputs.
         # route.upstreamPort is a legacy placeholder (:8080); the graph output is authoritative.
