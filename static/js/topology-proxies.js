@@ -166,13 +166,28 @@ export function topologyBoardAssignmentsForHost(hostId) {
   const ids = [...new Set([...stored.map((a) => a.agentId), ...live.map((a) => a.agentId)])];
   const routeFor = (a, role) => (a?.routes || []).find((r) => (r.role || "primary") === role);
   const proxyById = new Map((topology?.proxies || []).map((p) => [p.id, p]));
+  // A live client report knows its endpoint URL but NOT caravan's internal proxy
+  // id, so its routes can arrive with proxyId "". Preferring the live route
+  // wholesale then throws the binding away, and the board cable dies silently:
+  // no proxy -> no routerId -> the router-input querySelector misses -> the path
+  // is dropped by filter(Boolean). The agent still routes fine, so only the
+  // drawing breaks. Refill the id from the stored route, else resolve the proxy
+  // by the port in the endpoint.
+  const proxyByPort = new Map((topology?.proxies || []).map((p) => [String(p.port), p]));
+  const withProxyId = (route, storedRoute) => {
+    if (!route || route.proxyId) return route;
+    if (storedRoute?.proxyId) return { ...route, proxyId: storedRoute.proxyId };
+    const port = (String(route.endpoint || "").match(/:(\d+)(?:\/|$)/) || [])[1];
+    const byPort = port ? proxyByPort.get(port) : null;
+    return byPort ? { ...route, proxyId: byPort.id } : route;
+  };
   return ids.map((id) => {
     const lv = liveBy.get(id), st = storedBy.get(id);
-    const primary = routeFor(lv, "primary") || routeFor(st, "primary");
+    const primary = withProxyId(routeFor(lv, "primary"), routeFor(st, "primary")) || routeFor(st, "primary");
     // Fallback = the PAIR PARTNER of the primary (primary port + 1). Proxies are
     // provisioned as contiguous odd/even pairs, so a client's fallback is always its
     // primary's +1 — not whatever stale port a re-provisioned stored assignment kept.
-    let fallback = routeFor(lv, "fallback");
+    let fallback = withProxyId(routeFor(lv, "fallback"), routeFor(st, "fallback"));
     if (!fallback && primary) {
       const port = Number(String(primary.proxyId || "").split(":").pop());
       const pairId = `skynet:proxy:${port + 1}`;
