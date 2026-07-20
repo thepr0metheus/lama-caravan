@@ -1595,8 +1595,46 @@ export function drawCanvasConnectors() {
   const _contains = (r, p) => p.x > r.x - _pad && p.x < r.x + r.w + _pad && p.y > r.y - _pad && p.y < r.y + r.h + _pad;
   cables.forEach((c) => {
     const obstacles = nodeRects.filter((r) => !_contains(r, c.a) && !_contains(r, c.b));
+    c.obstacles = obstacles;
     c.pts = _cvOrthoPts(c.a, c.b, 12, obstacles);
   });
+  // Lane spreading. Cables that share a corridor pile their vertical segments
+  // onto one x and read as a single thick trunk. This pass walks EVERY vertical
+  // segment of every cable (any shape — the plain 4-point run, the 6-point
+  // backtrack, obstacle-dodged paths) and fans stacked ones into parallel lanes.
+  // A segment may only slide within its own cable's geometry — strictly between
+  // the far ends of the two horizontals it connects — so the polyline stays
+  // orthogonal and no new corners appear. Deterministic: edge order picks lanes,
+  // the first cable of a stack keeps its exact original position.
+  {
+    const LANE = 10, pad = 4, M = 13;
+    const placed = [];
+    cables.forEach((c) => {
+      for (let i = 1; i < c.pts.length; i++) {
+        const p0 = c.pts[i - 1], p1 = c.pts[i];
+        if (Math.abs(p0[0] - p1[0]) > 0.6 || Math.abs(p0[1] - p1[1]) < 8) continue;
+        const y1 = Math.min(p0[1], p1[1]), y2 = Math.max(p0[1], p1[1]);
+        const leftRef = i >= 2 ? c.pts[i - 2][0] : c.a.x;
+        const rightRef = i + 1 < c.pts.length ? c.pts[i + 1][0] : c.b.x;
+        const lo = Math.min(leftRef, rightRef) + M, hi = Math.max(leftRef, rightRef) - M;
+        if (hi <= lo) { placed.push({ x: p0[0], y1, y2 }); continue; }
+        const blocks = c.obstacles.filter((o) => o.y - pad < y2 && o.y + o.h + pad > y1);
+        const hitsBlock = (x) => blocks.some((o) => o.x - pad < x && x < o.x + o.w + pad);
+        const stackedAt = (x) => placed.some((v) => Math.abs(v.x - x) < LANE && v.y1 < y2 + 8 && v.y2 > y1 - 8);
+        let x = p0[0];
+        if (stackedAt(x)) {
+          const x0 = x;
+          for (let k = 1; k <= 90; k++) {
+            const cand = x0 + LANE * (k % 2 ? (k + 1) / 2 : -k / 2);   // +1, -1, +2, -2 … lanes
+            if (cand < lo || cand > hi) continue;
+            if (!stackedAt(cand) && !hitsBlock(cand)) { x = cand; break; }
+          }
+        }
+        if (x !== p0[0]) { p0[0] = x; p1[0] = x; }
+        placed.push({ x, y1, y2 });
+      }
+    });
+  }
   const verts = [];
   cables.forEach((c, i) => {
     for (let k = 1; k < c.pts.length; k++) {
