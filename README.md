@@ -43,17 +43,32 @@ What that gives you in practice:
   where you routed it. Usage & spend statistics show tokens/requests/costs per
   agent and per backend, so the routing pays for itself visibly. Sensitive
   agents can be pinned to local-only routes — those prompts never leave the LAN.
-- **Your whole zoo of hardware as one fleet.** The
+- **Your whole zoo of hardware as one fleet — client GPUs included.** The
   [caravan-scout](https://github.com/thepr0metheus/caravan-scout) sidecar turns
   any Linux/macOS box into a fleet member: its GPUs and running agents appear
-  on the board, and you can launch llama.cpp server cells there remotely —
-  models are cached and shipped from the controller, with a "will it fit"
-  VRAM/RAM estimate before starting.
-- **Three engines, one lifecycle.** A cell can run **llama.cpp** (GGUF),
-  **vLLM** (safetensors — AWQ/FP8/NVFP4, provisioned into its own venv on
-  first start) or **faster-whisper** (speech-to-text) — same cards, same
-  health checks, same start/stop/schedule machinery; plus a "custom command"
-  cell for anything else that listens on `$PORT`.
+  on the board, and you launch cells there remotely — **any of the five
+  runners, on the client's own GPU or CPU**, models cached and shipped from
+  the controller. Before starting you see a "will it fit" estimate against
+  BOTH pools (RAM and VRAM) of that exact host; a running cell shows what it
+  *actually* holds, measured per-process from `nvidia-smi` — on the
+  controller and on clients alike.
+- **Five runners, one lifecycle.** A cell is not just llama.cpp — pick the
+  engine per cell, and they all share the same cards, health checks,
+  start/stop/schedule machinery and memory math:
+  - 🦙 **llama.cpp** — GGUF, CPU offload, MTP speculative decoding, KV-cache control
+  - ⚡ **vLLM** — safetensors (AWQ/GPTQ everywhere, NVFP4/FP8 on new GPUs),
+    continuous batching; provisioned into its own venv on first start, with
+    pinned version + one-click update/rollback
+  - 🎙️ **whisper** — speech-to-text (faster-whisper); the model downloads
+    itself, language is picked per request
+  - 🌙 **moonshine** — CPU-only speech-to-text (Moonshine v2) that beats
+    Whisper large-v3 accuracy on English at 250M params — GPUs stay free for LLMs
+  - 🛠️ **Custom command** — any process that listens on `$PORT` becomes a
+    managed cell: health-checked, logged, scheduled, restarted
+- **One compute-target switch.** Every cell picks **CPU / GPU / auto** with one
+  control (options a runner can't do are disabled); a multi-GPU host fans out
+  into per-card chips or a checklist, and llama.cpp gets the right
+  device/split/threads flags written for it.
 - **Models from HuggingFace in two clicks.** The built-in HF browser searches
   GGUF repos, shows quants with sizes and benchmark badges, downloads
   multi-part files straight into the controller's model directory.
@@ -125,13 +140,18 @@ server cells and GPU telemetry on the right:
 
 ![Topology board](docs/screenshots/board.png)
 
-The llama.cpp cell editor: memory math against free VRAM, CPU/GPU target,
-every flag explained, the exact command it will run:
+The cell editor: the five-runner row (llama.cpp / vLLM / whisper / moonshine /
+custom), the CPU/GPU/auto compute target, memory math against BOTH pools — with
+the measured live usage of the running cell — every flag explained, and the
+exact command it will run. A running cell's window wears the same animated
+border comet as its card on the board:
 
 ![Cell editor](docs/screenshots/editor.png)
 
 The routing kanban — agents on the left, rule nodes (schedule / queue /
-failover / by-size) in the middle, local cells and cloud models as outputs:
+failover / backup / by-type / by-size) in the middle, local cells and cloud
+models as outputs; stacked cables fan into parallel lanes so you can count the
+runs:
 
 ![Routing kanban](docs/screenshots/kanban.png)
 
@@ -292,36 +312,79 @@ state and are not the source deployment path.
 
 ## Features
 
-- Show `llamacpp-current.service` status, PID, uptime, and command line.
-- Read the `BEGIN LLAMA CONFIG` block from `start-server.sh`.
-- Edit model, mmproj, context, port, threads, batch, cache, CPU/GPU placement,
-  RoPE, server HTTP, vision, reasoning, and custom chat template flags.
-- Dropdown model and mmproj lists scanned from `~/llama.cpp/models`.
-- Save with timestamped backup.
-- Save only or save and restart.
-- Revert to the latest backup.
-- Show recent journal logs.
-- Show `/v1/models`, `/props`, and `/metrics` summary.
-- Show CPU, RAM, NVIDIA GPU memory, PCIe link, utilization, temperature, and power.
-- Estimate runtime memory and warn when it is close to or over VRAM/RAM limits.
-- Explain what each parameter controls.
-- Show local llama.cpp version/build metadata and guarded update/build actions.
-- Switch between light, dark, and black LLM-focused themes.
+**Cells & runners**
+
+- Five runners per cell — 🦙 llama.cpp, ⚡ vLLM, 🎙️ whisper, 🌙 moonshine,
+  🛠️ custom command — same lifecycle, health checks and cards for all of them.
+- One CPU/GPU/auto compute-target control for every runner; unavailable options
+  are disabled per engine. A multi-GPU host picks cards with chips (or a
+  checklist beyond four), and llama.cpp gets the matching
+  device/split/threads flags written for it.
+- Memory estimate against BOTH pools (RAM and VRAM) of the target host; a
+  running cell shows its **measured** usage (per-process `nvidia-smi`) carved
+  out of the used bar instead of a double-counted estimate.
+- Cells run on the controller or on any scout host — client GPUs and CPUs are
+  first-class; models are cached and shipped from the controller.
+- Reserve globally numbered cells from port `8001`; generated `cell.json` +
+  `start.sh` artifacts; `systemd --user` template units
+  (`lama-cell@<port>.service`) on the controller, scout-managed processes on
+  clients (they survive scout restarts).
+- Per-cell schedule windows (start/stop by time of day and weekday), autostart,
+  a port picker with a fleet-wide grid, and port swap between stopped cells.
+- llama.cpp lifecycle: fleet-wide update button, build archive with informed
+  one-click restore, a sticky crash watchdog with a server-dismissed banner,
+  and a franken-build guard (stale CUDA build dirs are wiped automatically).
+- vLLM lifecycle: pinned provisioning into its own venv on first start,
+  update/rollback driven by pip's own version history.
+- A running cell is ringed by an animated border comet — on its board card AND
+  around its config window, colored by compute target (CPU cells blue).
+
+**Routing & proxies**
+
+- Stable per-agent proxy ports; the visual kanban with schedule, weighted,
+  round-robin, failover, queue (admission %, sticky-slot reserve, live queue
+  panel with history), request-type and request-size forks.
+- 🛟 **backup node**: when the main upstream fails before the first byte, the
+  request is replayed down the backup output — and the Request History marks
+  rescued requests with the failover trail.
+- Bridge ports: one click on a cloud provider's card opens an
+  OpenAI-compatible port pinned to a chosen model, with honest `/health`.
+- Route truth-telling: a route is *confirmed* by the agent's own report or by
+  real traffic in the proxy log, *inactive* when the agent says it stopped
+  using it, and *unverified* when nothing can vouch for it — three visually
+  distinct states, so silence never masquerades as health.
+- Cables on the board and kanban fan into parallel lanes instead of piling
+  into one trunk; a cable that cannot be drawn says so in the console instead
+  of vanishing.
+
+**Observability**
+
+- Live topology board: cables light with real traffic, per-output activity,
+  GPU/CPU/RAM bars per host, token-speed and power charts, incident badges.
+- Request History with per-request timings, stream stats, error kinds, rescue
+  badges; request-log diagnostics API
+  (`/api/agent-proxy-logs?port=&errors=1&slim=1`) for debugging routes without
+  ssh.
+- Usage & spend statistics per agent and per backend; `/metrics` for
+  Prometheus (clients, cells, GPU, routes).
+- System page: controller services, cells, git/python versions, models-disk
+  usage with a cleanup modal; a models page for the library on disk.
+
+**Platform**
+
+- Web UI in **20 languages** with a CI guard that keeps every key translated.
 - Optional sign-in: SQLite accounts + sessions, a fleet token for the scouts
   (open by default for homelab use — see [docs/security.md](docs/security.md)).
 - Built-in onboarding tours (the floating `?` button) on the board, the kanban
-  and the HF browser — auto-run on the first visit, re-runnable anytime; with
-  the server editor open the same button explains the llama.cpp config fields.
-- Show Gemma 4 MTP/speculative decoding state in the Runtime panel.
-- Reserve globally numbered server cells starting at port `8001`.
-- Generate per-cell `cell.json` and `start.sh` launch artifacts.
-- Start/stop the controller cells via `systemd --user` template units
-  (`lama-cell@<port>.service`).
-- Keep reserved/stopped cells visible as stable proxy/router upstream targets.
-- `/metrics` for Prometheus (clients, cells, GPU, routes) and a models-disk
-  cleanup modal (System → Controller → Free up space).
-- Per-cell schedule windows: start/stop cells by time of day and weekday
-  (nights on the big GPU, off during work hours) — set in the cell editor.
+  and the HF browser; with the editor open the same button explains every
+  llama.cpp config field.
+- Light, dark, and black LLM-focused themes.
+- Docker controller-only mode for evaluation; stdlib-only Python everywhere.
+
+**Legacy single-server mode** (still maintained): status/PID/uptime of
+`llamacpp-current.service`, the `BEGIN LLAMA CONFIG` block editor with
+timestamped backups and revert, journal logs, `/v1/models`-`/props`-`/metrics`
+summaries, and the Gemma 4 MTP/vision mode buttons.
 
 ## Gemma 4 MTP Text Boost
 
@@ -382,24 +445,29 @@ It does not delete models or old profiles.
 
 ## API
 
-- `GET /api/state` - dashboard state, parsed config, models, health, logs.
-- `GET /api/topology` - topology view data: the controller host, GPUs, llama servers,
-  proxy routes, registered clients, and desired assignments.
-- `POST /api/config` - save config. Body: `{ "config": {...}, "restart": false }`.
-- `POST /api/action` - service action. Body: `{ "action": "start|stop|restart" }`.
-- `POST /api/revert` - restore the latest `start-server.sh.bak.*`.
-- `POST /api/topology/client-heartbeat` - receive heartbeat from
-  `caravan-scout` (formerly `llm-easy-route-agent`) on client hosts.
-- `POST /api/topology/assignments` - store desired `agent -> proxy` routes and
-  push them to the registered client route agent when available.
+The full endpoint reference (the admin surface and the proxy surface) lives in
+[docs/http-api.md](docs/http-api.md). A few that matter most:
+
+- `GET /api/state` — dashboard state, parsed config, models, health, logs.
+- `GET /api/topology` — the whole board: hosts, GPUs, cells, proxy routes,
+  routers, clients, assignments.
+- `GET /api/agent-proxy-logs?port=&errors=1&slim=1` — per-request diagnostics
+  for a route (timings, error kinds) without touching ssh.
+- `POST /api/topology/client-heartbeat` — heartbeat receiver for
+  `caravan-scout` on client hosts.
+- `POST /api/topology/assignments` — store desired `agent -> proxy` routes and
+  push them to the client's scout.
+- `GET /metrics` — Prometheus metrics: clients, cells, GPU, routes.
 
 ## Topology GUI
 
 The web UI has two views:
 
-- `Classic` - the existing single-server editor and monitor.
-- `Topology` - a first read-only topology map for clients, proxy ports, the
-  current llama-server instance, and GPUs.
+- `Topology` — the main view: the live board with clients, agents and their
+  proxy routes, the kanban card, server cells with lifecycle controls, GPU
+  telemetry, and the per-request traffic panel.
+- `Classic` — the legacy single-server editor and monitor (kept for the
+  `llamacpp-current.service` path).
 
 Topology state is stored in the admin state file:
 
@@ -551,6 +619,8 @@ curl -fsS http://127.0.0.1:8090/api/state
 
 ## Notes
 
-This service is intended for the trusted local network. It currently has no
-authentication. If it is ever exposed outside the LAN, put it behind a reverse
-proxy with authentication or add Basic Auth.
+This service is intended for the trusted local network. Sign-in (SQLite
+accounts + sessions) and a fleet token for the scouts are built in but **off by
+default** for homelab use — enable them in System → Security
+([docs/security.md](docs/security.md)). If the UI is ever exposed outside the
+LAN, enable sign-in AND put it behind a reverse proxy with TLS.
