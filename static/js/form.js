@@ -21,7 +21,7 @@ import {
   updateStarStates,
 } from "./favorites.js";
 import { fieldHelp, labelWithTip, t } from "./i18n.js";
-import { gpuComputeCap, renderBackups } from "./llama-edit.js";
+import { _commandCellSlot, gpuComputeCap, renderBackups } from "./llama-edit.js";
 import {
   applyComputeTarget,
   computeIsCpu,
@@ -593,22 +593,34 @@ export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false) {
   const vramFree = gs.reduce((sum, g) => sum + gpuFreeMiB(g) / 1024, 0);
 
   // Stacked segments over TOTAL: [already in use] + [this cell] + [free].
-  const pool = (icon, label, totalGb, freeGb, runGb, note = "") => {
+  // Two different questions, depending on whether the cell already runs:
+  //   parked  → "starting this WILL COST x" — a planned segment appended past
+  //             the pool's current use, with the won't-fit check.
+  //   running → "this cell IS COSTING x" — its share is ALREADY inside the used
+  //             figure, so it gets carved out of that block and highlighted
+  //             rather than added; appending it would count the cell twice.
+  const pool = (icon, label, totalGb, freeGb, addGb, ownGb, note = "") => {
     if (!totalGb) return "";
     const usedGb = Math.max(0, totalGb - freeGb);
-    const overflow = runGb > freeGb + 1;
-    const usedPct = Math.min(100, (usedGb / totalGb) * 100);
-    const runPct = Math.min(100 - usedPct, (runGb / totalGb) * 100);
-    const kind = !runGb ? "good" : overflow ? "bad" : (freeGb - runGb < 1 ? "warn" : "good");
+    const mine = Math.min(ownGb, usedGb);            // never wider than the used block
+    const othersPct = Math.min(100, ((usedGb - mine) / totalGb) * 100);
+    const minePct = Math.min(100 - othersPct, (mine / totalGb) * 100);
+    const overflow = addGb > freeGb + 1;
+    const addPct = Math.min(100 - othersPct - minePct, (addGb / totalGb) * 100);
+    const kind = overflow ? "bad" : (freeGb - addGb < 1 ? "warn" : "good");
+    const head = mine
+      ? `<span class="aside-pool-mine">this cell <strong>${formatSizeGb(mine)}</strong></span>`
+      : (addGb ? `<span>≈ <strong>${formatSizeGb(addGb)}</strong>${overflow ? `<span class="aside-vram-overflow"> ✗ won't fit</span>` : ""}</span>` : "");
     return `
       <div class="aside-pool">
         <div class="aside-pool-head">
           <span class="aside-pool-name">${icon} ${label}${note ? ` <span class="aside-pool-note">· ${escapeHtml(note)}</span>` : ""}</span>
-          ${runGb ? `<span>≈ <strong>${formatSizeGb(runGb)}</strong>${overflow ? `<span class="aside-vram-overflow"> ✗ won't fit</span>` : ""}</span>` : ""}
+          ${head}
         </div>
-        <div class="aside-vram-track" title="${formatSizeGb(usedGb)} already in use${runGb ? ` · ${formatSizeGb(runGb)} this cell` : ""} · ${formatSizeGb(totalGb)} total ${label}">
-          <div class="aside-vram-fill used" style="width:${usedPct.toFixed(1)}%"></div>
-          ${runGb ? `<div class="aside-vram-fill ${kind}" style="width:${runPct.toFixed(1)}%"></div>` : ""}
+        <div class="aside-vram-track" title="${formatSizeGb(usedGb)} in use${mine ? ` (${formatSizeGb(mine)} of it this cell)` : ""}${addGb ? ` · ${formatSizeGb(addGb)} this cell would add` : ""} · ${formatSizeGb(totalGb)} total ${label}">
+          <div class="aside-vram-fill used" style="width:${othersPct.toFixed(1)}%"></div>
+          ${mine ? `<div class="aside-vram-fill mine" style="width:${minePct.toFixed(1)}%"></div>` : ""}
+          ${addGb ? `<div class="aside-vram-fill ${kind}" style="width:${addPct.toFixed(1)}%"></div>` : ""}
         </div>
         <div class="aside-vram-label">
           <span>${usedGb > 0.05 ? `${formatSizeGb(usedGb)} used · ` : ""}${formatSizeGb(freeGb)} free / ${formatSizeGb(totalGb)}</span>
@@ -618,8 +630,16 @@ export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false) {
   // Name the card on the VRAM row — the standalone GPU panel is gone, and this
   // is the only place left that says WHICH card the free/total belongs to.
   const cardNote = gs.length === 1 ? shortGpuName(gs[0].name) : (gs.length > 1 ? `${gs.length} GPUs` : "");
-  el.innerHTML = pool("🧠", "RAM", ramTotal, ramFree, onCpu ? runtimeSizeGb : 0)
-    + pool("🎮", "VRAM", vramTotal, vramFree, onCpu ? 0 : runtimeSizeGb, cardNote);
+  // A live cell reports what it ACTUALLY holds: gpuMem is per-process GPU memory
+  // (nvidia-smi compute-apps, summed over the cell's PIDs, so a forked vLLM
+  // worker counts too). RAM has no equally honest source — llama.cpp mmaps its
+  // weights, so RSS tracks page cache more than the cell's own cost — hence RAM
+  // keeps the estimate, only moved inside the used block once the cell is live.
+  const slot = _commandCellSlot(pfx);
+  const live = !!slot && ["running", "warming"].includes(String(slot.phase || ""));
+  const ownVram = live ? Object.values(slot.gpuMem || {}).reduce((a, v) => a + Number(v || 0), 0) / 1024 : 0;
+  el.innerHTML = pool("🧠", "RAM", ramTotal, ramFree, (onCpu && !live) ? runtimeSizeGb : 0, (onCpu && live) ? runtimeSizeGb : 0)
+    + pool("🎮", "VRAM", vramTotal, vramFree, (!onCpu && !live) ? runtimeSizeGb : 0, ownVram, cardNote);
 }
 
 // Returns family default fields that differ from current form / saved config values.

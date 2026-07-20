@@ -190,6 +190,10 @@
 .aside-pool-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 4px; }
 .aside-pool-name { font-weight: 600; }
 .aside-pool-note { font-weight: 400; color: var(--muted, #8b93a1); }
+/* The running cell's OWN share, carved out of the used block rather than added
+   past it — a distinct colour so "mine" reads apart from the grey "others". */
+.aside-vram-fill.mine { background: #4593ff; }
+.aside-pool-mine { color: #4593ff; }
 .aside-host-stats .aside-vram-track + .aside-vram-label { margin-top: 4px; }
 .link-button.apply-family-defaults {
   color: #fbbf24;
