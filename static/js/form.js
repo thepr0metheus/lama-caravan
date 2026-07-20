@@ -27,6 +27,7 @@ import {
   computeIsCpu,
   computeSelectedGpuIdx,
   currentComputeMode,
+  shortGpuName,
   computeTargetGpus,
   estimateRuntimeMemoryGb,
   formatSizeGb,
@@ -592,7 +593,7 @@ export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false) {
   const vramFree = gs.reduce((sum, g) => sum + gpuFreeMiB(g) / 1024, 0);
 
   // Stacked segments over TOTAL: [already in use] + [this cell] + [free].
-  const pool = (icon, label, totalGb, freeGb, runGb) => {
+  const pool = (icon, label, totalGb, freeGb, runGb, note = "") => {
     if (!totalGb) return "";
     const usedGb = Math.max(0, totalGb - freeGb);
     const overflow = runGb > freeGb + 1;
@@ -602,7 +603,7 @@ export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false) {
     return `
       <div class="aside-pool">
         <div class="aside-pool-head">
-          <span class="aside-pool-name">${icon} ${label}</span>
+          <span class="aside-pool-name">${icon} ${label}${note ? ` <span class="aside-pool-note">· ${escapeHtml(note)}</span>` : ""}</span>
           ${runGb ? `<span>≈ <strong>${formatSizeGb(runGb)}</strong>${overflow ? `<span class="aside-vram-overflow"> ✗ won't fit</span>` : ""}</span>` : ""}
         </div>
         <div class="aside-vram-track" title="${formatSizeGb(usedGb)} already in use${runGb ? ` · ${formatSizeGb(runGb)} this cell` : ""} · ${formatSizeGb(totalGb)} total ${label}">
@@ -614,8 +615,11 @@ export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false) {
         </div>
       </div>`;
   };
+  // Name the card on the VRAM row — the standalone GPU panel is gone, and this
+  // is the only place left that says WHICH card the free/total belongs to.
+  const cardNote = gs.length === 1 ? shortGpuName(gs[0].name) : (gs.length > 1 ? `${gs.length} GPUs` : "");
   el.innerHTML = pool("🧠", "RAM", ramTotal, ramFree, onCpu ? runtimeSizeGb : 0)
-    + pool("🎮", "VRAM", vramTotal, vramFree, onCpu ? 0 : runtimeSizeGb);
+    + pool("🎮", "VRAM", vramTotal, vramFree, onCpu ? 0 : runtimeSizeGb, cardNote);
 }
 
 // Returns family default fields that differ from current form / saved config values.

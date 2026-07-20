@@ -184,15 +184,13 @@
    sit outside llamaAside so every runner keeps them, and they reuse the existing
    .aside-vram-* bar so all four blocks read as one component. */
 .aside-host-stats { display: grid; gap: 10px; }
-.aside-gpu-name { margin-bottom: 5px; }
 /* Memory estimate draws BOTH pools; each names itself so it is never ambiguous
    which memory a bar is about. The runtime sits on the pool the cell lands in. */
 .aside-pool + .aside-pool { margin-top: 11px; }
 .aside-pool-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; margin-bottom: 4px; }
 .aside-pool-name { font-weight: 600; }
+.aside-pool-note { font-weight: 400; color: var(--muted, #8b93a1); }
 .aside-host-stats .aside-vram-track + .aside-vram-label { margin-top: 4px; }
-.aside-host-stats .aside-gpu-name + .aside-vram-track { margin-top: 2px; }
-.aside-host-stats .aside-vram-label + .aside-gpu-name { margin-top: 9px; }
 .link-button.apply-family-defaults {
   color: #fbbf24;
   font-weight: 600;

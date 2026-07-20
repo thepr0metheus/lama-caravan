@@ -363,22 +363,6 @@ export function ramFitForPfx(runtimeSizeGb, pfx) {
   return { kind, html: `${pill(label, kind)} <b>${formatSizeGb(runtimeSizeGb)}</b> / ${formatSizeGb(availableGb)}` };
 }
 
-// ── Always-on host panels for the edit aside ─────────────────────────────────
-// CPU / RAM / GPU and the shared estimate bar sit above every runner's own
-// blocks, so a cell is planned against the same picture whatever engine it uses.
-export function computeTargetRamTotalGb(pfx) {
-  if (pfx === "tr-") return Number(((_trClientCpu && _trClientCpu.ram) || {}).totalGb || 0);
-  return Number(state.memory?.totalMiB || 0) / 1024;
-}
-// The controller reports usagePct, a scout client reports loadPct; fall back to
-// loadavg-over-cores for older agents that send neither.
-export function computeTargetCpuUsagePct(pfx) {
-  const c = computeTargetCpu(pfx);
-  const pct = pfx === "tr-" ? c.loadPct : c.usagePct;
-  if (pct != null && pct !== "") return Math.max(0, Math.min(100, Math.round(Number(pct))));
-  const cores = computeTargetCores(pfx);
-  return cores ? Math.max(0, Math.min(100, Math.round((Number(c.load1 || 0) / cores) * 100))) : 0;
-}
 // What each runner puts on the shared estimate bar. llama sums its own files +
 // KV + batch; the others cannot use that math, so each contributes the number
 // that actually predicts ITS failure:
@@ -399,43 +383,10 @@ export function computeFitRuntimeGb(pfx = "") {
   if (runner === "moonshine") return moonshineModelGb;
   return 0;
 }
-export function renderAsideHostStats(pfx = "") {
-  const kindOf = (pct, warn, bad) => (pct >= bad ? "bad" : pct >= warn ? "warn" : "good");
-  const bar = (pct, kind) =>
-    `<div class="aside-vram-track"><div class="aside-vram-fill ${kind}" style="width:${pct.toFixed(1)}%"></div></div>`;
-  const cpuEl = $(pfx + "asideCpu");
-  if (cpuEl) {
-    const pct = computeTargetCpuUsagePct(pfx);
-    cpuEl.innerHTML = bar(pct, kindOf(pct, 70, 90))
-      + `<div class="aside-vram-label"><strong>${pct}%</strong> · ${computeTargetCores(pfx)} ${escapeHtml(t("computeCores"))}</div>`;
-  }
-  const ramEl = $(pfx + "asideRam");
-  if (ramEl) {
-    const total = computeTargetRamTotalGb(pfx);
-    const free = computeTargetRamGb(pfx);
-    const used = Math.max(0, total - free);
-    const pct = total ? Math.min(100, (used / total) * 100) : 0;
-    ramEl.innerHTML = bar(pct, kindOf(pct, 75, 92))
-      + `<div class="aside-vram-label"><strong>${formatSizeGb(used)}</strong> used · ${formatSizeGb(free)} free / ${formatSizeGb(total)}</div>`;
-  }
-  const gpuEl = $(pfx + "asideGpu");
-  if (gpuEl) {
-    const gpus = computeTargetGpus(pfx);
-    gpuEl.innerHTML = gpus.length ? gpus.map((g) => {
-      const total = Number(g.memoryTotalMiB || 0) / 1024;
-      const free = gpuFreeMiB(g) / 1024;
-      const pct = total ? Math.min(100, ((total - free) / total) * 100) : 0;
-      return `<div class="aside-gpu-name">🖥 <b>${escapeHtml(g.name || "GPU")}</b></div>`
-        + bar(pct, kindOf(pct, 75, 92))
-        + `<div class="aside-vram-label">${formatSizeGb(free)} free / ${formatSizeGb(total)} total</div>`;
-    }).join("") : `<span class="aside-vram-empty">${escapeHtml(t("gpuInfoUnavailable"))}</span>`;
-  }
-}
-// Single entry point for the aside. llama keeps driving the estimate bar from
-// renderModelInsight (it has the richer per-file breakdown); every other runner
-// gets it from here, so the bar looks and reads the same for all of them.
+// llama keeps driving the estimate bar from renderModelInsight (it has the
+// richer per-file breakdown); every other runner gets it from here, so the bar
+// looks and reads the same for all of them.
 export function refreshAsidePanels(pfx = "") {
-  renderAsideHostStats(pfx);
   if (_runnerOf(pfx) !== "llama-server") renderAsideVramBar(pfx, computeFitRuntimeGb(pfx), true);
 }
 
