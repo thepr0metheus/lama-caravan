@@ -115,6 +115,25 @@ export function drawLiveTopologyCable(toClientX, toClientY) {
   svg.insertAdjacentHTML("beforeend", topologySvgPath(from, to, "topology-cable live"));
 }
 
+// A cable whose anchor or binding is missing renders to "" and used to disappear
+// into filter(Boolean): no error, no console line, nothing on screen you could
+// name — the board simply looked fine minus one curve. That silence hid a missing
+// agent cable for a month (fixed in v1.3.92, and misdiagnosed twice before that).
+// Every drop now says which cable it was and what was missing. Deduped by exact
+// signature, because the board redraws on every activity change and would
+// otherwise flood the console with the same line.
+const _cableDropSigs = new Set();
+export const cableDrops = [];
+function noteCableDrop(what, why) {
+  const entry = { what, ...why };
+  const at = cableDrops.findIndex((d) => d.what === what);
+  if (at >= 0) cableDrops[at] = entry; else cableDrops.push(entry);
+  const sig = JSON.stringify(entry);
+  if (_cableDropSigs.has(sig)) return;
+  _cableDropSigs.add(sig);
+  console.warn("[caravan] board cable not drawn —", what, why);
+}
+
 export function drawTopologyCables() {
   const svg = $("topologyCables");
   const board = document.querySelector(".topology-board");
@@ -123,6 +142,7 @@ export function drawTopologyCables() {
   svg.setAttribute("viewBox", `0 0 ${Math.max(rect.width, 1)} ${Math.max(rect.height, 1)}`);
   svg.innerHTML = "";
   const paths = [];
+  cableDrops.length = 0;   // rebuilt every draw; the dedup set outlives it
   // Segment 1: client route handle (the proxy entry point, now on the client card)
   // → router input. The proxy is identified by route.proxyId; its router
   // (proxy.routerId) is the cable target. Muted/inactive roles draw a faint cable.
@@ -141,11 +161,21 @@ export function drawTopologyCables() {
         // Dim idle client→router cables (32 converge on one input) so the one
         // actually carrying a request stands out + animates — mirrors segment 3.
         const idle = !muted && activity.state === "idle";
-        paths.push(topologySvgPath(
+        const cable = topologySvgPath(
           topologyPointFor(source, "right"),
           topologyPointFor(target, "left"),
           `topology-cable ${escapeHtml(role)} ${muted ? "muted" : ""} ${idle ? "idle" : ""} ${Number(proxy?.priority || 0) > 0 ? "priority" : ""} ${topologyStateHealthClasses(activity)} ${topologyProxyClass(route.proxyId)} ${topologyRouteClass(client.id, assignment.agentId, role)}`,
-        ));
+        );
+        if (!cable) {
+          noteCableDrop(`${client.id}/${assignment.agentId} ${role} -> router`, {
+            routeHandleFound: !!source,
+            proxyId: route.proxyId || "(empty — live report carried none)",
+            proxyResolved: !!proxy,
+            routerId: routerId || "(unresolved)",
+            routerInputFound: !!target,
+          });
+        }
+        paths.push(cable);
       });
     });
   });
@@ -163,11 +193,19 @@ export function drawTopologyCables() {
         ? document.querySelector(`[data-topology-cloud-input][data-account-id="${CSS.escape(String(out.accountId || ""))}"]`)
         : document.querySelector(`[data-topology-llama-input][data-llama-port="${CSS.escape(String(out.upstreamPort || ""))}"]`);
       const activity = topologyOutputActivity(out);
-      paths.push(topologySvgPath(
+      const cable = topologySvgPath(
         topologyPointFor(source, "right"),
         topologyPointFor(target, "left"),
         `topology-cable router ${isCloud ? "cloud" : ""} ${activity.state === "idle" ? "idle" : topologyStateHealthClasses(activity)}`,
-      ));
+      );
+      if (!cable) {
+        noteCableDrop(`router ${router.id} -> ${out.id}`, {
+          routerOutputFound: !!source,
+          upstream: isCloud ? `cloud account ${out.accountId || "(none)"}` : `:${out.upstreamPort || "(none)"}`,
+          upstreamInputFound: !!target,
+        });
+      }
+      paths.push(cable);
     });
   });
   svg.innerHTML = paths.filter(Boolean).join("");
