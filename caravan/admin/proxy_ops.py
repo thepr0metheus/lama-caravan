@@ -2,7 +2,6 @@
 admin config and stop a route (kills the in-flight request via stopRequests)."""
 import json
 import os
-import re
 import time
 
 from caravan.admin.fleet_clients import refresh_topology_clients_from_agents
@@ -31,8 +30,6 @@ def reconcile_agent_proxies():
     server_ip = TOPOLOGY_SERVER_IP
     cfg = load_agent_proxy_config()
     routes = cfg["routes"]
-    fb_ports = {int(r["port"]) for r in routes
-                if str(r.get("role") or "") == "fallback" or re.search(r"fallback$", str(r.get("label") or ""), re.I)}
     assignments_store = store.setdefault("assignments", {})
     reassigned = 0
     for host_id, client in store.get("clients", {}).items():
@@ -57,9 +54,10 @@ def reconcile_agent_proxies():
                 if aid in existing:
                     new_list.append(existing[aid])
                 continue
+            # Fallback pairs are retired: assignments are rewritten primary-only,
+            # which in turn leaves the fallback routes unreferenced below — the
+            # standard deletion path then removes them and restarts the proxies.
             rts = [{"role": "primary", "proxyId": f"skynet:proxy:{port}", "endpoint": f"http://{server_ip}:{port}/v1"}]
-            if (port + 1) in fb_ports:
-                rts.append({"role": "fallback", "proxyId": f"skynet:proxy:{port + 1}", "endpoint": f"http://{server_ip}:{port + 1}/v1"})
             new_list.append({"agentId": aid, "routes": rts})
         tombstoned = set(store.get("deletedAgents", {}).get(host_id, []))
         for aid, a in existing.items():  # keep offline agents' assignments as-is — but not tombstoned ones
@@ -79,8 +77,14 @@ def reconcile_agent_proxies():
                         referenced.add(int(pid.split(":")[-1]))
                     except ValueError:
                         pass
-    kept = [r for r in routes if int(r["port"]) in referenced]
-    deleted = sorted(int(r["port"]) for r in routes if int(r["port"]) not in referenced)
+    # Only agent-pair routes (clientId set) are deletion candidates. Service
+    # bridges (promie-ui, the voice-app bridge, …) are standalone by design — no assignment
+    # ever references them, and the old rule deleted exactly those three live
+    # routes when reconcile first ran after the bridges were introduced.
+    def _deletable(r):
+        return bool(str(r.get("clientId") or "")) and int(r["port"]) not in referenced
+    kept = [r for r in routes if not _deletable(r)]
+    deleted = sorted(int(r["port"]) for r in routes if _deletable(r))
     save_admin_state()
     if deleted:
         save_agent_proxy_config(kept)   # rewrites file + restarts agent-proxies + re-normalizes routers

@@ -662,13 +662,20 @@ def _next_auto_proxy_primary_port(used_ports):
     return candidate
 
 def _agent_has_full_assignments(agent_id, host_entry, existing_ports):
-    """True if the agent already has primary+fallback routes pointing to real proxy ports."""
+    """True if the agent already has a primary route pointing to a real proxy port.
+
+    Fallback pairs are retired (2026-07-20): no agent config ever referenced its
+    fallback proxy — zero successful requests across the full log retention — so
+    the pair invariant only forced dead ports into existence. Demanding a
+    fallback here is also what made retiring them impossible: deleting the
+    fallback routes flipped every agent to "not provisioned" and the next
+    heartbeat re-provisioned complete NEW pairs (the 2026-07-20 proxy outage)."""
     by_role = {
         r.get("role"): r
         for a in (host_entry.get("assignments") or []) if a.get("agentId") == agent_id
         for r in (a.get("routes") or [])
     }
-    for role in ("primary", "fallback"):
+    for role in ("primary",):
         proxy_id = str(by_role.get(role, {}).get("proxyId") or "")
         if not proxy_id.startswith("skynet:proxy:"):
             return False
@@ -700,9 +707,10 @@ def auto_provision_agent_proxies(client):
             continue
 
         primary_port = _next_auto_proxy_primary_port(used_ports)
-        fallback_port = primary_port + 1
+        # Odd/even stepping is kept so primaries stay on odd ports; the even
+        # partner is simply left unused now that fallback pairs are retired.
         used_ports.add(primary_port)
-        used_ports.add(fallback_port)
+        used_ports.add(primary_port + 1)
 
         agent_name = str(agent.get("name") or agent_id).strip()
         base = {
@@ -715,8 +723,7 @@ def auto_provision_agent_proxies(client):
             "routerId": DEFAULT_ROUTER_ID, "clientId": client_id,
         }
         new_routes.append({**base, "role": "primary", "label": f"{agent_name} primary", "port": primary_port})
-        new_routes.append({**base, "role": "fallback", "label": f"{agent_name} fallback", "port": fallback_port})
-        new_agent_ports[agent_id] = {"primary": primary_port, "fallback": fallback_port}
+        new_agent_ports[agent_id] = {"primary": primary_port}
 
     if not new_routes:
         return
@@ -743,7 +750,7 @@ def auto_provision_agent_proxies(client):
             ag = {"agentId": agent_id, "routes": []}
             existing.append(ag)
         assigned_roles = {r.get("role") for r in ag.get("routes", [])}
-        for role in ("primary", "fallback"):
+        for role in ("primary",):
             if role not in assigned_roles:
                 port = ports[role]
                 ag["routes"].append({
