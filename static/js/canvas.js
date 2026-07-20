@@ -1882,11 +1882,19 @@ export function _cvCableD(pts, R, crossVerts) {
       const hops = crossVerts
         .filter((v) => v.y1 + 2 < yv && yv < v.y2 - 2 && v.x > lo && v.x < hi)
         .map((v) => v.x).sort((p, q) => dir * (p - q));
-      let prev = -Infinity;
+      // A bus of parallel lanes is jumped with ONE wide arc, not a caterpillar
+      // of per-wire bumps: crossings closer than ~2 radii chain into a group,
+      // and the arc spans the whole group at the same hop height.
+      const groups = [];
       for (const hx of hops) {
-        if (Math.abs(hx - prev) < HR * 2) continue;  // merge near-coincident crossings
-        prev = hx;
-        d += ` L ${f(hx - dir * HR)} ${f(yv)} A ${HR} ${HR} 0 0 ${dir > 0 ? 1 : 0} ${f(hx + dir * HR)} ${f(yv)}`;
+        const g = groups[groups.length - 1];
+        if (g && Math.abs(hx - g[g.length - 1]) <= HR * 2.2) g.push(hx);
+        else groups.push([hx]);
+      }
+      for (const g of groups) {
+        const x1 = g[0] - dir * HR, x2 = g[g.length - 1] + dir * HR;
+        const rx = Math.max(HR, Math.abs(x2 - x1) / 2);
+        d += ` L ${f(x1)} ${f(yv)} A ${f(rx)} ${HR} 0 0 ${dir > 0 ? 1 : 0} ${f(x2)} ${f(yv)}`;
       }
     }
     d += ` L ${f(x)} ${f(y)}`;
