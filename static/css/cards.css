@@ -845,6 +845,11 @@ button.llama-edit-head:hover .llama-edit-pencil {
 .topology-cable.fallback {
   stroke: var(--fallback);
   stroke-width: 1;
+  /* Dash encodes the ROLE, matching the dashed border every fallback row wears
+     in the agent card. It was previously only added by state (muted) — so an
+     unverified fallback rendered solid while its card bar was dashed, and the
+     two surfaces disagreed. Opacity carries state; animation carries activity. */
+  stroke-dasharray: 6 5;
 }
 
 .topology-cable.priority {

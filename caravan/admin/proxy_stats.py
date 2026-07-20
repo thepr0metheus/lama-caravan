@@ -124,9 +124,10 @@ def list_agent_proxy_log_dates():
 _PORTS_SEEN_CACHE: dict = {}
 _PORT_RE = re.compile(r'"port":(\d+)')
 _TIME_RE = re.compile(r'"time":(\d+)')
+_STATUS_RE = re.compile(r'"status":(\d{3})')
 
 def proxy_ports_last_seen(days=7):
-    """{proxy port: epoch of its most recent logged request} over the recent days.
+    """{proxy port: epoch of its most recent SUCCESSFUL request} over recent days.
 
     Traffic through a proxy is the strongest available evidence that its route is
     really in use — stronger than reading an agent's config, which most agents
@@ -156,11 +157,19 @@ def proxy_ports_last_seen(days=7):
                 with path.open("r", encoding="utf-8", errors="replace") as fh:
                     fh.seek(start)
                     for line in fh:
-                        m = _PORT_RE.search(line)
-                        if not m:
+                        # ONLY a finished 2xx counts. The log also carries blocked
+                        # probes and mid-flight events (received/queued/admitted/
+                        # upstream_*), and counting those confirmed routes on
+                        # requests the proxy had REJECTED — evidence that is not
+                        # evidence, the very defect this was meant to cure.
+                        if '"event":"finished"' not in line:
                             continue
+                        st = _STATUS_RE.search(line)
+                        if not st or not st.group(1).startswith("2"):
+                            continue
+                        m = _PORT_RE.search(line)
                         t = _TIME_RE.search(line)
-                        if not t:
+                        if not (m and t):
                             continue
                         port, when = int(m.group(1)), int(t.group(1))
                         if when > ports.get(port, 0):
