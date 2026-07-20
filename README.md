@@ -148,10 +148,11 @@ border comet as its card on the board:
 
 ![Cell editor](docs/screenshots/editor.png)
 
-The routing kanban — a compact example fleet: agents on the left, rule nodes
-(backup / queue / by-size — schedule, weighted, round-robin, failover and
-by-type are one click away in the palette) in the middle, local cells and cloud
-models as outputs:
+The routing kanban — the development fleet, live: twelve agents on the left,
+backup and queue rule nodes in the middle (schedule, weighted, round-robin,
+failover, by-type and by-size are one click away in the palette), local cells
+and cloud models as outputs. The dashed run is the queue's overflow spilling to
+a cloud model:
 
 ![Routing kanban](docs/screenshots/kanban.png)
 
