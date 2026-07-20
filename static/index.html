@@ -554,15 +554,26 @@
           </form>
         </div>
         <aside class="topo-edit-aside">
+          <!-- Host picture + fit: outside llamaAside so EVERY runner keeps it -->
+          <div class="aside-host-stats">
+            <article class="panel">
+              <h2 class="topo-aside-title">CPU</h2>
+              <div id="tr-asideCpu"></div>
+            </article>
+            <article class="panel">
+              <h2 class="topo-aside-title">RAM</h2>
+              <div id="tr-asideRam"></div>
+            </article>
+            <article class="panel">
+              <h2 class="topo-aside-title">GPU</h2>
+              <div id="tr-asideGpu" style="font-size:13px"></div>
+            </article>
+            <article class="panel">
+              <h2 class="topo-aside-title" data-i18n="memoryEstimateHead">Memory estimate</h2>
+              <div id="tr-asideVramBar"><span class="aside-vram-empty" data-i18n="selectModelEstimate">Select a model to see estimate</span></div>
+            </article>
+          </div>
           <div id="tr-llamaAside">
-          <article class="panel">
-            <h2 class="topo-aside-title" data-i18n="remoteGpuHead">Remote GPU</h2>
-            <div id="tr-remoteGpuInfo" style="font-size:13px"></div>
-          </article>
-          <article class="panel">
-            <h2 class="topo-aside-title" data-i18n="memoryEstimateHead">Memory estimate</h2>
-            <div id="tr-asideVramBar"><span class="aside-vram-empty" data-i18n="selectModelEstimate">Select a model to see estimate</span></div>
-          </article>
           <article class="panel">
             <h2 class="topo-aside-title" data-i18n="backups">Backups</h2>
             <div id="tr-backupInfo" class="backup-info"></div>
@@ -596,10 +607,6 @@
           </article>
           </div><!-- /tr-llamaAside -->
           <div id="tr-commandAside" style="display:none">
-            <article class="panel">
-              <h2 class="topo-aside-title" data-i18n="memoryEstimateHead">Memory estimate</h2>
-              <div id="tr-cmdFit" class="cmd-fit"></div>
-            </article>
             <article class="panel">
               <h2 class="topo-aside-title" data-i18n="cmdNewStartSh">New command (start.sh)</h2>
               <pre id="tr-cmdPreview" class="command-preview"></pre>
@@ -771,6 +778,25 @@
         </div>
         <!-- Command + Backups (right) -->
         <aside class="topo-edit-aside">
+          <!-- Host picture + fit: outside llamaAside so EVERY runner keeps it -->
+          <div class="aside-host-stats">
+            <article class="panel">
+              <h2 class="topo-aside-title">CPU</h2>
+              <div id="te-asideCpu"></div>
+            </article>
+            <article class="panel">
+              <h2 class="topo-aside-title">RAM</h2>
+              <div id="te-asideRam"></div>
+            </article>
+            <article class="panel">
+              <h2 class="topo-aside-title">GPU</h2>
+              <div id="te-asideGpu" style="font-size:13px"></div>
+            </article>
+            <article class="panel">
+              <h2 class="topo-aside-title" data-i18n="memoryEstimateHead">Memory estimate</h2>
+              <div id="te-asideVramBar"><span class="aside-vram-empty" data-i18n="selectModelEstimate">Select a model to see estimate</span></div>
+            </article>
+          </div>
           <div id="te-llamaAside">
           <details class="panel topo-backups-panel">
             <summary class="topo-aside-title">Backups</summary>
@@ -789,10 +815,6 @@
             <p id="te-schedStatus" class="field-note muted"></p>
           </article>
           <article class="panel">
-            <h2 class="topo-aside-title" data-i18n="memoryEstimateHead">Memory estimate</h2>
-            <div id="te-asideVramBar"><span class="aside-vram-empty" data-i18n="selectModelEstimate">Select a model to see estimate</span></div>
-          </article>
-          <article class="panel">
             <h2 class="topo-aside-title">Command</h2>
             <pre id="te-currentCmdline" class="command-preview"></pre>
           </article>
@@ -802,10 +824,6 @@
           </article>
           </div><!-- /te-llamaAside -->
           <div id="te-commandAside" style="display:none">
-            <article class="panel">
-              <h2 class="topo-aside-title" data-i18n="memoryEstimateHead">Memory estimate</h2>
-              <div id="te-cmdFit" class="cmd-fit"></div>
-            </article>
             <article class="panel">
               <h2 class="topo-aside-title" data-i18n="cmdNewStartSh">New command (start.sh)</h2>
               <pre id="te-cmdPreview" class="command-preview"></pre>

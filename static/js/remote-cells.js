@@ -928,21 +928,6 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
       if (cacheListEl) cacheListEl.innerHTML = "";
     }); // non-fatal — old route-agents won't have this endpoint
 
-  // Remote GPU info panel
-  const gpuBox = $("tr-remoteGpuInfo");
-  if (gpuBox) {
-    if (_trClientGpus.length) {
-      gpuBox.innerHTML = _trClientGpus.map((g) => {
-        const totalGb = (Number(g.memoryTotalMiB || 0) / 1024).toFixed(1);
-        const freeGb  = (Number(g.memoryFreeMiB  || 0) / 1024).toFixed(1);
-        return `<div>🖥 <b>${escapeHtml(g.name || "GPU")}</b><br>
-          <span class="topology-muted">${freeGb} GB free / ${totalGb} GB total</span></div>`;
-      }).join("");
-    } else {
-      gpuBox.textContent = t("gpuInfoUnavailable");
-    }
-  }
-
   const remTitleEl = $("llamaRemoteEditTitle");
   if (remTitleEl) {
     remTitleEl.textContent = t("remoteAddTitle", { host: `${hostId}${gpuName ? " · " + gpuName : ""}` });

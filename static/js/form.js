@@ -26,6 +26,7 @@ import {
   applyComputeTarget,
   computeIsCpu,
   computeSelectedGpuIdx,
+  currentComputeMode,
   computeTargetGpus,
   estimateRuntimeMemoryGb,
   formatSizeGb,
@@ -564,14 +565,18 @@ export function renderChatTemplateHint(pfx = "") {
   });
 }
 
-export function renderAsideVramBar(pfx, runtimeSizeGb) {
+// allowEmpty: draw the pool bar even with nothing to estimate (a custom command
+// is an opaque process — its host still has a use/free picture worth seeing).
+export function renderAsideVramBar(pfx, runtimeSizeGb, allowEmpty = false) {
   const el = $(pfx + "asideVramBar");
   if (!el) return;
-  if (!runtimeSizeGb) {
+  if (!runtimeSizeGb && !allowEmpty) {
     el.innerHTML = `<span class="aside-vram-empty">${escapeHtml(t("selectModelEstimate"))}</span>`;
     return;
   }
-  const cpuMode = computeIsCpu(pfx);
+  // The pool follows the unified compute target, not llama's N_GPU_LAYERS —
+  // moonshine is CPU-only, so its bar must read RAM even though it is a cell.
+  const cpuMode = currentComputeMode(pfx) === "cpu";
   let totalGb = 0, freeGb = 0, poolLabel = "VRAM";
   if (cpuMode) {
     poolLabel = "RAM";
@@ -602,7 +607,7 @@ export function renderAsideVramBar(pfx, runtimeSizeGb) {
       <div class="aside-vram-fill ${kind}" style="width:${runPct.toFixed(1)}%"></div>
     </div>
     <div class="aside-vram-label">
-      <span>Runtime ≈ <strong>${formatSizeGb(runtimeSizeGb)}</strong>${overflow ? `<span class="aside-vram-overflow"> ✗ won't fit</span>` : ""}</span>
+      ${runtimeSizeGb ? `<span>Runtime ≈ <strong>${formatSizeGb(runtimeSizeGb)}</strong>${overflow ? `<span class="aside-vram-overflow"> ✗ won't fit</span>` : ""}</span>` : ""}
       ${totalGb ? `<span>${usedGb > 0.05 ? `${formatSizeGb(usedGb)} used · ` : ""}${formatSizeGb(freeGb)} free / ${formatSizeGb(totalGb)} ${poolLabel}</span>` : ""}
     </div>
   `;

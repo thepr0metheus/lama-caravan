@@ -6,7 +6,7 @@ import { syncFavoriteMirrors } from "./favorites.js";
 // functions only (llama-edit.js also imports this module) — the runtime cycle
 // is safe because nothing here runs at module load.
 import { _applyDeviceToEnv, _envDeviceState } from "./llama-edit.js";
-import { modelsByPath, renderModelInsight } from "./form.js";
+import { modelsByPath, renderAsideVramBar, renderModelInsight } from "./form.js";
 import { t } from "./i18n.js";
 import { _trClientCpu, _trClientGpus } from "./remote-cells.js";
 import { state, topology } from "./state.js";
@@ -233,7 +233,7 @@ export function runnerDeviceCaps(runner) {
 }
 // llama edits N_GPU_LAYERS; the command-path runners pin the device in ENV. A
 // forced runner (vllm/whisper=gpu, moonshine=cpu) reports that regardless.
-function currentComputeMode(pfx) {
+export function currentComputeMode(pfx) {
   const runner = _runnerOf(pfx);
   const caps = runnerDeviceCaps(runner);
   if (runner === "moonshine") return "cpu";
@@ -350,6 +350,8 @@ export function refreshComputeTarget(pfx) {
   }));
   const dd = box.querySelector(".compute-gpu-dd");
   if (dd) dd.addEventListener("toggle", () => { _computeGpuDdOpen = dd.open; });
+  // The aside's host picture depends on the same inputs (host, device, runner).
+  refreshAsidePanels(pfx);
 }
 // VRAM/RAM headroom for the form's memory estimate, honoring the compute target.
 export function ramFitForPfx(runtimeSizeGb, pfx) {
@@ -361,50 +363,79 @@ export function ramFitForPfx(runtimeSizeGb, pfx) {
   return { kind, html: `${pill(label, kind)} <b>${formatSizeGb(runtimeSizeGb)}</b> / ${formatSizeGb(availableGb)}` };
 }
 
-// ── "Will it fit" for the command-path runners ───────────────────────────────
-// llama's estimate does not carry over: its numbers come from CTX_SIZE /
-// CACHE_TYPE_* / BATCH_SIZE, knobs no other engine has. Each runner instead gets
-// the one number that actually predicts its failure:
-//   vLLM      reserves GPU_MEMORY_UTILIZATION × TOTAL VRAM at startup no matter
-//             what the model weighs — so the check is that reservation against
-//             free VRAM (it is what starves neighbouring cells on the card),
-//             plus whether the weights fit inside the reservation.
-//   whisper   a fixed model size straight off the picker, against free VRAM.
-//   moonshine CPU-only — it reports RAM, because it never touches VRAM.
-//   custom    an arbitrary process: nothing is knowable, so show headroom only.
-export function renderCommandFit(pfx = "") {
-  const box = $(pfx + "cmdFit");
-  if (!box) return;
+// ── Always-on host panels for the edit aside ─────────────────────────────────
+// CPU / RAM / GPU and the shared estimate bar sit above every runner's own
+// blocks, so a cell is planned against the same picture whatever engine it uses.
+export function computeTargetRamTotalGb(pfx) {
+  if (pfx === "tr-") return Number(((_trClientCpu && _trClientCpu.ram) || {}).totalGb || 0);
+  return Number(state.memory?.totalMiB || 0) / 1024;
+}
+// The controller reports usagePct, a scout client reports loadPct; fall back to
+// loadavg-over-cores for older agents that send neither.
+export function computeTargetCpuUsagePct(pfx) {
+  const c = computeTargetCpu(pfx);
+  const pct = pfx === "tr-" ? c.loadPct : c.usagePct;
+  if (pct != null && pct !== "") return Math.max(0, Math.min(100, Math.round(Number(pct))));
+  const cores = computeTargetCores(pfx);
+  return cores ? Math.max(0, Math.min(100, Math.round((Number(c.load1 || 0) / cores) * 100))) : 0;
+}
+// What each runner puts on the shared estimate bar. llama sums its own files +
+// KV + batch; the others cannot use that math, so each contributes the number
+// that actually predicts ITS failure:
+//   vLLM      reserves GPU_MEMORY_UTILIZATION × the WHOLE card at startup no
+//             matter what the model weighs — that reservation is what starves
+//             neighbouring cells, so the reservation is what we plot.
+//   whisper   a fixed model size straight off the picker.
+//   moonshine fixed ~250 MB, and CPU-only, so it lands on the RAM pool.
+//   custom    an opaque process — nothing to estimate, the bar shows use only.
+export function computeFitRuntimeGb(pfx = "") {
   const runner = _runnerOf(pfx);
-  if (runner === "llama-server") { box.innerHTML = ""; return; }   // it has the richer estimate
-  const gpus = computeTargetGpus(pfx);
-  const totalGb = gpus.reduce((s, g) => s + Number(g.memoryTotalMiB || 0) / 1024, 0);
-  const freeGb = gpus.reduce((s, g) => s + gpuFreeMiB(g), 0) / 1024;
-  const row = (label, value, kind = "") =>
-    `<div class="cmd-fit-row${kind ? ` ${kind}` : ""}"><span>${escapeHtml(label)}</span><strong>${value}</strong></div>`;
-  let rows = "";
+  if (runner === "llama-server") return estimateRuntimeMemoryGb(pfx).runtimeSize;
   if (runner === "vllm") {
     const util = Number($(pfx + "GPU_MEMORY_UTILIZATION")?.value) || 0.9;
-    const reserve = totalGb * util;
-    const modelGb = Number(selectedModelRows(pfx).selected?.sizeGb || 0);
-    const resFit = _vramFitFrom(gpus, reserve);
-    rows = row("GPU_MEMORY_UTILIZATION", `${util} · ${formatSizeGb(reserve)}`)
-      + (modelGb ? row(t("modelSize"), `${formatSizeGb(modelGb)} / ${formatSizeGb(reserve)}`, modelGb > reserve ? "bad" : "") : "")
-      + row(t("vramFit"), resFit.html, resFit.kind);
-  } else if (runner === "whisper") {
-    const size = whisperModelGb[($(pfx + "WHISPER_MODEL")?.value || "large-v3").trim()] || 0;
-    const fit = _vramFitFrom(gpus, size);
-    rows = row(t("modelSize"), formatSizeGb(size)) + row(t("vramFit"), fit.html, fit.kind);
-  } else if (runner === "moonshine") {
-    const fit = ramFitForPfx(moonshineModelGb, pfx);
-    rows = row(t("modelSize"), `≈ ${formatSizeGb(moonshineModelGb)}`) + row(t("ramFit"), fit.html, fit.kind);
-  } else {
-    // custom: the process is opaque — report what is free and estimate nothing.
-    const ramGb = computeTargetRamGb(pfx);
-    const onGpu = currentComputeMode(pfx) !== "cpu";
-    rows = (onGpu && totalGb ? row(t("vramFit"), `<b>${formatSizeGb(freeGb)}</b> free`) : "")
-      + (ramGb ? row(t("ramFit"), `<b>${formatSizeGb(ramGb)}</b> free`) : "");
+    return computeTargetGpus(pfx).reduce((s, g) => s + Number(g.memoryTotalMiB || 0) / 1024, 0) * util;
   }
-  box.innerHTML = rows;
+  if (runner === "whisper") return whisperModelGb[($(pfx + "WHISPER_MODEL")?.value || "large-v3").trim()] || 0;
+  if (runner === "moonshine") return moonshineModelGb;
+  return 0;
+}
+export function renderAsideHostStats(pfx = "") {
+  const kindOf = (pct, warn, bad) => (pct >= bad ? "bad" : pct >= warn ? "warn" : "good");
+  const bar = (pct, kind) =>
+    `<div class="aside-vram-track"><div class="aside-vram-fill ${kind}" style="width:${pct.toFixed(1)}%"></div></div>`;
+  const cpuEl = $(pfx + "asideCpu");
+  if (cpuEl) {
+    const pct = computeTargetCpuUsagePct(pfx);
+    cpuEl.innerHTML = bar(pct, kindOf(pct, 70, 90))
+      + `<div class="aside-vram-label"><strong>${pct}%</strong> · ${computeTargetCores(pfx)} ${escapeHtml(t("computeCores"))}</div>`;
+  }
+  const ramEl = $(pfx + "asideRam");
+  if (ramEl) {
+    const total = computeTargetRamTotalGb(pfx);
+    const free = computeTargetRamGb(pfx);
+    const used = Math.max(0, total - free);
+    const pct = total ? Math.min(100, (used / total) * 100) : 0;
+    ramEl.innerHTML = bar(pct, kindOf(pct, 75, 92))
+      + `<div class="aside-vram-label"><strong>${formatSizeGb(used)}</strong> used · ${formatSizeGb(free)} free / ${formatSizeGb(total)}</div>`;
+  }
+  const gpuEl = $(pfx + "asideGpu");
+  if (gpuEl) {
+    const gpus = computeTargetGpus(pfx);
+    gpuEl.innerHTML = gpus.length ? gpus.map((g) => {
+      const total = Number(g.memoryTotalMiB || 0) / 1024;
+      const free = gpuFreeMiB(g) / 1024;
+      const pct = total ? Math.min(100, ((total - free) / total) * 100) : 0;
+      return `<div class="aside-gpu-name">🖥 <b>${escapeHtml(g.name || "GPU")}</b></div>`
+        + bar(pct, kindOf(pct, 75, 92))
+        + `<div class="aside-vram-label">${formatSizeGb(free)} free / ${formatSizeGb(total)} total</div>`;
+    }).join("") : `<span class="aside-vram-empty">${escapeHtml(t("gpuInfoUnavailable"))}</span>`;
+  }
+}
+// Single entry point for the aside. llama keeps driving the estimate bar from
+// renderModelInsight (it has the richer per-file breakdown); every other runner
+// gets it from here, so the bar looks and reads the same for all of them.
+export function refreshAsidePanels(pfx = "") {
+  renderAsideHostStats(pfx);
+  if (_runnerOf(pfx) !== "llama-server") renderAsideVramBar(pfx, computeFitRuntimeGb(pfx), true);
 }
 

@@ -180,13 +180,14 @@
 .compute-gpu-dd-vram { margin-left: auto; color: var(--muted, #8b93a1); font-size: 11px; }
 .compute-gpu-dd-div { height: 1px; background: rgba(255, 255, 255, 0.08); margin: 5px 4px; }
 
-/* "Will it fit" panel for the command-path runners — label left, number right.
-   Fit rows carry their own coloured pill; .bad is for the plain numeric rows. */
-.cmd-fit { display: grid; gap: 6px; }
-.cmd-fit-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
-.cmd-fit-row > span { color: var(--muted, #8b93a1); }
-.cmd-fit-row > strong { font-weight: 600; text-align: right; }
-.cmd-fit-row.bad > strong { color: var(--bad, #f85149); }
+/* Host picture at the top of the edit aside: CPU / RAM / GPU / estimate. These
+   sit outside llamaAside so every runner keeps them, and they reuse the existing
+   .aside-vram-* bar so all four blocks read as one component. */
+.aside-host-stats { display: grid; gap: 10px; }
+.aside-gpu-name { margin-bottom: 5px; }
+.aside-host-stats .aside-vram-track + .aside-vram-label { margin-top: 4px; }
+.aside-host-stats .aside-gpu-name + .aside-vram-track { margin-top: 2px; }
+.aside-host-stats .aside-vram-label + .aside-gpu-name { margin-top: 9px; }
 .link-button.apply-family-defaults {
   color: #fbbf24;
   font-weight: 600;

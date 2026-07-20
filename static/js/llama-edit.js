@@ -25,7 +25,7 @@ import {
   toggleChecked,
 } from "./form.js";
 import { fieldHelp, t } from "./i18n.js";
-import { refreshComputeTarget, renderCommandFit } from "./memory.js";
+import { refreshAsidePanels, refreshComputeTarget } from "./memory.js";
 import { action, loadState, saveConfig } from "./polling.js";
 import { _trCellPort, _trHostId } from "./remote-cells.js";
 import { setState, state, topology, ui } from "./state.js";
@@ -1109,9 +1109,9 @@ function _refreshScriptPreview(pfx) {
 }
 
 export function renderCommandCellPreview(pfx) {
-  // The fit panel rides the same refresh as the command preview, so it tracks
+  // The aside panels ride the same refresh as the command preview, so they track
   // every edit: runner switch, model pick, device change, utilization tweak.
-  renderCommandFit(pfx);
+  refreshAsidePanels(pfx);
   const prev = $(pfx + "cmdPreview");
   if (prev) prev.textContent = _buildCommandExecPreview(pfx);
   _refreshScriptPreview(pfx);
