@@ -992,7 +992,7 @@ export function canvasNodes(router) {
     html: `<div class="cv-inputs-head">${escapeHtml(t("cvLabelClients"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipClients")}</span></span></div><div class="cv-inputs-body">${inputsBodyHtml || '<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>'}</div>${orphanAgentsHtml}${embedSlotHtml}${appPortHtml}`,
   });
   // Rule nodes (graph mode) — positioned by their stored x/y; input + output ports.
-  const RULE_GLYPH = { schedule: "⏱", weighted: "⚖", roundRobin: "🔁", failover: "⚡", queue: "⏳", requestType: "🔀", requestSize: "📏", onError: "🛟" };
+  const RULE_GLYPH = NODE_GLYPH;
   ruleNodes.forEach((n) => {
     const isQueue = n.type === "queue";
     const isSchedule = n.type === "schedule";
@@ -1279,6 +1279,10 @@ export function graphOutEdges(router, nodeId) {
   return (router.graph?.edges || []).filter((e) => e.from === `rule:${nodeId}`);
 }
 
+// One glyph per rule-node type, shared by the palette cards, the ⚙ panel and
+// edge labels — a queue target reads "⏳ queue", not a generic "▢ queue" box.
+export const NODE_GLYPH = { schedule: "⏱", weighted: "⚖", roundRobin: "🔁", failover: "⚡", queue: "⏳", requestType: "🔀", requestSize: "📏", onError: "🛟" };
+
 export function edgeTargetLabel(router, edge) {
   const to = String(edge.to || "");
   if (to.startsWith("out:")) {
@@ -1287,7 +1291,7 @@ export function edgeTargetLabel(router, edge) {
   }
   if (to.startsWith("rule:")) {
     const n = (router.graph?.nodes || []).find((x) => x.id === to.slice(5));
-    return n ? `▢ ${n.type}` : to.slice(5);
+    return n ? `${NODE_GLYPH[n.type] || "▢"} ${n.type}` : to.slice(5);
   }
   return to;
 }
@@ -1325,7 +1329,7 @@ export function renderRouterNodeConfig(router) {
   if (!node) return "";
   const edges = graphOutEdges(router, node.id);
   const cfg = node.config || {};
-  const glyph = { schedule: "⏱", weighted: "⚖", roundRobin: "🔁", failover: "⚡", queue: "⏳", requestType: "🔀", requestSize: "📏" }[node.type] || "•";
+  const glyph = NODE_GLYPH[node.type] || "•";
   const edgeOpt = (sel) => `<option value="">(first connection)</option>` +
     edges.map((e) => `<option value="${escapeHtml(e.id)}"${e.id === sel ? " selected" : ""}>${escapeHtml(edgeTargetLabel(router, e))}</option>`).join("");
   let body;
