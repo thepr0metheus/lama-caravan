@@ -25,7 +25,7 @@ import {
   toggleChecked,
 } from "./form.js";
 import { fieldHelp, t } from "./i18n.js";
-import { refreshAsidePanels, refreshComputeTarget } from "./memory.js";
+import { currentComputeMode, refreshAsidePanels, refreshComputeTarget } from "./memory.js";
 import { action, loadState, saveConfig } from "./polling.js";
 import { _trCellPort, _trHostId } from "./remote-cells.js";
 import { setState, state, topology, ui } from "./state.js";
@@ -798,6 +798,9 @@ export function applyCellKindUI(pfx) {
   // The unified compute-target card sits above MODEL_FILE and serves EVERY
   // runner — repaint it so its available/disabled tiles follow the new runner.
   refreshComputeTarget(pfx);
+  // Runs on open and on every runner switch — the right beat to (re)decide
+  // whether this window is editing something that is already live.
+  syncRunningBeam(pfx);
 }
 
 export function wireCellKindToggle(pfx) {
@@ -1106,6 +1109,27 @@ function _refreshScriptPreview(pfx) {
     meta.textContent = tok;
     pre.textContent = String(e && e.message || e);
   });
+}
+
+// The board rings a live cell with a border comet. The config window wears the
+// same one when the cell it edits is already running, so "this is live — edits
+// land on something serving traffic" reads identically in both places. Colour
+// follows the board's rule: CPU cells run blue, everything else green.
+export function syncRunningBeam(pfx) {
+  const overlay = $(pfx === "tr-" ? "llamaRemoteEditOverlay" : "topologyLlamaEditOverlay");
+  const modal = overlay?.querySelector(".topology-llama-edit-modal");
+  if (!modal) return;
+  const slot = _commandCellSlot(pfx);
+  const live = !!slot && ["running", "warming"].includes(String(slot.phase || ""));
+  const beam = modal.querySelector(":scope > .cell-beam");
+  if (!live) { beam?.remove(); modal.style.removeProperty("--cell-accent"); return; }
+  modal.style.setProperty("--cell-accent", currentComputeMode(pfx) === "cpu" ? "#4593ff" : "var(--ok, #3fb950)");
+  if (!beam) {
+    const el = document.createElement("div");
+    el.className = "cell-beam cell-beam-modal";
+    el.setAttribute("aria-hidden", "true");
+    modal.prepend(el);
+  }
 }
 
 export function renderCommandCellPreview(pfx) {

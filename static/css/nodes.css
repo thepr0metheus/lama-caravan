@@ -280,6 +280,11 @@
   animation: cell-orbit 3.2s linear infinite;
 }
 @keyframes cell-orbit { to { transform: translate(-50%, -50%) rotate(1turn); } }
+/* Same comet around the whole config window when the cell being edited is
+   already live — identical machinery, just the modal's radius and a ring thick
+   enough to read on a much longer perimeter. Sits above the modal's own
+   children (pointer-events:none, so it never eats a click). */
+.cell-beam.cell-beam-modal { inset: -1px; border-radius: 11px; padding: 3px; z-index: 5; }
 @media (prefers-reduced-motion: reduce) {
   .cell-beam { display: none; }
 }
