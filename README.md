@@ -148,8 +148,9 @@ border comet as its card on the board:
 
 ![Cell editor](docs/screenshots/editor.png)
 
-The routing kanban — agents on the left, rule nodes (schedule / queue /
-failover / backup / by-type / by-size) in the middle, local cells and cloud
+The routing kanban — a compact example fleet: agents on the left, rule nodes
+(backup / queue / by-size — schedule, weighted, round-robin, failover and
+by-type are one click away in the palette) in the middle, local cells and cloud
 models as outputs; stacked cables fan into parallel lanes so you can count the
 runs:
 
