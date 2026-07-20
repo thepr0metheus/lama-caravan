@@ -1598,42 +1598,104 @@ export function drawCanvasConnectors() {
     c.obstacles = obstacles;
     c.pts = _cvOrthoPts(c.a, c.b, 12, obstacles);
   });
-  // Lane spreading. Cables that share a corridor pile their vertical segments
-  // onto one x and read as a single thick trunk. This pass walks EVERY vertical
-  // segment of every cable (any shape — the plain 4-point run, the 6-point
-  // backtrack, obstacle-dodged paths) and fans stacked ones into parallel lanes.
-  // A segment may only slide within its own cable's geometry — strictly between
-  // the far ends of the two horizontals it connects — so the polyline stays
-  // orthogonal and no new corners appear. Deterministic: edge order picks lanes,
-  // the first cable of a stack keeps its exact original position.
+  // Bus routing. Cables that share a corridor used to pile onto one x (or one
+  // y) and read as a single trunk. Instead of nudging only collisions, every
+  // segment that is FREE to move joins a "bus": segments whose coordinate falls
+  // within one corridor are clustered, then re-laid on an even PITCH around the
+  // cluster centre, ordered by where each cable continues to — an even-spaced
+  // fan with few crossings. Port-anchored horizontals (first/last runs) never
+  // move: their y IS the port. A track is reused by segments whose spans do not
+  // overlap, windows stay inside each cable's own corners (no new bends), and
+  // lanes avoid node blocks. Deterministic throughout.
   {
-    const LANE = 10, pad = 4, M = 13;
-    const placed = [];
-    cables.forEach((c) => {
-      for (let i = 1; i < c.pts.length; i++) {
-        const p0 = c.pts[i - 1], p1 = c.pts[i];
-        if (Math.abs(p0[0] - p1[0]) > 0.6 || Math.abs(p0[1] - p1[1]) < 8) continue;
-        const y1 = Math.min(p0[1], p1[1]), y2 = Math.max(p0[1], p1[1]);
-        const leftRef = i >= 2 ? c.pts[i - 2][0] : c.a.x;
-        const rightRef = i + 1 < c.pts.length ? c.pts[i + 1][0] : c.b.x;
-        const lo = Math.min(leftRef, rightRef) + M, hi = Math.max(leftRef, rightRef) - M;
-        if (hi <= lo) { placed.push({ x: p0[0], y1, y2 }); continue; }
-        const blocks = c.obstacles.filter((o) => o.y - pad < y2 && o.y + o.h + pad > y1);
-        const hitsBlock = (x) => blocks.some((o) => o.x - pad < x && x < o.x + o.w + pad);
-        const stackedAt = (x) => placed.some((v) => Math.abs(v.x - x) < LANE && v.y1 < y2 + 8 && v.y2 > y1 - 8);
-        let x = p0[0];
-        if (stackedAt(x)) {
-          const x0 = x;
-          for (let k = 1; k <= 90; k++) {
-            const cand = x0 + LANE * (k % 2 ? (k + 1) / 2 : -k / 2);   // +1, -1, +2, -2 … lanes
-            if (cand < lo || cand > hi) continue;
-            if (!stackedAt(cand) && !hitsBlock(cand)) { x = cand; break; }
-          }
+    const PITCH = 12, pad = 4, M = 13;
+    const collectSegs = (horizontal) => {
+      const segs = [];
+      cables.forEach((c) => {
+        for (let i = 1; i < c.pts.length; i++) {
+          const p0 = c.pts[i - 1], p1 = c.pts[i];
+          const isH = Math.abs(p0[1] - p1[1]) < 0.6 && Math.abs(p0[0] - p1[0]) > 8;
+          const isV = Math.abs(p0[0] - p1[0]) < 0.6 && Math.abs(p0[1] - p1[1]) > 8;
+          if (horizontal ? !isH : !isV) continue;
+          // A horizontal may move only if BOTH neighbours are verticals (a
+          // middle run) — first/last horizontals are pinned to port anchors.
+          if (horizontal && (i - 2 < 0 || i + 1 >= c.pts.length)) continue;
+          const A = horizontal ? 1 : 0;            // moving axis: y for horizontals, x for verticals
+          const S = horizontal ? 0 : 1;            // span axis
+          const refL = i >= 2 ? c.pts[i - 2][A] : (horizontal ? c.a.y : c.a.x);
+          const refR = i + 1 < c.pts.length ? c.pts[i + 1][A] : (horizontal ? c.b.y : c.b.x);
+          const lo = Math.min(refL, refR) + M, hi = Math.max(refL, refR) - M;
+          if (hi <= lo) continue;
+          const contPt = c.pts[i + 1] || [c.b.x, c.b.y];
+          segs.push({
+            c, i, pos: p0[A], s1: Math.min(p0[S], p1[S]), s2: Math.max(p0[S], p1[S]),
+            lo, hi, cont: contPt[S],               // where the cable heads next — fan order
+            obstacles: c.obstacles,
+          });
         }
-        if (x !== p0[0]) { p0[0] = x; p1[0] = x; }
-        placed.push({ x, y1, y2 });
-      }
-    });
+      });
+      return segs;
+    };
+    const layout = (horizontal) => {
+      // Global registry of finalized segments — clusters are laid out around
+      // their own centres, and without this two neighbouring clusters expand
+      // into each other's territory and re-create the very overlaps this pass
+      // exists to remove (measured: it got WORSE than the naive nudging).
+      const done = [];
+      // Global guard is MINIMAL (4px): evenness inside a corridor comes from the
+      // slot grid; this only stops different clusters from truly coinciding.
+      const clashes = (posn, g) => done.some((d) =>
+        Math.abs(d.pos - posn) < 4 && d.s1 < g.s2 + 8 && d.s2 > g.s1 - 8);
+      const segs = collectSegs(horizontal).sort((a, b) => a.pos - b.pos);
+      // cluster: chain segments whose positions sit within one corridor
+      const clusters = [];
+      segs.forEach((g) => {
+        const last = clusters[clusters.length - 1];
+        if (last && g.pos - last[last.length - 1].pos <= PITCH * 2.4) last.push(g);
+        else clusters.push([g]);
+      });
+      // singletons first: they stay put, spread clusters must keep clear of them
+      clusters.forEach((cl) => { if (cl.length < 2) done.push({ pos: cl[0].pos, s1: cl[0].s1, s2: cl[0].s2 }); });
+      clusters.forEach((cl) => {
+        if (cl.length < 2) return;                 // nothing to space out
+        const centre = cl.reduce((a, g) => a + g.pos, 0) / cl.length;
+        // Adaptive pitch: a corridor is only as wide as the overlap of its
+        // members' windows — 12 cables into one node input share ~80px, and a
+        // fixed 12px pitch would need 144. Squeeze evenly down to 6px before
+        // giving up, so the comb always fits when it possibly can.
+        const comLo = Math.min(...cl.map((g) => g.lo)), comHi = Math.max(...cl.map((g) => g.hi));
+        const pitch = Math.max(6, Math.min(PITCH, (comHi - comLo) / Math.max(1, cl.length - 1)));
+        const offs = [0];
+        for (let k = 1; offs.length < cl.length * 2 + 2; k++) offs.push(k * pitch, -k * pitch);
+        const slots = offs.map((o) => centre + o);
+        const tracks = slots.map((posn) => ({ pos: posn, spans: [] }));
+        const fits = (tr, g) => {
+          if (tr.pos < g.lo || tr.pos > g.hi) return false;
+          if (clashes(tr.pos, g)) return false;
+          if (tr.spans.some((sp) => sp.s1 < g.s2 + 8 && sp.s2 > g.s1 - 8)) return false;
+          const hit = g.obstacles.some((o) => horizontal
+            ? (o.y - pad < tr.pos && tr.pos < o.y + o.h + pad && o.x - pad < g.s2 && o.x + o.w + pad > g.s1)
+            : (o.x - pad < tr.pos && tr.pos < o.x + o.w + pad && o.y - pad < g.s2 && o.y + o.h + pad > g.s1));
+          return !hit;
+        };
+        // fan order: by where each cable continues — parallel wires, few crossings
+        const ordered = [...cl].sort((a, b) => a.cont - b.cont || a.pos - b.pos);
+        const half = (ordered.length - 1) / 2;
+        ordered.forEach((g, rank) => {
+          const want = centre + (rank - half) * pitch;
+          const byPref = [...tracks].sort((t1, t2) =>
+            Math.abs(t1.pos - want) - Math.abs(t2.pos - want));
+          const tr = byPref.find((t) => fits(t, g));
+          const posn = tr ? tr.pos : g.pos;
+          if (tr) tr.spans.push({ s1: g.s1, s2: g.s2 });
+          done.push({ pos: posn, s1: g.s1, s2: g.s2 });
+          const A = horizontal ? 1 : 0;
+          if (posn !== g.pos) { g.c.pts[g.i - 1][A] = posn; g.c.pts[g.i][A] = posn; }
+        });
+      });
+    };
+    layout(false);   // verticals first — they define the trunks
+    layout(true);    // then the free middle horizontals, against updated corners
   }
   const verts = [];
   cables.forEach((c, i) => {
