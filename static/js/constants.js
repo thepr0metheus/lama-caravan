@@ -61,6 +61,14 @@ export const optionalToggleFields = ["CPU_STRICT", "KV_OFFLOAD", "MMAP", "FIT", 
 export const defaultOnOptionalToggles = ["KV_OFFLOAD", "MMAP", "FIT", "CACHE_PROMPT", "ENABLE_SLOTS", "ENABLE_THINKING"];
 export const modelFields = ["LLAMA_MODELS_DIR", "MODEL_FILE", "MMPROJ_FILE", "CHAT_TEMPLATE_FILE"];
 export const memoryEstimateFields = ["CTX_SIZE", "CACHE_TYPE_K", "CACHE_TYPE_V", "BATCH_SIZE", "UBATCH_SIZE"];
+// Numeric weights (GB) for the command-runner fit panel. The model pickers in
+// form.js show the matching human labels ("3 GB", "75 MB") — keep the two in sync.
+export const whisperModelGb = {
+  tiny: 0.075, base: 0.145, small: 0.48, medium: 1.5,
+  "large-v3": 3, "large-v3-turbo": 1.6, "distil-large-v3": 1.5,
+};
+// Every Moonshine v2 model is ~250M params, whatever the language.
+export const moonshineModelGb = 0.25;
 export const gemma4DraftModel = "gemma-4-31b-it/assistant/gemma-4-31B-it-assistant.Q4_K_M.gguf";
 export const gemma4DefaultMmproj = "gemma-4-31b-it/q4-k-m/mmproj-gemma-4-31B-it-f32.gguf";
 export const dirtyOptionalToggles = new Set();

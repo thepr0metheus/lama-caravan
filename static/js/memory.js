@@ -1,5 +1,6 @@
 // VRAM/RAM estimation for the launch form (KV cache, buffers, compute target).
 import { renderCommandPreview } from "./command-preview.js";
+import { moonshineModelGb, whisperModelGb } from "./constants.js";
 import { syncFavoriteMirrors } from "./favorites.js";
 // Device-in-ENV helpers for command-path runners. Imported for use inside
 // functions only (llama-edit.js also imports this module) — the runtime cycle
@@ -358,5 +359,52 @@ export function ramFitForPfx(runtimeSizeGb, pfx) {
   const kind = headroom < -1 ? "bad" : headroom < 1 ? "warn" : "good";
   const label = headroom < -1 ? t("ramOver") : headroom < 1 ? t("ramNear") : t("ramOk");
   return { kind, html: `${pill(label, kind)} <b>${formatSizeGb(runtimeSizeGb)}</b> / ${formatSizeGb(availableGb)}` };
+}
+
+// ── "Will it fit" for the command-path runners ───────────────────────────────
+// llama's estimate does not carry over: its numbers come from CTX_SIZE /
+// CACHE_TYPE_* / BATCH_SIZE, knobs no other engine has. Each runner instead gets
+// the one number that actually predicts its failure:
+//   vLLM      reserves GPU_MEMORY_UTILIZATION × TOTAL VRAM at startup no matter
+//             what the model weighs — so the check is that reservation against
+//             free VRAM (it is what starves neighbouring cells on the card),
+//             plus whether the weights fit inside the reservation.
+//   whisper   a fixed model size straight off the picker, against free VRAM.
+//   moonshine CPU-only — it reports RAM, because it never touches VRAM.
+//   custom    an arbitrary process: nothing is knowable, so show headroom only.
+export function renderCommandFit(pfx = "") {
+  const box = $(pfx + "cmdFit");
+  if (!box) return;
+  const runner = _runnerOf(pfx);
+  if (runner === "llama-server") { box.innerHTML = ""; return; }   // it has the richer estimate
+  const gpus = computeTargetGpus(pfx);
+  const totalGb = gpus.reduce((s, g) => s + Number(g.memoryTotalMiB || 0) / 1024, 0);
+  const freeGb = gpus.reduce((s, g) => s + gpuFreeMiB(g), 0) / 1024;
+  const row = (label, value, kind = "") =>
+    `<div class="cmd-fit-row${kind ? ` ${kind}` : ""}"><span>${escapeHtml(label)}</span><strong>${value}</strong></div>`;
+  let rows = "";
+  if (runner === "vllm") {
+    const util = Number($(pfx + "GPU_MEMORY_UTILIZATION")?.value) || 0.9;
+    const reserve = totalGb * util;
+    const modelGb = Number(selectedModelRows(pfx).selected?.sizeGb || 0);
+    const resFit = _vramFitFrom(gpus, reserve);
+    rows = row("GPU_MEMORY_UTILIZATION", `${util} · ${formatSizeGb(reserve)}`)
+      + (modelGb ? row(t("modelSize"), `${formatSizeGb(modelGb)} / ${formatSizeGb(reserve)}`, modelGb > reserve ? "bad" : "") : "")
+      + row(t("vramFit"), resFit.html, resFit.kind);
+  } else if (runner === "whisper") {
+    const size = whisperModelGb[($(pfx + "WHISPER_MODEL")?.value || "large-v3").trim()] || 0;
+    const fit = _vramFitFrom(gpus, size);
+    rows = row(t("modelSize"), formatSizeGb(size)) + row(t("vramFit"), fit.html, fit.kind);
+  } else if (runner === "moonshine") {
+    const fit = ramFitForPfx(moonshineModelGb, pfx);
+    rows = row(t("modelSize"), `≈ ${formatSizeGb(moonshineModelGb)}`) + row(t("ramFit"), fit.html, fit.kind);
+  } else {
+    // custom: the process is opaque — report what is free and estimate nothing.
+    const ramGb = computeTargetRamGb(pfx);
+    const onGpu = currentComputeMode(pfx) !== "cpu";
+    rows = (onGpu && totalGb ? row(t("vramFit"), `<b>${formatSizeGb(freeGb)}</b> free`) : "")
+      + (ramGb ? row(t("ramFit"), `<b>${formatSizeGb(ramGb)}</b> free`) : "");
+  }
+  box.innerHTML = rows;
 }
 

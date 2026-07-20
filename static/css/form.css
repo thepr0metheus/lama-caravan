@@ -179,6 +179,14 @@
 .compute-gpu-dd-name { font-weight: 600; }
 .compute-gpu-dd-vram { margin-left: auto; color: var(--muted, #8b93a1); font-size: 11px; }
 .compute-gpu-dd-div { height: 1px; background: rgba(255, 255, 255, 0.08); margin: 5px 4px; }
+
+/* "Will it fit" panel for the command-path runners — label left, number right.
+   Fit rows carry their own coloured pill; .bad is for the plain numeric rows. */
+.cmd-fit { display: grid; gap: 6px; }
+.cmd-fit-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; }
+.cmd-fit-row > span { color: var(--muted, #8b93a1); }
+.cmd-fit-row > strong { font-weight: 600; text-align: right; }
+.cmd-fit-row.bad > strong { color: var(--bad, #f85149); }
 .link-button.apply-family-defaults {
   color: #fbbf24;
   font-weight: 600;
