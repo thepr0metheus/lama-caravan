@@ -78,8 +78,18 @@ def render_command_cell_script(config):
                   "MOONSHINE_MODEL",
                   "LLAMA_MODELS_DIR", "ALIAS")
     block_lines = [CONFIG_BEGIN]
+    # Path-valued keys go through shell_path_value so a configured `~/models`
+    # survives as "$HOME/models". quote_shell_value alone would emit "~/models",
+    # which bash reads literally — the cell would look for a directory actually
+    # named "~". The block is also what the GUI parses back, and $HOME reads
+    # correctly there too.
+    _PATH_KEYS = ("LLAMA_MODELS_DIR", "WORKDIR")
     for key in block_keys:
-        block_lines.append(f"{key}={quote_shell_value(merged.get(key, ''))}")
+        raw = merged.get(key, "")
+        if key in _PATH_KEYS and str(raw).strip():
+            block_lines.append(f'{key}="{shell_path_value(raw)}"')
+        else:
+            block_lines.append(f"{key}={quote_shell_value(raw)}")
     block_lines.append(CONFIG_END)
     config_block = "\n".join(block_lines)
 
@@ -94,9 +104,9 @@ def render_command_cell_script(config):
         f"export PORT={shlex.quote(port)}",
         *env_exports,
     ]
-    workdir = merged.get("WORKDIR") or ""
+    workdir = shell_path_value(merged.get("WORKDIR"))
     if workdir:
-        lines.append(f"cd {shlex.quote(workdir)}")
+        lines.append(f'cd "{workdir}"')
     if is_vllm:
         lines += ["", *VLLM_BOOTSTRAP_LINES]
     lines += [
@@ -107,6 +117,28 @@ def render_command_cell_script(config):
         "",
     ]
     return "\n".join(lines)
+
+def shell_path_value(raw) -> str:
+    """A configured path as it must appear inside DOUBLE quotes in a start line.
+
+    A leading `~` becomes `$HOME` because quoting defeats tilde expansion: bash
+    expands `~/models` but not `"~/models"` or `'~/models'`, and the quotes are
+    not optional — a path may contain spaces. Written as `"$HOME/models"` it
+    both survives spaces and resolves, including on a client whose home differs
+    from the controller's, which is exactly why the controller must not resolve
+    it itself.
+
+    Returns "" for an empty value so callers can skip the line entirely.
+    """
+    v = str(raw or "").strip()
+    if not v:
+        return ""
+    if v == "~":
+        v = "$HOME"
+    elif v.startswith("~/"):
+        v = "$HOME/" + v[2:]
+    return v.replace("\\", "\\\\").replace('"', '\\"')
+
 
 def command_cell_env_exports(env_raw) -> list:
     """`export KEY="VALUE"` lines from the ENV field (newline- or comma-separated).
@@ -149,10 +181,17 @@ def render_command_cell_shell_line(config, port=None) -> str:
     if not command:
         raise AppError("command is required for a command cell")
     parts = ["set -euo pipefail", f"export PORT={shlex.quote(resolved_port)}"]
+    # The script renderer puts LLAMA_MODELS_DIR in its config block, where the
+    # command's ${LLAMA_MODELS_DIR:-…} finds it. A one-line start has no such
+    # block, so a client silently fell back to the default while the controller
+    # honoured the configured path — the same cell, two model roots.
+    models_dir = shell_path_value(merged.get("LLAMA_MODELS_DIR"))
+    if models_dir:
+        parts.append(f'export LLAMA_MODELS_DIR="{models_dir}"')
     parts += command_cell_env_exports(merged.get("ENV"))
-    workdir = merged.get("WORKDIR") or ""
+    workdir = shell_path_value(merged.get("WORKDIR"))
     if workdir:
-        parts.append(f"cd {shlex.quote(workdir)}")
+        parts.append(f'cd "{workdir}"')
     parts.append(f"exec {command}")
     return "; ".join(parts)
 
