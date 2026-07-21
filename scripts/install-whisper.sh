@@ -21,7 +21,7 @@ err()  { echo -e "${RED}[error]${NC}  $*" >&2; }
 have() { command -v "$1" &>/dev/null; }
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SRC="${REPO_DIR}/whisper"
+SRC="${REPO_DIR}/cells"
 VENV="${VENV:-${HOME}/wsr}"
 
 if [[ "$(uname -s)" == "Darwin" ]]; then
@@ -36,7 +36,7 @@ if ! nvidia-smi -L >/dev/null 2>&1 \
   exit 0
 fi
 if [[ ! -f "${SRC}/whisper_server.py" || ! -f "${SRC}/run_whisper.sh" ]]; then
-  err "bundled whisper files missing under ${SRC} — cannot provision."
+  err "cell servers missing under ${SRC} — is this a full checkout?"
   exit 1
 fi
 

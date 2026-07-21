@@ -24,7 +24,7 @@ err()  { echo -e "${RED}[error]${NC}  $*" >&2; }
 have() { command -v "$1" &>/dev/null; }
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SRC="${REPO_DIR}/tts"
+SRC="${REPO_DIR}/cells"
 PREWARM=""
 if [[ "${1:-}" == "--prewarm" ]]; then PREWARM="${2:-xtts}"; fi
 
@@ -38,7 +38,7 @@ if ! nvidia-smi -L >/dev/null 2>&1 \
   exit 0
 fi
 if [[ ! -f "${SRC}/tts_server.py" || ! -f "${SRC}/run_tts.sh" ]]; then
-  err "bundled tts files missing under ${SRC} — cannot provision."
+  err "cell servers missing under ${SRC} — is this a full checkout?"
   exit 1
 fi
 
