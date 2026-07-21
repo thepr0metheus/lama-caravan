@@ -47,7 +47,9 @@ fails at import time.
 | Method & path | Purpose |
 |---|---|
 | `GET /api/models` | Local GGUF catalog (families, sizes, metadata). |
-| `GET /api/models/download?path=` | Stream a local GGUF file to the browser. |
+| `GET /api/models/download?path=` | Stream a local GGUF file — to the browser, and to a scout provisioning a client cell (fleet token). 404 if the controller does not have it: it never fetches a model on a client's behalf. |
+| `GET /api/cell-assets` | Manifest of the cell servers this controller owns (`cells/`): sha256, size and exec bit per file, plus which files each runner needs. Fleet token. |
+| `GET /api/cell-assets/file?name=` | One cell server or launcher, raw. Explicit allowlist — a file dropped into `cells/` is not served until it is listed in `cell_assets.py`. Fleet token. |
 | `GET /api/models/disk` | Models-disk tree with per-directory size rollups (the `/models` page). |
 | `GET /api/models/unused` | GGUFs no cell/config references (multi-part groups counted as one). |
 | `POST /api/models/gc` | Delete selected unreferenced model files (server re-checks references). |

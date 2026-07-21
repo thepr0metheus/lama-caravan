@@ -43,7 +43,7 @@ mtime, files diff cleanly in git, and a backup is a copy.)
         │ caravan-scout (:8092)               │            → their local proxy port :81xx
         │ · local llama cells / model cache   │
         │ · POSTs /api/topology/client-heartbeat
-        │ whisper_server.py (command cells)   │
+        │ cell servers fetched from controller │
         └─────────────────────────────────────┘
 ```
 
@@ -53,7 +53,7 @@ mtime, files diff cleanly in git, and a backup is a copy.)
 | Proxy daemon (`caravan/proxy`) | controller `:8101+` (one port per route) | OpenAI-compatible reverse proxy per agent: admission queue, priority preemption, router DAG, cloud fallback, protocol translation. See [backend-proxy.md](backend-proxy.md). |
 | Server cells | controller + clients | Per-port llama-server instances. Controller cells run under `lama-cell@<port>.service` from generated `var/server-cells/<port>/start.sh`; client cells are managed remotely through the route-agent. |
 | Route-agent (`caravan-scout`, formerly `llm-easy-route-agent`, separate repo) | each client `:8092` | Publishes the host's llama nodes/GPUs to the admin (heartbeat) and executes start/stop/config/cache commands on behalf of the admin. |
-| Command-cell servers (whisper, TTS — `tts/` + `whisper/` in the caravan-scout repo) | any client | Example "command cells": arbitrary servers managed like llama cells, with a health endpoint that reports download/load progress. They live with the scout because that is what installs them: `scripts/install-{tts,whisper}.sh` copy them into `$HOME` on the client, and the cell command runs the `$HOME` copy. |
+| Cell servers (moonshine, whisper, TTS — `cells/` in THIS repo) | controller + any client | The programs a "command cell" actually runs: ordinary servers managed like llama cells, with a health endpoint reporting download/load progress. The controller owns them and serves them over `/api/cell-assets`; every host materializes them into `$HOME`, where the generated cell command looks for them — the controller before starting a local cell, a scout before starting a client one. They used to live in the scout repo and were copied by hand into the controller, which is how the two copies drifted for months. |
 | Frontend (`static/`) | served by admin | Topology board, standalone kanban/router canvas, HF browser. Native ES modules. See [frontend.md](frontend.md). |
 | OpenClaw config managers | your hosts `:5005` | External agents' config source; the admin syncs per-agent `wait_timeout` from them and computes queue thresholds. |
 | Fleet registry | `:8011` (optional) | Single source of truth for agent identity; discovered clients are registered by POSTing there. |
@@ -142,7 +142,7 @@ static/
 └── index.html / kanban.html / hf.html / models.html / system.html / hf.js
 scripts/                   install/start scripts, queue-node unit tests, refactor tooling
 systemd/                   unit files installed on the controller
-whisper/                   faster-whisper command-cell example
+cells/                     cell servers served to the fleet (/api/cell-assets)
 docs/                      this documentation + postmortems
 ```
 
