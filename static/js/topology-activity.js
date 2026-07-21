@@ -842,8 +842,14 @@ export function topologyIncidentForItem(item) {
   const duration = Number(item.durationMs || item.elapsedMs || 0);
   const label = String(item.label || item.route || "");
   if (item.error || (status && !status.startsWith("2") && status !== "?")) {
-    const errorKind = item.errorKind || (String(item.error || "").includes("Broken pipe") ? "client_disconnected"
-      : String(item.error || "").includes("timed out") ? "upstream_timeout" : "failed");
+    // The sniffing fallback must know every phrasing the proxy emits for "the
+    // CLIENT hung up" — otherwise a non-fatal disconnect paints as a hard error
+    // (seen live: 'client disconnected (upstream generation aborted)' with a
+    // 200 status showed as a red error/timeout tick on the Route Activity).
+    const errText = String(item.error || "");
+    const errorKind = item.errorKind
+      || (/client disconnected|broken pipe|connection reset/i.test(errText) ? "client_disconnected"
+        : /timed out|timeout/i.test(errText) ? "upstream_timeout" : "failed");
     return {
       kind: errorKind,
       title: `${label || "route"} ${errorKind === "client_disconnected" ? "client disconnected" : "failed"}`,

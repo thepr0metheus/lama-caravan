@@ -202,8 +202,12 @@ def proxy_incident_for_item(item):
     first_byte = float(item.get("firstByteMs") or 0)
     duration = float(item.get("durationMs") or item.get("elapsedMs") or 0)
     if item.get("error") or (status and not status.startswith("2") and status != "?"):
-        error_kind = item.get("errorKind") or ("client_disconnected" if "Broken pipe" in str(item.get("error")) else "")
-        if not error_kind and "timed out" in str(item.get("error")):
+        _err_text = str(item.get("error") or "")
+        error_kind = item.get("errorKind") or (
+            "client_disconnected"
+            if any(k in _err_text.lower() for k in ("client disconnected", "broken pipe", "connection reset"))
+            else "")
+        if not error_kind and "timed out" in _err_text:
             error_kind = "upstream_timeout"
         return {
             "kind": error_kind or "failed",
