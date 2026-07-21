@@ -275,7 +275,14 @@ export function nodeServerCardHtml(node, s) {
     const dlFile = s.downloadingFile ? escapeHtml(s.downloadingFile) : escapeHtml(t("topologyRemoteDownloading"));
     statusRow = _msl("", `<span class="msl-bar"><span style="width:${p ?? 0}%"></span></span><span class="msl-text" data-live-dl>${dlFile} · ${(done/1e9).toFixed(1)}/${(tot/1e9).toFixed(1)} GB${p!=null?` · ${p}%`:""}</span>`);
   } else if (isWarming) {
-    statusRow = _msl("", `${_mslSpin(false)}<span class="msl-bar indeterminate"><span></span></span><span class="msl-text">${escapeHtml(t("topologyRemoteWarming"))}</span>${_prevErrChip(s)}`);
+    // "into VRAM" is a lie on a CPU cell — it loads into RAM. The full isCpuCell
+    // is derived further down (it needs the live GPU list), so the two cases
+    // that matter while WARMING are read straight off the cell config here.
+    const _wcfg = s.slotConfig || {};
+    const _warmCpu = String(_wcfg.N_GPU_LAYERS ?? "").trim() === "0"
+      || String(_wcfg.RUNNER || "").toLowerCase() === "moonshine";
+    const _warmKey = _warmCpu ? "topologyRemoteWarmingRam" : "topologyRemoteWarming";
+    statusRow = _msl("", `${_mslSpin(false)}<span class="msl-bar indeterminate"><span></span></span><span class="msl-text">${escapeHtml(t(_warmKey))}</span>${_prevErrChip(s)}`);
   } else if (isError && (s.status?.error)) {
     // The unit is failed or flapping — say WHY (classified from its journal)
     // instead of leaving a silent stopped-looking card. WHEN it died matters

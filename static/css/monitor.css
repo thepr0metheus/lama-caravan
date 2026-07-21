@@ -1006,8 +1006,8 @@
   width: 12px;
   height: 12px;
   flex-shrink: 0;
-  border: 2px solid color-mix(in srgb, var(--accent, #6ea8fe) 35%, transparent);
-  border-top-color: var(--accent, #6ea8fe);
+  border: 2px solid color-mix(in srgb, var(--cell-accent, var(--accent, #6ea8fe)) 35%, transparent);
+  border-top-color: var(--cell-accent, var(--accent, #6ea8fe));
   border-radius: 50%;
   animation: topology-spinner-rot 0.7s linear infinite;
 }
