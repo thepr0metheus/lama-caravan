@@ -80,6 +80,7 @@ from caravan.admin.metrics import build_metrics_text
 from caravan.admin.model_gc import delete_models, list_unused_models
 from caravan.admin import auth as auth_mod
 from caravan.admin.status import controller_info, do_action, llama_builds_list, llama_cpp_info, llama_suspect_dismiss, llama_update_status, models_disk, start_llama_restore, start_llama_update, start_vllm_update, state, vllm_info
+from caravan.admin.cell_assets import cell_asset_bytes, cell_assets_manifest
 from caravan.admin.cell_ops import (
     client_server_slot_add,
     client_server_slot_delete,
@@ -756,6 +757,26 @@ def _get_metrics(h, parsed):
         h.wfile.write(data)
         return
 
+@_route(GET_ROUTES, '/api/cell-assets')
+def _get_api_cell_assets(h, parsed):
+        # Manifest of the cell servers this controller serves, hashed so a scout
+        # fetches only what it does not already match.
+        h.send_json(cell_assets_manifest())
+        return
+
+@_route(GET_ROUTES, '/api/cell-assets/file')
+def _get_api_cell_assets_file(h, parsed):
+        import urllib.parse as _upa
+        _qa = _upa.parse_qs(parsed.query or "")
+        name = (_qa.get("name") or [""])[0].strip()
+        data = cell_asset_bytes(name)          # raises 404 for anything unlisted
+        h.send_response(200)
+        h.send_header("Content-Type", "application/octet-stream")
+        h.send_header("Content-Length", str(len(data)))
+        h.end_headers()
+        h.wfile.write(data)
+        return
+
 @_route(GET_ROUTES, '/api/models/unused')
 def _get_api_models_unused(h, parsed):
         h.send_json(list_unused_models())
@@ -1321,7 +1342,8 @@ def _delete_api_hf_local_file(h, parsed):
 
 _AUTH_PUBLIC_GET = {"/login", "/favicon.svg", "/favicon.ico", "/api/auth/me"}
 _AUTH_PUBLIC_POST = {"/api/auth/login", "/api/auth/setup"}
-_AUTH_MACHINE_GET = {"/api/models/download"}
+_AUTH_MACHINE_GET = {"/api/models/download", "/api/cell-assets",
+                     "/api/cell-assets/file"}
 _AUTH_MACHINE_POST = {"/api/topology/client-heartbeat"}
 
 

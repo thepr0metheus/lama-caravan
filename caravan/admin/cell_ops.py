@@ -7,6 +7,7 @@ import shutil
 from caravan.admin.config_builder import is_command_cell
 from caravan.admin.runners import runner_id, uses_command_path
 from caravan.admin.fleet_clients import client_llama_start, client_llama_stop
+from caravan.admin.cell_assets import assets_for_runner, materialize_local_assets
 from caravan.admin.launch import server_cell_dir, write_server_cell_artifacts
 from caravan.admin.server_cells import (
     assert_server_cell_port_available,
@@ -183,6 +184,12 @@ def server_cell_action(body: dict) -> dict:
                 slot["artifact"] = artifact
                 topology_store()["serverSlots"][server_slot_key(host_id, port)] = slot
                 save_admin_state()
+        # The command names $HOME/run_<runner>.sh — put the current one there.
+        # Same step a scout performs over HTTP before starting a client cell;
+        # here the source is simply this repo. Failures are logged inside and
+        # never block the start: an existing copy is better than no cell.
+        if action_name in {"start", "restart"} and uses_command_path(cfg):
+            materialize_local_assets(assets_for_runner(runner_id(cfg)))
         result = cell_service_action(port, action_name)
         return {"ok": True, "hostId": host_id, "port": port, "action": action_name,
                 "result": result, "status": cell_service_status(port)}
