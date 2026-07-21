@@ -89,7 +89,8 @@ The launch-config contract. `CONFIG_FIELDS` (~90 keys, including the command-cel
 are a contract with `scripts/start-server.sh` — never rename them here alone. `build_llama_args` is
 the **single config→CLI source of truth**: the local start-server.sh, server cells (same generator),
 remote clients (args shipped with `{{MODEL_PATH}}`/`{{MMPROJ_PATH}}`/`{{SPEC_PATH}}` placeholders
-the route-agent substitutes after download), and the GUI preview (`POST /api/llama-command-preview`)
+the route-agent substitutes after download — it has no builder of its own and refuses a start
+without them), and the GUI preview (`POST /api/llama-command-preview`)
 all funnel through it — adding a flag means editing it and nothing else. Safety nets live here too:
 embeddings mode drops speculative decoding and `--jinja`; `ENABLE_THINKING` merges into
 `--chat-template-kwargs`. `parse_extra_args` is the inverse — it hoists recognized raw flags out of
@@ -122,13 +123,18 @@ config so block and command never drift. CPU-only configs (`N_GPU_LAYERS=0`) exp
 `CUDA_VISIBLE_DEVICES=""` because a CUDA build still initializes the backend at `-ngl 0` and can
 abort on a full GPU. `render_command_cell_script` does the same for command cells (arbitrary managed
 process, `exec`'d so systemd/the agent tracks the real PID; `ENV` rendered as exports, optional `cd
-WORKDIR`). `write_server_cell_artifacts` writes `var/server-cells/<port>/start.sh` + `cell.json`
+WORKDIR`), and `render_command_cell_shell_line` renders that same cell as one `bash -lc` sentence
+for a host that runs it as a child process instead of a unit — shipped to clients as
+`payload["shellLine"]`. The two share `command_cell_env_exports`: the agent used to parse `ENV`
+itself and had already lost `set -euo pipefail`, so one config behaved differently per host.
+`write_server_cell_artifacts` writes `var/server-cells/<port>/start.sh` + `cell.json`
 (temp+replace). Snapshots are manual-only (`snapshot_config` — named
 `start-server.sh.bak.<stamp>-<name>` files, rendered from the live form config when given so
 cell-specific values are captured); `save_config` rewrites the whole start-server.sh with no
 auto-backup.
 Owns: the `# BEGIN/END LLAMA COMMAND` markers; `var/server-cells/<port>/` contents.
-Key functions: `render_launch_script`, `render_command_cell_script`, `write_server_cell_artifacts`,
+Key functions: `render_launch_script`, `render_command_cell_script`,
+`render_command_cell_shell_line`, `command_cell_env_exports`, `write_server_cell_artifacts`,
 `server_cell_dir`, `snapshot_config`, `save_config`.
 
 ## `models.py`
@@ -441,6 +447,24 @@ samples collapsed, 600s retention / 300 rows kept / 150 emitted, all guarded by 
 Owns: the four probe caches, the three history rings, `_history_lock`.
 Key functions: `firewall_port_access`, `probe_remote_port`, `remote_llama_health`,
 `command_cell_health`, `remote_llama_modalities`, the `_record_*_history` feeders used by topology.
+
+## `cell_assets.py`
+
+The cell servers themselves — the launchers and HTTP servers a command cell runs (moonshine,
+whisper, tts). `cells/` in this repo is their one home, and this module is how they reach every
+host: `cell_assets_manifest()` hashes them, `cell_asset_bytes()` serves one, and
+`materialize_local_assets()` copies what a runner needs into the controller's own `$HOME` before a
+local cell starts — the same destination a scout writes to, so one command string works everywhere.
+The served set is an explicit allowlist (`CELL_ASSETS`, `RUNNER_ASSETS`) rather than a directory
+listing, because these endpoints hand files to the whole fleet and a stray file dropped into
+`cells/` must not become fleet-readable by accident. Writes go through temp+replace, and a failure
+never blocks a start: an out-of-date cell beats no cell.
+Before this, each host obtained these files independently — clients from their caravan-scout clone,
+the controller from somebody copying one in by hand — and the copies drifted for months with no
+error anywhere.
+Owns: `cells/` and what `/api/cell-assets` exposes.
+Key functions: `cell_assets_manifest`, `cell_asset_bytes`, `materialize_local_assets`,
+`assets_for_runner`.
 
 ## `server_cells.py`
 
