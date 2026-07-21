@@ -11,7 +11,7 @@ from pathlib import Path
 
 from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
-from caravan.admin.launch import _sanitize_snapshot_name
+from caravan.admin.launch import render_command_cell_shell_line, _sanitize_snapshot_name
 from caravan.admin.paths import (
     CONTROLLER_HOST_ID,
     LEGACY_CONTROLLER_HOST_IDS,
@@ -148,6 +148,12 @@ def client_llama_start(body: dict) -> dict:
         payload["cellKind"] = "command"
         payload["command"] = effective_command(payload["config"], with_bootstrap=True)
         payload["healthPath"] = effective_health_path(payload["config"])
+        # The whole start line, not just the command: exports, workdir and the
+        # shell flags. The agent used to assemble this itself from `command` and
+        # the config, mirroring render_command_cell_script() — and the mirror had
+        # already lost `set -euo pipefail`, so one config behaved differently on a
+        # client than on the controller. Now there is one sentence, written here.
+        payload["shellLine"] = render_command_cell_shell_line(payload["config"], payload["port"])
         if not payload["command"]:
             raise AppError("command is required for a command cell", 400)
     else:

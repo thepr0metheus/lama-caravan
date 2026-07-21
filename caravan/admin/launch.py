@@ -22,6 +22,7 @@ from caravan.common.errors import AppError
 from caravan.admin.runners import (
     VLLM_BOOTSTRAP_LINES,
     build_moonshine_command,
+    effective_command,
     build_vllm_command,
     build_whisper_command,
     runner_id,
@@ -82,19 +83,7 @@ def render_command_cell_script(config):
     block_lines.append(CONFIG_END)
     config_block = "\n".join(block_lines)
 
-    # ENV: newline- or comma-separated KEY=VALUE, rendered as `export KEY="VALUE"`
-    # (double-quoted so paths/spaces are safe but $VARS still expand).
-    env_exports = []
-    for raw in re.split(r"[\n,]", merged.get("ENV") or ""):
-        item = raw.strip()
-        if not item or item.startswith("#") or "=" not in item:
-            continue
-        k, v = item.split("=", 1)
-        k = k.strip()
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
-            continue
-        v = v.strip().replace("\\", "\\\\").replace('"', '\\"')
-        env_exports.append(f'export {k}="{v}"')
+    env_exports = command_cell_env_exports(merged.get("ENV"))
 
     lines = [
         "#!/usr/bin/env bash",
@@ -118,6 +107,55 @@ def render_command_cell_script(config):
         "",
     ]
     return "\n".join(lines)
+
+def command_cell_env_exports(env_raw) -> list:
+    """`export KEY="VALUE"` lines from the ENV field (newline- or comma-separated).
+
+    Double-quoted so paths and spaces survive while $VARS still expand. Shared by
+    both renderers below, because the agent used to reimplement this parser and
+    the two copies were already drifting apart.
+    """
+    out = []
+    for raw in re.split(r"[\n,]", str(env_raw or "")):
+        item = raw.strip()
+        if not item or item.startswith("#") or "=" not in item:
+            continue
+        k, v = item.split("=", 1)
+        k = k.strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
+            continue
+        v = v.strip().replace("\\", "\\\\").replace('"', '\\"')
+        out.append(f'export {k}="{v}"')
+    return out
+
+
+def render_command_cell_shell_line(config, port=None) -> str:
+    """The same command cell as one `bash -lc` line, for a host that runs the
+    cell as a child process instead of a systemd unit.
+
+    The client agent used to assemble this itself, mirroring the script renderer
+    above — and the mirror had already lost `set -euo pipefail`, so an identical
+    config behaved differently depending on which host ran it. The controller is
+    the one place that knows how a cell starts; it now says so in full and the
+    agent only executes the sentence.
+    """
+    merged = {key: str(config.get(key, "")).strip() for key in CONFIG_FIELDS}
+    if port is not None:
+        merged["PORT"] = str(port)
+    resolved_port = merged.get("PORT") or ""
+    if not resolved_port.isdigit():
+        raise AppError("PORT must be a number")
+    command = effective_command(merged, with_bootstrap=True)
+    if not command:
+        raise AppError("command is required for a command cell")
+    parts = ["set -euo pipefail", f"export PORT={shlex.quote(resolved_port)}"]
+    parts += command_cell_env_exports(merged.get("ENV"))
+    workdir = merged.get("WORKDIR") or ""
+    if workdir:
+        parts.append(f"cd {shlex.quote(workdir)}")
+    parts.append(f"exec {command}")
+    return "; ".join(parts)
+
 
 def render_launch_script(config):
     """Generate a complete, self-contained start script.
