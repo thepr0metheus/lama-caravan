@@ -60,11 +60,25 @@ export function topologyClientGpusHtml(client) {
 
     let actionHtml;
     if (running.length) {
+      // "2d 13h" instead of raw six-digit seconds — two largest units carry it.
+      const fmtDur = (sec) => {
+        const v = Math.max(0, Number(sec) || 0);
+        const d = Math.floor(v / 86400), h = Math.floor((v % 86400) / 3600), m = Math.floor((v % 3600) / 60);
+        if (d) return `${d}d ${h}h`;
+        if (h) return `${h}h ${m}m`;
+        if (m) return `${m}m`;
+        return `${Math.floor(v)}s`;
+      };
+      // A command cell (whisper/tts/moonshine) has no modelPath, which left bare
+      // ports on the card. Its display name is already shipped as cellLabel on
+      // the slot record — the same name the Model Servers panel shows.
+      const fleetCells = (topology?.nodes || []).flatMap((nd) => nd.servers || []);
       actionHtml = running.map((n) => {
-        const uptime = n.uptimeSec ? t("topologyClientGpuUptime").replace("{sec}", n.uptimeSec) : "";
-        const modelShort = (n.modelPath || "").split("/").pop() || "";
+        const uptime = n.uptimeSec ? t("topologyClientGpuUptime").replace("{dur}", fmtDur(n.uptimeSec)) : "";
+        const cell = fleetCells.find((s) => String(s.clientId || "") === String(client.id) && Number(s.port) === Number(n.port));
+        const name = (cell && cell.cellLabel) || (n.modelPath || "").split("/").pop() || "";
         return `<span class="topology-muted" style="font-size:11px">
-          ▶ :${escapeHtml(String(n.port))} ${escapeHtml(uptime)}${modelShort ? " · " + escapeHtml(modelShort) : ""}
+          ▶ :${escapeHtml(String(n.port))}${name ? " · " + escapeHtml(name) : ""}${uptime ? " · " + escapeHtml(uptime) : ""}
         </span>`;
       }).join("<br>");
     } else {
