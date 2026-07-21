@@ -1190,9 +1190,13 @@
   background: color-mix(in srgb, var(--cell-accent, #3fb950) 6%, transparent);
 }
 .node-server.stopped { border-left-color: var(--muted,#6e7681); background:transparent; }
+/* Configured but parked: same family as the cell's own accent (green on GPU
+   cells, blue on CPU ones), just muted — a hardcoded amber read as "warning"
+   for a cell that is simply waiting to be started. No tint, so the card sits as
+   calm as an un-configured one; RUNNING keeps the full accent + 6% wash. */
 .node-server.configured-cell {
-  border-left-color: var(--yellow,#d4b520);
-  background: color-mix(in srgb, var(--yellow,#d4b520) 6%, transparent);
+  border-left-color: color-mix(in srgb, var(--cell-accent, #3fb950) 55%, var(--muted,#888));
+  background: transparent;
 }
 .node-server.loading { border-left-color: var(--warn,#f59e0b); }
 .node-server.reserved-cell {
@@ -1339,9 +1343,4 @@
 
 /* Node cards rendered inside the Llama Servers lane (cable targets) */
 
-/* CPU cells: the amber configured-cell card accent turns blue (running is
-   covered by --cell-accent). */
-.node-server.cpu-cell.configured-cell {
-  border-left-color: color-mix(in srgb, #4593ff 75%, var(--line));
-  background: color-mix(in srgb, #4593ff 5%, transparent);
-}
+

@@ -394,20 +394,23 @@
 .lc-cfg-btn {
   appearance: none; font: inherit; cursor: pointer;
 }
-/* override state bg/border to always signal "this is clickable" */
+/* Override state bg/border to always signal "this is clickable". THIS is the
+   look of a configured-but-parked cell — once the server starts, the more
+   specific .lc-cfg-live rules below take over — so it follows the cell's own
+   accent (green on GPU cells, blue on CPU), not warning amber. */
 .lc-node.lc-cfg-btn:not(:disabled) {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--cell-caution,#f59e0b) 14%, transparent) 0%, color-mix(in srgb, var(--cell-caution,#f59e0b) 7%, transparent) 100%);
-  border-color: color-mix(in srgb, var(--cell-caution,#f59e0b) 40%, transparent);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--cell-accent,#3fb950) 11%, transparent) 0%, color-mix(in srgb, var(--cell-accent,#3fb950) 5%, transparent) 100%);
+  border-color: color-mix(in srgb, var(--cell-accent,#3fb950) 32%, transparent);
   box-shadow: 0 2px 5px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.10);
 }
 .lc-cfg-btn:not(:disabled):hover {
-  border-color: var(--cell-caution,#f59e0b) !important;
-  background: color-mix(in srgb, var(--cell-caution,#f59e0b) 12%, transparent);
+  border-color: var(--cell-accent,#3fb950) !important;
+  background: color-mix(in srgb, var(--cell-accent,#3fb950) 12%, transparent);
 }
 .lc-cfg-btn:not(:disabled):hover .lc-dot {
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cell-caution,#f59e0b) 22%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cell-accent,#3fb950) 22%, transparent);
 }
-.lc-cfg-btn:not(:disabled):hover .lc-lbl { color: var(--cell-caution,#f59e0b) !important; }
+.lc-cfg-btn:not(:disabled):hover .lc-lbl { color: var(--cell-accent,#3fb950) !important; }
 .lc-cfg-btn:disabled { cursor: default; opacity: 0.4; }
 .lc-uptime { font-size: 7px; opacity: .65; text-transform: none; letter-spacing: 0; }
 /* fixed tiny connector — boxes take all the space, rails are just decoration */
@@ -438,14 +441,17 @@
 .lc-node.lc-stopped .lc-dot { background: var(--muted,#888); }
 .lc-node.lc-stopped .lc-lbl { color: var(--muted,#888); }
 
-/* Active — configured (has model, not running) → caution hue */
-.lc-node.lc-configured { border-color: color-mix(in srgb, var(--cell-caution,#f59e0b) 40%, transparent); background: color-mix(in srgb, var(--cell-caution,#f59e0b) 10%, transparent); }
+/* Active — configured (has model, not running) → the cell's own accent, muted.
+   Amber said "something is wrong" about a cell that is merely parked; the
+   pulsing dot alone distinguishes "ready to start" from a bare reservation.
+   Amber stays where it belongs: the transient starting/loading step. */
+.lc-node.lc-configured { border-color: color-mix(in srgb, var(--cell-accent,#3fb950) 32%, transparent); background: color-mix(in srgb, var(--cell-accent,#3fb950) 7%, transparent); }
 .lc-node.lc-configured .lc-dot {
-  background: color-mix(in srgb, var(--cell-caution,#f59e0b) 65%, var(--muted,#888));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-caution,#f59e0b) 18%, transparent);
+  background: color-mix(in srgb, var(--cell-accent,#3fb950) 60%, var(--muted,#888));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-accent,#3fb950) 15%, transparent);
   animation: lc-pulse-configured 2.8s ease-in-out infinite;
 }
-.lc-node.lc-configured .lc-lbl { color: color-mix(in srgb, var(--cell-caution,#f59e0b) 75%, var(--muted,#888)); font-weight: 600; }
+.lc-node.lc-configured .lc-lbl { color: color-mix(in srgb, var(--cell-accent,#3fb950) 70%, var(--muted,#888)); font-weight: 600; }
 
 /* Active — reserved cell → accent hue (was the teal global --accent) */
 .lc-node.lc-reserved { border-color: color-mix(in srgb, var(--cell-accent,#3fb950) 45%, transparent); background: color-mix(in srgb, var(--cell-accent,#3fb950) 10%, transparent); }
@@ -503,8 +509,8 @@
   50%       { box-shadow: 0 0 0 6px color-mix(in srgb, var(--cell-caution,#f59e0b) 0%, transparent); }
 }
 @keyframes lc-pulse-configured {
-  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-caution,#f59e0b) 20%, transparent); }
-  50%       { box-shadow: 0 0 0 5px color-mix(in srgb, var(--cell-caution,#f59e0b) 0%, transparent); }
+  0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-accent,#3fb950) 18%, transparent); }
+  50%       { box-shadow: 0 0 0 5px color-mix(in srgb, var(--cell-accent,#3fb950) 0%, transparent); }
 }
 
 /* ── State nodes (RESERVED, STARTING, RUNNING) — always dark inset box ──── */
