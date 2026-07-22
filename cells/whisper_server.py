@@ -6,7 +6,7 @@ Serves POST /v1/audio/transcriptions (multipart wav -> {"text": ...}) on your GP
 Startup progress: the port binds immediately and the model loads in a background
 thread, so the health endpoint reports progress. GET <health> returns:
     503 + {"status":"downloading"|"loading","downloadedBytes":N,"totalBytes":M}
-    200 "ok"  when the model is ready
+    200 + {"status":"ok","model":<size>,"engine":"faster-whisper"} when ready
 (CARAVAN surfaces this as a "downloading N% / loading" cell phase instead of a
 silent STARTING; the model auto-downloads from HuggingFace on first run.)
 
@@ -127,9 +127,16 @@ class H(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        # Health: 200 "ok" when ready, else 503 (or 500 on error) + progress JSON.
+        # Health: JSON when ready, else 503 (or 500 on error) + progress JSON.
         if _state["ready"]:
-            self._send(200, b"ok")
+            # "model" and "engine" are what a LAN client names the card by — a
+            # bare "ok" left it with nowhere to read the model from, so this cell
+            # showed up differently from every other one. CARAVAN is unaffected:
+            # its command_cell_health() only looks for a loading marker in the
+            # body and treats anything else as listening, whether text or JSON.
+            self._send(200, json.dumps({
+                "status": "ok", "model": MODEL, "engine": "faster-whisper",
+            }).encode(), "application/json")
             return
         payload = json.dumps({
             "status": _state["phase"],
