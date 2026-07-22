@@ -574,17 +574,20 @@ button.cmd-dirty::after {
   justify-content: center;
   overflow: hidden;
 }
+/* The scene is one SVG on a 22x14 unit grid — one unit per former pixel, so
+   the timelines' shifts still read as whole cells. Each cell is knitted: a
+   colour path plus the shared stitch pattern on top (see dialog-llamas.js).
+   No image-rendering: pixelated here — the loops are vector curves, and
+   pixel-snapping them turns the yarn into gravel. */
 .dlg-stage .dlg-sc {
-  position: relative;
-  width: 22em;
-  height: 12em;
+  width: 110px;
+  height: 70px;
   margin-top: 8px;
-  font-size: 5px;
-  image-rendering: pixelated;
+  overflow: visible;
 }
-.dlg-sc i { position: absolute; left: 0; top: 0; width: 1em; height: 1em; transition: transform .28s steps(3); }
+.dlg-sc > g { transition: transform .28s steps(3); }
 .dlg-sc .dlg-sc-prop.dlg-sc-slide { animation: dlg-slide-in .3s steps(4) 1; }
-@keyframes dlg-slide-in { from { transform: translateX(8em); } to { transform: translateX(0); } }
+@keyframes dlg-slide-in { from { transform: translateX(8px); } to { transform: translateX(0); } }
 
 /* 16x13 pixel llama (same grid as the page loader), drawn at 2px per pixel. */
 .dlg-ico::before {

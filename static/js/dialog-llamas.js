@@ -1,4 +1,9 @@
-// Animated pixel llamas for the shared confirm dialog (#confirmOverlay).
+// Animated knitted llamas for the shared confirm dialog (#confirmOverlay).
+// The grid is still pixels — every scene below is a list of [x, y] cells —
+// but each cell renders as a stockinette stitch instead of a square: the
+// colour fills the cell, and one path over the whole silhouette carries the
+// V-shaped loops via an SVG pattern. That keeps a frame at two nodes per
+// layer rather than four per pixel, so the 320 ms tick stays cheap.
 // Scene kinds: "delete" — the llama stomps a crate flat (a fresh one slides
 // in, loop); "change" — it nose-flips a big toggle; "start" — a night launch:
 // the llama presses the button, the rocket climbs out of the frame past a
@@ -51,7 +56,7 @@ function lieShadow(variant, body, blanket) {
   // tucked front hooves peeking out; variant B twitches an ear
   px.push([3, 11, HOOF], [9, 11, HOOF]);
   if (variant === "b") px.push([13, 2, body]);
-  return px.map(([x, y, c]) => `${x}em ${y}em 0 0 ${c}`).join(", ");
+  return px;
 }
 
 const ZZ = "#dce9e9";
@@ -74,7 +79,7 @@ function llamaShadow(pose, body, blanket) {
   BLANKET.forEach(([x, y]) => px.push([x, y, blanket]));
   LEGS[pose].b.forEach(([x, y]) => px.push([x, y, body]));
   LEGS[pose].h.forEach(([x, y]) => px.push([x, y, HOOF]));
-  return px.map(([x, y, c]) => `${x}em ${y}em 0 0 ${c}`).join(", ");
+  return px;
 }
 
 // ── props (drawn to the RIGHT of the llama, x13..21) ─────────────────────────
@@ -169,7 +174,29 @@ function tower(stage, accent) {
                           [16, 4, accent], [17, 4, accent], [16, 5, accent]); // banner
   return px;
 }
-const propShadow = (px) => px.map(([x, y, c]) => `${x}em ${y}em 0 0 ${c}`).join(", ");
+// The timelines below still call this on every prop list; it now just passes
+// the cells through, because painting turned into SVG.
+const propShadow = (px) => px;
+
+// ── stitch rendering ────────────────────────────────────────────────────────
+// A cell becomes: a filled rect (the yarn colour) plus its share of ONE path
+// that the knit pattern paints. Colours are grouped so a body of 40 cells is a
+// single <path>, not 40 <rect>s.
+const CELL = (x, y) => `M${x} ${y}h1v1h-1z`;
+
+function cellsSvg(px) {
+  if (!px || !px.length) return "";
+  const byColor = new Map();
+  px.forEach(([x, y, c]) => {
+    if (!byColor.has(c)) byColor.set(c, []);
+    byColor.get(c).push(CELL(x, y));
+  });
+  let out = "";
+  byColor.forEach((d, c) => { out += `<path fill="${c}" d="${d.join("")}"/>`; });
+  // the loops ride on top of every colour at once
+  out += `<path fill="url(#dlgKnit)" d="${px.map(([x, y]) => CELL(x, y)).join("")}"/>`;
+  return out;
+}
 
 // ── scene timelines: [pose, propShadow, llamaShiftEm, propSlide] per tick ────
 function timeline(kind, accent) {
@@ -248,20 +275,37 @@ function mountScene(overlay) {
   modal.classList.add("dlg-staged");   // hides the small header tile
   const stage = document.createElement("div");
   stage.className = "dlg-stage";
-  stage.innerHTML = `<span class="dlg-sc"><i class="dlg-sc-sky"></i><i class="dlg-sc-llama"></i><i class="dlg-sc-prop"></i></span>`;
+  // One SVG, three groups — same layer order and the same em grid the CSS
+  // already positions. The pattern lives here so every layer shares it.
+  stage.innerHTML = `<svg class="dlg-sc" viewBox="0 0 22 14" aria-hidden="true">
+      <defs>
+        <pattern id="dlgKnit" width="1" height="1" patternUnits="userSpaceOnUse">
+          <!-- One stockinette loop per cell. The control point is ~2x the depth
+               you want: a quadratic curve only reaches half way to it, so .95
+               sagged to y=.44 and left bald stripes between the rows. 1.8 puts
+               the bottom of the V at y=.87, and ends at x=.04/.96 let
+               neighbouring loops touch the way real knitting does. -->
+          <path d="M.04 -.06Q.5 1.8 .96 -.06" fill="none" stroke="#000"
+                stroke-opacity=".22" stroke-width=".27" stroke-linecap="round"/>
+          <path d="M.12 -.02Q.5 1.46 .88 -.02" fill="none" stroke="#fff"
+                stroke-opacity=".3" stroke-width=".1" stroke-linecap="round"/>
+        </pattern>
+      </defs>
+      <g class="dlg-sc-sky"></g><g class="dlg-sc-llama"></g><g class="dlg-sc-prop"></g>
+    </svg>`;
   modal.prepend(stage);
   const llamaEl = stage.querySelector(".dlg-sc-llama");
   const propEl = stage.querySelector(".dlg-sc-prop");
   const skyEl = stage.querySelector(".dlg-sc-sky");
-  skyEl.style.boxShadow = kind === "start" ? propShadow(startSky()) : "";
+  skyEl.innerHTML = kind === "start" ? cellsSvg(startSky()) : "";
   let i = 0;
   const paint = () => {
     const [pose, prop, shift, slide] = frames[i % frames.length];
-    llamaEl.style.boxShadow = pose.startsWith("lie")
+    llamaEl.innerHTML = cellsSvg(pose.startsWith("lie")
       ? lieShadow(pose.endsWith("B") ? "b" : "a", body, blanket)
-      : llamaShadow(pose, body, blanket);
-    llamaEl.style.transform = `translateX(${shift}em)`;
-    propEl.style.boxShadow = prop;
+      : llamaShadow(pose, body, blanket));
+    llamaEl.style.transform = `translateX(${shift}px)`;   // 1 grid unit = 1 user unit
+    propEl.innerHTML = cellsSvg(prop);
     propEl.classList.toggle("dlg-sc-slide", !!slide);
     i += 1;
   };
