@@ -427,6 +427,29 @@ the projector is enabled. The llama.cpp response timings also expose draft
 counters such as `draft_n` and `draft_n_accepted`, and logs include
 `statistics mtp`.
 
+## Model licences
+
+The caravan is MIT, but **the models and engines it runs are not** — and their
+terms follow the weights, not this repository. Nothing here re-licenses them,
+so check what a cell actually runs before putting it in front of paying users:
+
+| what a cell runs | licence |
+|---|---|
+| llama.cpp, faster-whisper, CTranslate2, F5-TTS *(code)* | MIT |
+| vLLM, CosyVoice2 | Apache-2.0 |
+| coqui-tts *(the XTTS engine's code)* | MPL-2.0 |
+| Moonshine EN model | MIT |
+| Moonshine non-EN models | Moonshine Community Licence — free under $1M/yr revenue, registration + attribution |
+| **XTTS-v2 model** | **Coqui Public Model Licence — non-commercial** |
+| **F5-TTS base model** | **trained on CC-BY-NC data — non-commercial in practice** |
+| GGUF models you download | whatever their publisher says (Llama, Qwen and Gemma each differ) |
+
+The two rows in bold are the ones that surprise people: the *engine* is open
+source while the *weights* it loads are not free for commercial use. The engine
+picker in the cell editor repeats this next to each choice, because a dropdown
+is where the decision actually gets made. CosyVoice2 is the voice-clone engine
+without that restriction.
+
 ## Safety Model
 
 The app only rewrites lines between:
