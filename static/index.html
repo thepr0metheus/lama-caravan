@@ -58,7 +58,11 @@
       @keyframes pl-hop { 0%, 20%, 100% { margin-bottom: 0; } 55% { margin-bottom: 6px; } }
       /* клики: прыжок ламы и «египетский» выход черепашки */
       #appLoader .pl-llama::after { content: ""; position: absolute; left: 0; top: -13em; width: 17em; height: 15em; cursor: pointer; }
-      #appLoader .pl-llama.pl-jump::before { animation: pl-jumpy .55s ease-in-out 1; }
+      /* The jump animates the sprite, which is now the SVG child — it used to be
+         ::before. Leaving it on the pseudo-element broke the easter egg twice
+         over: no hop, and the class was never removed because animationend
+         never fired, so a second click did nothing either. */
+      #appLoader .pl-llama.pl-jump > svg { animation: pl-jumpy .55s ease-in-out 1; }
       @keyframes pl-jumpy { 0%, 100% { transform: translateY(-12em); } 45% { transform: translateY(-17em); } }
       #appLoader .pl-hint { color: rgba(160,180,185,.6); font: 500 11px/1 -apple-system, "Segoe UI", sans-serif;
         letter-spacing: .18em; }
@@ -162,7 +166,13 @@
           }
           if (el.classList.contains("pl-jump")) return;
           el.classList.add("pl-jump");
-          el.addEventListener("animationend", () => el.classList.remove("pl-jump"), { once: true });
+          // animationend alone is not enough: a browser freezes animations in a
+          // hidden tab, so a click just before the window is minimised would
+          // never fire it and the class would stick — with the early return
+          // above, that kills the easter egg permanently. The timer is the floor.
+          const unjump = () => el.classList.remove("pl-jump");
+          el.addEventListener("animationend", unjump, { once: true });
+          setTimeout(unjump, 700);
         });
         setTimeout(window.__plHide, 20000);  // страховка, если инициализация зависла
       })();
