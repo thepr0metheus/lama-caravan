@@ -499,9 +499,28 @@ def _bind_servers_to_gpus(gpus, compute_apps, servers):
                        if pids else {})
         for i in idxs:
             gpu_ports.setdefault(i, set()).add(s.get("port"))
+    # Split each card's compute memory into fleet vs everything else. The board
+    # already draws total `used`, but that lumps a training run or any outside
+    # process in with the cells — and when no cell sits on the card it labels it
+    # "idle" while an outside job is really holding VRAM. pid_mem carries every
+    # compute app; the ones whose pid belongs to a cell are the fleet's, the
+    # rest are not. (Graphics like Xorg aren't in --query-compute-apps, so a few
+    # MiB of overhead just falls into the free remainder — close enough.)
+    fleet_pids = {p for s in servers for p in [s.get("pid"), *(s.get("pids") or [])] if p}
     for g in gpus:
-        g["serverPorts"] = sorted(gpu_ports.get(g.get("index"), set()),
+        idx = g.get("index")
+        g["serverPorts"] = sorted(gpu_ports.get(idx, set()),
                                   key=lambda x: (x is None, x))
+        fleet_mib = non_fleet_mib = 0
+        for (pid, i), mib in pid_mem.items():
+            if i != idx:
+                continue
+            if pid in fleet_pids:
+                fleet_mib += mib
+            else:
+                non_fleet_mib += mib
+        g["fleetUsedMiB"] = round(fleet_mib)
+        g["nonFleetUsedMiB"] = round(non_fleet_mib)
     return servers, gpus
 
 def _server_port_key(s):

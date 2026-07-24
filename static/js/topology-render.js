@@ -640,11 +640,29 @@ export function syncTopologyLive() {
       const util = g.utilizationGpuPct ?? "?", temp = g.temperatureC ?? "?", power = g.powerDrawW ?? "?";
       _liveSet(row, "[data-live-gpuutil]", `${util}% · ${temp}°C · ${power}W`);
       _liveSet(row, "[data-live-gpuvram]", `VRAM ${usedGb} / ${totalGb} GB`);
+      const nonFleet = Number(g.nonFleetUsedMiB || 0);
+      const hasOutside = nonFleet >= 64;   // MiB floor: below is driver overhead
       const barWrap = row.querySelector("[data-live-gpuvrambar]");
       if (barWrap) {
         barWrap.title = `${usedGb} / ${totalGb} GB`;
         const bar = barWrap.querySelector("span");
         if (bar) bar.style.width = `${pct}%`;
+        const outBar = barWrap.querySelector("[data-live-gpuoutsidebar]");
+        if (outBar) {
+          outBar.style.width = `${total > 0 ? Math.min(100, Math.round((nonFleet / total) * 100)) : 0}%`;
+          outBar.hidden = !hasOutside;
+        }
+      }
+      // Who holds the card: fleet ports, else an outside job, else really idle.
+      const whoEl = row.querySelector("[data-live-gpuwho]");
+      if (whoEl) {
+        const ports = (g.serverPorts || []).filter((p) => p != null);
+        const html = ports.length
+          ? `<span class="node-gpu-ports">▶ ${ports.map((p) => escapeHtml(String(p))).join(", ")}</span>`
+          : hasOutside
+            ? `<span class="node-gpu-outside" title="${escapeHtml(t("topologyGpuOutsideHint"))}">▶ ${escapeHtml(t("topologyGpuOutside"))} · ${(nonFleet / 1024).toFixed(1)} GB</span>`
+            : `<span class="topology-muted">${escapeHtml(t("topologyGpuIdle"))}</span>`;
+        if (whoEl.innerHTML !== html) whoEl.innerHTML = html;
       }
       const sparkEl = row.querySelector("[data-live-gpuspark]");
       if (sparkEl) {

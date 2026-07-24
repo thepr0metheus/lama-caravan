@@ -118,6 +118,15 @@ export function nodeGpuRowHtml(node, g) {
   const usedGb = (used / 1024).toFixed(1), totalGb = (total / 1024).toFixed(1);
   const util = g.utilizationGpuPct ?? "?", temp = g.temperatureC ?? "?", power = g.powerDrawW ?? "?";
   const ports = (g.serverPorts || []).filter((p) => p != null);
+  // VRAM the card holds for something that is NOT a fleet cell — a training run,
+  // another app. Below a small floor it is driver/graphics overhead, not a job,
+  // so the card still reads "idle". Above it, "idle" was a lie: the card is busy,
+  // just not with us. The backend split `used` using the compute-app pids.
+  const nonFleet = Number(g.nonFleetUsedMiB || 0);
+  const nonFleetPct = total > 0 ? Math.min(100, Math.round((nonFleet / total) * 100)) : 0;
+  const nonFleetGb = (nonFleet / 1024).toFixed(1);
+  const hasOutside = nonFleet >= 64;   // MiB floor
+  const outsideLabel = `▶ ${t("topologyGpuOutside")} · ${nonFleetGb} GB`;
   return `
     <div class="node-gpu-row" data-gpu-row="${escapeHtml(`${node.id}:${g.index}`)}">
       <div class="node-gpu-head">
@@ -126,10 +135,14 @@ export function nodeGpuRowHtml(node, g) {
         <span class="node-gpu-util" data-live-gpuutil>${escapeHtml(String(util))}% · ${escapeHtml(String(temp))}°C · ${escapeHtml(String(power))}W</span>
       </div>
       <div class="node-vram-bar" data-live-gpuvrambar data-vram-total="${escapeHtml(String(total))}"
-           title="${usedGb} / ${totalGb} GB"><span style="width:${pct}%"></span><i class="node-vram-slice" hidden></i></div>
+           title="${usedGb} / ${totalGb} GB"><span style="width:${pct}%"></span><i class="node-vram-outside" data-live-gpuoutsidebar style="width:${nonFleetPct}%"${hasOutside ? "" : " hidden"}></i><i class="node-vram-slice" hidden></i></div>
       <div class="node-gpu-meta">
         <span data-live-gpuvram>VRAM ${usedGb} / ${totalGb} GB</span>
-        ${ports.length ? `<span class="node-gpu-ports">▶ ${ports.map((p) => escapeHtml(String(p))).join(", ")}</span>` : `<span class="topology-muted">idle</span>`}
+        <span data-live-gpuwho>${ports.length
+          ? `<span class="node-gpu-ports">▶ ${ports.map((p) => escapeHtml(String(p))).join(", ")}</span>`
+          : hasOutside
+            ? `<span class="node-gpu-outside" title="${escapeHtml(t("topologyGpuOutsideHint"))}">${escapeHtml(outsideLabel)}</span>`
+            : `<span class="topology-muted">${escapeHtml(t("topologyGpuIdle"))}</span>`}</span>
         <span data-live-gpuspark>${nodeSparklineSvg(g.history, 1, "var(--accent,#6ea8fe)", total)}</span>
       </div>
     </div>`;

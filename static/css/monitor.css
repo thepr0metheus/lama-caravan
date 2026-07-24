@@ -1316,6 +1316,17 @@
 .node-gpu-util { margin-left:auto; font-size:11px; color:var(--muted,#888); }
 .node-vram-bar { position:relative; height:6px; border-radius:3px; background:color-mix(in srgb,var(--line) 60%, transparent); overflow:hidden; margin:6px 0; }
 .node-vram-bar > span { display:block; height:100%; background:var(--accent,#6ea8fe); }
+/* VRAM held by something that is NOT a fleet cell (a training run, another app):
+   an amber hatch laid over the left of the fill, so "used" splits visibly into
+   fleet (plain accent) and outside (hatched). The card is not idle when this
+   shows — the label says so too. */
+.node-vram-outside { position:absolute; inset-block:0; left:0; min-width:2px; border-radius:3px 0 0 3px;
+  background:repeating-linear-gradient(45deg,
+    color-mix(in srgb,var(--warn,#d9a441) 72%,transparent) 0 3px,
+    color-mix(in srgb,var(--warn,#d9a441) 38%,transparent) 3px 6px);
+  pointer-events:none; }
+.node-vram-outside[hidden] { display:none; }
+.node-gpu-outside { color:var(--warn,#d9a441); }
 /* CPU block: a RAM bar mirroring the GPU's VRAM bar, and the CPU-cell blue
    (#4593ff) throughout — accent stripe, fill, and a faint wash — so the block
    matches the cells that run on it. */
