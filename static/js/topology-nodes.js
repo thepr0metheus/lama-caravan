@@ -174,7 +174,12 @@ export function formatUptime(sec) {
 // Parse lastError string from llama-server log into a friendly human-readable message.
 // Returns { friendly, hint, raw } where friendly is the short translated reason.
 export function classifyLlamaError(raw) {
-  if (!raw) return null;
+  // No reason at all is itself a fact worth stating. The log reader now returns
+  // "" rather than blaming a harmless warning line, so a crash whose cause is
+  // not in the log reaches here empty — and the card used to render red with no
+  // panel, which reads as "we know something and won't say". Say "unknown" and
+  // point at the log instead.
+  if (!raw) return { friendly: t("llamaErrUnknown"), hint: t("llamaErrUnknownHint"), raw: "" };
   const r = raw.toLowerCase();
   // Corrupted / incomplete file
   if (r.includes("not within the file bounds") || r.includes("corrupted or incomplete") || r.includes("unexpected end of file")) {
@@ -595,14 +600,14 @@ export function nodeServerCardHtml(node, s) {
           const note = (topology?.cellNotes || {})[slotKey];
           return note ? `<div class="node-server-note" title="${escapeHtml(note)}">💬 ${escapeHtml(note)}</div>` : "";
         })()}
-        ${isError && s.lastError ? (() => {
+        ${isError ? (() => {
           const err = classifyLlamaError(s.lastError);
           return `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(s.lastError)}">
             <span class="llama-err-icon">⚠</span>
             <span class="llama-err-body">
               <span class="llama-err-friendly">${escapeHtml(err.friendly)}</span>
               ${err.hint ? `<span class="llama-err-hint">${escapeHtml(err.hint)}</span>` : ""}
-              <span class="llama-err-raw">${escapeHtml(s.lastError)}</span>
+              ${s.lastError ? `<span class="llama-err-raw">${escapeHtml(s.lastError)}</span>` : ""}
             </span>
           </div>`;
         })() : ""}
@@ -645,14 +650,14 @@ export function nodeServerCardHtml(node, s) {
             ? `<div class="node-server-body">${bodyBlock}${(() => `<div class="topology-runtime-panel llama ghost-slots"><div class="topology-runtime-slots-head"><strong>${escapeHtml(t("topologySlots"))} <span class="topology-muted">1</span></strong></div><div class="topology-runtime-slots slot-chips-row"><span class="slot-chip idle"></span></div></div>`)()}</div>${progressPanel}`
             : `<div class="node-server-body">${bodyBlock}${topologyRuntimePanelHtml(topologyServerGroup(s))}</div>${progressPanel}`)
         : progressPanel}
-      ${isError && s.lastError ? (() => {
+      ${isError ? (() => {
         const err = classifyLlamaError(s.lastError);
         return `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(s.lastError)}">
           <span class="llama-err-icon">⚠</span>
           <span class="llama-err-body">
             <span class="llama-err-friendly">${escapeHtml(err.friendly)}</span>
             ${err.hint ? `<span class="llama-err-hint">${escapeHtml(err.hint)}</span>` : ""}
-            <span class="llama-err-raw">${escapeHtml(s.lastError)}</span>
+            ${s.lastError ? `<span class="llama-err-raw">${escapeHtml(s.lastError)}</span>` : ""}
           </span>
         </div>`;
       })() : ""}
