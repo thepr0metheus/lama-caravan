@@ -233,6 +233,15 @@ def command_cell_health(ip, port, health_path="", timeout=1.0):
             res["totalBytes"] = int(data.get("totalBytes") or 0)
         else:
             res["status"] = "ok"   # answered without a loading marker → listening
+        # A cell may describe itself on its health path, and what it says about
+        # ITSELF beats anything inferred from its config: a transcribe cell's
+        # real limit is an audio window in milliseconds, while the config it
+        # inherited still carries a llama CTX_SIZE in tokens. Whitelisted, so a
+        # cell cannot push arbitrary keys onto the board.
+        meta = {k: data[k] for k in ("model", "engine", "backend", "maxAudioMs", "languages")
+                if k in data}
+        if meta:
+            res["meta"] = meta
         return res
 
     try:

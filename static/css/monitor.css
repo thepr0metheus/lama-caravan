@@ -1355,3 +1355,10 @@
 /* Node cards rendered inside the Llama Servers lane (cable targets) */
 
 
+
+/* Power button in a host header. Red on hover only — it sits next to harmless
+   refresh/update icons and must not read as one of them, but it also must not
+   shout at rest. */
+.node-reboot { opacity: .55; }
+.node-reboot:hover { opacity: 1; color: var(--danger, #e05555);
+  border-color: color-mix(in srgb, var(--danger, #e05555) 45%, transparent); }

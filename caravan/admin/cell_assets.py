@@ -38,6 +38,8 @@ CELL_ASSETS = (
     "run_tts.sh",
     "whisper_server.py",
     "run_whisper.sh",
+    "transcribe_server.py",
+    "run_transcribe.sh",
 )
 
 # Which assets a runner needs in $HOME before its command can run. The command
@@ -46,6 +48,7 @@ RUNNER_ASSETS = {
     "moonshine": ("run_moonshine.sh", "moonshine_server.py"),
     "whisper": ("run_whisper.sh", "whisper_server.py"),
     "custom": ("run_tts.sh", "tts_server.py"),
+    "transcribe": ("run_transcribe.sh", "transcribe_server.py"),
 }
 
 

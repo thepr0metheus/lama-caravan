@@ -56,7 +56,14 @@ def read_gguf_metadata(path, limit_keys=256):
         "attention.value_length",
         "pooling_type",
     )
-    wanted = {"general.architecture"}
+    # `stt.variant` is what makes a speech GGUF self-identifying. The
+    # architecture name alone cannot: transcribe.cpp has arches called granite,
+    # cohere and moss, and so does llama.cpp — a Granite CHAT model and a
+    # Granite SPEECH model both say "granite". Every speech GGUF the engine
+    # reads carries the stt.* namespace (stt.variant, stt.frontend.*); no chat
+    # model does. general.languages then says which languages it was trained
+    # for, which is the thing an operator actually needs when picking one.
+    wanted = {"general.architecture", "stt.variant", "general.languages"}
     meta = {}
     try:
         with path.open("rb") as handle:
@@ -126,8 +133,13 @@ def extract_runtime_meta(meta):
                 pooling_type = -1
             break
 
+    langs = meta.get("general.languages") or []
+    if isinstance(langs, str):
+        langs = [langs]
     return {
         "architecture": arch,
+        "sttVariant": str(meta.get("stt.variant") or ""),
+        "languages": [str(x) for x in langs][:8],
         "blockCount": number("block_count"),
         "contextLength": number("context_length"),
         "embeddingLength": number("embedding_length"),
@@ -312,12 +324,21 @@ def list_models(config=None):
         family_defaults = FAMILY_DEFAULTS.get(family, {})
         gguf_meta = extract_runtime_meta(read_gguf_metadata_cached(path))
 
+        # Speech-to-text weights: the file says so itself (stt.variant). They
+        # are GGUF and would otherwise sit in the picker looking exactly like a
+        # chat model that llama-server could serve — it cannot, and the operator
+        # had no way to tell which of forty files was the recognizer.
+        #
         # Embedding models: detected by name ("embed"/"embedding") or by the GGUF
         # carrying a pooling_type (chat models don't). They serve /v1/embeddings,
         # not chat — so override the capability and recommend --embeddings + the
         # right --pooling instead of the chat family's flash-attn/jinja defaults.
         name_embed = any(tok in haystack.split() for tok in ["embed", "embedding", "embeddings"])
-        if name_embed or gguf_meta.get("poolingType", -1) >= 0:
+        if gguf_meta.get("sttVariant"):
+            capability = "asr"
+            family = "asr"
+            family_defaults = {}
+        elif name_embed or gguf_meta.get("poolingType", -1) >= 0:
             capability = "embedding_likely"
             family = "embedding"
             family_defaults = embedding_family_defaults(

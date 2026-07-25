@@ -15,6 +15,8 @@ need >= 10.0) — None means no GPU requirement at all.
 """
 import re
 
+from caravan.common.errors import AppError
+
 RUNNERS = [
     {
         "id": "llama-server",
@@ -72,6 +74,25 @@ RUNNERS = [
         "minCompute": None,
     },
     {
+        # transcribe.cpp speech-to-text on the ggml runtime \u2014 the llama.cpp of
+        # ASR. Alone among the speech runners it takes a GGUF PATH rather than a
+        # size or language code, because one build runs sixteen model families
+        # (GigaAM, Parakeet, Canary, Whisper, Qwen3-ASR\u2026) picked by the file. So
+        # it reuses MODEL_FILE and the whole model pipeline behind it: the HF
+        # browser downloads an ASR gguf into the same models dir, and the picker
+        # lists it beside the llama ones. Adding a language later is a download,
+        # not another runner. It is why RUSSIAN finally has a good cell: GigaAM-v3
+        # sits near 8% WER where whisper large-v3 sits at 21-25%.
+        "id": "transcribe",
+        "icon": "\U0001f4dd",
+        "labelKey": "runnerTranscribe",
+        "benefitsKey": "runnerTranscribeBenefits",
+        "formats": ["gguf"],
+        "health": "/health",
+        "api": "raw",
+        "minCompute": None,
+    },
+    {
         "id": "custom",
         "icon": "\U0001f6e0\ufe0f",
         "labelKey": "runnerCustom",
@@ -118,6 +139,10 @@ def cell_artifact_label(config) -> str:
         return str(cfg.get("WHISPER_MODEL") or "").strip() or "whisper"
     if rid == "moonshine":
         return f"moonshine {str(cfg.get('MOONSHINE_MODEL') or 'en').strip().lower()}"
+    if rid == "transcribe":
+        import os as _os
+        _m = _os.path.basename(str(cfg.get("MODEL_FILE") or "").strip())
+        return _m.removesuffix(".gguf") or "transcribe"
     if rid == "vllm":
         from caravan.admin.models import _ST_FORMAT_HINTS   # local: models imports config_builder
         parts = [p for p in str(cfg.get("VLLM_MODEL") or "").strip().split("/") if p]
@@ -180,7 +205,7 @@ VLLM_BOOTSTRAP_LINES = [
 def uses_command_path(config) -> bool:
     """True when the cell launches through the generic command machinery
     (custom cells always; vllm/whisper compile their fields into a command)."""
-    return runner_id(config) in {"custom", "vllm", "whisper", "moonshine"}
+    return runner_id(config) in {"custom", "vllm", "whisper", "moonshine", "transcribe"}
 
 
 def build_whisper_command(config) -> str:
@@ -196,6 +221,29 @@ def build_whisper_command(config) -> str:
         size = "large-v3"
     cache = '"${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/whisper"'
     return f'env HUGGINGFACE_HUB_CACHE={cache} bash $HOME/run_whisper.sh "$PORT" {size}'
+
+
+def build_transcribe_command(config) -> str:
+    """The run_transcribe.sh line for a transcribe.cpp cell.
+
+    Unlike whisper/moonshine, which key their model off a size or language
+    string, this engine takes a GGUF path exactly like llama-server does — one
+    build runs GigaAM, Parakeet, Canary, Whisper and a dozen more, chosen by the
+    file. So the cell reuses MODEL_FILE and the caravan's whole model pipeline:
+    the HF browser downloads an ASR GGUF into the same models dir, and the picker
+    lists it beside the LLM ones.
+
+    The path is resolved against LLAMA_MODELS_DIR when it is relative, which is
+    how the picker stores it. The venv and libtranscribe come from
+    scripts/install-transcribe.sh."""
+    model = str((config or {}).get("MODEL_FILE") or "").strip()
+    if not model:
+        raise AppError("MODEL_FILE is required for a transcribe cell", 400)
+    if not model.startswith("/") and not model.startswith("$"):
+        model = '"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/' + model
+    else:
+        model = f'"{model}"'
+    return f'bash $HOME/run_transcribe.sh "$PORT" {model}'
 
 
 def build_moonshine_command(config) -> str:
@@ -239,6 +287,8 @@ def effective_command(config, with_bootstrap=False) -> str:
     stored COMMAND; for vllm the built serve line — optionally prefixed with
     the venv bootstrap chain (single-line form for the scout's `bash -lc`)."""
     rid = runner_id(config)
+    if rid == "transcribe":
+        return build_transcribe_command(config)
     if rid == "vllm":
         cmd = build_vllm_command(config)
         if with_bootstrap:
@@ -269,6 +319,6 @@ def effective_health_path(config) -> str:
     rid = runner_id(config)
     if rid == "vllm":
         return "/v1/models"
-    if rid in ("whisper", "moonshine"):
+    if rid in ("whisper", "moonshine", "transcribe"):
         return "/health"
     return ""

@@ -252,6 +252,9 @@ def topology_server(config=None):
             # these have only a command, and lists with no room for a card had
             # nothing but the port to show.
             "cellLabel": cell_artifact_label(_r_cfg),
+            # What the cell says about itself on its health path. Beats the
+            # config for anything the config cannot describe — see telemetry.
+            "cellMeta": (_ch or {}).get("meta") or {},
             "modelPath": model_path,
             "mmproj": str(ln.get("mmprojPath") or ""),
             "specDraft": str(ln.get("specPath") or ""),
@@ -322,6 +325,7 @@ def topology_server(config=None):
         cell_metrics = {}
         slot_vllm_stats = None
         _cdl = _ctot = 0
+        _ch = None          # only a running command cell gets one; read below
         if is_controller_slot:
             cell_status = cell_service_status(port)
             service_name = cell_status.get("service") or cell_service_name(port)
@@ -412,6 +416,7 @@ def topology_server(config=None):
             "host": (controller_ip if is_controller_slot else client_ip),
             "model": model_path.split("/")[-1] if model_path else "",
             "cellLabel": cell_artifact_label(slot.get("config") or {}),
+            "cellMeta": (_ch or {}).get("meta") or {},
             "modelPath": model_path,
             "mmproj": str(((slot.get("config") or {}).get("MMPROJ_FILE")) or ""),
             "specDraft": str(((slot.get("config") or {}).get("SPEC_DRAFT_MODEL_FILE")) or ""),

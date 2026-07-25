@@ -46,13 +46,13 @@ What that gives you in practice:
 - **Your whole zoo of hardware as one fleet — client GPUs included.** The
   [caravan-scout](https://github.com/thepr0metheus/caravan-scout) sidecar turns
   any Linux/macOS box into a fleet member: its GPUs and running agents appear
-  on the board, and you launch cells there remotely — **any of the five
+  on the board, and you launch cells there remotely — **any of the six
   runners, on the client's own GPU or CPU**, models cached and shipped from
   the controller. Before starting you see a "will it fit" estimate against
   BOTH pools (RAM and VRAM) of that exact host; a running cell shows what it
   *actually* holds, measured per-process from `nvidia-smi` — on the
   controller and on clients alike.
-- **Five runners, one lifecycle.** A cell is not just llama.cpp — pick the
+- **Six runners, one lifecycle.** A cell is not just llama.cpp — pick the
   engine per cell, and they all share the same cards, health checks,
   start/stop/schedule machinery and memory math:
   - 🦙 **llama.cpp** — GGUF, CPU offload, MTP speculative decoding, KV-cache control
@@ -63,6 +63,11 @@ What that gives you in practice:
     itself, language is picked per request
   - 🌙 **moonshine** — CPU-only speech-to-text (Moonshine v2) that beats
     Whisper large-v3 accuracy on English at 250M params — GPUs stay free for LLMs
+  - 📝 **transcribe.cpp** — GGUF speech-to-text on the ggml runtime; one build
+    runs GigaAM, Parakeet, Canary, Whisper and more, chosen by the file in the
+    ordinary model picker. The best free **Russian** recognizer of the set —
+    GigaAM-v3 near 8% WER against 21-25% for whisper large-v3, cased and
+    punctuated, from a 260 MB file
   - 🛠️ **Custom command** — any process that listens on `$PORT` becomes a
     managed cell: health-checked, logged, scheduled, restarted
 - **One compute-target switch.** Every cell picks **CPU / GPU / auto** with one
@@ -140,8 +145,8 @@ server cells and GPU telemetry on the right:
 
 ![Topology board](docs/screenshots/board.png)
 
-The cell editor: the five-runner row (llama.cpp / vLLM / whisper / moonshine /
-custom), the CPU/GPU/auto compute target, memory math against BOTH pools — with
+The cell editor: the six-runner row (llama.cpp / vLLM / whisper / moonshine /
+transcribe.cpp / custom), the CPU/GPU/auto compute target, memory math against BOTH pools — with
 the measured live usage of the running cell — every flag explained, and the
 exact command it will run. A running cell's window wears the same animated
 border comet as its card on the board:
@@ -175,7 +180,7 @@ The built-in HuggingFace GGUF browser:
 ## Tested versions
 
 The exact versions the development fleet runs — re-verified and updated here
-whenever a component is upgraded (last verified: **2026-07-19**):
+whenever a component is upgraded (last verified: **2026-07-25**):
 
 | Component | Verified version |
 |---|---|
@@ -191,6 +196,7 @@ whenever a component is upgraded (last verified: **2026-07-19**):
 | vLLM | 0.24.0, pinned provisioning — controller cell `:8012` |
 | caravan-scout | v1.2.6 |
 | moonshine-voice | 0.0.69 — moonshine STT command cells (CPU-only) |
+| transcribe.cpp | 0.2.0 (commit `b6a6aca`, 2026-07-22), CUDA build — transcribe cells; verified with `gigaam-v3-e2e-rnnt-Q8_0.gguf` |
 
 > The build number `llama-server --version` prints counts commits in the *local
 > clone* — a shallow clone undercounts vs upstream `bNNNN` tags, so the commit
@@ -315,8 +321,8 @@ state and are not the source deployment path.
 
 **Cells & runners**
 
-- Five runners per cell — 🦙 llama.cpp, ⚡ vLLM, 🎙️ whisper, 🌙 moonshine,
-  🛠️ custom command — same lifecycle, health checks and cards for all of them.
+- Six runners per cell — 🦙 llama.cpp, ⚡ vLLM, 🎙️ whisper, 🌙 moonshine,
+  📝 transcribe.cpp, 🛠️ custom command — same lifecycle, health checks and cards for all of them.
 - One CPU/GPU/auto compute-target control for every runner; unavailable options
   are disabled per engine. A multi-GPU host picks cards with chips (or a
   checklist beyond four), and llama.cpp gets the matching

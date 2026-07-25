@@ -22,6 +22,7 @@ from caravan.common.errors import AppError
 from caravan.admin.runners import (
     VLLM_BOOTSTRAP_LINES,
     build_moonshine_command,
+    build_transcribe_command,
     effective_command,
     build_vllm_command,
     build_whisper_command,
@@ -51,6 +52,7 @@ def render_command_cell_script(config):
     is_vllm = runner_id(merged) == "vllm"
     is_whisper = runner_id(merged) == "whisper"
     is_moonshine = runner_id(merged) == "moonshine"
+    is_transcribe = runner_id(merged) == "transcribe"
     if is_vllm:
         if not merged.get("VLLM_MODEL"):
             raise AppError("VLLM_MODEL is required for a vLLM cell")
@@ -65,6 +67,14 @@ def render_command_cell_script(config):
         # Like whisper, the command is SYNTHESIZED from the runner's own field —
         # requiring COMMAND here rejected a perfectly valid moonshine cell.
         command = build_moonshine_command(merged)
+    elif is_transcribe:
+        # Its model is a GGUF PATH, so like whisper it needs the shared model
+        # root spelled out rather than left to the launcher's fallback.
+        if not merged.get("LLAMA_MODELS_DIR"):
+            merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
+        if not merged.get("MODEL_FILE"):
+            raise AppError("MODEL_FILE is required for a transcribe cell", 400)
+        command = build_transcribe_command(merged)
     else:
         # Be forgiving: strip a leading `exec ` — we add our own.
         command = re.sub(r"^\s*exec\s+", "", merged.get("COMMAND") or "").strip()
@@ -76,6 +86,9 @@ def render_command_cell_script(config):
                   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION",
                   "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL",
                   "MOONSHINE_MODEL",
+                  # transcribe is the one command-path runner with a real model
+                  # file; the others leave this empty and the block says so.
+                  "MODEL_FILE",
                   "LLAMA_MODELS_DIR", "ALIAS")
     block_lines = [CONFIG_BEGIN]
     # Path-valued keys go through shell_path_value so a configured `~/models`

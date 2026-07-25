@@ -216,6 +216,7 @@ export function shortGpuName(name) {
 //   vLLM         : GPU only   (it reserves VRAM by utilization)
 //   whisper      : GPU only   (whisper_server.py hardcodes device=cuda)
 //   moonshine    : CPU only   (its ONNX models have no GPU build)
+//   transcribe   : CPU + GPU  (ggml: CUDA/Metal if the build has it, else CPU)
 //   custom       : CPU + GPU + auto  (generic managed process / TTS engines)
 function _runnerOf(pfx) {
   const explicit = ($(pfx + "RUNNER")?.value || "").trim();
@@ -227,6 +228,9 @@ export function runnerDeviceCaps(runner) {
     case "vllm":      return { cpu: false, gpu: true,  auto: false };
     case "whisper":   return { cpu: false, gpu: true,  auto: false };
     case "moonshine": return { cpu: true,  gpu: false, auto: false };
+    // ggml runs on whatever the build carries; CUDA_VISIBLE_DEVICES= (what the
+    // CPU tile writes) makes a CUDA build fall back, so the pin is real here.
+    case "transcribe": return { cpu: true, gpu: true,  auto: false };
     case "custom":    return { cpu: true,  gpu: true,  auto: true  };
     default:          return { cpu: true,  gpu: true,  auto: false };  // llama-server
   }
@@ -370,7 +374,9 @@ export function ramFitForPfx(runtimeSizeGb, pfx) {
 //             matter what the model weighs — that reservation is what starves
 //             neighbouring cells, so the reservation is what we plot.
 //   whisper   a fixed model size straight off the picker.
-//   moonshine fixed ~250 MB, and CPU-only, so it lands on the RAM pool.
+//   moonshine  fixed ~250 MB, and CPU-only, so it lands on the RAM pool.
+//   transcribe the picked GGUF's own size — no KV growth to add, an ASR pass is
+//              one bounded utterance, so the file IS the footprint.
 //   custom    an opaque process — nothing to estimate, the bar shows use only.
 export function computeFitRuntimeGb(pfx = "") {
   const runner = _runnerOf(pfx);
@@ -381,6 +387,7 @@ export function computeFitRuntimeGb(pfx = "") {
   }
   if (runner === "whisper") return whisperModelGb[($(pfx + "WHISPER_MODEL")?.value || "large-v3").trim()] || 0;
   if (runner === "moonshine") return moonshineModelGb;
+  if (runner === "transcribe") return Number(selectedModelRows(pfx).selected?.sizeGb || 0);
   return 0;
 }
 // llama keeps driving the estimate bar from renderModelInsight (it has the

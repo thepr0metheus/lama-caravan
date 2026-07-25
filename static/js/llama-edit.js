@@ -732,6 +732,7 @@ export function renderRunnerTabs(pfx) {
   // good at (benefitsKey) and what it costs (runner*Minus).
   const MINUS_KEY = { "llama-server": "runnerLlamaMinus", "vllm": "runnerVllmMinus",
                       "whisper": "runnerWhisperMinus", "moonshine": "runnerMoonshineMinus",
+                      "transcribe": "runnerTranscribeMinus",
                       "custom": "runnerCustomMinus" };
   wrap.innerHTML = runnerRegistry().map((r) => {
     const avail = runnerAvailability(r, pfx);
@@ -771,7 +772,11 @@ export function applyCellKindUI(pfx) {
   const isVllm = runner === "vllm";
   const isWhisper = runner === "whisper";
   const isMoonshine = runner === "moonshine";
-  const nonLlama = isCommand || isVllm || isWhisper || isMoonshine;
+  // transcribe hides the llama flags like every other command-path runner, but
+  // it is the only one that genuinely CONSUMES the shared model picker — its
+  // model is a GGUF path, so nothing dims and nothing gets cleared on save.
+  const isTranscribe = runner === "transcribe";
+  const nonLlama = isCommand || isVllm || isWhisper || isMoonshine || isTranscribe;
   // Use inline display, not the [hidden] attr: .field has a stylesheet `display`
   // rule that would otherwise keep the command fields visible in llama mode.
   const llamaFields = $(pfx + "llamaFields");
@@ -798,6 +803,10 @@ export function applyCellKindUI(pfx) {
   // The unified compute-target card sits above MODEL_FILE and serves EVERY
   // runner — repaint it so its available/disabled tiles follow the new runner.
   refreshComputeTarget(pfx);
+  // The picker dims what the CURRENT runner cannot launch (a chat gguf under
+  // transcribe, an ASR gguf under llama), so it has to be repainted here too —
+  // otherwise the dimming still describes the runner you just left.
+  renderModelSelects(pfx);
   // Runs on open and on every runner switch — the right beat to (re)decide
   // whether this window is editing something that is already live.
   syncRunningBeam(pfx);
@@ -1055,6 +1064,15 @@ export function _buildCommandExecPreview(pfx) {
     return [`export PORT=${port}`,
             "# model downloads on first start into <models root>/whisper",
             `exec env HUGGINGFACE_HUB_CACHE="\${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/whisper" bash $HOME/run_whisper.sh "$PORT" ${size}`].join("\n");
+  }
+  if (effectiveRunnerId(pfx) === "transcribe") {
+    const mf = ($(pfx + "MODEL_FILE")?.value || "").trim();
+    const model = (mf && !mf.startsWith("/") && !mf.startsWith("$"))
+      ? `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${mf}`
+      : `"${mf || "…"}"`;
+    return [`export PORT=${port}`,
+            "# the engine and its venv come from scripts/install-transcribe.sh",
+            `exec bash $HOME/run_transcribe.sh "$PORT" ${model}`].join("\n");
   }
   const cmd = ($(pfx + "COMMAND")?.value || "").trim().replace(/^\s*exec\s+/, "");
   const lines = [`export PORT=${port}`];

@@ -207,7 +207,12 @@ def server_cell_action(body: dict) -> dict:
                     raise AppError("vLLM cell has no model — configure it first", 400)
             elif rid == "custom" and not str(cfg.get("COMMAND") or "").strip():
                 raise AppError("command cell has no command — configure it first", 400)
-            # whisper needs nothing: the size has a default and the command is built.
+            elif rid == "transcribe" and not model:
+                # Alone among the command-path runners it has NO default to fall
+                # back on — its model is a GGUF path, so an unconfigured cell has
+                # to be caught here rather than crashing inside the builder.
+                raise AppError("transcribe cell has no model — configure it first", 400)
+            # whisper/moonshine need nothing: size and language both have defaults.
         elif not model:
             raise AppError("cell has no saved model — configure it first", 400)
         result = client_llama_start({

@@ -18,6 +18,7 @@ import {
   renderStaticConfigFields,
   syncAllToggleLabels,
 } from "./form.js";
+import { appConfirm } from "./dialogs.js";
 import { applyLanguage, applyTheme, t } from "./i18n.js";
 import { fetchProxyDailyStats } from "./model-meta.js";
 import {
@@ -358,6 +359,33 @@ export function renderTopology() {
       }
     });
   });
+  // Power-cycle a host. Confirmed with the host's own name spelled out, because
+  // the two headers look alike and rebooting the controller takes the board down
+  // with it. Reboot only — nothing here can switch a headless box back on.
+  $("topologyLlamaServers")?.querySelectorAll("[data-reboot-host]").forEach((btn) => {
+    btn.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const hostId = btn.getAttribute("data-reboot-host") || "";
+      const isCtrl = /^(controller|skynet)$/i.test(hostId);
+      const ok = await appConfirm(
+        t(isCtrl ? "hostRebootConfirmController" : "hostRebootConfirmClient")
+          .replace("{host}", hostId),
+        { confirmLabel: t("hostRebootOk"), scene: "stop" });
+      if (!ok) return;
+      try {
+        const res = await api("/api/host/reboot", {
+          method: "POST", body: JSON.stringify({ hostId }),
+        });
+        toast(res?.ok ? t("hostRebootIssued").replace("{host}", hostId)
+                      : (res?.result?.error || t("hostRebootFailed")));
+      } catch (err) {
+        // The controller rebooting itself kills this very request — a transport
+        // error here is the expected shape of success, not a failure to report.
+        toast(isCtrl ? t("hostRebootIssued").replace("{host}", hostId) : err.message);
+      }
+    });
+  });
+
   // Stopped-slot Start / remove controls (both classic + node lane)
   bindServerSlotControls($("topologyLlamaServers"));
 

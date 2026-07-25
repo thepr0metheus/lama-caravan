@@ -21,7 +21,7 @@ import {
   updateStarStates,
 } from "./favorites.js";
 import { fieldHelp, labelWithTip, t } from "./i18n.js";
-import { _commandCellSlot, gpuComputeCap, renderBackups } from "./llama-edit.js";
+import { _commandCellSlot, gpuComputeCap, renderBackups, renderCommandCellPreview } from "./llama-edit.js";
 import {
   applyComputeTarget,
   computeIsCpu,
@@ -344,15 +344,29 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
         runnerIcons = `<span class="mc-runners" title="moonshine (CPU speech-to-text)">🌙</span>`;
       } else if (item.kind === "whisper") {
         runnerIcons = `<span class="mc-runners" title="whisper (faster-whisper)">🎙</span>`;
+      } else if (item.kind === "model" && item.sttVariant && !item.missing) {
+        // An ASR gguf is NOT a llama artifact: llama-server cannot load it, so
+        // it must not wear the llama icon that every other gguf row wears.
+        runnerIcons = `<span class="mc-runners" title="transcribe.cpp (${escapeHtml(item.sttVariant)})">📝</span>`;
       } else if (item.kind === "model" && !item.missing) {
         runnerIcons = `<span class="mc-runners" title="llama.cpp · vLLM (experimental)">🦙<span class="mc-run-exp">⚡</span></span>`;
       }
+      // The picker is shared by every runner, so a row that the CURRENT runner
+      // cannot launch is dimmed rather than hidden — the operator still sees
+      // the file is there, and sees why it is not the one to pick. The flag is
+      // stamped by the caller: this renderer has no idea which form it serves.
+      if (item.wrongRunner) el.classList.add("mc-dim");
       let badges = "";
       if (item.kind === "st") badges += mbadge("st", item.stFormat || "safetensors", "safetensors");
       if (item.cached) badges += mbadge("cached", t("cachedOnHost"));
       if (item.missing) {
         el.dataset.missing = "1";
         badges += mbadge("missing", "⚠ not found");
+      } else if (item.kind === "model" && item.sttVariant) {
+        // What it recognizes and in which languages — the two facts that decide
+        // whether this is the file you want, both read out of the gguf.
+        badges += mbadge("embed", "🗣 " + item.sttVariant);
+        if (item.langs && item.langs.length) badges += mbadge("it", item.langs.join(" "));
       } else if (item.kind === "model") {
         if (/[_-](it|instruct|chat|instruction)(?:[_-]|$)/i.test(fname)) badges += mbadge("it", "🤖 it");
         if (item.capability === "vision_likely" || item.suggestedMmproj) badges += mbadge("mmproj", "📷 mmproj");
@@ -410,6 +424,11 @@ export function renderModelSelects(pfx = "") {
       hasMtpBuiltin: row.hasMtpBuiltin,
       detectedFamily: row.detectedFamily,
       familyDefaults: row.familyDefaults,
+      // Speech weights, straight from the file's own stt.* metadata — the only
+      // thing that separates the recognizer from forty chat models that look
+      // exactly like it in a list of filenames.
+      sttVariant: (row.ggufMeta || {}).sttVariant || "",
+      langs: (row.ggufMeta || {}).languages || [],
       cached: pfx === "tr-" && _trCachedModels.has(row.path),
     }));
   // Safetensors artifacts (vLLM launches them). Controller forms only: client
@@ -469,6 +488,17 @@ export function renderModelSelects(pfx = "") {
     if (cached?.scores?.aa_intelligence != null) item.aaScore = cached.scores.aa_intelligence;
   });
   fetchPickerBenchBatch(modelItems, pfx);
+  // Which rows this runner cannot launch. Resolved HERE, where pfx exists, and
+  // carried on the item — the row renderer is shared and form-agnostic.
+  {
+    const rid = (($(pfx + "RUNNER")?.value || "").trim())
+      || (($(pfx + "CELL_KIND")?.value || "") === "command" ? "custom" : "llama-server");
+    const wantsAsr = rid === "transcribe";
+    modelItems.forEach((it) => {
+      if (it.kind !== "model" || it.missing) return;
+      it.wrongRunner = wantsAsr !== !!it.sttVariant;
+    });
+  }
   // Keep hidden <select> in sync for .value reads and option checks elsewhere
   modelEl.innerHTML = "";
   modelItems.forEach((item) => modelEl.appendChild(option(item.value, item.value, item.value === currentModel)));
@@ -1019,6 +1049,10 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
   syncFavoriteMirrors(pfx);
   renderModelInsight(pfx);
   renderCommandPreview(pfx);
+  // transcribe is the one command-path runner whose exec line is built FROM
+  // MODEL_FILE, so picking a model has to repaint the command preview too —
+  // otherwise the box keeps naming the file you just replaced.
+  if ((($(pfx + "RUNNER")?.value || "").trim()) === "transcribe") renderCommandCellPreview(pfx);
 }
 
 export function setInputValue(id, value) {

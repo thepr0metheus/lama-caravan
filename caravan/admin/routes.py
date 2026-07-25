@@ -81,6 +81,7 @@ from caravan.admin.model_gc import delete_models, list_unused_models
 from caravan.admin import auth as auth_mod
 from caravan.admin.status import controller_info, do_action, llama_builds_list, llama_cpp_info, llama_suspect_dismiss, llama_update_status, models_disk, start_llama_restore, start_llama_update, start_vllm_update, state, vllm_info
 from caravan.admin.cell_assets import cell_asset_bytes, cell_assets_manifest
+from caravan.admin.host_power import host_reboot
 from caravan.admin.cell_ops import (
     client_server_slot_add,
     client_server_slot_delete,
@@ -1230,6 +1231,15 @@ def _post_api_fleet_llama_update(h, parsed, body):
 @_route(POST_ROUTES, '/api/fleet/llama-restore')
 def _post_api_fleet_llama_restore(h, parsed, body):
         h.send_json(client_llama_restore(body))
+        return
+
+@_route(POST_ROUTES, '/api/host/reboot')
+def _post_api_host_reboot(h, parsed, body):
+        # Power-cycling a host is confirmed in the UI and logged here: it drops
+        # every cell on that machine, so "who asked" matters after the fact.
+        _hid = str((body or {}).get("hostId") or "")
+        print(f"[host] reboot requested for {_hid or '?'}")
+        h.send_json(host_reboot(body or {}))
         return
 
 @_route(POST_ROUTES, '/api/topology/client-llama/stop')

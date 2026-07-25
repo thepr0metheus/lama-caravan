@@ -47,6 +47,7 @@ const _ST_FMT = new Set(["NVFP4", "MXFP4", "AWQ", "GPTQ", "AUTOROUND", "FP8",
 function runnerChipHtml(runnerId) {
   const meta = { "llama-server": ["🦙", "llama.cpp"], "vllm": ["⚡", "vLLM"],
                  "whisper": ["🎙", "whisper"], "moonshine": ["🌙", "moonshine"],
+                 "transcribe": ["📝", "transcribe.cpp"],
                  "custom": ["🛠", "command"] }[runnerId];
   if (!meta) return "";
   return `<span class="mbadge mbadge-cmd node-runner-chip">${meta[0]} ${meta[1]}</span>`;
@@ -327,12 +328,22 @@ export function nodeServerCardHtml(node, s) {
   const _mtpRe = /-mtp(?:[^a-z0-9]|$)/i;
   const hasMtpBuiltin = _mtpRe.test(s.model || "") || _mtpRe.test(s.modelPath || "");
   const hasMtp = !!s.specDraft || hasMtpBuiltin || (s.specType || "").toLowerCase() === "draft-mtp";
-  const ctxChip = s.ctxMax
-    ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(s.ctxMax || 0))}`, t("topologyCtxUsageTip") || "Context window")
-    : "";
   // For configured (stopped) slot cells pull key params from slotConfig as fallback chips
   const _scfg = s.slotConfig || {};
-  const slotCtxChip = (!s.ctxMax && _scfg.CTX_SIZE)
+  // A speech cell's window is an AUDIO length, not a token count. Its config
+  // still carries a llama CTX_SIZE it will never use, and rendering that as
+  // "🪟 100k" put a confident, precise, entirely fictional number on the card.
+  // The cell reports the real one on its health path, so prefer that and show
+  // nothing rather than the fiction when it is unavailable.
+  const _audioMs = Number((s.cellMeta || {}).maxAudioMs || 0);
+  const _isSpeechCell = _audioMs > 0
+    || ["transcribe", "whisper", "moonshine"].includes(String(_scfg.RUNNER || "").toLowerCase());
+  const ctxChip = _isSpeechCell
+    ? (_audioMs > 0 ? mbadge("ctx", `🪟 ${Math.round(_audioMs / 1000)} s`, t("audioWindowChipTitle")) : "")
+    : (s.ctxMax
+        ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(s.ctxMax || 0))}`, t("topologyCtxUsageTip") || "Context window")
+        : "");
+  const slotCtxChip = (!_isSpeechCell && !s.ctxMax && _scfg.CTX_SIZE)
     ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.CTX_SIZE)))}`) : "";
   const _benchKey = s.model ? (_modelBenchKey(s.model) || "") : "";
   const _bdata = _benchKey ? serverBenchCache.get(_benchKey) : null;
@@ -398,7 +409,8 @@ export function nodeServerCardHtml(node, s) {
   // runnerDefaultsGpu AND counts as a CPU cell even without a TTS_DEVICE=cpu
   // pin; a bare custom command resolves its device at start (VRAM probe) → "auto".
   const _runner = String(_scfg.RUNNER || (String(_scfg.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server")).toLowerCase();
-  const runnerDefaultsGpu = _runner === "llama-server" || _runner === "vllm" || _runner === "whisper";
+  const runnerDefaultsGpu = _runner === "llama-server" || _runner === "vllm" || _runner === "whisper"
+    || _runner === "transcribe";
   const runnerCpuOnly = _runner === "moonshine";
   const isCpuCell = (running && !devGpuTxt && !cfgSaysGpu)
     || (!running && (cfgSaysCpu || runnerCpuOnly) && !isReserved)
@@ -416,7 +428,10 @@ export function nodeServerCardHtml(node, s) {
     <div class="node-model-block" role="button" tabindex="0"
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
       <div class="node-model-row1">
-        ${runnerChipHtml("llama-server")}
+        ${/* the chip names the ENGINE, so it must follow the cell's runner —
+             hardcoding llama-server made a transcribe cell (the one command-path
+             runner that carries a real MODEL_FILE) claim to be llama.cpp */""}
+        ${runnerChipHtml(_runner)}
         ${memBadge}
         <strong class="node-model-name" title="${escapeHtml(s.modelPath || s.model)}">${escapeHtml(parsed.label || s.model)}</strong>
       </div>
@@ -692,6 +707,7 @@ export function openNodeServerDetail(nodeId, port) {
   const isVllm = String(_scfg.RUNNER || "").toLowerCase() === "vllm";
   const isWhisper = String(_scfg.RUNNER || "").toLowerCase() === "whisper";
   const isMoonshine = String(_scfg.RUNNER || "").toLowerCase() === "moonshine";
+  const isTranscribe = String(_scfg.RUNNER || "").toLowerCase() === "transcribe";
   const nsdCtxChip = s.ctxMax
     ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(s.ctxMax))}`, t("topologyCtxUsageTip") || "Context window")
     : (_scfg.CTX_SIZE ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.CTX_SIZE)))}`) : "");
@@ -721,6 +737,16 @@ export function openNodeServerDetail(nodeId, port) {
     if (isMoonshine) {
       const lang = String(cfg.MOONSHINE_MODEL || "").trim().toLowerCase() || "en";
       return [`export PORT=${port}`, `exec bash $HOME/run_moonshine.sh "$PORT" ${lang}`];
+    }
+    if (isTranscribe) {
+      const mf = String(cfg.MODEL_FILE || "").trim();
+      const model = (mf && !mf.startsWith("/") && !mf.startsWith("$"))
+        ? `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${mf}` : `"${mf || "…"}"`;
+      const lines = [`export PORT=${cfg.PORT || s.port || ""}`,
+                     `exec bash $HOME/run_transcribe.sh "$PORT" ${model}`];
+      const cmdText = lines.join("\n");
+      const pre = lines.map((l) => `<span class="cmd-token">${escapeHtml(l)}</span>`).join("\n");
+      return `<div class="nsd-cfg-section"><div class="nsd-cfg-head">COMMAND <button class="nsd-copy-btn" type="button" data-copy="${escapeHtml(cmdText)}" title="Copy">⎘</button></div><pre class="command-preview nsd-cmd-pre">${pre}</pre></div>`;
     }
     if (isWhisper) {
       const size = String(cfg.WHISPER_MODEL || "").trim() || "large-v3";
@@ -841,6 +867,7 @@ export function openNodeServerDetail(nodeId, port) {
           ${isVllm ? row("Runner", `${mbadge("cmd", "⚡ vllm")}${mbadge("cmd", "❤ /v1/models")}`) : ""}
           ${isWhisper ? row("Runner", `${mbadge("cmd", "🎙 whisper")}${mbadge("cmd", "❤ /health")}`) : ""}
           ${isMoonshine ? row("Runner", `${mbadge("cmd", "🌙 moonshine")}${mbadge("cmd", "❤ /health")}`) : ""}
+          ${isTranscribe ? row("Runner", `${mbadge("cmd", "📝 transcribe.cpp")}${mbadge("cmd", "❤ /health")}`) : ""}
           ${isCmd
             ? (row("Health", _scfg.HEALTH_PATH ? `<code>${escapeHtml(_scfg.HEALTH_PATH)}</code>` : "") + row("Workdir", _scfg.WORKDIR ? `<code>${escapeHtml(_scfg.WORKDIR)}</code>` : ""))
             : (() => { const chips = [parsed.quant ? mbadge("quant", `🎛 ${escapeHtml(parsed.quant)}`) : "", parsed.size ? mbadge("size", `⚖ ${escapeHtml(parsed.size)}`) : "", parsed.variant ? mbadge("it", `🤖 ${escapeHtml(parsed.variant)}`) : "", s.mmproj ? mbadge("mmproj", "📷 mmproj") : "", hasMtp ? mbadge("mtp", "⚡ mtp") : "", nsdCtxChip].filter(Boolean).join(""); return chips ? `<div class="nsd-row"><span class="nsd-k"></span><span class="nsd-v"><span class="model-chips">${chips}</span></span></div>` : ""; })()}
@@ -979,9 +1006,14 @@ export function nodesLaneHtml() {
     const staleBadge = staleBinary
       ? `<span class="llama-ver-stale" title="${escapeHtml(t("staleBinaryTitle"))}">⟳ ${escapeHtml(t("staleBinaryBadge"))}</span>`
       : "";
+    // Power-cycle this host. Some faults are not fixable in software — atlas
+    // drops a RAM stick on some boots and comes back with half its memory, which
+    // starves cells until the machine is rebooted. Reboot only, never shutdown:
+    // nothing on this board can switch a headless box back on.
+    const rebootBtn = `<button class="llama-ver-refresh node-reboot" type="button" data-reboot-host="${escapeHtml(String(n.id))}" title="${escapeHtml(t("hostRebootTitle"))}" aria-label="${escapeHtml(t("hostRebootTitle"))}">⏻</button>`;
     const verChip = verLabel
-      ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${upstreamArrow}${verOutdated ? " ⬆" : ""}</span>${refreshBtn}${updateBtn}${staleBadge}`
-      : refreshBtn || "";
+      ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${upstreamArrow}${verOutdated ? " ⬆" : ""}</span>${refreshBtn}${updateBtn}${staleBadge}${rebootBtn}`
+      : `${refreshBtn}${rebootBtn}`;
     const servers = (n.servers || []);
     const collapsed = _collapsedNodes.has(n.id);
     const nextCellPort = nextTopologyCellPort();
