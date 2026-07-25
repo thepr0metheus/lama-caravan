@@ -73,15 +73,26 @@ export async function fetchUpstreamErrors() {
 export function upstreamErrorsHtml(accountId) {
   const rows = (upstreamErrData || {})[accountId] || [];
   if (!rows.length) return "";
+  const hhmm = (ts) => new Date(ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  // Every row on this card is over as often as not, so it has to say WHEN and
+  // WHETHER, not just how many. A single stamp next to a 24h count read as
+  // "25 failures at 15:34" when it was 25 spread across two and a half hours.
+  const recovered = rows.every((r) => (r.okSince || 0) > 0);
   const items = rows.map((r) => {
-    const when = r.lastAt ? new Date(r.lastAt * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-    return `<div class="cloud-api-issue">
+    const when = r.lastAt
+      ? (r.firstAt && r.lastAt - r.firstAt > 90 ? `${hhmm(r.firstAt)}–${hhmm(r.lastAt)}` : hhmm(r.lastAt))
+      : "";
+    const reason = (r.error || r.kind || "").slice(0, 60);
+    return `<div class="cloud-api-issue${(r.okSince || 0) > 0 ? " is-resolved" : ""}">
       <span class="cloud-api-issue-name">${escapeHtml(r.model)}</span>
       <span class="cloud-api-issue-state">${escapeHtml(r.code)} ×${escapeHtml(String(r.count))}</span>
-      <span class="cloud-api-issue-err" title="${escapeHtml(r.error || "")}">${escapeHtml((r.error || "").slice(0, 60))}${when ? ` · ${escapeHtml(when)}` : ""}</span>
+      <span class="cloud-api-issue-err" title="${escapeHtml(r.error || r.kind || "")}">${escapeHtml(reason)}${when ? ` · ${escapeHtml(when)}` : ""}</span>
     </div>`;
   }).join("");
-  return `<div class="cloud-api-issues"><div class="cloud-api-issues-title">⚠ ${escapeHtml(t("cloudUpstreamErrorsTitle"))}</div>${items}</div>`;
+  const okRow = recovered && rows[0]?.okSince
+    ? `<div class="cloud-api-issue is-resolved-note">✓ ${escapeHtml(t("cloudUpstreamRecovered", { n: rows[0].okSince }))}</div>`
+    : "";
+  return `<div class="cloud-api-issues${recovered ? " all-resolved" : ""}"><div class="cloud-api-issues-title">⚠ ${escapeHtml(t("cloudUpstreamErrorsTitle"))}</div>${items}${okRow}</div>`;
 }
 
 export function proxySpendHtml(accountId) {

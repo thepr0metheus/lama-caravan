@@ -2112,6 +2112,16 @@
 
 .cloud-api-issue.off .cloud-api-issue-state { color: var(--bad); }
 
+/* A resolved incident stays on the card for the rest of its 24h window — it is
+   history, not an alarm, so the panel stops shouting once every row recovered. */
+.cloud-api-issues.all-resolved {
+  border-color: color-mix(in srgb, var(--muted) 30%, transparent);
+  background: color-mix(in srgb, var(--muted) 6%, transparent);
+}
+.cloud-api-issues.all-resolved .cloud-api-issues-title { color: var(--muted); }
+.cloud-api-issue.is-resolved { opacity: .62; }
+.cloud-api-issue.is-resolved-note { color: var(--ok, var(--muted)); opacity: .9; }
+
 .cloud-api-issue-err {
   color: var(--muted);
   overflow: hidden;

@@ -57,6 +57,39 @@ from caravan.proxy.translate import (
 )
 
 
+def _upstream_failure_summary(status, body):
+    """(human reason, short kind) for an upstream that answered with an error.
+
+    Providers put the reason in the body and each nests it differently — OpenAI
+    uses {"error":{"message","code"}} for some failures, a bare {"error":"…"}
+    for others, {"detail":"…"} at the edge, and a {"code":"…_circuit_open"} when
+    their own breaker trips. Anything unparsed still beats an empty string, so
+    the raw text is the fallback rather than a discard.
+    """
+    text = str(body or "").strip()
+    kind = ""
+    reason = ""
+    if text.startswith("{") or text.startswith("["):
+        try:
+            data = json.loads(text)
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            err = data.get("error")
+            if isinstance(err, dict):
+                reason = str(err.get("message") or "").strip()
+                kind = str(err.get("code") or err.get("type") or "").strip()
+            elif isinstance(err, str):
+                reason = err.strip()
+            reason = reason or str(data.get("detail") or data.get("message") or "").strip()
+            kind = kind or str(data.get("code") or "").strip()
+    if not reason:
+        reason = " ".join(text.split())[:300]
+    if not kind:
+        kind = f"http_{int(status)}"
+    return reason, kind[:60]
+
+
 class ProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -946,6 +979,17 @@ class ProxyHandler(BaseHTTPRequestHandler):
             _qspec = (route.get("queuePlan") or {}).get("spec") or {}
             if "stickySlotSec" in _qspec:
                 result["stickySlotSec"] = _qspec.get("stickySlotSec")
+            # An upstream that answered 4xx/5xx usually SAYS why, and that body
+            # was reaching only the upstream_response event — the terminal
+            # record, which every panel and stats reader consumes, carried a
+            # bare status and two empty strings. On the board that renders as
+            # "HTTP 503 ×25" with no reason, and the difference between
+            # "circuit open", "too many concurrent requests" and a reset
+            # connection is the difference between waiting and calling the
+            # provider. error/errorKind are only set for client disconnects and
+            # exceptions above, so filling them here takes nothing away.
+            if status >= 400 and not error and not error_kind:
+                error, error_kind = _upstream_failure_summary(status, upstream_error_body)
             finish_active(str(route["port"]), request_id, result)
             write_proxy_event("finished", route_label=route["label"], request_id=request_id, item=result, status=status, error=error, errorKind=error_kind)
 

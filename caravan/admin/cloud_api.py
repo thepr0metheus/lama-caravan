@@ -425,16 +425,75 @@ def cloud_upstream_errors(hours=24):
             model = blk.get("model") or it.get("model") or "?"
             code = f"HTTP {status}" if status >= 400 else kind
             rows = by_account.setdefault(acct, {})
-            row = rows.setdefault((model, code), {"model": model, "code": code, "count": 0, "lastAt": 0, "error": ""})
+            row = rows.setdefault((model, code), {"model": model, "code": code, "count": 0,
+                                                  "firstAt": 0, "lastAt": 0, "error": "", "kind": ""})
             row["count"] += 1
+            # firstAt as well as lastAt. With only the last timestamp, twenty-five
+            # failures spread over two and a half hours read as a burst in one
+            # minute — the count and the stamp describe different things and the
+            # card put them side by side.
+            if not row["firstAt"] or ts < row["firstAt"]:
+                row["firstAt"] = ts
             if ts >= row["lastAt"]:
                 row["lastAt"] = ts
                 err = it.get("error")
                 if err:
                     row["error"] = str(err)[:200]
+                if kind:
+                    row["kind"] = kind[:60]
+    # Did this provider recover? A row stays on the card for a full 24h with the
+    # timestamp of its LAST failure and nothing else, so a provider that broke
+    # at lunch and has answered every request since still reads as broken now.
+    ok_after = _cloud_success_after(by_account, cutoff)
+    for acct, rows in by_account.items():
+        newest = max((r["lastAt"] for r in rows.values()), default=0)
+        for r in rows.values():
+            r["okSince"] = int(ok_after.get(acct, {}).get("count", 0)) if newest else 0
+            r["lastOkAt"] = int(ok_after.get(acct, {}).get("lastAt", 0))
     return {"ok": True, "windowHours": int(hours),
             "byAccount": {a: sorted(rows.values(), key=lambda r: -r["count"])[:8]
                           for a, rows in by_account.items()}}
+
+
+def _cloud_success_after(by_account, cutoff):
+    """Per account: how many cloud requests SUCCEEDED after its newest failure.
+
+    A closed incident and an ongoing one look identical on the card otherwise;
+    this is what lets it say "recovered" instead of leaving the operator to
+    guess from a timestamp."""
+    newest = {a: max((r["lastAt"] for r in rows.values()), default=0)
+              for a, rows in by_account.items()}
+    out = {a: {"count": 0, "lastAt": 0} for a in by_account}
+    if not out:
+        return out
+    for i in range(2):
+        dstr = datetime.fromtimestamp(time.time() - i * 86400).strftime("%Y-%m-%d")
+        path = AGENT_PROXY_LOG_DIR / f"{dstr}.jsonl"
+        if not path.exists():
+            continue
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for ln in lines:
+            if '"finished"' not in ln or '"cloud"' not in ln:
+                continue
+            try:
+                it = (json.loads(ln).get("item") or {})
+            except Exception:
+                continue
+            if str(it.get("upstreamType")) != "cloud":
+                continue
+            status = int(it.get("status") or 0)
+            if status >= 400 or status == 0:
+                continue
+            ts = int(it.get("finishedAt") or 0)
+            acct = str(it.get("cloudAccountId") or "")
+            if acct not in out or ts < max(cutoff, newest.get(acct, 0)):
+                continue
+            out[acct]["count"] += 1
+            out[acct]["lastAt"] = max(out[acct]["lastAt"], ts)
+    return out
 
 
 def fetch_subscription_models(account_id):
