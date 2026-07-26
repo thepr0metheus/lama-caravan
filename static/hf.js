@@ -738,7 +738,12 @@ repoCol.appendChild(buildFilterBar());
 repoCol.appendChild(favSection);
 repoCol.appendChild(resultsList);
 
-let favExpanded = true;
+// Collapsed on load, always. Favourites are a shortcut you reach for
+// deliberately; expanded by default they pushed the search results — the reason
+// you opened this page — below the fold, and grew worse the more you starred.
+// Deliberately NOT persisted: the state resets every visit, so the page always
+// opens the same way instead of remembering a click from last week.
+let favExpanded = false;
 
 // ── helper functions ──────────────────────────────────────────────────────────
 
