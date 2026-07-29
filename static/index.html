@@ -321,20 +321,20 @@
   </main>
 
   <main id="topologyView" class="app-view topology-view active" data-view="topology">
-    <div id="llamaSuspectBanner" class="llama-suspect-banner" hidden></div>
+    <div id="llamaSuspectBanner" class="llama-suspect-banner" hidden data-t="board-llama-suspect-banner"></div>
     <section class="topology-board">
       <svg id="topologyCables" class="topology-cables" aria-hidden="true"></svg>
       <div class="topology-column">
         <div class="section-title topology-title">
           <h2 class="title-with-tip"><span data-i18n="topologyClientsSection">Clients with caravan-scout</span><span id="topologyClientsTip"></span></h2>
         </div>
-        <div id="topologyClients" class="topology-stack"></div>
+        <div id="topologyClients" class="topology-stack" data-t="board-clients-lane"></div>
       </div>
 
       <div class="topology-column topology-server-column">
         <div class="topology-lanes nodes-on">
           <section>
-            <div id="topologyProxies" class="topology-stack"></div>
+            <div id="topologyProxies" class="topology-stack" data-t="board-router-lane"></div>
           </section>
           <section class="topology-divider-lane" aria-hidden="true">
             <div class="topology-divider-head"></div>
@@ -347,15 +347,15 @@
                 <button id="topologyRequestHistoryBtn" type="button" class="icon-action prominent" data-title-i18n="requestHistoryTitle" title="Request history">
                   <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
                 </button>
-                <button id="systemInfoBtn" type="button" class="icon-action prominent" data-title-i18n="systemInfoTitle" title="System info — llama.cpp build &amp; known problems">🛠</button>
+                <button id="systemInfoBtn" type="button" class="icon-action prominent" data-title-i18n="systemInfoTitle" title="System info — llama.cpp build &amp; known problems" data-t="board-system-open">🛠</button>
               </div>
             </div>
-            <div id="topologyModelsBar" class="topology-models-bar"></div>
-            <div id="topologyLlamaServers" class="topology-stack nodes-mode"></div>
+            <div id="topologyModelsBar" class="topology-models-bar" data-t="board-models-bar"></div>
+            <div id="topologyLlamaServers" class="topology-stack nodes-mode" data-t="board-nodes-lane"></div>
             <div class="topology-lane-head topology-cloud-head">
               <h2 class="title-with-tip"><span data-i18n="topologyCloudSection">Cloud Providers</span><span id="topologyCloudTip"></span></h2>
             </div>
-            <div id="topologyCloudProviders" class="topology-stack"></div>
+            <div id="topologyCloudProviders" class="topology-stack" data-t="board-cloud-lane"></div>
           </section>
           <section class="lane-stats">
             <details class="topology-card topology-server-stats-card">
@@ -396,11 +396,11 @@
                   <span class="topology-stat-label" data-i18n="statProcesses">Processes</span>
                   <span id="topologyProcessValue" class="topology-stat-value">—</span>
                 </summary>
-                <div id="topologyProcesses" class="topology-processes-list"></div>
+                <div id="topologyProcesses" class="topology-processes-list" data-t="board-processes-list"></div>
               </details>
             </details>
             <article class="topology-card topology-gpu-history-card">
-              <div id="topologyGpus" class="topology-gpu-inline"></div>
+              <div id="topologyGpus" class="topology-gpu-inline" data-t="board-gpus-lane"></div>
               <div class="gpu-metric">
                 <div class="topology-card-head topology-gpu-history-subhead">
                   <strong class="topology-expand-trigger" data-open-chart="gpu"><span data-i18n="topologyGpuHistoryHead">GPU History</span> <span class="topology-expand-hint">⤢</span></strong>
@@ -446,7 +446,7 @@
                 <strong data-i18n="incidentsHead">Incidents</strong>
                 <span id="topologyIncidentsMeta" class="topology-history-meta">waiting</span>
               </div>
-              <div id="topologyIncidents" class="topology-incidents-list"></div>
+              <div id="topologyIncidents" class="topology-incidents-list" data-t="board-incidents-list"></div>
             </article>
           </section>
         </div>
@@ -455,7 +455,7 @@
   </main>
 
   <!-- Remote Llama Server Add Modal (same structure as Edit, tr- prefix) -->
-  <div id="llamaRemoteEditOverlay" class="topology-llama-edit-overlay" hidden role="dialog" aria-modal="true">
+  <div id="llamaRemoteEditOverlay" class="topology-llama-edit-overlay" hidden role="dialog" aria-modal="true" data-t="cell-remote-modal">
     <div class="topology-llama-edit-modal">
       <div class="topo-edit-header">
         <h2 id="llamaRemoteEditTitle">Add llama server — remote</h2>
@@ -463,7 +463,7 @@
           <button type="button" class="ob-btn-head" data-ob-tour>
             <span class="ob-q">?</span><span data-i18n="tourBtnLabel">Tour</span>
           </button>
-          <button id="llamaRemoteEditStart" type="button" class="topo-ok-btn" data-i18n="apply">Apply</button>
+          <button id="llamaRemoteEditStart" type="button" class="topo-ok-btn" data-i18n="apply" data-t="cell-remote-apply">Apply</button>
           <button class="topo-cancel-btn" type="button" id="llamaRemoteEditClose" data-i18n="cancel">Cancel</button>
         </div>
       </div>
@@ -478,44 +478,44 @@
             <div id="tr-computeTarget" class="compute-target compute-target-top"></div>
             <div class="field model-file-field">
               <div class="label-row"><label for="tr-MODEL_FILE">MODEL_FILE</label></div>
-              <select id="tr-MODEL_FILE" name="MODEL_FILE"></select>
+              <select id="tr-MODEL_FILE" name="MODEL_FILE" data-t="cell-remote-model"></select>
             </div>
             <div class="field cell-kind-row">
               <div class="label-row"><label data-i18n="runnerLabel">Runner</label></div>
               <div class="cell-kind-toggle runner-tabs" style="display:flex;gap:6px"></div>
               <p class="runner-benefits" id="tr-runnerBenefits"></p>
               <input id="tr-CELL_KIND" name="CELL_KIND" type="hidden" value="">
-              <input id="tr-RUNNER" name="RUNNER" type="hidden" value="">
+              <input id="tr-RUNNER" name="RUNNER" type="hidden" value="" data-t="cell-remote-runner">
             </div>
             <div class="field command-cell-fields" id="tr-commandFields" style="display:none">
               <div class="label-row"><label for="tr-CMD_PRESET">Preset</label></div>
               <div class="cmd-preset-chips" id="tr-CMD_PRESET_CHIPS"></div>
               <select id="tr-CMD_PRESET" class="cmd-preset" hidden></select>
               <div class="label-row" style="margin-top:10px"><label for="tr-COMMAND">COMMAND</label></div>
-              <input id="tr-COMMAND" name="COMMAND" type="text" class="cmd-command-input" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%">
+              <input id="tr-COMMAND" name="COMMAND" type="text" class="cmd-command-input" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%" data-t="cell-remote-command">
               <p class="field-note"><code>$PORT</code> is exported to the cell's reserved port; the command is <code>exec</code>'d. Don't prefix with <code>exec</code> — it's added.</p>
               <select id="tr-CELL_DEVICE" hidden><option value="auto">auto</option><option value="gpu">GPU</option><option value="cpu">CPU</option></select>
               <div class="label-row" style="margin-top:10px"><label for="tr-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
-              <textarea id="tr-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace"></textarea>
+              <textarea id="tr-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace" data-t="cell-remote-env"></textarea>
               <p class="field-note">One <code>KEY=VALUE</code> per line → <code>export</code>ed before the command.</p>
               <div class="cmd-two-col">
                 <div>
                   <div class="label-row"><label for="tr-WORKDIR">WORKDIR <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
-                  <input id="tr-WORKDIR" name="WORKDIR" type="text" placeholder="~/whisper — cd before exec" style="width:100%">
+                  <input id="tr-WORKDIR" name="WORKDIR" type="text" placeholder="~/whisper — cd before exec" style="width:100%" data-t="cell-remote-workdir">
                 </div>
                 <div>
                   <div class="label-row"><label class="cmd-health-lbl" for="tr-HEALTH_TOGGLE"><input type="checkbox" id="tr-HEALTH_TOGGLE" class="cmd-health-toggle"> <span data-i18n="cmdHealthToggle">HTTP health-check</span></label></div>
-                  <input id="tr-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health" style="width:100%" disabled>
+                  <input id="tr-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health" style="width:100%" disabled data-t="cell-remote-health-path">
                   <p class="field-note" data-i18n="cmdHealthOffNote">off = plain TCP port probe</p>
                 </div>
               </div>
             </div>
             <div class="field vllm-cell-fields" id="tr-vllmFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="tr-VLLM_MODEL">VLLM_MODEL</label></div>
-              <input id="tr-VLLM_MODEL" name="VLLM_MODEL" type="text" placeholder="nvidia/Qwen3.6-27B-NVFP4 — HF repo id or local path" style="width:100%">
+              <input id="tr-VLLM_MODEL" name="VLLM_MODEL" type="text" placeholder="nvidia/Qwen3.6-27B-NVFP4 — HF repo id or local path" style="width:100%" data-t="cell-remote-vllm-model">
               <p class="field-note">vLLM pulls HF repos into its own cache on first start; the venv self-provisions on the host.</p>
               <div class="label-row" style="margin-top:8px"><label for="tr-MAX_MODEL_LEN">MAX_MODEL_LEN</label></div>
-              <input id="tr-MAX_MODEL_LEN" name="MAX_MODEL_LEN" type="number" placeholder="32768 — empty = model default" style="width:100%">
+              <input id="tr-MAX_MODEL_LEN" name="MAX_MODEL_LEN" type="number" placeholder="32768 — empty = model default" style="width:100%" data-t="cell-remote-max-model-len">
               <div class="label-row" style="margin-top:8px"><label for="tr-GPU_MEMORY_UTILIZATION">GPU_MEMORY_UTILIZATION</label></div>
               <input id="tr-GPU_MEMORY_UTILIZATION" name="GPU_MEMORY_UTILIZATION" type="text" placeholder="0.90" style="width:100%">
               <div class="label-row" style="margin-top:8px"><label for="tr-QUANTIZATION">QUANTIZATION</label></div>
@@ -537,7 +537,7 @@
             </div>
             <div class="field whisper-cell-fields" id="tr-whisperFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="tr-WHISPER_MODEL">WHISPER_MODEL</label></div>
-              <select id="tr-WHISPER_MODEL" name="WHISPER_MODEL" style="width:100%">
+              <select id="tr-WHISPER_MODEL" name="WHISPER_MODEL" style="width:100%" data-t="cell-remote-whisper-model">
                 <option value="tiny">tiny · 75 MB</option>
                 <option value="base">base · 145 MB</option>
                 <option value="small">small · 480 MB</option>
@@ -550,7 +550,7 @@
             </div>
             <div class="field whisper-cell-fields" id="tr-moonshineFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="tr-MOONSHINE_MODEL">MOONSHINE_MODEL</label></div>
-              <select id="tr-MOONSHINE_MODEL" name="MOONSHINE_MODEL" style="width:100%">
+              <select id="tr-MOONSHINE_MODEL" name="MOONSHINE_MODEL" style="width:100%" data-t="cell-remote-moonshine-model">
                 <option value="en" selected>en · MIT · ~250 MB</option>
                 <option value="es">es · Community license</option>
                 <option value="zh">zh · Community license</option>
@@ -562,7 +562,7 @@
               </select>
               <p class="field-note">Moonshine v2 downloads the model on first start; CPU-only. en is MIT; other languages need the free Moonshine Community License.</p>
             </div>
-            <div id="tr-llamaFields">
+            <div id="tr-llamaFields" data-t="cell-remote-fields">
 
             <div class="field companion-field">
               <div class="companion-row">
@@ -573,7 +573,7 @@
                 </label>
                 <span class="companion-hint">offload to GPU</span>
               </div>
-              <select id="tr-MMPROJ_FILE" name="MMPROJ_FILE"></select>
+              <select id="tr-MMPROJ_FILE" name="MMPROJ_FILE" data-t="cell-remote-mmproj"></select>
             </div>
 
             <div class="field companion-field">
@@ -652,7 +652,7 @@
           <div id="tr-commandAside" style="display:none">
             <article class="panel">
               <h2 class="topo-aside-title" data-i18n="cmdNewStartSh">New command (start.sh)</h2>
-              <pre id="tr-cmdPreview" class="command-preview"></pre>
+              <pre id="tr-cmdPreview" class="command-preview" data-t="cell-remote-command-preview"></pre>
             </article>
             <article class="panel">
               <h2 class="topo-aside-title" data-i18n="cmdCurrentTitle">Current command</h2>
@@ -674,7 +674,7 @@
   </div>
 
   <!-- Topology Llama Server Edit Modal -->
-  <div id="topologyLlamaEditOverlay" class="topology-llama-edit-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="topologyLlamaEditTitle">
+  <div id="topologyLlamaEditOverlay" class="topology-llama-edit-overlay" hidden role="dialog" aria-modal="true" aria-labelledby="topologyLlamaEditTitle" data-t="cell-edit-modal">
     <div class="topology-llama-edit-modal">
       <div class="topo-edit-header">
         <h2 id="topologyLlamaEditTitle">Edit Llama Server</h2>
@@ -682,7 +682,7 @@
           <button type="button" class="ob-btn-head" data-ob-tour>
             <span class="ob-q">?</span><span data-i18n="tourBtnLabel">Tour</span>
           </button>
-          <button id="topologyLlamaEditSaveRestart" type="button" class="danger">Start</button>
+          <button id="topologyLlamaEditSaveRestart" type="button" class="danger" data-t="cell-edit-apply">Start</button>
           <button class="topo-cancel-btn" type="button" data-topo-edit-close data-i18n="cancel">Cancel</button>
         </div>
       </div>
@@ -697,7 +697,7 @@
             <div id="te-computeTarget" class="compute-target compute-target-top"></div>
             <div class="field model-file-field">
               <div class="label-row"><label for="te-MODEL_FILE">MODEL_FILE</label></div>
-              <select id="te-MODEL_FILE" name="MODEL_FILE"></select>
+              <select id="te-MODEL_FILE" name="MODEL_FILE" data-t="cell-edit-model"></select>
               <p id="te-modelFileDirHint" class="field-note te-models-dir-hint" hidden></p>
             </div>
             <div class="field cell-kind-row">
@@ -705,37 +705,37 @@
               <div class="cell-kind-toggle runner-tabs" style="display:flex;gap:6px"></div>
               <p class="runner-benefits" id="te-runnerBenefits"></p>
               <input id="te-CELL_KIND" name="CELL_KIND" type="hidden" value="">
-              <input id="te-RUNNER" name="RUNNER" type="hidden" value="">
+              <input id="te-RUNNER" name="RUNNER" type="hidden" value="" data-t="cell-edit-runner">
             </div>
             <div class="field command-cell-fields" id="te-commandFields" style="display:none">
               <div class="label-row"><label for="te-CMD_PRESET">Preset</label></div>
               <div class="cmd-preset-chips" id="te-CMD_PRESET_CHIPS"></div>
               <select id="te-CMD_PRESET" class="cmd-preset" hidden></select>
               <div class="label-row" style="margin-top:10px"><label for="te-COMMAND">COMMAND</label></div>
-              <input id="te-COMMAND" name="COMMAND" type="text" class="cmd-command-input" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%">
+              <input id="te-COMMAND" name="COMMAND" type="text" class="cmd-command-input" placeholder="bash ~/run_whisper.sh $PORT large-v3" style="width:100%" data-t="cell-edit-command">
               <p class="field-note"><code>$PORT</code> is exported to the cell's reserved port; the command is <code>exec</code>'d. Don't prefix with <code>exec</code> — it's added.</p>
               <select id="te-CELL_DEVICE" hidden><option value="auto">auto</option><option value="gpu">GPU</option><option value="cpu">CPU</option></select>
               <div class="label-row" style="margin-top:10px"><label for="te-ENV">ENV <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
-              <textarea id="te-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace"></textarea>
+              <textarea id="te-ENV" name="ENV" rows="3" placeholder="LD_LIBRARY_PATH=/opt/cudnn/lib&#10;OMP_NUM_THREADS=4" style="width:100%;font-family:ui-monospace,Menlo,monospace" data-t="cell-edit-env"></textarea>
               <p class="field-note">One <code>KEY=VALUE</code> per line → <code>export</code>ed before the command.</p>
               <div class="cmd-two-col">
                 <div>
                   <div class="label-row"><label for="te-WORKDIR">WORKDIR <span style="font-weight:normal;opacity:.6">(optional)</span></label></div>
-                  <input id="te-WORKDIR" name="WORKDIR" type="text" placeholder="~/whisper — cd before exec" style="width:100%">
+                  <input id="te-WORKDIR" name="WORKDIR" type="text" placeholder="~/whisper — cd before exec" style="width:100%" data-t="cell-edit-workdir">
                 </div>
                 <div>
                   <div class="label-row"><label class="cmd-health-lbl" for="te-HEALTH_TOGGLE"><input type="checkbox" id="te-HEALTH_TOGGLE" class="cmd-health-toggle"> <span data-i18n="cmdHealthToggle">HTTP health-check</span></label></div>
-                  <input id="te-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health" style="width:100%" disabled>
+                  <input id="te-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health" style="width:100%" disabled data-t="cell-edit-health-path">
                   <p class="field-note" data-i18n="cmdHealthOffNote">off = plain TCP port probe</p>
                 </div>
               </div>
             </div>
             <div class="field vllm-cell-fields" id="te-vllmFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="te-VLLM_MODEL">VLLM_MODEL</label></div>
-              <input id="te-VLLM_MODEL" name="VLLM_MODEL" type="text" placeholder="nvidia/Qwen3.6-27B-NVFP4 — HF repo id or local path" style="width:100%">
+              <input id="te-VLLM_MODEL" name="VLLM_MODEL" type="text" placeholder="nvidia/Qwen3.6-27B-NVFP4 — HF repo id or local path" style="width:100%" data-t="cell-edit-vllm-model">
               <p class="field-note">vLLM pulls HF repos into its own cache on first start; the venv self-provisions on the host.</p>
               <div class="label-row" style="margin-top:8px"><label for="te-MAX_MODEL_LEN">MAX_MODEL_LEN</label></div>
-              <input id="te-MAX_MODEL_LEN" name="MAX_MODEL_LEN" type="number" placeholder="32768 — empty = model default" style="width:100%">
+              <input id="te-MAX_MODEL_LEN" name="MAX_MODEL_LEN" type="number" placeholder="32768 — empty = model default" style="width:100%" data-t="cell-edit-max-model-len">
               <div class="label-row" style="margin-top:8px"><label for="te-GPU_MEMORY_UTILIZATION">GPU_MEMORY_UTILIZATION</label></div>
               <input id="te-GPU_MEMORY_UTILIZATION" name="GPU_MEMORY_UTILIZATION" type="text" placeholder="0.90" style="width:100%">
               <div class="label-row" style="margin-top:8px"><label for="te-QUANTIZATION">QUANTIZATION</label></div>
@@ -757,7 +757,7 @@
             </div>
             <div class="field whisper-cell-fields" id="te-whisperFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="te-WHISPER_MODEL">WHISPER_MODEL</label></div>
-              <select id="te-WHISPER_MODEL" name="WHISPER_MODEL" style="width:100%">
+              <select id="te-WHISPER_MODEL" name="WHISPER_MODEL" style="width:100%" data-t="cell-edit-whisper-model">
                 <option value="tiny">tiny · 75 MB</option>
                 <option value="base">base · 145 MB</option>
                 <option value="small">small · 480 MB</option>
@@ -770,7 +770,7 @@
             </div>
             <div class="field whisper-cell-fields" id="te-moonshineFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="te-MOONSHINE_MODEL">MOONSHINE_MODEL</label></div>
-              <select id="te-MOONSHINE_MODEL" name="MOONSHINE_MODEL" style="width:100%">
+              <select id="te-MOONSHINE_MODEL" name="MOONSHINE_MODEL" style="width:100%" data-t="cell-edit-moonshine-model">
                 <option value="en" selected>en · MIT · ~250 MB</option>
                 <option value="es">es · Community license</option>
                 <option value="zh">zh · Community license</option>
@@ -782,7 +782,7 @@
               </select>
               <p class="field-note">Moonshine v2 downloads the model on first start; CPU-only. en is MIT; other languages need the free Moonshine Community License.</p>
             </div>
-            <div id="te-llamaFields">
+            <div id="te-llamaFields" data-t="cell-edit-fields">
 
             <div class="field companion-field">
               <div class="companion-row">
@@ -793,7 +793,7 @@
                 </label>
                 <span class="companion-hint">offload to GPU</span>
               </div>
-              <select id="te-MMPROJ_FILE" name="MMPROJ_FILE"></select>
+              <select id="te-MMPROJ_FILE" name="MMPROJ_FILE" data-t="cell-edit-mmproj"></select>
             </div>
 
             <div class="field companion-field">
@@ -857,7 +857,7 @@
           <div id="te-commandAside" style="display:none">
             <article class="panel">
               <h2 class="topo-aside-title" data-i18n="cmdNewStartSh">New command (start.sh)</h2>
-              <pre id="te-cmdPreview" class="command-preview"></pre>
+              <pre id="te-cmdPreview" class="command-preview" data-t="cell-edit-command-preview"></pre>
             </article>
             <article class="panel">
               <h2 class="topo-aside-title" data-i18n="cmdCurrentTitle">Current command</h2>
@@ -878,19 +878,19 @@
     </div>
   </div>
 
-  <div id="confirmOverlay" class="modal-overlay" hidden>
+  <div id="confirmOverlay" class="modal-overlay" hidden data-t="confirm-overlay">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" data-tone="danger">
       <header class="dlg-head">
         <span class="dlg-ico" aria-hidden="true"></span>
-        <h2 id="confirmTitle" data-i18n="deleteBackup">Delete backup?</h2>
+        <h2 id="confirmTitle" data-i18n="deleteBackup" data-t="confirm-title">Delete backup?</h2>
       </header>
-      <p id="confirmText"></p>
-      <div id="confirmMeta" class="modal-meta" hidden></div>
-      <code id="confirmPath"></code>
-      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden>
+      <p id="confirmText" data-t="confirm-text"></p>
+      <div id="confirmMeta" class="modal-meta" hidden data-t="confirm-meta"></div>
+      <code id="confirmPath" data-t="confirm-path"></code>
+      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden data-t="confirm-input">
       <div class="modal-actions">
-        <button id="confirmCancel" type="button" data-i18n="cancel">Cancel</button>
-        <button id="confirmDelete" type="button" class="danger" data-i18n="deleteAction">Delete</button>
+        <button id="confirmCancel" type="button" data-i18n="cancel" data-t="confirm-cancel">Cancel</button>
+        <button id="confirmDelete" type="button" class="danger" data-i18n="deleteAction" data-t="confirm-accept">Delete</button>
       </div>
     </div>
   </div>
@@ -909,7 +909,7 @@
     </section>
   </aside>
 
-  <div id="toast" role="status"></div>
+  <div id="toast" role="status" data-t="app-toast"></div>
   <script type="module" src="/js/main.js"></script>
 
 <div id="routeActivityTooltip" class="route-activity-tooltip" hidden></div>

@@ -209,20 +209,20 @@
         <h1><span aria-hidden="true">🛠</span> <span data-i18n="systemInfoTitle">System</span></h1>
         <p data-i18n="sysSubtitle">Controller health, llama.cpp build, accounts and diagnostics — everything operational lives here.</p>
       </div>
-      <div class="sys-hero-stats" id="sysHeroStats"></div>
+      <div class="sys-hero-stats" id="sysHeroStats" data-t="system-hero-stats"></div>
     </section>
 
     <nav class="sys-tabs" role="tablist" id="sysTabs">
-      <button class="sys-tab active" data-tab="controller" role="tab" aria-selected="true">
+      <button class="sys-tab active" data-tab="controller" role="tab" aria-selected="true" data-t="system-tab-controller">
         <span class="sys-tab-ico" aria-hidden="true">⚙️</span><span class="sys-tab-label" data-i18n="controllerSection">Controller</span>
       </button>
-      <button class="sys-tab" data-tab="llama" role="tab" aria-selected="false">
+      <button class="sys-tab" data-tab="llama" role="tab" aria-selected="false" data-t="system-tab-llama">
         <span class="sys-tab-ico" aria-hidden="true">🦙</span><span class="sys-tab-label">llama.cpp</span>
       </button>
-      <button class="sys-tab" data-tab="security" role="tab" aria-selected="false">
+      <button class="sys-tab" data-tab="security" role="tab" aria-selected="false" data-t="system-tab-security">
         <span class="sys-tab-ico" aria-hidden="true">🛡️</span><span class="sys-tab-label" data-i18n="securitySection">Security</span>
       </button>
-      <button class="sys-tab" data-tab="diag" role="tab" aria-selected="false">
+      <button class="sys-tab" data-tab="diag" role="tab" aria-selected="false" data-t="system-tab-diag">
         <span class="sys-tab-ico" aria-hidden="true">🩺</span><span class="sys-tab-label" data-i18n="diagSection">Diagnostics</span>
       </button>
     </nav>
@@ -232,10 +232,10 @@
         <div class="section-title">
           <h2 class="title-with-tip"><span data-i18n="controllerSection">Controller</span><span id="controllerSectionTip"></span></h2>
           <div class="button-row">
-            <button id="modelGcBtn" type="button" data-i18n="gcOpen">Free up space…</button>
+            <button id="modelGcBtn" type="button" data-i18n="gcOpen" data-t="system-gc-open">Free up space…</button>
           </div>
         </div>
-        <div id="controllerInfo" class="llama-summary"><span class="muted">…</span></div>
+        <div id="controllerInfo" class="llama-summary" data-t="system-controller-info"><span class="muted">…</span></div>
       </div>
     </section>
 
@@ -244,16 +244,16 @@
         <div class="section-title">
           <h2 class="title-with-tip"><span>llama.cpp</span><span id="llamaCppTip"></span></h2>
           <div class="button-row">
-            <span class="button-with-tip"><button id="checkLlamaBtn" type="button" data-i18n="checkVersions">Check Versions</button><span id="checkVersionsTip"></span></span>
-            <span class="button-with-tip"><button id="updateLlamaBtn" type="button" class="danger" data-i18n="updateBuild">Update Build</button><span id="updateBuildTip"></span></span>
+            <span class="button-with-tip"><button id="checkLlamaBtn" type="button" data-i18n="checkVersions" data-t="system-llama-versions-check">Check Versions</button><span id="checkVersionsTip"></span></span>
+            <span class="button-with-tip"><button id="updateLlamaBtn" type="button" class="danger" data-i18n="updateBuild" data-t="system-llama-build-update">Update Build</button><span id="updateBuildTip"></span></span>
           </div>
         </div>
-        <div id="llamaCppSummary" class="llama-summary"></div>
+        <div id="llamaCppSummary" class="llama-summary" data-t="system-llama-summary"></div>
         <h3 class="llama-builds-title" data-i18n="archivedBuilds">Archived builds</h3>
-        <div id="llamaBuildsList" class="llama-builds-list"></div>
+        <div id="llamaBuildsList" class="llama-builds-list" data-t="system-llama-builds"></div>
         <h3 class="llama-builds-title" data-i18n="vllmRunnerTitle">vLLM runner</h3>
-        <div id="vllmSummary" class="llama-builds-list"></div>
-        <pre id="llamaUpdateLog" class="llama-update-log"></pre>
+        <div id="vllmSummary" class="llama-builds-list" data-t="system-vllm-list"></div>
+        <pre id="llamaUpdateLog" class="llama-update-log" data-t="system-llama-update-log"></pre>
       </div>
     </section>
 
@@ -262,10 +262,10 @@
         <div class="section-title">
           <h2 class="title-with-tip"><span data-i18n="securitySection">Security</span><span id="securitySectionTip"></span></h2>
           <div class="button-row">
-            <span class="button-with-tip"><button id="authLogoutBtn" type="button" data-i18n="authLogout" hidden>Log out</button></span>
+            <span class="button-with-tip"><button id="authLogoutBtn" type="button" data-i18n="authLogout" hidden data-t="system-security-logout">Log out</button></span>
           </div>
         </div>
-        <div id="securityInfo" class="security-info"><span class="muted">…</span></div>
+        <div id="securityInfo" class="security-info" data-t="system-security-info"><span class="muted">…</span></div>
       </div>
     </section>
 
@@ -274,50 +274,50 @@
         <div class="section-title">
           <h2 class="title-with-tip"><span data-i18n="diagSection">Diagnostics</span><span id="knownProblemsTip"></span></h2>
           <div class="button-row">
-            <span class="button-with-tip"><button id="repairUserServiceBtn" type="button" data-i18n="repairUserService">Repair user service</button><span id="repairUserServiceTip"></span></span>
+            <span class="button-with-tip"><button id="repairUserServiceBtn" type="button" data-i18n="repairUserService" data-t="system-diag-service-repair">Repair user service</button><span id="repairUserServiceTip"></span></span>
           </div>
         </div>
-        <div id="knownProblems" class="known-problems"></div>
+        <div id="knownProblems" class="known-problems" data-t="system-diag-checks"></div>
       </div>
     </section>
 
     <p class="sys-foot" id="sysFoot"></p>
   </div>
 
-  <div id="confirmOverlay" class="modal-overlay" hidden>
+  <div id="confirmOverlay" class="modal-overlay" hidden data-t="confirm-overlay">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" data-tone="danger">
       <header class="dlg-head">
         <span class="dlg-ico" aria-hidden="true"></span>
-        <h2 id="confirmTitle" data-i18n="deleteBackup">Delete backup?</h2>
+        <h2 id="confirmTitle" data-i18n="deleteBackup" data-t="confirm-title">Delete backup?</h2>
       </header>
-      <p id="confirmText"></p>
-      <div id="confirmMeta" class="modal-meta" hidden></div>
-      <code id="confirmPath"></code>
-      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden>
+      <p id="confirmText" data-t="confirm-text"></p>
+      <div id="confirmMeta" class="modal-meta" hidden data-t="confirm-meta"></div>
+      <code id="confirmPath" data-t="confirm-path"></code>
+      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden data-t="confirm-input">
       <div class="modal-actions">
-        <button id="confirmCancel" type="button" data-i18n="cancel">Cancel</button>
-        <button id="confirmDelete" type="button" class="danger" data-i18n="deleteAction">Delete</button>
+        <button id="confirmCancel" type="button" data-i18n="cancel" data-t="confirm-cancel">Cancel</button>
+        <button id="confirmDelete" type="button" class="danger" data-i18n="deleteAction" data-t="confirm-accept">Delete</button>
       </div>
     </div>
   </div>
 
-  <div id="modelGcOverlay" class="modal-overlay" hidden>
+  <div id="modelGcOverlay" class="modal-overlay" hidden data-t="system-gc-modal">
     <div class="modal model-gc-modal" role="dialog" aria-modal="true" aria-label="Model cache cleanup">
       <div class="modal-head-row">
         <strong data-i18n="gcTitle">Models disk cleanup</strong>
-        <button class="icon-action compact" id="modelGcClose" aria-label="Close">✕</button>
+        <button class="icon-action compact" id="modelGcClose" aria-label="Close" data-t="system-gc-close">✕</button>
       </div>
-      <p class="muted" id="modelGcSummary">…</p>
-      <div id="modelGcList" class="model-gc-list"></div>
+      <p class="muted" id="modelGcSummary" data-t="system-gc-summary">…</p>
+      <div id="modelGcList" class="model-gc-list" data-t="system-gc-list"></div>
       <div class="button-row model-gc-foot">
-        <button id="modelGcSelectAll" type="button" data-i18n="gcSelectAll">Select all unused</button>
-        <span id="modelGcSelected" class="muted"></span>
-        <button id="modelGcDelete" type="button" class="danger" data-i18n="gcDelete">Delete selected</button>
+        <button id="modelGcSelectAll" type="button" data-i18n="gcSelectAll" data-t="system-gc-select-all">Select all unused</button>
+        <span id="modelGcSelected" class="muted" data-t="system-gc-selected"></span>
+        <button id="modelGcDelete" type="button" class="danger" data-i18n="gcDelete" data-t="system-gc-delete">Delete selected</button>
       </div>
     </div>
   </div>
 
-  <div id="toast" role="status"></div>
+  <div id="toast" role="status" data-t="app-toast"></div>
   <script type="module" src="/js/system-page.js"></script>
 </body>
 </html>

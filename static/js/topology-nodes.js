@@ -544,14 +544,14 @@ export function nodeServerCardHtml(node, s) {
     const cellHostId = slotHostId;
     const isCellStopping = _stoppingCells.has(cellKey) || pendingCellAction === "stop";
     const isCellBusy = isCellStopping || !!pendingCellAction;
-    const cfgAttrs = `data-node-cell-start="${escapeHtml(s.isController ? CONTROLLER_HOST_ID : node.id)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-role="${escapeHtml(node.role)}"`;
+    const cfgAttrs = `data-t="cell-configure" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-start="${escapeHtml(s.isController ? CONTROLLER_HOST_ID : node.id)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-role="${escapeHtml(node.role)}"`;
 
     // ✕ delete — active only when reserved / stopped / error
     const canDelete = (isReserved || phase === "stopped" || isError) && !isDeleting && !isCellBusy;
     const delBtn = isDeleting
       ? `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("removingSlotLabel"))}"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("deleteAction"))}</span></button>`
       : `<button class="node-action-btn ${canDelete ? "del" : "muted"}" type="button"
-           ${canDelete ? `data-node-slot-del="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}"` : "disabled"}
+           ${canDelete ? `data-t="cell-delete" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-slot-del="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}"` : "disabled"}
            title="${escapeHtml(canDelete ? t("nodeRemoveCell") : t("nodeCannotRemoveActive"))}">✕<span class="nab-lbl">${escapeHtml(t("deleteAction"))}</span></button>`;
 
     // ⚙ Configure — disabled only during starting / stopping / deleting
@@ -575,7 +575,7 @@ export function nodeServerCardHtml(node, s) {
     const cellRunner = isCmdCell ? "custom"
       : (String(_scfg.RUNNER || "").toLowerCase() || "llama-server");
     const playBtn = `<button class="node-action-btn ${canPlay ? "ok" : "muted"}" type="button"
-        ${canPlay ? `data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-runner="${escapeHtml(cellRunner)}"` : "disabled"}
+        ${canPlay ? `data-t="cell-start" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-runner="${escapeHtml(cellRunner)}"` : "disabled"}
         title="${escapeHtml(canPlay ? t("nodeStartServer") : (isReserved ? t("nodeConfigureFirst") : t("nodeNotStopped")))}">▶<span class="nab-lbl">${escapeHtml(t("start"))}</span></button>`;
 
     // ⏹ stop — active when starting or running; spinner while stopping
@@ -583,7 +583,7 @@ export function nodeServerCardHtml(node, s) {
     const stopBtn = isCellStopping
       ? `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("nodeStoppingTitle"))}"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`
       : `<button class="node-action-btn ${canStop ? "warn" : "muted"}" type="button"
-           ${canStop ? `data-node-cell-stop="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"` : "disabled"}
+           ${canStop ? `data-t="cell-stop" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-stop="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"` : "disabled"}
            title="${escapeHtml(canStop ? t("nodeStopServer") : t("nodeNotRunning"))}">⏹<span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`;
 
     // ↑ autostart — controller only for now; shown on both but disabled on client.
@@ -597,7 +597,7 @@ export function nodeServerCardHtml(node, s) {
 
     return `
       <article class="node-server ${cardCls}"
-               data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}"
+               data-t="cell-card" data-t-id="${escapeHtml(slotKey)}" data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}"
                ${_vramClaim ? `data-cell-node="${escapeHtml(String(node.id))}" data-cell-vram="${escapeHtml(_vramClaim)}"` : ""}>
         ${running ? '<span class="cell-beam" aria-hidden="true"></span>' : ""}
         <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
@@ -648,7 +648,7 @@ export function nodeServerCardHtml(node, s) {
   if (controls) controls = `<span class="node-server-ctl">${controls}</span>`;
   return `
     <article class="node-server ${cardCls}"
-             data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}">
+             data-t="cell-card" data-t-id="${escapeHtml(slotKey)}" data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}">
       ${running ? '<span class="cell-beam" aria-hidden="true"></span>' : ""}
       <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
             data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>

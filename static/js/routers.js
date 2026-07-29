@@ -524,7 +524,7 @@ export function renderTopologyRouterDetail() {
   // the workspace on open.
   const cvNodeHtml = canvasNodes(router).map((n) => {
     const pos = _cvPos[n.id] || n.fixed || { x: n.dx, y: n.dy };
-    return `<div class="cv-node cv-${n.type} ${n.cls || ""}" data-cv-node="${escapeHtml(n.id)}" style="left:${pos.x}px;top:${pos.y}px">${n.html}</div>`;
+    return `<div class="cv-node cv-${n.type} ${n.cls || ""}" data-t="kanban-node" data-t-id="${escapeHtml(n.id)}" data-cv-node="${escapeHtml(n.id)}" style="left:${pos.x}px;top:${pos.y}px">${n.html}</div>`;
   }).join("");
   const cvTf = `translate(${_cvView.tx}px, ${_cvView.ty}px) scale(${_cvView.scale})`;
   const foOn = (router.rules?.failover || []).length > 0;
@@ -537,7 +537,7 @@ export function renderTopologyRouterDetail() {
       <div class="router-workspace">
         ${window.ROUTER_STANDALONE ? `
         <div class="rw-head rw-head-standalone">
-          <a class="rw-back-link" href="/">← Main</a>
+          <a class="rw-back-link" data-t="kanban-back-link" href="/">← Main</a>
           <div class="rw-head-title-group">
             <span class="rw-head-name">${escapeHtml(t("topologyRouterTitle"))}</span>
             <div class="rw-head-badges">
@@ -569,20 +569,20 @@ export function renderTopologyRouterDetail() {
           <section class="rw-pane rw-center">
             <div class="rw-palette">
               <span class="rw-palette-label">${escapeHtml(t("rtRuleNodeLabel"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("rtPaletteTip")}</span></span></span>
-              <button class="cv-palette-btn" type="button" data-cv-add="schedule" title="${escapeHtml(t("rtTitleSchedule"))}">⏱ ${escapeHtml(t("cvNodeSchedule"))}</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="weighted" title="${escapeHtml(t("rtTitleWeighted"))}">⚖ ${escapeHtml(t("cvNodeWeighted"))}</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="roundRobin" title="${escapeHtml(t("rtTitleRoundRobin"))}">🔁 ${escapeHtml(t("cvNodeRoundRobin"))}</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="failover" title="${escapeHtml(t("rtTitleFailover"))}">⚡ ${escapeHtml(t("cvNodeFailover"))}</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="queue" title="${escapeHtml(t("rtTitleQueue"))}">⏳ ${escapeHtml(t("cvNodeQueue"))}</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="onError" title="${escapeHtml(t("rtTitleOnError"))}">🛟 ${escapeHtml(t("cvNodeOnError"))}</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="requestType" title="${escapeHtml(t("rtTitleByType"))}">🔀 ${escapeHtml(t("cvNodeByType"))}</button>
-              <button class="cv-palette-btn" type="button" data-cv-add="requestSize" title="${escapeHtml(t("rtTitleBySize"))}">📏 ${escapeHtml(t("cvNodeBySize"))}</button>
-              <span class="rw-palette-save" title="${escapeHtml(t("rtTitleAutoSaveInstant"))}">⤓ ${escapeHtml(t("rtAutoSave"))}</span>
+              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="schedule" type="button" data-cv-add="schedule" title="${escapeHtml(t("rtTitleSchedule"))}">⏱ ${escapeHtml(t("cvNodeSchedule"))}</button>
+              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="weighted" type="button" data-cv-add="weighted" title="${escapeHtml(t("rtTitleWeighted"))}">⚖ ${escapeHtml(t("cvNodeWeighted"))}</button>
+              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="roundRobin" type="button" data-cv-add="roundRobin" title="${escapeHtml(t("rtTitleRoundRobin"))}">🔁 ${escapeHtml(t("cvNodeRoundRobin"))}</button>
+              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="failover" type="button" data-cv-add="failover" title="${escapeHtml(t("rtTitleFailover"))}">⚡ ${escapeHtml(t("cvNodeFailover"))}</button>
+              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="queue" type="button" data-cv-add="queue" title="${escapeHtml(t("rtTitleQueue"))}">⏳ ${escapeHtml(t("cvNodeQueue"))}</button>
+              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="onError" type="button" data-cv-add="onError" title="${escapeHtml(t("rtTitleOnError"))}">🛟 ${escapeHtml(t("cvNodeOnError"))}</button>
+              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="requestType" type="button" data-cv-add="requestType" title="${escapeHtml(t("rtTitleByType"))}">🔀 ${escapeHtml(t("cvNodeByType"))}</button>
+              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="requestSize" type="button" data-cv-add="requestSize" title="${escapeHtml(t("rtTitleBySize"))}">📏 ${escapeHtml(t("cvNodeBySize"))}</button>
+              <span class="rw-palette-save" data-t="kanban-save-status" title="${escapeHtml(t("rtTitleAutoSaveInstant"))}">⤓ ${escapeHtml(t("rtAutoSave"))}</span>
             </div>
             ${renderRouterNodeConfig(router)}
-            <div class="cv-viewport" data-cv-viewport>
+            <div class="cv-viewport" data-t="kanban-canvas" data-cv-viewport>
               <div class="cv-world" data-cv-world style="transform:${cvTf}">
-                <svg class="cv-svg" data-cv-svg width="4000" height="3000" viewBox="0 0 4000 3000"></svg>
+                <svg class="cv-svg" data-t="kanban-cables" data-cv-svg width="4000" height="3000" viewBox="0 0 4000 3000"></svg>
                 ${cvNodeHtml}
               </div>
               <div class="rw-canvas-hint muted">${escapeHtml(t("rtCanvasHint"))}</div>

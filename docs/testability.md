@@ -108,6 +108,26 @@ Every input has a programmatic label — `<label for>`, `aria-label` or
 there is, and the same change is what lets a screen reader name the field. The
 sign-in form already does this.
 
+## The names, as they stand
+
+Generated from the source, not from memory — 122 values:
+
+**app** — `app-toast`
+**board** — `board-clients-lane`, `board-cloud-lane`, `board-gpus-lane`, `board-incidents-list`, `board-llama-suspect-banner`, `board-models-bar`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-system-open`
+**cell** — `cell-card`, `cell-configure`, `cell-delete`, `cell-edit-apply`, `cell-edit-command`, `cell-edit-command-preview`, `cell-edit-env`, `cell-edit-fields`, `cell-edit-health-path`, `cell-edit-max-model-len`, `cell-edit-mmproj`, `cell-edit-modal`, `cell-edit-model`, `cell-edit-moonshine-model`, `cell-edit-runner`, `cell-edit-vllm-model`, `cell-edit-whisper-model`, `cell-edit-workdir`, `cell-remote-apply`, `cell-remote-command`, `cell-remote-command-preview`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model`, `cell-remote-moonshine-model`, `cell-remote-runner`, `cell-remote-vllm-model`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-start`, `cell-stop`
+**confirm** — `confirm-accept`, `confirm-cancel`, `confirm-input`, `confirm-meta`, `confirm-overlay`, `confirm-path`, `confirm-text`, `confirm-title`
+**header** — `header`, `header-app-title`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
+**kanban** — `kanban-back-link`, `kanban-cables`, `kanban-canvas`, `kanban-node`, `kanban-palette-add`, `kanban-save-status`
+**login** — `login-error`, `login-form`, `login-lang`, `login-password`, `login-submit`, `login-username`
+**models** — `models-delete-selected`, `models-hero-stats`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-tree`, `models-unused-select-all`
+**setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
+**system** — `system-controller-info`, `system-diag-checks`, `system-diag-service-repair`, `system-gc-close`, `system-gc-delete`, `system-gc-list`, `system-gc-modal`, `system-gc-open`, `system-gc-select-all`, `system-gc-selected`, `system-gc-summary`, `system-hero-stats`, `system-llama-build-update`, `system-llama-builds`, `system-llama-summary`, `system-llama-update-log`, `system-llama-versions-check`, `system-security-info`, `system-security-logout`, `system-tab-controller`, `system-tab-diag`, `system-tab-llama`, `system-tab-security`, `system-vllm-list`
+
+Repeated elements carry `data-t-id`: `cell-card` and the cell lifecycle buttons
+use `host:port` (the `slotKey` the board already computes), `kanban-node` uses
+the node id (`rule:…`, `inputs:block`), `kanban-palette-add` mirrors its
+`data-cv-add`.
+
 ## Not in scope
 
 - `<canvas>` charts (`charts.js`, `topology-activity.js`). Canvas content is

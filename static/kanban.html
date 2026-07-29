@@ -190,24 +190,24 @@
 
   <div id="topologyProxies"></div>
 
-  <div id="confirmOverlay" class="modal-overlay" hidden>
+  <div id="confirmOverlay" class="modal-overlay" hidden data-t="confirm-overlay">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" data-tone="danger">
       <header class="dlg-head">
         <span class="dlg-ico" aria-hidden="true"></span>
-        <h2 id="confirmTitle">Confirm</h2>
+        <h2 id="confirmTitle" data-t="confirm-title">Confirm</h2>
       </header>
-      <p id="confirmText"></p>
-      <div id="confirmMeta" class="modal-meta" hidden></div>
-      <code id="confirmPath"></code>
-      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden>
+      <p id="confirmText" data-t="confirm-text"></p>
+      <div id="confirmMeta" class="modal-meta" hidden data-t="confirm-meta"></div>
+      <code id="confirmPath" data-t="confirm-path"></code>
+      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden data-t="confirm-input">
       <div class="modal-actions">
-        <button id="confirmCancel" type="button">Cancel</button>
-        <button id="confirmDelete" type="button" class="danger">OK</button>
+        <button id="confirmCancel" type="button" data-t="confirm-cancel">Cancel</button>
+        <button id="confirmDelete" type="button" class="danger" data-t="confirm-accept">OK</button>
       </div>
     </div>
   </div>
 
-  <div id="toast" role="status"></div>
+  <div id="toast" role="status" data-t="app-toast"></div>
 
   <script>window.ROUTER_STANDALONE = true;</script>
   <script type="module" src="/js/main.js"></script>

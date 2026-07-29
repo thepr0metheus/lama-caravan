@@ -148,46 +148,46 @@
         <h1><span aria-hidden="true">📦</span> <span data-i18n="modelsPage">Models on disk</span></h1>
         <p data-i18n="modelsPageSub">Everything the controller can serve — sizes, which cells use what, and cleanup of the rest.</p>
       </div>
-      <div class="mdl-hero-stats" id="mdlHeroStats"></div>
+      <div class="mdl-hero-stats" id="mdlHeroStats" data-t="models-hero-stats"></div>
     </section>
 
     <section class="mdl-panel">
       <div class="mdl-panel-head">
-        <span class="mdl-path" id="mdlPath"></span>
-        <button class="mini-link" type="button" id="mdlPathEdit" title="Edit models directory">✎</button>
-        <button class="mini-link" type="button" id="mdlSelectAll" data-i18n="gcSelectAll">Select all unused</button>
+        <span class="mdl-path" id="mdlPath" data-t="models-path-value"></span>
+        <button class="mini-link" type="button" id="mdlPathEdit" title="Edit models directory" data-t="models-path-edit">✎</button>
+        <button class="mini-link" type="button" id="mdlSelectAll" data-i18n="gcSelectAll" data-t="models-unused-select-all">Select all unused</button>
       </div>
-      <div class="mdl-path-edit" id="mdlPathEditRow" hidden>
-        <input id="mdlPathInput" placeholder="/path/to/models" autocomplete="off" spellcheck="false">
-        <button class="mini-link" type="button" id="mdlPathSave" data-i18n="save">Save</button>
-        <button class="mini-link" type="button" id="mdlPathCancel" data-i18n="cancel">Cancel</button>
+      <div class="mdl-path-edit" id="mdlPathEditRow" hidden data-t="models-path-edit-row">
+        <input id="mdlPathInput" placeholder="/path/to/models" autocomplete="off" spellcheck="false" data-t="models-path-input">
+        <button class="mini-link" type="button" id="mdlPathSave" data-i18n="save" data-t="models-path-save">Save</button>
+        <button class="mini-link" type="button" id="mdlPathCancel" data-i18n="cancel" data-t="models-path-cancel">Cancel</button>
       </div>
-      <div class="mdl-tree" id="mdlTree"><p class="muted">…</p></div>
+      <div class="mdl-tree" id="mdlTree" data-t="models-tree"><p class="muted">…</p></div>
       <div class="mdl-foot">
-        <span class="picked" id="mdlPicked"></span>
-        <button class="mdl-del" id="mdlDelete" disabled data-i18n="gcDelete">Delete selected</button>
+        <span class="picked" id="mdlPicked" data-t="models-picked-summary"></span>
+        <button class="mdl-del" id="mdlDelete" disabled data-i18n="gcDelete" data-t="models-delete-selected">Delete selected</button>
       </div>
     </section>
   </div>
 
-  <div id="confirmOverlay" class="modal-overlay" hidden>
+  <div id="confirmOverlay" class="modal-overlay" hidden data-t="confirm-overlay">
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="confirmTitle" data-tone="danger">
       <header class="dlg-head">
         <span class="dlg-ico" aria-hidden="true"></span>
-        <h2 id="confirmTitle" data-i18n="deleteBackup">Delete?</h2>
+        <h2 id="confirmTitle" data-i18n="deleteBackup" data-t="confirm-title">Delete?</h2>
       </header>
-      <p id="confirmText"></p>
-      <div id="confirmMeta" class="modal-meta" hidden></div>
-      <code id="confirmPath"></code>
-      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden>
+      <p id="confirmText" data-t="confirm-text"></p>
+      <div id="confirmMeta" class="modal-meta" hidden data-t="confirm-meta"></div>
+      <code id="confirmPath" data-t="confirm-path"></code>
+      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden data-t="confirm-input">
       <div class="modal-actions">
-        <button id="confirmCancel" type="button" data-i18n="cancel">Cancel</button>
-        <button id="confirmDelete" type="button" class="danger" data-i18n="deleteAction">Delete</button>
+        <button id="confirmCancel" type="button" data-i18n="cancel" data-t="confirm-cancel">Cancel</button>
+        <button id="confirmDelete" type="button" class="danger" data-i18n="deleteAction" data-t="confirm-accept">Delete</button>
       </div>
     </div>
   </div>
 
-  <div id="toast" role="status"></div>
+  <div id="toast" role="status" data-t="app-toast"></div>
   <script type="module" src="/js/models-page.js"></script>
 </body>
 </html>
