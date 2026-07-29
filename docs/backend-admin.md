@@ -48,7 +48,10 @@ derive paths from its own `__file__` — it would point into `caravan/`. Covers 
 (`admin.json`, monitor history, incident log), secrets (`provider-secrets.json` and the OpenClaw
 config cache — outside the repo, 0600), the OpenClaw config-manager URLs (OPENCLAW_CONFIG_MANAGERS), the
 fleet-registry URL, and tunables (monitor interval/retention, token-history caps,
-`SERVER_CELL_BASE_PORT` 8001).
+`SERVER_CELL_BASE_PORT` 8001). NOTE: `PORT` is itself inside the cell numbering
+that starts at `SERVER_CELL_BASE_PORT`, so `used_server_cell_ports()` adds it to
+the taken set — otherwise a cell could be assigned the controller's own port and
+would only fail at `systemctl start`.
 Owns: — (constants only; the single source of path truth).
 Key functions: — (no functions; import the constants).
 

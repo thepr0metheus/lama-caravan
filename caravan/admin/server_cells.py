@@ -4,7 +4,7 @@ import time
 
 from caravan.admin.config_builder import is_command_cell
 from caravan.admin.launch import write_server_cell_artifacts
-from caravan.admin.paths import SERVER_CELL_BASE_PORT, is_controller_host, canonical_host_id
+from caravan.admin.paths import PORT, SERVER_CELL_BASE_PORT, is_controller_host, canonical_host_id
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.common.errors import AppError
 
@@ -18,6 +18,12 @@ def server_slot_key(host_id, port):
 def used_server_cell_ports(exclude_key=None):
     store = topology_store()
     used = set()
+    # The controller's OWN web port. It defaults to 8090, which sits inside the
+    # 8001+ cell numbering, and nothing here knew that: the allocator would
+    # happily hand it out, the operator would configure a cell on it, and only
+    # `systemctl start` would refuse — "port 8090 is already in use by python".
+    # A number the fleet can never actually use is a used number.
+    used.add(int(PORT))
     for key, slot in store.get("serverSlots", {}).items():
         if exclude_key and str(key) == str(exclude_key):
             continue

@@ -9,7 +9,7 @@ pin the interpreter).
 
 | Unit (systemd --user on the controller) | Runs | Notes |
 |---|---|---|
-| `lama-caravan.service` | `.venv/bin/python app.py` (`:8090`) | Admin UI + API. Restart after Python changes. |
+| `lama-caravan.service` | `.venv/bin/python app.py` (`:8090` by default) | Admin UI + API. Restart after Python changes. |
 | `lama-caravan-proxies.service` | `.venv/bin/python agent-proxies.py` | Per-agent proxy ports. Restart after Python changes; route/config edits do NOT need a restart (2 s mtime watcher). |
 | `lama-cell@<port>.service` | `var/server-cells/<port>/start.sh` | One llama-server cell per port. Managed from the UI (reserve/start/stop). |
 | `llamacpp-current.service` | `~/llama.cpp/start-server.sh` (`:8080`) | Legacy single managed server. |
@@ -85,6 +85,30 @@ The bak-graph files accumulate (one per write); prune with
 `ls -t agent-proxies.json.bak-graph-* | tail -n +200 | xargs rm` when needed.
 
 ## Local development (macOS or any host)
+
+### Moving the admin port
+
+`LLAMACPP_ADMIN_PORT` is the only lever — no code change. What makes this a
+fleet operation rather than a restart is that **nothing rediscovers the new
+address**: each scout keeps `controllerUrl` in its own `config.json`, and a
+scout that cannot reach the controller still ANSWERS the controller's polls, so
+the board keeps looking healthy while heartbeats, model pulls and cell-asset
+syncs are all dead.
+
+Order that survives it, with no shim needed — a scout tolerates an unreachable
+controller and reconnects by itself:
+
+1. Open the new port in the firewall FIRST. On the controller the inference
+   range 8001–8099 is already open; anything outside it needs its own rule, and
+   a forgotten rule is the one failure that looks like the app being broken.
+2. Re-point every scout while the controller is still on the old port —
+   `POST http://<client>:8092/api/controller-url` with `{"url", "token"}`. It
+   rewrites config.json and applies live; no restart, no ssh.
+3. Change `Environment=LLAMACPP_ADMIN_PORT=` in the unit, `daemon-reload`,
+   restart. Heartbeats resume within one interval.
+4. Verify each client's `lastSeen` on the board before touching anything else.
+5. Sweep the leftovers: OpenClaw config-manager URLs, bookmarks, and any
+   `config.json.bak-*` that would resurrect the old address on a restore.
 
 Run the admin against scratch state so you don't touch `~/.local/state` or
 spam autobackups into the working tree:

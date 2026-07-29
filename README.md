@@ -332,7 +332,9 @@ state and are not the source deployment path.
   out of the used bar instead of a double-counted estimate.
 - Cells run on the controller or on any scout host — client GPUs and CPUs are
   first-class; models are cached and shipped from the controller.
-- Reserve globally numbered cells from port `8001`; generated `cell.json` +
+- Reserve globally numbered cells from port `8001` — the controller's own web
+  port (`LLAMACPP_ADMIN_PORT`, default `8090`) sits inside that numbering and is
+  held out of the pool automatically; generated `cell.json` +
   `start.sh` artifacts; `systemd --user` template units
   (`lama-cell@<port>.service`) on the controller, scout-managed processes on
   clients (they survive scout restarts).
