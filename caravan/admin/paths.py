@@ -24,7 +24,7 @@ def _default(data_rel, legacy):
     return str(DATA_DIR / data_rel) if DATA_DIR else str(legacy)
 
 HOST = os.environ.get("LLAMACPP_ADMIN_HOST", "0.0.0.0")
-PORT = int(os.environ.get("LLAMACPP_ADMIN_PORT", "8090"))
+PORT = int(os.environ.get("LLAMACPP_ADMIN_PORT", "7990"))
 LLAMA_HOME = Path(os.environ.get("LLAMA_HOME", str(Path.home() / "llama.cpp"))).expanduser()
 START_SCRIPT = Path(os.environ.get("LLAMA_START_SCRIPT", str(LLAMA_HOME / "start-server.sh"))).expanduser()
 DEFAULT_MODELS_DIR = Path(os.environ.get("LLAMA_MODELS_DIR")

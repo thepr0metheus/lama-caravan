@@ -8,7 +8,7 @@ cloud provider accounts, and the 1-second system monitor. It was refactored from
 `app.py` monolith into the modules below; `app.py` remains as a 20-line launcher. Entry chain:
 `app.py` → `caravan/admin/main.py:main()` → background threads (monitor sampler, OpenClaw threshold
 refresh, one-shot bootstraps) + a `ThreadingHTTPServer` serving `routes.Handler` on
-`LLAMACPP_ADMIN_HOST:PORT` (default `0.0.0.0:8090`).
+`LLAMACPP_ADMIN_HOST:PORT` (default `0.0.0.0:7990`).
 
 Import layering is strict and cycle-free. Each layer may import only from layers to its left:
 

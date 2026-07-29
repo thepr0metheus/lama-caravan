@@ -102,17 +102,41 @@ def _extract_file(body, ctype):
     return None
 
 
-def _field(body, name):
+def _fields(body, name):
+    """EVERY value sent under this field name, in order.
+
+    Repeated names are normal in this API — `timestamp_granularities[]` is sent
+    once per granularity, so a client asking for both segment and word sends two
+    parts. Reading only the first would silently drop whichever came second.
+    """
     key = ('name="%s"' % name).encode()
-    i = body.find(key)
-    if i < 0:
-        return None
-    s = body.find(b"\r\n\r\n", i)
-    if s < 0:
-        return None
-    s += 4
-    e = body.find(b"\r\n", s)
-    return body[s:e].decode(errors="replace") if e > s else None
+    out, at = [], 0
+    while True:
+        i = body.find(key, at)
+        if i < 0:
+            return out
+        s = body.find(b"\r\n\r\n", i)
+        if s < 0:
+            return out
+        s += 4
+        e = body.find(b"\r\n", s)
+        if e > s:
+            out.append(body[s:e].decode(errors="replace"))
+        at = e if e > i else i + len(key)
+
+
+def _field(body, name):
+    vals = _fields(body, name)
+    return vals[0] if vals else None
+
+
+def _ts(seconds, comma=False):
+    """HH:MM:SS,mmm — the timestamp shape SRT and WebVTT want."""
+    ms = int(round(float(seconds) * 1000))
+    h, ms = divmod(ms, 3600000)
+    m, ms = divmod(ms, 60000)
+    s, ms = divmod(ms, 1000)
+    return "%02d:%02d:%02d%s%03d" % (h, m, s, "," if comma else ".", ms)
 
 
 class H(BaseHTTPRequestHandler):
@@ -156,8 +180,27 @@ class H(BaseHTTPRequestHandler):
         wav = _extract_file(body, self.headers.get("Content-Type", ""))
         lang = _field(body, "language")
         task = _field(body, "task")           # "translate" -> whisper any->en
+        # WHEN each word was said. A live transcriber re-runs this on a growing
+        # buffer and, once a sentence has settled, wants to drop the audio it
+        # already covered — which it can only do if it knows where that sentence
+        # ended in TIME. Without it the buffer keeps growing and every request
+        # re-transcribes the whole thing from the top: a 30 s phrase costs
+        # thirty ever-longer passes instead of thirty short ones.
+        #
+        # Off unless asked. Word timestamps cost an extra alignment pass, and
+        # the answer for everyone who does not ask stays byte-for-byte what it
+        # was — this endpoint has LAN clients that predate the field.
+        fmt = (_field(body, "response_format") or "json").strip().lower()
+        grans = [g.strip().lower() for g in _fields(body, "timestamp_granularities[]")
+                 + _fields(body, "timestamp_granularities")]
+        want_words = "word" in grans
+        # Segments are needed by every format that carries timing, not just the
+        # verbose one — srt and vtt ARE segment lists, just written differently.
+        want_segs = fmt in ("verbose_json", "srt", "vtt") or want_words
+        translating = task == "translate"
         text = ""
         detected = ""                         # what whisper decided it heard
+        out_segs, out_words, duration = [], [], 0.0
         if wav:
             path = tempfile.mktemp(suffix=".wav")
             try:
@@ -165,12 +208,28 @@ class H(BaseHTTPRequestHandler):
                     f.write(wav)
                 segs, info = _model.transcribe(
                     path, language=(lang or None), beam_size=1, vad_filter=False,
-                    task=("translate" if task == "translate" else "transcribe"))
-                text = " ".join(s.text.strip() for s in segs).strip()
+                    word_timestamps=want_words,
+                    task=("translate" if translating else "transcribe"))
+                # `segs` is a GENERATOR — whisper does the work as it is walked,
+                # so everything must be collected in this single pass.
+                parts = []
+                for s in segs:
+                    parts.append(s.text.strip())
+                    if want_segs:
+                        out_segs.append({"id": len(out_segs),
+                                         "start": round(float(s.start), 3),
+                                         "end": round(float(s.end), 3),
+                                         "text": s.text})
+                    for w in (getattr(s, "words", None) or []):
+                        out_words.append({"word": w.word,
+                                          "start": round(float(w.start), 3),
+                                          "end": round(float(w.end), 3)})
+                text = " ".join(parts).strip()
                 # report the auto-detected language: on a short clip whisper's
                 # guess is often wrong, and a client that knows which languages
                 # are actually in play can only correct it if it's told
                 detected = str(getattr(info, "language", "") or "")
+                duration = float(getattr(info, "duration", 0.0) or 0.0)
             except Exception as e:  # noqa: BLE001
                 sys.stderr.write(f"transcribe error: {e}\n")
             finally:
@@ -178,8 +237,34 @@ class H(BaseHTTPRequestHandler):
                     os.remove(path)
                 except OSError:
                     pass
-        self._send(200, json.dumps({"text": text, "language": detected}).encode(),
-                   "application/json")
+        # Answer in the shape that was ASKED for. Returning JSON to a client that
+        # requested srt is the same class of wrong as returning nothing: it looks
+        # like an answer and is not the one requested.
+        if fmt == "text":
+            self._send(200, (text + "\n").encode(), "text/plain; charset=utf-8")
+            return
+        if fmt in ("srt", "vtt"):
+            lines = ["WEBVTT", ""] if fmt == "vtt" else []
+            for i, s in enumerate(out_segs, 1):
+                if fmt == "srt":
+                    lines.append(str(i))
+                lines.append(f"{_ts(s['start'], fmt == 'srt')} --> {_ts(s['end'], fmt == 'srt')}")
+                lines.append(s["text"].strip())
+                lines.append("")
+            ctype = "text/vtt; charset=utf-8" if fmt == "vtt" else "application/x-subrip; charset=utf-8"
+            self._send(200, "\n".join(lines).encode(), ctype)
+            return
+        payload = {"text": text, "language": detected}
+        if fmt == "verbose_json":
+            payload.update({"task": "translate" if translating else "transcribe",
+                            "duration": round(duration, 3),
+                            "segments": out_segs})
+            # Top level, where the OpenAI schema puts it, and only when asked —
+            # an empty list would read as "no words found" rather than "not
+            # requested", and a caller cannot tell those apart.
+            if want_words:
+                payload["words"] = out_words
+        self._send(200, json.dumps(payload).encode(), "application/json")
 
 
 if __name__ == "__main__":

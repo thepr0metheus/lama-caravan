@@ -5,7 +5,7 @@ kanban that implements it. Names are made up; every mechanism is real.
 
 ## The cast
 
-- **Controller** — an Ubuntu box running the LAMA CARAVAN admin (`:8090`),
+- **Controller** — an Ubuntu box running the LAMA CARAVAN admin (`:7990`),
   the proxy ports and a llama server cell on its RTX card.
 - **workbench** — a desktop with a 24 GB GPU, runs
   [caravan-scout](https://github.com/thepr0metheus/caravan-scout); hosts

@@ -1,6 +1,6 @@
 # HTTP API
 
-The admin server (`:8090`) dispatches from the route tables in
+The admin server (`:7990`) dispatches from the route tables in
 `caravan/admin/routes.py`. Everything is JSON unless noted; errors come back
 as `{"error": "..."}` with the `AppError` status (or 500). Arguments travel
 as query strings on GET/DELETE and as a JSON body on POST.

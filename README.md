@@ -109,7 +109,7 @@ The long version of that day — with the kanban that implements it — lives in
 git clone https://github.com/thepr0metheus/lama-caravan.git
 cd lama-caravan
 LLAMA_TOPOLOGY_SERVER_IP=<this-machine-LAN-IP> docker compose up -d --build
-# open http://<this-machine>:8090
+# open http://<this-machine>:7990
 ```
 
 Models are **not** served from inside the container (it has no systemd and, by
@@ -266,7 +266,7 @@ move toward per-port launch scripts.
 For boot-time autostart without waiting for an interactive SSH or
 desktop session, enable linger for your user and install the user
 services. Do not also keep a crontab `@reboot` launcher for this admin: two
-launchers will fight for port `8090`.
+launchers will fight for port `7990`.
 
 ```text
 loginctl enable-linger $USER
@@ -275,7 +275,7 @@ loginctl enable-linger $USER
 Default URL:
 
 ```text
-http://<controller-ip>:8090
+http://<controller-ip>:7990
 ```
 
 ## Code Layout
@@ -333,7 +333,7 @@ state and are not the source deployment path.
 - Cells run on the controller or on any scout host — client GPUs and CPUs are
   first-class; models are cached and shipped from the controller.
 - Reserve globally numbered cells from port `8001` — the controller's own web
-  port (`LLAMACPP_ADMIN_PORT`, default `8090`) sits inside that numbering and is
+  port (`LLAMACPP_ADMIN_PORT`, default `7990`) sits inside that numbering and is
   held out of the pool automatically; generated `cell.json` +
   `start.sh` artifacts; `systemd --user` template units
   (`lama-cell@<port>.service`) on the controller, scout-managed processes on
@@ -510,7 +510,7 @@ Topology state is stored in the admin state file:
 Client hosts run `caravan-scout` and heartbeat into:
 
 ```text
-POST http://<controller-ip>:8090/api/topology/client-heartbeat
+POST http://<controller-ip>:7990/api/topology/client-heartbeat
 ```
 
 The initial graph model is:
@@ -646,7 +646,7 @@ Check:
 
 ```sh
 systemctl --user status lama-caravan.service lama-caravan-proxies.service --no-pager -l
-curl -fsS http://127.0.0.1:8090/api/state
+curl -fsS http://127.0.0.1:7990/api/state
 ```
 
 ## Notes

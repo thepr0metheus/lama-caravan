@@ -25,10 +25,10 @@ mtime, files diff cleanly in git, and a backup is a copy.)
 ## Components
 
 ```text
-                 ┌────────────────────────────── Controller (:8090)  ─────────────────────────┐
+                 ┌────────────────────────────── Controller (:7990)  ─────────────────────────┐
                  │                                                                             │
  browser ──────► │  lama-caravan.service            lama-caravan-proxies.service              │
- (UI :8090)      │  app.py → caravan/admin/         agent-proxies.py → caravan/proxy/         │
+ (UI :7990)      │  app.py → caravan/admin/         agent-proxies.py → caravan/proxy/         │
                  │  · serves UI + HTTP API          · one listener per route port (:8101+)    │
                  │  · fleet topology & heartbeats   · queue admission / preemption            │
                  │  · writes agent-proxies.json ──► · router DAG (queue/schedule/rules)       │
@@ -49,7 +49,7 @@ mtime, files diff cleanly in git, and a backup is a copy.)
 
 | Component | Where | What it does |
 |---|---|---|
-| Admin server (`caravan/admin`) | controller `:8090` | UI + API: fleet topology, launch configs, HF model browser, monitors, cloud accounts, queue thresholds. See [backend-admin.md](backend-admin.md). |
+| Admin server (`caravan/admin`) | controller `:7990` | UI + API: fleet topology, launch configs, HF model browser, monitors, cloud accounts, queue thresholds. See [backend-admin.md](backend-admin.md). |
 | Proxy daemon (`caravan/proxy`) | controller `:8101+` (one port per route) | OpenAI-compatible reverse proxy per agent: admission queue, priority preemption, router DAG, cloud fallback, protocol translation. See [backend-proxy.md](backend-proxy.md). |
 | Server cells | controller + clients | Per-port llama-server instances. Controller cells run under `lama-cell@<port>.service` from generated `var/server-cells/<port>/start.sh`; client cells are managed remotely through the route-agent. |
 | Route-agent (`caravan-scout`, formerly `llm-easy-route-agent`, separate repo) | each client `:8092` | Publishes the host's llama nodes/GPUs to the admin (heartbeat) and executes start/stop/config/cache commands on behalf of the admin. |

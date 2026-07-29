@@ -923,6 +923,48 @@
   background: color-mix(in srgb, #a78bfa 10%, transparent);
   color: color-mix(in srgb, #a78bfa 80%, var(--text));
 }
+/* Held out of the range: not the caravan's, but not free either. Struck through
+   and clickable — clicking releases it, so the exclusion is undoable from the
+   same place it was made. */
+.port-tile.busy.excluded {
+  border-color: color-mix(in srgb, var(--muted) 40%, transparent);
+  background: repeating-linear-gradient(135deg,
+      color-mix(in srgb, var(--muted) 8%, transparent) 0 4px,
+      transparent 4px 8px);
+  color: var(--muted);
+  text-decoration: line-through;
+  cursor: pointer;
+  opacity: .85;
+}
+.port-tile.busy.excluded:hover { border-color: var(--muted); opacity: 1; }
+
+.port-scan-btn {
+  margin-left: 8px; padding: 2px 8px; font-size: 11px; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 6px; background: transparent; color: var(--muted);
+}
+.port-scan-btn:hover:not(:disabled) { color: var(--text); border-color: var(--line); }
+.port-scan-btn:disabled { opacity: .5; cursor: default; }
+.port-scan-result {
+  margin: 6px 0 2px; padding: 6px 8px; font-size: 11px;
+  border: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  border-radius: 8px;
+}
+.port-scan-head { color: var(--text); margin-bottom: 4px; }
+.port-scan-host { margin: 2px 0; display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }
+.port-scan-port {
+  font-family: ui-monospace, Menlo, monospace;
+  padding: 0 5px; border-radius: 5px;
+  background: color-mix(in srgb, var(--muted) 12%, transparent);
+}
+.port-scan-dead { color: var(--bad,#ff8585); margin-top: 4px; }
+.port-scan-apply {
+  margin-top: 6px; padding: 3px 10px; font-size: 11px; cursor: pointer;
+  border-radius: 6px; border: 1px solid color-mix(in srgb, var(--accent,#6ea8fe) 50%, transparent);
+  background: color-mix(in srgb, var(--accent,#6ea8fe) 14%, transparent);
+  color: var(--accent,#6ea8fe);
+}
+
 .port-tile.current {
   border-color: var(--accent,#6ea8fe);
   background: color-mix(in srgb, var(--accent,#6ea8fe) 16%, transparent);

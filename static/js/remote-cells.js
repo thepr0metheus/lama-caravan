@@ -191,8 +191,20 @@ export function openRemoteFormForHost(hostId, port = "") {
 // ports share the numbering). Occupied tiles are colored by owner kind and
 // carry the owner in the tooltip; a click on a free tile confirms and calls
 // the reassign endpoint — cables and rules follow the cell server-side.
+// Ports the operator (or a scan) marked as belonging to something else on the
+// box. Fetched with the picker so a reopen shows the current set.
+let _portExclusions = [];
+async function _loadPortExclusions() {
+  try {
+    const r = await api("/api/port-exclusions");
+    _portExclusions = r.exclusions || [];
+  } catch { /* the picker still works; the tiles just lack the extra colour */ }
+}
+
 export function openPortPicker(hostId, port) {
   const used = new Map();   // port -> {kind, label, host, name, swappable}
+  _portExclusions.forEach((x) => used.set(Number(x.port), {
+    kind: "excluded", label: x.note || x.host || "", note: x.note || "", excluded: true }));
   const SWAPPABLE = new Set(["stopped", "reserved", "error"]);
   (topology?.nodes || []).forEach((n) => (n.servers || []).forEach((s) => {
     const p = Number(s.port || 0);
@@ -223,6 +235,11 @@ export function openPortPicker(hostId, port) {
       cls = "current"; attr = " disabled"; title = t("portPickerLegendCurrent");
     } else if (!u) {
       cls = "free"; attr = ` data-pick-port="${p}"`; title = t("portPickerLegendFree");
+    } else if (u.excluded) {
+      // Clickable: an exclusion you cannot undo from the same place you made it
+      // is a trap. Clicking releases the number back into the pool.
+      cls = "busy excluded"; attr = ` data-release-port="${p}"`;
+      title = t("portPickerReleaseTitle", { p: String(p), why: u.note || "—" });
     } else if (u.kind === "cell" && u.swappable) {
       // A stopped cell → offer a port swap (both cells trade ports + wiring).
       cls = "busy cell swappable"; attr = ` data-swap-port="${p}"`;
@@ -234,6 +251,7 @@ export function openPortPicker(hostId, port) {
   }
   const legend = [["free", t("portPickerLegendFree")], ["busy cell", t("portPickerLegendCell")],
                   ["busy proxy", t("portPickerLegendProxy")], ["busy bridge", t("portPickerLegendBridge")],
+                  ["busy excluded", t("portPickerLegendExcluded")],
                   ["current", t("portPickerLegendCurrent")]]
     .map(([cls, lbl]) => `<span class="port-picker-key"><span class="port-tile mini ${cls}"></span>${escapeHtml(lbl)}</span>`).join("");
   const ovl = document.createElement("div");
@@ -245,12 +263,73 @@ export function openPortPicker(hostId, port) {
         <button class="icon-action compact" type="button" data-pp-close aria-label="×">×</button>
       </div>
       <div class="port-picker-legend">${legend}</div>
-      <div class="port-picker-hint">${escapeHtml(t("portPickerSwapHint"))}</div>
+      <div class="port-picker-hint">${escapeHtml(t("portPickerSwapHint"))}
+        <button type="button" class="port-scan-btn" data-port-scan>🔍 ${escapeHtml(t("portScanBtn"))}</button>
+      </div>
+      <div class="port-scan-result" hidden></div>
       <div class="port-picker-grid">${tiles}</div>
     </div>`;
   const close = () => ovl.remove();
   ovl.addEventListener("click", async (e) => {
     if (e.target === ovl || e.target.closest("[data-pp-close]")) { close(); return; }
+    // ── Scan: ask every host what it is listening on, offer to hold those ──
+    if (e.target.closest("[data-port-scan]")) {
+      const box = ovl.querySelector(".port-scan-result");
+      const btn = ovl.querySelector("[data-port-scan]");
+      box.hidden = false;
+      box.innerHTML = `<div class="muted">${escapeHtml(t("portScanRunning"))}</div>`;
+      btn.disabled = true;
+      try {
+        const r = await api("/api/port-exclusions?scan=1");
+        const hosts = (r.scan || {}).hosts || [];
+        // A host we could not reach is NOT a clean host — say which is which.
+        const dead = hosts.filter((h) => !h.ok);
+        const rows = hosts.filter((h) => h.ok && (h.ports || []).length);
+        const total = rows.reduce((n, h) => n + h.ports.length, 0);
+        const list = rows.map((h) => `<div class="port-scan-host"><strong>${escapeHtml(h.hostId)}</strong> `
+          + h.ports.map((p) => `<span class="port-scan-port" title="${escapeHtml(p.proc || "?")}${p.pid ? ` · pid ${p.pid}` : ""}">${p.port}<span class="muted"> ${escapeHtml((p.proc || "?").slice(0, 14))}</span></span>`).join("")
+          + `</div>`).join("");
+        const deadLine = dead.length
+          ? `<div class="port-scan-dead">⚠ ${escapeHtml(t("portScanUnreachable", { hosts: dead.map((h) => h.hostId).join(", ") }))}</div>` : "";
+        box.innerHTML = total
+          ? `<div class="port-scan-head">${escapeHtml(t("portScanFound", { n: total }))}</div>${list}${deadLine}`
+            + `<button type="button" class="port-scan-apply" data-port-exclude-all>${escapeHtml(t("portScanExcludeAll"))}</button>`
+          : `<div class="muted">${escapeHtml(t("portScanClean"))}</div>${deadLine}`;
+        box._found = rows;
+      } catch (err) {
+        box.innerHTML = `<div class="port-scan-dead">⚠ ${escapeHtml(String(err.message || err))}</div>`;
+      }
+      btn.disabled = false;
+      return;
+    }
+    if (e.target.closest("[data-port-exclude-all]")) {
+      const box = ovl.querySelector(".port-scan-result");
+      const add = (box._found || []).flatMap((h) => h.ports.map((p) => ({
+        port: p.port, host: h.hostId, auto: true,
+        note: `${p.proc || "?"}${p.pid ? ` (pid ${p.pid})` : ""} · ${h.hostId}` })));
+      if (!add.length) return;
+      if (!(await appConfirm(t("portScanExcludeConfirm", { n: add.length }), { danger: false }))) return;
+      try {
+        await api("/api/port-exclusions", { method: "POST", body: JSON.stringify({ add }) });
+        toast(t("portScanExcluded", { n: add.length }));
+        close();
+        await _loadPortExclusions();
+        openPortPicker(hostId, port);        // repaint with the new colours
+      } catch (err) { toast(err.message); }
+      return;
+    }
+    const releaseTile = e.target.closest("[data-release-port]");
+    if (releaseTile) {
+      const p = Number(releaseTile.dataset.releasePort);
+      if (!(await appConfirm(t("portPickerReleaseConfirm", { p: String(p) }), { danger: false }))) return;
+      try {
+        await api("/api/port-exclusions", { method: "POST", body: JSON.stringify({ remove: [p] }) });
+        close();
+        await _loadPortExclusions();
+        openPortPicker(hostId, port);
+      } catch (err) { toast(err.message); }
+      return;
+    }
     const freeTile = e.target.closest("[data-pick-port]");
     const swapTile = e.target.closest("[data-swap-port]");
     const tile = freeTile || swapTile;
@@ -562,7 +641,8 @@ export function bindServerSlotControls(root) {
     b.addEventListener("click", (e) => {
       e.stopPropagation();
       const [hostId, p] = String(b.dataset.cellPortReassign).split(":");
-      openPortPicker(hostId, Number(p));
+      // Load the held-out ports before painting, so they never flash as free.
+      _loadPortExclusions().then(() => openPortPicker(hostId, Number(p)));
     }));
   root.querySelectorAll("[data-node-reserve]").forEach((b) =>
     b.addEventListener("click", () => reserveServerCell(b.dataset.nodeReserve, b.dataset.nodeReservePort || "")));

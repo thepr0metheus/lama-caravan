@@ -24,6 +24,14 @@ def used_server_cell_ports(exclude_key=None):
     # `systemctl start` would refuse — "port 8090 is already in use by python".
     # A number the fleet can never actually use is a used number.
     used.add(int(PORT))
+    # Numbers the operator (or a scan) marked as belonging to something else on
+    # the box — see port_exclusions. Lazy import: that module asks us what is
+    # already taken before accepting a new exclusion.
+    try:
+        from caravan.admin.port_exclusions import excluded_ports
+        used |= excluded_ports()
+    except Exception:
+        pass
     for key, slot in store.get("serverSlots", {}).items():
         if exclude_key and str(key) == str(exclude_key):
             continue

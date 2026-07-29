@@ -9,7 +9,7 @@ pin the interpreter).
 
 | Unit (systemd --user on the controller) | Runs | Notes |
 |---|---|---|
-| `lama-caravan.service` | `.venv/bin/python app.py` (`:8090` by default) | Admin UI + API. Restart after Python changes. |
+| `lama-caravan.service` | `.venv/bin/python app.py` (`:7990` by default) | Admin UI + API. Restart after Python changes. |
 | `lama-caravan-proxies.service` | `.venv/bin/python agent-proxies.py` | Per-agent proxy ports. Restart after Python changes; route/config edits do NOT need a restart (2 s mtime watcher). |
 | `lama-cell@<port>.service` | `var/server-cells/<port>/start.sh` | One llama-server cell per port. Managed from the UI (reserve/start/stop). |
 | `llamacpp-current.service` | `~/llama.cpp/start-server.sh` (`:8080`) | Legacy single managed server. |
@@ -21,7 +21,7 @@ journalctl --user -u lama-caravan-proxies.service -n 50 --no-pager
 ```
 
 Boot-time autostart needs linger (`loginctl enable-linger $USER`). Do not
-also keep a crontab `@reboot` launcher — two launchers fight for port 8090.
+also keep a crontab `@reboot` launcher — two launchers fight for port 7990.
 
 ## Deploy
 
@@ -49,7 +49,7 @@ Post-deploy smoke:
 
 ```sh
 for p in / /api/state /api/topology /api/models /js/main.js /css/base.css /kanban /hf; do
-  printf '%-16s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' localhost:8090$p)"
+  printf '%-16s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' localhost:7990$p)"
 done
 curl -s -o /dev/null -w '%{http_code}\n' localhost:8101/v1/models   # any live route port
 ```
@@ -172,16 +172,16 @@ enough to root-cause a route problem from any LAN host without ssh:
 
 ```sh
 # last errors on one route, by its proxy port (slim rows, newest first)
-curl -s 'http://<controller-ip>:8090/api/agent-proxy-logs?port=8117&event=finished&errors=1&slim=1&limit=20'
+curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?port=8117&event=finished&errors=1&slim=1&limit=20'
 
 # today's failed requests fleet-wide / for one route label / for one client IP
-curl -s 'http://<controller-ip>:8090/api/agent-proxy-logs?event=finished&errors=1&slim=1'
-curl -s 'http://<controller-ip>:8090/api/agent-proxy-logs?route=<label>&errors=1&slim=1'
-curl -s 'http://<controller-ip>:8090/api/agent-proxy-logs?client=<client-ip>&event=finished&slim=1&limit=50'
+curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?event=finished&errors=1&slim=1'
+curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?route=<label>&errors=1&slim=1'
+curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?client=<client-ip>&event=finished&slim=1&limit=50'
 
 # the cheap health check: per-port terminal counters {total, errors, byKind}
-curl -s 'http://<controller-ip>:8090/api/agent-proxy-logs?summary=1'
-curl -s 'http://<controller-ip>:8090/api/agent-proxy-logs?summary=1&port=8117'
+curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?summary=1'
+curl -s 'http://<controller-ip>:7990/api/agent-proxy-logs?summary=1&port=8117'
 ```
 
 Params: `date` (`YYYY-MM-DD`, default — the latest log), `limit` (≤2000,

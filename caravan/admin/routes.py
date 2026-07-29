@@ -1159,6 +1159,23 @@ def _get_api_cloud_upstream_errors(h, parsed):
         h.send_json(cloud_upstream_errors())
         return
 
+@_route(GET_ROUTES, '/api/port-exclusions')
+def _get_api_port_exclusions(h, parsed):
+        from caravan.admin.port_exclusions import list_exclusions, scan_foreign_listeners
+        # ?scan=1 walks the range on every host — seconds, not milliseconds, so
+        # the picker asks for it only when the operator opens the scan.
+        payload = {"ok": True, "exclusions": list_exclusions()}
+        if (parsed.query or "").find("scan=1") >= 0:
+            payload["scan"] = scan_foreign_listeners()
+        h.send_json(payload)
+        return
+
+@_route(POST_ROUTES, '/api/port-exclusions')
+def _post_api_port_exclusions(h, parsed, body):
+        from caravan.admin.port_exclusions import set_exclusions
+        h.send_json(set_exclusions(body))
+        return
+
 @_route(GET_ROUTES, '/api/cloud-blocks/refs')
 def _get_api_cloud_blocks_refs(h, parsed):
         from caravan.admin.proxies_config import cloud_block_refs

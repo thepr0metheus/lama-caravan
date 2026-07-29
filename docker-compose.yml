@@ -1,7 +1,7 @@
 # LAMA CARAVAN controller in Docker — the quickest way to try the project.
 #
 #   docker compose up -d --build
-#   open http://<this-host>:8090
+#   open http://<this-host>:7990
 #
 # Then attach GPU machines with caravan-scout (they serve the models):
 # the board's "?" tour and System → Security (fleet token) walk you through it.
@@ -31,7 +31,7 @@ services:
       # set it to this machine's LAN IP.
       LLAMA_TOPOLOGY_SERVER_IP: "${LLAMA_TOPOLOGY_SERVER_IP:-127.0.0.1}"
       # Admin UI port (also adjust the healthcheck expectation if you change it):
-      # LLAMACPP_ADMIN_PORT: "8090"
+      # LLAMACPP_ADMIN_PORT: "7990"
 
 volumes:
   caravan-data:

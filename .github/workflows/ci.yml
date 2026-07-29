@@ -19,9 +19,15 @@ jobs:
       - name: queue node unit test
         run: python3 scripts/test_queue_node.py
 
-      - name: tour i18n coverage
-        run: python3 scripts/check_tour_i18n.py
+      # These were one `run:` scalar with the second line indented under it,
+      # which YAML folds into ONE command — so check_messages_i18n.py has been
+      # riding along as argv to check_tour_i18n.py and never actually ran.
+      - name: i18n coverage
+        run: |
+          set -e
+          python3 scripts/check_tour_i18n.py
           python3 scripts/check_messages_i18n.py
+          python3 scripts/check_i18n_calls.py
 
       - name: JS syntax (ES modules)
         run: |
@@ -44,10 +50,10 @@ jobs:
           mkdir -p /tmp/ci
           python3 app.py &
           for i in $(seq 1 30); do
-            if curl -sf -o /dev/null http://127.0.0.1:8090/api/auth/me; then break; fi
+            if curl -sf -o /dev/null http://127.0.0.1:7990/api/auth/me; then break; fi
             sleep 1
           done
-          curl -sf -o /dev/null http://127.0.0.1:8090/api/auth/me
-          curl -sf -o /dev/null http://127.0.0.1:8090/
-          curl -sf -o /dev/null http://127.0.0.1:8090/api/state
+          curl -sf -o /dev/null http://127.0.0.1:7990/api/auth/me
+          curl -sf -o /dev/null http://127.0.0.1:7990/
+          curl -sf -o /dev/null http://127.0.0.1:7990/api/state
           echo "smoke OK"

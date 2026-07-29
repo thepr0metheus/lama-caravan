@@ -1,7 +1,7 @@
 # Security: accounts, sessions and the fleet token
 
 Out of the box the caravan is **open** — the homelab default: anyone who can
-reach `:8090` has full control, anyone who can reach a proxy port can use the
+reach `:7990` has full control, anyone who can reach a proxy port can use the
 models. For anything beyond a trusted LAN, enable sign-in.
 
 ## Enabling sign-in
@@ -41,7 +41,7 @@ Distribute it to each scout — pairing page (`http://host:8092/`, the token
 field) or `config.json`:
 
 ```json
-{ "controllerUrl": "http://controller:8090", "controllerToken": "caravan-…" }
+{ "controllerUrl": "http://controller:7990", "controllerToken": "caravan-…" }
 ```
 
 Until a scout has the token, its heartbeats are rejected (401) and the client
@@ -59,7 +59,7 @@ every scout after.
 ```yaml
 scrape_configs:
   - job_name: caravan
-    static_configs: [{ targets: ["controller:8090"] }]
+    static_configs: [{ targets: ["controller:7990"] }]
     authorization: { type: Bearer, credentials: "<fleet token>" }
 ```
 
