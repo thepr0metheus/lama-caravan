@@ -79,7 +79,7 @@ from caravan.admin.cell_schedule import set_cell_schedule
 from caravan.admin.metrics import build_metrics_text
 from caravan.admin.model_gc import delete_models, list_unused_models
 from caravan.admin import auth as auth_mod
-from caravan.admin.status import controller_info, do_action, llama_builds_list, llama_cpp_info, llama_suspect_dismiss, llama_update_status, models_disk, start_llama_restore, start_llama_update, start_vllm_update, state, vllm_info
+from caravan.admin.status import controller_info, do_action, project_git_info, llama_builds_list, llama_cpp_info, llama_suspect_dismiss, llama_update_status, models_disk, start_llama_restore, start_llama_update, start_vllm_update, state, vllm_info
 from caravan.admin.cell_assets import cell_asset_bytes, cell_assets_manifest
 from caravan.admin.host_power import host_reboot
 from caravan.admin.cell_ops import (
@@ -1159,6 +1159,33 @@ def _get_api_cloud_upstream_errors(h, parsed):
         h.send_json(cloud_upstream_errors())
         return
 
+@_route(GET_ROUTES, '/health', '/api/health')
+def _get_health(h, parsed):
+        # Liveness, cheaply and without credentials. The contract is deliberately
+        # tiny and STABLE — a test suite starts with this, and a monitor polls it
+        # forever, so anything added here can never be taken away:
+        #   ok       always true when the process answers at all
+        #   service  who is answering, so a wrong-port hit is obvious
+        #   version  ties a test run to a build
+        #   commit   the same, at git granularity ("" when the checkout has no git)
+        #   authRequired  whether a session is needed for everything else — a
+        #                 fresh install answers false, and a suite that expects
+        #                 to log in can say so before it wastes a browser on it
+        #   time     so a stale cached answer is visible as one
+        #
+        # It never touches the fleet: no host probes, no config, nothing that
+        # could make the liveness check itself slow or flaky.
+        commit = ""
+        try:
+            commit = str((project_git_info() or {}).get("head") or "")
+        except Exception:
+            pass
+        h.send_json({"ok": True, "service": "lama-caravan",
+                     "version": APP_VERSION, "commit": commit,
+                     "authRequired": bool(auth_mod.auth_enabled()),
+                     "time": int(time.time())})
+        return
+
 @_route(GET_ROUTES, '/api/port-exclusions')
 def _get_api_port_exclusions(h, parsed):
         from caravan.admin.port_exclusions import list_exclusions, scan_foreign_listeners
@@ -1367,7 +1394,13 @@ def _delete_api_hf_local_file(h, parsed):
 # Open until the first user exists. Then: session cookie for humans, the fleet
 # token (X-Caravan-Token) for machine endpoints, and a small public allowlist.
 
-_AUTH_PUBLIC_GET = {"/login", "/favicon.svg", "/favicon.ico", "/api/auth/me"}
+# /health is deliberately open: it is the cheapest possible "is this thing up"
+# — no cookie, no browser, milliseconds — and it is what a CI run, a monitor or
+# a load balancer asks BEFORE it has credentials, or when the question is
+# precisely whether credentials can be checked at all. It answers liveness and
+# version and nothing else; no fleet state, no config, nothing worth guarding.
+_AUTH_PUBLIC_GET = {"/login", "/favicon.svg", "/favicon.ico", "/api/auth/me",
+                    "/health", "/api/health"}
 _AUTH_PUBLIC_POST = {"/api/auth/login", "/api/auth/setup"}
 _AUTH_MACHINE_GET = {"/api/models/download", "/api/cell-assets",
                      "/api/cell-assets/file"}

@@ -43,7 +43,7 @@ import {
 } from "./topology-dnd.js";
 import { activeView, flushPendingTopologyRender, refreshTopology, renderTopology, setActiveView } from "./topology-render.js";
 import { openUsageStatsModal } from "./usage-stats.js";
-import { $, api, bindTooltips, escapeHtml, toast } from "./utils.js";
+import { $, api, bindTooltips, escapeHtml, markPageState, toast } from "./utils.js";
 
 // The pixel-llama page loader is inline in index.html/kanban.html so it shows
 // before the modules download; window.__plHide is defined there.
@@ -66,6 +66,7 @@ function initRouterStandalonePage() {
       const el = $("topologyProxies");
       if (el) el.innerHTML = `<div style="padding:20px;color:var(--muted)">${escapeHtml(t("routerNotFound", { id: routerId }))}</div>`;
       hideAppLoader();
+      markPageState("error", `router not found: ${routerId}`);
       return;
     }
     ui.topologyRouterDetailId = routerId;
@@ -76,7 +77,8 @@ function initRouterStandalonePage() {
     renderTopology();
     startTopologyMonitor();
     hideAppLoader();
-  }).catch((err) => { hideAppLoader(); toast(err.message); });
+    markPageState("ready");
+  }).catch((err) => { hideAppLoader(); markPageState("error", err.message); toast(err.message); });
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -373,8 +375,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     await loadState();
     setActiveView(activeView);
+    markPageState("ready");
   } catch (err) {
     hideAppLoader();
+    // Say WHY, and say it now: a page left at "loading" makes every waiter
+    // time out slowly with nothing to show for the wait.
+    markPageState("error", err.message);
     toast(err.message);
   }
   fetchProxyDailyStats().catch(() => {});

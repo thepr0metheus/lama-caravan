@@ -342,36 +342,36 @@ LOGIN_PAGE = """<!doctype html>
     <div class="card-top">
       <div>
         <h1>&#129433; LAMA CARAVAN</h1>
-        <p class="sub" data-t="sub">Sign in to the fleet controller</p>
+        <p class="sub" data-i18n="sub">Sign in to the fleet controller</p>
       </div>
-      <select class="lang" id="lang" aria-label="Language"></select>
+      <select class="lang" id="lang" aria-label="Language" data-t="login-lang"></select>
     </div>
 
-    <form id="loginForm">
-      <label for="u" data-t="user">Username</label>
-      <input id="u" autocomplete="username" autofocus>
-      <label for="p" data-t="pass">Password</label>
-      <input id="p" type="password" autocomplete="current-password">
-      <button class="primary" type="submit" data-t="signin">Sign in</button>
-      <p class="err" id="e"></p>
+    <form id="loginForm" data-t="login-form">
+      <label for="u" data-i18n="user">Username</label>
+      <input id="u" autocomplete="username" autofocus data-t="login-username">
+      <label for="p" data-i18n="pass">Password</label>
+      <input id="p" type="password" autocomplete="current-password" data-t="login-password">
+      <button class="primary" type="submit" data-i18n="signin" data-t="login-submit">Sign in</button>
+      <p class="err" id="e" data-t="login-error"></p>
     </form>
 
-    <form id="setupForm" class="hidden">
-      <p class="note" data-t="setupNote">Sign-in is not enabled yet — this open page becomes protected once you create the first account. No default admin/admin exists on purpose.</p>
-      <label for="su" data-t="user">Username</label>
-      <input id="su" autocomplete="username">
-      <label for="sp" data-t="passNew">Password (min 8 chars)</label>
-      <input id="sp" type="password" autocomplete="new-password">
-      <label for="sp2" data-t="passRepeat">Repeat password</label>
-      <input id="sp2" type="password" autocomplete="new-password">
-      <button class="primary" type="submit" data-t="create">Create account &amp; enable sign-in</button>
+    <form id="setupForm" class="hidden" data-t="setup-form">
+      <p class="note" data-i18n="setupNote">Sign-in is not enabled yet — this open page becomes protected once you create the first account. No default admin/admin exists on purpose.</p>
+      <label for="su" data-i18n="user">Username</label>
+      <input id="su" autocomplete="username" data-t="setup-username">
+      <label for="sp" data-i18n="passNew">Password (min 8 chars)</label>
+      <input id="sp" type="password" autocomplete="new-password" data-t="setup-password">
+      <label for="sp2" data-i18n="passRepeat">Repeat password</label>
+      <input id="sp2" type="password" autocomplete="new-password" data-t="setup-password-repeat">
+      <button class="primary" type="submit" data-i18n="create" data-t="setup-submit">Create account &amp; enable sign-in</button>
       <p class="err" id="se"></p>
     </form>
 
-    <div id="tokenBox" class="hidden">
-      <p class="note" data-t="tokenIntro">Fleet token — copy it now and add to every caravan-scout (pairing page or controllerToken in config.json):</p>
-      <code class="token" id="tokenVal"></code>
-      <button class="primary" id="goBoard" data-t="goBoard">Open the board</button>
+    <div id="tokenBox" class="hidden" data-t="setup-token-box">
+      <p class="note" data-i18n="tokenIntro">Fleet token — copy it now and add to every caravan-scout (pairing page or controllerToken in config.json):</p>
+      <code class="token" id="tokenVal" data-t="setup-token"></code>
+      <button class="primary" id="goBoard" data-i18n="goBoard" data-t="setup-go-board">Open the board</button>
     </div>
   </div>
 <script>
@@ -411,7 +411,7 @@ LOGIN_PAGE = """<!doctype html>
   function T(k) { return (M[lang] && M[lang][k]) || M.en[k] || k; }
   function apply() {
     document.documentElement.lang = lang;
-    document.querySelectorAll("[data-t]").forEach(function (el) { el.textContent = T(el.dataset.t); });
+    document.querySelectorAll("[data-i18n]").forEach(function (el) { el.textContent = T(el.dataset.i18n); });
     document.documentElement.dir = (lang === "ar" || lang === "ur") ? "rtl" : "ltr";
   }
   sel.addEventListener("change", function () {

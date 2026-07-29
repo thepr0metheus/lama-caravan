@@ -112,3 +112,28 @@ export function bindTooltips() {
   });
 }
 
+
+// ── Page readiness, for automation ───────────────────────────────────────────
+// Pages fill from /api/* after first paint, so "the DOM exists" and "the data
+// arrived" are different moments. Without a signal, anything driving this UI —
+// a test, a screenshot job — has to guess which it is looking at, and guessing
+// is how a suite becomes the kind that fails one run in ten and gets ignored.
+//
+// ONE flag on <body>, not one per container: every page here has a single
+// first load that fills it, so a per-container version would be more moving
+// parts saying the same thing.
+//
+//   data-t-state="loading"  set in the HTML, before any script runs
+//                 "ready"   first load arrived and rendered
+//                 "error"   first load FAILED — and this is the point: a page
+//                           stuck at "loading" forever makes a waiter time out
+//                           slowly with no reason; "error" fails it at once,
+//                           with the cause in aria-label.
+export function markPageState(state, detail = "") {
+  const b = document.body;
+  if (!b) return;
+  b.dataset.tState = state;
+  if (detail) b.dataset.tStateDetail = String(detail).slice(0, 200);
+  else delete b.dataset.tStateDetail;
+  b.setAttribute("aria-busy", state === "loading" ? "true" : "false");
+}

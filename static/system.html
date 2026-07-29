@@ -170,35 +170,35 @@
     }
   </style>
 </head>
-<body>
-  <header class="topbar">
+<body data-t-state="loading" aria-busy="true">
+  <header class="topbar" data-t="header">
     <div class="topbar-brand">
       <h1 class="brand-title">
         <img src="/favicon.svg?v=2" alt="" aria-hidden="true">
         <span class="brand-name-wrap">
-          <span data-i18n="appTitle">LAMA CARAVAN</span>
-          <span class="brand-acronym" data-i18n="systemSubtitleBrand">System &amp; settings</span>
+          <span data-i18n="appTitle" data-t="header-app-title">LAMA CARAVAN</span>
+          <span class="brand-acronym" data-i18n="systemSubtitleBrand" data-t="header-page-subtitle">System &amp; settings</span>
         </span>
-        <span id="projectGitBranch" class="project-git-branch" title="Project git branch">branch n/a</span>
+        <span id="projectGitBranch" class="project-git-branch" title="Project git branch" data-t="header-version-branch">branch n/a</span>
       </h1>
     </div>
     <div class="actions">
       <a class="sys-back" href="/"><span aria-hidden="true">←</span> <span data-i18n="sysBackToBoard">Board</span></a>
-      <div class="user-chip" id="userChip" hidden>
-        <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false">
-          <span class="user-chip-ico">👤</span><span id="userChipName"></span><span class="lang-caret" aria-hidden="true">▾</span>
+      <div class="user-chip" id="userChip" hidden data-t="header-user-chip">
+        <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false" data-t="header-user-menu-open">
+          <span class="user-chip-ico">👤</span><span id="userChipName" data-t="header-user-name"></span><span class="lang-caret" aria-hidden="true">▾</span>
         </button>
-        <div id="userMenu" class="user-menu" hidden>
-          <button id="userMenuLogout" type="button" data-i18n="authLogout">Log out</button>
+        <div id="userMenu" class="user-menu" hidden data-t="header-user-menu">
+          <button id="userMenuLogout" type="button" data-i18n="authLogout" data-t="header-user-logout">Log out</button>
         </div>
       </div>
       <div class="lang-select" id="langSelect">
-        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Language">
+        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Language" data-t="header-lang-open">
           <span class="lang-emoji" id="langTriggerEmoji">☕</span>
-          <span class="lang-code" id="langTriggerCode">EN</span>
+          <span class="lang-code" id="langTriggerCode" data-t="header-lang-current">EN</span>
           <span class="lang-caret" aria-hidden="true">▾</span>
         </button>
-        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden></ul>
+        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden data-t="header-lang-menu"></ul>
       </div>
     </div>
   </header>

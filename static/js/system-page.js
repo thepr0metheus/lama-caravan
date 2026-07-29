@@ -17,7 +17,7 @@ import {
   renderLlamaCpp,
   renderProjectGitBranch,
 } from "./system-panels.js";
-import { $, api, escapeHtml } from "./utils.js";
+import { $, api, escapeHtml, markPageState } from "./utils.js";
 
 const TABS = ["controller", "llama", "security", "diag"];
 
@@ -82,6 +82,8 @@ async function refreshAll() {
     if (el) el.innerHTML = `<span class="muted">${escapeHtml(String(err.message || err))}</span>`;
   }
   renderHero(_lastInfo);
+  // Both fetches have settled — the page shows whatever it is going to show.
+  markPageState(_lastInfo ? "ready" : "error", _lastInfo ? "" : "controller-info unavailable");
 }
 
 // ── auth chip (same behavior as the board header) ────────────────────────────

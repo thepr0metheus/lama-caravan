@@ -1,7 +1,7 @@
 /* HuggingFace Browser — split layout with favorites & badges */
 // $ and escapeHtml come from the shared utils module (note: that escapeHtml
 // also escapes single quotes — a strict superset of the old local copy).
-import { $, escapeHtml } from "/js/utils.js";
+import { $, escapeHtml, markPageState } from "/js/utils.js";
 
 function hfToast(message) {
   let el = document.getElementById("hfToast");
@@ -2146,7 +2146,13 @@ refreshDiskInfo();
 setInterval(refreshDiskInfo, 60_000);
 renderRefSection();
 // Пиксельный лоадер (inline в hf.html) прячем, когда стартовые данные пришли.
-Promise.allSettled(_initLoads).then(() => window.__plHide?.());
+// Тот же момент — «страницей можно пользоваться»: allSettled, потому что
+// упавший токен или пустые избранные не мешают искать модели.
+Promise.allSettled(_initLoads).then((rs) => {
+  window.__plHide?.();
+  const bad = rs.filter((r) => r.status === "rejected").length;
+  markPageState("ready", bad ? `${bad} of ${rs.length} initial loads failed` : "");
+});
 
 const _urlQ = new URLSearchParams(location.search).get("q");
 if (_urlQ) {

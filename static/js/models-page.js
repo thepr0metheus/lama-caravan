@@ -6,7 +6,7 @@ import { appConfirm, settleAppConfirm } from "./dialogs.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
 import { applyLanguage, applyTheme, setupLangSelect, t } from "./i18n.js";
 import { ui } from "./state.js";
-import { $, api, escapeHtml, toast } from "./utils.js";
+import { $, api, escapeHtml, markPageState, toast } from "./utils.js";
 
 function fmtGb(bytes) {
   const gb = bytes / 2 ** 30;
@@ -35,10 +35,12 @@ async function refresh() {
     ]);
   } catch (err) {
     tree.innerHTML = `<p class="muted">${escapeHtml(String(err.message || err))}</p>`;
+    markPageState("error", err.message);
     return;
   }
   if (!data.ok) {
     tree.innerHTML = `<p class="muted">${escapeHtml(data.error || "models dir not found")}</p>`;
+    markPageState("error", data.error || "models dir not found");
     return;
   }
   const files = data.files || [];
@@ -97,6 +99,7 @@ async function refresh() {
           lvl(quant, l3, l3.files.slice().sort((a, b) => b.sizeBytes - a.sizeBytes).map(fileRow).join(""))).join(""))).join("")))
     .join("") || `<p class="muted">${escapeHtml(t("gcNoUnused"))}</p>`;
   updatePicked();
+  markPageState("ready");
 }
 
 function bindUserChip() {
