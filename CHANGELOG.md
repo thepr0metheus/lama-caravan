@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- A cell that is running an older copy of its own server says so. Each cell
+  server hashes its source at import — the one moment it is certainly what the
+  interpreter loaded — and reports it on the health path; the controller
+  compares that to the file it ships and puts a `⇪ old server` chip on the card
+  when they differ. The gap was invisible in both directions: the file beside a
+  long-running process is refreshed at every start, so disk said "current" while
+  the process answered with older behaviour, and the board, the health check and
+  the consumer all read green. A cell that predates the stamp reports nothing
+  and is marked unknown rather than stale — "nobody can tell" is the honest
+  answer, not a guess.
+
+- A client stops silently skipping runners the controller has but the scout
+  does not. `caravan-scout` resolved a launcher to its runner from a table
+  compiled into the client, and `transcribe` was never added to it: every
+  transcribe cell fetched nothing, kept whatever was in `$HOME`, and logged not
+  one line about it — for four days, on a green board. The scout now reads the
+  mapping out of the controller's own manifest and falls back to the table only
+  when the manifest is unreachable, so a runner added on the controller reaches
+  every client without a scout release. An unresolvable launcher is logged
+  instead of returning quietly.
+
+- The transcribe.cpp cell answers in the format that was asked for —
+  `response_format=verbose_json|text|srt|vtt` and `timestamp_granularities[]`,
+  matching the whisper cell. Word times are derived from the engine's token
+  times: GigaAM reports `max_timestamp_kind = token`, so a request for word
+  timestamps was ACCEPTED and answered 200 with an empty word list, which reads
+  as "this audio had no words". Chunk offsets are applied, so the times of a
+  split recording stay on the recording's own clock instead of restarting at
+  every seam. The default response is unchanged.
+
 - The whisper cell honors an optional `task=translate` multipart field
   (whisper's built-in any→English translation) — a voice-translation app's
   speak-for-me and interview-trainer flows use it for single-hop RU speech

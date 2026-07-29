@@ -35,6 +35,22 @@ import wave
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8021
 ENGINE = (sys.argv[2] if len(sys.argv) > 2 else "xtts").lower()
 
+
+def _source_stamp():
+    """Digest of THIS file, taken once at import — the only moment it is
+    guaranteed to be the source the interpreter actually loaded. The controller
+    refreshes $HOME copies when a cell starts, so a long-running process can be
+    older than the file beside it; hashing per request would report the file and
+    hide precisely that. See cells/whisper_server.py for the full story."""
+    try:
+        with open(os.path.abspath(__file__), "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:12]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+SOURCE = _source_stamp()
+
 _state = {"phase": "starting", "downloaded": 0, "total": 0, "ready": False,
           "error": "", "engine": ENGINE}
 _synth = None                 # (text, lang, ref_path) -> (float32 mono, sr)
@@ -253,13 +269,15 @@ class H(BaseHTTPRequestHandler):
             # plain-"ok" endpoint and dropped it. The caravan board's own
             # command-cell probe reads status=ok all the same.
             self._send(200,
-                       json.dumps({"status": "ok", "engine": ENGINE}).encode(),
+                       json.dumps({"status": "ok", "engine": ENGINE,
+                                   "source": SOURCE}).encode(),
                        "application/json")
             return
         payload = json.dumps({
             "status": _state["phase"], "engine": ENGINE,
             "downloadedBytes": _state["downloaded"],
             "totalBytes": _state["total"], "error": _state["error"],
+            "source": SOURCE,
         }).encode()
         self._send(500 if _state["phase"] == "error" else 503,
                    payload, "application/json")

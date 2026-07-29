@@ -40,6 +40,7 @@ Setup: see run_moonshine.sh (creates ~/moonshine venv, installs the package).
 """
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import os
@@ -53,6 +54,22 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8025
 LANG = (sys.argv[2] if len(sys.argv) > 2 else "en").lower()
+
+
+def _source_stamp():
+    """Digest of THIS file, taken once at import — the only moment it is
+    guaranteed to be the source the interpreter actually loaded. The controller
+    refreshes $HOME copies when a cell starts, so a long-running process can be
+    older than the file beside it; hashing per request would report the file and
+    hide precisely that. See cells/whisper_server.py for the full story."""
+    try:
+        with open(os.path.abspath(__file__), "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:12]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+SOURCE = _source_stamp()
 
 _state = {"ready": False, "error": ""}
 _lock = threading.Lock()
@@ -214,11 +231,12 @@ class H(BaseHTTPRequestHandler):
             # «model» keeps older clients working (they read it as an ASR cell);
             # «kinds» is what lets a new client also list us as a voice
             self._send(200, {"status": "ok", "model": f"moonshine-{LANG}",
-                             "kinds": ["asr", "tts"]})
+                             "kinds": ["asr", "tts"], "source": SOURCE})
         elif _state["error"]:
-            self._send(500, {"status": "error", "error": _state["error"]})
+            self._send(500, {"status": "error", "error": _state["error"],
+                             "source": SOURCE})
         else:
-            self._send(503, {"status": "loading"})
+            self._send(503, {"status": "loading", "source": SOURCE})
 
     def do_POST(self):
         ln = int(self.headers.get("Content-Length", 0))

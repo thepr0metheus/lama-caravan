@@ -369,6 +369,14 @@ export function nodeServerCardHtml(node, s) {
     ? mbadge("sched", `⏱ ${escapeHtml(s.schedule.start)}–${escapeHtml(s.schedule.stop)}`,
              t("schedChipTitle"))
     : "";
+  // The running process is older than the cell server the controller ships. The
+  // file next to it is already current — a restart is what picks it up — so no
+  // other chip on this card can show the gap. Command cells only: a llama or
+  // vLLM cell runs a binary, whose staleness has its own banner.
+  const staleSrcChip = (s.cellMeta || {}).sourceState === "stale"
+    ? mbadge("stale-src", `⇪ ${escapeHtml(t("cellSourceStaleChip"))}`,
+             t("cellSourceStaleTip"), "cell-source-stale")
+    : "";
   // Device chip — every non-reserved cell wears one. Runtime truth first: a
   // RUNNING cell shows its actual device (unit pids vs nvidia compute-apps;
   // command cells included). A STOPPED cell shows the CONFIGURED target —
@@ -456,7 +464,7 @@ export function nodeServerCardHtml(node, s) {
         ${memBadge}
         <strong class="node-model-name" title="${escapeHtml(cmdText)}">${escapeHtml(cmdText || t("commandCellFallback"))}</strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}</span></div>`}
     </div>` : "";
   // vLLM runner cell: no MODEL_FILE — the artifact lives in VLLM_MODEL. Same
   // body layout as a llama cell: model icon + model NAME, then runner chips.
@@ -488,7 +496,7 @@ export function nodeServerCardHtml(node, s) {
         ${memBadge}
         <strong class="node-model-name" title="${escapeHtml(vllmModel || vllmName)}${vllmAlias ? escapeHtml(` · served as ${vllmAlias}`) : ""}">${escapeHtml(vllmName)}</strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${vllmFmt ? mbadge("quant", `🎛 ${escapeHtml(vllmFmt)}`) : ""}${s.vllmStats ? mbadge("cmd", `▶ ${s.vllmStats.requestsRunning}${s.vllmStats.requestsWaiting ? " ⏳" + s.vllmStats.requestsWaiting : ""}`, "running / queued requests") : ""}${s.vllmStats && s.vllmStats.genTps != null ? mbadge("bench", `${formatTps(s.vllmStats.genTps)} t/s`) : ""}${mbadge("cmd", "❤ /v1/models")}${_scfg.MAX_MODEL_LEN ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.MAX_MODEL_LEN)))}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${vllmFmt ? mbadge("quant", `🎛 ${escapeHtml(vllmFmt)}`) : ""}${s.vllmStats ? mbadge("cmd", `▶ ${s.vllmStats.requestsRunning}${s.vllmStats.requestsWaiting ? " ⏳" + s.vllmStats.requestsWaiting : ""}`, "running / queued requests") : ""}${s.vllmStats && s.vllmStats.genTps != null ? mbadge("bench", `${formatTps(s.vllmStats.genTps)} t/s`) : ""}${mbadge("cmd", "❤ /v1/models")}${_scfg.MAX_MODEL_LEN ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.MAX_MODEL_LEN)))}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}</span></div>`}
     </div>` : "";
   // whisper runner cell: the "model" is a faster-whisper size name.
   const isWhisperCell = String(_scfg.RUNNER || "").toLowerCase() === "whisper";
@@ -501,7 +509,7 @@ export function nodeServerCardHtml(node, s) {
         ${memBadge}
         <strong class="node-model-name" title="faster-whisper ${escapeHtml(whisperSize)}">${escapeHtml(whisperSize)}</strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}</span></div>`}
     </div>` : "";
   // moonshine runner cell: the "model" is a language code, CPU-only.
   const isMoonshineCell = String(_scfg.RUNNER || "").toLowerCase() === "moonshine";
@@ -514,7 +522,7 @@ export function nodeServerCardHtml(node, s) {
         ${memBadge}
         <strong class="node-model-name" title="moonshine ${escapeHtml(moonshineLang)}">${escapeHtml(moonshineLang)}</strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}</span></div>`}
     </div>` : "";
   const bodyBlock = modelBlock || vllmBlock || whisperBlock || moonshineBlock || commandBlock || emptyCellBlock;
   // No model/command block to host the status (e.g. a bare stopped server) —

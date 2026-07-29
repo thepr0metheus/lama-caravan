@@ -15,6 +15,7 @@ Setup (on the GPU box):
         nvidia-cudnn-cu12 nvidia-cublas-cu12
     bash run_whisper.sh 8000 large-v3     # sets LD_LIBRARY_PATH for CTranslate2
 """
+import hashlib
 import json
 import os
 import sys
@@ -24,6 +25,26 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
 MODEL = sys.argv[2] if len(sys.argv) > 2 else "large-v3"
+
+
+def _source_stamp():
+    """Digest of THIS file, taken once at import — which is the only moment it
+    is guaranteed to be the source the interpreter actually loaded.
+
+    The controller refreshes $HOME/whisper_server.py when a cell starts, so a
+    long-running process can be older than the file sitting next to it. Hashing
+    on each request would report the file on disk and hide exactly that gap;
+    hashing at import reports what is running. The controller compares this to
+    the digest it ships and says "restart to pick it up" when they differ.
+    """
+    try:
+        with open(os.path.abspath(__file__), "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:12]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+SOURCE = _source_stamp()
 
 _state = {"phase": "starting", "downloaded": 0, "total": 0, "ready": False, "error": ""}
 _model = None
@@ -160,6 +181,7 @@ class H(BaseHTTPRequestHandler):
             # body and treats anything else as listening, whether text or JSON.
             self._send(200, json.dumps({
                 "status": "ok", "model": MODEL, "engine": "faster-whisper",
+                "source": SOURCE,
             }).encode(), "application/json")
             return
         payload = json.dumps({
@@ -167,6 +189,7 @@ class H(BaseHTTPRequestHandler):
             "downloadedBytes": _state["downloaded"],
             "totalBytes": _state["total"],
             "error": _state["error"],
+            "source": SOURCE,
         }).encode()
         self._send(500 if _state["phase"] == "error" else 503, payload, "application/json")
 

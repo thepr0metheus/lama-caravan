@@ -120,3 +120,39 @@ def materialize_local_assets(names=None, home=None) -> dict:
 
 def assets_for_runner(runner: str):
     return RUNNER_ASSETS.get(str(runner or "").strip().lower(), ())
+
+
+def server_stamp(runner: str) -> str:
+    """The stamp a cell of this runner reports in /health when it is running the
+    version we currently ship — the first 12 hex of the server's sha256.
+
+    Kept in step with `_source_stamp()` in each cells/*_server.py: the cell
+    hashes its own file at import, we hash the same file here. "" when the
+    runner has no python server (vLLM, llama-server) or the file is missing.
+    """
+    for name in assets_for_runner(runner):
+        if name.endswith("_server.py"):
+            try:
+                return asset_digest(os.path.join(CELLS_DIR, name))[:12]
+            except OSError:
+                return ""
+    return ""
+
+
+def cell_source_state(runner: str, reported: str) -> str:
+    """Compare what a running cell says it loaded against what we ship.
+
+      "current" — the running process holds the version in cells/
+      "stale"   — it holds an older one; a restart picks the new one up
+      "unknown" — the cell does not report a stamp at all
+
+    "unknown" is a real answer and deliberately not folded into "stale". A cell
+    server predating this mechanism cannot report, so a stamp we cannot read
+    means "nobody can tell" — which is the honest thing to show, and which
+    stopped being true for everything shipped after 1.3.147.
+    """
+    want = server_stamp(runner)
+    got = str(reported or "").strip()
+    if not want or not got:
+        return "unknown"
+    return "current" if got == want else "stale"

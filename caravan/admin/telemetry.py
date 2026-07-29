@@ -238,7 +238,8 @@ def command_cell_health(ip, port, health_path="", timeout=1.0):
         # real limit is an audio window in milliseconds, while the config it
         # inherited still carries a llama CTX_SIZE in tokens. Whitelisted, so a
         # cell cannot push arbitrary keys onto the board.
-        meta = {k: data[k] for k in ("model", "engine", "backend", "maxAudioMs", "languages")
+        meta = {k: data[k] for k in ("model", "engine", "backend", "maxAudioMs",
+                                     "languages", "source")
                 if k in data}
         if meta:
             res["meta"] = meta

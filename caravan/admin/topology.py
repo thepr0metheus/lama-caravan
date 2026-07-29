@@ -9,7 +9,9 @@ import time
 from caravan.admin.proxy_stats import proxy_ports_last_seen
 from caravan.admin.cloud import cloud_accounts_state, cloud_blocks_state, cloud_provider_presets_public
 from caravan.admin.config_builder import models_dir_from_config, parse_config
-from caravan.admin.runners import cell_artifact_label, effective_health_path, uses_command_path
+from caravan.admin.cell_assets import cell_source_state
+from caravan.admin.runners import (cell_artifact_label, effective_health_path,
+                                   runner_id, uses_command_path)
 from caravan.admin.fleet_clients import assignment_port_claims, refresh_topology_clients_from_agents, topology_clients
 from caravan.admin.llama_metrics import runtime_metrics_sample, runtime_phase, vllm_metrics_sample
 from caravan.admin.monitoring import (
@@ -51,6 +53,25 @@ from caravan.common.fetch import post_json
 
 
 _SLOT_MODEL_SIZE_CACHE = {}  # model path → (bytes, checked_at)
+
+
+def _cell_meta(health, cfg, is_command):
+    """What a command cell says about itself, plus our verdict on the version it
+    is running.
+
+    A cell server is materialized into $HOME at start, so the file next to a
+    long-running process can already be newer than the process. The disk says
+    "current" while the cell still answers with months-old behaviour, and until
+    now nothing anywhere could tell the two apart — the board was green, the
+    health check was green, and a consumer got the wrong response shape with no
+    way to find out why. So the cell reports the digest it loaded and we compare
+    it to what we ship; see cell_assets.cell_source_state for why "unknown" is
+    kept distinct from "stale".
+    """
+    meta = dict((health or {}).get("meta") or {})
+    if is_command and (health or {}).get("status") == "ok":
+        meta["sourceState"] = cell_source_state(runner_id(cfg), meta.get("source"))
+    return meta
 
 
 def _slot_model_size_bytes(model_path, models_dir):
@@ -254,7 +275,7 @@ def topology_server(config=None):
             "cellLabel": cell_artifact_label(_r_cfg),
             # What the cell says about itself on its health path. Beats the
             # config for anything the config cannot describe — see telemetry.
-            "cellMeta": (_ch or {}).get("meta") or {},
+            "cellMeta": _cell_meta(_ch, _r_cfg, slot_is_command),
             "modelPath": model_path,
             "mmproj": str(ln.get("mmprojPath") or ""),
             "specDraft": str(ln.get("specPath") or ""),
@@ -416,7 +437,7 @@ def topology_server(config=None):
             "host": (controller_ip if is_controller_slot else client_ip),
             "model": model_path.split("/")[-1] if model_path else "",
             "cellLabel": cell_artifact_label(slot.get("config") or {}),
-            "cellMeta": (_ch or {}).get("meta") or {},
+            "cellMeta": _cell_meta(_ch, slot.get("config") or {}, slot_is_command),
             "modelPath": model_path,
             "mmproj": str(((slot.get("config") or {}).get("MMPROJ_FILE")) or ""),
             "specDraft": str(((slot.get("config") or {}).get("SPEC_DRAFT_MODEL_FILE")) or ""),

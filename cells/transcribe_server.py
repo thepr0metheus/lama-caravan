@@ -7,6 +7,10 @@ it at — the same shape as a llama.cpp cell, so the caravan's existing model
 picker, HF browser and download path all apply unchanged.
 
     GET  /health                     200 {"status":"ok","model":<slug>,"engine":"transcribe.cpp"}
+
+    POST /v1/audio/transcriptions honours response_format=json (default) |
+    verbose_json | text | srt | vtt, and timestamp_granularities[]=word. Word
+    times are DERIVED from the engine's token times — see _words_from_tokens.
                                      | 503 {"status":"loading"} while the model loads
     POST /v1/audio/transcriptions    multipart: file=wav [, language]
                                      -> {"text": "..."}
@@ -31,6 +35,7 @@ is MIT, but check the card before assuming (some ASR weights are CC-BY-NC).
 from __future__ import annotations
 
 import array
+import hashlib
 import io
 import json
 import os
@@ -42,6 +47,22 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
 MODEL_PATH = sys.argv[2] if len(sys.argv) > 2 else ""
+
+
+def _source_stamp():
+    """Digest of THIS file, taken once at import — the only moment it is
+    guaranteed to be the source the interpreter actually loaded. The controller
+    refreshes $HOME copies when a cell starts, so a long-running process can be
+    older than the file beside it; hashing per request would report the file and
+    hide precisely that. See cells/whisper_server.py for the full story."""
+    try:
+        with open(os.path.abspath(__file__), "rb") as fh:
+            return hashlib.sha256(fh.read()).hexdigest()[:12]
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+SOURCE = _source_stamp()
 
 _state = {"ready": False, "error": "", "phase": "loading"}
 _model = None
@@ -204,6 +225,71 @@ def _split_at_quiet(samples, window_ms: int):
     return out
 
 
+def _fields(body: bytes, ctype: str, name: str):
+    """Every value sent under `name` — timestamp_granularities[] arrives twice
+    when a caller asks for words AND segments, and reading only the first drops
+    one of them."""
+    m = re.search(r'boundary="?([^";,]+)"?', ctype or "")
+    if not m:
+        return []
+    sep = ("--" + m.group(1)).encode()
+    out = []
+    for part in body.split(sep):
+        head, _, val = part.partition(b"\r\n\r\n")
+        if not _ or b'filename="' in head:
+            continue
+        hm = re.search(rb'name="([^"]+)"', head)
+        if hm and hm.group(1).decode("utf-8", "replace").rstrip("[]") == name:
+            out.append(val.rstrip(b"\r\n-").decode("utf-8", "replace").strip())
+    return out
+
+
+def _words_from_tokens(tokens, offset_ms: float):
+    """Group the engine's TOKEN times into words.
+
+    GigaAM reports `max_timestamp_kind = token`: it fills `result.tokens` with
+    t0/t1 at 40 ms and leaves `result.words` an EMPTY TUPLE — including when the
+    caller explicitly asks for word timestamps, which the C layer accepts
+    without complaint because token is the finer grain. Measured on
+    gigaam-v3-e2e-rnnt: `timestamps="word"` → 200, words=(), no error. A
+    consumer that reads that as "this audio had no words" is reading absence as
+    a fact, so we derive the words rather than pass the emptiness on.
+
+    SentencePiece marks a word start with "▁"; `token.word_index` is -1 here, so
+    the marker is what we group on. `offset_ms` shifts a chunk's times back onto
+    the whole recording — piece-local times restart at zero, and a caller that
+    advances its window by the last word's end would rewind at every seam.
+    """
+    words, cur, t0, t1 = [], "", None, None
+
+    def flush():
+        if cur.strip():
+            words.append({"word": cur.strip(),
+                          "start": round((offset_ms + t0) / 1000.0, 3),
+                          "end": round((offset_ms + t1) / 1000.0, 3)})
+
+    for tok in tokens or ():
+        text = str(getattr(tok, "text", "") or "")
+        piece = text.replace("▁", " ")
+        if text.startswith("▁") and cur.strip():
+            flush()
+            cur, t0, t1 = "", None, None
+        cur += piece
+        tt0, tt1 = getattr(tok, "t0_ms", 0) or 0, getattr(tok, "t1_ms", 0) or 0
+        t0 = tt0 if t0 is None else min(t0, tt0)
+        t1 = tt1 if t1 is None else max(t1, tt1)
+    flush()
+    return words
+
+
+def _srt_ts(sec: float, comma=True):
+    ms = max(0, int(round(sec * 1000)))
+    h, ms = divmod(ms, 3600000)
+    m, ms = divmod(ms, 60000)
+    s, ms = divmod(ms, 1000)
+    return f"{h:02d}:{m:02d}:{s:02d}{',' if comma else '.'}{ms:03d}"
+
+
 def _extract_file(body: bytes, ctype: str):
     m = re.search(r'boundary="?([^";,]+)"?', ctype or "")
     if not m:
@@ -246,13 +332,16 @@ class H(BaseHTTPRequestHandler):
         # language the cell does not actually have.
         if _state["ready"]:
             self._send(200, dict({"status": "ok", "model": _model_slug(),
-                                  "engine": "transcribe.cpp", "kinds": ["asr"]}, **_meta))
+                                  "engine": "transcribe.cpp", "kinds": ["asr"],
+                                  "source": SOURCE}, **_meta))
         elif _state["error"]:
-            self._send(500, {"status": "error", "error": _state["error"]})
+            self._send(500, {"status": "error", "error": _state["error"],
+                             "source": SOURCE})
         else:
             # CARAVAN reads this shape as a "loading" cell phase rather than a
             # silent STARTING (see command_cell_health on the controller).
-            self._send(503, {"status": "loading", "downloadedBytes": 0, "totalBytes": 0})
+            self._send(503, {"status": "loading", "downloadedBytes": 0,
+                             "totalBytes": 0, "source": SOURCE})
 
     def do_POST(self):
         if self._path() not in ("/v1/audio/transcriptions", "/transcribe"):
@@ -273,17 +362,69 @@ class H(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001
             self._send(400, {"error": f"bad wav: {exc}"})
             return
+        ctype = self.headers.get("Content-Type", "")
+        fmt = (_fields(body, ctype, "response_format") or ["json"])[0].lower() or "json"
+        gran = {g.lower() for g in _fields(body, ctype, "timestamp_granularities")}
         try:
             pieces = _split_at_quiet(samples, _window_ms)
+            texts, words, segments = [], [], []
+            offset_ms = 0.0
             with _lock:
-                texts = [(getattr(_session.run(p), "text", "") or "").strip() for p in pieces]
-            body = {"text": " ".join(t for t in texts if t)}
+                for piece in pieces:
+                    res = _session.run(piece)
+                    text = (getattr(res, "text", "") or "").strip()
+                    texts.append(text)
+                    dur_ms = len(piece) / 16.0            # 16 samples per ms at 16 kHz
+                    if text:
+                        # One segment per piece: the engine gives none, and the
+                        # seams are the only division we actually know about.
+                        segments.append({
+                            "id": len(segments), "seek": 0,
+                            "start": round(offset_ms / 1000.0, 3),
+                            "end": round((offset_ms + dur_ms) / 1000.0, 3),
+                            "text": text,
+                        })
+                    words.extend(_words_from_tokens(getattr(res, "tokens", ()), offset_ms))
+                    offset_ms += dur_ms
+            full = " ".join(t for t in texts if t)
+            total_s = round(len(samples) / 16000.0, 3)
+
+            if fmt == "text":
+                self._send(200, (full + "\n").encode(), "text/plain; charset=utf-8")
+                return
+            if fmt in ("srt", "vtt"):
+                lines = ["WEBVTT", ""] if fmt == "vtt" else []
+                for i, seg in enumerate(segments, 1):
+                    if fmt == "srt":
+                        lines.append(str(i))
+                    lines.append(f"{_srt_ts(seg['start'], fmt == 'srt')} --> "
+                                 f"{_srt_ts(seg['end'], fmt == 'srt')}")
+                    lines.append(seg["text"])
+                    lines.append("")
+                self._send(200, ("\n".join(lines)).encode(),
+                           "application/x-subrip; charset=utf-8" if fmt == "srt"
+                           else "text/vtt; charset=utf-8")
+                return
+            if fmt == "verbose_json":
+                out = {"task": "transcribe", "language": (_meta.get("languages") or [""])[0],
+                       "duration": total_s, "text": full, "segments": segments}
+                # Same rule as the whisper cell: words ride on the explicit
+                # granularity, so a caller that asked for segments only is not
+                # handed a payload several times larger than it wanted.
+                if "word" in gran:
+                    out["words"] = words
+                if len(pieces) > 1:
+                    out["chunks"] = len(pieces)
+                self._send(200, out)
+                return
+
+            body_out = {"text": full}
             # Say when the recording was cut. The seams are where this cell can
             # lose a word, so the caller gets to know they exist rather than
             # reading a joined transcript as one clean pass.
             if len(pieces) > 1:
-                body["chunks"] = len(pieces)
-            self._send(200, body)
+                body_out["chunks"] = len(pieces)
+            self._send(200, body_out)
         except Exception as exc:  # noqa: BLE001
             _log(f"transcribe error: {exc}")
             self._send(500, {"error": str(exc)})

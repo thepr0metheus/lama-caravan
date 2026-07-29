@@ -122,8 +122,12 @@ export function badge(text, kind) {
   return `<span class="badge ${kind || ""}">${text}</span>`;
 }
 
-export function mbadge(type, text, title) {
-  return `<span class="mbadge mbadge-${type}"${title ? ` title="${escapeHtml(title)}"` : ""}>${text}</span>`;
+// `testId` stamps data-t on badges a test needs to find. Most badges describe a
+// model and are asserted through the card that holds them; the ones that report
+// a FAULT are the ones worth locating directly — see docs/testability.md.
+export function mbadge(type, text, title, testId) {
+  return `<span class="mbadge mbadge-${type}"${title ? ` title="${escapeHtml(title)}"` : ""}${
+    testId ? ` data-t="${escapeHtml(testId)}"` : ""}>${text}</span>`;
 }
 
 // Format a model file's on-disk mtime (epoch seconds) as a short, locale-aware date.

@@ -666,6 +666,10 @@
 .mbadge-missing { background: color-mix(in srgb, #f87171 12%, transparent); color: #f87171; border-color: color-mix(in srgb, #f87171 28%, transparent); letter-spacing: 0; font-weight: 400; }
 .mbadge-uncensored { background: color-mix(in srgb, #f43f5e 12%, transparent); color: #fda4af; border-color: color-mix(in srgb, #f43f5e 30%, transparent); }
 .mbadge-st     { background: color-mix(in srgb, #9fd0ff 12%, transparent); color: #9fd0ff; border-color: color-mix(in srgb, #9fd0ff 30%, transparent); }
+/* the cell is running an older copy of its own server — amber, like the stale
+   llama.cpp binary banner it is the small sibling of, not red: nothing is
+   broken, something is behind */
+.mbadge-stale-src { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #fcd34d; border-color: color-mix(in srgb, #f59e0b 38%, transparent); }
 /* picker rows for artifacts not on disk yet (whisper sizes that download on first start) */
 .mc-item.mc-dim { opacity: .45; }
 /* runner icons left of the model name in the picker: 🦙 native, ⚡ vLLM (dimmed = experimental) */

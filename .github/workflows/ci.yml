@@ -29,6 +29,12 @@ jobs:
           python3 scripts/check_messages_i18n.py
           python3 scripts/check_i18n_calls.py
 
+      # docs/testability.md publishes the data-t names as a contract the E2E
+      # suite locates by. A rename that skips the doc reads to that suite as
+      # "the tests broke by themselves".
+      - name: testability contract
+        run: python3 scripts/testability_names.py --check
+
       - name: JS syntax (ES modules)
         run: |
           set -e
