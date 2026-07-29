@@ -7,11 +7,24 @@ RUNNER field; legacy configs predate that field and are mapped from CELL_KIND
 snapshot and backup keeps working unchanged.
 
 Stage 1 ships llama-server + custom; the vLLM runner lands next (stage 2) and
-faster-whisper after that. `formats` uses the artifact-format ids that the
-frontend derives for the selected model ("gguf" today; "awq"/"nvfp4"/... once
-safetensors support arrives); "*" accepts anything including no model at all.
-`minCompute` gates a runner on CUDA compute capability (e.g. NVFP4 checkpoints
-need >= 10.0) — None means no GPU requirement at all.
+faster-whisper after that.
+
+`artifacts` is what the editor greys a runner tab on: the KIND of thing the
+runner can launch, not the file extension. Extension alone could not separate
+them — an LLM and a speech recognizer are both ".gguf", so picking GigaAM left
+the llama.cpp tab enabled and picking Qwen left transcribe.cpp enabled, and both
+of those only fail once the engine is already starting. The kinds are
+
+    llm-gguf | asr-gguf | whisper-size | moonshine-lang | safetensors | "*"
+
+where a gguf is sorted into llm/asr by its own stt.* metadata. "*" means the
+runner's artifact does not live in MODEL_FILE at all (vLLM reads VLLM_MODEL,
+custom runs a command line), so nothing in that field can disqualify it.
+
+`formats` is the older, extension-only version of the same idea, kept because a
+browser holding cached JS still reads it. `minCompute` gates a runner on CUDA
+compute capability (e.g. NVFP4 checkpoints need >= 10.0) — None means no GPU
+requirement at all.
 """
 import re
 
@@ -24,6 +37,7 @@ RUNNERS = [
         "labelKey": "runnerLlama",
         "benefitsKey": "runnerLlamaBenefits",
         "formats": ["gguf"],
+        "artifacts": ["llm-gguf"],
         "health": "/health",
         "api": "openai",
         "minCompute": None,
@@ -33,6 +47,9 @@ RUNNERS = [
         "icon": "\u26a1",
         "labelKey": "runnerVllm",
         "benefitsKey": "runnerVllmBenefits",
+        # Any artifact: vLLM reads VLLM_MODEL, so whatever sits in MODEL_FILE
+        # cannot disqualify it.
+        "artifacts": ["*"],
         # In stage 2 the artifact comes from the runner's own VLLM_MODEL field
         # (HF repo id or a local path) — the unified safetensors picker arrives
         # with the multi-format /hf stage, so the tab never blocks on MODEL_FILE.
@@ -53,6 +70,7 @@ RUNNERS = [
         "icon": "\U0001f399\ufe0f",
         "labelKey": "runnerWhisper",
         "benefitsKey": "runnerWhisperBenefits",
+        "artifacts": ["whisper-size"],
         "formats": ["*"],
         "health": "/health",
         "api": "raw",
@@ -68,6 +86,7 @@ RUNNERS = [
         "icon": "🌙",
         "labelKey": "runnerMoonshine",
         "benefitsKey": "runnerMoonshineBenefits",
+        "artifacts": ["moonshine-lang"],
         "formats": ["*"],
         "health": "/health",
         "api": "raw",
@@ -87,6 +106,7 @@ RUNNERS = [
         "icon": "\U0001f4dd",
         "labelKey": "runnerTranscribe",
         "benefitsKey": "runnerTranscribeBenefits",
+        "artifacts": ["asr-gguf"],
         "formats": ["gguf"],
         "health": "/health",
         "api": "raw",
@@ -97,6 +117,8 @@ RUNNERS = [
         "icon": "\U0001f6e0\ufe0f",
         "labelKey": "runnerCustom",
         "benefitsKey": "runnerCustomBenefits",
+        # An arbitrary command line — nothing about MODEL_FILE can rule it out.
+        "artifacts": ["*"],
         "formats": ["*"],
         "health": "",
         "api": "raw",

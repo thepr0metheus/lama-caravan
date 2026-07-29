@@ -21,7 +21,7 @@ import {
   updateStarStates,
 } from "./favorites.js";
 import { fieldHelp, labelWithTip, t } from "./i18n.js";
-import { _commandCellSlot, gpuComputeCap, renderBackups, renderCommandCellPreview } from "./llama-edit.js";
+import { _commandCellSlot, gpuComputeCap, renderBackups, renderCommandCellPreview, runnerRegistry } from "./llama-edit.js";
 import {
   applyComputeTarget,
   computeIsCpu,
@@ -500,14 +500,24 @@ export function renderModelSelects(pfx = "") {
   fetchPickerBenchBatch(modelItems, pfx);
   // Which rows this runner cannot launch. Resolved HERE, where pfx exists, and
   // carried on the item — the row renderer is shared and form-agnostic.
+  //
+  // The same acceptance table the runner TABS use, so the two halves of the
+  // dialog cannot disagree: it dimmed only gguf rows before, which left a
+  // whisper runner offering moonshine languages and vice versa.
   {
     const rid = (($(pfx + "RUNNER")?.value || "").trim())
       || (($(pfx + "CELL_KIND")?.value || "") === "command" ? "custom" : "llama-server");
-    const wantsAsr = rid === "transcribe";
-    modelItems.forEach((it) => {
-      if (it.kind !== "model" || it.missing) return;
-      it.wrongRunner = wantsAsr !== !!it.sttVariant;
-    });
+    const accepts = (runnerRegistry().find((r) => r.id === rid) || {}).artifacts || ["*"];
+    if (!accepts.includes("*")) {
+      const ROW_KIND = { whisper: "whisper-size", moonshine: "moonshine-lang", st: "safetensors" };
+      modelItems.forEach((it) => {
+        if (it.missing) return;
+        const kind = it.kind === "model"
+          ? (it.sttVariant ? "asr-gguf" : "llm-gguf")
+          : ROW_KIND[it.kind];
+        if (kind) it.wrongRunner = !accepts.includes(kind);
+      });
+    }
   }
   // Keep hidden <select> in sync for .value reads and option checks elsewhere
   modelEl.innerHTML = "";

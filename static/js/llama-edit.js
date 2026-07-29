@@ -625,16 +625,51 @@ export function effectiveRunnerId(pfx) {
   return ($(pfx + "CELL_KIND")?.value || "") === "command" ? "custom" : "llama-server";
 }
 
-// Can this runner launch the currently selected artifact? An empty model never
-// blocks a tab (the form starts empty); "*" accepts anything. Today the only
-// concrete format is gguf — safetensors variants arrive with the vLLM runner.
+// What KIND of artifact a MODEL_FILE value names. The extension is not enough:
+// an LLM and a speech recognizer are both ".gguf", and llama-server can no more
+// load GigaAM than transcribe.cpp can load Qwen. The picker already separates
+// them by the file's own stt.* metadata, so the tabs read the same signal.
+//
+// Returns "" for anything we cannot classify, and "" NEVER blocks a tab. A
+// remote form can hold a path that is not in the controller's model list, and
+// greying a runner the user may well be right about is worse than letting the
+// start fail with the engine's own message.
+export function artifactKind(model) {
+  const path = String(model || "").trim();
+  if (!path) return "";
+  if (path.startsWith("moonshine/")) return "moonshine-lang";
+  if (path.startsWith("whisper/models--Systran--faster-whisper-")) return "whisper-size";
+  if (!path.toLowerCase().endsWith(".gguf")) return "safetensors";
+  const row = (state.models || []).find((r) => r.path === path);
+  if (!row) return "";                       // unknown file — see above
+  return (row.ggufMeta || {}).sttVariant ? "asr-gguf" : "llm-gguf";
+}
+
+const KIND_REASON = {
+  "llm-gguf": "runnerNeedsLlmGguf",
+  "asr-gguf": "runnerNeedsAsrGguf",
+  "whisper-size": "runnerNeedsWhisperSize",
+  "moonshine-lang": "runnerNeedsMoonshineLang",
+};
+
+// Can this runner launch the currently selected artifact? "*" accepts anything —
+// vLLM and custom read their artifact from somewhere other than MODEL_FILE, so
+// what sits in that field cannot disqualify them.
 function runnerAvailability(runner, pfx) {
-  const formats = runner.formats || [];
-  if (formats.includes("*")) return { ok: true };
-  const model = $(pfx + "MODEL_FILE")?.value || "";
-  if (!model) return { ok: true };
-  const fmt = model.toLowerCase().endsWith(".gguf") ? "gguf" : "other";
-  return formats.includes(fmt) ? { ok: true } : { ok: false, reasonKey: "runnerNeedsGguf" };
+  // `artifacts` is the current field; `formats` is what older registries carry.
+  const accepts = runner.artifacts || null;
+  if (!accepts) {
+    const formats = runner.formats || [];
+    if (formats.includes("*")) return { ok: true };
+    const model = $(pfx + "MODEL_FILE")?.value || "";
+    if (!model) return { ok: true };
+    const fmt = model.toLowerCase().endsWith(".gguf") ? "gguf" : "other";
+    return formats.includes(fmt) ? { ok: true } : { ok: false, reasonKey: "runnerNeedsGguf" };
+  }
+  if (accepts.includes("*")) return { ok: true };
+  const kind = artifactKind($(pfx + "MODEL_FILE")?.value || "");
+  if (!kind || accepts.includes(kind)) return { ok: true };
+  return { ok: false, reasonKey: KIND_REASON[accepts[0]] || "runnerNeedsGguf" };
 }
 
 // CUDA compute capability by GPU marketing name — best-effort map used only to
@@ -892,8 +927,13 @@ export function wireCellKindToggle(pfx) {
     }
     const cur = runnerRegistry().find((r) => r.id === effectiveRunnerId(pfx));
     if (cur && !runnerAvailability(cur, pfx).ok) {
-      // The active runner can't launch this artifact — jump to the first that can.
-      const fit = runnerRegistry().find((r) => runnerAvailability(r, pfx).ok);
+      // The active runner can't launch this artifact — jump to one that can.
+      // A runner that names this KIND wins over one that merely accepts
+      // anything: picking GigaAM must land on transcribe.cpp, and "first
+      // available" would hand it to vLLM, which sits earlier and takes "*".
+      const kind = artifactKind($(pfx + "MODEL_FILE")?.value || "");
+      const named = kind && runnerRegistry().find((r) => (r.artifacts || []).includes(kind));
+      const fit = named || runnerRegistry().find((r) => runnerAvailability(r, pfx).ok);
       const rEl = $(pfx + "RUNNER");
       if (fit && rEl) rEl.value = fit.id;
       applyCellKindUI(pfx);

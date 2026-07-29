@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- A runner tab greys out for every kind of model it cannot launch, not just the
+  wrong file extension. The gate compared `.gguf` against everything else, which
+  answered correctly for exactly one of the four artifact kinds: an LLM and a
+  speech recognizer are both GGUF, so choosing GigaAM left llama.cpp offered and
+  choosing Qwen left transcribe.cpp offered — and a whisper size left moonshine
+  offered, and the other way round. Runners now declare the artifact KIND they
+  take (`llm-gguf`, `asr-gguf`, `whisper-size`, `moonshine-lang`, or `*` for the
+  two whose artifact does not live in MODEL_FILE at all), a GGUF is sorted into
+  LLM or speech by its own `stt.*` metadata, and the tooltip on a greyed tab says
+  which of the two it wanted. The model picker dims rows through the same table,
+  so the two halves of the dialog can no longer disagree.
+
+  An artifact we cannot classify — a path a remote form holds that the
+  controller's model list has never seen — blocks nothing. Greying a runner the
+  operator may well be right about is worse than letting the engine say so.
+
 - A cell that is running an older copy of its own server says so. Each cell
   server hashes its source at import — the one moment it is certainly what the
   interpreter loaded — and reports it on the health path; the controller
