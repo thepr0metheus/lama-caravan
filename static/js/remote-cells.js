@@ -1032,7 +1032,11 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
       remTitleEl.after(b);
     }
   }
-  $("llamaRemoteEditOverlay").hidden = false;
+  const _ov = $("llamaRemoteEditOverlay");
+  _ov.hidden = false;
+  // Focus into the dialog — same reason as the controller editor.
+  if (!_ov.hasAttribute("tabindex")) _ov.tabIndex = -1;
+  _ov.focus({ preventScroll: true });
 
   // Load backups asynchronously
   fetchAndRenderRemoteBackups(hostId).catch(() => {});

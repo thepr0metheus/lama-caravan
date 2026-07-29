@@ -100,7 +100,7 @@ import {
   topologyGroupedAgents,
 } from "./topology-proxies.js";
 import { renderUsageStatsModal } from "./usage-stats.js";
-import { $, api, escapeHtml, formatMemoryMiB, toast } from "./utils.js";
+import { $, api, escapeHtml, formatMemoryMiB, markPageState, toast } from "./utils.js";
 
 export let activeView = "topology";  // Classic retired — Topology is the only view
 // Live-render bookkeeping: a full renderTopology() rebuilds the whole DOM (and
@@ -407,11 +407,19 @@ export function renderTopology() {
   drawTopologyGpuHistory();
 }
 
+// The board is "ready" for automation the moment its content has rendered ONCE
+// — every later refresh is an update, not an arrival. See docs/testability.md.
+let _boardRenderedOnce = false;
+
 export async function refreshTopology() {
   setTopology(await api("/api/topology"));
   // Structure-aware: full rebuild only when the graph changed, else a cheap
   // in-place patch — and never rebuild mid-interaction (deferred).
   applyTopologyUpdate();
+  if (!_boardRenderedOnce) {
+    _boardRenderedOnce = true;
+    markPageState("ready");
+  }
   prefetchAllSubscriptionModels();
   fetchProxyDailyStats().catch(() => {});
 }

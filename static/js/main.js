@@ -159,6 +159,24 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("confirmOverlay").addEventListener("click", (event) => {
     if (event.target.id === "confirmOverlay") closeConfirmModal();
   });
+  // Escape on the cell editors is bound to the OVERLAYS themselves, in the
+  // capture phase, and each one takes focus when it opens. The document-level
+  // version depended on where focus happened to be and on nothing upstream
+  // swallowing the key — and it lost that bet: measured against the live board,
+  // Escape closed neither editor, three runs out of three. A dialog that cannot
+  // be dismissed by keyboard is an accessibility defect before it is a testing
+  // one, and role="dialog" aria-modal="true" promises otherwise.
+  [["llamaRemoteEditOverlay", () => { $("llamaRemoteEditOverlay").hidden = true; }],
+   ["topologyLlamaEditOverlay", () => closeTopologyLlamaEdit()]].forEach(([id, close]) => {
+    const ov = $(id);
+    if (!ov) return;
+    if (!ov.hasAttribute("tabindex")) ov.tabIndex = -1;
+    ov.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || ov.hidden) return;
+      e.stopPropagation();
+      close();
+    }, true);
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !$("confirmOverlay").hidden) { closeConfirmModal(); return; }
     if (event.key === "Escape" && !$("llamaRemoteEditOverlay")?.hidden) { $("llamaRemoteEditOverlay").hidden = true; return; }
@@ -375,7 +393,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   try {
     await loadState();
     setActiveView(activeView);
-    markPageState("ready");
+    // Readiness is NOT marked here. loadState() brings /api/state — service,
+    // cpu, gpu — but the board's own content is /api/topology, and marking
+    // ready on the former announced a populated board 1.5 s before it had a
+    // single card on it. refreshTopology() marks it once it has actually
+    // rendered; forcing an extra fetch here instead would double the fleet
+    // probing every page load, which four parallel test workers turn into
+    // eight round trips over the LAN.
   } catch (err) {
     hideAppLoader();
     // Say WHY, and say it now: a page left at "loading" makes every waiter

@@ -59,7 +59,7 @@ Where it is set:
 
 | page | ready when | file |
 |---|---|---|
-| `/` board | `loadState()` resolved and `renderAll()` ran | `static/js/main.js` |
+| `/` board | the topology rendered for the first time | `static/js/topology-render.js` |
 | `/kanban` | topology fetched and the router rendered | `static/js/main.js` |
 | `/models` | the model tree is drawn | `static/js/models-page.js` |
 | `/system` | `/api/state` + `/api/controller-info` settled | `static/js/system-page.js` |
@@ -110,11 +110,11 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 122 values:
+Generated from the source, not from memory — 134 values:
 
 **app** — `app-toast`
 **board** — `board-clients-lane`, `board-cloud-lane`, `board-gpus-lane`, `board-incidents-list`, `board-llama-suspect-banner`, `board-models-bar`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-system-open`
-**cell** — `cell-card`, `cell-configure`, `cell-delete`, `cell-edit-apply`, `cell-edit-command`, `cell-edit-command-preview`, `cell-edit-env`, `cell-edit-fields`, `cell-edit-health-path`, `cell-edit-max-model-len`, `cell-edit-mmproj`, `cell-edit-modal`, `cell-edit-model`, `cell-edit-moonshine-model`, `cell-edit-runner`, `cell-edit-vllm-model`, `cell-edit-whisper-model`, `cell-edit-workdir`, `cell-remote-apply`, `cell-remote-command`, `cell-remote-command-preview`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model`, `cell-remote-moonshine-model`, `cell-remote-runner`, `cell-remote-vllm-model`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-start`, `cell-stop`
+**cell** — `cell-card`, `cell-configure`, `cell-delete`, `cell-edit-apply`, `cell-edit-cancel`, `cell-edit-command`, `cell-edit-command-preview`, `cell-edit-env`, `cell-edit-fields`, `cell-edit-health-path`, `cell-edit-max-model-len`, `cell-edit-mmproj`, `cell-edit-modal`, `cell-edit-model`, `cell-edit-model-picker`, `cell-edit-moonshine-model`, `cell-edit-moonshine-model-picker`, `cell-edit-runner`, `cell-edit-runner-tab`, `cell-edit-vllm-model`, `cell-edit-vllm-model-picker`, `cell-edit-whisper-model`, `cell-edit-whisper-model-picker`, `cell-edit-workdir`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command`, `cell-remote-command-preview`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model`, `cell-remote-model-picker`, `cell-remote-moonshine-model`, `cell-remote-moonshine-model-picker`, `cell-remote-runner`, `cell-remote-runner-tab`, `cell-remote-vllm-model`, `cell-remote-vllm-model-picker`, `cell-remote-whisper-model`, `cell-remote-whisper-model-picker`, `cell-remote-workdir`, `cell-start`, `cell-stop`
 **confirm** — `confirm-accept`, `confirm-cancel`, `confirm-input`, `confirm-meta`, `confirm-overlay`, `confirm-path`, `confirm-text`, `confirm-title`
 **header** — `header`, `header-app-title`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
 **kanban** — `kanban-back-link`, `kanban-cables`, `kanban-canvas`, `kanban-node`, `kanban-palette-add`, `kanban-save-status`
@@ -127,6 +127,32 @@ Repeated elements carry `data-t-id`: `cell-card` and the cell lifecycle buttons
 use `host:port` (the `slotKey` the board already computes), `kanban-node` uses
 the node id (`rule:…`, `inputs:block`), `kanban-palette-add` mirrors its
 `data-cv-add`.
+
+## Hooks that carry a value but are never visible
+
+Some controls are a hidden native `<input>`/`<select>` under a custom widget, or
+a container the current runner does not use. Their hook still reports the value
+— `inputValue()` works on a hidden select — but **a visibility assertion on them
+can never pass**, and that is not a defect to chase.
+
+| hook | what it is | how to use it |
+|---|---|---|
+| `cell-*-model` | native `<select>` under the model picker | read the value |
+| `cell-*-model-picker` | the visible widget above it | click this |
+| `cell-*-runner` | hidden input holding the chosen runner | read the value |
+| `cell-*-runner-tab` (+`data-t-id`) | the visible tabs | click these |
+| `cell-*-whisper-model`, `cell-*-moonshine-model` | hidden carriers — the size / language is chosen in the SHARED model picker | read the value |
+
+**`cell-*-fields` is not a collapsed section.** It holds the llama.cpp flags and
+is hidden whenever the runner is not `llama-server`:
+
+```js
+llamaFields.style.display = nonLlama ? "none" : "";
+```
+
+So on a whisper or vLLM cell every llama field reports hidden — correctly. There
+is no expander to click; switching the runner is what changes the field set, and
+`cell-*-runner-tab` is how a test drives that.
 
 ## Not in scope
 

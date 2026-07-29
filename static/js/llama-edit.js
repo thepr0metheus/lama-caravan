@@ -265,7 +265,13 @@ export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
       applyCellKindUI("te-");
     }
   }
-  $("topologyLlamaEditOverlay").hidden = false;
+  const _ov = $("topologyLlamaEditOverlay");
+  _ov.hidden = false;
+  // Move focus INTO the dialog. A modal that leaves focus behind it is one a
+  // keyboard user cannot reach or dismiss — and it is why Escape was landing
+  // wherever the previous click happened to be.
+  if (!_ov.hasAttribute("tabindex")) _ov.tabIndex = -1;
+  _ov.focus({ preventScroll: true });
 }
 
 export function closeTopologyLlamaEdit() {
@@ -740,7 +746,11 @@ export function renderRunnerTabs(pfx) {
     const tipParts = [r.benefitsKey ? t(r.benefitsKey) : "", MINUS_KEY[r.id] ? t(MINUS_KEY[r.id]) : ""];
     if (!avail.ok) tipParts.unshift(t(avail.reasonKey));
     const tip = tipParts.filter(Boolean).join("\n\n");
+    // Which editor this is decides the hook name, so one locator per modal —
+    // the two editors are parallel and a test drives them separately.
+    const tHook = pfx === "tr-" ? "cell-remote-runner-tab" : "cell-edit-runner-tab";
     return `<button type="button" class="cell-kind-btn${r.id === current ? " is-active" : ""}"` +
+      ` data-t="${tHook}" data-t-id="${escapeHtml(r.id)}"` +
       ` data-runner="${escapeHtml(r.id)}"${avail.ok ? "" : " disabled"} title="${escapeHtml(tip)}"` +
       ` style="flex:1;padding:6px 10px;cursor:pointer">${escapeHtml(label)}` +
       `<span class="runner-tab-help" title="${escapeHtml(tip)}">?</span></button>`;

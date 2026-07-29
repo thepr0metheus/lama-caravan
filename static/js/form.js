@@ -160,6 +160,12 @@ export function makeModelCombobox(selectEl) {
 
   const trigger = document.createElement("div");
   trigger.className = "mc-trigger";
+  // The native <select> stays in the DOM as the value carrier but is hidden
+  // under this widget, so a hook on it can report a value and can never be
+  // clicked or seen. The visible thing gets its own name: "<select's hook>-picker".
+  // A hook that points at plumbing is a trap — the natural test to write
+  // against it is one that cannot pass.
+  if (selectEl.dataset.t) trigger.dataset.t = `${selectEl.dataset.t}-picker`;
   trigger.tabIndex = 0;
   trigger.setAttribute("aria-haspopup", "listbox");
   trigger.setAttribute("aria-expanded", "false");
