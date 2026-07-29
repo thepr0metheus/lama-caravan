@@ -10,16 +10,38 @@ import { $, api, escapeHtml } from "./utils.js";
 // (proxy squares + proxy detail popover removed — the proxy now lives on the client
 // route row and is managed via the Proxy Ports registry modal.)
 
-// Cache: accountId → { data, fetchedAt, loading }
-// No TTL — data is fetched once on first render, then only on manual refresh via button.
+// Cache: accountId → { data, fetchedAt, loading, error }
+// Good data has no TTL — it is fetched once on first render, then only on manual
+// refresh via the button. A FAILURE is different: it must expire, or the panel it
+// feeds is gone for the life of the tab.
 export const subscriptionUsageCache = new Map();
+// How long a failed fetch is remembered before another attempt is allowed. These
+// fetchers run from the RENDER path, so retrying with no cooldown would turn a
+// down endpoint into a request per repaint.
+const FETCH_RETRY_MS = 60000;
+
+/** Should we (re)fetch for this account? Skip while one is in flight and while we
+ *  hold good data; retry a failure once the cooldown has passed.
+ *
+ *  The bug this replaces: `if (cached) return` treated a stored FAILURE as a
+ *  completed fetch. One transient error — a controller restart, a dropped
+ *  connection — poisoned the cache permanently, and since the renderer draws
+ *  nothing when data is missing, a whole panel vanished from the card with no
+ *  message and no way back short of reloading the page. */
+function _shouldFetch(cache, accountId) {
+  const c = cache.get(accountId);
+  if (!c) return true;
+  if (c.loading) return false;
+  if (c.data) return false;                       // have it; manual refresh busts
+  return Date.now() - (c.fetchedAt || 0) >= FETCH_RETRY_MS;
+}
 // API providers: official spend via /v1/organization/costs (needs api.usage.read scope).
 export const apiCostsCache = new Map();
 // OpenRouter: key info + daily token limit + request rate limit.
 export const openrouterLimitsCache = new Map();
 export async function fetchApiCosts(accountId) {
-  if (apiCostsCache.get(accountId)) return;   // fetched/in-flight — manual refresh busts it
-  apiCostsCache.set(accountId, { loading: true });
+  if (!_shouldFetch(apiCostsCache, accountId)) return;
+  apiCostsCache.set(accountId, { ...(apiCostsCache.get(accountId) || {}), loading: true });
   try {
     const res = await api(`/api/cloud-accounts/api-costs?id=${encodeURIComponent(accountId)}`);
     apiCostsCache.set(accountId, { data: res, fetchedAt: Date.now(), loading: false });
@@ -29,9 +51,10 @@ export async function fetchApiCosts(accountId) {
   renderTopologyCloudProviders();
 }
 export async function fetchOpenRouterLimits(accountId) {
-  const cached = openrouterLimitsCache.get(accountId);
-  if (cached && !cached.error) return;  // fetched/in-flight — manual refresh busts it
-  openrouterLimitsCache.set(accountId, { ...(cached || {}), loading: true });
+  // Already retried on error — but with no cooldown, so a persistently dead
+  // endpoint got a request per repaint. Same guard as its siblings now.
+  if (!_shouldFetch(openrouterLimitsCache, accountId)) return;
+  openrouterLimitsCache.set(accountId, { ...(openrouterLimitsCache.get(accountId) || {}), loading: true });
   try {
     const res = await api(`/api/cloud-accounts/openrouter-limits?id=${encodeURIComponent(accountId)}`);
     openrouterLimitsCache.set(accountId, { data: res, fetchedAt: Date.now(), loading: false });
@@ -354,9 +377,8 @@ export function openRouterLimitsHtml(accountId) {
 }
 
 export async function fetchSubscriptionUsage(accountId) {
+  if (!_shouldFetch(subscriptionUsageCache, accountId)) return;
   const cached = subscriptionUsageCache.get(accountId);
-  if (cached) return;  // already fetched (or in flight) — only manual refresh busts this
-  if (cached?.loading) return;
   subscriptionUsageCache.set(accountId, { data: cached?.data || null, fetchedAt: cached?.fetchedAt || 0, loading: true });
   try {
     const res = await api(`/api/cloud-accounts/subscription-usage?id=${encodeURIComponent(accountId)}`);
@@ -370,7 +392,15 @@ export async function fetchSubscriptionUsage(accountId) {
 export function subscriptionUsageHtml(accountId) {
   const cached = subscriptionUsageCache.get(accountId);
   // Keep showing old data while a background refresh is in progress — avoids card collapsing
-  if (!cached || !cached.data?.ok) return "";
+  if (!cached) return "";
+  // A failed read is not "no subscription". Silently rendering nothing is how a
+  // whole limit bar disappeared off the card and stayed gone with no clue why —
+  // say the read failed and that a retry is coming.
+  if (!cached.data?.ok) {
+    if (!cached.error) return "";
+    return `<div class="sub-usage-panel sub-usage-failed" title="${escapeHtml(cached.error)}">`
+      + `<div class="sub-usage-row"><span class="muted">⚠ ${escapeHtml(t("subUsageUnavailable"))}</span></div></div>`;
+  }
   const { limits = [], credits } = cached.data;
   if (!limits.length && credits == null) return "";
   const rows = limits.map((lim) => {

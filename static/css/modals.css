@@ -1030,6 +1030,10 @@
   gap: 6px;
 }
 
+/* The read failed — visible but muted. It is a gap in what we know, not an
+   incident, so it must not compete with the error card below it. */
+.sub-usage-panel.sub-usage-failed { opacity: .75; }
+
 .sub-usage-head {
   display: flex;
   justify-content: flex-end;
