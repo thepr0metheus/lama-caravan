@@ -187,7 +187,11 @@ export function renderTopology() {
           </div>`).join("")}
       </div>` : "";
     return `
-      <article class="topology-card client-card${isStale ? " client-stale" : ""}" data-client-id="${escapeHtml(client.id || "")}" style="${escapeHtml(topologyAccentStyle(client.id || displayName))}">
+      <!-- data-t-id is the HOST ID, which is what cell-card ids are built from
+           (foreman:8004), while the heading shows the display NAME (atlas).
+           Without the id here the two cannot be joined from outside, and the
+           lane looks unrelated to the cards — see docs/testability.md. -->
+      <article class="topology-card client-card${isStale ? " client-stale" : ""}" data-t="board-client-card" data-t-id="${escapeHtml(client.id || "")}" data-client-id="${escapeHtml(client.id || "")}" style="${escapeHtml(topologyAccentStyle(client.id || displayName))}">
         <div class="topology-card-head client-head">
           <div class="client-title-line">
             <strong>${escapeHtml(displayName)}</strong>

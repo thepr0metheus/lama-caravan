@@ -39,6 +39,9 @@ COMPOSED = {
     # static/js/llama-edit.js — one per runner, carrying data-t-id
     "cell-edit-runner-tab": "llama-edit.js: tHook by prefix",
     "cell-remote-runner-tab": "llama-edit.js: tHook by prefix",
+    # static/js/memory.js — the CPU/GPU/auto tiles, data-t-id cpu|gpu|auto
+    "cell-edit-compute": "memory.js: tHook by prefix",
+    "cell-remote-compute": "memory.js: tHook by prefix",
     # static/js/topology-nodes.js — passed to mbadge() as its testId argument
     "cell-source-stale": "topology-nodes.js: mbadge(..., 'cell-source-stale')",
 }

@@ -1580,7 +1580,7 @@ export function drawCanvasConnectors() {
     if (qRole[e.id]) cls += ` cv-cable-${qRole[e.id]}`;
     if (_cvDrag && _cvDrag.kind === "rewire" && from === _cvDrag.id && to === _cvDrag.oldTo) cls += " removing";
     else if (_cvDrag && _cvDrag.kind === "connect" && _cvDrag.replaceFrom && from === _cvDrag.replaceFrom) cls += " removing";
-    cables.push({ a, b, cls, to, edgeKey: `${escapeHtml(from)}|${escapeHtml(to)}` });
+    cables.push({ a, b, cls, from, to, edgeKey: `${escapeHtml(from)}|${escapeHtml(to)}` });
   });
   // Smooth cables — the same cubic the main board draws, at the kanban's
   // full stroke width. Curves fan out on their own, so the orthogonal
@@ -1593,7 +1593,14 @@ export function drawCanvasConnectors() {
     // cubic midpoint (t = 0.5) — where the ✕ delete puck sits
     const mx = (c.a.x + 3 * (c.a.x + dx) + 3 * (c.b.x - dx) + c.b.x) / 8;
     const my = (c.a.y + 3 * c.a.y + 3 * c.b.y + c.b.y) / 8;
-    paths.push(`<g class="cv-edge-grp">`
+    // ONE hooked element per connection. Counting `path` inside the cable layer
+    // does not count connections: each edge draws an invisible fat hit-path, the
+    // visible cable, and the ✕ puck's two strokes, so five nodes rendered
+    // fifty-four paths and the number meant nothing. This <g> is the connection.
+    // data-t-id is `from->to` using the same node ids kanban-node carries, so a
+    // test can assert the graph's actual wiring rather than that something was
+    // drawn.
+    paths.push(`<g class="cv-edge-grp" data-t="kanban-cable" data-t-id="${escapeHtml(c.from)}-&gt;${escapeHtml(c.to)}">`
       + `<title>${escapeHtml(t("cvTitleEdge"))}</title>`
       + `<path class="cv-edge-hit" data-cv-edge="${c.edgeKey}" d="${d}" fill="none"></path>`
       + `<path data-cv-edge="${c.edgeKey}" d="${d}" class="${c.cls}" fill="none"></path>`

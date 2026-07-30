@@ -275,11 +275,16 @@ export function refreshComputeTarget(pfx) {
   // start") + the secondary note, all inline; the check floats to the far right.
   // The full label goes on the button's title= so hovering reveals whatever the
   // one-line tile had to ellipsise (long specs, long translations).
+  // Same repeated-element shape as the runner tabs: one hook, told apart by
+  // data-t-id, and the `disabled` attribute left on the tiles this runner
+  // cannot use — which is the state worth asserting, since it changes with
+  // the runner.
+  const tHook = pfx === "tr-" ? "cell-remote-compute" : "cell-edit-compute";
   const card = (active, disabled, attrs, icon, title, main, sub) =>
     `<button type="button" class="compute-card${active ? " active" : ""}${disabled ? " disabled" : ""}" ${disabled ? "disabled" : ""} title="${escapeHtml([title, main, sub].filter(Boolean).join(" · "))}" ${attrs}>
       <span class="compute-card-head"><span class="compute-card-icon" aria-hidden="true">${icon}</span><span class="compute-card-name">${escapeHtml(title)}</span>${main ? `<span class="compute-card-main">${escapeHtml(main)}</span>` : ""}${sub ? `<span class="compute-card-sub">${escapeHtml(sub)}</span>` : ""}${active ? '<span class="compute-card-check" aria-hidden="true">✓</span>' : ""}</span>
     </button>`;
-  const cpuCard = card(mode === "cpu" && caps.cpu, !caps.cpu, `data-compute="cpu"`,
+  const cpuCard = card(mode === "cpu" && caps.cpu, !caps.cpu, `data-compute="cpu" data-t="${tHook}" data-t-id="cpu"`,
     "🧠", "CPU", `${cores} ${t("computeCores")}${ramGb ? ` · ${ramGb.toFixed(0)} GB` : ""}`,
     caps.cpu ? t("computeCpuSub") : na);
   // GPU: ONE summary tile. A multi-GPU host picks its cards in the sub-picker
@@ -293,17 +298,17 @@ export function refreshComputeTarget(pfx) {
     const vramSel = gpus.filter((g) => shownSel.includes(Number(g.index)))
       .reduce((s, g) => s + Number(g.memoryTotalMiB || 0) / 1024, 0);
     const allOn = shownSel.length === gpus.length;
-    gpuCards = card(mode === "gpu" && caps.gpu, !caps.gpu, `data-compute="gpu"`,
+    gpuCards = card(mode === "gpu" && caps.gpu, !caps.gpu, `data-compute="gpu" data-t="${tHook}" data-t-id="gpu"`,
       "🎮", "GPU", `${shownSel.length}/${gpus.length} · ${vramSel.toFixed(1)} GB`,
       allOn ? t("computeGpuAll") : shownSel.map((i) => `GPU${i}`).join(" + "));
   } else {
     const g0 = gpus[0];
     const vram = Number(g0?.memoryTotalMiB || 0) / 1024;
-    gpuCards = card(mode === "gpu" && caps.gpu, !caps.gpu, `data-compute="gpu"`,
+    gpuCards = card(mode === "gpu" && caps.gpu, !caps.gpu, `data-compute="gpu" data-t="${tHook}" data-t-id="gpu"`,
       "🎮", "GPU", g0 ? shortGpuName(g0.name) : "GPU",
       caps.gpu ? (vram ? `${formatSizeGb(vram)} VRAM` : t("computeGpuSub")) : na);
   }
-  const autoCard = card(mode === "auto" && caps.auto, !caps.auto, `data-compute="auto"`,
+  const autoCard = card(mode === "auto" && caps.auto, !caps.auto, `data-compute="auto" data-t="${tHook}" data-t-id="auto"`,
     "🎲", t("computeAuto"), t("computeAutoMain"), caps.auto ? t("computeAutoSub") : na);
   // Sub-picker for which cards: chips up to 4, a custom checklist dropdown for 5+.
   // Only while GPU is the active mode. Each toggle edits the CUDA device set.

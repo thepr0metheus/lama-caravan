@@ -77,14 +77,24 @@ async function refresh() {
     const usedBy = (f.referencedBy || []).join(", ");
     const used = f.referenced
       ? `<span class="mdl-used" title="${escapeHtml(usedBy)}">✓ ${escapeHtml(usedBy || "used")}</span>`
-      : `<input type="checkbox" data-del-path="${escapeHtml(f.path)}" data-size="${f.sizeBytes}">`;
+      // data-t-id is the model's PATH, not its display name: the name is just
+      // the last segment and two quantisations of the same model share it, so a
+      // test selecting by name would pick whichever came first. The path is
+      // what the delete call sends.
+      : `<input type="checkbox" data-t="models-model-select" data-t-id="${escapeHtml(f.path)}"`
+        + ` data-del-path="${escapeHtml(f.path)}" data-size="${f.sizeBytes}">`;
     return `<div class="mdl-file">${used}<code title="${escapeHtml(f.path)}">${escapeHtml(name)}</code>` +
       `<span class="meta">${fmtGb(f.sizeBytes)} · ${f.ageDays}d</span></div>`;
   };
   const freshness = (age) => (age === Infinity ? "" : ` · ${age}d`);
+  // Three nesting levels — model, author, quantisation — all rendered by this
+  // one helper, so they share a hook and are told apart by data-t-id. The
+  // <summary> carries its own hook because that is the element you click to
+  // expand: `details > summary`, direct child, since a nested details' summary
+  // would otherwise match too.
   const lvl = (label, node, inner) => `
-    <details>
-      <summary><span class="tw"></span><span class="mdl-name">${escapeHtml(label)}</span>
+    <details data-t="models-tree-group" data-t-id="${escapeHtml(label)}">
+      <summary data-t="models-tree-group-toggle" data-t-id="${escapeHtml(label)}"><span class="tw"></span><span class="mdl-name">${escapeHtml(label)}</span>
         <span class="mdl-size">${fmtGb(node.bytes)}${freshness(node.minAge)}</span></summary>
       <div class="mdl-lvl">${inner}</div>
     </details>`;

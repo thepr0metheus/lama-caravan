@@ -1038,6 +1038,7 @@ export function nodesLaneHtml() {
       ${serverLifecycleBar(-1, "none")}
       <div class="ghost-server-body">
         <button class="ghost-start-btn" type="button"
+          data-t="board-cell-add" data-t-id="${escapeHtml(n.id)}"
           data-node-reserve="${escapeHtml(n.id)}"
           data-node-reserve-port="${escapeHtml(String(reservePort))}"
           data-node-role="${escapeHtml(n.role)}"

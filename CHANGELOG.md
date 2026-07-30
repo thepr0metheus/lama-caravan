@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- Hooks inside the model catalogue, the graph, and the compute-target row.
+  `models-tree-group` / `models-tree-group-toggle` on each `<details>` level and
+  `models-model-select` on each checkbox (`data-t-id` is the model's PATH — two
+  quantisations share a display name, and the path is what the delete call
+  sends). `kanban-cable` on the `<g>` that is one connection, `data-t-id` as
+  `from->to`: counting `path` inside the cable layer counted 54 elements for 5
+  nodes, because every edge draws a hit-path, a visible cable and a two-stroke
+  ✕. `cell-edit-compute` / `cell-remote-compute` on the CPU/GPU/auto tiles with
+  `data-t-id` and the real `disabled` attribute, the same shape the runner tabs
+  got. `board-cell-add` on each host's ＋ button, and `board-client-card`
+  carrying the host id.
+
+  That last one answers a question rather than a request: cards are addressed by
+  host id (`foreman:8004`) while the lane shows the display name (`atlas`), so
+  the clients lane read as unrelated to the cards it owns. Both are now on the
+  same element. Documented alongside the third cell state — `reserved`, a held
+  port with nothing configured, which offers neither start nor stop and is where
+  every cell begins.
+
 - The board reuses its connections. The admin server answered HTTP/1.0, so every
   static module and every API call opened its own TCP connection — 46 modules
   plus the API on a cold load, which is how a second browser overflowed a

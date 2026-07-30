@@ -110,20 +110,20 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 135 values. Regenerate with
+Generated from the source, not from memory — 143 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
-source disagree. Eleven of them are composed at runtime (`…-picker`,
+source disagree. Thirteen of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
 that is why there is a script and not a one-liner.
 
 **app** — `app-toast`
-**board** — `board-clients-lane`, `board-cloud-lane`, `board-gpus-lane`, `board-incidents-list`, `board-llama-suspect-banner`, `board-models-bar`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-system-open`
-**cell** — `cell-card`, `cell-configure`, `cell-delete`, `cell-edit-apply`, `cell-edit-cancel`, `cell-edit-command`, `cell-edit-command-preview`, `cell-edit-env`, `cell-edit-fields`, `cell-edit-health-path`, `cell-edit-max-model-len`, `cell-edit-mmproj`, `cell-edit-modal`, `cell-edit-model`, `cell-edit-model-picker`, `cell-edit-moonshine-model`, `cell-edit-moonshine-model-picker`, `cell-edit-runner`, `cell-edit-runner-tab`, `cell-edit-vllm-model`, `cell-edit-vllm-model-picker`, `cell-edit-whisper-model`, `cell-edit-whisper-model-picker`, `cell-edit-workdir`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command`, `cell-remote-command-preview`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model`, `cell-remote-model-picker`, `cell-remote-moonshine-model`, `cell-remote-moonshine-model-picker`, `cell-remote-runner`, `cell-remote-runner-tab`, `cell-remote-vllm-model`, `cell-remote-vllm-model-picker`, `cell-remote-whisper-model`, `cell-remote-whisper-model-picker`, `cell-remote-workdir`, `cell-source-stale`, `cell-start`, `cell-stop`
+**board** — `board-cell-add`, `board-client-card`, `board-clients-lane`, `board-cloud-lane`, `board-gpus-lane`, `board-incidents-list`, `board-llama-suspect-banner`, `board-models-bar`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-system-open`
+**cell** — `cell-card`, `cell-configure`, `cell-delete`, `cell-edit-apply`, `cell-edit-cancel`, `cell-edit-command`, `cell-edit-command-preview`, `cell-edit-compute`, `cell-edit-env`, `cell-edit-fields`, `cell-edit-health-path`, `cell-edit-max-model-len`, `cell-edit-mmproj`, `cell-edit-modal`, `cell-edit-model`, `cell-edit-model-picker`, `cell-edit-moonshine-model`, `cell-edit-moonshine-model-picker`, `cell-edit-runner`, `cell-edit-runner-tab`, `cell-edit-vllm-model`, `cell-edit-vllm-model-picker`, `cell-edit-whisper-model`, `cell-edit-whisper-model-picker`, `cell-edit-workdir`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command`, `cell-remote-command-preview`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model`, `cell-remote-model-picker`, `cell-remote-moonshine-model`, `cell-remote-moonshine-model-picker`, `cell-remote-runner`, `cell-remote-runner-tab`, `cell-remote-vllm-model`, `cell-remote-vllm-model-picker`, `cell-remote-whisper-model`, `cell-remote-whisper-model-picker`, `cell-remote-workdir`, `cell-source-stale`, `cell-start`, `cell-stop`
 **confirm** — `confirm-accept`, `confirm-cancel`, `confirm-input`, `confirm-meta`, `confirm-overlay`, `confirm-path`, `confirm-text`, `confirm-title`
 **header** — `header`, `header-app-title`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
-**kanban** — `kanban-back-link`, `kanban-cables`, `kanban-canvas`, `kanban-node`, `kanban-palette-add`, `kanban-save-status`
+**kanban** — `kanban-back-link`, `kanban-cable`, `kanban-cables`, `kanban-canvas`, `kanban-node`, `kanban-palette-add`, `kanban-save-status`
 **login** — `login-error`, `login-form`, `login-lang`, `login-password`, `login-submit`, `login-username`
-**models** — `models-delete-selected`, `models-hero-stats`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-tree`, `models-unused-select-all`
+**models** — `models-delete-selected`, `models-hero-stats`, `models-model-select`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-unused-select-all`
 **setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
 **system** — `system-controller-info`, `system-diag-checks`, `system-diag-service-repair`, `system-gc-close`, `system-gc-delete`, `system-gc-list`, `system-gc-modal`, `system-gc-open`, `system-gc-select-all`, `system-gc-selected`, `system-gc-summary`, `system-hero-stats`, `system-llama-build-update`, `system-llama-builds`, `system-llama-summary`, `system-llama-update-log`, `system-llama-versions-check`, `system-security-info`, `system-security-logout`, `system-tab-controller`, `system-tab-diag`, `system-tab-llama`, `system-tab-security`, `system-vllm-list`
 
@@ -157,6 +157,67 @@ llamaFields.style.display = nonLlama ? "none" : "";
 So on a whisper or vLLM cell every llama field reports hidden — correctly. There
 is no expander to click; switching the runner is what changes the field set, and
 `cell-*-runner-tab` is how a test drives that.
+
+## `kanban-cable` endpoints are ports, not always nodes
+
+One `kanban-cable` per connection, `data-t-id` = `from->to`. On the live graph
+that is 18 connections where counting `path` inside `kanban-cables` returns 54 —
+each edge draws an invisible hit-path, the visible cable and the ✕ puck's two
+strokes, so the raw count was never a number about the graph.
+
+The two ends are not all `kanban-node` ids, and a test that assumes they are will
+find nothing:
+
+```
+rule:nmrrahh3wbv1->rule:nmq6jdg3n31d      both ends are node ids
+in:ctrl-host:proxy:8101->rule:nmrrahh3wbv1  left end is a PORT inside inputs:block
+rule:nmq6jdg3n31d->out:cb:gpt-5-6-luna    the right end is a PORT inside outputs:block
+```
+
+Rules are nodes and appear as themselves. The inputs and outputs blocks are each
+one node (`inputs:block`, `outputs:block`) holding many ports, and an edge
+attaches to a **port** — which is the useful thing, since "some input reaches
+this rule" is weaker than "port 8101 reaches it". To assert a path end to end,
+match the prefix (`in:` / `out:`) rather than expecting a node id.
+
+Note the host segment in those port ids: it carries the controller's display
+name, not its host id. See below.
+
+## A cell has three lifecycle states, not two
+
+A card offers `cell-start` **or** `cell-stop` — never both, and sometimes
+neither. The third state is `reserved`: the port is held, nothing is configured
+to run on it, so there is nothing to start. Such a card offers only
+`cell-configure` and `cell-delete`.
+
+```
+running   → cell-stop
+stopped   → cell-start
+reserved  → neither; configure it first
+```
+
+Reserved is where a cell begins. `board-cell-add` (the ＋ button on a host, one
+per host, `data-t-id` = host id) reserves the next free port; `cell-configure` on
+that card opens the editor in add mode. So "a card offers exactly one of
+start/stop" is the wrong assertion — it is right for the two states a configured
+cell can be in, and reserved is neither of them.
+
+## Host id and display name are different strings
+
+Cards are addressed by **host id**: `controller:8005`, `<client-id>:8004`. The
+board shows the **display name**, which is set per host and is usually not the
+id — the controller and each client both render under a name of their own. Same
+machine, two strings, and the models path shown on `/models` uses the display
+name too.
+
+They are joinable now: `board-client-card` carries `data-t-id` with the host id
+and the heading with the name. Without that the clients lane looks unrelated to
+the cards it owns — a lane showing a display name beside cards prefixed with an
+id reads as a lane with nothing in it.
+
+The controller is a node like any other but is not a *client*: it runs no
+caravan-scout, so it never appears in `board-clients-lane`. A fleet of one
+controller and two clients renders three nodes and two client cards.
 
 ## Not in scope
 
