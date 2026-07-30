@@ -82,7 +82,7 @@ from caravan.admin.model_gc import delete_models, list_unused_models
 from caravan.admin import auth as auth_mod
 from caravan.admin.status import controller_info, do_action, project_git_info, llama_builds_list, llama_cpp_info, llama_suspect_dismiss, llama_update_status, models_disk, start_llama_restore, start_llama_update, start_vllm_update, state, vllm_info
 from caravan.admin.cell_assets import cell_asset_bytes, cell_assets_manifest
-from caravan.admin.host_power import host_reboot
+from caravan.admin.host_power import host_power
 from caravan.admin.cell_ops import (
     client_server_slot_add,
     client_server_slot_delete,
@@ -1290,7 +1290,18 @@ def _post_api_host_reboot(h, parsed, body):
         # every cell on that machine, so "who asked" matters after the fact.
         _hid = str((body or {}).get("hostId") or "")
         print(f"[host] reboot requested for {_hid or '?'}")
-        h.send_json(host_reboot(body or {}))
+        h.send_json(host_power(body or {}, "reboot"))
+        return
+
+@_route(POST_ROUTES, '/api/host/poweroff')
+def _post_api_host_poweroff(h, parsed, body):
+        # Its own route rather than a flag on the one above. Poweroff cannot be
+        # undone from this board — nothing here can switch a machine on — so it
+        # must not be reachable by getting a field wrong, and a scout that does
+        # not know it answers 404 instead of guessing which was meant.
+        _hid = str((body or {}).get("hostId") or "")
+        print(f"[host] POWEROFF requested for {_hid or '?'} — not reversible from here")
+        h.send_json(host_power(body or {}, "poweroff"))
         return
 
 @_route(POST_ROUTES, '/api/topology/client-llama/stop')

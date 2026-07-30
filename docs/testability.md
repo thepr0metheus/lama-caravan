@@ -110,7 +110,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 157 values. Regenerate with
+Generated from the source, not from memory — 159 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Fourteen of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -125,6 +125,7 @@ that is why there is a script and not a one-liner.
 **kanban** — `kanban-back-link`, `kanban-cable`, `kanban-cables`, `kanban-canvas`, `kanban-node`, `kanban-palette-add`, `kanban-save-status`
 **login** — `login-error`, `login-form`, `login-lang`, `login-password`, `login-submit`, `login-username`
 **models** — `models-delete-selected`, `models-hero-stats`, `models-model-select`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-unused-select-all`
+**node** — `node-poweroff`, `node-reboot`
 **setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
 **system** — `system-controller-info`, `system-diag-checks`, `system-diag-service-repair`, `system-gc-close`, `system-gc-delete`, `system-gc-list`, `system-gc-modal`, `system-gc-open`, `system-gc-select-all`, `system-gc-selected`, `system-gc-summary`, `system-hero-stats`, `system-llama-build-update`, `system-llama-builds`, `system-llama-summary`, `system-llama-update-log`, `system-llama-versions-check`, `system-security-info`, `system-security-logout`, `system-tab-controller`, `system-tab-diag`, `system-tab-llama`, `system-tab-security`, `system-vllm-list`
 
@@ -158,6 +159,21 @@ llamaFields.style.display = nonLlama ? "none" : "";
 So on a whisper or vLLM cell every llama field reports hidden — correctly. There
 is no expander to click; switching the runner is what changes the field set, and
 `cell-*-runner-tab` is how a test drives that.
+
+## `node-poweroff` is the one control that cannot be undone
+
+`node-reboot` and `node-poweroff` sit next to each other in every node header,
+both carrying `data-t-id` with the host id. They are not equivalent and should
+not be treated as a pair in a test.
+
+Reboot asks a yes/no dialog. **Power off asks the operator to TYPE the host's
+name**, because nothing on this board can switch a machine back on — a wrong
+click there ends with someone walking to the rack. An inexact answer cancels; it
+does not error.
+
+Assert both are present. Press neither. `node-poweroff` belongs with
+`cell-*-apply`, `system-gc-delete` and `hf-token-clear` — named so a test can see
+them, not so it can use them.
 
 ## `/hf` stands apart
 

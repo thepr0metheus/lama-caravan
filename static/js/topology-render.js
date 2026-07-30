@@ -17,7 +17,7 @@ import {
   renderStaticConfigFields,
   syncAllToggleLabels,
 } from "./form.js";
-import { appConfirm } from "./dialogs.js";
+import { appConfirm, appPrompt } from "./dialogs.js";
 import { applyLanguage, applyTheme, t } from "./i18n.js";
 import { fetchProxyDailyStats } from "./model-meta.js";
 import {
@@ -386,6 +386,45 @@ export function renderTopology() {
         // The controller rebooting itself kills this very request — a transport
         // error here is the expected shape of success, not a failure to report.
         toast(isCtrl ? t("hostRebootIssued").replace("{host}", hostId) : err.message);
+      }
+    });
+  });
+
+  // Power off. Everything about this is one step heavier than reboot, because
+  // the board cannot undo it: no button here switches a machine back on, so a
+  // wrong click ends with someone walking to the rack.
+  //
+  // The gate is TYPING the host's name, not clicking through a warning. A
+  // confirm dialog is one keystroke from a reflex; spelling out "atlas" cannot
+  // be done by muscle memory, and it forces the operator to read which host
+  // they are on — the two node headers look alike, which is the mistake worth
+  // preventing.
+  $("topologyLlamaServers")?.querySelectorAll("[data-poweroff-host]").forEach((btn) => {
+    btn.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      const hostId = btn.getAttribute("data-poweroff-host") || "";
+      const isCtrl = /^(controller|skynet)$/i.test(hostId);
+      const typed = await appPrompt(
+        t(isCtrl ? "hostPowerOffConfirmController" : "hostPowerOffConfirmClient")
+          .replace("{host}", hostId),
+        { text: t("hostPowerOffWarning").replace("{host}", hostId),
+          placeholder: hostId, confirmLabel: t("hostPowerOffOk"), scene: "stop" });
+      // Cancel resolves null; an inexact answer is treated as cancel rather
+      // than as an error, because the operator has already decided by then.
+      if ((typed || "").trim() !== hostId) {
+        if (typed != null) toast(t("hostPowerOffNameMismatch").replace("{host}", hostId));
+        return;
+      }
+      try {
+        const res = await api("/api/host/poweroff", {
+          method: "POST", body: JSON.stringify({ hostId }),
+        });
+        toast(res?.ok ? t("hostPowerOffIssued").replace("{host}", hostId)
+                      : (res?.result?.error || t("hostPowerOffFailed")));
+      } catch (err) {
+        // Powering off the controller kills this very request — a transport
+        // error is the expected shape of success here, exactly as for reboot.
+        toast(isCtrl ? t("hostPowerOffIssued").replace("{host}", hostId) : err.message);
       }
     });
   });

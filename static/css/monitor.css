@@ -1362,3 +1362,10 @@
 .node-reboot { opacity: .55; }
 .node-reboot:hover { opacity: 1; color: var(--danger, #e05555);
   border-color: color-mix(in srgb, var(--danger, #e05555) 45%, transparent); }
+/* Power off sits beside reboot and must not be mistaken for it. Dimmer at rest,
+   so the eye lands on reboot first — reboot is the one you almost always want —
+   and a fuller red on hover, because this one nothing on the board can undo. */
+.node-poweroff { opacity: .38; }
+.node-poweroff:hover { opacity: 1; color: var(--danger, #e05555);
+  background: color-mix(in srgb, var(--danger, #e05555) 16%, transparent);
+  border-color: var(--danger, #e05555); }

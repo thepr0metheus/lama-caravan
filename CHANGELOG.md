@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- A host can be powered off from the board, next to the reboot that was already
+  there. This module said "reboot only, never shutdown" on purpose, and the
+  reason has not changed — **nothing here can switch a machine back on** — so
+  poweroff was added by treating it as the one-way door it is rather than by
+  relaxing the rule:
+
+  its own endpoint on both sides (`/api/host/poweroff`, and the same on the
+  scout) so it cannot be reached by getting a field wrong, and so a scout too old
+  to know it answers 404 instead of doing the other one; the action comes from
+  the ROUTE, never from the request body; the confirmation makes the operator
+  **type the host's name**, the gate model deletion uses, and says in the dialog
+  that the board cannot undo it; a name that does not match cancels silently
+  rather than erroring; and the button is dimmer at rest than reboot and sits
+  after it, because reboot is the one almost always wanted.
+
+  Powering off the controller kills the request that asked for it — a transport
+  error there is the expected shape of success, exactly as for reboot.
+
 - `/hf` has test hooks. It had none — `[data-t]` matched zero elements there,
   reported from outside, and the page still appeared in the readiness list, so a
   green suite looked like a covered page. Fourteen names now: the search field and
