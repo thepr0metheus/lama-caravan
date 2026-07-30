@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- The deploy prints a link to the test run it started. The dispatch answers with
+  an empty body — 201 and 204 both carry nothing and the API declares no response
+  at all — so the run is fetched separately, from a URL derived from the dispatch
+  one rather than configured again. Neither `limit` nor `event` is honoured by
+  that endpoint and the list comes back oldest-first, so it walks from the end and
+  matches on the commit just sent, which is the only thing that tells our run
+  apart from a concurrent one. Three tries over about two seconds, then it gives
+  up quietly: a convenience line must not hold up a deploy.
+
 - The sign-in page is compressed like everything else. It is built from a string
   rather than read from a file, so it went through neither `send_json` nor
   `send_file` and stayed the one uncompressed response — 22 KB, served before

@@ -62,18 +62,49 @@ PAYLOAD=$(printf '%s' "$OUT" | sed '$d')
 
 case "$CODE" in
   2*) echo "notify-ci: asked for a run of $VERSION ($COMMIT)"
-      # Print the run's URL when the CI returns one, so whoever deployed can
-      # follow it instead of going to look for it.
-      printf '%s' "$PAYLOAD" | python3 -c '
-import json, sys
-try:
-    d = json.load(sys.stdin)
-except Exception:
-    sys.exit()
-for k in ("url", "html_url"):
-    run = d.get("run") if isinstance(d.get("run"), dict) else d
-    if isinstance(run, dict) and run.get(k):
-        print("           " + str(run[k])); break' 2>/dev/null ;;
+      # The dispatch itself answers with an EMPTY body — 201 and 204 both carry
+      # nothing, and the API's schema declares no response at all, so there is
+      # no link to parse out of it. Ask for the run separately.
+      #
+      # Derived from the dispatch URL rather than configured again: the two
+      # differ only in the tail, and a second variable is a second thing to get
+      # out of step.
+      RUNS_URL=$(printf '%s' "$URL" | sed 's#/actions/workflows/[^/]*/dispatches$#/actions/runs#')
+      [ "$RUNS_URL" = "$URL" ] || RUN_COMMIT="$COMMIT" python3 - "$RUNS_URL" "$AUTH" <<'PY' 2>/dev/null
+import json, os, sys, time, urllib.request
+
+url, auth = sys.argv[1], sys.argv[2]
+name, _, value = auth.partition(":")
+want = os.environ.get("RUN_COMMIT", "")
+
+# The run does not exist the instant the dispatch returns, so give it a moment.
+# Three tries and out: this is a convenience line in a deploy log, and a deploy
+# must not sit waiting on one.
+for attempt in range(3):
+    time.sleep(1.0 if attempt else 0.4)
+    try:
+        req = urllib.request.Request(url, headers={name.strip(): value.strip()})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            runs = json.loads(resp.read().decode("utf-8")).get("workflow_runs") or []
+    except Exception:
+        break
+    # Oldest first, and neither `limit` nor `event` is honoured — so walk back
+    # from the end and match on the commit we just sent, which is the only thing
+    # that identifies OUR run among concurrent ones.
+    for run in reversed(runs):
+        if run.get("trigger_event") != "workflow_dispatch":
+            continue
+        try:
+            inputs = json.loads(run.get("event_payload") or "{}").get("inputs") or {}
+        except Exception:
+            inputs = {}
+        if want and inputs.get("commit") != want:
+            continue
+        if run.get("html_url"):
+            print("           " + str(run["html_url"]))
+        raise SystemExit
+PY
+      ;;
   404) echo "notify-ci: 404 — the workflow filename in the URL is wrong, or the token cannot write to that repo" >&2 ;;
   401|403) echo "notify-ci: $CODE — the token was rejected" >&2 ;;
   *)  echo "notify-ci: HTTP $CODE" >&2
