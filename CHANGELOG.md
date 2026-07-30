@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- The monitor poll asks for what it does not have. `/api/system-monitor` is
+  ~3.4 MB — ten minutes of samples at 1.8 MB plus the token-speed points at
+  ~1.4 MB — and the board polls it once a SECOND, per open tab, to learn one new
+  sample. `?since=<epoch>` returns only what is newer and the client appends;
+  four browsers were pulling ~13 MB/s of JSON the server built to tell them what
+  they already knew. That is what made page-load time climb with the number of
+  tabs, and what took the process to a 1.5 GB peak. The incident log gets the
+  same treatment, and there it saves more than bytes — the file was re-read from
+  disk and parsed on every poll to resend 133 KB that had not changed. Measured
+  on a live tab: the first request is 3962 KB and every one after it is 55 KB.
+  A request without `since` still gets everything, so an older client and a curl
+  by hand are unaffected.
+
 - Hooks inside the model catalogue, the graph, and the compute-target row.
   `models-tree-group` / `models-tree-group-toggle` on each `<details>` level and
   `models-model-select` on each checkbox (`data-t-id` is the model's PATH — two

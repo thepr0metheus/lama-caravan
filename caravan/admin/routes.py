@@ -408,7 +408,10 @@ def _get_api_monitor(h, parsed):
 
 @_route(GET_ROUTES, '/api/system-monitor')
 def _get_api_system_monitor(h, parsed):
-        h.send_json(system_monitor_state())
+        # ?since=<epoch> — send only samples newer than the caller already has.
+        # Omitted, the whole series comes back exactly as before.
+        since = (urllib.parse.parse_qs(parsed.query or "").get("since") or ["0"])[0]
+        h.send_json(system_monitor_state(since))
         return
 
 @_route(GET_ROUTES, '/api/topology')

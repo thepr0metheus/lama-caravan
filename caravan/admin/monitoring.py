@@ -936,22 +936,58 @@ def _slim_sample(sample):
         }
     return slim
 
-def system_monitor_state():
+def system_monitor_state(since=0):
+    """The monitor payload. `since` asks for only the samples newer than that
+    epoch — everything else is small and always sent whole.
+
+    WHY IT MATTERS. The board polls this once a SECOND, and the full body is
+    ~3.4 MB: ten minutes of samples at 1.8 MB plus token-speed points at ~1.4 MB.
+    The client already holds all of it but the newest sample, so the other 3.4 MB
+    was rebuilt, serialized and pushed every second, per open tab. With four
+    browsers that is 13 MB/s of JSON the server assembles to tell them what they
+    already knew — which is what made page load time climb with the number of
+    tabs, and what took the process to a 1.5 GB peak.
+
+    A caller that omits `since` gets the whole series, so an older client, a
+    first load and a curl by hand all keep working unchanged.
+    """
     trim_monitor_history()
     with monitor_lock:
         samples = list(monitor_history)
         latest_full = monitor_latest_full
+    gen_samples = controller_gen_tps_samples()
+    newest = samples[-1].get("time", 0) if samples else 0
+    partial = False
+    try:
+        since = int(since or 0)
+    except (TypeError, ValueError):
+        since = 0
+    if since > 0:
+        partial = True
+        samples_out = [s for s in samples if s.get("time", 0) > since]
+        gen_out = [s for s in gen_samples if s.get("time", 0) > since]
+    else:
+        samples_out, gen_out = samples, gen_samples
     return {
         "ok": True,
         "intervalSeconds": MONITOR_SAMPLE_INTERVAL,
         "retentionSeconds": monitor_retention_seconds(),
         "clientLabels": load_client_labels(),
-        "samples": samples,
+        "samples": samples_out,
         # Generation-only token-speed points (controller): the Token Speed chart
         # draws these, not the per-second gauge, so idle never paints a plateau.
-        "tokenGenSamples": controller_gen_tps_samples(),
+        "tokenGenSamples": gen_out,
+        # The client appends rather than replaces when this is set, and asks for
+        # `newestSample` next time. Absent = a whole series, as before.
+        **({"partial": True, "newestSample": newest} if partial else {"newestSample": newest}),
         "latest": latest_full or (samples[-1] if samples else None),
-        "incidents": load_incident_log(limit=200),
+        # Same treatment, and here it saves more than bytes: the log is READ FROM
+        # DISK and parsed on every call, so a per-second poll per tab meant
+        # re-reading the whole incident file to send back 133 KB that had not
+        # changed. Incidents are append-only with a timestamp, so `since` works
+        # the same way and the client appends.
+        "incidents": ([r for r in load_incident_log(limit=200) if r.get("time", 0) > since]
+                      if since > 0 else load_incident_log(limit=200)),
         "incidentRetentionSeconds": INCIDENT_RETENTION_SECONDS,
         "time": int(time.time()),
     }

@@ -437,11 +437,59 @@ export function renderSystemMonitor(data) {
 
 // ── end Request History ────────────────────────────────────────────────────
 
+// The monitor series, held here and topped up rather than refetched. The full
+// payload is ~3.4 MB — ten minutes of samples plus the token-speed points — and
+// the poll below runs once a SECOND, so every tick used to re-download the
+// entire history to learn one new sample. Per open tab.
+//
+// Ask with ?since=<newest we hold>; the server marks such a reply `partial` and
+// sends only what is newer. A reply without that flag is a whole series (first
+// load, or a server that predates this) and replaces what we have.
+let _monitorSince = 0;
+
+function mergeMonitor(payload) {
+  const prev = ui.latestSystemMonitor;
+  if (!payload?.partial || !prev) {
+    _monitorSince = payload?.newestSample || 0;
+    return payload;
+  }
+  const cutoff = (payload.time || 0) - (payload.retentionSeconds || 600);
+  const join = (old, add) => {
+    const out = (old || []).concat(add || []);
+    // Trim by the server's own retention so the arrays cannot grow forever in a
+    // tab left open for days — the server drops old samples, and if we did not
+    // we would keep drawing points it has already forgotten.
+    const start = out.findIndex((s) => (s?.time || 0) >= cutoff);
+    return start > 0 ? out.slice(start) : out;
+  };
+  const incidentCutoff = (payload.time || 0) - (payload.incidentRetentionSeconds || 86400);
+  const joinIncidents = (old, add) => {
+    const out = (old || []).concat(add || []);
+    const start = out.findIndex((s) => (s?.time || 0) >= incidentCutoff);
+    return start > 0 ? out.slice(start) : out;
+  };
+  const merged = {
+    ...payload,
+    samples: join(prev.samples, payload.samples),
+    tokenGenSamples: join(prev.tokenGenSamples, payload.tokenGenSamples),
+    // Incidents keep their own retention, which is far longer than the sample
+    // window — trimming them on the sample cutoff would erase the log.
+    incidents: joinIncidents(prev.incidents, payload.incidents),
+  };
+  _monitorSince = payload.newestSample || _monitorSince;
+  return merged;
+}
+
+function monitorUrl() {
+  return _monitorSince ? `/api/system-monitor?since=${_monitorSince}` : "/api/system-monitor";
+}
+
 export async function refreshSystemMonitor() {
   if (systemMonitorInflight) return;
   systemMonitorInflight = true;
   try {
-    renderSystemMonitor(await api("/api/system-monitor", { signal: AbortSignal.timeout(4000) }));
+    ui.latestSystemMonitor = mergeMonitor(await api(monitorUrl(), { signal: AbortSignal.timeout(4000) }));
+    renderSystemMonitor(ui.latestSystemMonitor);
   } catch (err) {
     const status = $("systemMonitor")?.querySelector(".system-monitor-status");
     if (status) status.textContent = `refresh failed: ${err.message}`;
@@ -468,7 +516,7 @@ export async function refreshTopologyMonitor() {
     // Timeout matters: without it one hung request (e.g. during a service
     // restart) leaves systemMonitorInflight stuck true and silently kills
     // this poll loop until the page is reloaded.
-    ui.latestSystemMonitor = await api("/api/system-monitor", { signal: AbortSignal.timeout(4000) });
+    ui.latestSystemMonitor = mergeMonitor(await api(monitorUrl(), { signal: AbortSignal.timeout(4000) }));
     if (topology && !ui.topologyProxyFormOpen && !topologyPointerDrag) {
       refreshTopologyActivityState();
     }
