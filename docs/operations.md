@@ -61,7 +61,20 @@ than a commit, so nothing tells it a release happened. Left to a schedule, the
 answer to "did that break anything" can be a day late.
 
 ```sh
-bash scripts/notify-ci.sh          # last line of the deploy, after the restart
+bash scripts/notify-ci.sh          # last step, after the remote restart
+```
+
+**Run it from the machine you deploy FROM, not from the controller.** The
+controller sits on the fleet subnet and may have no route to wherever CI lives —
+here it does not, and the call simply times out. The deploy workstation pushed
+the commit and therefore has the same checkout that was just pulled, so the
+version and commit it reports are the ones now running.
+
+That direction is worth checking once before wiring it up, because a missing
+route looks exactly like a wrong token from the outside:
+
+```sh
+curl -s -o /dev/null -w '%{http_code}\n' --max-time 6 <ci-host>/
 ```
 
 It reads `CARAVAN_CI_DISPATCH_URL` and `CARAVAN_CI_TOKEN` from the environment

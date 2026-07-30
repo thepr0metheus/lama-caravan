@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- The sign-in page is compressed like everything else. It is built from a string
+  rather than read from a file, so it went through neither `send_json` nor
+  `send_file` and stayed the one uncompressed response — 22 KB, served before
+  anyone is signed in, which makes it the first thing a new visitor waits for.
+
+- `scripts/deploy.sh` performs the deploy that was written down and done by hand:
+  push, pull, compile on the target, restart, then ask `/health` what it is now
+  serving and FAIL when that is not what was just shipped. A deploy that reports
+  success while the previous process keeps answering has no other symptom. It
+  also refuses a dirty tree or a branch other than main, and ends by telling the
+  external suite a release happened — the step easiest to skip, because skipping
+  it breaks nothing visible: the tests just never run.
+
 - `/api/topology` stops re-parsing the cloud config five hundred times per
   request. `account_credential_summary()` calls `load_cloud_data()`, which reads
   and parses a 99 KB JSON file, and `cloud_blocks_state()` called it once per

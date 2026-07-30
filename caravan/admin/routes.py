@@ -1470,9 +1470,16 @@ def _auth_guard(h, path, method):
 
 @_route(GET_ROUTES, '/login')
 def _get_login(h, parsed):
-        data = auth_mod.LOGIN_PAGE.encode("utf-8")
+        # Built by hand rather than through send_file (the page is a string, not
+        # a file on disk), which is why it was the one response left uncompressed
+        # after everything else started gzipping — 22 KB, and the first thing
+        # anyone gets, before they are even signed in.
+        data, enc = h._maybe_gzip(auth_mod.LOGIN_PAGE.encode("utf-8"))
         h.send_response(200)
         h.send_header("Content-Type", "text/html; charset=utf-8")
+        if enc:
+            h.send_header("Content-Encoding", enc)
+            h.send_header("Vary", "Accept-Encoding")
         h.send_header("Content-Length", str(len(data)))
         h.send_header("Cache-Control", "no-cache")
         h.end_headers()
