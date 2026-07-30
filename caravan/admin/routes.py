@@ -6,6 +6,7 @@ first in GET; POST parses the JSON body before the path lookup (a bad body on
 an unknown path is a 500, not a 404); DELETE has no AppError clause (-> 500).
 """
 import base64
+import gzip
 import hashlib
 import json
 import os
@@ -1655,14 +1656,42 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt % args}")
 
+    # Below this, compressing costs more than it saves — the gzip header alone is
+    # 18 bytes and a small JSON reply is mostly structure the CPU walks anyway.
+    _GZIP_MIN = 1400
+
+    def _maybe_gzip(self, data):
+        """(body, encoding) — gzipped when the client asked and it is worth it.
+
+        Nothing here was compressed, and this is JSON: the board's payloads are
+        long runs of repeated keys, which is the shape gzip is best at. Measured
+        on the real responses, roughly ten to one. It is also the change with the
+        least in it — no payload moves, no logic moves, and a client that does
+        not advertise gzip gets exactly the bytes it got before.
+
+        level 6 rather than 9: past 6 the ratio barely moves on JSON and the CPU
+        cost climbs, and this runs on the box that is also serving models.
+        """
+        if len(data) < self._GZIP_MIN:
+            return data, None
+        if "gzip" not in (self.headers.get("Accept-Encoding") or "").lower():
+            return data, None
+        try:
+            return gzip.compress(data, 6), "gzip"
+        except Exception:  # noqa: BLE001 — a failed compress must not lose the reply
+            return data, None
+
     def send_json(self, payload, status=200):
-        data = json_bytes(payload)
+        data, enc = self._maybe_gzip(json_bytes(payload))
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         # Without this browsers heuristically cache API fetch() responses:
         # /hf kept rendering a stale /api/hf/files payload even across a hard
         # reload (which only bypasses the cache for documents, not later XHR).
         self.send_header("Cache-Control", "no-store")
+        if enc:
+            self.send_header("Content-Encoding", enc)
+            self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -1683,9 +1712,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
             self.end_headers()
             return
+        # Text compresses; a png or a woff2 is already compressed and gzipping it
+        # spends CPU to add bytes.
         data = path.read_bytes()
+        enc = None
+        if content_type.split("/")[0] == "text" or content_type.split(";")[0] in (
+                "application/javascript", "application/json", "image/svg+xml"):
+            data, enc = self._maybe_gzip(data)
         self.send_response(200)
         self.send_header("Content-Type", content_type)
+        if enc:
+            self.send_header("Content-Encoding", enc)
+            # The ETag identifies the FILE, and both encodings carry the same
+            # one — so a cache keyed on the ETag alone could hand a gzipped body
+            # to a client that never asked for one.
+            self.send_header("Vary", "Accept-Encoding")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("ETag", etag)
         self.send_header("Cache-Control", "no-cache")

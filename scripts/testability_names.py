@@ -56,6 +56,39 @@ def names():
     return sorted(set(LITERAL.findall(out)) | set(COMPOSED))
 
 
+def unbacked_composed():
+    """Composed names that nothing in the source can produce any more.
+
+    COMPOSED is declared by hand, so it can outlive the code it describes:
+    delete the line that builds a hook and this list still claims it, the doc
+    still publishes it, and --check still passes — the doc is generated FROM
+    this file, so it cannot notice. A suite then locates a name the page never
+    emits and reads the empty result as a broken application. Reported from
+    outside, exactly that way, on follow-up 5.
+
+    A name is backed either by its literal appearing in the source
+    (`… ? "cell-remote-runner-tab" : "cell-edit-runner-tab"`) or by being the
+    ONE derivation the code actually performs: `${selectEl.dataset.t}-picker`,
+    over a base that is itself a literal hook.
+
+    Only that suffix, deliberately. Accepting any `<literal>-<word>` would let
+    `models-tree-toggle` pass on the strength of `models-tree` — which is the
+    precise name that was reported as declared-but-absent, so a rule that waves
+    it through is a rule that does nothing.
+    """
+    blob = subprocess.run(["grep", "-rhoE", r'"[a-z][a-z0-9-]*"', *SCAN],
+                          cwd=ROOT, capture_output=True, text=True).stdout
+    literals = set(re.findall(r'"([a-z][a-z0-9-]*)"', blob))
+    bad = []
+    for name in sorted(COMPOSED):
+        if name in literals:
+            continue
+        if name.endswith("-picker") and name[:-len("-picker")] in literals:
+            continue
+        bad.append(name)
+    return bad
+
+
 def main():
     all_names = names()
     if "--check" not in sys.argv:
@@ -77,6 +110,9 @@ def main():
                             doc.split("Generated from the source")[1]
                                .split("Repeated elements carry")[0]))
     problems = []
+    for name in unbacked_composed():
+        problems.append(f"COMPOSED declares {name}, but nothing in the source "
+                        f"builds it — the doc would publish a hook the page never emits")
     if int(m.group(1)) != len(all_names):
         problems.append(f"header says {m.group(1)} values, source has {len(all_names)}")
     for n in sorted(set(all_names) - listed):

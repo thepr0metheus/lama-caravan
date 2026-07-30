@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- JSON and text responses are compressed. Nothing was, and these payloads are
+  long runs of repeated keys — the shape gzip is best at. Measured on a real
+  monitor response: 85 KB to 10 KB, 8.7x, in 0.6 ms at level 6 (level 9 buys
+  0.1x for twice the CPU, on a box that is also serving models). Applied to
+  `send_json` and to text/JS/CSS/SVG in `send_file`, only when the client
+  advertises gzip and the body clears 1400 bytes, with `Vary: Accept-Encoding`
+  so an ETag cannot hand a gzipped body to a client that never asked. A client
+  without the header gets exactly the bytes it got before.
+
+- `scripts/testability_names.py --check` catches a composed hook that nothing
+  builds. The composed list is declared by hand, so deleting the code that emits
+  a hook left the list still claiming it, the doc still publishing it, and the
+  check still passing — the doc is generated FROM that list, so it could not
+  notice. A suite would then locate a name the page never emits and read the
+  empty result as a broken application. Reported from outside, exactly that way.
+
 - The monitor poll asks for what it does not have. `/api/system-monitor` is
   ~3.4 MB — ten minutes of samples at 1.8 MB plus the token-speed points at
   ~1.4 MB — and the board polls it once a SECOND, per open tab, to learn one new
