@@ -4,7 +4,7 @@
 // /api/models/gc (refuses referenced files server-side too).
 import { appConfirm, settleAppConfirm } from "./dialogs.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
-import { applyLanguage, applyTheme, setupLangSelect, t } from "./i18n.js";
+import { applyLanguage, applyTheme, initLanguage, setupLangSelect, t } from "./i18n.js";
 import { ui } from "./state.js";
 import { $, api, escapeHtml, markPageState, toast } from "./utils.js";
 
@@ -124,9 +124,13 @@ function bindUserChip() {
   }).catch(() => {});
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   initDialogLlamas();
   applyTheme();
+  // The language table is its own module now (see i18n-data.js), so it has
+  // to arrive before the first render — otherwise the page paints English
+  // and only repaints on the next language change.
+  await initLanguage();
   applyLanguage();
   setupLangSelect();
   bindUserChip();

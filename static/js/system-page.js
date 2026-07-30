@@ -2,7 +2,7 @@
 // Diagnostics panels (the former System modal), plus a hero strip with the
 // numbers an operator checks first. The section renderers are shared with
 // system-panels.js — this file only orchestrates the page.
-import { applyLanguage, applyTheme, setupLangSelect, t } from "./i18n.js";
+import { applyLanguage, applyTheme, initLanguage, setupLangSelect, t } from "./i18n.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
 import { settleAppConfirm } from "./dialogs.js";
 import { setState, state, ui } from "./state.js";
@@ -110,9 +110,13 @@ function bindUserChip() {
   }).catch(() => {});
 }
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   initDialogLlamas();
   applyTheme();
+  // The language table is its own module now (see i18n-data.js), so it has
+  // to arrive before the first render — otherwise the page paints English
+  // and only repaints on the next language change.
+  await initLanguage();
   applyLanguage();
   setupLangSelect();
 

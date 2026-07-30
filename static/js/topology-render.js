@@ -9,7 +9,6 @@ import {
   renderTopologyCloudPicker,
   renderTopologyCloudProviders,
 } from "./cloud.js";
-import { renderCommandPreview } from "./command-preview.js";
 import {
   readConfigForm,
   renderFields,
@@ -70,7 +69,6 @@ import {
   topologyRouteDetail,
 } from "./topology-dnd.js";
 import {
-  fetchQueueThresholds,
   recalcQueueThresholds,
   renderTopologyAgentConfigModal,
   renderTopologyClientDetail,
@@ -134,8 +132,10 @@ export function setActiveView(view) {
   });
   if (activeView === "topology") {
     refreshTopology().catch((err) => toast(err.message));
-    // Fetch stored thresholds + trigger recalc once on topology open
-    fetchQueueThresholds();
+    // Recalc once on topology open. It POSTs and returns the fresh thresholds
+    // itself, assigning the same `queueThresholds` the GET did — so the GET
+    // that used to run first was fetching a value about to be overwritten by
+    // the next line.
     recalcQueueThresholds();
     startTopologyMonitor();
   } else {
@@ -421,7 +421,10 @@ export async function refreshTopology() {
     markPageState("ready");
   }
   prefetchAllSubscriptionModels();
-  fetchProxyDailyStats().catch(() => {});
+  // Daily spend is a DAILY aggregate and it rode this tick — which fires every
+  // 1.5-5s, so the board asked for yesterday's totals up to forty times a
+  // minute. main.js owns it on a 60s timer; that is the right cadence for a
+  // number that changes once a day.
 }
 
 // True while the user is mid-interaction — rebuilding the DOM now would drop an
@@ -730,7 +733,12 @@ export function renderAll() {
   renderStaticConfigFields();
   renderModelSelects();
   syncAllToggleLabels();
-  renderCommandPreview();
+  // renderCommandPreview() is NOT called here. Unprefixed it targets
+  // #previewCmdline, which lives inside <main id="classicView" hidden> — the
+  // retired view. It POSTs /api/llama-command-preview, and the controller
+  // builds a full argument list, to paint a <pre> nobody can see. The cell
+  // editors call it with their own prefix when they open, which is the only
+  // place the preview is real.
   renderRaw();
   renderTopology();
 }

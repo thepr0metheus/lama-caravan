@@ -19,7 +19,7 @@ import {
   syncCompanionMuting,
   syncToggleLabel,
 } from "./form.js";
-import { applyLanguage, applyTheme, setupLangSelect, t } from "./i18n.js";
+import { applyLanguage, applyTheme, initLanguage, setupLangSelect, t } from "./i18n.js";
 import {
   _teCellPort,
   closeConfirmModal,
@@ -83,6 +83,10 @@ function initRouterStandalonePage() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   initDialogLlamas();
+  // The language table is its own module now (see i18n-data.js), so it has
+  // to arrive before the first render — otherwise the page paints English
+  // and only repaints on the next language change.
+  await initLanguage();
   applyLanguage();
   applyTheme();
   initOnboarding();
@@ -407,6 +411,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     markPageState("error", err.message);
     toast(err.message);
   }
+  // Once at boot, then hourly-ish. This is the only owner now — refreshTopology
+  // used to call it as well, on every 1.5-5s tick, and the two fired in the
+  // same boot tick besides.
   fetchProxyDailyStats().catch(() => {});
   setInterval(() => fetchProxyDailyStats().catch(() => {}), 60_000);
   fetchModelPricing().catch(() => {});

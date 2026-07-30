@@ -475,6 +475,10 @@ def serve_model_file(handler, query_string: str) -> None:
     rel = (params.get("path") or [""])[0].strip()
     if not rel:
         handler.send_response(400)
+        # Content-Length: 0 rather than a bare header block. This server keeps
+        # connections alive now, and a body-permitting status with no length
+        # and no body leaves the client waiting for one that never comes.
+        handler.send_header("Content-Length", "0")
         handler.end_headers()
         return
 
@@ -485,11 +489,13 @@ def serve_model_file(handler, query_string: str) -> None:
         target.relative_to(models_dir.resolve())
     except (ValueError, Exception):
         handler.send_response(403)
+        handler.send_header("Content-Length", "0")
         handler.end_headers()
         return
 
     if not target.is_file():
         handler.send_response(404)
+        handler.send_header("Content-Length", "0")
         handler.end_headers()
         return
 

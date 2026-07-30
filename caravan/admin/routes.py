@@ -382,9 +382,12 @@ def _route(table, *paths):
 
 
 def _get_static_subdir(h, parsed):
-    # /js/<name>.js and /css/<name>.css — ES modules and split stylesheets.
-    # The filename class has no "/" or "..", so no traversal is possible.
-    m = re.fullmatch(r"/(js|css)/([A-Za-z0-9._-]+)", parsed.path)
+    # /js/<name>.js and /css/<name>.css — ES modules and split stylesheets —
+    # plus /js/i18n/<code>.js, the one nested directory we serve (one language
+    # table per file; see static/js/i18n-data.js for why they are separate).
+    # Neither name class admits a "/" or a "..", so no traversal is possible and
+    # the nesting is a fixed literal rather than a path the caller supplies.
+    m = re.fullmatch(r"/(js|css)/((?:i18n/)?[A-Za-z0-9._-]+)", parsed.path)
     ctype = None
     if m and ".." not in m.group(2):
         name = m.group(2)
@@ -1408,7 +1411,16 @@ _AUTH_MACHINE_POST = {"/api/topology/client-heartbeat"}
 
 
 def _auth_guard(h, path, method):
-    """Return True when the request may proceed; otherwise answer it and return False."""
+    """Return True when the request may proceed; otherwise answer it and return False.
+
+    EVERY rejection here ends the connection. do_POST calls this BEFORE
+    read_body(), so a rejected POST leaves its body unread in the socket — and
+    with keep-alive the next thing parsed off that socket is the leftover body,
+    not a request line. It parses as garbage: the server answers
+    `501 Unsupported method ('{"username":"a",…}GET')` and the real next request
+    is never seen. Under HTTP/1.0 the close hid this; it is a rejection, so
+    closing costs nothing and there is no reason to keep it.
+    """
     if not auth_mod.auth_enabled():
         return True
     if method == "GET" and path in _AUTH_PUBLIC_GET:
@@ -1428,22 +1440,26 @@ def _auth_guard(h, path, method):
     if machine:
         if auth_mod.fleet_token_verify(h.headers.get("X-Caravan-Token") or ""):
             return True
+        h.close_connection = True
         h.send_json({"error": "fleet token required (X-Caravan-Token)"}, 401)
         return False
     sess = auth_mod.session_from_handler(h)
     if sess:
         # viewer = read-only: every GET, nothing mutating (logout excepted).
         if sess.get("role") == "viewer" and method != "GET" and path != "/api/auth/logout":
+            h.close_connection = True
             h.send_json({"error": "read-only account"}, 403)
             return False
         return True
     if method == "GET" and (path == "/" or not path.startswith("/api/")):
         # Pages redirect to the login form; API calls get a plain 401.
+        h.close_connection = True
         h.send_response(302)
         h.send_header("Location", "/login")
         h.send_header("Content-Length", "0")
         h.end_headers()
         return False
+    h.close_connection = True
     h.send_json({"error": "authentication required"}, 401)
     return False
 
@@ -1588,6 +1604,28 @@ def _post_auth_fleet_token(h, parsed, body):
 class Handler(BaseHTTPRequestHandler):
     server_version = f"lama-caravan/{APP_VERSION}"
 
+    # Persistent connections. Answering HTTP/1.0 meant a fresh TCP connection per
+    # request, and a cold board load is ~46 static modules plus its API calls —
+    # which is how a five-deep accept queue came to be overflowed by a second
+    # browser (see caravan/admin/main.py). A browser opens at most six sockets
+    # per origin and reuses them, so the same load now costs six connections.
+    #
+    # This is only safe because every response here is framed: send_json and
+    # send_file set an exact Content-Length, serve_model_file counts what it
+    # actually wrote, _fail() refuses to write a second response into a body it
+    # already began, and _auth_guard closes rather than leave an unread POST body
+    # in the socket. Do NOT set this on BaseHTTPRequestHandler — oauth.py has a
+    # handler that writes bodies with no length and must stay 1.0.
+    protocol_version = "HTTP/1.1"
+
+    # Without this the inherited timeout is None, and StreamRequestHandler.setup()
+    # only calls settimeout when it is not None — so an idle kept-alive connection
+    # would hold its thread until the client felt like closing. 30s is far longer
+    # than any poll interval on the board and short enough that a walked-away tab
+    # frees its threads. handle_one_request already treats a timeout as
+    # close_connection.
+    timeout = 30
+
     def send_response(self, *a, **kw):
         # Remember that a status line is on the wire. The catch-alls at the
         # bottom of do_GET/do_POST/do_DELETE answer with send_json, and for a
@@ -1652,8 +1690,21 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def read_body(self):
-        length = int(self.headers.get("Content-Length", "0"))
-        raw = self.rfile.read(length) if length else b"{}"
+        # Content-Length is how we know where this request ends, and with
+        # keep-alive it is also how we know where the NEXT one begins — so a
+        # header we cannot act on has to end the connection rather than leave
+        # the socket pointing into the middle of a body. Nothing in the fleet
+        # sends chunked (urllib and the browser both set a length), but "we do
+        # not expect it" is not a frame.
+        if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+            self.close_connection = True
+            raise AppError("chunked request bodies are not accepted", 411)
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError):
+            self.close_connection = True
+            raise AppError("bad Content-Length", 400)
+        raw = self.rfile.read(length) if length > 0 else b"{}"
         return json.loads(raw.decode("utf-8"))
 
     def do_GET(self):

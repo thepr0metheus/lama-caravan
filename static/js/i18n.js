@@ -1,6 +1,6 @@
 // Language + theme: t(), applyLanguage/applyTheme, the language dropdown.
 import { option } from "./form.js";
-import { LANGS, messages } from "./i18n-data.js";
+import { LANGS, loadLanguage, messages } from "./i18n-data.js";
 import { renderAll, renderTopology } from "./topology-render.js";
 import { $, escapeHtml } from "./utils.js";
 
@@ -23,9 +23,13 @@ export function t(key, vars = {}) {
 // Programmatic language switch (used by the onboarding tour's picker).
 // On the standalone kanban page renderAll() would touch board-only DOM,
 // so re-render only what exists there.
-export function setLang(code) {
+// Async since the split: a language's table is its own module now, so it has to
+// arrive before anything re-renders in it. Callers may ignore the promise —
+// nothing renders until the await resolves, and if the file cannot be had
+// loadLanguage falls back to English rather than leaving the page stringless.
+export async function setLang(code) {
   if (!code || code === lang || !LANGS.some((l) => l.code === code)) return;
-  lang = code;
+  lang = await loadLanguage(code);
   localStorage.setItem("llamacppAdminLang", lang);
   if (window.ROUTER_STANDALONE) {
     applyLanguage();
@@ -33,6 +37,14 @@ export function setLang(code) {
   } else {
     renderAll();
   }
+}
+
+/** Bring in the stored language before the first render. Every page calls this
+ *  once at boot; until it resolves the only table present is English, and a
+ *  render in that window would paint English and never repaint. */
+export async function initLanguage() {
+  lang = await loadLanguage(lang);
+  return lang;
 }
 
 export function fieldHelp(field) {

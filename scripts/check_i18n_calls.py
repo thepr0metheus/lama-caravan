@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA = ROOT / "static" / "js" / "i18n-data.js"
+EN = ROOT / "static" / "js" / "i18n" / "en.js"
 # Long-form tour texts deliberately live apart from the short UI strings, but
 # they resolve through the same t() — so both files define the known set.
 TOURS = ROOT / "static" / "js" / "onboarding-strings.js"
@@ -32,15 +32,15 @@ DEF = re.compile(r'^\s{4}([A-Za-z][\w]*)\s*:', re.M)
 
 
 def main() -> int:
-    src = DATA.read_text(encoding="utf-8")
-    start = src.find("\n  en: {")
-    end = src.find("\n  ru: {")
-    if start < 0 or end < 0:
-        print("cannot locate the en block in i18n-data.js", file=sys.stderr)
+    # English is its own module since the split — and it is still the canonical
+    # set, because t() falls back to it for every key another language lacks.
+    if not EN.exists():
+        print(f"cannot find {EN}", file=sys.stderr)
         return 1
-    known = set(DEF.findall(src[start:end]))
+    src = EN.read_text(encoding="utf-8")
+    known = set(re.findall(r'^\s{2}([A-Za-z][\w]*)\s*:', src, re.M))
     # fieldHelp lives one level deeper and is looked up by its own helper.
-    known |= set(re.findall(r'^\s{6}([A-Za-z][\w]*)\s*:', src[start:end], re.M))
+    known |= set(re.findall(r'^\s{4}([A-Za-z][\w]*)\s*:', src, re.M))
     if TOURS.exists():
         tsrc = TOURS.read_text(encoding="utf-8")
         known |= set(re.findall(r'^\s{2}([A-Za-z][\w]*)\s*:', tsrc, re.M))

@@ -43,8 +43,12 @@ _IDENT_RE = re.compile(
 )
 _ENG_PHRASE = re.compile(r"\b[A-Za-z]{3,}(\s+[A-Za-z']{2,}){2,}\b")   # 3+ latin words
 
+# allMessages() rather than `messages`: since the split, i18n-data.js holds only
+# English at import time and pulls the rest on demand. Loading all twenty is
+# exactly what this guard is for and exactly what the page must never do.
 NODE_SNIPPET = """
-import(process.argv[1]).then(({ LANGS, messages }) => {
+import(process.argv[1]).then(async ({ LANGS, allMessages }) => {
+  const messages = await allMessages();
   const out = {};
   for (const { code } of LANGS) {
     const m = messages[code] || {};

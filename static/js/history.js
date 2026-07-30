@@ -1,6 +1,5 @@
 // Request history modal: tables, filters, detail popup.
 import { option } from "./form.js";
-import { messages } from "./i18n-data.js";
 import { action } from "./polling.js";
 import { topology, ui } from "./state.js";
 import { renderTopologyLogDetail, topologyLogSummary } from "./topology-modals.js";

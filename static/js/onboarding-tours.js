@@ -1,14 +1,17 @@
 // Tour definitions for the board (index), the llama.cpp config editor
 // (te-/tr- modals) and the standalone kanban page. Strings live in
 // i18n-data.js (en/ru; the rest falls back to English via t()).
-import { LANGS, messages } from "./i18n-data.js";
+import { LANGS, messages, onLanguageLoaded } from "./i18n-data.js";
 import { lang, setLang, t } from "./i18n.js";
 import { autoStartOnce, createTour, initTourButtons } from "./onboarding.js";
 import { TOUR_STRINGS } from "./onboarding-strings.js";
 
-// Merge tour strings into the shared dictionary for every language present.
-Object.entries(TOUR_STRINGS).forEach(([code, dict]) => {
-  if (messages[code]) Object.assign(messages[code], dict);
+// Merge tour strings into each language table as it arrives. Not a one-shot
+// loop any more: tables load on demand, so at import time only English exists
+// and a later language would have got the tour in English forever.
+onLanguageLoaded((code, table) => {
+  const dict = TOUR_STRINGS[code];
+  if (dict) Object.assign(table, dict);
 });
 
 // Interface-language picker embedded into the welcome step: switches the

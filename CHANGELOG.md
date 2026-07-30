@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+- The board reuses its connections. The admin server answered HTTP/1.0, so every
+  static module and every API call opened its own TCP connection — 46 modules
+  plus the API on a cold load, which is how a second browser overflowed a
+  five-deep accept queue. It speaks HTTP/1.1 now and a browser reuses at most
+  six sockets per origin, so the same page costs roughly six connections instead
+  of sixty.
+
+  What made it safe to flip, each verified rather than assumed: `serve_model_file`
+  sends `Content-Length: 0` on its bare 400/403/404 instead of a bodiless header
+  block; `read_body` refuses a chunked body and a malformed Content-Length,
+  closing rather than leaving the socket pointed into the middle of one; and
+  every rejection in `_auth_guard` closes, because `do_POST` answers 401/403/302
+  BEFORE reading the body and the leftover bytes are otherwise parsed as the next
+  request line. That last one was reproduced exactly:
+  `501 Unsupported method ('{"username":"a","password":"bcde"}GET')`, with the
+  real following request never answered.
+
+  `timeout = 30` on the handler, because the inherited value is None and
+  `StreamRequestHandler.setup()` only arms a socket timeout when it is not — an
+  idle kept-alive connection would otherwise hold its thread until the client
+  chose to close. The oauth callback server keeps HTTP/1.0 deliberately; it
+  writes bodies with no length, and the setting is on our handler, not on
+  `BaseHTTPRequestHandler`.
+
+- The page downloads the language it renders, not all twenty. `i18n-data.js` was
+  1.95 MB — 62% of the JavaScript on the board and the largest thing on a cold
+  load — because it held every translation table in one module, and the page
+  paints one of them. The tables now live in `static/js/i18n/<code>.js` and load
+  on demand; `i18n-data.js` is 3 KB of loader. English stays a static import
+  because `t()` falls back to it synchronously for any key a translation lacks,
+  so an English UI fetches exactly one table and any other fetches two. Same
+  number of requests either way.
+
+  Two things had to move with it. The onboarding tours merged their strings into
+  every language at import, which now happens before the language exists — they
+  register through `onLanguageLoaded` instead, so a tour in Japanese is not
+  quietly a tour in English. And the CI guard reads all twenty through
+  `allMessages()`, the one caller allowed to pull the full 1.9 MB.
+
+- The board stops asking for things it already has. Three requests went out on
+  every load or every tick for no reachable reason: `/api/proxy-daily-stats`
+  rode the 1.5-5s topology tick (a DAILY total, fetched up to forty times a
+  minute, and a second time in the same boot tick besides), a GET
+  `/api/queue-thresholds` ran immediately before the POST that recomputes and
+  returns the same value, and `/api/llama-command-preview` was POSTed on every
+  full render to paint a `<pre>` inside `<main id="classicView" hidden>` — the
+  retired view. Measured on a live tab: 63 API req/min before, and the trio
+  `/api/state` + `/api/topology` + `/api/proxy-daily-stats` was 52 of 54
+  requests in the window.
+
 - A request that fails halfway through its answer ends the connection instead of
   writing a second answer into the first. The catch-all at the bottom of each
   verb replied with `send_json`, which is right for a handler that fails before

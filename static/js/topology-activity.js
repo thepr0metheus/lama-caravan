@@ -3,7 +3,6 @@ import { drawTopologyCables, topologyProxyClass } from "./cables.js";
 import { drawCanvasConnectors, syncQueueNodesLive } from "./canvas.js";
 import { attachTokenChartHover, drawMetricChart, drawTopologyGpuHistory } from "./charts.js";
 import { t } from "./i18n.js";
-import { messages } from "./i18n-data.js";
 import { topologyCrownSvg } from "./model-meta.js";
 import { action, formatTps } from "./polling.js";
 import { state, topology, ui } from "./state.js";

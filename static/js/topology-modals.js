@@ -3,7 +3,6 @@ import { SCHEDULE_DAY_LABELS, SCHEDULE_WEEKDAYS, scheduleOutputColor } from "./c
 import { appPrompt } from "./dialogs.js";
 import { badge, option } from "./form.js";
 import { t } from "./i18n.js";
-import { messages } from "./i18n-data.js";
 import {
   modalitiesText,
   parseModelName,
