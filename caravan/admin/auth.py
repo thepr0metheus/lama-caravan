@@ -353,7 +353,14 @@ LOGIN_PAGE = """<!doctype html>
       <label for="p" data-i18n="pass">Password</label>
       <input id="p" type="password" autocomplete="current-password" data-t="login-password">
       <button class="primary" type="submit" data-i18n="signin" data-t="login-submit">Sign in</button>
-      <p class="err" id="e" data-t="login-error"></p>
+      <!-- role="alert" because this <p> starts EMPTY and is filled by script
+           after a failed sign-in. Without it a screen reader never learns the
+           attempt failed — the text simply appears, silently, and the only
+           feedback is that nothing happened. alert (not status) because it
+           answers an action the user just took and should interrupt. It also
+           gives the element a real role instead of generic, so a test can ask
+           getByRole("alert") rather than for the paragraph by name. -->
+      <p class="err" id="e" role="alert" data-t="login-error"></p>
     </form>
 
     <form id="setupForm" class="hidden" data-t="setup-form">
@@ -368,7 +375,11 @@ LOGIN_PAGE = """<!doctype html>
       <p class="err" id="se"></p>
     </form>
 
-    <div id="tokenBox" class="hidden" data-t="setup-token-box">
+    <!-- Appears once, after the first account is created, and carries a
+         credential the operator has to copy before leaving the page. status
+         rather than alert: it is the result of a successful action, so it is
+         announced without interrupting. -->
+    <div id="tokenBox" class="hidden" role="status" data-t="setup-token-box">
       <p class="note" data-i18n="tokenIntro">Fleet token — copy it now and add to every caravan-scout (pairing page or controllerToken in config.json):</p>
       <code class="token" id="tokenVal" data-t="setup-token"></code>
       <button class="primary" id="goBoard" data-i18n="goBoard" data-t="setup-go-board">Open the board</button>

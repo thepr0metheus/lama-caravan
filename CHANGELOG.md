@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- The sign-in page announces its two silent moments. The failure message is an
+  empty `<p>` that script fills after a rejected attempt — so a screen reader
+  learned nothing: the text appeared, and the only feedback was that nothing
+  happened. It is `role="alert"` now, which interrupts because it answers an
+  action the user just took. The fleet token shown once after the first account
+  is created is `role="status"`, announced without interrupting because it
+  follows a success.
+
+  These are the only two roles written by hand on that page. Everything else
+  already had one from its tag — `<button>`, `<input>`, `<select>`, `<h1>` —
+  and repeating those as attributes would add nothing. A role is what the
+  browser derives, not something to sprinkle.
+
 - A host can be powered off from the board, next to the reboot that was already
   there. This module said "reboot only, never shutdown" on purpose, and the
   reason has not changed — **nothing here can switch a machine back on** — so
