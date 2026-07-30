@@ -17,6 +17,29 @@ from caravan.admin.router_dsl import recompute_cloud_fallback_eligibility
 from caravan.admin.routes import Handler
 
 
+class _Server(ThreadingHTTPServer):
+    """The admin listener, with an accept queue that fits one page load.
+
+    socketserver's default `request_queue_size` is 5 — five connections may wait
+    to be accepted, and the kernel drops the rest. Answering HTTP/1.0, this
+    server gets ONE CONNECTION PER REQUEST, and a board load is ~46 static
+    modules plus its API calls; a second browser doubles that into a queue five
+    deep. Measured on the controller: `ss -ltn` showed Send-Q 5 while
+    net.core.somaxconn was 4096, and TcpExtListenOverflows stood at 4166.
+
+    An overflow is not a refusal you can see. With tcp_abort_on_overflow=0 the
+    kernel silently drops the SYN, the client retries at 1s, 3s, 7s… and the
+    page sits there — a 74-second load was measured from outside, and /health,
+    being one cheap request, answered green throughout. That is why this went
+    unnoticed: nothing logs it on our side.
+
+    128 is generous for a handful of operators and still far under somaxconn,
+    which is the real ceiling (listen(2) silently clamps to it).
+    """
+    request_queue_size = 128
+    daemon_threads = True
+
+
 def main():
     # Same directory systemd's WorkingDirectory points at; keeps every relative
     # path (var/, logs/, git commands) working when launched by hand.
@@ -63,6 +86,6 @@ def main():
     # Per-cell start/stop schedule windows (see caravan/admin/cell_schedule.py).
     start_scheduler_thread()
 
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    server = _Server((HOST, PORT), Handler)
     print(f"lama-caravan listening on http://{HOST}:{PORT}")
     server.serve_forever()

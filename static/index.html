@@ -17,6 +17,53 @@
   <link rel="stylesheet" href="/css/onboarding.css">
 </head>
 <body data-t-state="loading" aria-busy="true">
+  <script>
+  /* Inline ON PURPOSE, and it must stay inline. Every other line of this app
+     arrives over its own HTTP request; when one of those never lands, nothing
+     runs — no router, no readiness flag, no error handler — and the page shows
+     its empty shell forever. This is the only code that is already here.
+
+     Two failures it names. A <script>/<link> that fails outright reports itself
+     at once. A load that merely never finishes has nothing to report, so a
+     timer settles it: still "loading" after 20s means the boot did not happen.
+     Either way data-t-state reaches "error", which is what the contract in
+     docs/testability.md promises and could not previously deliver — the code
+     that would have set it was the code that failed to arrive. */
+  (function () {
+    var dead = [], done = false;
+    addEventListener("error", function (e) {
+      var el = e.target;
+      if (el && (el.tagName === "SCRIPT" || el.tagName === "LINK")) {
+        dead.push((el.src || el.href || "").replace(location.origin, ""));
+        if (/\/js\/main\.js/.test(el.src || "")) fail();
+      }
+    }, true);
+    function fail() {
+      if (done || document.body.dataset.tState !== "loading") return;
+      done = true;
+      var why = dead.length ? "assets did not load: " + dead.join(", ")
+                            : "scripts did not initialise";
+      document.body.dataset.tState = "error";
+      document.body.dataset.tStateDetail = why;
+      document.body.setAttribute("aria-busy", "false");
+      var b = document.createElement("div");
+      b.setAttribute("role", "alert");
+      b.setAttribute("data-t", "boot-error");
+      b.style.cssText = "position:fixed;inset:0 0 auto 0;z-index:99999;padding:14px 18px;"
+        + "background:#3b1d1d;color:#fca5a5;border-bottom:1px solid #7f1d1d;"
+        + "font:13px/1.5 ui-monospace,monospace";
+      b.textContent = "This page did not finish loading — " + why + ". ";
+      var r = document.createElement("button");
+      r.textContent = "Reload";
+      r.style.cssText = "margin-left:10px;padding:3px 10px;cursor:pointer;"
+        + "background:#7f1d1d;color:#fee2e2;border:1px solid #b91c1c;border-radius:4px";
+      r.onclick = function () { location.reload(); };
+      b.appendChild(r);
+      document.body.appendChild(b);
+    }
+    setTimeout(fail, 20000);
+  })();
+  </script>
   <div id="appLoader" aria-hidden="true">
     <style>
       #appLoader { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column;

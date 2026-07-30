@@ -21,12 +21,30 @@ serving_lock = threading.Lock()
 
 _pending_rebind = False
 
+
+class _RouteServer(ThreadingHTTPServer):
+    """A route's listener, with an accept queue that fits a burst of agents.
+
+    Same reason as the admin server (caravan/admin/main.py): socketserver
+    defaults `request_queue_size` to 5, and a queue that shallow drops
+    connections silently — tcp_abort_on_overflow=0 turns an overflow into a
+    dropped SYN and a client that retries at 1s, 3s, 7s. On a proxy port that
+    reads as an agent hanging, with nothing in our logs to say why.
+
+    It matters more here than on the board: several agents can call one route at
+    once, and llama-server itself listens with a backlog of 512 — this is the
+    one hop in the chain that was five deep.
+    """
+    request_queue_size = 128
+    daemon_threads = True
+
+
 def _start_listener(route):
     """Bind a listen socket for one route and serve it in a daemon thread.
     Returns the server, or None if the bind failed (e.g. the port is in use)."""
     port = route["port"]
     try:
-        server = ThreadingHTTPServer((HOST, port), ProxyHandler)
+        server = _RouteServer((HOST, port), ProxyHandler)
     except OSError as exc:
         print(f"agent-proxy: cannot bind {route['label']} on {HOST}:{port}: {exc}", flush=True)
         return None

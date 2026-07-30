@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- The listen queue fits a page load. Every Python listener in the fleet — the
+  board, the twelve proxy routes, the cell servers — took socketserver's default
+  `request_queue_size` of 5, so five connections could wait to be accepted and
+  the kernel dropped the rest. Answering HTTP/1.0 the board gets one connection
+  per request and a cold load is 46 static modules plus its API calls, so a
+  second browser was already over the limit. Measured on the controller: `ss`
+  reported Send-Q 5 against a somaxconn of 4096, and TcpExtListenOverflows stood
+  at 4166. With tcp_abort_on_overflow=0 an overflow is not a refusal you can
+  see — the kernel drops the SYN, the client retries at 1s, 3s, 7s, and the page
+  simply sits there. A 74-second load was measured from outside while /health,
+  one cheap request, answered green throughout. Now 128 for the board and the
+  proxy routes, 64 for the cells. (llama-server, for scale, listens 512 deep.)
+
+- Every page carries an inline boot guard, so a page that cannot start says so.
+  `data-t-state` could reach `loading` and `error`, but never `error` in the one
+  failure that mattered: when `/js/main.js` itself does not arrive, the code that
+  would set `error` is the code that did not load, and the shell sits there
+  forever with nothing on screen to explain it. The guard is inline because it is
+  the only script that cannot fail to arrive. It names the assets that failed,
+  flips the flag, and puts a reload banner on the page. `scripts/check_boot_guard.py`
+  keeps the five copies identical.
+
 - A runner tab greys out for every kind of model it cannot launch, not just the
   wrong file extension. The gate compared `.gguf` against everything else, which
   answered correctly for exactly one of the four artifact kinds: an LLM and a

@@ -33,7 +33,10 @@ jobs:
       # suite locates by. A rename that skips the doc reads to that suite as
       # "the tests broke by themselves".
       - name: testability contract
-        run: python3 scripts/testability_names.py --check
+        run: |
+          set -e
+          python3 scripts/testability_names.py --check
+          python3 scripts/check_boot_guard.py
 
       - name: JS syntax (ES modules)
         run: |

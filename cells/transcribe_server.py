@@ -430,8 +430,20 @@ class H(BaseHTTPRequestHandler):
             self._send(500, {"error": str(exc)})
 
 
+class _Serve(ThreadingHTTPServer):
+    """Accept queue deep enough for a caller that pipelines requests.
+
+    socketserver's default is 5, and a queue that shallow does not refuse — the
+    kernel drops the SYN and the caller retries at 1s, 3s, 7s, which reads as
+    this cell being slow rather than being over its listen limit. A transcription
+    client sending chunks back-to-back is exactly that shape of load.
+    """
+    request_queue_size = 64
+    daemon_threads = True
+
+
 if __name__ == "__main__":
     # Bind first, load after: the port answers 503 with a loading marker while
     # the weights come up, so the board shows "loading" instead of a dead port.
     threading.Thread(target=_load, daemon=True).start()
-    ThreadingHTTPServer(("0.0.0.0", PORT), H).serve_forever()
+    _Serve(("0.0.0.0", PORT), H).serve_forever()
