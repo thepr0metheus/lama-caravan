@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- `/api/topology` stops re-parsing the cloud config five hundred times per
+  request. `account_credential_summary()` calls `load_cloud_data()`, which reads
+  and parses a 99 KB JSON file, and `cloud_blocks_state()` called it once per
+  block — with 502 blocks that is ~500 reads and parses of the same file to
+  produce one topology payload, about 100 MB of parsing per request. Profiled on
+  the controller: 287 ms of a 732 ms build, `json.loads` alone at 185 ms across
+  2546 calls.
+
+  Concurrency is what made it the ceiling rather than merely wasteful: each parse
+  holds the GIL, so tabs polling in parallel queued behind one another instead of
+  building in parallel. Measured from outside, topology's time-to-first-byte rose
+  from 750 ms at one browser to 4.5 s at eight while the bytes themselves still
+  arrived in 30 ms — server thinking, not transfer.
+
+  `load_cloud_data()` and `load_provider_secrets()` are now cached on the file's
+  own (mtime, size), exactly as `read_gguf_metadata_cached` already was for the
+  same reason after a live incident in July; and the credential summary is
+  resolved once per ACCOUNT (there are four) instead of once per block.
+
 - JSON and text responses are compressed. Nothing was, and these payloads are
   long runs of repeated keys — the shape gzip is best at. Measured on a real
   monitor response: 85 KB to 10 KB, 8.7x, in 0.6 ms at level 6 (level 9 buys

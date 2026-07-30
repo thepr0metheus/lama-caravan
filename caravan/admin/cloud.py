@@ -64,10 +64,48 @@ CLOUD_PROVIDER_PRESETS = {
     },
 }
 
+_CLOUD_DATA_CACHE = {}   # (mtime_ns, size) -> parsed {"accounts", "blocks"}
+
+
+def _cloud_cache_put(key, data):
+    """Keep only the newest generation — the key changes on every save, so an
+    unbounded dict would grow one entry per edit for the life of the process."""
+    if key is not None:
+        _CLOUD_DATA_CACHE.clear()
+        _CLOUD_DATA_CACHE[key] = data
+    return data
+
+
 def load_cloud_data():
+    """Accounts and blocks, cached on the file's own (mtime, size).
+
+    Same fix as read_gguf_metadata_cached, and the same reason. This reads and
+    parses a JSON file, and callers treat it as free — account_credential_summary
+    calls it once per lookup, and cloud_blocks_state calls THAT once per block.
+    With 502 blocks that is ~500 re-reads and re-parses of a 99 KB file for one
+    /api/topology, ~100 MB of parsing per request; profiled at 287 ms of a 732 ms
+    build, with json.loads alone at 185 ms over 2546 calls.
+
+    Concurrency is what turned it from waste into the ceiling: every one of those
+    parses holds the GIL, so eight tabs polling every two seconds did not run
+    eight builds in parallel — they queued behind each other's parsing. That is
+    the shape an outside measurement saw as topology's time-to-first-byte rising
+    from 750 ms to 4.5 s while the bytes themselves still arrived in 30 ms.
+
+    Keyed on (mtime, size) rather than held forever, so an edit through the UI or
+    by hand is picked up on the next call.
+    """
     data = {"accounts": [], "blocks": []}
     if not CLOUD_PROVIDERS_FILE.exists():
         return data
+    try:
+        st = CLOUD_PROVIDERS_FILE.stat()
+        key = (st.st_mtime_ns, st.st_size)
+        hit = _CLOUD_DATA_CACHE.get(key)
+        if hit is not None:
+            return hit
+    except OSError:
+        key = None
     try:
         parsed = json.loads(CLOUD_PROVIDERS_FILE.read_text(encoding="utf-8"))
     except Exception:
@@ -77,7 +115,7 @@ def load_cloud_data():
         blocks = parsed.get("blocks") if isinstance(parsed.get("blocks"), list) else []
         data["accounts"] = [a for a in accounts if isinstance(a, dict) and a.get("id")]
         data["blocks"] = [b for b in blocks if isinstance(b, dict) and b.get("id")]
-        return data
+        return _cloud_cache_put(key, data)
     # legacy flat {"providers":[...]} (or bare list) → migrate to account+block pairs
     legacy = parsed.get("providers") if isinstance(parsed, dict) else parsed
     if isinstance(legacy, list):
@@ -93,17 +131,36 @@ def load_cloud_data():
                 "id": p["id"], "accountId": acct_id, "name": p.get("name") or p["id"],
                 "model": p.get("model") or "", "modelMode": p.get("modelMode") or "rewrite",
             })
-    return data
+    return _cloud_cache_put(key, data)
 
 def save_cloud_data(data):
     payload = {"accounts": data.get("accounts", []), "blocks": data.get("blocks", [])}
     atomic_write_text(CLOUD_PROVIDERS_FILE, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
 
+_SECRETS_CACHE = {}   # (mtime_ns, size) -> parsed secrets
+
+
 def load_provider_secrets():
+    """Cached on (mtime, size), same as load_cloud_data and for the same reason:
+    account_secret_entry calls this per lookup, and the block list calls that
+    once per block. Rotating a key changes the file, so the next call reparses.
+    Nothing new is held in memory that was not already read on every call."""
     if PROVIDER_SECRETS_FILE.exists():
+        key = None
+        try:
+            st = PROVIDER_SECRETS_FILE.stat()
+            key = (st.st_mtime_ns, st.st_size)
+            hit = _SECRETS_CACHE.get(key)
+            if hit is not None:
+                return hit
+        except OSError:
+            key = None
         try:
             parsed = json.loads(PROVIDER_SECRETS_FILE.read_text(encoding="utf-8"))
             if isinstance(parsed, dict):
+                if key is not None:
+                    _SECRETS_CACHE.clear()
+                    _SECRETS_CACHE[key] = parsed
                 return parsed
         except Exception:
             pass
@@ -280,9 +337,17 @@ def cloud_blocks_state():
     data = load_cloud_data()
     accounts = {a["id"]: a for a in data["accounts"]}
     result = []
+    # The credential summary is a property of the ACCOUNT, and there are four of
+    # them against five hundred blocks — so it is resolved once per account, not
+    # once per row. The caches underneath make the repeat cheap now; doing the
+    # lookup five hundred times to get four answers was never the intent.
+    summaries = {}
     for b in data["blocks"]:
         account = accounts.get(b.get("accountId")) or {}
-        summary = account_credential_summary(b.get("accountId"))
+        acct_id = b.get("accountId")
+        if acct_id not in summaries:
+            summaries[acct_id] = account_credential_summary(acct_id)
+        summary = summaries[acct_id]
         result.append({
             "id": b["id"], "accountId": b.get("accountId"), "name": b.get("name"),
             "model": b.get("model"), "modelMode": b.get("modelMode") or "rewrite",
