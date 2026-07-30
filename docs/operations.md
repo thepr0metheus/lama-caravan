@@ -54,6 +54,31 @@ done
 curl -s -o /dev/null -w '%{http_code}\n' localhost:8101/v1/models   # any live route port
 ```
 
+### Telling an external test suite
+
+The E2E suite lives in its own repository and runs against a DEPLOYMENT rather
+than a commit, so nothing tells it a release happened. Left to a schedule, the
+answer to "did that break anything" can be a day late.
+
+```sh
+bash scripts/notify-ci.sh          # last line of the deploy, after the restart
+```
+
+It reads `CARAVAN_CI_DISPATCH_URL` and `CARAVAN_CI_TOKEN` from the environment
+and **exits silently when either is unset**, so a deployment with no CI attached
+is unaffected. It never fails a deploy either: an unreachable CI host prints one
+line and returns 0. The tests report on a release; they do not gate it.
+
+The credential belongs in the deploy shell, never in this repository. That is
+also why the script names no vendor and no address — those live with the token,
+and it works with any CI that starts a run from an authenticated POST.
+
+It sends the version read from `caravan.__version__` and the short commit, which
+is what makes the far side able to catch the deploy that reports success and
+leaves the old process running: `/health` already answers with both, and a
+mismatch between what was shipped and what is serving has no other symptom —
+every test passes, and the fix simply is not there.
+
 ## Rollback
 
 ```sh
