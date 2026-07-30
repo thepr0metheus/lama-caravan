@@ -110,9 +110,9 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 143 values. Regenerate with
+Generated from the source, not from memory — 157 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
-source disagree. Thirteen of them are composed at runtime (`…-picker`,
+source disagree. Fourteen of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
 that is why there is a script and not a one-liner.
 
@@ -121,6 +121,7 @@ that is why there is a script and not a one-liner.
 **cell** — `cell-card`, `cell-configure`, `cell-delete`, `cell-edit-apply`, `cell-edit-cancel`, `cell-edit-command`, `cell-edit-command-preview`, `cell-edit-compute`, `cell-edit-env`, `cell-edit-fields`, `cell-edit-health-path`, `cell-edit-max-model-len`, `cell-edit-mmproj`, `cell-edit-modal`, `cell-edit-model`, `cell-edit-model-picker`, `cell-edit-moonshine-model`, `cell-edit-moonshine-model-picker`, `cell-edit-runner`, `cell-edit-runner-tab`, `cell-edit-vllm-model`, `cell-edit-vllm-model-picker`, `cell-edit-whisper-model`, `cell-edit-whisper-model-picker`, `cell-edit-workdir`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command`, `cell-remote-command-preview`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model`, `cell-remote-model-picker`, `cell-remote-moonshine-model`, `cell-remote-moonshine-model-picker`, `cell-remote-runner`, `cell-remote-runner-tab`, `cell-remote-vllm-model`, `cell-remote-vllm-model-picker`, `cell-remote-whisper-model`, `cell-remote-whisper-model-picker`, `cell-remote-workdir`, `cell-source-stale`, `cell-start`, `cell-stop`
 **confirm** — `confirm-accept`, `confirm-cancel`, `confirm-input`, `confirm-meta`, `confirm-overlay`, `confirm-path`, `confirm-text`, `confirm-title`
 **header** — `header`, `header-app-title`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
+**hf** — `hf-capability-filter`, `hf-download-job`, `hf-limit`, `hf-mask`, `hf-on-disk`, `hf-result`, `hf-search-input`, `hf-search-submit`, `hf-size-filter`, `hf-sort`, `hf-token-clear`, `hf-token-edit`, `hf-token-input`, `hf-token-save`
 **kanban** — `kanban-back-link`, `kanban-cable`, `kanban-cables`, `kanban-canvas`, `kanban-node`, `kanban-palette-add`, `kanban-save-status`
 **login** — `login-error`, `login-form`, `login-lang`, `login-password`, `login-submit`, `login-username`
 **models** — `models-delete-selected`, `models-hero-stats`, `models-model-select`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-unused-select-all`
@@ -157,6 +158,30 @@ llamaFields.style.display = nonLlama ? "none" : "";
 So on a whisper or vLLM cell every llama field reports hidden — correctly. There
 is no expander to click; switching the runner is what changes the field set, and
 `cell-*-runner-tab` is how a test drives that.
+
+## `/hf` stands apart
+
+It is the one page that does not use the shared header, so none of the `header-*`
+hooks exist there — it has its own back link. It also loads no shared JS: `hf.js`
+deliberately imports nothing from `js/`, which is why the 1.9 MB translation
+table never reached it even before that was split. Expect a smaller vocabulary,
+not a missing one.
+
+Its two repeated families carry the identity the page already works in:
+
+| hook | `data-t-id` |
+|---|---|
+| `hf-result` | the repository id, e.g. `unsloth/gemma-4-31B-it-GGUF` |
+| `hf-download-job` | the job id from the server, falling back to the local uid before one is assigned |
+| `hf-size-filter` | `all`, `0-9`, `10-19`, `20-29`, `30-39`, `40-74`, `75+` |
+| `hf-capability-filter` | the type as the API names it (`it`, `mmproj`, `mtp`, `vision`, …) |
+
+The size buckets are the values the page filters on, not their labels — `0-9`
+rather than `≤9B`, so a translated label cannot move them.
+
+**`hf-token-clear` deletes a credential** and `hf-download-job` writes to disk.
+Both are named so they can be asserted present; neither should be clicked, the
+same rule as `cell-*-apply` and the destructive controls on `/system`.
 
 ## `kanban-cable` endpoints are ports, not always nodes
 

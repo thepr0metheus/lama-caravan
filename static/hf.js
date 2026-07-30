@@ -1083,7 +1083,7 @@ function updateTypeChips() {
   if (discoveredTypes.size === 0) { row.style.display = 'none'; return; }
   row.style.display = '';
   container.innerHTML = [...discoveredTypes].sort().map(t =>
-    `<button class="hf-chip${filterTypes.has(t) ? ' is-active' : ''}" data-type="${escapeHtml(t)}">${escapeHtml(TYPE_LABELS[t] || t)}</button>`
+    `<button class="hf-chip${filterTypes.has(t) ? ' is-active' : ''}" data-t="hf-capability-filter" data-t-id="${escapeHtml(t)}" data-type="${escapeHtml(t)}">${escapeHtml(TYPE_LABELS[t] || t)}</button>`
   ).join('');
   container.querySelectorAll('.hf-chip').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -1104,13 +1104,13 @@ function buildFilterBar() {
     <div class="hf-filter-row">
       <span class="hf-filter-label">Size:</span>
       <div class="hf-chips" id="hfParamChips">
-        <button class="hf-chip is-active" data-range="all">All</button>
-        <button class="hf-chip" data-range="0-9">≤9B</button>
-        <button class="hf-chip" data-range="10-19">10–19B</button>
-        <button class="hf-chip" data-range="20-29">20–29B</button>
-        <button class="hf-chip" data-range="30-39">30–39B</button>
-        <button class="hf-chip" data-range="40-74">40–74B</button>
-        <button class="hf-chip" data-range="75+">75B+</button>
+        <button class="hf-chip is-active" data-t="hf-size-filter" data-t-id="all" data-range="all">All</button>
+        <button class="hf-chip" data-t="hf-size-filter" data-t-id="0-9" data-range="0-9">≤9B</button>
+        <button class="hf-chip" data-t="hf-size-filter" data-t-id="10-19" data-range="10-19">10–19B</button>
+        <button class="hf-chip" data-t="hf-size-filter" data-t-id="20-29" data-range="20-29">20–29B</button>
+        <button class="hf-chip" data-t="hf-size-filter" data-t-id="30-39" data-range="30-39">30–39B</button>
+        <button class="hf-chip" data-t="hf-size-filter" data-t-id="40-74" data-range="40-74">40–74B</button>
+        <button class="hf-chip" data-t="hf-size-filter" data-t-id="75+" data-range="75+">75B+</button>
       </div>
     </div>
     <div class="hf-filter-row" id="hfTypeFilterRow" style="display:none">
@@ -1118,8 +1118,8 @@ function buildFilterBar() {
       <div class="hf-chips" id="hfTypeChips"></div>
     </div>
     <div class="hf-filter-row">
-      <input class="hf-mask-input" id="hfMaskInput" placeholder="filter by name…" type="text">
-      <select class="hf-sort-select" id="hfSortSelect">
+      <input class="hf-mask-input" data-t="hf-mask" id="hfMaskInput" placeholder="filter by name…" type="text">
+      <select class="hf-sort-select" data-t="hf-sort" id="hfSortSelect">
         <option value="downloads-desc">↓ Downloads</option>
         <option value="downloads-asc">↑ Downloads</option>
         <option value="likes-desc">↓ Likes</option>
@@ -1185,6 +1185,10 @@ function buildRepoRow(repo) {
   const div = document.createElement("div");
   div.className = "hf-repo-row";
   div.dataset.repoId = repo.id;
+  // Repeated element: one hook, told apart by the repository it shows —
+  // the same shape as cell-card and kanban-node.
+  div.dataset.t = "hf-result";
+  div.dataset.tId = repo.id;
 
   const starred = isFav(repo.id);
   div.innerHTML =
@@ -1594,7 +1598,7 @@ function refreshDownloadPanel() {
     const titleHTML  = job.title
       ? `<div class="hf-dl-job-title" style="font-size:12px;opacity:.75;margin-bottom:2px">${escapeHtml(job.title)}</div>` : "";
     progressHTML +=
-      `<div class="hf-dl-progress-row" style="display:flex;align-items:center;gap:10px;padding:8px 18px 4px">` +
+      `<div class="hf-dl-progress-row" data-t="hf-download-job" data-t-id="${escapeHtml(String(job.jobId || job.uid))}" style="display:flex;align-items:center;gap:10px;padding:8px 18px 4px">` +
         `<div style="flex:1;min-width:0">` +
           titleHTML +
           `<div class="hf-progress-bar"><div class="hf-progress-fill" style="width:${pct}%"></div></div>` +

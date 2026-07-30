@@ -837,27 +837,27 @@
       <span class="ob-q">?</span><span id="obBtnLabel">Tour</span>
     </button>
     <span id="hfDiskBadge" class="hf-disk-badge" hidden></span>
-    <button id="hfOnDiskBtn" type="button" class="hf-ondisk-btn" title="Manage downloaded models">📦 on disk</button>
+    <button id="hfOnDiskBtn" data-t="hf-on-disk" type="button" class="hf-ondisk-btn" title="Manage downloaded models">📦 on disk</button>
     <div class="hf-token-row">
       <span class="hf-token-label">HF Token</span>
       <span id="hfTokenStatus" class="hf-token-status">checking…</span>
-      <input id="hfTokenInput" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false" class="hf-token-input" hidden>
-      <button id="hfTokenSaveBtn" type="button" class="hf-token-save" hidden>Save</button>
-      <button id="hfTokenEditBtn" type="button" class="hf-token-edit">Change</button>
-      <button id="hfTokenClearBtn" type="button" class="hf-token-clear muted" hidden>Clear</button>
+      <input id="hfTokenInput" data-t="hf-token-input" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false" class="hf-token-input" hidden>
+      <button id="hfTokenSaveBtn" data-t="hf-token-save" type="button" class="hf-token-save" hidden>Save</button>
+      <button id="hfTokenEditBtn" data-t="hf-token-edit" type="button" class="hf-token-edit">Change</button>
+      <button id="hfTokenClearBtn" data-t="hf-token-clear" type="button" class="hf-token-clear muted" hidden>Clear</button>
     </div>
   </header>
 
   <div class="hf-search">
-    <input id="hfSearchInput" type="text"
+    <input id="hfSearchInput" data-t="hf-search-input" type="text"
            placeholder="bartowski/Qwen3-35B-GGUF  or  search term…"
            autocomplete="off" spellcheck="false">
-    <select id="hfLimitSelect" title="Results count">
+    <select id="hfLimitSelect" data-t="hf-limit" title="Results count">
       <option value="10">10</option>
       <option value="20" selected>20</option>
       <option value="50">50</option>
     </select>
-    <button id="hfSearchBtn" type="button">Search</button>
+    <button id="hfSearchBtn" data-t="hf-search-submit" type="button">Search</button>
   </div>
 
   <div class="hf-split">

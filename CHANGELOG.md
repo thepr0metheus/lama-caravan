@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- `/hf` has test hooks. It had none — `[data-t]` matched zero elements there,
+  reported from outside, and the page still appeared in the readiness list, so a
+  green suite looked like a covered page. Fourteen names now: the search field and
+  its submit, the result limit, sort and filename mask, the on-disk view, the four
+  token controls, and the two repeated families that matter — `hf-result` carrying
+  the repository id and `hf-download-job` carrying the job id.
+
+  The size buckets are addressed by the values the page filters on (`0-9`, not
+  `≤9B`) so a label change cannot move them. `hf-token-clear` deletes a credential
+  and a download job writes to disk: both are named to be asserted present, not
+  clicked — the same rule the destructive controls on `/system` follow.
+
 - The deploy prints a link to the test run it started. The dispatch answers with
   an empty body — 201 and 204 both carry nothing and the API declares no response
   at all — so the run is fetched separately, from a URL derived from the dispatch

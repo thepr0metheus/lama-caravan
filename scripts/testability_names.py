@@ -44,6 +44,8 @@ COMPOSED = {
     "cell-remote-compute": "memory.js: tHook by prefix",
     # static/js/topology-nodes.js — passed to mbadge() as its testId argument
     "cell-source-stale": "topology-nodes.js: mbadge(..., 'cell-source-stale')",
+    # static/hf.js — set through dataset.t on a constructed element
+    "hf-result": "hf.js: buildRepoRow sets div.dataset.t",
 }
 
 LITERAL = re.compile(r'data-t="([a-z][a-z0-9-]*)"')
