@@ -1588,6 +1588,29 @@ def _post_auth_fleet_token(h, parsed, body):
 class Handler(BaseHTTPRequestHandler):
     server_version = f"lama-caravan/{APP_VERSION}"
 
+    def send_response(self, *a, **kw):
+        # Remember that a status line is on the wire. The catch-alls at the
+        # bottom of do_GET/do_POST/do_DELETE answer with send_json, and for a
+        # handler that fails BEFORE responding that is exactly right — but a
+        # handler can also fail halfway through a body it has already begun.
+        # serve_model_file streams a GGUF under a Content-Length taken from
+        # stat(); a plain OSError mid-read (BrokenPipe and ConnectionReset it
+        # handles itself) lands in the catch-all, which then writes a second
+        # status line and a JSON error INTO the middle of the model. The scout
+        # reads its Content-Length worth of bytes and stores a file that is part
+        # weights, part HTTP — with a 200 and no error anywhere.
+        self._responded = True
+        return super().send_response(*a, **kw)
+
+    def _fail(self, exc, status=500):
+        """Answer an unhandled error, or — if the answer has already started —
+        end the connection instead of corrupting what was being sent."""
+        if getattr(self, "_responded", False):
+            self.close_connection = True
+            self.log_error("failed mid-response on %s: %r", self.path, exc)
+            return
+        self.send_json({"error": str(exc)}, status)
+
     def log_message(self, fmt, *args):
         print(f"{self.address_string()} - {fmt % args}")
 
@@ -1648,9 +1671,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             _fn(self, parsed)
         except AppError as exc:
-            self.send_json({"error": str(exc)}, exc.status)
+            self._fail(exc, exc.status)
         except Exception as exc:
-            self.send_json({"error": str(exc)}, 500)
+            self._fail(exc)
 
     def do_POST(self):
         try:
@@ -1664,9 +1687,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             _fn(self, parsed, body)
         except AppError as exc:
-            self.send_json({"error": str(exc)}, exc.status)
+            self._fail(exc, exc.status)
         except Exception as exc:
-            self.send_json({"error": str(exc)}, 500)
+            self._fail(exc)
 
     def do_DELETE(self):
         try:
@@ -1679,4 +1702,4 @@ class Handler(BaseHTTPRequestHandler):
                 return
             _fn(self, parsed)
         except Exception as exc:
-            self.send_json({"error": str(exc)}, 500)
+            self._fail(exc)

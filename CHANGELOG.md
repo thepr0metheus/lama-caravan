@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- A request that fails halfway through its answer ends the connection instead of
+  writing a second answer into the first. The catch-all at the bottom of each
+  verb replied with `send_json`, which is right for a handler that fails before
+  responding and wrong for one that fails mid-body: `serve_model_file` streams a
+  GGUF under a Content-Length taken from `stat()`, and any error it does not
+  catch itself put `HTTP/1.0 500 …` and a JSON error INTO the model. Reproduced:
+  a client asking for a 4096-byte file received 2251 bytes with a second HTTP
+  response starting at byte 2048 — which a scout would have written to disk as
+  weights. The same path now counts what it sends and drops the connection on a
+  short read, so a truncated transfer is something the receiver can notice
+  rather than a file that merely looks downloaded.
+
+- The proxy closes the connection when it answers an error before the upstream
+  replied. It speaks HTTP/1.1 and every other response path sends
+  `Connection: close`; this one branch did not, and the success path's
+  `close_connection` is jumped over by the exception that led here. A client
+  using keep-alive — the default in every modern SDK — left a listener thread
+  parked in `readline()` with no socket timeout for as long as it held the
+  socket.
+
 - The listen queue fits a page load. Every Python listener in the fleet — the
   board, the twelve proxy routes, the cell servers — took socketserver's default
   `request_queue_size` of 5, so five connections could wait to be accepted and

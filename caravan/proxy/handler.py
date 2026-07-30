@@ -904,6 +904,17 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     self.send_response(status)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Content-Length", str(len(payload)))
+                    # This handler speaks HTTP/1.1, so a client that says
+                    # keep-alive — which every modern SDK does by default — gets
+                    # a persistent connection unless we say otherwise. The
+                    # success path closes at the `self.close_connection = True`
+                    # above, but an exception jumps over it, and this was the
+                    # one response path with no Connection header of its own.
+                    # The thread then parks in readline() with no socket
+                    # timeout, holding a listener thread for as long as the
+                    # client keeps the socket. Every other reply here already
+                    # sends this header; this branch was the gap.
+                    self.send_header("Connection", "close")
                     self.end_headers()
                     self.wfile.write(payload)
             except Exception:

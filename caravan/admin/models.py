@@ -499,15 +499,28 @@ def serve_model_file(handler, query_string: str) -> None:
     handler.send_header("Content-Length", str(size))
     handler.send_header("Content-Disposition", f'attachment; filename="{target.name}"')
     handler.end_headers()
+    # Content-Length was promised from stat(); anything that stops the copy
+    # early leaves the receiver holding a SHORT file it has no way to question —
+    # a scout would write a truncated GGUF to disk and a cell would then fail to
+    # load a model that looks downloaded. So count what actually goes out, and
+    # if it does not match, drop the connection: a transfer that ends without
+    # its declared length is one the client can detect, where a clean close is
+    # not.
+    sent = 0
     with open(target, "rb") as fh:
-        while True:
+        while sent < size:
             chunk = fh.read(1 << 20)  # 1 MiB
             if not chunk:
-                break
+                break                 # file shrank under us
             try:
                 handler.wfile.write(chunk)
             except (BrokenPipeError, ConnectionResetError):
-                break
+                handler.close_connection = True
+                return                # the client left; nothing to report to
+            sent += len(chunk)
+    if sent != size:
+        handler.close_connection = True
+        handler.log_error("short read serving %s: %d of %d bytes", rel, sent, size)
 
 def list_gguf_models() -> dict:
     """Return GGUF model files from LLAMA_HOME/models, grouped by model dir.
