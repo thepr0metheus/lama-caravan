@@ -206,18 +206,35 @@ export function initTourButtons(opts) {
 
 // First-visit auto start: waits until `ready()` is true (app loader gone,
 // content rendered), then runs `fn` once per storage key.
+//
+// Cancelled by the first real interaction. `ready()` can lag the page being
+// USABLE by many seconds (slow fleet fetch), and someone who has already
+// started clicking has answered the question the welcome tour exists to ask —
+// the overlay landing on their next click steals it mid-action. Cancelling
+// also RECORDS the seen-flag rather than deferring: a surprise tour on the
+// next visit, interrupting someone who by then knows the page even better, is
+// the same mistake later. The pulsing ? button remains the standing invitation.
 export function autoStartOnce(key, ready, fn, timeoutMs = 20000) {
   const storageKey = `caravanTourSeen:${key}`;
   if (localStorage.getItem(storageKey)) return;
+  let interacted = false;
+  const note = () => { interacted = true; unhook(); localStorage.setItem(storageKey, "1"); };
+  const unhook = () => {
+    document.removeEventListener("pointerdown", note, true);
+    document.removeEventListener("keydown", note, true);
+  };
+  document.addEventListener("pointerdown", note, true);
+  document.addEventListener("keydown", note, true);
   const startedAt = Date.now();
   const timer = setInterval(() => {
-    if (Date.now() - startedAt > timeoutMs) { clearInterval(timer); return; }
+    if (interacted || Date.now() - startedAt > timeoutMs) { clearInterval(timer); unhook(); return; }
     let ok = false;
     try { ok = ready(); } catch { ok = false; }
     if (!ok) return;
     clearInterval(timer);
     localStorage.setItem(storageKey, "1");
-    setTimeout(fn, 600);
+    // The grace delay is itself a window a click can land in — re-check.
+    setTimeout(() => { unhook(); if (!interacted) fn(); }, 600);
   }, 400);
 }
 

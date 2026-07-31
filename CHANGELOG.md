@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- The welcome tour stops stealing clicks from someone already working. Its
+  auto-start waits for the board to be ready — up to 20 seconds — and then
+  opened its overlay regardless of what the operator was doing by that point,
+  landing on top of their next click. Now the first real interaction (a
+  pointerdown or keydown anywhere) cancels the pending auto-start and records
+  the seen-flag: a person confidently driving the page has answered the
+  question the welcome tour exists to ask, and interrupting them on the NEXT
+  visit would be the same mistake later. The pulsing ? button remains the
+  standing invitation, and a genuinely idle first visit still gets the tour.
+
+  The cell editor's first-open nudge gets the same treatment for its 900 ms
+  render-wait: start editing inside that window and the nudge yields. The
+  listeners arm only after the editor opens, so the click that opened it
+  cannot cancel its own nudge.
+
+  Surfaced by the external Playwright suite: parallel runs slowed the board
+  just enough for the auto-start to fire mid-test, and the overlay swallowed
+  a click on a cell's Configure button — the same theft a human experiences,
+  just reproducible.
+
 - The two auth forms get their own URLs. `/login` is the sign-in form;
   `/setup` is the first-run wizard, token box included. The server redirects
   between them by state: a fresh controller bounces `/login` to `/setup` —

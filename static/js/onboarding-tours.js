@@ -126,7 +126,22 @@ function watchEditorFirstOpen() {
     localStorage.setItem(KEY, "1");
     obs.disconnect();
     // Give the form a beat to render its fields so more steps have anchors.
-    setTimeout(() => { if (!document.querySelector(".ob-root")) startTour(); }, 900);
+    // That beat is also a window: someone who starts editing inside it has
+    // moved past needing a tour, and the overlay would steal their click.
+    // Listeners arm HERE — after the opening click's pointerdown — so the
+    // click that opened the editor cannot cancel its own nudge.
+    let interacted = false;
+    const note = () => { interacted = true; unhook(); };
+    const unhook = () => {
+      document.removeEventListener("pointerdown", note, true);
+      document.removeEventListener("keydown", note, true);
+    };
+    document.addEventListener("pointerdown", note, true);
+    document.addEventListener("keydown", note, true);
+    setTimeout(() => {
+      unhook();
+      if (!interacted && !document.querySelector(".ob-root")) startTour();
+    }, 900);
   });
   overlays.forEach((el) => obs.observe(el, { attributes: true, attributeFilter: ["hidden"] }));
 }
