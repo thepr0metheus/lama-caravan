@@ -84,6 +84,13 @@ export function applyLanguage() {
     el.title = text;
     el.setAttribute("aria-label", text);
   });
+  // Name only, no hover tooltip — for a control that needs a name for assistive
+  // technology but has no visible label to borrow one from. [data-title-i18n]
+  // would also plant a title, which on a text field is just noise. Same
+  // attribute name the sign-in page uses.
+  document.querySelectorAll("[data-i18n-aria]").forEach((el) => {
+    el.setAttribute("aria-label", t(el.dataset.i18nAria));
+  });
   // Dynamic (?) tooltips are built with fieldHelp()/t() at render time, not via
   // [data-i18n] (which would overwrite the whole element, wiping the "?" glyph
   // and the tooltip). Refresh their text + aria IN PLACE so switching language

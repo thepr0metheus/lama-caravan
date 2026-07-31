@@ -110,7 +110,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 159 values. Regenerate with
+Generated from the source, not from memory — 160 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Fourteen of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -122,7 +122,7 @@ that is why there is a script and not a one-liner.
 **confirm** — `confirm-accept`, `confirm-cancel`, `confirm-input`, `confirm-meta`, `confirm-overlay`, `confirm-path`, `confirm-text`, `confirm-title`
 **header** — `header`, `header-app-title`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
 **hf** — `hf-capability-filter`, `hf-download-job`, `hf-limit`, `hf-mask`, `hf-on-disk`, `hf-result`, `hf-search-input`, `hf-search-submit`, `hf-size-filter`, `hf-sort`, `hf-token-clear`, `hf-token-edit`, `hf-token-input`, `hf-token-save`
-**kanban** — `kanban-back-link`, `kanban-cable`, `kanban-cables`, `kanban-canvas`, `kanban-node`, `kanban-palette-add`, `kanban-save-status`
+**kanban** — `kanban-back-link`, `kanban-cable`, `kanban-cables`, `kanban-canvas`, `kanban-input-wait`, `kanban-node`, `kanban-palette-add`, `kanban-save-status`
 **login** — `login-error`, `login-form`, `login-lang`, `login-password`, `login-submit`, `login-username`
 **models** — `models-delete-selected`, `models-hero-stats`, `models-model-select`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-unused-select-all`
 **node** — `node-poweroff`, `node-reboot`

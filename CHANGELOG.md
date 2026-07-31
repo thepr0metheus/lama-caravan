@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- Five controls a screen reader could not name now have names. The worst was
+  `/models`: fifty-nine catalogue checkboxes announced as "checkbox, not
+  checked", identical, with **Delete selected** as the next control after the
+  list — so a keyboard user could pick files for deletion with no way to hear
+  which ones. The name existed all along in `data-t-id`; it simply was not
+  exposed. `/hf`'s search and filter boxes were named by their placeholder,
+  which is the last-resort source and disappears once the field has content —
+  named while empty, anonymous while in use. The models-directory field had
+  nothing at all.
+
+  The kanban wait field had neither a name nor a test id: its visible caption is
+  a `<span>`, which the accessibility tree treats as decoration. It now says
+  what it is and which port it belongs to, and carries `kanban-input-wait`.
+
+  Three new strings across all twenty languages, plus `data-i18n-aria` for the
+  case of a name with no visible label to borrow from — `data-title-i18n` would
+  have planted a hover tooltip too.
+
 - The sign-in page translates its one untranslated name. The language selector
   carried `aria-label="Language"` hardcoded while the other twelve strings on
   that page followed the interface language — so a page fully in Russian

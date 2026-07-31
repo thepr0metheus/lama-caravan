@@ -573,6 +573,7 @@ export default {
   gcTitle: "Models disk cleanup",
   gcSummary: "{path} — {count} unused files, {gb} GB reclaimable",
   gcNoUnused: "Nothing unused: every GGUF on disk is referenced by a cell config.",
+  a11yModelsDirectory: "Models directory",
   gcSelectAll: "Select all unused",
   gcDelete: "Delete selected",
   gcConfirm: "Delete {count} model file(s) from the disk? This cannot be undone.",

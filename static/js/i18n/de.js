@@ -955,6 +955,7 @@ export default {
   gcTitle: "Datenträgerbereinigung für Modelle",
   gcSummary: "{path} — {count} ungenutzte Dateien, {gb} GB freigebbar",
   gcNoUnused: "Nichts ungenutzt: Jede GGUF-Datei auf der Festplatte wird von einer Zellen-Konfig referenziert.",
+  a11yModelsDirectory: "Modellverzeichnis",
   gcSelectAll: "Alle ungenutzten auswählen",
   gcDelete: "Ausgewählte löschen",
   gcConfirm: "{count} Modelldatei(en) von der Festplatte löschen? Dies kann nicht rückgängig gemacht werden.",

@@ -38,6 +38,7 @@ const HFS = {
     deleteFailed: "Failed to delete: {err}",
     benchLoading: "Loading data from Artificial Analysis…",
     onDiskTitle: "Manage downloaded models",
+    a11ySearchModels: "Search Hugging Face", a11yFilterByName: "Filter by file name",
   },
   ru: {
     treeQuants: "Квантованные версии",
@@ -57,6 +58,7 @@ const HFS = {
     deleteFailed: "Не удалось удалить: {err}",
     benchLoading: "Загружаю данные Artificial Analysis…",
     onDiskTitle: "Скачанные модели",
+    a11ySearchModels: "Поиск на Hugging Face", a11yFilterByName: "Фильтр по имени файла",
   },
   zh: {
     treeQuants: "量化版本",
@@ -84,6 +86,7 @@ const HFS = {
     deleteFailed: "删除失败：{err}",
     benchLoading: "正在加载 Artificial Analysis 数据…",
     onDiskTitle: "管理已下载的模型",
+    a11ySearchModels: "搜索 Hugging Face", a11yFilterByName: "按文件名筛选",
   },
   hi: {
     treeQuants: "क्वांटाइज़्ड संस्करण",
@@ -111,6 +114,7 @@ const HFS = {
     deleteFailed: "हटाना विफल: {err}",
     benchLoading: "Artificial Analysis से डेटा लोड हो रहा है…",
     onDiskTitle: "डाउनलोड किए मॉडल प्रबंधित करें",
+    a11ySearchModels: "Hugging Face पर खोज", a11yFilterByName: "फ़ाइल नाम से फ़िल्टर",
   },
   es: {
     treeQuants: "Versiones cuantizadas",
@@ -138,6 +142,7 @@ const HFS = {
     deleteFailed: "Fallo al eliminar: {err}",
     benchLoading: "Cargando datos de Artificial Analysis…",
     onDiskTitle: "Gestionar modelos descargados",
+    a11ySearchModels: "Buscar en Hugging Face", a11yFilterByName: "Filtrar por nombre de archivo",
   },
   fr: {
     treeQuants: "Versions quantifiées",
@@ -165,6 +170,7 @@ const HFS = {
     deleteFailed: "Échec de la suppression : {err}",
     benchLoading: "Chargement des données d'Artificial Analysis…",
     onDiskTitle: "Gérer les modèles téléchargés",
+    a11ySearchModels: "Rechercher sur Hugging Face", a11yFilterByName: "Filtrer par nom de fichier",
   },
   ar: {
     treeQuants: "إصدارات مكمّمة",
@@ -192,6 +198,7 @@ const HFS = {
     deleteFailed: "فشل الحذف: {err}",
     benchLoading: "جارٍ تحميل بيانات Artificial Analysis…",
     onDiskTitle: "إدارة النماذج المنزّلة",
+    a11ySearchModels: "البحث في Hugging Face", a11yFilterByName: "تصفية حسب اسم الملف",
   },
   bn: {
     treeQuants: "কোয়ান্টাইজড সংস্করণ",
@@ -219,6 +226,7 @@ const HFS = {
     deleteFailed: "মুছতে ব্যর্থ: {err}",
     benchLoading: "Artificial Analysis থেকে ডেটা লোড হচ্ছে…",
     onDiskTitle: "ডাউনলোড করা মডেল পরিচালনা",
+    a11ySearchModels: "Hugging Face-এ সন্ধান", a11yFilterByName: "ফাইলের নাম দিয়ে ফিল্টার",
   },
   pt: {
     treeQuants: "Versões quantizadas",
@@ -246,6 +254,7 @@ const HFS = {
     deleteFailed: "Falha ao excluir: {err}",
     benchLoading: "Carregando dados do Artificial Analysis…",
     onDiskTitle: "Gerenciar modelos baixados",
+    a11ySearchModels: "Buscar no Hugging Face", a11yFilterByName: "Filtrar por nome do arquivo",
   },
   ja: {
     treeQuants: "量子化バージョン",
@@ -273,6 +282,7 @@ const HFS = {
     deleteFailed: "削除に失敗しました：{err}",
     benchLoading: "Artificial Analysis からデータを読み込み中…",
     onDiskTitle: "ダウンロード済みモデルの管理",
+    a11ySearchModels: "Hugging Face を検索", a11yFilterByName: "ファイル名で絞り込み",
   },
   de: {
     treeQuants: "Quantisierte Versionen",
@@ -300,6 +310,7 @@ const HFS = {
     deleteFailed: "Löschen fehlgeschlagen: {err}",
     benchLoading: "Daten von Artificial Analysis werden geladen…",
     onDiskTitle: "Heruntergeladene Modelle verwalten",
+    a11ySearchModels: "Hugging Face durchsuchen", a11yFilterByName: "Nach Dateiname filtern",
   },
   id: {
     treeQuants: "Versi terkuantisasi",
@@ -327,6 +338,7 @@ const HFS = {
     deleteFailed: "Gagal menghapus: {err}",
     benchLoading: "Memuat data dari Artificial Analysis…",
     onDiskTitle: "Kelola model terunduh",
+    a11ySearchModels: "Cari di Hugging Face", a11yFilterByName: "Filter berdasarkan nama file",
   },
   ur: {
     treeQuants: "کوانٹائزڈ ورژن",
@@ -354,6 +366,7 @@ const HFS = {
     deleteFailed: "حذف کرنا ناکام: {err}",
     benchLoading: "Artificial Analysis سے ڈیٹا لوڈ ہو رہا ہے…",
     onDiskTitle: "ڈاؤن لوڈ شدہ ماڈلز منظم کریں",
+    a11ySearchModels: "Hugging Face میں تلاش", a11yFilterByName: "فائل کے نام سے فلٹر",
   },
   tr: {
     treeQuants: "Nicemlenmiş sürümler",
@@ -381,6 +394,7 @@ const HFS = {
     deleteFailed: "Silme başarısız: {err}",
     benchLoading: "Artificial Analysis'ten veri yükleniyor…",
     onDiskTitle: "İndirilen modelleri yönet",
+    a11ySearchModels: "Hugging Face'te ara", a11yFilterByName: "Dosya adına göre filtrele",
   },
   ko: {
     treeQuants: "양자화 버전",
@@ -408,6 +422,7 @@ const HFS = {
     deleteFailed: "삭제 실패: {err}",
     benchLoading: "Artificial Analysis 데이터 로딩 중…",
     onDiskTitle: "다운로드한 모델 관리",
+    a11ySearchModels: "Hugging Face 검색", a11yFilterByName: "파일 이름으로 필터",
   },
   vi: {
     treeQuants: "Phiên bản lượng tử hóa",
@@ -435,6 +450,7 @@ const HFS = {
     deleteFailed: "Xóa thất bại: {err}",
     benchLoading: "Đang tải dữ liệu từ Artificial Analysis…",
     onDiskTitle: "Quản lý mô hình đã tải",
+    a11ySearchModels: "Tìm kiếm trên Hugging Face", a11yFilterByName: "Lọc theo tên tệp",
   },
   it: {
     treeQuants: "Versioni quantizzate",
@@ -462,6 +478,7 @@ const HFS = {
     deleteFailed: "Eliminazione non riuscita: {err}",
     benchLoading: "Caricamento dati da Artificial Analysis…",
     onDiskTitle: "Gestisci i modelli scaricati",
+    a11ySearchModels: "Cerca su Hugging Face", a11yFilterByName: "Filtra per nome file",
   },
   te: {
     treeQuants: "క్వాంటైజ్డ్ వెర్షన్లు",
@@ -489,6 +506,7 @@ const HFS = {
     deleteFailed: "తొలగించడం విఫలమైంది: {err}",
     benchLoading: "Artificial Analysis నుండి డేటా లోడ్ అవుతోంది…",
     onDiskTitle: "డౌన్‌లోడ్ చేసిన మోడల్‌లను నిర్వహించండి",
+    a11ySearchModels: "Hugging Face లో వెతకండి", a11yFilterByName: "ఫైల్ పేరుతో ఫిల్టర్",
   },
   mr: {
     treeQuants: "क्वांटाइज्ड आवृत्त्या",
@@ -516,6 +534,7 @@ const HFS = {
     deleteFailed: "हटवणे अयशस्वी: {err}",
     benchLoading: "Artificial Analysis कडून डेटा लोड होत आहे…",
     onDiskTitle: "डाउनलोड केलेली मॉडेल्स व्यवस्थापित करा",
+    a11ySearchModels: "Hugging Face वर शोध", a11yFilterByName: "फाइल नावाने फिल्टर",
   },
   ta: {
     treeQuants: "குவாண்டைஸ் பதிப்புகள்",
@@ -543,6 +562,7 @@ const HFS = {
     deleteFailed: "நீக்குவது தோல்வியுற்றது: {err}",
     benchLoading: "Artificial Analysis இலிருந்து தரவு ஏற்றப்படுகிறது…",
     onDiskTitle: "பதிவிறக்கிய மாதிரிகளை நிர்வகி",
+    a11ySearchModels: "Hugging Face இல் தேடல்", a11yFilterByName: "கோப்புப் பெயரால் வடிகட்டல்",
   },
 };
 function hfT(key, vars = {}) {
@@ -554,6 +574,13 @@ function hfT(key, vars = {}) {
 document.addEventListener("DOMContentLoaded", () => {
   const od = document.getElementById("hfOnDiskBtn");
   if (od) od.title = hfT("onDiskTitle");
+  // The search box was named by its placeholder alone. A placeholder is the
+  // last-resort source for an accessible name and it disappears the moment the
+  // field has content — so the field was named while empty and anonymous while
+  // in use, which is backwards. (The mask box has the same problem; it is
+  // rendered from a template, so it gets its label there.)
+  const search = document.getElementById("hfSearchInput");
+  if (search) search.setAttribute("aria-label", hfT("a11ySearchModels"));
 });
 
 function hfConfirm(title, body, okLabel = "Delete", danger = true) {
@@ -1118,7 +1145,7 @@ function buildFilterBar() {
       <div class="hf-chips" id="hfTypeChips"></div>
     </div>
     <div class="hf-filter-row">
-      <input class="hf-mask-input" data-t="hf-mask" id="hfMaskInput" placeholder="filter by name…" type="text">
+      <input class="hf-mask-input" data-t="hf-mask" id="hfMaskInput" aria-label="${escapeHtml(hfT("a11yFilterByName"))}" placeholder="filter by name…" type="text">
       <select class="hf-sort-select" data-t="hf-sort" id="hfSortSelect">
         <option value="downloads-desc">↓ Downloads</option>
         <option value="downloads-asc">↑ Downloads</option>

@@ -933,7 +933,19 @@ export function canvasNodes(router) {
     const synced = proxyEffectiveWaitTimeout(p);
     return `<div class="cv-in-wait" title="${escapeHtml(t("cvTitleWaitBudget"))}">`
       + `<span class="cv-in-wait-lbl">${escapeHtml(t("cvLabelWait"))}</span>`
-      + `<input class="cv-in-wait-in" type="number" min="0" max="86400" data-cv-wait="${escapeHtml(p.id)}" value="${override || ""}" placeholder="${synced || escapeHtml(t("cvAuto"))}">`
+      // The visible label beside it is a <span>, which is decoration as far as the
+      // accessibility tree is concerned — so this field had no name at all, and
+      // no test id either. Both come from what it already knows: the wait label
+      // it is captioned with, and the port it configures.
+      + `<input class="cv-in-wait-in" type="number" min="0" max="86400"`
+      + ` aria-label="${escapeHtml(t("cvLabelWait"))} :${escapeHtml(String(p.port))}"`
+      // The row's title explains what the number means, but a title on an
+      // ancestor is not read for the field — so it is repeated here, where
+      // having an aria-label already makes it the DESCRIPTION rather than a
+      // second, competing name.
+      + ` title="${escapeHtml(t("cvTitleWaitBudget"))}"`
+      + ` data-t="kanban-input-wait" data-t-id="${escapeHtml(p.id)}"`
+      + ` data-cv-wait="${escapeHtml(p.id)}" value="${override || ""}" placeholder="${synced || escapeHtml(t("cvAuto"))}">`
       + `<span class="cv-in-wait-u">s</span></div>`;
   };
   // Build the grouped inputs block — one block for all clients, each row has a port dot

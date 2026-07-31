@@ -955,6 +955,7 @@ export default {
   gcTitle: "ماڈلز ڈسک کی صفائی",
   gcSummary: "{path} — {count} غیر مستعمل فائلیں، {gb} GB واپس لینے کے قابل",
   gcNoUnused: "کوئی غیر مستعمل نہیں: ڈسک پر ہر GGUF کسی سیل کنفگ میں حوالہ شدہ ہے۔",
+  a11yModelsDirectory: "ماڈلز ڈائریکٹری",
   gcSelectAll: "تمام غیر مستعمل منتخب کریں",
   gcDelete: "منتخب حذف کریں",
   gcConfirm: "ڈسک سے {count} ماڈل فائل(ز) حذف کریں؟ یہ واپس نہیں ہو سکتا۔",

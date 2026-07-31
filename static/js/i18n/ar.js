@@ -955,6 +955,7 @@ export default {
   gcTitle: "تنظيف قرص النماذج",
   gcSummary: "{path} — {count} ملفات غير مستخدمة، يمكن استرجاع {gb} GB",
   gcNoUnused: "لا شيء غير مستخدم: كل GGUF على القرص مذكور في إعداد خلية ما.",
+  a11yModelsDirectory: "مجلد النماذج",
   gcSelectAll: "تحديد كل غير المستخدم",
   gcDelete: "حذف المحدد",
   gcConfirm: "حذف {count} ملف(ات) نماذج من القرص؟ لا يمكن التراجع.",

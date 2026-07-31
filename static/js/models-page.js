@@ -81,7 +81,12 @@ async function refresh() {
       // the last segment and two quantisations of the same model share it, so a
       // test selecting by name would pick whichever came first. The path is
       // what the delete call sends.
-      : `<input type="checkbox" data-t="models-model-select" data-t-id="${escapeHtml(f.path)}"`
+      // aria-label is the path, the same string data-t-id carries. Without it a
+      // screen reader reads fifty-nine identical "checkbox, not checked", and
+      // the control after the list is Delete selected — so a keyboard user could
+      // pick files for deletion with no way to hear which ones. The name exists
+      // already; it was simply not exposed.
+      : `<input type="checkbox" aria-label="${escapeHtml(f.path)}" data-t="models-model-select" data-t-id="${escapeHtml(f.path)}"`
         + ` data-del-path="${escapeHtml(f.path)}" data-size="${f.sizeBytes}">`;
     return `<div class="mdl-file">${used}<code title="${escapeHtml(f.path)}">${escapeHtml(name)}</code>` +
       `<span class="meta">${fmtGb(f.sizeBytes)} · ${f.ageDays}d</span></div>`;

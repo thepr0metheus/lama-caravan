@@ -955,6 +955,7 @@ export default {
   gcTitle: "Pembersihan disk model",
   gcSummary: "{path} — {count} berkas tak terpakai, {gb} GB dapat dikosongkan",
   gcNoUnused: "Tidak ada yang tak terpakai: setiap GGUF di disk dirujuk oleh konfig sel.",
+  a11yModelsDirectory: "Direktori model",
   gcSelectAll: "Pilih semua yang tak terpakai",
   gcDelete: "Hapus yang dipilih",
   gcConfirm: "Hapus {count} berkas model dari disk? Tindakan ini tidak dapat dibatalkan.",

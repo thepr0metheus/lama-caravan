@@ -955,6 +955,7 @@ export default {
   gcTitle: "Dọn dẹp đĩa mô hình",
   gcSummary: "{path} — {count} tệp không dùng, có thể thu hồi {gb} GB",
   gcNoUnused: "Không có gì thừa: mọi GGUF trên đĩa đều được một cấu hình ô tham chiếu.",
+  a11yModelsDirectory: "Thư mục mô hình",
   gcSelectAll: "Chọn tất cả không dùng",
   gcDelete: "Xóa mục đã chọn",
   gcConfirm: "Xóa {count} tệp mô hình khỏi đĩa? Không thể hoàn tác.",

@@ -955,6 +955,7 @@ export default {
   gcTitle: "モデルディスクのクリーンアップ",
   gcSummary: "{path} — 未使用ファイル {count} 件、{gb} GB 解放可能",
   gcNoUnused: "未使用はありません：ディスク上のすべての GGUF はいずれかのセル設定から参照されています。",
+  a11yModelsDirectory: "モデルディレクトリ",
   gcSelectAll: "未使用をすべて選択",
   gcDelete: "選択項目を削除",
   gcConfirm: "{count} 個のモデルファイルをディスクから削除しますか？この操作は元に戻せません。",

@@ -955,6 +955,7 @@ export default {
   gcTitle: "模型磁盘清理",
   gcSummary: "{path} — {count} 个未使用文件，可释放 {gb} GB",
   gcNoUnused: "没有未使用的文件：磁盘上的每个 GGUF 都被某个单元配置引用。",
+  a11yModelsDirectory: "模型目录",
   gcSelectAll: "选择所有未使用",
   gcDelete: "删除所选",
   gcConfirm: "从磁盘删除 {count} 个模型文件？此操作无法撤销。",

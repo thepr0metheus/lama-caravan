@@ -955,6 +955,7 @@ export default {
   gcTitle: "Limpeza do disco de modelos",
   gcSummary: "{path} — {count} arquivos sem uso, {gb} GB recuperáveis",
   gcNoUnused: "Nada sem uso: todo GGUF no disco é referenciado por alguma config de célula.",
+  a11yModelsDirectory: "Diretório de modelos",
   gcSelectAll: "Selecionar todos sem uso",
   gcDelete: "Excluir selecionados",
   gcConfirm: "Excluir {count} arquivo(s) de modelo do disco? Isso não pode ser desfeito.",

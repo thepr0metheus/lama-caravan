@@ -955,6 +955,7 @@ export default {
   gcTitle: "모델 디스크 정리",
   gcSummary: "{path} — 사용되지 않는 파일 {count}개, {gb} GB 확보 가능",
   gcNoUnused: "사용되지 않는 것 없음: 디스크의 모든 GGUF가 셀 구성에서 참조됩니다.",
+  a11yModelsDirectory: "모델 디렉터리",
   gcSelectAll: "사용되지 않는 항목 모두 선택",
   gcDelete: "선택 항목 삭제",
   gcConfirm: "디스크에서 모델 파일 {count}개를 삭제할까요? 되돌릴 수 없습니다.",

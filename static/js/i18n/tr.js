@@ -955,6 +955,7 @@ export default {
   gcTitle: "Model diski temizliği",
   gcSummary: "{path} — {count} kullanılmayan dosya, {gb} GB geri kazanılabilir",
   gcNoUnused: "Kullanılmayan yok: diskteki her GGUF bir hücre yapılandırmasında referans alınıyor.",
+  a11yModelsDirectory: "Model dizini",
   gcSelectAll: "Kullanılmayanların tümünü seç",
   gcDelete: "Seçilenleri sil",
   gcConfirm: "Diskten {count} model dosyası silinsin mi? Bu geri alınamaz.",
