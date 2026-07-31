@@ -2,6 +2,51 @@
 
 ## Unreleased
 
+- The four controls the test team's expanded sweep found, and thirty more they
+  could not reach. Theirs first: the two mirrored `HEALTH_PATH` boxes had a
+  label-row whose `for=` names the *toggle* beside them, so every other field in
+  that editor was named by its label and these two were not; `/hf`'s
+  results-count select was named by a hardcoded English `title`, and the sort
+  select by nothing at all.
+
+  Then we repeated the sweep from the source instead of the browser, which
+  reaches what a live session cannot: every runner tab including `moonshine` and
+  `transcribe`, and every control built inside a template string. Thirty more,
+  each verified by a second pass whose job was to refute it. The pattern
+  underneath is one shape repeated: **the name exists, and points at the wrong
+  element.**
+
+  - The model picker replaces a `<select>` with a focusable `<div>` and then
+    hides the select — taking the `<label for>` with it. The visible widget, the
+    one you tab to and click, had no name. It now borrows that same label rather
+    than inventing a second string.
+  - Two companion checkboxes announced "Enabled" / "Disabled" and nothing else:
+    their wrapping label contains only the span that holds the state word, while
+    "MMPROJ" belongs to the select beside them and "offload to GPU" sits outside
+    the label entirely.
+  - Eleven help tips in the graph editor were hand-written copies of `helpTip()`
+    minus its `aria-label` — eleven silent tab stops. They go through the helper
+    now.
+  - Six `✕` buttons in the security panel, one per user and per session, were
+    all announced identically.
+  - The confirm dialog's prompt field is named by the question it is asking
+    (`aria-labelledby` at the title), which is better than any label we could
+    have written for it.
+
+  Twenty-five new strings across all twenty languages, plus seven places where a
+  translated string already existed and something hardcoded was shadowing it —
+  including `aria-label="Language"` on three more pages after the sign-in page
+  was fixed for exactly that in 1.3.165.
+
+- The i18n guard now checks the two lookup routes it never covered. It read
+  `t("…")` in JS and stopped there, so `[data-i18n*]` in the HTML and `hfT("…")`
+  against `/hf`'s own table went unverified — 132 lookups nobody was checking.
+  That gap is worse than it sounds for `data-i18n-aria`, added one release ago:
+  a mistyped key there produces an `aria-label` whose value is the key, which a
+  screen reader then reads aloud. A missed `[data-i18n]` is at least visible on
+  screen; a missed name is audible only to the people least able to work around
+  it. All three branches were verified by breaking a key on purpose.
+
 - Five controls a screen reader could not name now have names. The worst was
   `/models`: fifty-nine catalogue checkboxes announced as "checkbox, not
   checked", identical, with **Delete selected** as the next control after the

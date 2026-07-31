@@ -1230,7 +1230,7 @@ export function renderCommandCellPreview(pfx) {
         const when = h.ts ? new Date(h.ts * 1000).toLocaleString() : "";
         return `<div class="cmd-history-item"><code class="cmd-history-cmd">${escapeHtml(h.command || "")}</code>`
           + `<div class="cmd-history-row"><span class="cmd-history-when">${escapeHtml(when)}</span>`
-          + `<button type="button" class="cmd-history-revert" data-cmd-revert="${i}">↺ revert</button></div></div>`;
+          + `<button type="button" class="cmd-history-revert" data-cmd-revert="${i}">↺ ${escapeHtml(t("cmdHistoryRevert"))}</button></div></div>`;
       }).join("");
       hist.querySelectorAll("[data-cmd-revert]").forEach((b) => {
         b.addEventListener("click", () => {

@@ -260,7 +260,7 @@ export function openPortPicker(hostId, port) {
     <div class="topology-policy-modal port-picker-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("portPickerTitle", { port: String(cur) }))}">
       <div class="topology-card-head">
         <strong>${escapeHtml(t("portPickerTitle", { port: String(cur) }))}</strong>
-        <button class="icon-action compact" type="button" data-pp-close aria-label="×">×</button>
+        <button class="icon-action compact" type="button" data-pp-close aria-label="${escapeHtml(t("a11yClosePortPicker"))}">×</button>
       </div>
       <div class="port-picker-legend">${legend}</div>
       <div class="port-picker-hint">${escapeHtml(t("portPickerSwapHint"))}

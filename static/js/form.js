@@ -173,6 +173,19 @@ export function makeModelCombobox(selectEl) {
   trigger.tabIndex = 0;
   trigger.setAttribute("aria-haspopup", "listbox");
   trigger.setAttribute("aria-expanded", "false");
+  trigger.setAttribute("role", "combobox");
+  // The SAME trap one level down. <label for="te-MODEL_FILE"> names the select
+  // we are about to hide, so the name went with it and the thing that actually
+  // takes focus had none. Point the trigger at that very label rather than
+  // inventing a second string: the label is the name a sighted user reads, and
+  // it stays correct on its own.
+  const label = selectEl.id
+    ? document.querySelector(`label[for="${CSS.escape(selectEl.id)}"]`)
+    : null;
+  if (label) {
+    if (!label.id) label.id = `${selectEl.id}-label`;
+    trigger.setAttribute("aria-labelledby", label.id);
+  }
 
   const panel = document.createElement("div");
   panel.className = "mc-panel";
@@ -182,6 +195,7 @@ export function makeModelCombobox(selectEl) {
   search.type = "text";
   search.className = "mc-search";
   search.placeholder = t("filterPlaceholder");
+  search.setAttribute("aria-label", t("a11yFilterModels"));
   search.setAttribute("autocomplete", "off");
 
   const list = document.createElement("div");

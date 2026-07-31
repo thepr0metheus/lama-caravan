@@ -31,7 +31,10 @@ function openDialog(message, opts, mode) {
       input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); settleAppConfirm(true); } };
     }
     const btn = $("confirmDelete");
-    btn.textContent = opts.confirmLabel || "OK";
+    // The markup carries data-i18n="deleteAction", but this line overwrites the
+    // text on every open — so the translated default never survived to be seen.
+    // Most callers pass nothing, which is exactly when it mattered.
+    btn.textContent = opts.confirmLabel || t("okAction");
     btn.classList.toggle("danger", mode !== "prompt" && opts.danger !== false);
     ui.pendingConfirm = () => settleAppConfirm(true);
     $("confirmOverlay").hidden = false;

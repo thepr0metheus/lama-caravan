@@ -39,6 +39,13 @@ const HFS = {
     benchLoading: "Loading data from Artificial Analysis…",
     onDiskTitle: "Manage downloaded models",
     a11ySearchModels: "Search Hugging Face", a11yFilterByName: "Filter by file name",
+    a11yResultsCount: "Number of results", a11ySortOrder: "Sort order",
+    cancelWord: "Cancel",
+    a11yStartDownload: "Download",
+    a11yRefreshBench: "Refresh benchmark data",
+    a11yDownloadCheckpoint: "Download checkpoint",
+    a11yOtherFiles: "Other files in this repository",
+    a11yHfToken: "Hugging Face access token",
   },
   ru: {
     treeQuants: "Квантованные версии",
@@ -59,6 +66,13 @@ const HFS = {
     benchLoading: "Загружаю данные Artificial Analysis…",
     onDiskTitle: "Скачанные модели",
     a11ySearchModels: "Поиск на Hugging Face", a11yFilterByName: "Фильтр по имени файла",
+    a11yResultsCount: "Количество результатов", a11ySortOrder: "Порядок сортировки",
+    cancelWord: "Отмена",
+    a11yStartDownload: "Скачать",
+    a11yRefreshBench: "Обновить данные бенчмарков",
+    a11yDownloadCheckpoint: "Скачать чекпоинт",
+    a11yOtherFiles: "Другие файлы репозитория",
+    a11yHfToken: "Токен доступа Hugging Face",
   },
   zh: {
     treeQuants: "量化版本",
@@ -87,6 +101,13 @@ const HFS = {
     benchLoading: "正在加载 Artificial Analysis 数据…",
     onDiskTitle: "管理已下载的模型",
     a11ySearchModels: "搜索 Hugging Face", a11yFilterByName: "按文件名筛选",
+    a11yResultsCount: "结果数量", a11ySortOrder: "排序方式",
+    cancelWord: "取消",
+    a11yStartDownload: "下载",
+    a11yRefreshBench: "刷新基准数据",
+    a11yDownloadCheckpoint: "下载检查点",
+    a11yOtherFiles: "此仓库中的其他文件",
+    a11yHfToken: "Hugging Face 访问令牌",
   },
   hi: {
     treeQuants: "क्वांटाइज़्ड संस्करण",
@@ -115,6 +136,13 @@ const HFS = {
     benchLoading: "Artificial Analysis से डेटा लोड हो रहा है…",
     onDiskTitle: "डाउनलोड किए मॉडल प्रबंधित करें",
     a11ySearchModels: "Hugging Face पर खोज", a11yFilterByName: "फ़ाइल नाम से फ़िल्टर",
+    a11yResultsCount: "परिणामों की संख्या", a11ySortOrder: "सॉर्ट क्रम",
+    cancelWord: "रद्द करें",
+    a11yStartDownload: "डाउनलोड करें",
+    a11yRefreshBench: "बेंचमार्क डेटा रीफ़्रेश करें",
+    a11yDownloadCheckpoint: "चेकपॉइंट डाउनलोड करें",
+    a11yOtherFiles: "इस रिपॉज़िटरी की अन्य फ़ाइलें",
+    a11yHfToken: "Hugging Face एक्सेस टोकन",
   },
   es: {
     treeQuants: "Versiones cuantizadas",
@@ -143,6 +171,13 @@ const HFS = {
     benchLoading: "Cargando datos de Artificial Analysis…",
     onDiskTitle: "Gestionar modelos descargados",
     a11ySearchModels: "Buscar en Hugging Face", a11yFilterByName: "Filtrar por nombre de archivo",
+    a11yResultsCount: "Número de resultados", a11ySortOrder: "Orden de clasificación",
+    cancelWord: "Cancelar",
+    a11yStartDownload: "Descargar",
+    a11yRefreshBench: "Actualizar datos del benchmark",
+    a11yDownloadCheckpoint: "Descargar checkpoint",
+    a11yOtherFiles: "Otros archivos del repositorio",
+    a11yHfToken: "Token de acceso de Hugging Face",
   },
   fr: {
     treeQuants: "Versions quantifiées",
@@ -171,6 +206,13 @@ const HFS = {
     benchLoading: "Chargement des données d'Artificial Analysis…",
     onDiskTitle: "Gérer les modèles téléchargés",
     a11ySearchModels: "Rechercher sur Hugging Face", a11yFilterByName: "Filtrer par nom de fichier",
+    a11yResultsCount: "Nombre de résultats", a11ySortOrder: "Ordre de tri",
+    cancelWord: "Annuler",
+    a11yStartDownload: "Télécharger",
+    a11yRefreshBench: "Actualiser les données de benchmark",
+    a11yDownloadCheckpoint: "Télécharger le checkpoint",
+    a11yOtherFiles: "Autres fichiers du dépôt",
+    a11yHfToken: "Jeton d'accès Hugging Face",
   },
   ar: {
     treeQuants: "إصدارات مكمّمة",
@@ -199,6 +241,13 @@ const HFS = {
     benchLoading: "جارٍ تحميل بيانات Artificial Analysis…",
     onDiskTitle: "إدارة النماذج المنزّلة",
     a11ySearchModels: "البحث في Hugging Face", a11yFilterByName: "تصفية حسب اسم الملف",
+    a11yResultsCount: "عدد النتائج", a11ySortOrder: "ترتيب الفرز",
+    cancelWord: "إلغاء",
+    a11yStartDownload: "تنزيل",
+    a11yRefreshBench: "تحديث بيانات القياس",
+    a11yDownloadCheckpoint: "تنزيل نقطة التحقق",
+    a11yOtherFiles: "ملفات أخرى في هذا المستودع",
+    a11yHfToken: "رمز وصول Hugging Face",
   },
   bn: {
     treeQuants: "কোয়ান্টাইজড সংস্করণ",
@@ -227,6 +276,13 @@ const HFS = {
     benchLoading: "Artificial Analysis থেকে ডেটা লোড হচ্ছে…",
     onDiskTitle: "ডাউনলোড করা মডেল পরিচালনা",
     a11ySearchModels: "Hugging Face-এ সন্ধান", a11yFilterByName: "ফাইলের নাম দিয়ে ফিল্টার",
+    a11yResultsCount: "ফলাফলের সংখ্যা", a11ySortOrder: "সাজানোর ক্রম",
+    cancelWord: "বাতিল",
+    a11yStartDownload: "ডাউনলোড",
+    a11yRefreshBench: "বেঞ্চমার্ক ডেটা রিফ্রেশ",
+    a11yDownloadCheckpoint: "চেকপয়েন্ট ডাউনলোড",
+    a11yOtherFiles: "এই রিপোজিটরির অন্যান্য ফাইল",
+    a11yHfToken: "Hugging Face অ্যাক্সেস টোকেন",
   },
   pt: {
     treeQuants: "Versões quantizadas",
@@ -255,6 +311,13 @@ const HFS = {
     benchLoading: "Carregando dados do Artificial Analysis…",
     onDiskTitle: "Gerenciar modelos baixados",
     a11ySearchModels: "Buscar no Hugging Face", a11yFilterByName: "Filtrar por nome do arquivo",
+    a11yResultsCount: "Número de resultados", a11ySortOrder: "Ordem de classificação",
+    cancelWord: "Cancelar",
+    a11yStartDownload: "Baixar",
+    a11yRefreshBench: "Atualizar dados de benchmark",
+    a11yDownloadCheckpoint: "Baixar checkpoint",
+    a11yOtherFiles: "Outros arquivos deste repositório",
+    a11yHfToken: "Token de acesso do Hugging Face",
   },
   ja: {
     treeQuants: "量子化バージョン",
@@ -283,6 +346,13 @@ const HFS = {
     benchLoading: "Artificial Analysis からデータを読み込み中…",
     onDiskTitle: "ダウンロード済みモデルの管理",
     a11ySearchModels: "Hugging Face を検索", a11yFilterByName: "ファイル名で絞り込み",
+    a11yResultsCount: "結果の件数", a11ySortOrder: "並び順",
+    cancelWord: "キャンセル",
+    a11yStartDownload: "ダウンロード",
+    a11yRefreshBench: "ベンチマークデータを更新",
+    a11yDownloadCheckpoint: "チェックポイントをダウンロード",
+    a11yOtherFiles: "このリポジトリの他のファイル",
+    a11yHfToken: "Hugging Face アクセストークン",
   },
   de: {
     treeQuants: "Quantisierte Versionen",
@@ -311,6 +381,13 @@ const HFS = {
     benchLoading: "Daten von Artificial Analysis werden geladen…",
     onDiskTitle: "Heruntergeladene Modelle verwalten",
     a11ySearchModels: "Hugging Face durchsuchen", a11yFilterByName: "Nach Dateiname filtern",
+    a11yResultsCount: "Anzahl der Ergebnisse", a11ySortOrder: "Sortierreihenfolge",
+    cancelWord: "Abbrechen",
+    a11yStartDownload: "Herunterladen",
+    a11yRefreshBench: "Benchmark-Daten aktualisieren",
+    a11yDownloadCheckpoint: "Checkpoint herunterladen",
+    a11yOtherFiles: "Weitere Dateien in diesem Repository",
+    a11yHfToken: "Hugging Face Zugriffstoken",
   },
   id: {
     treeQuants: "Versi terkuantisasi",
@@ -339,6 +416,13 @@ const HFS = {
     benchLoading: "Memuat data dari Artificial Analysis…",
     onDiskTitle: "Kelola model terunduh",
     a11ySearchModels: "Cari di Hugging Face", a11yFilterByName: "Filter berdasarkan nama file",
+    a11yResultsCount: "Jumlah hasil", a11ySortOrder: "Urutan",
+    cancelWord: "Batal",
+    a11yStartDownload: "Unduh",
+    a11yRefreshBench: "Segarkan data benchmark",
+    a11yDownloadCheckpoint: "Unduh checkpoint",
+    a11yOtherFiles: "File lain di repositori ini",
+    a11yHfToken: "Token akses Hugging Face",
   },
   ur: {
     treeQuants: "کوانٹائزڈ ورژن",
@@ -367,6 +451,13 @@ const HFS = {
     benchLoading: "Artificial Analysis سے ڈیٹا لوڈ ہو رہا ہے…",
     onDiskTitle: "ڈاؤن لوڈ شدہ ماڈلز منظم کریں",
     a11ySearchModels: "Hugging Face میں تلاش", a11yFilterByName: "فائل کے نام سے فلٹر",
+    a11yResultsCount: "نتائج کی تعداد", a11ySortOrder: "ترتیب",
+    cancelWord: "منسوخ کریں",
+    a11yStartDownload: "ڈاؤن لوڈ کریں",
+    a11yRefreshBench: "بینچ مارک ڈیٹا تازہ کریں",
+    a11yDownloadCheckpoint: "چیک پوائنٹ ڈاؤن لوڈ کریں",
+    a11yOtherFiles: "اس ریپازٹری کی دیگر فائلیں",
+    a11yHfToken: "Hugging Face رسائی ٹوکن",
   },
   tr: {
     treeQuants: "Nicemlenmiş sürümler",
@@ -395,6 +486,13 @@ const HFS = {
     benchLoading: "Artificial Analysis'ten veri yükleniyor…",
     onDiskTitle: "İndirilen modelleri yönet",
     a11ySearchModels: "Hugging Face'te ara", a11yFilterByName: "Dosya adına göre filtrele",
+    a11yResultsCount: "Sonuç sayısı", a11ySortOrder: "Sıralama düzeni",
+    cancelWord: "İptal",
+    a11yStartDownload: "İndir",
+    a11yRefreshBench: "Benchmark verilerini yenile",
+    a11yDownloadCheckpoint: "Checkpoint indir",
+    a11yOtherFiles: "Bu depodaki diğer dosyalar",
+    a11yHfToken: "Hugging Face erişim token'ı",
   },
   ko: {
     treeQuants: "양자화 버전",
@@ -423,6 +521,13 @@ const HFS = {
     benchLoading: "Artificial Analysis 데이터 로딩 중…",
     onDiskTitle: "다운로드한 모델 관리",
     a11ySearchModels: "Hugging Face 검색", a11yFilterByName: "파일 이름으로 필터",
+    a11yResultsCount: "결과 개수", a11ySortOrder: "정렬 순서",
+    cancelWord: "취소",
+    a11yStartDownload: "다운로드",
+    a11yRefreshBench: "벤치마크 데이터 새로 고침",
+    a11yDownloadCheckpoint: "체크포인트 다운로드",
+    a11yOtherFiles: "이 저장소의 다른 파일",
+    a11yHfToken: "Hugging Face 액세스 토큰",
   },
   vi: {
     treeQuants: "Phiên bản lượng tử hóa",
@@ -451,6 +556,13 @@ const HFS = {
     benchLoading: "Đang tải dữ liệu từ Artificial Analysis…",
     onDiskTitle: "Quản lý mô hình đã tải",
     a11ySearchModels: "Tìm kiếm trên Hugging Face", a11yFilterByName: "Lọc theo tên tệp",
+    a11yResultsCount: "Số lượng kết quả", a11ySortOrder: "Thứ tự sắp xếp",
+    cancelWord: "Hủy",
+    a11yStartDownload: "Tải xuống",
+    a11yRefreshBench: "Làm mới dữ liệu benchmark",
+    a11yDownloadCheckpoint: "Tải xuống checkpoint",
+    a11yOtherFiles: "Các tệp khác trong kho này",
+    a11yHfToken: "Token truy cập Hugging Face",
   },
   it: {
     treeQuants: "Versioni quantizzate",
@@ -479,6 +591,13 @@ const HFS = {
     benchLoading: "Caricamento dati da Artificial Analysis…",
     onDiskTitle: "Gestisci i modelli scaricati",
     a11ySearchModels: "Cerca su Hugging Face", a11yFilterByName: "Filtra per nome file",
+    a11yResultsCount: "Numero di risultati", a11ySortOrder: "Ordinamento",
+    cancelWord: "Annulla",
+    a11yStartDownload: "Scarica",
+    a11yRefreshBench: "Aggiorna i dati di benchmark",
+    a11yDownloadCheckpoint: "Scarica checkpoint",
+    a11yOtherFiles: "Altri file di questo repository",
+    a11yHfToken: "Token di accesso Hugging Face",
   },
   te: {
     treeQuants: "క్వాంటైజ్డ్ వెర్షన్లు",
@@ -507,6 +626,13 @@ const HFS = {
     benchLoading: "Artificial Analysis నుండి డేటా లోడ్ అవుతోంది…",
     onDiskTitle: "డౌన్‌లోడ్ చేసిన మోడల్‌లను నిర్వహించండి",
     a11ySearchModels: "Hugging Face లో వెతకండి", a11yFilterByName: "ఫైల్ పేరుతో ఫిల్టర్",
+    a11yResultsCount: "ఫలితాల సంఖ్య", a11ySortOrder: "క్రమబద్ధీకరణ క్రమం",
+    cancelWord: "రద్దు చేయి",
+    a11yStartDownload: "డౌన్‌లోడ్",
+    a11yRefreshBench: "బెంచ్‌మార్క్ డేటాను రిఫ్రెష్ చేయి",
+    a11yDownloadCheckpoint: "చెక్‌పాయింట్ డౌన్‌లోడ్",
+    a11yOtherFiles: "ఈ రిపాజిటరీలోని ఇతర ఫైల్‌లు",
+    a11yHfToken: "Hugging Face యాక్సెస్ టోకెన్",
   },
   mr: {
     treeQuants: "क्वांटाइज्ड आवृत्त्या",
@@ -535,6 +661,13 @@ const HFS = {
     benchLoading: "Artificial Analysis कडून डेटा लोड होत आहे…",
     onDiskTitle: "डाउनलोड केलेली मॉडेल्स व्यवस्थापित करा",
     a11ySearchModels: "Hugging Face वर शोध", a11yFilterByName: "फाइल नावाने फिल्टर",
+    a11yResultsCount: "निकालांची संख्या", a11ySortOrder: "क्रमवारी क्रम",
+    cancelWord: "रद्द करा",
+    a11yStartDownload: "डाउनलोड करा",
+    a11yRefreshBench: "बेंचमार्क डेटा रिफ्रेश करा",
+    a11yDownloadCheckpoint: "चेकपॉइंट डाउनलोड करा",
+    a11yOtherFiles: "या रेपॉझिटरीमधील इतर फाइल्स",
+    a11yHfToken: "Hugging Face ॲक्सेस टोकन",
   },
   ta: {
     treeQuants: "குவாண்டைஸ் பதிப்புகள்",
@@ -563,6 +696,13 @@ const HFS = {
     benchLoading: "Artificial Analysis இலிருந்து தரவு ஏற்றப்படுகிறது…",
     onDiskTitle: "பதிவிறக்கிய மாதிரிகளை நிர்வகி",
     a11ySearchModels: "Hugging Face இல் தேடல்", a11yFilterByName: "கோப்புப் பெயரால் வடிகட்டல்",
+    a11yResultsCount: "முடிவுகளின் எண்ணிக்கை", a11ySortOrder: "வரிசைப்படுத்தும் முறை",
+    cancelWord: "ரத்துசெய்",
+    a11yStartDownload: "பதிவிறக்கு",
+    a11yRefreshBench: "பெஞ்ச்மார்க் தரவைப் புதுப்பி",
+    a11yDownloadCheckpoint: "செக்பாயிண்ட் பதிவிறக்கு",
+    a11yOtherFiles: "இந்தக் களஞ்சியத்தில் உள்ள பிற கோப்புகள்",
+    a11yHfToken: "Hugging Face அணுகல் டோக்கன்",
   },
 };
 function hfT(key, vars = {}) {
@@ -581,6 +721,17 @@ document.addEventListener("DOMContentLoaded", () => {
   // rendered from a template, so it gets its label there.)
   const search = document.getElementById("hfSearchInput");
   if (search) search.setAttribute("aria-label", hfT("a11ySearchModels"));
+  // The results-per-search select DID have a name — a hardcoded English title,
+  // which meant a page running in any other language announced this one control
+  // in English. Named from the dictionary now, and the title kept so hovering
+  // still explains it.
+  const limit = document.getElementById("hfLimitSelect");
+  if (limit) {
+    limit.setAttribute("aria-label", hfT("a11yResultsCount"));
+    limit.title = hfT("a11yResultsCount");
+  }
+  const token = document.getElementById("hfTokenInput");
+  if (token) token.setAttribute("aria-label", hfT("a11yHfToken"));
 });
 
 function hfConfirm(title, body, okLabel = "Delete", danger = true) {
@@ -592,7 +743,7 @@ function hfConfirm(title, body, okLabel = "Delete", danger = true) {
         `<div class="hf-confirm-title">${escapeHtml(title)}</div>` +
         (body ? `<div class="hf-confirm-body">${escapeHtml(body)}</div>` : "") +
         `<div class="hf-confirm-actions">` +
-          `<button class="hf-confirm-cancel">Cancel</button>` +
+          `<button class="hf-confirm-cancel">${escapeHtml(hfT("cancelWord"))}</button>` +
           `<button class="hf-confirm-ok ${danger ? "danger" : "primary"}">${escapeHtml(okLabel)}</button>` +
         `</div>` +
       `</div>`;
@@ -748,6 +899,7 @@ function refreshStarButtons(repoId) {
 function setStarBtn(btn, starred) {
   btn.textContent = starred ? "★" : "☆";
   btn.title = starred ? hfT("favRemove") : hfT("favAdd");
+  btn.setAttribute("aria-label", btn.title);
   btn.classList.toggle("is-starred", starred);
 }
 
@@ -1146,7 +1298,7 @@ function buildFilterBar() {
     </div>
     <div class="hf-filter-row">
       <input class="hf-mask-input" data-t="hf-mask" id="hfMaskInput" aria-label="${escapeHtml(hfT("a11yFilterByName"))}" placeholder="filter by name…" type="text">
-      <select class="hf-sort-select" data-t="hf-sort" id="hfSortSelect">
+      <select class="hf-sort-select" data-t="hf-sort" id="hfSortSelect" aria-label="${escapeHtml(hfT("a11ySortOrder"))}">
         <option value="downloads-desc">↓ Downloads</option>
         <option value="downloads-asc">↑ Downloads</option>
         <option value="likes-desc">↓ Likes</option>
@@ -1221,12 +1373,12 @@ function buildRepoRow(repo) {
   div.innerHTML =
     `<div class="hf-repo-row-top">` +
       `<span class="hf-repo-row-id">${escapeHtml(repo.id)}</span>` +
-      `<button class="hf-star-btn${starred ? " is-starred" : ""}" title="${starred ? hfT("favRemove") : hfT("favAdd")}">${starred ? "★" : "☆"}</button>` +
+      `<button class="hf-star-btn${starred ? " is-starred" : ""}" title="${starred ? hfT("favRemove") : hfT("favAdd")}" aria-label="${starred ? hfT("favRemove") : hfT("favAdd")}">${starred ? "★" : "☆"}</button>` +
     `</div>` +
     `<div class="hf-repo-row-bottom">` +
       `<span class="hf-repo-row-meta">↓ ${fmtNum(repo.downloads)} · ♥ ${fmtNum(repo.likes)}${extractParams(repo.id) ? ` · <span class="hf-repo-params">${extractParams(repo.id)}</span>` : ""}<span class="hf-repo-date-slot">${_repoDateHtml(repo.id, repo.createdAt)}</span></span>` +
       `<div class="hf-repo-badges">${buildBadgesHtml(repo.id, filesCache.get(repo.id) ? new Set(filesCache.get(repo.id).map(f=>f.kind)) : null)}</div>` +
-      `<button class="hf-bench-toggle" title="${hfT("showBench")}">📊</button>` +
+      `<button class="hf-bench-toggle" title="${hfT("showBench")}" aria-label="${hfT("showBench")}">📊</button>` +
     `</div>` +
     `<div class="hf-bench-inline"></div>`;
 
@@ -1354,7 +1506,7 @@ function renderFilePanel(repoId) {
       `<span class="hf-file-badge hf-badge-st">${escapeHtml(st.format)}</span>` +
       `<span class="hf-file-name">safetensors · ${st.files.length} × 📄</span>` +
       `<span class="hf-file-size">${gb} GB</span>` +
-      `<button class="hf-file-dl" title="⬇ ${escapeHtml(st.format)}">⬇</button>`;
+      `<button class="hf-file-dl" title="⬇ ${escapeHtml(st.format)}" aria-label="${escapeHtml(hfT("a11yDownloadCheckpoint"))}: ${escapeHtml(st.format)}">⬇</button>`;
     row.querySelector(".hf-file-dl").addEventListener("click", () => downloadSafetensors(repoId, st));
     fileCol.appendChild(row);
   }
@@ -1402,7 +1554,7 @@ function renderFilePanel(repoId) {
     const det = document.createElement("details");
     det.className = "hf-other-files";
     det.innerHTML =
-      `<summary>… ${others.length} × 📄${sizeLabel ? " · " + sizeLabel : ""}</summary>` +
+      `<summary aria-label="${escapeHtml(hfT("a11yOtherFiles"))}">… ${others.length} × 📄${sizeLabel ? " · " + sizeLabel : ""}</summary>` +
       others.map((f) => `<div class="hf-other-file"><span class="hf-file-name">${escapeHtml(f.name)}</span>` +
         `<span class="hf-file-size">${f.size ? (f.size >= 1e9 ? (f.size / 1e9).toFixed(2) + " GB" : Math.max(1, Math.round(f.size / 1e6)) + " MB") : ""}</span></div>`).join("");
     fileCol.appendChild(det);
@@ -1843,7 +1995,7 @@ async function downloadSafetensors(repoId, st) {
   const destDir = `${modelName}/${author}/${st.format}`;
   const payload = st.files.map((f) => ({ path: f.path, name: f.name, size: f.size, destDir }));
   const totalGb = (st.totalSize / 1e9).toFixed(2);
-  if (!await hfConfirm(`⬇ ${st.format} · ${totalGb} GB`, `${repoId} → ${destDir}/`, "⬇", false)) return;
+  if (!await hfConfirm(`⬇ ${st.format} · ${totalGb} GB`, `${repoId} → ${destDir}/`, hfT("a11yStartDownload"), false)) return;
   const job = {
     repoId, jobId: null,
     totalBytes: st.totalSize, doneBytes: 0, fileName: st.files[0]?.name || "",
@@ -1963,7 +2115,8 @@ function _buildBenchPanel(repoId, data, onRefresh) {
 function _buildRefreshBtn(onRefresh, fromCache) {
   const btn = document.createElement("button");
   btn.className = "hf-bench-refresh";
-  btn.title = "Refresh from the server";
+  btn.title = hfT("a11yRefreshBench");
+  btn.setAttribute("aria-label", btn.title);
   btn.innerHTML = fromCache ? "🔄 refresh" : "🔄";
   btn.addEventListener("click", e => { e.stopPropagation(); onRefresh && onRefresh(); });
   return btn;
@@ -2148,7 +2301,7 @@ function renderRefSection() {
   footer.innerHTML =
     `AA Intelligence Index · <a href="https://artificialanalysis.ai/leaderboards/models" target="_blank" rel="noopener">artificialanalysis.ai</a>` +
     (isDefault ? ` · <span title="Data snapshot from June 2026">~Jun 2026</span>` : "") +
-    `<button class="hf-bench-refresh" id="hfRefRefresh" title="Fetch fresh data from AA">🔄</button>`;
+    `<button class="hf-bench-refresh" id="hfRefRefresh" title="${escapeHtml(hfT("a11yRefreshBench"))}" aria-label="${escapeHtml(hfT("a11yRefreshBench"))}">🔄</button>`;
   footer.querySelector("#hfRefRefresh").addEventListener("click", () => {
     _refData = null;
     renderRefSection();

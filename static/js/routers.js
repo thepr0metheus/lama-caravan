@@ -568,7 +568,7 @@ export function renderTopologyRouterDetail() {
         <div class="rw-cols">
           <section class="rw-pane rw-center">
             <div class="rw-palette">
-              <span class="rw-palette-label">${escapeHtml(t("rtRuleNodeLabel"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("rtPaletteTip")}</span></span></span>
+              <span class="rw-palette-label">${escapeHtml(t("rtRuleNodeLabel"))} ${helpTip("rtPaletteTip")}</span>
               <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="schedule" type="button" data-cv-add="schedule" title="${escapeHtml(t("rtTitleSchedule"))}">⏱ ${escapeHtml(t("cvNodeSchedule"))}</button>
               <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="weighted" type="button" data-cv-add="weighted" title="${escapeHtml(t("rtTitleWeighted"))}">⚖ ${escapeHtml(t("cvNodeWeighted"))}</button>
               <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="roundRobin" type="button" data-cv-add="roundRobin" title="${escapeHtml(t("rtTitleRoundRobin"))}">🔁 ${escapeHtml(t("cvNodeRoundRobin"))}</button>

@@ -283,8 +283,8 @@ export function renderSecurity(sec) {
     el.innerHTML = `
       <p class="muted">${escapeHtml(t("authOffHint"))}</p>
       <form id="authSetupForm" class="auth-form">
-        <input id="authSetupUser" placeholder="${escapeHtml(t("authUsername"))}" autocomplete="off">
-        <input id="authSetupPass" type="password" placeholder="${escapeHtml(t("authPassword"))}" autocomplete="new-password">
+        <input id="authSetupUser" placeholder="${escapeHtml(t("authUsername"))}" autocomplete="off" aria-label="${escapeHtml(t("a11yUsername"))}">
+        <input id="authSetupPass" type="password" placeholder="${escapeHtml(t("authPassword"))}" autocomplete="new-password" aria-label="${escapeHtml(t("a11yPassword"))}">
         <button type="submit">${escapeHtml(t("authEnable"))}</button>
       </form>
       <p id="authSetupMsg" class="muted"></p>`;
@@ -312,7 +312,7 @@ export function renderSecurity(sec) {
       <strong>
         <button class="mini-btn" data-auth-role="${escapeHtml(u.username)}:${target}" title="${escapeHtml(t("authToggleRole"))}">→ ${escapeHtml(target)}</button>
         <button class="mini-btn" data-auth-passwd="${escapeHtml(u.username)}">${escapeHtml(t("authSetPassword"))}</button>
-        <button class="mini-btn danger" data-auth-del="${escapeHtml(u.username)}">✕</button>
+        <button class="mini-btn danger" data-auth-del="${escapeHtml(u.username)}" aria-label="${escapeHtml(t("a11yDeleteUser"))}: ${escapeHtml(u.username)}">✕</button>
       </strong>
     </div>`;
   }).join("");
@@ -321,7 +321,7 @@ export function renderSecurity(sec) {
     <div class="diagnostic-row">
       <span>${escapeHtml(sess.username)} · ${escapeHtml(sess.ip || "?")}</span>
       <strong>${escapeHtml(fmtWhen(sess.lastSeen))}
-        <button class="mini-btn danger" data-auth-revoke="${escapeHtml(sess.id)}">✕</button>
+        <button class="mini-btn danger" data-auth-revoke="${escapeHtml(sess.id)}" aria-label="${escapeHtml(t("a11yRevokeSession"))}: ${escapeHtml(sess.username)}">✕</button>
       </strong>
     </div>`).join("")
     + (allSessions.length > 5 ? `<p class="muted">+${allSessions.length - 5}</p>` : "");
@@ -330,9 +330,9 @@ export function renderSecurity(sec) {
     <h3 class="security-sub">${escapeHtml(t("authUsers"))}</h3>
     <div class="diagnostic-list">${users}</div>
     <form id="authAddForm" class="auth-form">
-      <input id="authAddUser" placeholder="${escapeHtml(t("authUsername"))}" autocomplete="off">
-      <input id="authAddPass" type="password" placeholder="${escapeHtml(t("authPassword"))}" autocomplete="new-password">
-      <select id="authAddRole">
+      <input id="authAddUser" placeholder="${escapeHtml(t("authUsername"))}" autocomplete="off" aria-label="${escapeHtml(t("a11yUsername"))}">
+      <input id="authAddPass" type="password" placeholder="${escapeHtml(t("authPassword"))}" autocomplete="new-password" aria-label="${escapeHtml(t("a11yPassword"))}">
+      <select id="authAddRole" aria-label="${escapeHtml(t("a11yNewUserRole"))}">
         <option value="admin">admin</option>
         <option value="viewer">${escapeHtml(t("authRoleViewer"))}</option>
       </select>

@@ -240,12 +240,12 @@
         </div>
       </div>
       <div class="lang-select" id="langSelect">
-        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Language" data-t="header-lang-open">
+        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" data-i18n-aria="a11yInterfaceLanguage" aria-label="Interface language" data-t="header-lang-open">
           <span class="lang-emoji" id="langTriggerEmoji">☕</span>
           <span class="lang-code" id="langTriggerCode" data-t="header-lang-current">EN</span>
           <span class="lang-caret" aria-hidden="true">▾</span>
         </button>
-        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden data-t="header-lang-menu"></ul>
+        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden data-t="header-lang-menu" data-i18n-aria="a11yInterfaceLanguage" aria-label="Interface language"></ul>
       </div>
     </div>
   </header>
@@ -340,7 +340,8 @@
       <p id="confirmText" data-t="confirm-text"></p>
       <div id="confirmMeta" class="modal-meta" hidden data-t="confirm-meta"></div>
       <code id="confirmPath" data-t="confirm-path"></code>
-      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden data-t="confirm-input">
+      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden
+             aria-labelledby="confirmTitle" data-t="confirm-input">
       <div class="modal-actions">
         <button id="confirmCancel" type="button" data-i18n="cancel" data-t="confirm-cancel">Cancel</button>
         <button id="confirmDelete" type="button" class="danger" data-i18n="deleteAction" data-t="confirm-accept">Delete</button>

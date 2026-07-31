@@ -246,9 +246,10 @@
       <p id="confirmText" data-t="confirm-text"></p>
       <div id="confirmMeta" class="modal-meta" hidden data-t="confirm-meta"></div>
       <code id="confirmPath" data-t="confirm-path"></code>
-      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden data-t="confirm-input">
+      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden
+             aria-labelledby="confirmTitle" data-t="confirm-input">
       <div class="modal-actions">
-        <button id="confirmCancel" type="button" data-t="confirm-cancel">Cancel</button>
+        <button id="confirmCancel" type="button" data-i18n="cancel" data-t="confirm-cancel">Cancel</button>
         <button id="confirmDelete" type="button" class="danger" data-t="confirm-accept">OK</button>
       </div>
     </div>

@@ -1,7 +1,7 @@
 // Router node canvas: nodes, connectors, pan/zoom, schedule grid painting.
 import { appConfirm, appPrompt } from "./dialogs.js";
 import { option } from "./form.js";
-import { t } from "./i18n.js";
+import { helpTip, t } from "./i18n.js";
 import { closeConfirmModal } from "./llama-edit.js";
 import { action } from "./polling.js";
 import { deleteOrphanAgent } from "./remote-cells.js";
@@ -575,7 +575,7 @@ export function requestSizeNodeBodyHtml(router, n) {
       + `<span class="cv-port out${wired ? "" : " unset"}" data-cv-port="out" data-cv-sched-port="${portId}" title="${escapeHtml(hint)}"></span>`
     + `</div>`;
   const thrRow = `<div class="cv-q-cfg">`
-    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelSmallLe"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipRequestSizeSmall")}</span></span></span>`
+    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelSmallLe"))} ${helpTip("cvTipRequestSizeSmall")}</span>`
     + `<input class="cv-q-cfg-in" type="number" min="1" max="100000" data-cv-q="maxTokensAt" value="${thr}" title="${escapeHtml(t("cvTitleMaxTokensThr"))}"><span class="cv-q-u">tok</span></label>`
     + `</div>`;
   return `<div class="cv-q-body">`
@@ -633,8 +633,8 @@ export function queueNodeBodyHtml(router, n) {
   const qnum = (key, val, min, max, ph) =>
     `<input class="cv-q-cfg-in" type="number" min="${min}" max="${max}" data-cv-q="${key}" value="${val === null || val === undefined ? "" : val}" placeholder="${ph || ""}" title="${escapeHtml(ph || key)}">`;
   const paramsGrid = `<div class="cv-q-cfg">`
-    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelOverflowAt"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipOverflowAt")}</span></span></span>${qnum("spillPct", cfg.spillPct ?? 20, 0, 100, "% of wait")}<span class="cv-q-u">%</span></label>`
-    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelReserve"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipReserve")}</span></span></span>${qnum("stickySlotSec", cfg.stickySlotSec ?? 20, 0, 120, "reserve for agent")}<span class="cv-q-u">s</span></label>`
+    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelOverflowAt"))} ${helpTip("cvTipOverflowAt")}</span>${qnum("spillPct", cfg.spillPct ?? 20, 0, 100, "% of wait")}<span class="cv-q-u">%</span></label>`
+    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelReserve"))} ${helpTip("cvTipReserve")}</span>${qnum("stickySlotSec", cfg.stickySlotSec ?? 20, 0, 120, "reserve for agent")}<span class="cv-q-u">s</span></label>`
     + `</div>`;
   // History pane — auto-refresh if stale while open
   const histOpen = !!_cvQueueHistOpen[n.id];
@@ -758,14 +758,14 @@ export function renderSchedNodeHtml(n, router) {
       const nowActive = o.id === activeNowId;
       return `<div class="cv-sched-row${active ? " cv-sched-row--active" : ""}${nowActive ? " cv-sched-row--now-active" : ""}" data-cv-sched-chip="${escapeHtml(nid)}:${escapeHtml(o.id)}">`
         + `<i class="cv-sched-dot" style="background:${color}"></i>`
-        + `<span class="cv-sched-name" data-cv-sched-rename="${escapeHtml(nid)}:${escapeHtml(o.id)}" spellcheck="false">${escapeHtml(o.name)}</span>`
+        + `<span class="cv-sched-name" data-cv-sched-rename="${escapeHtml(nid)}:${escapeHtml(o.id)}" spellcheck="false" aria-label="${escapeHtml(t("a11yScheduleOutputName"))}">${escapeHtml(o.name)}</span>`
         + `<button class="cv-sched-rm" type="button" data-cv-sched-rmout="${escapeHtml(nid)}:${escapeHtml(o.id)}" title="${escapeHtml(t("cvTitleRemove"))}">×</button>`
         + `<span class="cv-port out" data-cv-port="out" data-cv-sched-port="${escapeHtml(o.id)}" title="${escapeHtml(t("cvDragConnect"))}"></span>`
         + `</div>`;
     }),
     `<div class="cv-sched-row cv-sched-row--default${paintId === "__default__" ? " cv-sched-row--active" : ""}${activeNowId === null ? " cv-sched-row--now-active" : ""}" data-cv-sched-chip="${escapeHtml(nid)}:__default__">`
       + `<i class="cv-sched-dot cv-sched-dot--default"></i>`
-      + `<span class="cv-sched-name" data-cv-sched-rename-default="${escapeHtml(nid)}" spellcheck="false">${escapeHtml(cfg.defaultName || "default")}</span>`
+      + `<span class="cv-sched-name" data-cv-sched-rename-default="${escapeHtml(nid)}" spellcheck="false" aria-label="${escapeHtml(t("a11yDefaultBranchName"))}">${escapeHtml(cfg.defaultName || "default")}</span>`
       + `<span class="cv-port out" data-cv-port="out" data-cv-sched-port="__default__" title="${escapeHtml(t("cvDragConnect"))}"></span>`
       + `</div>`,
     `<button class="cv-sched-addrow" type="button" data-cv-sched-addout="${escapeHtml(nid)}">+ output</button>`,
@@ -971,8 +971,8 @@ export function canvasNodes(router) {
   const embedOpts = localLlamaOuts.map((o) =>
     `<option value="${escapeHtml(o.id)}"${o.id === embedOutId ? " selected" : ""}>${escapeHtml(topologyRouterOutputLabel(o))}</option>`).join("");
   const embedSlotHtml = `<div class="cv-embed-slot ${embedOut ? "assigned" : "unassigned"}">`
-    + `<div class="cv-embed-head">🧬 embeddings <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipEmbeddings")}</span></span></div>`
-    + `<select class="cv-embed-select" data-cv-embed-out><option value="">— ${escapeHtml(t("cvNotAssigned"))} —</option>${embedOpts}</select>`
+    + `<div class="cv-embed-head">🧬 embeddings ${helpTip("cvTipEmbeddings")}</div>`
+    + `<select class="cv-embed-select" data-cv-embed-out aria-label="${escapeHtml(t("a11yEmbeddingsTarget"))}"><option value="">— ${escapeHtml(t("cvNotAssigned"))} —</option>${embedOpts}</select>`
     + `<div class="cv-embed-note">${embedOut ? escapeHtml(t("cvEmbedAllTo", { name: topologyRouterOutputLabel(embedOut) })) : t("cvEmbedNotSet")}</div>`
     + `</div>`;
   // Entry port for an external app (a UI, a voice tool, …): router-routed like
@@ -1001,7 +1001,7 @@ export function canvasNodes(router) {
     type: "inputs",
     cls: "cv-inputs-block",
     fixed: { x: 20, y: 20 },
-    html: `<div class="cv-inputs-head">${escapeHtml(t("cvLabelClients"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipClients")}</span></span></div><div class="cv-inputs-body">${inputsBodyHtml || '<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>'}</div>${orphanAgentsHtml}${embedSlotHtml}${appPortHtml}`,
+    html: `<div class="cv-inputs-head">${escapeHtml(t("cvLabelClients"))} ${helpTip("cvTipClients")}</div><div class="cv-inputs-body">${inputsBodyHtml || '<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>'}</div>${orphanAgentsHtml}${embedSlotHtml}${appPortHtml}`,
   });
   // Rule nodes (graph mode) — positioned by their stored x/y; input + output ports.
   const RULE_GLYPH = NODE_GLYPH;
@@ -1023,13 +1023,13 @@ export function canvasNodes(router) {
     // Queue nodes already have inline config fields on the card — show a ? help
     // tooltip instead of a gear button. Other rule nodes need the gear for setup.
     const cfgBtn = isQueue
-      ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipQueueNode")}</span></span>`
+      ? `${helpTip("cvTipQueueNode")}`
       : isReqType
-      ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipRequestTypeNode")}</span></span>`
+      ? `${helpTip("cvTipRequestTypeNode")}`
       : isReqSize
-      ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipRequestSizeNode")}</span></span>`
+      ? `${helpTip("cvTipRequestSizeNode")}`
       : isOnErr
-      ? `<span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipOnErrorNode")}</span></span>`
+      ? `${helpTip("cvTipOnErrorNode")}`
       : `<button class="cv-act cv-rule-cfg" type="button" data-cv-cfgnode="${escapeHtml(n.id)}" title="${escapeHtml(t("cvConfigureNode"))}">⚙</button>`;
     const head = `<span class="cv-rule-head"><strong>${RULE_GLYPH[n.type] || "•"} ${escapeHtml(cvNodeTypeLabel(n.type))}</strong>`
       + `<span class="cv-rule-btns">${cfgBtn}`
@@ -1057,7 +1057,7 @@ export function canvasNodes(router) {
     type: "outputs",
     cls: "cv-servers-block",
     fixed: { x: 700, y: 20 },
-    html: `<div class="cv-servers-head">${escapeHtml(t("topologyServersHead"))} <span class="inline-tip help-tip" tabindex="0">?<span class="tooltip">${t("cvTipServersHead")}</span></span></div><div class="cv-servers-body">${renderServersBlockHtml(router)}</div>`,
+    html: `<div class="cv-servers-head">${escapeHtml(t("topologyServersHead"))} ${helpTip("cvTipServersHead")}</div><div class="cv-servers-body">${renderServersBlockHtml(router)}</div>`,
   });
   return nodes;
 }

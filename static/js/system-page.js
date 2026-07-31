@@ -95,7 +95,7 @@ function bindUserChip() {
   $("authLogoutBtn")?.addEventListener("click", doLogout);
   api("/api/auth/me").then((me) => {
     if (!me.enabled || !me.authenticated) return;
-    $("userChipName").textContent = me.user + (me.role === "viewer" ? " · viewer" : "");
+    $("userChipName").textContent = me.user + (me.role === "viewer" ? t("userViewerSuffix") : "");
     $("userChip").hidden = false;
     const menu = $("userMenu");
     const closeMenu = () => { menu.hidden = true; $("userChipBtn").setAttribute("aria-expanded", "false"); };

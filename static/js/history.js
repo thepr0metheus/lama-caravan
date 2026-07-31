@@ -23,21 +23,22 @@ export function openRequestHistory() {
     div.className = "topology-policy-overlay history-overlay";
     div.setAttribute("hidden", "");
     div.innerHTML = `
-      <div class="topology-policy-modal history-modal" role="dialog" aria-modal="true" aria-label="Request History">
+      <div class="topology-policy-modal history-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(t("requestHistoryTitle"))}">
         <div class="topology-card-head history-modal-head">
-          <strong>Request History</strong>
+          <strong>${escapeHtml(t("requestHistoryTitle"))}</strong>
           <button class="icon-action compact" type="button" id="historyCloseBtn" aria-label="${escapeHtml(t("close"))}" title="${escapeHtml(t("close"))}">×</button>
         </div>
         <div class="history-filters">
-          <select id="historyDateSelect" class="history-date-select"></select>
-          <input id="historyClientInput" type="text" placeholder="${escapeHtml(t("hsFilterClient"))}" class="history-filter-input">
-          <select id="historyViaSelect" class="history-date-select">
+          <select id="historyDateSelect" class="history-date-select" aria-label="${escapeHtml(t("a11yFilterByDate"))}"></select>
+          <input id="historyClientInput" type="text" placeholder="${escapeHtml(t("hsFilterClient"))}"
+                 aria-label="${escapeHtml(t("hsFilterClient"))}" class="history-filter-input">
+          <select id="historyViaSelect" class="history-date-select" aria-label="${escapeHtml(t("a11yFilterByRoute"))}">
             <option value="">${escapeHtml(t("hsViaAll"))}</option>
             <option value="llama">llama</option>
             <option value="cloud">cloud</option>
             <option value="rescued">🛟 ${escapeHtml(t("hsViaRescued"))}</option>
           </select>
-          <select id="historyStatusSelect" class="history-date-select">
+          <select id="historyStatusSelect" class="history-date-select" aria-label="${escapeHtml(t("a11yFilterByStatus"))}">
             <option value="">${escapeHtml(t("hsStatusAll"))}</option>
             <option value="ok">OK (2xx)</option>
             <option value="error">${escapeHtml(t("historyErrorOpt"))}</option>

@@ -251,12 +251,12 @@
         <span class="ob-q">?</span><span data-i18n="tourBtnLabel">Tour</span>
       </button>
       <div class="lang-select" id="langSelect">
-        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" aria-label="Language" data-t="header-lang-open">
+        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false" data-i18n-aria="a11yInterfaceLanguage" aria-label="Interface language" data-t="header-lang-open">
           <span class="lang-emoji" id="langTriggerEmoji">☕</span>
           <span class="lang-code" id="langTriggerCode" data-t="header-lang-current">EN</span>
           <span class="lang-caret" aria-hidden="true">▾</span>
         </button>
-        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden data-t="header-lang-menu"></ul>
+        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden data-t="header-lang-menu" data-i18n-aria="a11yInterfaceLanguage" aria-label="Interface language"></ul>
       </div>
     </div>
   </header>
@@ -314,7 +314,7 @@
           <div class="companion-row">
             <label for="MMPROJ_FILE" class="companion-label">MMPROJ</label>
             <label class="check-row companion-check" for="OFFLOAD_MMPROJ">
-              <input id="OFFLOAD_MMPROJ" name="OFFLOAD_MMPROJ" type="checkbox">
+              <input id="OFFLOAD_MMPROJ" name="OFFLOAD_MMPROJ" type="checkbox" data-i18n-aria="a11yOffloadMmproj" aria-label="Offload MMPROJ projector to GPU">
               <span></span>
             </label>
             <span class="companion-hint">offload to GPU</span>
@@ -326,7 +326,7 @@
           <div class="companion-row">
             <label for="SPEC_DRAFT_MODEL_FILE" class="companion-label">SPEC DRAFT</label>
             <label class="check-row companion-check" for="SPEC_ENABLED">
-              <input id="SPEC_ENABLED" type="checkbox">
+              <input id="SPEC_ENABLED" type="checkbox" data-i18n-aria="a11ySpecEnabled" aria-label="Enable speculative decoding">
               <span></span>
             </label>
             <span class="companion-hint">draft-mtp</span>
@@ -502,7 +502,8 @@
   </main>
 
   <!-- Remote Llama Server Add Modal (same structure as Edit, tr- prefix) -->
-  <div id="llamaRemoteEditOverlay" class="topology-llama-edit-overlay" hidden role="dialog" aria-modal="true" data-t="cell-remote-modal">
+  <div id="llamaRemoteEditOverlay" class="topology-llama-edit-overlay" hidden role="dialog" aria-modal="true"
+       aria-labelledby="llamaRemoteEditTitle" data-t="cell-remote-modal">
     <div class="topology-llama-edit-modal">
       <div class="topo-edit-header">
         <h2 id="llamaRemoteEditTitle">Add llama server — remote</h2>
@@ -552,7 +553,11 @@
                 </div>
                 <div>
                   <div class="label-row"><label class="cmd-health-lbl" for="tr-HEALTH_TOGGLE"><input type="checkbox" id="tr-HEALTH_TOGGLE" class="cmd-health-toggle"> <span data-i18n="cmdHealthToggle">HTTP health-check</span></label></div>
-                  <input id="tr-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health" style="width:100%" disabled data-t="cell-remote-health-path">
+                  <!-- The label above belongs to the TOGGLE, not to this box: its
+                       for= names tr-HEALTH_TOGGLE. So every other field in the
+                       editor is named by its label-row and this one was not. -->
+                  <input id="tr-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health" style="width:100%" disabled
+                         data-i18n-aria="a11yHealthPath" aria-label="Health-check path" data-t="cell-remote-health-path">
                   <p class="field-note" data-i18n="cmdHealthOffNote">off = plain TCP port probe</p>
                 </div>
               </div>
@@ -615,7 +620,7 @@
               <div class="companion-row">
                 <label for="tr-MMPROJ_FILE" class="companion-label">MMPROJ</label>
                 <label class="check-row companion-check" for="tr-OFFLOAD_MMPROJ">
-                  <input id="tr-OFFLOAD_MMPROJ" name="OFFLOAD_MMPROJ" type="checkbox">
+                  <input id="tr-OFFLOAD_MMPROJ" name="OFFLOAD_MMPROJ" type="checkbox" data-i18n-aria="a11yOffloadMmproj" aria-label="Offload MMPROJ projector to GPU">
                   <span></span>
                 </label>
                 <span class="companion-hint">offload to GPU</span>
@@ -627,7 +632,7 @@
               <div class="companion-row">
                 <label for="tr-SPEC_DRAFT_MODEL_FILE" class="companion-label">SPEC DRAFT</label>
                 <label class="check-row companion-check" for="tr-SPEC_ENABLED">
-                  <input id="tr-SPEC_ENABLED" type="checkbox">
+                  <input id="tr-SPEC_ENABLED" type="checkbox" data-i18n-aria="a11ySpecEnabled" aria-label="Enable speculative decoding">
                   <span></span>
                 </label>
                 <span class="companion-hint">draft-mtp</span>
@@ -772,7 +777,10 @@
                 </div>
                 <div>
                   <div class="label-row"><label class="cmd-health-lbl" for="te-HEALTH_TOGGLE"><input type="checkbox" id="te-HEALTH_TOGGLE" class="cmd-health-toggle"> <span data-i18n="cmdHealthToggle">HTTP health-check</span></label></div>
-                  <input id="te-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health" style="width:100%" disabled data-t="cell-edit-health-path">
+                  <!-- Same pair as tr-HEALTH_PATH above: the label-row names the
+                       toggle, so this box needs its own name. -->
+                  <input id="te-HEALTH_PATH" name="HEALTH_PATH" type="text" placeholder="/health" style="width:100%" disabled
+                         data-i18n-aria="a11yHealthPath" aria-label="Health-check path" data-t="cell-edit-health-path">
                   <p class="field-note" data-i18n="cmdHealthOffNote">off = plain TCP port probe</p>
                 </div>
               </div>
@@ -835,7 +843,7 @@
               <div class="companion-row">
                 <label for="te-MMPROJ_FILE" class="companion-label">MMPROJ</label>
                 <label class="check-row companion-check" for="te-OFFLOAD_MMPROJ">
-                  <input id="te-OFFLOAD_MMPROJ" name="OFFLOAD_MMPROJ" type="checkbox">
+                  <input id="te-OFFLOAD_MMPROJ" name="OFFLOAD_MMPROJ" type="checkbox" data-i18n-aria="a11yOffloadMmproj" aria-label="Offload MMPROJ projector to GPU">
                   <span></span>
                 </label>
                 <span class="companion-hint">offload to GPU</span>
@@ -847,7 +855,7 @@
               <div class="companion-row">
                 <label for="te-SPEC_DRAFT_MODEL_FILE" class="companion-label">SPEC DRAFT</label>
                 <label class="check-row companion-check" for="te-SPEC_ENABLED">
-                  <input id="te-SPEC_ENABLED" type="checkbox">
+                  <input id="te-SPEC_ENABLED" type="checkbox" data-i18n-aria="a11ySpecEnabled" aria-label="Enable speculative decoding">
                   <span></span>
                 </label>
                 <span class="companion-hint">draft-mtp</span>
@@ -877,7 +885,7 @@
           </div>
           <div id="te-llamaAside">
           <details class="panel topo-backups-panel">
-            <summary class="topo-aside-title">Backups</summary>
+            <summary class="topo-aside-title" data-i18n="backups">Backups</summary>
             <div id="te-backupInfo" class="backup-info"></div>
             <div id="te-backups" class="backup-list"></div>
           </details>
@@ -934,7 +942,8 @@
       <p id="confirmText" data-t="confirm-text"></p>
       <div id="confirmMeta" class="modal-meta" hidden data-t="confirm-meta"></div>
       <code id="confirmPath" data-t="confirm-path"></code>
-      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden data-t="confirm-input">
+      <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" hidden
+             aria-labelledby="confirmTitle" data-t="confirm-input">
       <div class="modal-actions">
         <button id="confirmCancel" type="button" data-i18n="cancel" data-t="confirm-cancel">Cancel</button>
         <button id="confirmDelete" type="button" class="danger" data-i18n="deleteAction" data-t="confirm-accept">Delete</button>
@@ -943,7 +952,8 @@
   </div>
 
   <aside class="edge-drawer monitor-drawer" aria-label="Live monitors">
-    <section class="edge-tab monitor-tab" tabindex="0" data-monitor-kind="nvidia-smi">
+    <section class="edge-tab monitor-tab" tabindex="0" data-monitor-kind="nvidia-smi"
+             data-i18n-aria="a11yGpuMonitor" aria-label="Live GPU monitor">
       <div class="edge-label"><span>nvidia-smi</span></div>
       <div class="edge-panel monitor-panel">
         <div class="monitor-head">
