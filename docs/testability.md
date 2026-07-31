@@ -131,8 +131,9 @@ that is why there is a script and not a one-liner.
 
 Repeated elements carry `data-t-id`: `cell-card` and the cell lifecycle buttons
 use `host:port` (the `slotKey` the board already computes), `kanban-node` uses
-the node id (`rule:…`, `inputs:block`), `kanban-palette-add` mirrors its
-`data-cv-add`.
+the node id (`rule:…`, `inputs:block`), `kanban-input-wait` uses the input
+port's id (`skynet:proxy:<port>` — `skynet` is the controller's internal id in
+the data model, not a hostname), `kanban-palette-add` mirrors its `data-cv-add`.
 
 ## Hooks that carry a value but are never visible
 
