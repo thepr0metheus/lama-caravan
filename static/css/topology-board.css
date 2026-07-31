@@ -1,3 +1,9 @@
+/* The width below which this board stops shrinking. Two columns with the cable
+   gutter between them is not decoration — see the note at the bottom of this
+   file. 280 + 820 minimum columns + the 28px gutter the tight breakpoint sets.
+   One place, because the header has to stay in step with it. */
+:root { --board-min: 1128px; }
+
 .topology-board {
   position: relative;
   display: grid;
@@ -865,14 +871,32 @@ details.topology-server-stats-card > .topology-processes-details {
   .topology-lanes { column-gap: 20px; }
 }
 
-/* Even with the gutters at their tightest the columns need this much. */
-@media (max-width: 1329px) {
-  .topology-board,
-  .topology-lanes {
-    grid-template-columns: 1fr;
-  }
+/* Below this the two columns genuinely stop fitting — and stacking them, which
+   is what happened here before, throws the board away rather than adapting it.
+   The cables are drawn in the gap BETWEEN the columns: that gap is the whole
+   idea. Stacked, every cable runs from a card to a card directly below it, the
+   divider lane is hidden, and what is left is two lists that no longer show the
+   thing the page exists to show — which route reaches which cell.
+   So the layout stops shrinking instead. min-width holds the two columns, the
+   page gains a horizontal scrollbar, and a narrow window means scrolling
+   sideways through an intact board rather than reading a broken one. This is a
+   dense control panel on a desktop, not an article: sideways is the honest
+   trade. 280 + 820 minimum columns + the 28px gutter above = 1128. */
+.topology-board,
+.topology-view {
+  min-width: var(--board-min);
+}
 
-  .topology-divider-lane {
-    display: none;
-  }
+/* The sticky header scrolls sideways with everything else, and it is only as
+   wide as the viewport was — so scrolling right leaves bare background above
+   the board, with the title and the account chip stranded over the middle of
+   it. It has to span the whole SCROLLABLE width, which is the board plus the
+   page gutters `main` adds on each side. Verified at the edge: with the two
+   numbers in step the bar still covers the viewport after scrolling.
+
+   Scoped to a page that HAS a board: .topbar is shared with /models and /system,
+   which are plain single-column pages and have no business gaining a sideways
+   scrollbar because this one needs it. */
+body:has(.topology-view) .topbar {
+  min-width: calc(var(--board-min) + 48px);   /* 48 = main's 24px padding, both sides */
 }

@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- The board stops shrinking instead of falling apart. Below ~1330px it used to
+  stack its two columns into one — and stacking throws the board away rather
+  than adapting it, because the cables are drawn in the gap BETWEEN the columns
+  and that gap is the whole idea. Stacked, every cable ran from a card to the
+  card directly beneath it, the divider lane was hidden, and what was left was
+  two lists that no longer showed which route reaches which cell.
+
+  It now holds its layout at a `--board-min` of 1128px and the page scrolls
+  sideways. A narrow window means panning across an intact board instead of
+  reading a broken one — the right trade for a dense control panel that lives on
+  a desktop beside other windows. The sticky header spans the same scrollable
+  width, or scrolling right would strand the title over the middle of the board;
+  that rule is scoped to pages that actually have a board, so `/models` and
+  `/system` are untouched.
+
+  A browser window cannot be given a minimum size from a page — no API does
+  that — so this is the shape the request takes.
+
 - The sign-in page announces its two silent moments. The failure message is an
   empty `<p>` that script fills after a rejected attempt — so a screen reader
   learned nothing: the text appeared, and the only feedback was that nothing
