@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- The sign-in page translates its one untranslated name. The language selector
+  carried `aria-label="Language"` hardcoded while the other twelve strings on
+  that page followed the interface language — so a page fully in Russian
+  announced its own language control in English to anyone using a screen reader.
+  `apply()` now translates `aria-label` as well as text, since a `<select>` holds
+  options and cannot carry its name in `textContent`, and `langLabel` is
+  translated into all twenty.
+
 - The board stops shrinking instead of falling apart. Below ~1330px it used to
   stack its two columns into one — and stacking throws the board away rather
   than adapting it, because the cables are drawn in the gap BETWEEN the columns
