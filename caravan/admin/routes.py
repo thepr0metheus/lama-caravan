@@ -1485,7 +1485,7 @@ def _get_login(h, parsed):
         # a file on disk), which is why it was the one response left uncompressed
         # after everything else started gzipping — 22 KB, and the first thing
         # anyone gets, before they are even signed in.
-        data, enc = h._maybe_gzip(auth_mod.LOGIN_PAGE.encode("utf-8"))
+        data, enc = h._maybe_gzip(auth_mod.login_page().encode("utf-8"))
         h.send_response(200)
         h.send_header("Content-Type", "text/html; charset=utf-8")
         if enc:

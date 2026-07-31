@@ -301,6 +301,36 @@ def session_cookie_header(token: str, clear: bool = False) -> str:
     return f"{SESSION_COOKIE}={token}; Path=/; Max-Age={SESSION_TTL}; HttpOnly; SameSite=Lax"
 
 
+# The two forms this page can carry. Exactly one is rendered, chosen by the
+# server — see login_page().
+_SIGN_IN_FORM = """<form id="loginForm" data-t="login-form">
+      <label for="u" data-i18n="user">Username</label>
+      <input id="u" autocomplete="username" autofocus data-t="login-username">
+      <label for="p" data-i18n="pass">Password</label>
+      <input id="p" type="password" autocomplete="current-password" data-t="login-password">
+      <button class="primary" type="submit" data-i18n="signin" data-t="login-submit">Sign in</button>
+      <!-- role="alert" because this <p> starts EMPTY and is filled by script
+           after a failed sign-in. Without it a screen reader never learns the
+           attempt failed — the text simply appears, silently, and the only
+           feedback is that nothing happened. alert (not status) because it
+           answers an action the user just took and should interrupt. It also
+           gives the element a real role instead of generic, so a test can ask
+           getByRole("alert") rather than for the paragraph by name. -->
+      <p class="err" id="e" role="alert" data-t="login-error"></p>
+    </form>"""
+
+_FIRST_RUN_FORM = """<form id="setupForm" data-t="setup-form">
+      <p class="note" data-i18n="setupNote">Sign-in is not enabled yet — this open page becomes protected once you create the first account. No default admin/admin exists on purpose.</p>
+      <label for="su" data-i18n="user">Username</label>
+      <input id="su" autocomplete="username" autofocus data-t="setup-username">
+      <label for="sp" data-i18n="passNew">Password (min 8 chars)</label>
+      <input id="sp" type="password" autocomplete="new-password" data-t="setup-password">
+      <label for="sp2" data-i18n="passRepeat">Repeat password</label>
+      <input id="sp2" type="password" autocomplete="new-password" data-t="setup-password-repeat">
+      <button class="primary" type="submit" data-i18n="create" data-t="setup-submit">Create account &amp; enable sign-in</button>
+      <p class="err" id="se"></p>
+    </form>"""
+
 LOGIN_PAGE = """<!doctype html>
 <html lang="en">
 <head>
@@ -347,33 +377,7 @@ LOGIN_PAGE = """<!doctype html>
       <select class="lang" id="lang" aria-label="Language" data-i18n-aria="langLabel" data-t="login-lang"></select>
     </div>
 
-    <form id="loginForm" data-t="login-form">
-      <label for="u" data-i18n="user">Username</label>
-      <input id="u" autocomplete="username" autofocus data-t="login-username">
-      <label for="p" data-i18n="pass">Password</label>
-      <input id="p" type="password" autocomplete="current-password" data-t="login-password">
-      <button class="primary" type="submit" data-i18n="signin" data-t="login-submit">Sign in</button>
-      <!-- role="alert" because this <p> starts EMPTY and is filled by script
-           after a failed sign-in. Without it a screen reader never learns the
-           attempt failed — the text simply appears, silently, and the only
-           feedback is that nothing happened. alert (not status) because it
-           answers an action the user just took and should interrupt. It also
-           gives the element a real role instead of generic, so a test can ask
-           getByRole("alert") rather than for the paragraph by name. -->
-      <p class="err" id="e" role="alert" data-t="login-error"></p>
-    </form>
-
-    <form id="setupForm" class="hidden" data-t="setup-form">
-      <p class="note" data-i18n="setupNote">Sign-in is not enabled yet — this open page becomes protected once you create the first account. No default admin/admin exists on purpose.</p>
-      <label for="su" data-i18n="user">Username</label>
-      <input id="su" autocomplete="username" data-t="setup-username">
-      <label for="sp" data-i18n="passNew">Password (min 8 chars)</label>
-      <input id="sp" type="password" autocomplete="new-password" data-t="setup-password">
-      <label for="sp2" data-i18n="passRepeat">Repeat password</label>
-      <input id="sp2" type="password" autocomplete="new-password" data-t="setup-password-repeat">
-      <button class="primary" type="submit" data-i18n="create" data-t="setup-submit">Create account &amp; enable sign-in</button>
-      <p class="err" id="se"></p>
-    </form>
+    <!--FORM-->
 
     <!-- Appears once, after the first account is created, and carries a
          credential the operator has to copy before leaving the page. status
@@ -437,15 +441,10 @@ LOGIN_PAGE = """<!doctype html>
   });
   apply();
 
-  // Свежая установка: вход ещё не включён → мастер первого аккаунта.
-  fetch("/api/auth/me").then(function (r) { return r.json(); }).then(function (me) {
-    if (me && me.enabled === false) {
-      document.getElementById("loginForm").classList.add("hidden");
-      document.getElementById("setupForm").classList.remove("hidden");
-    }
-  }).catch(function () {});
-
-  document.getElementById("loginForm").addEventListener("submit", function (ev) {
+  // Which form this page carries is decided by the server, so exactly one of
+  // the two handlers below has something to bind to. Both are guarded.
+  var loginForm = document.getElementById("loginForm");
+  if (loginForm) loginForm.addEventListener("submit", function (ev) {
     ev.preventDefault();
     var e = document.getElementById("e");
     e.textContent = "";
@@ -460,7 +459,8 @@ LOGIN_PAGE = """<!doctype html>
       }).catch(function (err) { e.textContent = String(err); });
   });
 
-  document.getElementById("setupForm").addEventListener("submit", function (ev) {
+  var setupForm = document.getElementById("setupForm");
+  if (setupForm) setupForm.addEventListener("submit", function (ev) {
     ev.preventDefault();
     var se = document.getElementById("se");
     se.textContent = "";
@@ -478,12 +478,41 @@ LOGIN_PAGE = """<!doctype html>
         } else { se.textContent = res.j.error || T("failed"); }
       }).catch(function (err) { se.textContent = String(err); });
   });
-  document.getElementById("goBoard").addEventListener("click", function () { window.location = "/"; });
+  var goBoard = document.getElementById("goBoard");
+  if (goBoard) goBoard.addEventListener("click", function () { window.location = "/"; });
 })();
 </script>
 </body>
 </html>
 """
+
+
+def login_page(first_run: bool = None) -> str:
+    """The sign-in page, carrying exactly one of its two forms.
+
+    Both used to be in the markup at once, with the wrong one display:none and
+    a fetch of /api/auth/me deciding client-side which to reveal. The server
+    already knows — it is the same module — so the round trip bought nothing,
+    and it cost three things:
+
+      * Every visitor to a controller with sign-in ON downloaded the first-run
+        wizard, note and all ("Sign-in is not enabled yet…"), which is untrue
+        for them and is not their business.
+      * The duplicate labels made the page ambiguous to anything addressing it
+        by name: `getByLabel("Username")` matched two fields, `"Password"`
+        three. (Role locators were never affected — display:none keeps an
+        element out of the accessibility tree, so `getByRole` already saw one
+        of each. Only name-based lookups that ignore visibility were.)
+      * A fresh install got a visible flash of the sign-in form before the
+        fetch came back and swapped it.
+
+    Rendering one form removes all three. The page script guards both handlers,
+    so whichever form is absent simply has nothing to bind.
+    """
+    if first_run is None:
+        first_run = not auth_enabled()
+    return LOGIN_PAGE.replace("<!--FORM-->",
+                              _FIRST_RUN_FORM if first_run else _SIGN_IN_FORM)
 
 
 def main(argv=None):

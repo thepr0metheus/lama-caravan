@@ -150,6 +150,25 @@ can never pass**, and that is not a defect to chase.
 | `cell-*-runner-tab` (+`data-t-id`) | the visible tabs | click these |
 | `cell-*-whisper-model`, `cell-*-moonshine-model` | hidden carriers — the size / language is chosen in the SHARED model picker | read the value |
 
+## `login-*` and `setup-*` never appear together
+
+`/login` carries **one** form, chosen by the server: `setup-*` on a controller
+with no accounts yet, `login-*` once one exists. Whichever does not apply is not
+in the document at all — not hidden, absent.
+
+It used to ship both, with the wrong one `display:none` and a fetch deciding
+client-side. That is why `getByLabel('Username')` matched two elements and
+`getByLabel('Password')` three, and why the sign-in helper needs a form scope.
+It no longer does; the scope is now harmless rather than load-bearing.
+
+Role locators were never affected either way — `display:none` keeps an element
+out of the accessibility tree, so `getByRole('textbox', { name: 'Username' })`
+resolved to one element before this change and still does. Only name lookups
+that ignore visibility saw the duplicate.
+
+A test that wants the first-run form needs a controller with no accounts; there
+is no way to reach it from a controller that has one.
+
 **`cell-*-fields` is not a collapsed section.** It holds the llama.cpp flags and
 is hidden whenever the runner is not `llama-server`:
 

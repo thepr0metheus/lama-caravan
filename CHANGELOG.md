@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- The sign-in page carries one form instead of two. It shipped both — the
+  sign-in form and the first-run account wizard — with the wrong one
+  `display:none`, and a fetch of `/api/auth/me` deciding client-side which to
+  reveal. The server already knows; it is the same module. The round trip
+  bought nothing and cost three things: every visitor to a controller with
+  sign-in already on downloaded the first-run wizard including its note
+  ("Sign-in is not enabled yet…"), which is untrue for them and none of their
+  business; the duplicate labels made the page ambiguous to anything addressing
+  it by name; and a fresh install showed a flash of the sign-in form before the
+  fetch came back and swapped it.
+
+  Now the server picks, and the absent form is absent rather than hidden. The
+  page script guards both submit handlers, so whichever form is missing has
+  nothing to bind.
+
+  Worth stating precisely, because the report that prompted this got it half
+  right: **role locators were never affected.** `display:none` keeps an element
+  out of the accessibility tree, so `getByRole('textbox', { name: 'Username' })`
+  matched exactly one element before this change too — measured on the live
+  page. What matched two was `getByLabel`, which ignores visibility. So the
+  cure was never to rename the hidden form's labels; it was to stop sending a
+  form nobody on that page can use.
+
 - Switching the interface language stops throwing on `/models` and `/system`,
   and starts actually repainting them. `setLang()` ran the **board's**
   `renderAll()` on every page, deciding from one global which pages were
