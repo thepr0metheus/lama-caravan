@@ -2,7 +2,7 @@
 // Diagnostics panels (the former System modal), plus a hero strip with the
 // numbers an operator checks first. The section renderers are shared with
 // system-panels.js — this file only orchestrates the page.
-import { applyLanguage, applyTheme, initLanguage, setupLangSelect, t } from "./i18n.js";
+import { applyLanguage, applyTheme, initLanguage, onLangChange, setupLangSelect, t } from "./i18n.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
 import { settleAppConfirm } from "./dialogs.js";
 import { setState, state, ui } from "./state.js";
@@ -86,6 +86,18 @@ async function refreshAll() {
   markPageState(_lastInfo ? "ready" : "error", _lastInfo ? "" : "controller-info unavailable");
 }
 
+// Every panel here renders translated text into innerHTML, so a language
+// change has to re-run them — from the data already in hand, since switching
+// language is no reason to hit the controller again.
+function repaintForLanguage() {
+  renderHero(_lastInfo);
+  if (_lastInfo) renderControllerInfo(_lastInfo);
+  renderLlamaCpp();
+  renderKnownProblems();
+  renderProjectGitBranch();
+  refreshSecurity();
+}
+
 // ── auth chip (same behavior as the board header) ────────────────────────────
 function bindUserChip() {
   const doLogout = async () => {
@@ -119,6 +131,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await initLanguage();
   applyLanguage();
   setupLangSelect();
+  onLangChange(repaintForLanguage);
 
   // Tabs + deep links (/system#security etc.).
   $("sysTabs").addEventListener("click", (e) => {

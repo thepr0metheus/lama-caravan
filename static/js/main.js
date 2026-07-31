@@ -19,7 +19,7 @@ import {
   syncCompanionMuting,
   syncToggleLabel,
 } from "./form.js";
-import { applyLanguage, applyTheme, initLanguage, setupLangSelect, t } from "./i18n.js";
+import { applyLanguage, applyTheme, initLanguage, onLangChange, setupLangSelect, t } from "./i18n.js";
 import {
   _teCellPort,
   closeConfirmModal,
@@ -41,7 +41,7 @@ import {
   topologyPointerDrag,
   topologyRouterInputAtPoint,
 } from "./topology-dnd.js";
-import { activeView, flushPendingTopologyRender, refreshTopology, renderTopology, setActiveView } from "./topology-render.js";
+import { activeView, flushPendingTopologyRender, refreshTopology, renderAll, renderTopology, setActiveView } from "./topology-render.js";
 import { openUsageStatsModal } from "./usage-stats.js";
 import { $, api, bindTooltips, escapeHtml, markPageState, toast } from "./utils.js";
 
@@ -92,12 +92,21 @@ document.addEventListener("DOMContentLoaded", async () => {
   initOnboarding();
 
   if (window.ROUTER_STANDALONE) {
+    // The kanban page draws the graph itself and has no board to repaint.
+    onLangChange(renderTopology);
     initRouterStandalonePage();
     // The standalone boot exits before the shared boot tail below — fetch the
     // pricing map here too, or the kanban's $/1M tags stay empty forever.
     fetchModelPricing().catch(() => {});
     return;
   }
+  // The board is the one page whose translated text is mostly built inside
+  // renderers rather than sitting in [data-i18n] attributes, so a language
+  // change has to run the whole thing. renderAll() opens with its own
+  // applyLanguage() — needed when polling calls it over fresh DOM — so that
+  // pass runs twice here. It is idempotent, and this happens only when someone
+  // picks a language; not worth a second entry point to avoid.
+  onLangChange(renderAll);
 
   const doLogout = async () => {
     try { await api("/api/auth/logout", { method: "POST", body: "{}" }); } catch { /* ignore */ }

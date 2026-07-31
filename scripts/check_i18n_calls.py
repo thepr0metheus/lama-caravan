@@ -54,6 +54,42 @@ I18N_ATTRS = ("data-i18n", "data-i18n-placeholder", "data-title-i18n",
 ATTR = re.compile(r'\b(' + "|".join(I18N_ATTRS) + r')="([A-Za-z][\w.]*)"')
 
 
+def check_lang_wiring() -> list:
+    """Every page that offers a language picker must say what to repaint.
+
+    i18n.js used to answer that itself, by importing the BOARD's renderAll()
+    and calling it everywhere. On the two pages that have no board that threw
+    — `state` is null there — so switching language left the page half
+    translated and put an uncaught error in the console. Two rules keep it
+    from coming back:
+
+      1. i18n.js must not import a page's renderer. It is shared by all of
+         them; the moment it knows about one, it is guessing about the rest.
+      2. A page that calls setupLangSelect() must also call onLangChange().
+         Forgetting it is silent: attribute text still updates, and anything
+         the page builds with t() into innerHTML quietly keeps the old
+         language until the next refresh.
+    """
+    problems = []
+    src = (ROOT / "static" / "js" / "i18n.js").read_text(encoding="utf-8")
+    for m in re.finditer(r'^import .*? from "\./([\w-]+)\.js";', src, re.M):
+        if m.group(1) in ("topology-render", "canvas", "polling", "models-page",
+                          "system-page", "main"):
+            problems.append(
+                f"i18n.js imports ./{m.group(1)}.js — a shared module must not "
+                f"reach into a page's renderer; register it with onLangChange()")
+    for path in sorted((ROOT / "static" / "js").glob("*.js")):
+        text = path.read_text(encoding="utf-8")
+        if "setupLangSelect()" not in text or path.name == "i18n.js":
+            continue
+        if "onLangChange(" not in text:
+            problems.append(
+                f"{path.relative_to(ROOT)} offers the language picker but never "
+                f"calls onLangChange() — anything it renders with t() will keep "
+                f"the old language")
+    return problems
+
+
 def main() -> int:
     # English is its own module since the split — and it is still the canonical
     # set, because t() falls back to it for every key another language lacks.
@@ -112,12 +148,18 @@ def main() -> int:
                  f"{rel}:{text.count(chr(10), 0, m.start()) + 1} ({m.group(1)})",
                  known)
 
+    wiring = check_lang_wiring()
+
     if missing:
         print(f"i18n: {len(missing)} key(s) asked for but not defined:", file=sys.stderr)
         for key in sorted(missing):
             print(f"  - {key}  ({', '.join(missing[key][:3])})", file=sys.stderr)
         print("t()/[data-i18n*] keys go in every static/js/i18n/<lang>.js; "
               "hfT() keys go in the HFS table in static/hf.js", file=sys.stderr)
+    if wiring:
+        for problem in wiring:
+            print(f"i18n wiring: {problem}", file=sys.stderr)
+    if missing or wiring:
         return 1
     print(f"i18n calls OK: {checked} lookups resolve — t(\"…\") in JS, "
           f"[data-i18n*] in HTML, hfT(\"…\") on /hf "

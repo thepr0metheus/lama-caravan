@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Switching the interface language stops throwing on `/models` and `/system`,
+  and starts actually repainting them. `setLang()` ran the **board's**
+  `renderAll()` on every page, deciding from one global which pages were
+  different. On the two pages that have no board that reads `state`, which they
+  never populate — so it threw at the fifth call and everything after it was
+  skipped. It looked harmless because `applyLanguage()` is the *first* call, so
+  the attribute text did update; what silently did not was anything those pages
+  build with `t()` into `innerHTML`. `/system`'s hero tiles and llama.cpp panel
+  kept the old language until the next 30-second poll, and `/models` kept it
+  until the next refresh.
+
+  A module every page imports should not know what any page contains, so the
+  dependency is inverted: pages register what to repaint with `onLangChange()`,
+  and `i18n.js` no longer imports the board's renderer at all — which also ends
+  a circular import between the two.
+
+  Two rules are now enforced in CI, both proven to fail on a deliberate break:
+  `i18n.js` may not import a page renderer, and a page offering the language
+  picker must register a repaint. The second one is the quiet failure — forget
+  it and the page still *looks* translated, because the attribute pass runs
+  regardless.
+
 - The four controls the test team's expanded sweep found, and thirty more they
   could not reach. Theirs first: the two mirrored `HEALTH_PATH` boxes had a
   label-row whose `for=` names the *toggle* beside them, so every other field in

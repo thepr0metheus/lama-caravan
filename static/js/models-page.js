@@ -4,7 +4,7 @@
 // /api/models/gc (refuses referenced files server-side too).
 import { appConfirm, settleAppConfirm } from "./dialogs.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
-import { applyLanguage, applyTheme, initLanguage, setupLangSelect, t } from "./i18n.js";
+import { applyLanguage, applyTheme, initLanguage, onLangChange, setupLangSelect, t } from "./i18n.js";
 import { ui } from "./state.js";
 import { $, api, escapeHtml, markPageState, toast } from "./utils.js";
 
@@ -148,6 +148,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   await initLanguage();
   applyLanguage();
   setupLangSelect();
+  // The hero tiles and the empty-tree line are built with t() into innerHTML,
+  // so switching language has to rebuild them. It never did: the shared
+  // handler ran the BOARD's renderer, which threw on this page before it got
+  // anywhere near here.
+  onLangChange(refresh);
   bindUserChip();
 
   $("confirmCancel").addEventListener("click", () => settleAppConfirm(false));

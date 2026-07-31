@@ -1,7 +1,6 @@
 // Language + theme: t(), applyLanguage/applyTheme, the language dropdown.
 import { option } from "./form.js";
 import { LANGS, loadLanguage, messages } from "./i18n-data.js";
-import { renderAll, renderTopology } from "./topology-render.js";
 import { $, escapeHtml } from "./utils.js";
 
 // Language options for the dropdown. `emoji` is a country-flavoured glyph
@@ -20,9 +19,24 @@ export function t(key, vars = {}) {
   return text;
 }
 
-// Programmatic language switch (used by the onboarding tour's picker).
-// On the standalone kanban page renderAll() would touch board-only DOM,
-// so re-render only what exists there.
+// What a page wants repainted after its language changes, beyond the
+// attribute pass that applyLanguage() does everywhere.
+//
+// This module used to decide that itself: it imported the BOARD's renderAll()
+// and called it on every page except the one global it knew to check. On
+// /models and /system that guess was wrong — renderAll() reads the board's
+// `state`, which those pages never populate, so a language switch threw
+// partway through and whatever the page itself needed repainting never
+// happened. It also meant a module every page shares imported the board's
+// renderer, which imports this one straight back.
+//
+// A shared module should not have to know what any page contains. Each page
+// says what to repaint; the default is nothing, which is correct for a page
+// whose translated text is all in [data-i18n*] attributes.
+let repaintAfterLangChange = null;
+export function onLangChange(fn) { repaintAfterLangChange = fn; }
+
+// Programmatic language switch (also used by the onboarding tour's picker).
 // Async since the split: a language's table is its own module now, so it has to
 // arrive before anything re-renders in it. Callers may ignore the promise —
 // nothing renders until the await resolves, and if the file cannot be had
@@ -31,12 +45,8 @@ export async function setLang(code) {
   if (!code || code === lang || !LANGS.some((l) => l.code === code)) return;
   lang = await loadLanguage(code);
   localStorage.setItem("llamacppAdminLang", lang);
-  if (window.ROUTER_STANDALONE) {
-    applyLanguage();
-    renderTopology();
-  } else {
-    renderAll();
-  }
+  applyLanguage();
+  repaintAfterLangChange?.();
 }
 
 /** Bring in the stored language before the first render. Every page calls this
