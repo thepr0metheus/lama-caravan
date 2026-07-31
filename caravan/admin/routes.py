@@ -1417,8 +1417,11 @@ def _delete_api_hf_local_file(h, parsed):
 # a load balancer asks BEFORE it has credentials, or when the question is
 # precisely whether credentials can be checked at all. It answers liveness and
 # version and nothing else; no fleet state, no config, nothing worth guarding.
-_AUTH_PUBLIC_GET = {"/login", "/favicon.svg", "/favicon.ico", "/api/auth/me",
-                    "/health", "/api/health"}
+# /setup is public so ITS OWN route decides what it means: with auth enabled
+# it 302s to /login, which is exactly what the guard would have done — but
+# stated where the page is defined, not implied by an omission here.
+_AUTH_PUBLIC_GET = {"/login", "/setup", "/favicon.svg", "/favicon.ico",
+                    "/api/auth/me", "/health", "/api/health"}
 _AUTH_PUBLIC_POST = {"/api/auth/login", "/api/auth/setup"}
 _AUTH_MACHINE_GET = {"/api/models/download", "/api/cell-assets",
                      "/api/cell-assets/file"}
@@ -1479,13 +1482,12 @@ def _auth_guard(h, path, method):
     return False
 
 
-@_route(GET_ROUTES, '/login')
-def _get_login(h, parsed):
+def _send_auth_page(h, page_html):
         # Built by hand rather than through send_file (the page is a string, not
         # a file on disk), which is why it was the one response left uncompressed
         # after everything else started gzipping — 22 KB, and the first thing
         # anyone gets, before they are even signed in.
-        data, enc = h._maybe_gzip(auth_mod.login_page().encode("utf-8"))
+        data, enc = h._maybe_gzip(page_html.encode("utf-8"))
         h.send_response(200)
         h.send_header("Content-Type", "text/html; charset=utf-8")
         if enc:
@@ -1495,6 +1497,36 @@ def _get_login(h, parsed):
         h.send_header("Cache-Control", "no-cache")
         h.end_headers()
         h.wfile.write(data)
+
+
+def _redirect(h, where):
+        h.send_response(302)
+        h.send_header("Location", where)
+        h.send_header("Cache-Control", "no-cache")
+        h.send_header("Content-Length", "0")
+        h.end_headers()
+
+
+# /login and /setup are a pair: each form has its own URL, and the server
+# bounces to the one that matches the controller's auth state. Both redirects
+# are load-bearing, not politeness — /login on a fresh controller is a form
+# nobody can possibly sign in through (there are no accounts), and /setup on
+# an enabled one advertises a wizard the API will refuse anyway.
+
+@_route(GET_ROUTES, '/login')
+def _get_login(h, parsed):
+        if not auth_mod.auth_enabled():
+            _redirect(h, "/setup")
+            return
+        _send_auth_page(h, auth_mod.login_page())
+        return
+
+@_route(GET_ROUTES, '/setup')
+def _get_setup(h, parsed):
+        if auth_mod.auth_enabled():
+            _redirect(h, "/login")
+            return
+        _send_auth_page(h, auth_mod.setup_page())
         return
 
 @_route(GET_ROUTES, '/api/auth/me')

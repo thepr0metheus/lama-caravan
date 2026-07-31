@@ -301,8 +301,10 @@ def session_cookie_header(token: str, clear: bool = False) -> str:
     return f"{SESSION_COOKIE}={token}; Path=/; Max-Age={SESSION_TTL}; HttpOnly; SameSite=Lax"
 
 
-# The two forms this page can carry. Exactly one is rendered, chosen by the
-# server — see login_page().
+# The two auth pages share one shell (styles, language select, script) and
+# differ in the form it carries. Each form lives at its own URL — /login and
+# /setup — with the server redirecting between them by auth state; see
+# login_page() / setup_page().
 _SIGN_IN_FORM = """<form id="loginForm" data-t="login-form">
       <label for="u" data-i18n="user">Username</label>
       <input id="u" autocomplete="username" autofocus data-t="login-username">
@@ -329,9 +331,19 @@ _FIRST_RUN_FORM = """<form id="setupForm" data-t="setup-form">
       <input id="sp2" type="password" autocomplete="new-password" data-t="setup-password-repeat">
       <button class="primary" type="submit" data-i18n="create" data-t="setup-submit">Create account &amp; enable sign-in</button>
       <p class="err" id="se"></p>
-    </form>"""
+    </form>
 
-LOGIN_PAGE = """<!doctype html>
+    <!-- Appears once, after the first account is created, and carries a
+         credential the operator has to copy before leaving the page. status
+         rather than alert: it is the result of a successful action, so it is
+         announced without interrupting. -->
+    <div id="tokenBox" class="hidden" role="status" data-t="setup-token-box">
+      <p class="note" data-i18n="tokenIntro">Fleet token — copy it now and add to every caravan-scout (pairing page or controllerToken in config.json):</p>
+      <code class="token" id="tokenVal" data-t="setup-token"></code>
+      <button class="primary" id="goBoard" data-i18n="goBoard" data-t="setup-go-board">Open the board</button>
+    </div>"""
+
+_PAGE_SHELL = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -378,16 +390,6 @@ LOGIN_PAGE = """<!doctype html>
     </div>
 
     <!--FORM-->
-
-    <!-- Appears once, after the first account is created, and carries a
-         credential the operator has to copy before leaving the page. status
-         rather than alert: it is the result of a successful action, so it is
-         announced without interrupting. -->
-    <div id="tokenBox" class="hidden" role="status" data-t="setup-token-box">
-      <p class="note" data-i18n="tokenIntro">Fleet token — copy it now and add to every caravan-scout (pairing page or controllerToken in config.json):</p>
-      <code class="token" id="tokenVal" data-t="setup-token"></code>
-      <button class="primary" id="goBoard" data-i18n="goBoard" data-t="setup-go-board">Open the board</button>
-    </div>
   </div>
 <script>
 (function () {
@@ -487,32 +489,40 @@ LOGIN_PAGE = """<!doctype html>
 """
 
 
-def login_page(first_run: bool = None) -> str:
-    """The sign-in page, carrying exactly one of its two forms.
+def login_page() -> str:
+    """/login — the sign-in form, and nothing else.
 
-    Both used to be in the markup at once, with the wrong one display:none and
-    a fetch of /api/auth/me deciding client-side which to reveal. The server
-    already knows — it is the same module — so the round trip bought nothing,
-    and it cost three things:
+    History, because this page has been reshaped twice for the same reason.
+    It originally shipped BOTH forms with the wrong one display:none and a
+    fetch of /api/auth/me deciding client-side — which made every name-based
+    lookup ambiguous (getByLabel("Username") matched two fields) and sent the
+    first-run wizard to everyone forever. Then the server chose one form per
+    request on a single URL. Now each form has its own URL, with the routes
+    redirecting by auth state: /login when accounts exist, /setup until then.
+    The URL itself says which mode the controller is in, and neither document
+    ever contains a control that cannot be used on it.
 
-      * Every visitor to a controller with sign-in ON downloaded the first-run
-        wizard, note and all ("Sign-in is not enabled yet…"), which is untrue
-        for them and is not their business.
-      * The duplicate labels made the page ambiguous to anything addressing it
-        by name: `getByLabel("Username")` matched two fields, `"Password"`
-        three. (Role locators were never affected — display:none keeps an
-        element out of the accessibility tree, so `getByRole` already saw one
-        of each. Only name-based lookups that ignore visibility were.)
-      * A fresh install got a visible flash of the sign-in form before the
-        fetch came back and swapped it.
-
-    Rendering one form removes all three. The page script guards both handlers,
-    so whichever form is absent simply has nothing to bind.
+    (Role locators were never ambiguous at any point — display:none excludes
+    an element from the accessibility tree. The name-based ones were.)
     """
-    if first_run is None:
-        first_run = not auth_enabled()
-    return LOGIN_PAGE.replace("<!--FORM-->",
-                              _FIRST_RUN_FORM if first_run else _SIGN_IN_FORM)
+    return _PAGE_SHELL.replace("<!--FORM-->", _SIGN_IN_FORM)
+
+
+def setup_page() -> str:
+    """/setup — the first-run wizard: one account, then the fleet token.
+
+    Deliberately NOT called /signup: nobody self-registers here. The form
+    works exactly once, on a controller with no accounts; every later account
+    is created by an admin from the Security panel. The token box lives on
+    this page because it is part of the same one-time flow — it appears after
+    the account is created and holds the credential the scouts will need.
+
+    The shared page script guards both forms' handlers, so each page simply
+    has nothing to bind for the form it does not carry.
+    """
+    return (_PAGE_SHELL.replace("<!--FORM-->", _FIRST_RUN_FORM)
+            .replace("<title>LAMA CARAVAN — sign in</title>",
+                     "<title>LAMA CARAVAN — first run</title>"))
 
 
 def main(argv=None):

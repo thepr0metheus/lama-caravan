@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- The two auth forms get their own URLs. `/login` is the sign-in form;
+  `/setup` is the first-run wizard, token box included. The server redirects
+  between them by state: a fresh controller bounces `/login` to `/setup` —
+  a sign-in form on a controller with no accounts is a form nobody can
+  possibly get through — and an enabled controller bounces `/setup` back.
+  The URL you land on now tells you which mode the controller is in, and
+  neither document ever contains a control that cannot be used on it.
+
+  Named `/setup`, not `/signup`, on purpose: nobody self-registers here. The
+  wizard works exactly once, on a controller with no accounts; every later
+  account is created by an admin from the Security panel. A URL that promised
+  open registration would be promising something the system deliberately
+  refuses to do.
+
+  Both pages share one shell — styles, language select, the 20-language
+  script — so this is a routing change, not a second page to maintain. For
+  the test suite: every label on each page is now unique by construction,
+  `getByLabel` and `getByRole` recipes resolve to one element with no form
+  scope, and `docs/testability.md` records the redirect matrix.
+
 - The sign-in page carries one form instead of two. It shipped both — the
   sign-in form and the first-run account wizard — with the wrong one
   `display:none`, and a fetch of `/api/auth/me` deciding client-side which to
