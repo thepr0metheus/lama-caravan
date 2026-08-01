@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- The CosyVoice cell works on Blackwell — for the first time ever. The engine
+  venv installed CosyVoice's own torch pin, 2.3.1+cu121, whose kernels stop at
+  `sm_90`; the RTX 5090 is `sm_120`, so every CUDA kernel launch died with
+  "no kernel image is available" — masked until 1.3.173 by the swallowed
+  exception, and layered under an unrelated VRAM shortage that blocked even
+  initialisation. The venv now runs torch 2.7.1+cu128, whose wheels carry
+  `sm_75…sm_120` — one venv serves both the RTX 3090 and the RTX 5090.
+
+  The recipe is fixed at the source: `run_tts.sh` installs the cu128 torch
+  FIRST (so neither whisper nor CosyVoice's requirements pull their own) and
+  filters the stale pins out of requirements.txt, the same treatment grpcio
+  already got. Verified live: a real Russian synthesis on the 5090 answers
+  HTTP 200 with a 24 kHz WAV in under a second, through the primary path API
+  — the tensor fallback never fires.
+
 - The CosyVoice cell reports the real reason synthesis fails. Its synth path
   tries the current API (a file path) and falls back to the pre-2026 one (a
   16 kHz tensor) — with a bare `except` between them that discarded the first

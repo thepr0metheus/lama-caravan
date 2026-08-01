@@ -31,8 +31,18 @@ if [ ! -x "$VENV/bin/python" ]; then
       # to versions that no longer build, and runtime code imports pkg_resources
       # (gone from setuptools>=81). Newer ones + filtered requirements work.
       "$VENV/bin/pip" install "setuptools<81" wheel
+      # torch FIRST, and from the cu128 index. CosyVoice's requirements pin
+      # torch 2.3.1+cu121, whose kernels stop at sm_90 — dead on Blackwell
+      # ("CUDA error: no kernel image", RTX 5090 = sm_120), and the cell spent
+      # its whole life broken there. The cu128 wheels carry sm_75…sm_120, so
+      # ONE recipe serves both the 3090 (sm_86) and the 5090. Installing it
+      # before whisper/requirements means nothing else pulls its own torch;
+      # the pins are filtered out of requirements.txt below for the same
+      # reason ("torch" also catches torchaudio, deliberately).
+      "$VENV/bin/pip" install torch==2.7.1 torchaudio==2.7.1 \
+          --index-url https://download.pytorch.org/whl/cu128
       "$VENV/bin/pip" install -U grpcio grpcio-tools openai-whisper
-      grep -viE '^(grpcio|grpcio-tools|openai-whisper)' \
+      grep -viE '^(grpcio|grpcio-tools|openai-whisper|torch)' \
           "$HOME/CosyVoice/requirements.txt" > /tmp/cosy-req.txt
       "$VENV/bin/pip" install -r /tmp/cosy-req.txt
       # model: ~/CosyVoice/pretrained_models/CosyVoice2-0.5B (modelscope)
