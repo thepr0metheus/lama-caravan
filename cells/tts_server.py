@@ -125,12 +125,23 @@ def _load_cosyvoice():
             # current API: prompt_wav is a file path (frontend loads it itself)
             chunks = [out["tts_speech"] for out in
                       cv.inference_cross_lingual(text, ref_path, stream=False)]
-        except Exception:
-            # pre-2026 API took a 16 kHz tensor
-            from cosyvoice.utils.file_utils import load_wav
-            prompt = load_wav(ref_path, 16000)
-            chunks = [out["tts_speech"] for out in
-                      cv.inference_cross_lingual(text, prompt, stream=False)]
+        except Exception as e1:
+            # The FIRST failure is the real diagnosis — on a current checkout
+            # the path API is the right one, so when it breaks, the fallback
+            # below breaks too ("Invalid file: tensor(...)" out of soundfile)
+            # and used to be the only error anyone saw. A silent except here
+            # cost a debugging session on both sides of the fleet: the visible
+            # error was the fallback's, the cause was discarded unlogged.
+            _log(f"cosyvoice path-API failed: {e1!r}")
+            try:
+                # pre-2026 API took a 16 kHz tensor
+                from cosyvoice.utils.file_utils import load_wav
+                prompt = load_wav(ref_path, 16000)
+                chunks = [out["tts_speech"] for out in
+                          cv.inference_cross_lingual(text, prompt, stream=False)]
+            except Exception as e2:
+                _log(f"cosyvoice tensor-API fallback failed too: {e2!r}")
+                raise e1
         import torch
         a = torch.cat(chunks, dim=1).squeeze(0).cpu().numpy()
         return a.astype("float32"), cv.sample_rate

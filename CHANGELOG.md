@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- The CosyVoice cell reports the real reason synthesis fails. Its synth path
+  tries the current API (a file path) and falls back to the pre-2026 one (a
+  16 kHz tensor) — with a bare `except` between them that discarded the first
+  exception unlogged. On a current checkout the path API is the RIGHT one, so
+  when it breaks the fallback breaks too (`Invalid file: tensor(...)` out of
+  soundfile, which wants a path), and that derivative error was the only thing
+  the caller ever saw. It cost a debugging session on both sides of the fleet:
+  the voice app proved the sample format innocent and read our cell server
+  line by line to find the swallowed exception.
+
+  Both failures are logged now, and the FIRST one is what propagates — to the
+  journal and to the caller's `{"error": ...}` body alike.
+
 - A cell whose health path answers with an error stops rendering as a healthy
   green RUNNING cell. The probe classified ANY response without a loading
   marker as "ok" — so a command cell whose engine died at initialisation (a
