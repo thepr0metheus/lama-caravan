@@ -255,6 +255,11 @@ export function nodeServerCardHtml(node, s) {
   const running = phase === "running";
   const isReserved = phase === "reserved";
   const isError = phase === "error";
+  // Broken = the wrapper process is up and its health path answers WITH AN
+  // ERROR (engine never initialised). Deliberately not lumped into isError:
+  // error behaves like stopped (Start available), while a broken cell is a
+  // running process — Stop must work and Start must not.
+  const isBroken = phase === "broken";
   const isStopped = phase === "stopped" || isReserved || isError;  // error behaves like stopped for controls
   const isDownloading = phase === "downloading";
   const isWarming = phase === "warming";  // process up, model still loading into VRAM
@@ -302,6 +307,13 @@ export function nodeServerCardHtml(node, s) {
       || String(_wcfg.RUNNER || "").toLowerCase() === "moonshine";
     const _warmKey = _warmCpu ? "topologyRemoteWarmingRam" : "topologyRemoteWarming";
     statusRow = _msl("", `${_mslSpin(false)}<span class="msl-bar indeterminate"><span></span></span><span class="msl-text">${escapeHtml(t(_warmKey))}</span>${_prevErrChip(s)}`);
+  } else if (isBroken) {
+    // The diagnosis is the cell's own health body — a string, not the
+    // journal-classified object the isError branch below reads.
+    const bErr = String(s.status?.error || "");
+    statusRow = _msl("msl-err", `<span class="msl-err-icon" aria-hidden="true">💔</span>`
+      + `<span class="msl-text" data-t="cell-broken-error" data-t-id="${escapeHtml(`${slotHostId}:${port}`)}"`
+      + ` title="${escapeHtml(bErr)}">${escapeHtml(t("failed"))}: ${escapeHtml(bErr.slice(0, 140))}${bErr.length > 140 ? "…" : ""}</span>`);
   } else if (isError && (s.status?.error)) {
     // The unit is failed or flapping — say WHY (classified from its journal)
     // instead of leaving a silent stopped-looking card. WHEN it died matters
@@ -318,7 +330,7 @@ export function nodeServerCardHtml(node, s) {
     const note = s.status?.progressNote ? ` · ${s.status.progressNote}` : "";
     statusRow = _msl("", `${_mslSpin(false)}<span class="msl-text">${escapeHtml((phase === "loading" ? t("topologyRemoteLoading") : t("topologyRemoteStarting")) + note)}</span>${_prevErrChip(s)}`);
   }
-  const healthCls = running ? "running" : (isStopped ? "" : "loading");
+  const healthCls = running ? "running" : (isBroken ? "error" : (isStopped ? "" : "loading"));
   // Compact model block (name + quant/size/vision chips) — click to drill in.
   const parsed = parseModelName(s.model) || {};
   const hasVision = !!s.mmproj;
@@ -532,15 +544,15 @@ export function nodeServerCardHtml(node, s) {
     : "";
   const isConfiguredCell = phase === "stopped" && !isReserved && !isError;
   const cardCls = [
-    isStopping ? "stopping" : (isDeleting ? "deleting" : (running ? "running" : (isError ? "error" : (isStopped ? (isConfiguredCell ? "configured-cell" : "stopped") : "loading")))),
+    isStopping ? "stopping" : (isDeleting ? "deleting" : (running ? "running" : ((isError || isBroken) ? "error" : (isStopped ? (isConfiguredCell ? "configured-cell" : "stopped") : "loading")))),
     isReserved ? "reserved-cell" : "",
     isNewReserved ? "reserved-new" : "",
     isCpuCell ? "cpu-cell" : "",
   ].filter(Boolean).join(" ");
-  const pillPhase = isStopping ? "stopping" : (running ? "running" : (isError ? "failed" : (phase === "stopped" ? "stopped" : (isWarming ? "warming" : "loading"))));
+  const pillPhase = isStopping ? "stopping" : (running ? "running" : ((isError || isBroken) ? "failed" : (phase === "stopped" ? "stopped" : (isWarming ? "warming" : "loading"))));
   // Lifecycle breadcrumb — reserved(0) → configured(1) → starting(2) → running(3)
-  const lcIdx = (running || isStopping) ? 3 : (isReserved ? 0 : (isStopped || isError ? 1 : 2));
-  const lcActiveStep = isStopping ? "stopping" : (isError ? "error" : (running ? "running" : (isReserved ? "reserved" : (phase === "stopped" ? "configured" : "loading"))));
+  const lcIdx = (running || isStopping || isBroken) ? 3 : (isReserved ? 0 : (isStopped || isError ? 1 : 2));
+  const lcActiveStep = isStopping ? "stopping" : ((isError || isBroken) ? "error" : (running ? "running" : (isReserved ? "reserved" : (phase === "stopped" ? "configured" : "loading"))));
   let lifecycleBar = serverLifecycleBar(lcIdx, lcActiveStep, "", "", port);
   // Controls differ by role/phase. Controller (controller) is read-only here.
   let controls = "";

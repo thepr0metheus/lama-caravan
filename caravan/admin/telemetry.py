@@ -210,6 +210,9 @@ def command_cell_health(ip, port, health_path="", timeout=1.0):
       - "downloading" / "loading" → the server answered its health path with a JSON
         body {"status": "downloading"|"loading", "downloadedBytes", "totalBytes"}
         (e.g. whisper_server.py returns this with 503 while the model loads)
+      - "broken"      → answered with {"status": "error", ...} or a 5xx that
+        carries no loading marker; "error" holds the cell's own diagnosis. The
+        process is up, the engine is not — distinct from "down" on purpose.
       - "down"        → not reachable
     HEALTH_PATH empty → a plain TCP port probe (ok/down, no progress)."""
     res = {"status": "down", "downloadedBytes": 0, "totalBytes": 0}
@@ -231,6 +234,16 @@ def command_cell_health(ip, port, health_path="", timeout=1.0):
             res["status"] = "downloading" if st in ("downloading", "resolving") else "loading"
             res["downloadedBytes"] = int(data.get("downloadedBytes") or 0)
             res["totalBytes"] = int(data.get("totalBytes") or 0)
+        elif st == "error" or code >= 500:
+            # The cell is up and ANSWERING — with a diagnosis. This used to fall
+            # into the "ok" arm below, which painted a dead-on-arrival engine as
+            # a healthy green cell: the wrapper process lives and serves /health,
+            # the engine inside it never initialised (a CosyVoice cell spent a
+            # day green while every request would have failed — its ONNX runtime
+            # could not get GPU memory at startup). Same defect class as the
+            # unlit cable: an error response rendered as normality.
+            res["status"] = "broken"
+            res["error"] = str(data.get("error") or f"HTTP {code} on {path}")[:300]
         else:
             res["status"] = "ok"   # answered without a loading marker → listening
         # A cell may describe itself on its health path, and what it says about

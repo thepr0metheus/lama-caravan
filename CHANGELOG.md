@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- A cell whose health path answers with an error stops rendering as a healthy
+  green RUNNING cell. The probe classified ANY response without a loading
+  marker as "ok" — so a command cell whose engine died at initialisation (a
+  CosyVoice cell answered `/health` with HTTP 500 and a full ONNX diagnosis
+  for a day) stayed green: the wrapper process is alive, and "alive" was all
+  the probe asked. The same defect class as the unlit cable — an error
+  response rendered as normality — and the third consumer bitten by it: the
+  external LAN scanner had to patch around the same lie on its side.
+
+  There is a new phase for it, `broken`, distinct from `error` on purpose:
+  `error` means the unit is down and behaves like stopped (Start offered),
+  while a broken cell is a running process — Stop works, Start does not. The
+  card shows the cell's own diagnosis (💔 + the health body's error, full
+  text in the tooltip, hook `cell-broken-error`), the lifecycle chain parks
+  at RUNNING in error colouring — it did start, and it is not well — and the
+  status pill says failed. Works for controller and client cells alike; the
+  probe runs from the controller, so no scout release is needed.
+
 - The welcome tour stops stealing clicks from someone already working. Its
   auto-start waits for the board to be ready — up to 20 seconds — and then
   opened its overlay regardless of what the operator was doing by that point,

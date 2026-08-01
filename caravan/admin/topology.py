@@ -247,6 +247,7 @@ def topology_server(config=None):
             _cmd_tot = (_ch or {}).get("totalBytes") or 0
             health = ("ok" if _cmd_phase == "ok"
                       else "loading" if _cmd_phase in ("downloading", "loading")
+                      else "broken" if _cmd_phase == "broken"
                       else "down" if _cmd_phase == "down" else None)
         else:
             health = remote_llama_health(client_ip, remote_port) if running else None
@@ -256,6 +257,10 @@ def topology_server(config=None):
         # "downloading" surfaces the % bar) instead of the generic "warming".
         if slot_is_command and _cmd_phase in ("downloading", "loading"):
             effective_phase = _cmd_phase
+        # A health path answering with an error is a live process around a dead
+        # engine — running as far as the OS cares, broken for every caller.
+        if running and slot_is_command and _cmd_phase == "broken":
+            effective_phase = "broken"
         # Authoritative input modalities: probe the remote /props once the model
         # is loaded (cached); fall back to whatever the heartbeat carried.
         remote_mods = None
@@ -280,7 +285,9 @@ def topology_server(config=None):
             "mmproj": str(ln.get("mmprojPath") or ""),
             "specDraft": str(ln.get("specPath") or ""),
             "specType": str(ln.get("specType") or ""),
-            "status": {"phase": effective_phase if running else (phase or "starting")},
+            "status": ({"phase": "broken", "error": str((_ch or {}).get("error") or "")}
+                       if effective_phase == "broken" else
+                       {"phase": effective_phase if running else (phase or "starting")}),
             "service": "",
             "gpuIndexes": [],
             "isRemote": True,
@@ -364,7 +371,7 @@ def topology_server(config=None):
                     _cdl = (_ch or {}).get("downloadedBytes") or 0
                     _ctot = (_ch or {}).get("totalBytes") or 0
                     slot_phase = ("running" if _cph == "ok"
-                                  else _cph if _cph in ("downloading", "loading")
+                                  else _cph if _cph in ("downloading", "loading", "broken")
                                   else "starting")
                 else:
                     health = remote_llama_health("127.0.0.1", port)
@@ -415,6 +422,10 @@ def topology_server(config=None):
                     cell_error = cell_last_error(port)
                 except Exception:
                     cell_error = None
+        # A broken cell's diagnosis comes from its own health body, not the
+        # journal — the unit is active and systemd has nothing to complain about.
+        if slot_phase == "broken":
+            cell_error = str((_ch or {}).get("error") or "health error")
         # Authoritative modalities for a live cell (controller on 127.0.0.1,
         # remote on its IP). Stopped/reserved cells have no running server.
         progress_note = ""
@@ -448,7 +459,7 @@ def topology_server(config=None):
                         # as "it just died again" on the card.
                         **({"errorAt": systemd_ts_epoch(cell_status.get("ExecMainExitTimestamp"))}
                            if systemd_ts_epoch(cell_status.get("ExecMainExitTimestamp")) else {}),
-                        ("error" if slot_phase == "error" else "lastError"): cell_error}
+                        ("error" if slot_phase in ("error", "broken") else "lastError"): cell_error}
                        if cell_error else
                        ({"phase": slot_phase, "progressNote": progress_note}
                         if progress_note else {"phase": slot_phase})),
