@@ -564,7 +564,7 @@ export function nodeServerCardHtml(node, s) {
     const cellHostId = slotHostId;
     const isCellStopping = _stoppingCells.has(cellKey) || pendingCellAction === "stop";
     const isCellBusy = isCellStopping || !!pendingCellAction;
-    const cfgAttrs = `data-t="cell-configure" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-start="${escapeHtml(s.isController ? CONTROLLER_HOST_ID : node.id)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-role="${escapeHtml(node.role)}"`;
+    const cfgAttrs = `data-t="cell-configure" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" aria-label="${escapeHtml(t("nodeConfigure"))}: ${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-start="${escapeHtml(s.isController ? CONTROLLER_HOST_ID : node.id)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-role="${escapeHtml(node.role)}"`;
 
     // ✕ delete — active only when reserved / stopped / error
     const canDelete = (isReserved || phase === "stopped" || isError) && !isDeleting && !isCellBusy;
@@ -617,7 +617,7 @@ export function nodeServerCardHtml(node, s) {
 
     return `
       <article class="node-server ${cardCls}"
-               data-t="cell-card" data-t-id="${escapeHtml(slotKey)}" data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}"
+               data-t="cell-card" data-t-id="${escapeHtml(slotKey)}" aria-label="${escapeHtml(t("a11yCell"))} ${escapeHtml(slotKey)}" data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}"
                ${_vramClaim ? `data-cell-node="${escapeHtml(String(node.id))}" data-cell-vram="${escapeHtml(_vramClaim)}"` : ""}>
         ${running ? '<span class="cell-beam" aria-hidden="true"></span>' : ""}
         <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
@@ -668,7 +668,7 @@ export function nodeServerCardHtml(node, s) {
   if (controls) controls = `<span class="node-server-ctl">${controls}</span>`;
   return `
     <article class="node-server ${cardCls}"
-             data-t="cell-card" data-t-id="${escapeHtml(slotKey)}" data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}">
+             data-t="cell-card" data-t-id="${escapeHtml(slotKey)}" aria-label="${escapeHtml(t("a11yCell"))} ${escapeHtml(slotKey)}" data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}">
       ${running ? '<span class="cell-beam" aria-hidden="true"></span>' : ""}
       <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
             data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>
@@ -1056,6 +1056,7 @@ export function nodesLaneHtml() {
       <div class="ghost-server-body">
         <button class="ghost-start-btn" type="button"
           data-t="board-cell-add" data-t-id="${escapeHtml(n.id)}"
+          aria-label="${escapeHtml(t("topologyReserveCellLabel"))} :${escapeHtml(String(reservePort))} — ${escapeHtml(n.name || n.id)}"
           data-node-reserve="${escapeHtml(n.id)}"
           data-node-reserve-port="${escapeHtml(String(reservePort))}"
           data-node-role="${escapeHtml(n.role)}"

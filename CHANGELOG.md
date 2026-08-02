@@ -2,6 +2,39 @@
 
 ## Unreleased
 
+- Thirteen panels and lanes become named landmark regions, and the repeated
+  cards and buttons say which one they are. The containers a test reaches for
+  are the same ones a keyboard user needs to jump between, and every one of
+  them was an anonymous `div` — measured, not assumed: of the forty hooks the
+  external suite uses, twenty-one had no role at all.
+
+  Nine of the thirteen borrow the heading already beside them
+  (`aria-labelledby`) rather than carrying a second string: the name then
+  follows the interface language for free and cannot drift from what a sighted
+  user reads. Only four — the GPU lane, the model tree, the disk summary and
+  the routing graph — had no heading to point at and needed a string of their
+  own, translated into all twenty languages.
+
+  The repeated elements are the part with a user behind them. A `cell-card` is
+  an `<article>` whose accessible name was everything inside it concatenated
+  ("▶Start⏹Stop↟Autostart✕Delete reserved:8001configured…") — identical for all
+  twenty-two. Its twenty-two Configure buttons announced the single word
+  "configured", so someone tabbing the board heard it twenty-two times with no
+  way to know which cell each opened. Both now carry the identity `data-t-id`
+  already held.
+
+  One finding of our own while measuring: the two **Reserve cell** buttons were
+  announced identically — "＋ Reserve cell :8024" on both hosts, because the
+  next free port is chosen fleet-wide. Nothing said which machine the cell
+  would land on. They now name the host.
+
+  Two items on the list were left alone, both after measuring. The eight
+  kanban palette buttons are already distinct by their own text. And
+  `board-gpus-lane` sits on an element `nodes.css` hides on purpose — a GPU
+  mini-summary redundant with the node card's own GPU rows — so a landmark
+  there would be one nobody can reach; the reason is recorded next to the
+  markup and in the contract's never-visible table.
+
 - The CosyVoice cell works on Blackwell — for the first time ever. The engine
   venv installed CosyVoice's own torch pin, 2.3.1+cu121, whose kernels stop at
   `sm_90`; the RTX 5090 is `sm_120`, so every CUDA kernel launch died with

@@ -195,7 +195,7 @@
         <h1><span aria-hidden="true">📦</span> <span data-i18n="modelsPage">Models on disk</span></h1>
         <p data-i18n="modelsPageSub">Everything the controller can serve — sizes, which cells use what, and cleanup of the rest.</p>
       </div>
-      <div class="mdl-hero-stats" id="mdlHeroStats" data-t="models-hero-stats"></div>
+      <div class="mdl-hero-stats" id="mdlHeroStats" data-t="models-hero-stats" role="region" data-i18n-aria="a11yModelsSummary" aria-label="Disk summary"></div>
     </section>
 
     <section class="mdl-panel">
@@ -210,7 +210,7 @@
         <button class="mini-link" type="button" id="mdlPathSave" data-i18n="save" data-t="models-path-save">Save</button>
         <button class="mini-link" type="button" id="mdlPathCancel" data-i18n="cancel" data-t="models-path-cancel">Cancel</button>
       </div>
-      <div class="mdl-tree" id="mdlTree" data-t="models-tree"><p class="muted">…</p></div>
+      <div class="mdl-tree" id="mdlTree" data-t="models-tree" role="region" data-i18n-aria="a11yModelsTree" aria-label="Model files"><p class="muted">…</p></div>
       <div class="mdl-foot">
         <span class="picked" id="mdlPicked" data-t="models-picked-summary"></span>
         <button class="mdl-del" id="mdlDelete" disabled data-i18n="gcDelete" data-t="models-delete-selected">Delete selected</button>

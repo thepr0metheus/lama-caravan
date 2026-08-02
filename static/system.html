@@ -277,29 +277,29 @@
     <section class="sys-panel active" data-panel="controller">
       <div class="panel controller-panel">
         <div class="section-title">
-          <h2 class="title-with-tip"><span data-i18n="controllerSection">Controller</span><span id="controllerSectionTip"></span></h2>
+          <h2 class="title-with-tip"><span id="sysControllerHead" data-i18n="controllerSection">Controller</span><span id="controllerSectionTip"></span></h2>
           <div class="button-row">
             <button id="modelGcBtn" type="button" data-i18n="gcOpen" data-t="system-gc-open">Free up space…</button>
           </div>
         </div>
-        <div id="controllerInfo" class="llama-summary" data-t="system-controller-info"><span class="muted">…</span></div>
+        <div id="controllerInfo" class="llama-summary" data-t="system-controller-info" role="region" aria-labelledby="sysControllerHead"><span class="muted">…</span></div>
       </div>
     </section>
 
     <section class="sys-panel" data-panel="llama">
       <div class="panel llama-panel">
         <div class="section-title">
-          <h2 class="title-with-tip"><span>llama.cpp</span><span id="llamaCppTip"></span></h2>
+          <h2 class="title-with-tip"><span id="sysLlamaHead">llama.cpp</span><span id="llamaCppTip"></span></h2>
           <div class="button-row">
             <span class="button-with-tip"><button id="checkLlamaBtn" type="button" data-i18n="checkVersions" data-t="system-llama-versions-check">Check Versions</button><span id="checkVersionsTip"></span></span>
             <span class="button-with-tip"><button id="updateLlamaBtn" type="button" class="danger" data-i18n="updateBuild" data-t="system-llama-build-update">Update Build</button><span id="updateBuildTip"></span></span>
           </div>
         </div>
-        <div id="llamaCppSummary" class="llama-summary" data-t="system-llama-summary"></div>
-        <h3 class="llama-builds-title" data-i18n="archivedBuilds">Archived builds</h3>
-        <div id="llamaBuildsList" class="llama-builds-list" data-t="system-llama-builds"></div>
-        <h3 class="llama-builds-title" data-i18n="vllmRunnerTitle">vLLM runner</h3>
-        <div id="vllmSummary" class="llama-builds-list" data-t="system-vllm-list"></div>
+        <div id="llamaCppSummary" class="llama-summary" data-t="system-llama-summary" role="region" aria-labelledby="sysLlamaHead"></div>
+        <h3 class="llama-builds-title" id="sysBuildsHead" data-i18n="archivedBuilds">Archived builds</h3>
+        <div id="llamaBuildsList" class="llama-builds-list" data-t="system-llama-builds" role="region" aria-labelledby="sysBuildsHead"></div>
+        <h3 class="llama-builds-title" id="sysVllmHead" data-i18n="vllmRunnerTitle">vLLM runner</h3>
+        <div id="vllmSummary" class="llama-builds-list" data-t="system-vllm-list" role="region" aria-labelledby="sysVllmHead"></div>
         <pre id="llamaUpdateLog" class="llama-update-log" data-t="system-llama-update-log"></pre>
       </div>
     </section>
@@ -307,24 +307,24 @@
     <section class="sys-panel" data-panel="security">
       <div class="panel security-panel">
         <div class="section-title">
-          <h2 class="title-with-tip"><span data-i18n="securitySection">Security</span><span id="securitySectionTip"></span></h2>
+          <h2 class="title-with-tip"><span id="sysSecurityHead" data-i18n="securitySection">Security</span><span id="securitySectionTip"></span></h2>
           <div class="button-row">
             <span class="button-with-tip"><button id="authLogoutBtn" type="button" data-i18n="authLogout" hidden data-t="system-security-logout">Log out</button></span>
           </div>
         </div>
-        <div id="securityInfo" class="security-info" data-t="system-security-info"><span class="muted">…</span></div>
+        <div id="securityInfo" class="security-info" data-t="system-security-info" role="region" aria-labelledby="sysSecurityHead"><span class="muted">…</span></div>
       </div>
     </section>
 
     <section class="sys-panel" data-panel="diag">
       <div class="panel problems-panel">
         <div class="section-title">
-          <h2 class="title-with-tip"><span data-i18n="diagSection">Diagnostics</span><span id="knownProblemsTip"></span></h2>
+          <h2 class="title-with-tip"><span id="sysDiagHead" data-i18n="diagSection">Diagnostics</span><span id="knownProblemsTip"></span></h2>
           <div class="button-row">
             <span class="button-with-tip"><button id="repairUserServiceBtn" type="button" data-i18n="repairUserService" data-t="system-diag-service-repair">Repair user service</button><span id="repairUserServiceTip"></span></span>
           </div>
         </div>
-        <div id="knownProblems" class="known-problems" data-t="system-diag-checks"></div>
+        <div id="knownProblems" class="known-problems" data-t="system-diag-checks" role="region" aria-labelledby="sysDiagHead"></div>
       </div>
     </section>
 

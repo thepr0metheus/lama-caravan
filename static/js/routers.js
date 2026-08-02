@@ -580,7 +580,8 @@ export function renderTopologyRouterDetail() {
               <span class="rw-palette-save" data-t="kanban-save-status" title="${escapeHtml(t("rtTitleAutoSaveInstant"))}">⤓ ${escapeHtml(t("rtAutoSave"))}</span>
             </div>
             ${renderRouterNodeConfig(router)}
-            <div class="cv-viewport" data-t="kanban-canvas" data-cv-viewport>
+            <div class="cv-viewport" data-t="kanban-canvas" role="region"
+                 aria-label="${escapeHtml(t("a11yRoutingGraph"))}" data-cv-viewport>
               <div class="cv-world" data-cv-world style="transform:${cvTf}">
                 <svg class="cv-svg" data-t="kanban-cables" data-cv-svg width="4000" height="3000" viewBox="0 0 4000 3000"></svg>
                 ${cvNodeHtml}

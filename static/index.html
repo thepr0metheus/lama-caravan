@@ -373,9 +373,9 @@
       <svg id="topologyCables" class="topology-cables" aria-hidden="true"></svg>
       <div class="topology-column">
         <div class="section-title topology-title">
-          <h2 class="title-with-tip"><span data-i18n="topologyClientsSection">Clients with caravan-scout</span><span id="topologyClientsTip"></span></h2>
+          <h2 class="title-with-tip"><span id="boardClientsHead" data-i18n="topologyClientsSection">Clients with caravan-scout</span><span id="topologyClientsTip"></span></h2>
         </div>
-        <div id="topologyClients" class="topology-stack" data-t="board-clients-lane"></div>
+        <div id="topologyClients" class="topology-stack" data-t="board-clients-lane" role="region" aria-labelledby="boardClientsHead"></div>
       </div>
 
       <div class="topology-column topology-server-column">
@@ -388,7 +388,7 @@
           </section>
           <section class="lane-servers">
             <div class="topology-lane-head">
-              <h2 class="title-with-tip"><span data-i18n="topologyLlamaServersSection">Model Servers</span><span id="topologyLlamaServersTip"></span></h2>
+              <h2 class="title-with-tip"><span id="boardNodesHead" data-i18n="topologyLlamaServersSection">Model Servers</span><span id="topologyLlamaServersTip"></span></h2>
               <div class="topology-head-actions">
                 <button id="usageStatsBtn" type="button" class="icon-action prominent" data-title-i18n="usageStatsBtn" aria-label="Usage &amp; spend statistics">📊</button>
                 <button id="topologyRequestHistoryBtn" type="button" class="icon-action prominent" data-title-i18n="requestHistoryTitle" title="Request history">
@@ -398,11 +398,11 @@
               </div>
             </div>
             <div id="topologyModelsBar" class="topology-models-bar" data-t="board-models-bar"></div>
-            <div id="topologyLlamaServers" class="topology-stack nodes-mode" data-t="board-nodes-lane"></div>
+            <div id="topologyLlamaServers" class="topology-stack nodes-mode" data-t="board-nodes-lane" role="region" aria-labelledby="boardNodesHead"></div>
             <div class="topology-lane-head topology-cloud-head">
-              <h2 class="title-with-tip"><span data-i18n="topologyCloudSection">Cloud Providers</span><span id="topologyCloudTip"></span></h2>
+              <h2 class="title-with-tip"><span id="boardCloudHead" data-i18n="topologyCloudSection">Cloud Providers</span><span id="topologyCloudTip"></span></h2>
             </div>
-            <div id="topologyCloudProviders" class="topology-stack" data-t="board-cloud-lane"></div>
+            <div id="topologyCloudProviders" class="topology-stack" data-t="board-cloud-lane" role="region" aria-labelledby="boardCloudHead"></div>
           </section>
           <section class="lane-stats">
             <details class="topology-card topology-server-stats-card">
@@ -447,7 +447,12 @@
               </details>
             </details>
             <article class="topology-card topology-gpu-history-card">
-              <div id="topologyGpus" class="topology-gpu-inline" data-t="board-gpus-lane"></div>
+              <!-- No role/name here on purpose: nodes.css hides .topology-gpu-inline
+                        inside .node-ctrl-gpu-telemetry — the mini-summary is redundant
+                        with the node's own GPU rows. A landmark nobody can reach is
+                        worse than none; the hook stays because its VALUES are still
+                        readable. See docs/testability.md. -->
+                   <div id="topologyGpus" class="topology-gpu-inline" data-t="board-gpus-lane"></div>
               <div class="gpu-metric">
                 <div class="topology-card-head topology-gpu-history-subhead">
                   <strong class="topology-expand-trigger" data-open-chart="gpu"><span data-i18n="topologyGpuHistoryHead">GPU History</span> <span class="topology-expand-hint">⤢</span></strong>

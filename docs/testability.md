@@ -149,6 +149,36 @@ can never pass**, and that is not a defect to chase.
 | `cell-*-runner` | hidden input holding the chosen runner | read the value |
 | `cell-*-runner-tab` (+`data-t-id`) | the visible tabs | click these |
 | `cell-*-whisper-model`, `cell-*-moonshine-model` | hidden carriers — the size / language is chosen in the SHARED model picker | read the value |
+| `board-gpus-lane` | a GPU mini-summary `nodes.css` hides on purpose — redundant with the node card's own GPU rows | read the values; it has no landmark role for the same reason |
+
+## Landmark regions
+
+The panels and lanes carry `role="region"` with a name, so they can be reached
+as `getByRole('region', { name })` and a keyboard user can jump between them:
+
+| page | region name | source of the name |
+|---|---|---|
+| `/` | Model Servers, Clients with caravan-scout, Cloud Providers | the section's own `<h2>` |
+| `/system` | Controller, llama.cpp, Archived builds, vLLM runner, Security, Diagnostics | the panel's own `<h2>`/`<h3>` |
+| `/models` | Model files, Disk summary | their own string (no heading exists) |
+| `/kanban` | Routing graph | its own string |
+
+Nine of the twelve are named by `aria-labelledby` pointing at the heading a
+sighted user already reads, so the name follows the interface language — under
+`?lang=ru` the region is `Модельные серверы`, not `Model Servers`. Locate by
+role+name only when the language is pinned; otherwise the `data-t` hook is
+still the stable address.
+
+**`/system` regions live on tabs.** Only the active tab's panel is in the
+accessibility tree — `getByRole('region', { name: 'Security' })` is 0 until
+that tab is selected, and 1 after. That is correct behaviour, not a defect.
+
+## Repeated elements carry their own name
+
+`cell-card`, `cell-configure` and `board-cell-add` each expose the identity
+their `data-t-id` carries — `Cell controller:8001`, `Configure:
+controller:8001`, `Reserve cell :8024 — skynet`. Before this they were
+announced identically 22, 22 and 2 times over.
 
 ## `login-*` and `setup-*` live on different pages
 
