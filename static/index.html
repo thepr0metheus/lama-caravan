@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Board — Lama Caravan</title>
+  <title>Main board — Lama Caravan</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/topology-board.css">
@@ -275,7 +275,7 @@
       </article>
 
       <article class="panel">
-        <h2 data-i18n="openclawLinks">OpenClaw Links</h2>
+        <h2 data-i18n="openclawLinks">OpenClaw links</h2>
         <div id="openclawLinksSummary" class="summary"></div>
       </article>
     </section>
@@ -285,10 +285,10 @@
         <div class="section-title">
           <h2 class="title-with-tip"><span data-i18n="config">Config</span><span id="configTip"></span></h2>
           <div class="button-row">
-            <span class="button-with-tip"><button id="gemmaTextBoostBtn" type="button" data-i18n="gemmaTextBoost">Gemma Text MTP</button><span id="gemmaTextBoostTip"></span></span>
-            <span class="button-with-tip"><button id="gemmaVisionBtn" type="button" data-i18n="gemmaVision">Gemma Vision</button><span id="gemmaVisionTip"></span></span>
-            <span class="button-with-tip"><button id="textOnlyBtn" type="button" data-i18n="textOnly">Text Only</button><span id="textOnlyTip"></span></span>
-            <span class="button-with-tip"><button id="revertBtn" type="button" data-i18n="revertLatest">Revert Latest</button><span id="revertLatestTip"></span></span>
+            <span class="button-with-tip"><button id="gemmaTextBoostBtn" type="button" data-i18n="gemmaTextBoost">Gemma text MTP</button><span id="gemmaTextBoostTip"></span></span>
+            <span class="button-with-tip"><button id="gemmaVisionBtn" type="button" data-i18n="gemmaVision">Gemma vision</button><span id="gemmaVisionTip"></span></span>
+            <span class="button-with-tip"><button id="textOnlyBtn" type="button" data-i18n="textOnly">Text only</button><span id="textOnlyTip"></span></span>
+            <span class="button-with-tip"><button id="revertBtn" type="button" data-i18n="revertLatest">Revert latest</button><span id="revertLatestTip"></span></span>
           </div>
         </div>
 
@@ -355,7 +355,7 @@
           <pre id="cmdline"></pre>
         </article>
         <article class="panel">
-          <h2 class="title-with-tip"><span data-i18n="previewCommand">New Command</span><span id="previewCommandTip"></span></h2>
+          <h2 class="title-with-tip"><span data-i18n="previewCommand">New command</span><span id="previewCommandTip"></span></h2>
           <pre id="previewCmdline" class="command-preview"></pre>
         </article>
         <article class="panel">
@@ -389,7 +389,7 @@
           </section>
           <section class="lane-servers">
             <div class="topology-lane-head">
-              <h2 class="title-with-tip"><span id="boardNodesHead" data-i18n="topologyLlamaServersSection">Model Servers</span><span id="topologyLlamaServersTip"></span></h2>
+              <h2 class="title-with-tip"><span id="boardNodesHead" data-i18n="topologyLlamaServersSection">Model servers</span><span id="topologyLlamaServersTip"></span></h2>
               <div class="topology-head-actions">
                 <button id="usageStatsBtn" type="button" class="icon-action prominent" data-title-i18n="usageStatsBtn" aria-label="Usage &amp; spend statistics">📊</button>
                 <button id="topologyRequestHistoryBtn" type="button" class="icon-action prominent" data-title-i18n="requestHistoryTitle" title="Request history">
@@ -401,7 +401,7 @@
             <div id="topologyModelsBar" class="topology-models-bar" data-t="board-models-bar"></div>
             <div id="topologyLlamaServers" class="topology-stack nodes-mode" data-t="board-nodes-lane" role="region" aria-labelledby="boardNodesHead"></div>
             <div class="topology-lane-head topology-cloud-head">
-              <h2 class="title-with-tip"><span id="boardCloudHead" data-i18n="topologyCloudSection">Cloud Providers</span><span id="topologyCloudTip"></span></h2>
+              <h2 class="title-with-tip"><span id="boardCloudHead" data-i18n="topologyCloudSection">Cloud providers</span><span id="topologyCloudTip"></span></h2>
             </div>
             <div id="topologyCloudProviders" class="topology-stack" data-t="board-cloud-lane" role="region" aria-labelledby="boardCloudHead"></div>
           </section>
@@ -456,7 +456,7 @@
                    <div id="topologyGpus" class="topology-gpu-inline" data-t="board-gpus-lane"></div>
               <div class="gpu-metric">
                 <div class="topology-card-head topology-gpu-history-subhead">
-                  <strong class="topology-expand-trigger" data-open-chart="gpu"><span data-i18n="topologyGpuHistoryHead">GPU History</span> <span class="topology-expand-hint">⤢</span></strong>
+                  <strong class="topology-expand-trigger" data-open-chart="gpu"><span data-i18n="topologyGpuHistoryHead">GPU history</span> <span class="topology-expand-hint">⤢</span></strong>
                   <span id="topologyGpuHistoryMeta" class="topology-history-meta">waiting</span>
                   <span class="gpu-metric-spark" data-metric-spark="gpu"></span>
                 </div>
@@ -464,7 +464,7 @@
               </div>
               <div id="topologyGpuHistoryLegend" class="topology-history-legend"></div>
               <div class="gpu-metric">
-                <div class="topology-history-subhead topology-history-subhead--expand" data-open-chart="tokens"><span data-i18n="topologyTokenSpeedHead">Token Speed</span> <span class="topology-expand-hint">⤢</span></div>
+                <div class="topology-history-subhead topology-history-subhead--expand" data-open-chart="tokens"><span data-i18n="topologyTokenSpeedHead">Token speed</span> <span class="topology-expand-hint">⤢</span></div>
                 <div class="topology-card-head compact">
                   <span class="topology-history-meta" data-i18n="topologyPromptGen">prompt / gen</span>
                   <span id="topologyTokenSpeedMeta" class="topology-history-meta">waiting</span>

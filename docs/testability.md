@@ -60,8 +60,8 @@ so it shows the version without the branch.
 
 ## One `<h1>` per page, and it names the page
 
-Every page has exactly one `<h1>`, and it is the page's own name — `Board`,
-`Models on disk`, `System & settings`, `Kanban Board`, `HuggingFace Browser`.
+Every page has exactly one `<h1>`, and it is the page's own name — `Main board`,
+`Models on disk`, `System & settings`, `Kanban board`, `HuggingFace Browser`.
 The product name in the banner is **not** a heading; it is a plain container
 with the same class, so nothing moved visually.
 
@@ -76,7 +76,7 @@ page.getByRole('heading', { level: 1 })   // exactly one, on every page
 ```
 
 **Do not assert on its NAME to identify the page.** It is translated, like
-everything else visible — under `?lang=ru` it reads `Доска`, not `Board`. For
+everything else visible — under `?lang=ru` it reads `Доска`, not `Main board`. For
 "which page am I on", use `data-t-page` or the URL; both are language-
 independent. The heading is for people, and for `getByRole` by role rather
 than by name.
@@ -254,14 +254,14 @@ as `getByRole('region', { name })` and a keyboard user can jump between them:
 
 | page | region name | source of the name |
 |---|---|---|
-| `/` | Model Servers, Clients with caravan-scout, Cloud Providers | the section's own `<h2>` |
+| `/` | Model servers, Clients with caravan-scout, Cloud providers | the section's own `<h2>` |
 | `/system` | Controller, llama.cpp, Archived builds, vLLM runner, Security, Diagnostics | the panel's own `<h2>`/`<h3>` |
 | `/models` | Model files, Disk summary | their own string (no heading exists) |
 | `/kanban` | Routing graph | its own string |
 
 Nine of the twelve are named by `aria-labelledby` pointing at the heading a
 sighted user already reads, so the name follows the interface language — under
-`?lang=ru` the region is `Модельные серверы`, not `Model Servers`. Locate by
+`?lang=ru` the region is `Модельные серверы`, not `Model servers`. Locate by
 role+name only when the language is pinned; otherwise the `data-t` hook is
 still the stable address.
 
