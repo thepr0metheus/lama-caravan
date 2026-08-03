@@ -41,20 +41,17 @@
     }
     .hf-back-link:hover { color: var(--text); }
     .hf-page-title { font-weight: 700; font-size: 14px; white-space: nowrap; }
-    /* Sized to match the chips beside it — the account chip, Tour and the
-       language picker are all 34px tall, and this one stood 44px, which made
-       the whole bar on /hf ten pixels taller than on every other page.
-       margin-left:auto is gone with it: the header is a grid now and the
-       actions group is already pinned right. */
-    .hf-header .hf-token-row {
-      height: 34px;
-      box-sizing: border-box;
-      border: 1px solid var(--line);
-      border-radius: 9px;
-      background: var(--field);
-      padding: 0 10px;
+    /* The token lives in the search row now, pushed to its far end and
+       fenced off by a rule — it configures what the search can REACH, so it
+       belongs beside the query rather than among the app-wide controls the
+       header carries on every page. */
+    .hf-search .hf-token-row {
+      display: flex; align-items: center; gap: 8px;
+      margin-left: auto; padding-left: 14px;
+      border-left: 1px solid var(--line);
       font-size: 12px;
     }
+    .hf-search .hf-token-label { color: var(--muted); white-space: nowrap; }
 
     /* ── search ── */
     .hf-search {
@@ -841,14 +838,6 @@
     <div class="actions">
       <span id="hfDiskBadge" class="hf-disk-badge" hidden></span>
       <button id="hfOnDiskBtn" data-t="hf-on-disk" type="button" class="hf-ondisk-btn" title="Manage downloaded models">📦 on disk</button>
-      <div class="hf-token-row">
-        <span class="hf-token-label">HF Token</span>
-        <span id="hfTokenStatus" class="hf-token-status">checking…</span>
-        <input id="hfTokenInput" data-t="hf-token-input" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false" class="hf-token-input" hidden>
-        <button id="hfTokenSaveBtn" data-t="hf-token-save" type="button" class="hf-token-save" hidden>Save</button>
-        <button id="hfTokenEditBtn" data-t="hf-token-edit" type="button" class="hf-token-edit">Change</button>
-        <button id="hfTokenClearBtn" data-t="hf-token-clear" type="button" class="hf-token-clear muted" hidden>Clear</button>
-      </div>
       <div class="user-chip" id="userChip" hidden data-t="header-user-chip">
         <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false" data-t="header-user-menu-open">
           <span class="user-chip-ico">👤</span><span id="userChipName" data-t="header-user-name"></span><span class="lang-caret" aria-hidden="true">▾</span>
@@ -883,6 +872,14 @@
       <option value="50">50</option>
     </select>
     <button id="hfSearchBtn" data-t="hf-search-submit" type="button">Search</button>
+    <div class="hf-token-row">
+        <span class="hf-token-label">HF Token</span>
+        <span id="hfTokenStatus" class="hf-token-status">checking…</span>
+        <input id="hfTokenInput" data-t="hf-token-input" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false" class="hf-token-input" hidden>
+        <button id="hfTokenSaveBtn" data-t="hf-token-save" type="button" class="hf-token-save" hidden>Save</button>
+        <button id="hfTokenEditBtn" data-t="hf-token-edit" type="button" class="hf-token-edit">Change</button>
+        <button id="hfTokenClearBtn" data-t="hf-token-clear" type="button" class="hf-token-clear muted" hidden>Clear</button>
+      </div>
   </div>
 
   <div class="hf-split">
