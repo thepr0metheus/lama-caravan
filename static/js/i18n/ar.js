@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "غير متاح لهذا المشغّل",
   computeGpuSub: "كل الطبقات على GPU",
   computeGpuAll: "الكل",
-  sysBackToBoard: "اللوحة",
+  boardPageName: "اللوحة الرئيسية",
   modelsPage: "النماذج على القرص",
   modelsPageSub: "كل ما يستطيع المتحكم تقديمه — الأحجام، وأي الخلايا تستخدم ماذا، وتنظيف الباقي.",
   sysSubtitle: "صحة المتحكم، بناء llama.cpp، الحسابات والتشخيص — صفحة التشغيل.",

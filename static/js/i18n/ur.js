@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "اس رنر کے لیے دستیاب نہیں",
   computeGpuSub: "تمام پرتیں آف لوڈ شدہ",
   computeGpuAll: "تمام",
-  sysBackToBoard: "بورڈ",
+  boardPageName: "مرکزی بورڈ",
   modelsPage: "ڈسک پر ماڈلز",
   modelsPageSub: "وہ سب کچھ جو کنٹرولر فراہم کر سکتا ہے — سائز، کون سے سیلز کیا استعمال کرتے ہیں، اور باقی کی صفائی۔",
   sysSubtitle: "کنٹرولر کی صحت، llama.cpp بلڈ، اکاؤنٹس اور تشخیص — آپریشنز کا صفحہ۔",

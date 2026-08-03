@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "このランナーでは利用不可",
   computeGpuSub: "全レイヤーを GPU にオフロード",
   computeGpuAll: "すべて",
-  sysBackToBoard: "ボード",
+  boardPageName: "メインボード",
   modelsPage: "ディスク上のモデル",
   modelsPageSub: "コントローラーが提供できるすべて — サイズ、どのセルが何を使うか、残りのクリーンアップ。",
   sysSubtitle: "コントローラーの状態、llama.cpp のビルド、アカウントと診断 — 運用ページです。",

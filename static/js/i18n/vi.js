@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "không khả dụng cho runner này",
   computeGpuSub: "tất cả lớp được offload",
   computeGpuAll: "Tất cả",
-  sysBackToBoard: "Bảng",
+  boardPageName: "Bảng chính",
   modelsPage: "Mô hình trên đĩa",
   modelsPageSub: "Mọi thứ bộ điều khiển có thể phục vụ — kích thước, ô nào dùng gì, và dọn dẹp phần còn lại.",
   sysSubtitle: "Sức khỏe bộ điều khiển, build llama.cpp, tài khoản và chẩn đoán — trang vận hành.",

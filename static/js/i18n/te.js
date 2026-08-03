@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "ఈ రన్నర్‌కు అందుబాటులో లేదు",
   computeGpuSub: "అన్ని లేయర్‌లు ఆఫ్‌లోడ్ చేయబడ్డాయి",
   computeGpuAll: "అన్నీ",
-  sysBackToBoard: "బోర్డ్",
+  boardPageName: "ప్రధాన బోర్డు",
   modelsPage: "డిస్క్‌లో మోడల్‌లు",
   modelsPageSub: "కంట్రోలర్ అందించగలిగేదంతా — పరిమాణాలు, ఏ సెల్‌లు ఏమి ఉపయోగిస్తాయి, మరియు మిగిలినవాటి క్లీనప్.",
   sysSubtitle: "కంట్రోలర్ ఆరోగ్యం, llama.cpp బిల్డ్, ఖాతాలు మరియు విశ్లేషణ — ఆపరేషన్స్ పేజీ.",

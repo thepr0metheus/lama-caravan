@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "tidak tersedia untuk runner ini",
   computeGpuSub: "semua lapisan di GPU",
   computeGpuAll: "Semua",
-  sysBackToBoard: "Papan",
+  boardPageName: "Papan utama",
   modelsPage: "Model di disk",
   modelsPageSub: "Semua yang bisa dilayani pengontrol — ukuran, sel mana memakai apa, dan pembersihan sisanya.",
   sysSubtitle: "Kesehatan pengontrol, build llama.cpp, akun, dan diagnostik — halaman operasional.",

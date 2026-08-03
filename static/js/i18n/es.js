@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "no disponible para este runner",
   computeGpuSub: "todas las capas descargadas",
   computeGpuAll: "Todas",
-  sysBackToBoard: "Tablero",
+  boardPageName: "Tablero principal",
   modelsPage: "Modelos en disco",
   modelsPageSub: "Todo lo que el controlador puede servir — tamaños, qué celdas usan qué, y limpieza del resto.",
   sysSubtitle: "Salud del controlador, build de llama.cpp, cuentas y diagnóstico — la página de operaciones.",

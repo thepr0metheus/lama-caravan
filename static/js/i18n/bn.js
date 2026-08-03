@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "এই রানারের জন্য নেই",
   computeGpuSub: "সব স্তর অফলোড করা",
   computeGpuAll: "সব",
-  sysBackToBoard: "বোর্ড",
+  boardPageName: "প্রধান বোর্ড",
   modelsPage: "ডিস্কে মডেল",
   modelsPageSub: "কন্ট্রোলার যা যা পরিবেশন করতে পারে — আকার, কোন সেল কী ব্যবহার করে, আর বাকিটার পরিষ্কার।",
   sysSubtitle: "কন্ট্রোলারের স্বাস্থ্য, llama.cpp বিল্ড, অ্যাকাউন্ট ও ডায়াগনস্টিকস — পরিচালনার পৃষ্ঠা।",

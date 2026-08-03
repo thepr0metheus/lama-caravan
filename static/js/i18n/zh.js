@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "该运行器不支持",
   computeGpuSub: "所有层已卸载到 GPU",
   computeGpuAll: "全部",
-  sysBackToBoard: "看板",
+  boardPageName: "主面板",
   modelsPage: "磁盘上的模型",
   modelsPageSub: "控制器可提供的所有模型 — 大小、各单元使用情况，以及其余文件的清理。",
   sysSubtitle: "控制器健康状况、llama.cpp 构建、账户与诊断 — 运维页面。",

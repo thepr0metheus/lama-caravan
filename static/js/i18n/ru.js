@@ -860,7 +860,7 @@ export default {
   topologyIncidentsOpen: "Открыть инциденты",
   topologyIncidentsTitle: "Инциденты",
   systemInfoTitle: "Система",
-  sysBackToBoard: "Доска",
+  boardPageName: "Главная доска",
   modelsPage: "Модели на диске",
   modelsPageSub: "Всё, что контроллер может раздавать: размеры, какие ячейки что используют, и чистка остального.",
   sysSubtitle: "Здоровье контроллера, сборка llama.cpp, учётки и диагностика — страница эксплуатации.",

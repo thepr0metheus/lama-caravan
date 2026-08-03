@@ -860,7 +860,7 @@ export default {
   topologyIncidentsOpen: "Open incidents",
   topologyIncidentsTitle: "Incidents",
   systemInfoTitle: "System",
-  sysBackToBoard: "Board",
+  boardPageName: "Main board",
   modelsPage: "Models on disk",
   modelsPageSub: "Everything the controller can serve — sizes, which cells use what, and cleanup of the rest.",
   sysSubtitle: "Controller health, llama.cpp build, accounts and diagnostics — the operations page.",

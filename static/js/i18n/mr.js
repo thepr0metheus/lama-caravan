@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "या रनरसाठी उपलब्ध नाही",
   computeGpuSub: "सर्व स्तर ऑफलोड केले",
   computeGpuAll: "सर्व",
-  sysBackToBoard: "बोर्ड",
+  boardPageName: "मुख्य बोर्ड",
   modelsPage: "डिस्कवरील मॉडेल्स",
   modelsPageSub: "कंट्रोलर पुरवू शकणारे सर्व काही — आकार, कोणते सेल काय वापरतात, आणि उर्वरितची साफसफाई.",
   sysSubtitle: "कंट्रोलर आरोग्य, llama.cpp बिल्ड, खाती आणि निदान — ऑपरेशन्स पान.",

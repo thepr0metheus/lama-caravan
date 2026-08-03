@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "bu çalıştırıcı için yok",
   computeGpuSub: "tüm katmanlar boşaltıldı",
   computeGpuAll: "Tümü",
-  sysBackToBoard: "Pano",
+  boardPageName: "Ana pano",
   modelsPage: "Diskteki modeller",
   modelsPageSub: "Denetleyicinin sunabileceği her şey — boyutlar, hangi hücrelerin neyi kullandığı ve gerisinin temizliği.",
   sysSubtitle: "Denetleyici sağlığı, llama.cpp derlemesi, hesaplar ve tanılama — operasyon sayfası.",

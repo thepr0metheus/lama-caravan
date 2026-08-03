@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "non disponibile per questo runner",
   computeGpuSub: "tutti i layer scaricati su GPU",
   computeGpuAll: "Tutte",
-  sysBackToBoard: "Bacheca",
+  boardPageName: "Pannello principale",
   modelsPage: "Modelli su disco",
   modelsPageSub: "Tutto ciò che il controller può servire — dimensioni, quali celle usano cosa, e pulizia del resto.",
   sysSubtitle: "Salute del controller, build llama.cpp, account e diagnostica — la pagina operativa.",

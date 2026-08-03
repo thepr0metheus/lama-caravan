@@ -1004,7 +1004,7 @@ export default {
   computeUnavailable: "이 러너에서는 사용 불가",
   computeGpuSub: "모든 레이어 오프로드",
   computeGpuAll: "전체",
-  sysBackToBoard: "보드",
+  boardPageName: "전체 보드",
   modelsPage: "디스크의 모델",
   modelsPageSub: "컨트롤러가 제공할 수 있는 모든 것 — 크기, 어떤 셀이 무엇을 쓰는지, 나머지 정리.",
   sysSubtitle: "컨트롤러 상태, llama.cpp 빌드, 계정과 진단 — 운영 페이지.",
