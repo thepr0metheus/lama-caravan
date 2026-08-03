@@ -35,6 +35,31 @@ language, so a locator that matches on text passes in English and fails in
 Russian — and every translation edit becomes a test failure in a working
 application. `data-t` does not move when the words do.
 
+## One `<h1>` per page, and it names the page
+
+Every page has exactly one `<h1>`, and it is the page's own name — `Board`,
+`Models on disk`, `System & settings`, `Kanban Board`, `HuggingFace Browser`.
+The product name in the banner is **not** a heading; it is a plain container
+with the same class, so nothing moved visually.
+
+It was the other way round until 1.3.179: the banner's `LAMA CARAVAN` was the
+`<h1>` on every page, so navigating by heading told you the product's name
+wherever you were. `/models` and `/system` had a *second* `<h1>` in their hero
+(now `<h2>`, since the topbar names the page), and `/kanban` and `/hf` had none
+at all.
+
+```ts
+page.getByRole('heading', { level: 1 })   // exactly one, on every page
+```
+
+**Do not assert on its NAME to identify the page.** It is translated, like
+everything else visible — under `?lang=ru` it reads `Доска`, not `Board`. For
+"which page am I on", use `data-t-page` or the URL; both are language-
+independent. The heading is for people, and for `getByRole` by role rather
+than by name.
+
+The `header-page-title` hook is on it, on all five pages.
+
 ## Which page: `data-t-page` on `<body>`
 
 ```html
@@ -158,7 +183,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 161 values. Regenerate with
+Generated from the source, not from memory — 162 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Fourteen of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -168,7 +193,7 @@ that is why there is a script and not a one-liner.
 **board** — `board-cell-add`, `board-client-card`, `board-clients-lane`, `board-cloud-lane`, `board-gpus-lane`, `board-incidents-list`, `board-llama-suspect-banner`, `board-models-bar`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-system-open`
 **cell** — `cell-broken-error`, `cell-card`, `cell-configure`, `cell-delete`, `cell-edit-apply`, `cell-edit-cancel`, `cell-edit-command`, `cell-edit-command-preview`, `cell-edit-compute`, `cell-edit-env`, `cell-edit-fields`, `cell-edit-health-path`, `cell-edit-max-model-len`, `cell-edit-mmproj`, `cell-edit-modal`, `cell-edit-model`, `cell-edit-model-picker`, `cell-edit-moonshine-model`, `cell-edit-moonshine-model-picker`, `cell-edit-runner`, `cell-edit-runner-tab`, `cell-edit-vllm-model`, `cell-edit-vllm-model-picker`, `cell-edit-whisper-model`, `cell-edit-whisper-model-picker`, `cell-edit-workdir`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command`, `cell-remote-command-preview`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model`, `cell-remote-model-picker`, `cell-remote-moonshine-model`, `cell-remote-moonshine-model-picker`, `cell-remote-runner`, `cell-remote-runner-tab`, `cell-remote-vllm-model`, `cell-remote-vllm-model-picker`, `cell-remote-whisper-model`, `cell-remote-whisper-model-picker`, `cell-remote-workdir`, `cell-source-stale`, `cell-start`, `cell-stop`
 **confirm** — `confirm-accept`, `confirm-cancel`, `confirm-input`, `confirm-meta`, `confirm-overlay`, `confirm-path`, `confirm-text`, `confirm-title`
-**header** — `header`, `header-app-title`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
+**header** — `header`, `header-app-title`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-page-title`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
 **hf** — `hf-capability-filter`, `hf-download-job`, `hf-limit`, `hf-mask`, `hf-on-disk`, `hf-result`, `hf-search-input`, `hf-search-submit`, `hf-size-filter`, `hf-sort`, `hf-token-clear`, `hf-token-edit`, `hf-token-input`, `hf-token-save`
 **kanban** — `kanban-back-link`, `kanban-cable`, `kanban-cables`, `kanban-canvas`, `kanban-input-wait`, `kanban-node`, `kanban-palette-add`, `kanban-save-status`
 **login** — `login-error`, `login-form`, `login-lang`, `login-password`, `login-submit`, `login-username`

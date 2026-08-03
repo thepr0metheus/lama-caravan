@@ -104,6 +104,23 @@ h1 {
   gap: 9px;
 }
 
+/* The page's own name, beside the product's. Styled as a chip rather than a
+   second big title: the brand stays the loudest thing in the bar, and this
+   answers "which page is this" at a glance. It is the page's <h1> — see
+   docs/testability.md; the banner's product name is no longer a heading. */
+.page-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  padding: 4px 11px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  white-space: nowrap;
+}
+
 .brand-title img {
   width: 24px;
   height: 24px;

@@ -539,7 +539,7 @@ export function renderTopologyRouterDetail() {
         <div class="rw-head rw-head-standalone">
           <a class="rw-back-link" data-t="kanban-back-link" href="/board">← Main</a>
           <div class="rw-head-title-group">
-            <span class="rw-head-name">${escapeHtml(t("topologyRouterTitle"))}</span>
+            <h1 class="rw-head-name" data-t="header-page-title">${escapeHtml(t("topologyRouterTitle"))}</h1>
             <div class="rw-head-badges">
               <span class="badge rw-stat-badge">in <strong>${inputs.length}</strong></span>
               <span class="badge rw-stat-badge">out <strong>${outputs.length}</strong></span>

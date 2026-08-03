@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- Every page has one `<h1>`, and it names the page. It was the product's name
+  on every page before — so someone navigating by heading heard `LAMA CARAVAN`
+  wherever they were, which tells them nothing about where they are. `/models`
+  and `/system` had a *second* `<h1>` in their hero; `/kanban` and `/hf` had
+  none at all.
+
+  Now: `Board`, `Models on disk`, `System & settings`, `Kanban Board`,
+  `HuggingFace Browser` — shown as a chip beside the brand, which stays the
+  loudest thing in the bar. The banner's product name stops being a heading
+  (CSS keys on the class, not the tag, so nothing moved), the two hero
+  headings become `<h2>`, and the duplicate subtitle that repeated the page
+  name on `/models` and `/system` is gone. The board keeps its acronym.
+  No new strings — every name already existed.
+
+  Worth stating because it was the reason for the request: **do not use this
+  heading's name to identify a page in a test.** It is translated, so
+  `getByRole('heading', { name: 'Board' })` passes in English and fails under
+  `?lang=ru`. `getByRole('heading', { level: 1 })` works — one per page — but
+  *which* page is still `data-t-page` or the URL. Anything visible is
+  translated, and anything translated is a poor locator; that tension does not
+  go away, so the two jobs stay separate.
+
 - One address per page. The board is `/board`; `/` and `/index.html` redirect
   to it. The kanban is `/kanban`; `/router` redirects to it, carrying its
   `?id=` along. Nothing is removed — every old bookmark still lands — but the

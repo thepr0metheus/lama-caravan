@@ -65,7 +65,7 @@
         radial-gradient(1200px 300px at 8% -40%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
         var(--surface);
     }
-    .sys-hero h1 {
+    .sys-hero h2 {
       margin: 0 0 4px;
       font-size: 26px;
       letter-spacing: .02em;
@@ -220,15 +220,15 @@
   </script>
   <header class="topbar" data-t="header">
     <div class="topbar-brand">
-      <h1 class="brand-title">
+      <div class="brand-title">
         <img src="/favicon.svg?v=2" alt="" aria-hidden="true">
         <span class="brand-name-wrap">
           <span data-i18n="appTitle" data-t="header-app-title">LAMA CARAVAN</span>
-          <span class="brand-acronym" data-i18n="systemSubtitleBrand" data-t="header-page-subtitle">System &amp; settings</span>
         </span>
         <span id="projectGitBranch" class="project-git-branch" title="Project git branch" data-t="header-version-branch">branch n/a</span>
-      </h1>
+      </div>
     </div>
+      <h1 class="page-title" data-t="header-page-title" data-i18n="systemSubtitleBrand">System &amp; settings</h1>
     <div class="actions">
       <a class="sys-back" href="/board"><span aria-hidden="true">←</span> <span data-i18n="sysBackToBoard">Board</span></a>
       <div class="user-chip" id="userChip" hidden data-t="header-user-chip">
@@ -253,7 +253,7 @@
   <div class="sys-wrap">
     <section class="sys-hero">
       <div>
-        <h1><span aria-hidden="true">🛠</span> <span data-i18n="systemInfoTitle">System</span></h1>
+        <h2><span aria-hidden="true">🛠</span> <span data-i18n="systemInfoTitle">System</span></h2>
         <p data-i18n="sysSubtitle">Controller health, llama.cpp build, accounts and diagnostics — everything operational lives here.</p>
       </div>
       <div class="sys-hero-stats" id="sysHeroStats" data-t="system-hero-stats"></div>

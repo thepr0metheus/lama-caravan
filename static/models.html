@@ -48,7 +48,7 @@
         radial-gradient(1200px 300px at 8% -40%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
         var(--surface);
     }
-    .mdl-hero h1 { margin: 0 0 4px; font-size: 26px; display: flex; align-items: center; gap: 10px; }
+    .mdl-hero h2 { margin: 0 0 4px; font-size: 26px; display: flex; align-items: center; gap: 10px; }
     .mdl-hero p { margin: 0; font-size: 12.5px; color: var(--muted); max-width: 52ch; }
     .mdl-hero-stats {
       display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -159,14 +159,14 @@
   </script>
   <header class="topbar" data-t="header">
     <div class="topbar-brand">
-      <h1 class="brand-title">
+      <div class="brand-title">
         <img src="/favicon.svg?v=2" alt="" aria-hidden="true">
         <span class="brand-name-wrap">
           <span data-i18n="appTitle" data-t="header-app-title">LAMA CARAVAN</span>
-          <span class="brand-acronym" data-i18n="modelsPage" data-t="header-page-subtitle">Models on disk</span>
         </span>
-      </h1>
+      </div>
     </div>
+      <h1 class="page-title" data-t="header-page-title" data-i18n="modelsPage">Models on disk</h1>
     <div class="actions">
       <a class="sys-back" href="/board"><span aria-hidden="true">←</span> <span data-i18n="sysBackToBoard">Board</span></a>
       <a class="sys-back mdl-hf-link" href="/hf">🤗 HF</a>
@@ -192,7 +192,7 @@
   <div class="mdl-wrap">
     <section class="mdl-hero">
       <div>
-        <h1><span aria-hidden="true">📦</span> <span data-i18n="modelsPage">Models on disk</span></h1>
+        <h2><span aria-hidden="true">📦</span> <span data-i18n="modelsPage">Models on disk</span></h2>
         <p data-i18n="modelsPageSub">Everything the controller can serve — sizes, which cells use what, and cleanup of the rest.</p>
       </div>
       <div class="mdl-hero-stats" id="mdlHeroStats" data-t="models-hero-stats" role="region" data-i18n-aria="a11yModelsSummary" aria-label="Disk summary"></div>
