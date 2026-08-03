@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- The board says which page it is. Its browser tab read `LAMA CARAVAN` while
+  every other page followed `<page> — Lama Caravan`, so with five tabs open it
+  was the only one that named the product instead of itself. It is `Board —
+  Lama Caravan` now. The name is not new: `sysBackToBoard` has said "Board"
+  all along, and it is what the back-link on `/system`, `/models` and
+  `/kanban` already reads.
+
+  It also answers at `/board`. `/` stays canonical — bookmarks, every
+  back-link, the sign-in redirect and the E2E suite all point there — this is
+  the same alias arrangement `/kanban` already has with `/router`.
+
 - Thirteen panels and lanes become named landmark regions, and the repeated
   cards and buttons say which one they are. The containers a test reaches for
   are the same ones a keyboard user needs to jump between, and every one of

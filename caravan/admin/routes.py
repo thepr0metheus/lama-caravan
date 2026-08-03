@@ -816,7 +816,11 @@ def _get_api_backup(h, parsed):
         h.send_json(backup_config(urllib.parse.unquote(query.get("path", ""))))
         return
 
-@_route(GET_ROUTES, '/', '/index.html')
+# /board is the page's name; / is where it has always lived and stays the
+# canonical address — bookmarks, every back-link, the sign-in redirect and
+# the E2E suite all point there. Same alias arrangement /kanban already has
+# with /router.
+@_route(GET_ROUTES, '/', '/index.html', '/board')
 def _get_root(h, parsed):
         h.send_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
         return

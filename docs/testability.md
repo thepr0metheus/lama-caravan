@@ -59,7 +59,7 @@ Where it is set:
 
 | page | ready when | file |
 |---|---|---|
-| `/` board | the topology rendered for the first time | `static/js/topology-render.js` |
+| `/` board (also `/board`) | the topology rendered for the first time | `static/js/topology-render.js` |
 | `/kanban` | topology fetched and the router rendered | `static/js/main.js` |
 | `/models` | the model tree is drawn | `static/js/models-page.js` |
 | `/system` | `/api/state` + `/api/controller-info` settled | `static/js/system-page.js` |
