@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Every page says which page it is: `data-t-page` on `<body>`, alongside the
+  `data-t-state` readiness flag that was already there. `board`, `kanban`,
+  `models`, `system`, `hf`, `login`, `setup`.
+
+  It is in the HTML, so it is true from the first byte — before any script,
+  while the loading screen still covers everything, which is exactly when
+  nothing else can be asked. Nothing else answers this reliably either: the
+  URL now has aliases (`/` and `/board`, `/kanban` and `/router`), the title
+  is English everywhere, and the header subtitle deliberately follows the
+  interface language.
+
+  **The loading screen deliberately gets no name of its own.** `#appLoader` is
+  a `<div>` in the same document, hidden once the app paints — same URL, same
+  title, same page. Naming it would report a navigation that never happened.
+  It is a state, and `data-t-state="loading"` already says so.
+
 - The board says which page it is. Its browser tab read `LAMA CARAVAN` while
   every other page followed `<page> — Lama Caravan`, so with five tabs open it
   was the only one that named the product instead of itself. It is `Board —

@@ -35,6 +35,46 @@ language, so a locator that matches on text passes in English and fails in
 Russian — and every translation edit becomes a test failure in a working
 application. `data-t` does not move when the words do.
 
+## Which page: `data-t-page` on `<body>`
+
+```html
+<body data-t-page="board" data-t-state="loading">
+```
+
+| value | page |
+|---|---|
+| `board` | `/` (and `/board`) |
+| `kanban` | `/kanban` (and `/router`) |
+| `models` | `/models` |
+| `system` | `/system` |
+| `hf` | `/hf` |
+| `login` | `/login` |
+| `setup` | `/setup` |
+
+It sits in the HTML, so it is true **from the first byte** — before any script,
+while the loading screen is still covering the page. That is precisely the
+moment nothing else can be asked.
+
+Nothing else answers this reliably. The **URL** has aliases (`/` and `/board`,
+`/kanban` and `/router`). The **title** is English on every page and always will
+be. The **header subtitle** is the opposite problem — it follows the interface
+language, so it reads `Models on disk` or `Модели на диске` depending on who is
+looking. `data-t-page` is none of those: one canonical value per page.
+
+**It pairs with `data-t-state`, and the pair is the point.** They answer
+different questions and a test usually wants both:
+
+```ts
+await expect(page.locator('body')).toHaveAttribute('data-t-page', 'models');   // where
+await page.waitForFunction(() => document.body.dataset.tState === 'ready');    // how far along
+```
+
+**The loading screen is not a page.** `#appLoader` is a `<div>` in the same
+document, hidden by `window.__plHide()` once the app paints — same URL, same
+title, same `data-t-page`. It has no name of its own on purpose: naming it would
+say a navigation happened when none did. It is a *state*, and
+`data-t-state="loading"` is what reports it.
+
 ## Page readiness: `data-t-state` on `<body>`
 
 Pages paint first and fill from `/api/*` after. Without a signal, anything

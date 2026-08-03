@@ -379,7 +379,7 @@ _PAGE_SHELL = """<!doctype html>
   .hidden { display: none; }
 </style>
 </head>
-<body>
+<body data-t-page="<!--PAGE-->">
   <div class="card">
     <div class="card-top">
       <div>
@@ -505,7 +505,8 @@ def login_page() -> str:
     (Role locators were never ambiguous at any point — display:none excludes
     an element from the accessibility tree. The name-based ones were.)
     """
-    return _PAGE_SHELL.replace("<!--FORM-->", _SIGN_IN_FORM)
+    return (_PAGE_SHELL.replace("<!--FORM-->", _SIGN_IN_FORM)
+            .replace("<!--PAGE-->", "login"))
 
 
 def setup_page() -> str:
@@ -521,6 +522,7 @@ def setup_page() -> str:
     has nothing to bind for the form it does not carry.
     """
     return (_PAGE_SHELL.replace("<!--FORM-->", _FIRST_RUN_FORM)
+            .replace("<!--PAGE-->", "setup")
             .replace("<title>LAMA CARAVAN — sign in</title>",
                      "<title>LAMA CARAVAN — first run</title>"))
 
