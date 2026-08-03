@@ -456,7 +456,7 @@ _PAGE_SHELL = """<!doctype html>
                              password: document.getElementById("p").value })
     }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (res) {
-        if (res.ok && res.j.ok) { window.location = "/"; }
+        if (res.ok && res.j.ok) { window.location = "/board"; }
         else { e.textContent = res.j.error || T("failed"); }
       }).catch(function (err) { e.textContent = String(err); });
   });
@@ -481,7 +481,7 @@ _PAGE_SHELL = """<!doctype html>
       }).catch(function (err) { se.textContent = String(err); });
   });
   var goBoard = document.getElementById("goBoard");
-  if (goBoard) goBoard.addEventListener("click", function () { window.location = "/"; });
+  if (goBoard) goBoard.addEventListener("click", function () { window.location = "/board"; });
 })();
 </script>
 </body>

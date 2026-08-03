@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- One address per page. The board is `/board`; `/` and `/index.html` redirect
+  to it. The kanban is `/kanban`; `/router` redirects to it, carrying its
+  `?id=` along. Nothing is removed — every old bookmark still lands — but the
+  address bar now holds exactly one answer to "which page is this", which is
+  the whole point: a URL is only a reliable identifier when a page has one.
+
+  302 and not 301, deliberately: a permanent redirect is cached hard by
+  browsers and unpleasant to take back if this proves wrong.
+
+  Every internal link points at the canonical address — the back-links on
+  `/system`, `/models`, `/hf` and the kanban, and both places the sign-in page
+  sends you after it succeeds — so following one lands directly instead of
+  bouncing. The docs that listed the old addresses are updated, including the
+  paragraph in `docs/testability.md` that justified `data-t-page` partly by
+  "the URL has aliases". That argument is now false and says so; what
+  `data-t-page` still adds over the URL is *when* it can be read — before any
+  script, while the loading screen is up.
+
 - Every page says which page it is: `data-t-page` on `<body>`, alongside the
   `data-t-state` readiness flag that was already there. `board`, `kanban`,
   `models`, `system`, `hf`, `login`, `setup`.

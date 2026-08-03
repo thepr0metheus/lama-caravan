@@ -537,7 +537,7 @@ export function renderTopologyRouterDetail() {
       <div class="router-workspace">
         ${window.ROUTER_STANDALONE ? `
         <div class="rw-head rw-head-standalone">
-          <a class="rw-back-link" data-t="kanban-back-link" href="/">← Main</a>
+          <a class="rw-back-link" data-t="kanban-back-link" href="/board">← Main</a>
           <div class="rw-head-title-group">
             <span class="rw-head-name">${escapeHtml(t("topologyRouterTitle"))}</span>
             <div class="rw-head-badges">

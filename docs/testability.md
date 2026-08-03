@@ -43,8 +43,8 @@ application. `data-t` does not move when the words do.
 
 | value | page |
 |---|---|
-| `board` | `/` (and `/board`) |
-| `kanban` | `/kanban` (and `/router`) |
+| `board` | `/board` |
+| `kanban` | `/kanban` |
 | `models` | `/models` |
 | `system` | `/system` |
 | `hf` | `/hf` |
@@ -55,11 +55,19 @@ It sits in the HTML, so it is true **from the first byte** — before any script
 while the loading screen is still covering the page. That is precisely the
 moment nothing else can be asked.
 
-Nothing else answers this reliably. The **URL** has aliases (`/` and `/board`,
-`/kanban` and `/router`). The **title** is English on every page and always will
-be. The **header subtitle** is the opposite problem — it follows the interface
-language, so it reads `Models on disk` or `Модели на диске` depending on who is
-looking. `data-t-page` is none of those: one canonical value per page.
+The **URL** is the other honest answer, and since 1.3.178 it is unambiguous:
+one address per page, with the old ones redirecting (`/` and `/index.html` →
+`/board`, `/router` → `/kanban`). Assert on either; they cannot disagree.
+
+The two that do NOT work: the **title** is English on every page and always
+will be, and the **header subtitle** is the opposite problem — it follows the
+interface language, reading `Models on disk` or `Модели на диске` depending on
+who is looking.
+
+What `data-t-page` still adds over the URL is *when*: it is readable at
+`waitUntil: 'commit'`, before any script has run, while the loading screen
+covers the page — and after a client-side redirect it says where you ended up
+without parsing anything.
 
 **It pairs with `data-t-state`, and the pair is the point.** They answer
 different questions and a test usually wants both:
@@ -99,7 +107,7 @@ Where it is set:
 
 | page | ready when | file |
 |---|---|---|
-| `/` board (also `/board`) | the topology rendered for the first time | `static/js/topology-render.js` |
+| `/board` | the topology rendered for the first time | `static/js/topology-render.js` |
 | `/kanban` | topology fetched and the router rendered | `static/js/main.js` |
 | `/models` | the model tree is drawn | `static/js/models-page.js` |
 | `/system` | `/api/state` + `/api/controller-info` settled | `static/js/system-page.js` |

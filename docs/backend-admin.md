@@ -611,7 +611,7 @@ from a DELETE handler surfaces as 500 (GET/POST map it to its status). `Handler`
 `send_json` (via `json_bytes`), `send_file` (mtime+size ETag with `Cache-Control: no-cache` —
 redeploys show up immediately, unchanged files answer 304) and `read_body` (empty body → `{}`).
 Roughly 63 GET, 69 POST and one DELETE route (`/api/hf/local-file`); static pages `/`, `/hf`,
-`/kanban` (alias `/router`), `/models`, `/system` and `/login` come from `static/`. When sign-in
+`/board` (`/` redirects here), `/kanban` (`/router` redirects), `/models`, `/system` and `/login` come from `static/`. When sign-in
 is enabled (`auth.py`), dispatch guards every route except the login page, auth bootstrap and the
 machine endpoints (heartbeats, `/metrics` — fleet token).
 Owns: the four route tables; `Handler`.

@@ -169,8 +169,8 @@ fleet token) requires the `caravan_session` cookie.
 
 | Method & path | Purpose |
 |---|---|
-| `GET /`, `/index.html` | Topology board UI. |
-| `GET /kanban`, `/router` | Standalone router canvas (`?id=router:<id>`). |
+| `GET /board` | Topology board UI. `/` and `/index.html` 302 here. |
+| `GET /kanban` | Standalone router canvas (`?id=router:<id>`). `/router` 302s here. |
 | `GET /hf` | HuggingFace browser page. |
 | `GET /models` | Models-disk page: GGUF tree, size rollups, unreferenced-file cleanup. |
 | `GET /system` | System page: Controller / llama.cpp / Security / Diagnostics tabs. |

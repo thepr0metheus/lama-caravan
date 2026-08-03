@@ -816,13 +816,20 @@ def _get_api_backup(h, parsed):
         h.send_json(backup_config(urllib.parse.unquote(query.get("path", ""))))
         return
 
-# /board is the page's name; / is where it has always lived and stays the
-# canonical address — bookmarks, every back-link, the sign-in redirect and
-# the E2E suite all point there. Same alias arrangement /kanban already has
-# with /router.
-@_route(GET_ROUTES, '/', '/index.html', '/board')
+# One address per page, so a URL identifies which page you are on without
+# anyone having to know a synonym list. /board is that address for the board;
+# / and /index.html redirect to it rather than serving a second copy, which
+# keeps every existing bookmark working and still leaves exactly one canonical
+# answer in the address bar. 302, not 301: a permanent redirect is cached hard
+# by browsers and is unpleasant to take back.
+@_route(GET_ROUTES, '/board')
 def _get_root(h, parsed):
         h.send_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
+        return
+
+@_route(GET_ROUTES, '/', '/index.html')
+def _get_root(h, parsed):
+        _redirect(h, "/board")
         return
 
 @_route(GET_ROUTES, '/hf')
@@ -830,7 +837,14 @@ def _get_hf(h, parsed):
         h.send_file(STATIC_DIR / "hf.html", "text/html; charset=utf-8")
         return
 
-@_route(GET_ROUTES, '/kanban', '/router')
+@_route(GET_ROUTES, '/router')
+def _get_router_alias(h, parsed):
+        # Kept as a redirect, not a route: an old bookmark still lands, and the
+        # address bar ends up saying which page this actually is.
+        _redirect(h, "/kanban" + (("?" + parsed.query) if parsed.query else ""))
+        return
+
+@_route(GET_ROUTES, '/kanban')
 def _get_kanban(h, parsed):
         h.send_file(STATIC_DIR / "kanban.html", "text/html; charset=utf-8")
         return

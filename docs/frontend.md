@@ -10,7 +10,7 @@ Five pages share the code:
 | page | route(s) | entry | notes |
 |---|---|---|---|
 | `static/index.html` | `/`, `/index.html` | `/js/main.js` | the topology board (main app) |
-| `static/kanban.html` | `/kanban`, `/router` | `/js/main.js` | standalone router workspace; an inline classic script sets `window.ROUTER_STANDALONE = true` — it runs immediately, before the (deferred) module executes, so `main.js` sees the flag. Deep-link a router with `?id=<routerId>` (default `router:default`) |
+| `static/kanban.html` | `/kanban` (`/router` redirects) | `/js/main.js` | standalone router workspace; an inline classic script sets `window.ROUTER_STANDALONE = true` — it runs immediately, before the (deferred) module executes, so `main.js` sees the flag. Deep-link a router with `?id=<routerId>` (default `router:default`) |
 | `static/hf.html` | `/hf` | `/hf.js` | HuggingFace model browser; imports only from `/js/utils.js` |
 | `static/models.html` | `/models` | `/js/models-page.js` | models-disk tree with size rollups and unreferenced-file cleanup |
 | `static/system.html` | `/system` | `/js/system-page.js` | Controller / llama.cpp / Security / Diagnostics tabs (the former System modal) |
