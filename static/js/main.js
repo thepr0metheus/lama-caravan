@@ -43,7 +43,7 @@ import {
 } from "./topology-dnd.js";
 import { activeView, flushPendingTopologyRender, refreshTopology, renderAll, renderTopology, setActiveView } from "./topology-render.js";
 import { openUsageStatsModal } from "./usage-stats.js";
-import { $, api, bindTooltips, escapeHtml, markPageState, toast } from "./utils.js";
+import { $, api, bindTooltips, escapeHtml, markPageState, toast, fillVersionChipFromHealth } from "./utils.js";
 
 // The pixel-llama page loader is inline in index.html/kanban.html so it shows
 // before the modules download; window.__plHide is defined there.
@@ -81,33 +81,10 @@ function initRouterStandalonePage() {
   }).catch((err) => { hideAppLoader(); markPageState("error", err.message); toast(err.message); });
 }
 
-document.addEventListener("DOMContentLoaded", async () => {
-  initDialogLlamas();
-  // The language table is its own module now (see i18n-data.js), so it has
-  // to arrive before the first render — otherwise the page paints English
-  // and only repaints on the next language change.
-  await initLanguage();
-  applyLanguage();
-  applyTheme();
-  initOnboarding();
-
-  if (window.ROUTER_STANDALONE) {
-    // The kanban page draws the graph itself and has no board to repaint.
-    onLangChange(renderTopology);
-    initRouterStandalonePage();
-    // The standalone boot exits before the shared boot tail below — fetch the
-    // pricing map here too, or the kanban's $/1M tags stay empty forever.
-    fetchModelPricing().catch(() => {});
-    return;
-  }
-  // The board is the one page whose translated text is mostly built inside
-  // renderers rather than sitting in [data-i18n] attributes, so a language
-  // change has to run the whole thing. renderAll() opens with its own
-  // applyLanguage() — needed when polling calls it over fresh DOM — so that
-  // pass runs twice here. It is idempotent, and this happens only when someone
-  // picks a language; not worth a second entry point to avoid.
-  onLangChange(renderAll);
-
+// Account chip + language picker: the header trio every page carries.
+// This used to live inline in the board's boot path, which is why the
+// standalone kanban — returning before it — had neither.
+function bindUserChip() {
   const doLogout = async () => {
     try { await api("/api/auth/logout", { method: "POST", body: "{}" }); } catch { /* ignore */ }
     window.location = "/login";
@@ -131,11 +108,44 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.addEventListener("click", (e) => { if (!$("userChip").contains(e.target)) closeMenu(); }, true);
     document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !menu.hidden) closeMenu(); });
     $("userMenuLogout").addEventListener("click", doLogout);
-    $("userMenuSecurity").addEventListener("click", () => {
+    $("userMenuSecurity")?.addEventListener("click", () => {
       closeMenu();
       window.location.href = "/system#security";
     });
   }).catch(() => {});
+}
+
+document.addEventListener("DOMContentLoaded", async () => {
+  initDialogLlamas();
+  // The language table is its own module now (see i18n-data.js), so it has
+  // to arrive before the first render — otherwise the page paints English
+  // and only repaints on the next language change.
+  await initLanguage();
+  applyLanguage();
+  applyTheme();
+  initOnboarding();
+
+  if (window.ROUTER_STANDALONE) {
+    // The kanban page draws the graph itself and has no board to repaint.
+    onLangChange(renderTopology);
+    setupLangSelect();
+    bindUserChip();
+    fillVersionChipFromHealth();
+    initRouterStandalonePage();
+    // The standalone boot exits before the shared boot tail below — fetch the
+    // pricing map here too, or the kanban's $/1M tags stay empty forever.
+    fetchModelPricing().catch(() => {});
+    return;
+  }
+  // The board is the one page whose translated text is mostly built inside
+  // renderers rather than sitting in [data-i18n] attributes, so a language
+  // change has to run the whole thing. renderAll() opens with its own
+  // applyLanguage() — needed when polling calls it over fresh DOM — so that
+  // pass runs twice here. It is idempotent, and this happens only when someone
+  // picks a language; not worth a second entry point to avoid.
+  onLangChange(renderAll);
+
+  bindUserChip();
 
   // Remote llama-server modal buttons
   $("llamaRemoteEditStart")?.addEventListener("click", submitRemoteLlamaStart);

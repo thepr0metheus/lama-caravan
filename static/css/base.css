@@ -66,8 +66,12 @@ body {
   position: sticky;
   top: 0;
   z-index: 5;
-  display: flex;
-  justify-content: space-between;
+  /* Three columns, not space-between: the left group's width differs per page
+     (the board carries the acronym, the others a back-link), and with flex
+     that dragged the page title 500px sideways between pages. The outer
+     columns share the slack so the middle one is centred on the BAR. */
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   gap: 24px;
   align-items: center;
   padding: 10px 24px;
@@ -75,6 +79,8 @@ body {
   border-bottom: 1px solid var(--line);
   backdrop-filter: blur(10px);
 }
+
+.topbar .actions { justify-self: end; }
 
 .topbar-brand {
   display: flex;
@@ -103,6 +109,17 @@ h1 {
   align-items: center;
   gap: 9px;
 }
+
+/* Back to the board. Lives here, not in a page's inline <style>, because four
+   of the five pages carry one and they must look the same. */
+.sys-back {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--surface); color: var(--text); text-decoration: none;
+  font-size: 12px; white-space: nowrap;
+  transition: border-color .15s ease;
+}
+.sys-back:hover { border-color: var(--accent); }
 
 /* The page's own name, beside the product's. Styled as a chip rather than a
    second big title: the brand stays the loudest thing in the bar, and this

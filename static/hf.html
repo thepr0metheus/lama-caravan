@@ -30,14 +30,6 @@
     }
 
     /* ── header ── */
-    .hf-header {
-      display: flex;
-      align-items: center;
-      gap: 14px;
-      padding: 10px 18px;
-      border-bottom: 1px solid var(--line);
-      background: var(--surface);
-    }
     .hf-back-link {
       color: var(--muted);
       text-decoration: none;
@@ -49,12 +41,18 @@
     }
     .hf-back-link:hover { color: var(--text); }
     .hf-page-title { font-weight: 700; font-size: 14px; white-space: nowrap; }
+    /* Sized to match the chips beside it — the account chip, Tour and the
+       language picker are all 34px tall, and this one stood 44px, which made
+       the whole bar on /hf ten pixels taller than on every other page.
+       margin-left:auto is gone with it: the header is a grid now and the
+       actions group is already pinned right. */
     .hf-header .hf-token-row {
-      margin-left: auto;
+      height: 34px;
+      box-sizing: border-box;
       border: 1px solid var(--line);
-      border-radius: 5px;
+      border-radius: 9px;
       background: var(--field);
-      padding: 4px 10px;
+      padding: 0 10px;
       font-size: 12px;
     }
 
@@ -830,21 +828,45 @@
     </script>
   </div>
 
-  <header class="hf-header">
-    <a href="/board" class="hf-back-link">← Back</a>
-    <h1 class="hf-page-title" data-t="header-page-title">HuggingFace Browser</h1>
-    <button type="button" class="ob-btn-head" data-ob-tour>
-      <span class="ob-q">?</span><span id="obBtnLabel">Tour</span>
-    </button>
-    <span id="hfDiskBadge" class="hf-disk-badge" hidden></span>
-    <button id="hfOnDiskBtn" data-t="hf-on-disk" type="button" class="hf-ondisk-btn" title="Manage downloaded models">📦 on disk</button>
-    <div class="hf-token-row">
-      <span class="hf-token-label">HF Token</span>
-      <span id="hfTokenStatus" class="hf-token-status">checking…</span>
-      <input id="hfTokenInput" data-t="hf-token-input" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false" class="hf-token-input" hidden aria-label="Hugging Face access token">
-      <button id="hfTokenSaveBtn" data-t="hf-token-save" type="button" class="hf-token-save" hidden>Save</button>
-      <button id="hfTokenEditBtn" data-t="hf-token-edit" type="button" class="hf-token-edit">Change</button>
-      <button id="hfTokenClearBtn" data-t="hf-token-clear" type="button" class="hf-token-clear muted" hidden>Clear</button>
+  <header class="topbar hf-header" data-t="header">
+    <div class="topbar-brand">
+      <a class="sys-back" href="/board"><span aria-hidden="true">←</span> <span data-i18n="sysBackToBoard">Board</span></a>
+      <div class="brand-title">
+        <img src="/favicon.svg?v=2" alt="" aria-hidden="true">
+        <span class="brand-name-wrap"><span data-i18n="appTitle" data-t="header-app-title">LAMA CARAVAN</span></span>
+      </div>
+      <span id="projectGitBranch" class="project-git-branch" title="Project git branch" data-t="header-version-branch">branch n/a</span>
+    </div>
+      <h1 class="page-title" data-t="header-page-title">HuggingFace Browser</h1>
+    <div class="actions">
+      <span id="hfDiskBadge" class="hf-disk-badge" hidden></span>
+      <button id="hfOnDiskBtn" data-t="hf-on-disk" type="button" class="hf-ondisk-btn" title="Manage downloaded models">📦 on disk</button>
+      <div class="hf-token-row">
+        <span class="hf-token-label">HF Token</span>
+        <span id="hfTokenStatus" class="hf-token-status">checking…</span>
+        <input id="hfTokenInput" data-t="hf-token-input" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false" class="hf-token-input" hidden>
+        <button id="hfTokenSaveBtn" data-t="hf-token-save" type="button" class="hf-token-save" hidden>Save</button>
+        <button id="hfTokenEditBtn" data-t="hf-token-edit" type="button" class="hf-token-edit">Change</button>
+        <button id="hfTokenClearBtn" data-t="hf-token-clear" type="button" class="hf-token-clear muted" hidden>Clear</button>
+      </div>
+      <div class="user-chip" id="userChip" hidden data-t="header-user-chip">
+        <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false" data-t="header-user-menu-open">
+          <span class="user-chip-ico">👤</span><span id="userChipName" data-t="header-user-name"></span><span class="lang-caret" aria-hidden="true">▾</span>
+        </button>
+        <div id="userMenu" class="user-menu" hidden data-t="header-user-menu">
+          <button id="userMenuLogout" type="button" data-t="header-user-logout">Log out</button>
+        </div>
+      </div>
+      <button type="button" class="ob-btn-head" data-ob-tour>
+        <span class="ob-q">?</span><span id="obBtnLabel">Tour</span>
+      </button>
+      <div class="lang-select" id="langSelect">
+        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false"
+                aria-label="Interface language" data-t="header-lang-open">
+          <span class="lang-emoji" id="langTriggerEmoji">☕</span><span class="lang-code" id="langTriggerCode" data-t="header-lang-current">EN</span><span class="lang-caret" aria-hidden="true">▾</span>
+        </button>
+        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden aria-label="Interface language" data-t="header-lang-menu"></ul>
+      </div>
     </div>
   </header>
 

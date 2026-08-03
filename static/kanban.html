@@ -235,6 +235,39 @@
     </script>
   </div>
 
+  <header class="topbar" data-t="header">
+    <div class="topbar-brand">
+      <a class="sys-back" data-t="kanban-back-link" href="/board"><span aria-hidden="true">←</span> <span data-i18n="sysBackToBoard">Board</span></a>
+      <div class="brand-title">
+        <img src="/favicon.svg?v=2" alt="" aria-hidden="true">
+        <span class="brand-name-wrap"><span data-i18n="appTitle" data-t="header-app-title">LAMA CARAVAN</span></span>
+      </div>
+      <span id="projectGitBranch" class="project-git-branch" data-title-i18n="projectGitBranchTitle" title="Project git branch" data-t="header-version-branch">branch n/a</span>
+    </div>
+      <h1 class="page-title" data-t="header-page-title" data-i18n="topologyRouterTitle">Kanban Board</h1>
+    <div class="actions">
+      <div class="user-chip" id="userChip" hidden data-t="header-user-chip">
+        <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false" data-t="header-user-menu-open">
+          <span class="user-chip-ico">👤</span><span id="userChipName" data-t="header-user-name"></span><span class="lang-caret" aria-hidden="true">▾</span>
+        </button>
+        <div id="userMenu" class="user-menu" hidden data-t="header-user-menu">
+          <button id="userMenuSecurity" type="button" data-i18n="securitySection" data-t="header-user-security">Security</button>
+          <button id="userMenuLogout" type="button" data-i18n="authLogout" data-t="header-user-logout">Log out</button>
+        </div>
+      </div>
+      <button type="button" class="ob-btn-head" data-ob-tour>
+        <span class="ob-q">?</span><span id="obBtnLabel" data-i18n="tourBtnLabel">Tour</span>
+      </button>
+      <div class="lang-select" id="langSelect">
+        <button id="langTrigger" class="lang-trigger" type="button" aria-haspopup="listbox" aria-expanded="false"
+                data-i18n-aria="a11yInterfaceLanguage" aria-label="Interface language" data-t="header-lang-open">
+          <span class="lang-emoji" id="langTriggerEmoji">☕</span><span class="lang-code" id="langTriggerCode" data-t="header-lang-current">EN</span><span class="lang-caret" aria-hidden="true">▾</span>
+        </button>
+        <ul class="lang-menu" id="langMenu" role="listbox" tabindex="-1" hidden
+            data-i18n-aria="a11yInterfaceLanguage" aria-label="Interface language" data-t="header-lang-menu"></ul>
+      </div>
+    </div>
+  </header>
   <div id="topologyProxies"></div>
 
   <div id="confirmOverlay" class="modal-overlay" hidden data-t="confirm-overlay">

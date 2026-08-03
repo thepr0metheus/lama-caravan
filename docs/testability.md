@@ -35,6 +35,29 @@ language, so a locator that matches on text passes in English and fails in
 Russian — and every translation edit becomes a test failure in a working
 application. `data-t` does not move when the words do.
 
+## The header is the same on every page
+
+Left to right, on all five:
+
+```
+[← back] [brand] [version] · [page title h1] · [page actions] [account] [tour] [language]
+```
+
+`/board` has no back-link (it is where back goes). `/models` and `/system` have
+no Tour button because those two pages have no tour — the others do. Everything
+else is present everywhere, in that order.
+
+It was not so until 1.3.180: `/hf` and `/kanban` had bespoke headers with no
+brand, **no account menu and no language picker at all** — the only way to
+change language on `/hf` was a picker buried inside its tour — `/models` had no
+version chip, and the back-link sat on the right on two pages and the left on
+two others.
+
+`/hf` keeps its own dictionary (it does not load the shared one), so its
+language picker is built from that table and reloads the page on change;
+its version chip reads `/health` rather than the fleet state it never fetches,
+so it shows the version without the branch.
+
 ## One `<h1>` per page, and it names the page
 
 Every page has exactly one `<h1>`, and it is the page's own name — `Board`,

@@ -1738,6 +1738,14 @@ button.danger {
   flex-wrap: nowrap;
 }
 
+/* Nothing in the bar gets squeezed. The group already refuses to wrap, but
+   its ITEMS were still shrinkable, so on /hf — the one page with a whole
+   token form up there — the account chip was compressed until "e2e · viewer"
+   broke onto a second line and the bar grew taller than everywhere else. */
+.topbar .actions > * { flex-shrink: 0; }
+.topbar .user-chip button,
+.topbar .lang-trigger { white-space: nowrap; }
+
 .summary {
   display: grid;
   gap: 7px;

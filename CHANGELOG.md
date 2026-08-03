@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- One header, the same on every page:
+
+  ```
+  [← back] [brand] [version] · [page title] · [page actions] [account] [tour] [language]
+  ```
+
+  There were three separate implementations before, and the differences were
+  not only cosmetic. **`/hf` and `/kanban` had no account menu and no language
+  picker at all** — you could not sign out from either, and the only language
+  picker on `/hf` was buried inside its guided tour. `/models` had no version
+  chip. The back-link sat on the right on two pages and the left on two others.
+
+  Now `/hf` and `/kanban` use the shared topbar, the back-link is on the left
+  everywhere (where the browser's own is, and where two pages already had it),
+  and the right-hand side is the same fixed set in the same order. `/board`
+  still has no back-link — it is where back goes — and `/models` and `/system`
+  still have no Tour button, because those two pages have no tour.
+
+  The kanban's header used to be rendered inside the block that repaints on
+  every graph change, so anything bound to it would need re-binding each time;
+  it is a static topbar now, outside that tree. `/hf` keeps its independence
+  from the shared dictionary: its picker is built from its own language table,
+  and its version chip reads `/health` instead of the fleet state it never
+  fetches.
+
 - Every page has one `<h1>`, and it names the page. It was the product's name
   on every page before — so someone navigating by heading heard `LAMA CARAVAN`
   wherever they were, which tells them nothing about where they are. `/models`

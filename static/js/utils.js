@@ -14,6 +14,26 @@ export function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+/** Fill the header's version chip from /health.
+ *
+ *  The richer label — version PLUS git branch and dirty count — comes from
+ *  renderProjectGitBranch(), which needs /api/state. Pages that never fetch
+ *  the fleet state (/models, the standalone kanban) were left showing the
+ *  placeholder "branch n/a", which is worse than an empty chip: it reads as a
+ *  fact about the checkout rather than as "nobody asked". /health is open and
+ *  costs nothing, so those pages can at least say which build they are.
+ *  Where state does arrive, renderProjectGitBranch() overwrites this.
+ */
+export function fillVersionChipFromHealth() {
+  const el = $("projectGitBranch");
+  if (!el) return;
+  fetch("/health").then((r) => r.json()).then((d) => {
+    if (!d || !d.version || el.textContent.includes("git:")) return;
+    el.textContent = `v${d.version}`;
+    el.title = `lama-caravan v${d.version}${d.commit ? ` @ ${d.commit}` : ""}`;
+  }).catch(() => {});
+}
+
 export async function api(path, options = {}) {
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },

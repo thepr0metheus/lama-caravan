@@ -46,6 +46,7 @@ const HFS = {
     a11yDownloadCheckpoint: "Download checkpoint",
     a11yOtherFiles: "Other files in this repository",
     a11yHfToken: "Hugging Face access token",
+    a11yInterfaceLanguage: "Interface language",
   },
   ru: {
     treeQuants: "Квантованные версии",
@@ -73,6 +74,7 @@ const HFS = {
     a11yDownloadCheckpoint: "Скачать чекпоинт",
     a11yOtherFiles: "Другие файлы репозитория",
     a11yHfToken: "Токен доступа Hugging Face",
+    a11yInterfaceLanguage: "Язык интерфейса",
   },
   zh: {
     treeQuants: "量化版本",
@@ -108,6 +110,7 @@ const HFS = {
     a11yDownloadCheckpoint: "下载检查点",
     a11yOtherFiles: "此仓库中的其他文件",
     a11yHfToken: "Hugging Face 访问令牌",
+    a11yInterfaceLanguage: "界面语言",
   },
   hi: {
     treeQuants: "क्वांटाइज़्ड संस्करण",
@@ -143,6 +146,7 @@ const HFS = {
     a11yDownloadCheckpoint: "चेकपॉइंट डाउनलोड करें",
     a11yOtherFiles: "इस रिपॉज़िटरी की अन्य फ़ाइलें",
     a11yHfToken: "Hugging Face एक्सेस टोकन",
+    a11yInterfaceLanguage: "इंटरफ़ेस भाषा",
   },
   es: {
     treeQuants: "Versiones cuantizadas",
@@ -178,6 +182,7 @@ const HFS = {
     a11yDownloadCheckpoint: "Descargar checkpoint",
     a11yOtherFiles: "Otros archivos del repositorio",
     a11yHfToken: "Token de acceso de Hugging Face",
+    a11yInterfaceLanguage: "Idioma de la interfaz",
   },
   fr: {
     treeQuants: "Versions quantifiées",
@@ -213,6 +218,7 @@ const HFS = {
     a11yDownloadCheckpoint: "Télécharger le checkpoint",
     a11yOtherFiles: "Autres fichiers du dépôt",
     a11yHfToken: "Jeton d'accès Hugging Face",
+    a11yInterfaceLanguage: "Langue de l'interface",
   },
   ar: {
     treeQuants: "إصدارات مكمّمة",
@@ -248,6 +254,7 @@ const HFS = {
     a11yDownloadCheckpoint: "تنزيل نقطة التحقق",
     a11yOtherFiles: "ملفات أخرى في هذا المستودع",
     a11yHfToken: "رمز وصول Hugging Face",
+    a11yInterfaceLanguage: "لغة الواجهة",
   },
   bn: {
     treeQuants: "কোয়ান্টাইজড সংস্করণ",
@@ -283,6 +290,7 @@ const HFS = {
     a11yDownloadCheckpoint: "চেকপয়েন্ট ডাউনলোড",
     a11yOtherFiles: "এই রিপোজিটরির অন্যান্য ফাইল",
     a11yHfToken: "Hugging Face অ্যাক্সেস টোকেন",
+    a11yInterfaceLanguage: "ইন্টারফেসের ভাষা",
   },
   pt: {
     treeQuants: "Versões quantizadas",
@@ -318,6 +326,7 @@ const HFS = {
     a11yDownloadCheckpoint: "Baixar checkpoint",
     a11yOtherFiles: "Outros arquivos deste repositório",
     a11yHfToken: "Token de acesso do Hugging Face",
+    a11yInterfaceLanguage: "Idioma da interface",
   },
   ja: {
     treeQuants: "量子化バージョン",
@@ -353,6 +362,7 @@ const HFS = {
     a11yDownloadCheckpoint: "チェックポイントをダウンロード",
     a11yOtherFiles: "このリポジトリの他のファイル",
     a11yHfToken: "Hugging Face アクセストークン",
+    a11yInterfaceLanguage: "インターフェース言語",
   },
   de: {
     treeQuants: "Quantisierte Versionen",
@@ -388,6 +398,7 @@ const HFS = {
     a11yDownloadCheckpoint: "Checkpoint herunterladen",
     a11yOtherFiles: "Weitere Dateien in diesem Repository",
     a11yHfToken: "Hugging Face Zugriffstoken",
+    a11yInterfaceLanguage: "Oberflächensprache",
   },
   id: {
     treeQuants: "Versi terkuantisasi",
@@ -423,6 +434,7 @@ const HFS = {
     a11yDownloadCheckpoint: "Unduh checkpoint",
     a11yOtherFiles: "File lain di repositori ini",
     a11yHfToken: "Token akses Hugging Face",
+    a11yInterfaceLanguage: "Bahasa antarmuka",
   },
   ur: {
     treeQuants: "کوانٹائزڈ ورژن",
@@ -458,6 +470,7 @@ const HFS = {
     a11yDownloadCheckpoint: "چیک پوائنٹ ڈاؤن لوڈ کریں",
     a11yOtherFiles: "اس ریپازٹری کی دیگر فائلیں",
     a11yHfToken: "Hugging Face رسائی ٹوکن",
+    a11yInterfaceLanguage: "انٹرفیس کی زبان",
   },
   tr: {
     treeQuants: "Nicemlenmiş sürümler",
@@ -493,6 +506,7 @@ const HFS = {
     a11yDownloadCheckpoint: "Checkpoint indir",
     a11yOtherFiles: "Bu depodaki diğer dosyalar",
     a11yHfToken: "Hugging Face erişim token'ı",
+    a11yInterfaceLanguage: "Arayüz dili",
   },
   ko: {
     treeQuants: "양자화 버전",
@@ -528,6 +542,7 @@ const HFS = {
     a11yDownloadCheckpoint: "체크포인트 다운로드",
     a11yOtherFiles: "이 저장소의 다른 파일",
     a11yHfToken: "Hugging Face 액세스 토큰",
+    a11yInterfaceLanguage: "인터페이스 언어",
   },
   vi: {
     treeQuants: "Phiên bản lượng tử hóa",
@@ -563,6 +578,7 @@ const HFS = {
     a11yDownloadCheckpoint: "Tải xuống checkpoint",
     a11yOtherFiles: "Các tệp khác trong kho này",
     a11yHfToken: "Token truy cập Hugging Face",
+    a11yInterfaceLanguage: "Ngôn ngữ giao diện",
   },
   it: {
     treeQuants: "Versioni quantizzate",
@@ -598,6 +614,7 @@ const HFS = {
     a11yDownloadCheckpoint: "Scarica checkpoint",
     a11yOtherFiles: "Altri file di questo repository",
     a11yHfToken: "Token di accesso Hugging Face",
+    a11yInterfaceLanguage: "Lingua dell'interfaccia",
   },
   te: {
     treeQuants: "క్వాంటైజ్డ్ వెర్షన్లు",
@@ -633,6 +650,7 @@ const HFS = {
     a11yDownloadCheckpoint: "చెక్‌పాయింట్ డౌన్‌లోడ్",
     a11yOtherFiles: "ఈ రిపాజిటరీలోని ఇతర ఫైల్‌లు",
     a11yHfToken: "Hugging Face యాక్సెస్ టోకెన్",
+    a11yInterfaceLanguage: "ఇంటర్‌ఫేస్ భాష",
   },
   mr: {
     treeQuants: "क्वांटाइज्ड आवृत्त्या",
@@ -668,6 +686,7 @@ const HFS = {
     a11yDownloadCheckpoint: "चेकपॉइंट डाउनलोड करा",
     a11yOtherFiles: "या रेपॉझिटरीमधील इतर फाइल्स",
     a11yHfToken: "Hugging Face ॲक्सेस टोकन",
+    a11yInterfaceLanguage: "इंटरफेस भाषा",
   },
   ta: {
     treeQuants: "குவாண்டைஸ் பதிப்புகள்",
@@ -703,6 +722,7 @@ const HFS = {
     a11yDownloadCheckpoint: "செக்பாயிண்ட் பதிவிறக்கு",
     a11yOtherFiles: "இந்தக் களஞ்சியத்தில் உள்ள பிற கோப்புகள்",
     a11yHfToken: "Hugging Face அணுகல் டோக்கன்",
+    a11yInterfaceLanguage: "இடைமுக மொழி",
   },
 };
 function hfT(key, vars = {}) {
@@ -732,7 +752,85 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   const token = document.getElementById("hfTokenInput");
   if (token) token.setAttribute("aria-label", hfT("a11yHfToken"));
+  hfHeaderChrome();
 });
+
+// The three header controls every page carries. /hf had none of them: no way
+// to sign out, and the only language picker on the whole page lived INSIDE the
+// tour. This page deliberately does not import the shared i18n module (it has
+// its own 20-language table, see HFS), so the picker is rebuilt locally from
+// HF_LANGS against the same localStorage key the rest of the app reads.
+function hfHeaderChrome() {
+  // Version: /hf never loads /api/state, so this comes from the open /health —
+  // the version, without the branch the fleet-state pages also show.
+  fetch("/health").then(r => r.json()).then(d => {
+    const el = document.getElementById("projectGitBranch");
+    if (el && d && d.version) {
+      el.textContent = `v${d.version}`;
+      el.title = `lama-caravan v${d.version}${d.commit ? ` @ ${d.commit}` : ""}`;
+    }
+  }).catch(() => {});
+
+  fetch("/api/auth/me").then(r => r.json()).then(me => {
+    if (!me || !me.enabled || !me.authenticated) return;
+    const chip = document.getElementById("userChip");
+    const menu = document.getElementById("userMenu");
+    const btn = document.getElementById("userChipBtn");
+    if (!chip || !menu || !btn) return;
+    document.getElementById("userChipName").textContent =
+      me.user + (me.role === "viewer" ? " · viewer" : "");
+    chip.hidden = false;
+    const close = () => { menu.hidden = true; btn.setAttribute("aria-expanded", "false"); };
+    btn.addEventListener("click", e => {
+      e.stopPropagation();
+      menu.hidden = !menu.hidden;
+      btn.setAttribute("aria-expanded", String(!menu.hidden));
+    });
+    document.addEventListener("click", e => { if (!chip.contains(e.target)) close(); }, true);
+    document.addEventListener("keydown", e => { if (e.key === "Escape" && !menu.hidden) close(); });
+    document.getElementById("userMenuLogout").addEventListener("click", async () => {
+      try {
+        await fetch("/api/auth/logout", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      } catch { /* going to /login either way */ }
+      window.location = "/login";
+    });
+  }).catch(() => {});
+
+  const trigger = document.getElementById("langTrigger");
+  const menu = document.getElementById("langMenu");
+  if (!trigger || !menu) return;
+  const cur = localStorage.getItem("llamacppAdminLang") || "en";
+  const entry = HF_LANGS.find(([c]) => c === cur) || HF_LANGS[0];
+  const [emoji, ...rest] = String(entry[1]).split(" ");
+  document.getElementById("langTriggerEmoji").textContent = emoji;
+  document.getElementById("langTriggerCode").textContent = entry[0].toUpperCase();
+  trigger.setAttribute("aria-label", hfT("a11yInterfaceLanguage") || "Interface language");
+  menu.setAttribute("aria-label", trigger.getAttribute("aria-label"));
+  menu.innerHTML = HF_LANGS.map(([code, label]) => {
+    const [em, ...name] = String(label).split(" ");
+    const sel = code === cur;
+    return `<li class="lang-option${sel ? " selected" : ""}" role="option" data-lang="${escapeHtml(code)}"`
+      + ` aria-selected="${sel}"><span class="lang-emoji">${escapeHtml(em)}</span>`
+      + `<span class="lang-name">${escapeHtml(name.join(" "))}</span></li>`;
+  }).join("");
+  const close = () => { menu.hidden = true; trigger.setAttribute("aria-expanded", "false"); };
+  trigger.addEventListener("click", e => {
+    e.stopPropagation();
+    menu.hidden = !menu.hidden;
+    trigger.setAttribute("aria-expanded", String(!menu.hidden));
+  });
+  menu.addEventListener("click", e => {
+    const opt = e.target.closest(".lang-option");
+    if (!opt) return;
+    localStorage.setItem("llamacppAdminLang", opt.dataset.lang);
+    // A reload, not an in-place re-render: this page builds its text through
+    // hfT() at a dozen render sites (results, file rows, download jobs), and
+    // half-translating a live page is worse than a blink.
+    window.location.reload();
+  });
+  document.addEventListener("click", e => { if (!menu.hidden && !menu.contains(e.target) && e.target !== trigger) close(); }, true);
+  document.addEventListener("keydown", e => { if (e.key === "Escape" && !menu.hidden) close(); });
+}
 
 function hfConfirm(title, body, okLabel = "Delete", danger = true) {
   return new Promise(resolve => {

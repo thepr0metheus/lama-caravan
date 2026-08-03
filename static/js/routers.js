@@ -537,9 +537,7 @@ export function renderTopologyRouterDetail() {
       <div class="router-workspace">
         ${window.ROUTER_STANDALONE ? `
         <div class="rw-head rw-head-standalone">
-          <a class="rw-back-link" data-t="kanban-back-link" href="/board">← Main</a>
           <div class="rw-head-title-group">
-            <h1 class="rw-head-name" data-t="header-page-title">${escapeHtml(t("topologyRouterTitle"))}</h1>
             <div class="rw-head-badges">
               <span class="badge rw-stat-badge">in <strong>${inputs.length}</strong></span>
               <span class="badge rw-stat-badge">out <strong>${outputs.length}</strong></span>
@@ -548,11 +546,6 @@ export function renderTopologyRouterDetail() {
               ${(onOther.length + free.length) ? `<span class="rw-unassigned-badge" title="${escapeHtml(t("rtTitleUnassigned", { f: free.length, o: onOther.length }))}">${escapeHtml(t("rtUnassigned", { n: free.length + onOther.length }))}</span>` : ""}
             </div>
           </div>
-          <span class="topology-policy-head-actions">
-            <button type="button" class="ob-btn-head" data-ob-tour>
-              <span class="ob-q">?</span>${escapeHtml(t("tourBtnLabel"))}
-            </button>
-          </span>
         </div>` : `
         <div class="rw-head">
           <span class="router-cfg-title">

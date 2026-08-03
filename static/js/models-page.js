@@ -6,7 +6,7 @@ import { appConfirm, settleAppConfirm } from "./dialogs.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
 import { applyLanguage, applyTheme, initLanguage, onLangChange, setupLangSelect, t } from "./i18n.js";
 import { ui } from "./state.js";
-import { $, api, escapeHtml, markPageState, toast } from "./utils.js";
+import { $, api, escapeHtml, markPageState, toast, fillVersionChipFromHealth } from "./utils.js";
 
 function fmtGb(bytes) {
   const gb = bytes / 2 ** 30;
@@ -154,6 +154,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // anywhere near here.
   onLangChange(refresh);
   bindUserChip();
+  fillVersionChipFromHealth();
 
   $("confirmCancel").addEventListener("click", () => settleAppConfirm(false));
   $("confirmDelete").addEventListener("click", () => { if (ui.pendingConfirm) ui.pendingConfirm(); });
