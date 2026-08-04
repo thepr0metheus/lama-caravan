@@ -1056,7 +1056,7 @@ export function nodesLaneHtml() {
       <div class="ghost-server-body">
         <button class="ghost-start-btn" type="button"
           data-t="board-cell-add" data-t-id="${escapeHtml(n.id)}"
-          aria-label="${escapeHtml(t("topologyReserveCellLabel"))} :${escapeHtml(String(reservePort))} — ${escapeHtml(n.name || n.id)}"
+          aria-label="${escapeHtml(t("topologyReserveCellLabel"))} :${escapeHtml(String(reservePort))}"
           data-node-reserve="${escapeHtml(n.id)}"
           data-node-reserve-port="${escapeHtml(String(reservePort))}"
           data-node-role="${escapeHtml(n.role)}"
@@ -1150,8 +1150,23 @@ export function nodesLaneHtml() {
           <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${gpuTelemetrySlot}</div>
         </div>`;
     }
+    // A machine card is a real grouping of controls that belong together, and
+    // nothing said so: a screen reader user walked into two dozen buttons with
+    // no announcement of which machine any of them acts on. role="group" and
+    // not the <section>'s implicit region — a landmark per machine would bury
+    // the five that describe the page itself, and these are repeated items
+    // inside one of those, not sections of the page.
+    //
+    // The name is assembled from what the header already shows: the role word
+    // (translated), the machine's own name, and its address. Capitalised
+    // because it opens a phrase; harmless where a script has no case.
+    const _roleWord = n.role === "controller" ? t("nodeRoleController")
+      : n.role === "client" ? t("nodeRoleClient") : String(n.role || "");
+    const _groupName = `${_roleWord.charAt(0).toUpperCase()}${_roleWord.slice(1)} ${n.name || n.id}`
+      + (n.ip ? ` · ${n.ip}` : "");
     return `
-      <section class="node-card ${n.online ? "online" : "offline"} ${collapsed ? "collapsed" : ""}" data-node-id="${escapeHtml(n.id)}">
+      <section class="node-card ${n.online ? "online" : "offline"} ${collapsed ? "collapsed" : ""}" data-node-id="${escapeHtml(n.id)}"
+               role="group" aria-label="${escapeHtml(_groupName)}">
         <header class="node-head">
           <button class="node-collapse" type="button" data-node-collapse="${escapeHtml(n.id)}" title="${escapeHtml(collapsed ? t("expand") : t("collapse"))}" aria-expanded="${collapsed ? "false" : "true"}">${collapsed ? "▸" : "▾"}</button>
           <span class="node-dot ${n.online ? "on" : "off"}"></span>
