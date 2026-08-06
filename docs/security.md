@@ -6,11 +6,14 @@ models. For anything beyond a trusted LAN, enable sign-in.
 
 ## Enabling sign-in
 
-Two ways to create the first account:
+Three ways to create the first account:
 
-- **UI**: System (🛠) → **Security** → create the first account. You are
-  signed in immediately and the panel shows the generated **fleet token** —
-  copy it right away.
+- **`/setup`**: a fresh controller redirects `/login` to the first-run wizard —
+  create the account there; you are signed in immediately and the page shows
+  the generated **fleet token** once. Copy it right away. (Once auth is on,
+  `/setup` redirects back to `/login` — the wizard works exactly once.)
+- **UI**: System (🛠) → **Security** → create the first account — same effect,
+  from inside an already-open controller.
 - **CLI** (also the lost-password path):
 
 ```sh
@@ -20,7 +23,10 @@ python3 -m caravan.admin.auth fleet-token     # print the machine token
 ```
 
 The moment at least one user exists, every route requires a session except
-the login page and the machine endpoints below. Accounts and sessions live in
+the login page and the machine endpoints below. Accounts have two roles:
+**admin** (everything) and **viewer** — read-only, enforced server-side in the
+auth guard (every `GET` passes, anything mutating answers 403, logout
+excepted). Run monitors and test suites as a viewer. Accounts and sessions live in
 SQLite (`auth.db` next to `admin.json`, chmod 0600) — no external database.
 
 - Passwords: PBKDF2-HMAC-SHA256, 200k iterations, per-user salt.

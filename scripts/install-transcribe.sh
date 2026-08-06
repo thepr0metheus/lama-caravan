@@ -41,9 +41,10 @@ WANT_CUDA=1
 # controller this script is sitting next to it; on a client there is no cells/
 # and the scout fetches the same files over /api/cell-assets. Same script, both
 # hosts — which is the point, because a second copy is how the old drift began.
-FETCH="${REPO_DIR}/scripts/fetch-cell-assets.sh"
-if [[ ! -f "${SRC}/transcribe_server.py" && ! -x "$FETCH" ]]; then
-  err "no cells/ here and no scripts/fetch-cell-assets.sh — is this a full checkout?"
+# (On scout hosts the scout itself fetches these files over /api/cell-assets —
+# this script only ever needs the local cells/ of a full checkout.)
+if [[ ! -f "${SRC}/transcribe_server.py" ]]; then
+  err "no cells/transcribe_server.py here — run from a full lama-caravan checkout"
   exit 1
 fi
 have cmake || { err "cmake is required"; exit 1; }

@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- The README catches up with the application — audited against the code, not
+  refreshed from memory (35 confirmed gaps; 4 claimed ones did not survive
+  verification and were dropped). The headline: **all four speech runners were
+  advertised with no way to install them.** A new "Install the speech engines
+  (STT & TTS)" section documents each installer, the exact cell
+  `COMMAND`/`HEALTH_PATH` recipes, where each model comes from, prewarm flags,
+  the ffmpeg and cu128-torch prerequisites, the audio-window chunker, and the
+  measured concurrency truth (one inference at a time; parallelize with a
+  second cell). Voice-clone TTS finally appears as a feature rather than only
+  as a licence table; moonshine stops being undersold as STT-only.
+
+  Also brought honest: the five-page reality replaces "two views", `/setup`
+  and the viewer role are documented, `scripts/deploy.sh` is the recommended
+  deploy in README and the runbook, the systemd install no longer copies a
+  template the app installs itself, and the smoke probe expects the 302 that
+  `/` actually answers. The broken-cell 💔 state, the ⇪ stale-server chip,
+  orphan ☠ cleanup, host power controls, the accessibility/testability
+  contract and the multi-viewer hardening get their overdue Features bullets.
+
+  One code fix fell out of the audit: `install-transcribe.sh` promised a
+  `fetch-cell-assets.sh` helper this repo has never shipped; the guard now
+  states the real arrangement (scouts fetch cell assets over the API).
+
 - One header, the same on every page:
 
   ```

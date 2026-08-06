@@ -9,7 +9,7 @@ Five pages share the code:
 
 | page | route(s) | entry | notes |
 |---|---|---|---|
-| `static/index.html` | `/`, `/index.html` | `/js/main.js` | the topology board (main app) |
+| `static/index.html` | `/board` (`/` and `/index.html` redirect) | `/js/main.js` | the topology board (main app) |
 | `static/kanban.html` | `/kanban` (`/router` redirects) | `/js/main.js` | standalone router workspace; an inline classic script sets `window.ROUTER_STANDALONE = true` — it runs immediately, before the (deferred) module executes, so `main.js` sees the flag. Deep-link a router with `?id=<routerId>` (default `router:default`) |
 | `static/hf.html` | `/hf` | `/hf.js` | HuggingFace model browser; imports only from `/js/utils.js` |
 | `static/models.html` | `/models` | `/js/models-page.js` | models-disk tree with size rollups and unreferenced-file cleanup |
@@ -21,8 +21,9 @@ revalidates every load and gets a 304 when unchanged, so a redeploy is picked up
 **no cache-busting `?v=` params are needed** (the favicon's `?v=2` is the one deliberate holdout).
 `/js/<name>` and `/css/<name>` are prefix routes; adding a module is just adding a file.
 
-CSS is 9 cascade-ordered files under `static/css/`, linked in this exact order on all three pages:
-`base`, `topology-board`, `canvas`, `modals`, `cards`, `form`, `monitor`, `nodes`, `hf`. They are
+CSS is 10 cascade-ordered files under `static/css/`, linked in this exact order on every page:
+`base`, `topology-board`, `canvas`, `modals`, `cards`, `form`, `monitor`, `nodes`, `hf`,
+`onboarding` (models/system skip `hf`, the only page-specific slice). They are
 **contiguous slices** of the old `styles.css` — class families interleave heavily, so regrouping
 rules across files would reorder equal-specificity rules and change the cascade. Add new rules to
 the file whose range they belong to; never move existing rules between files (some slices even
@@ -520,7 +521,7 @@ page that needs neither. Functions are file-local; nothing is exported.
 3. **utils.js stays i18n-free and app-state-free.** It is hf.js's only import; adding an
    `i18n-data` (or `state`) dependency would pull 11.7k lines of translations into the HF page.
 4. **CSS files are cascade-ordered contiguous slices** of the old `styles.css`. Keep the `<link>`
-   order identical on all three pages, add rules in the file they belong to, and never regroup
+   order identical on every page, add rules in the file they belong to, and never regroup
    rules across files — equal-specificity rules depend on their order.
 5. **Function names stay unique across all modules.** The split was verified by a census: 572
    functions, each defined exactly once. Keeping names unique keeps cross-module imports

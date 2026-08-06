@@ -25,7 +25,18 @@ also keep a crontab `@reboot` launcher — two launchers fight for port 7990.
 
 ## Deploy
 
-Source moves through git only (no scp except explicit emergency recovery):
+One command wraps the whole flow — refuse-if-dirty, push, pull on the
+controller, byte-compile, restart both services, then verify `/health` serves
+the exact version+commit that were shipped (mismatch = non-zero exit):
+
+```sh
+CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
+# CARAVAN_DEPLOY_PATH overrides the checkout (default ~/projects/lama-caravan)
+# --no-restart for static-only changes; notifies CI via notify-ci.sh when configured
+```
+
+The same steps by hand (source moves through git only; no scp except explicit
+emergency recovery):
 
 ```sh
 # locally
@@ -48,7 +59,7 @@ Restart rules:
 Post-deploy smoke:
 
 ```sh
-for p in / /api/state /api/topology /api/models /js/main.js /css/base.css /kanban /hf; do
+for p in /board /api/state /api/topology /api/models /js/main.js /css/base.css /kanban /hf; do   # / answers 302 -> /board
   printf '%-16s %s\n' "$p" "$(curl -s -o /dev/null -w '%{http_code}' localhost:7990$p)"
 done
 curl -s -o /dev/null -w '%{http_code}\n' localhost:8101/v1/models   # any live route port

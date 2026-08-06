@@ -61,8 +61,10 @@ What that gives you in practice:
     pinned version + one-click update/rollback
   - 🎙️ **whisper** — speech-to-text (faster-whisper); the model downloads
     itself, language is picked per request
-  - 🌙 **moonshine** — CPU-only speech-to-text (Moonshine v2) that beats
-    Whisper large-v3 accuracy on English at 250M params — GPUs stay free for LLMs
+  - 🌙 **moonshine** — CPU-only speech (Moonshine v2), both directions: STT
+    that beats Whisper large-v3 accuracy on English at 250M params (also
+    es/zh/ja/ko/vi/uk/ar — no Russian), and stock-voice TTS for 20 locales
+    including Russian and Ukrainian — GPUs stay free for LLMs
   - 📝 **transcribe.cpp** — GGUF speech-to-text on the ggml runtime; one build
     runs GigaAM, Parakeet, Canary, Whisper and more, chosen by the file in the
     ordinary model picker. The best free **Russian** recognizer of the set —
@@ -70,6 +72,12 @@ What that gives you in practice:
     punctuated, from a 260 MB file
   - 🛠️ **Custom command** — any process that listens on `$PORT` becomes a
     managed cell: health-checked, logged, scheduled, restarted
+- **Voice-clone TTS ships as command cells.** One bundled server, three
+  engines picked per cell — `bash ~/run_tts.sh $PORT xtts|f5|cosyvoice` with
+  `HEALTH_PATH /health` — cloning a voice from a short reference sample.
+  CosyVoice2 is the engine whose weights allow commercial use (see
+  [Model licences](#model-licences)); on Blackwell GPUs its venv needs the
+  cu128 torch noted in [Tested versions](#tested-versions).
 - **One compute-target switch.** Every cell picks **CPU / GPU / auto** with one
   control (options a runner can't do are disabled); a multi-GPU host fans out
   into per-card chips or a checklist, and llama.cpp gets the right
@@ -90,8 +98,11 @@ A concrete day with it: your coding agents hammer a local Qwen on the desktop
 GPU all night on a schedule window; in the morning the schedule flips them to
 a subscription provider while the GPU serves a bigger model for a research
 agent; one agent with confidential data stays pinned to the local route; a
-whisper cell transcribes on a spare box; and the spend chart shows what all of
-that would have cost in cloud tokens.
+transcribe.cpp cell turns Russian speech into cased, punctuated text
+(GigaAM-v3) while a CosyVoice cell answers in a cloned voice — a
+voice-translation app on the LAN finds both by the engine self-ID their
+`/health` publishes; and the spend chart shows what all of that would have
+cost in cloud tokens.
 
 The long version of that day — with the kanban that implements it — lives in
 [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md).
@@ -229,6 +240,7 @@ whenever a component is upgraded (last verified: **2026-08-01**):
 | [docs/operations.md](docs/operations.md) | Runbook: services, deploy, rollback, backups, local dev, quirks |
 | [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md) | A worked example: one day of hybrid local/cloud routing and the kanban behind it |
 | [docs/security.md](docs/security.md) | Accounts/sessions (SQLite), the fleet token for scouts, what stays open |
+| [docs/testability.md](docs/testability.md) | The E2E contract: `data-t` hooks as public API, page identity/readiness flags, landmark names — what an external test suite may rely on |
 
 Legacy single-server mode edits the marked config block in:
 
@@ -318,6 +330,16 @@ Do not deploy project code by direct `scp` or hand-copying files, except for an
 explicit emergency recovery. Generated runtime files under `var/` are local host
 state and are not the source deployment path.
 
+`scripts/deploy.sh` wraps the whole flow in one command — refuse-if-dirty,
+push, pull on the controller, byte-compile, restart both services, then
+**verify `/health` reports the exact version and commit that were shipped**:
+
+```sh
+CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
+# checkout path via CARAVAN_DEPLOY_PATH (default ~/projects/lama-caravan);
+# --no-restart for static-only changes; CI ping via scripts/notify-ci.sh if configured
+```
+
 ## Features
 
 **Cells & runners**
@@ -348,6 +370,15 @@ state and are not the source deployment path.
   update/rollback driven by pip's own version history.
 - A running cell is ringed by an animated border comet — on its board card AND
   around its config window, colored by compute target (CPU cells blue).
+- **A sick cell cannot look healthy.** A cell whose own health endpoint
+  answers with an error shows as broken — 💔 plus the engine's own diagnosis
+  on the card — instead of a green RUNNING: a live process around a dead
+  engine never masquerades as fine. A cell running an older copy of its
+  server than the controller ships wears an ⇪ old-server chip (every speech
+  cell reports a source hash on `/health`).
+- Hosts can be rebooted — or powered off, behind a type-the-hostname
+  confirmation — right from the board. Poweroff warns you first: the board
+  can turn a machine off, not back on.
 
 **Routing & proxies**
 
@@ -379,6 +410,10 @@ state and are not the source deployment path.
   Prometheus (clients, cells, GPU, routes).
 - System page: controller services, cells, git/python versions, models-disk
   usage with a cleanup modal; a models page for the library on disk.
+- Orphaned cells — running units the config no longer knows about — surface
+  as a red ☠ strip with a Stop button, and their ports stay guarded; a dead
+  scout's leftovers are cleaned from the board with only its solely-claimed
+  ports freed.
 
 **Platform**
 
@@ -389,6 +424,16 @@ state and are not the source deployment path.
   and the HF browser; with the editor open the same button explains every
   llama.cpp config field.
 - Light, dark, and black LLM-focused themes.
+- **Legible without sight, testable by contract.** Landmark regions, machine
+  cards as named groups, one `<h1>` per page, unique accessible names on
+  every repeated control — announced in the interface language. The same
+  structure is published as a testability contract
+  ([docs/testability.md](docs/testability.md)): `data-t` hooks, a page
+  identity + readiness flag on `<body>`, and an open `/health` — an external
+  Playwright suite drives the UI through exactly what a screen reader sees.
+- Comfortable to watch from several browsers at once: HTTP/1.1 keep-alive,
+  gzip (~10× on the big payloads), deep accept queues, incremental monitor
+  deltas, per-language dictionaries loaded on demand.
 - Docker controller-only mode for evaluation; stdlib-only Python everywhere.
 
 **Legacy single-server mode** (still maintained): status/PID/uptime of
@@ -494,13 +539,20 @@ The full endpoint reference (the admin surface and the proxy surface) lives in
 
 ## Topology GUI
 
-The web UI has two views:
+The web UI is five pages, each at one canonical address (the old synonyms
+redirect: `/` → `/board`, `/router` → `/kanban`):
 
-- `Topology` — the main view: the live board with clients, agents and their
-  proxy routes, the kanban card, server cells with lifecycle controls, GPU
-  telemetry, and the per-request traffic panel.
-- `Classic` — the legacy single-server editor and monitor (kept for the
-  `llamacpp-current.service` path).
+| page | what it is |
+|---|---|
+| `/board` | the main board: clients, agents and their proxy routes, the kanban card, server cells with lifecycle controls, GPU telemetry, traffic |
+| `/kanban` | the routing graph as a full-page workspace (`?id=router:<id>`) |
+| `/models` | the GGUF library on disk: sizes, which cells use what, cleanup |
+| `/system` | controller services, llama.cpp builds, accounts, diagnostics |
+| `/hf` | the HuggingFace GGUF browser |
+
+`/login` and `/setup` are separate pages — a fresh controller bounces to the
+first-run wizard, an enabled one to sign-in. A `Classic` view inside the board
+keeps the legacy single-server editor (the `llamacpp-current.service` path).
 
 Topology state is stored in the admin state file:
 
@@ -531,7 +583,8 @@ the dropped route to `Fallback`.
 
 ## Install llama.cpp
 
-Run the install script on the target host (requires NVIDIA GPU + CUDA toolkit):
+Run the install script on the target host (builds the CUDA server on
+Linux/NVIDIA hosts and exits harmlessly elsewhere):
 
 ```sh
 cd ~/lama-caravan
@@ -543,6 +596,7 @@ This will:
 - Clone or update `~/llama.cpp`
 - Build `llama-server` with CUDA (auto-detects GPU architectures)
 - Restart any running `lama-cell@*.service` units
+- Provision the whisper STT server at the end (non-fatal if it can't)
 
 Optional flags:
 
@@ -595,6 +649,52 @@ flags). This is independent of the smpbo story. **Use a K-quant** (`Q4_K_M`,
 Full incident write-up and the retirement verification:
 [`docs/postmortem-blackwell-soft-max-crash.md`](docs/postmortem-blackwell-soft-max-crash.md).
 
+## Install the speech engines (STT & TTS)
+
+Every speech runner is provisioned by its own script — same split as llama.cpp:
+the script installs, the cell only runs. All are idempotent, and all drop the
+cell server + launcher into `$HOME` (`~/<runner>_server.py`, `~/run_<runner>.sh`).
+
+| runner | install | cell `COMMAND` | model comes from |
+|---|---|---|---|
+| 🎙️ whisper (STT) | `scripts/install-whisper.sh` — also auto-run by `install-llama.sh` | `bash ~/run_whisper.sh $PORT large-v3` | self-downloads on first start (progress shows as a % bar on the card) |
+| 🌙 moonshine (STT+TTS) | `scripts/install-moonshine.sh` | `bash ~/run_moonshine.sh $PORT en` | self-downloads per language |
+| 📝 transcribe.cpp (STT) | `scripts/install-transcribe.sh` | `bash ~/run_transcribe.sh $PORT <model>.gguf` | the ordinary **MODEL_FILE picker** — ASR GGUFs download through the same `/hf` browser as LLMs |
+| 🗣️ TTS (voice clone) | `scripts/install-tts.sh` | `bash ~/run_tts.sh $PORT xtts\|f5\|cosyvoice` | each engine self-installs its venv + weights on first start |
+
+Every cell sets `HEALTH_PATH: /health`. What each `/health` answers is a small
+contract: `engine`, `model` and a `source` hash while ready, or a
+`downloading/loading` progress body while starting — it is how the board draws
+honest progress bars, how the ⇪ stale-server chip works, and how other LAN
+apps discover a speech cell without configuration.
+
+Worth knowing before the first start:
+
+- **Platforms.** whisper and TTS are Linux/NVIDIA-only (the scripts exit
+  cleanly elsewhere); moonshine runs anywhere on CPU;
+  **transcribe.cpp also builds on macOS** (Metal) — it needs `cmake` and
+  `git`, and wants OpenBLAS (without it the decoder is 10–15× slower).
+- **First start vs prewarm.** The venvs self-install on a cell's first start —
+  for TTS that is tens of gigabytes and 10–20 minutes. To pay that cost at
+  install time instead:
+  `bash scripts/install-tts.sh --prewarm "xtts f5 cosyvoice"` (same idea:
+  `install-moonshine.sh --prewarm "en"`).
+- **ffmpeg for TTS.** XTTS synthesis needs the system ffmpeg libraries
+  (torchcodec dlopens them); `install-tts.sh` apt-installs ffmpeg when it can
+  `sudo`, and warns when it can't.
+- **Blackwell GPUs.** CosyVoice's own requirements pin a torch whose kernels
+  stop at `sm_90`; the launcher installs **torch 2.7.1+cu128** first
+  (`sm_75…sm_120` — one venv serves an RTX 3090 and an RTX 5090 alike). See
+  [Tested versions](#tested-versions).
+- **Long recordings.** transcribe.cpp reads the model's audio window from the
+  GGUF (25 s for GigaAM-v3) and auto-chunks longer input at the quietest
+  moment; responses carry a `chunks` count so you can tell it happened.
+- **Concurrency.** A speech cell runs one inference at a time (one resident
+  session behind a lock — the engines crash on parallel inference, verified,
+  not assumed); requests queue at the socket (depth 64). To parallelize, run
+  a second cell of the same engine on another port and split traffic in the
+  kanban.
+
 ## Install On the controller
 
 **This is the primary deployment.** The [Docker quick start](#quick-start-docker)
@@ -628,11 +728,14 @@ Install the user services (the admin UI and the per-agent proxy daemon):
 
 ```sh
 mkdir -p ~/.config/systemd/user
-cp systemd/lama-caravan.service systemd/lama-caravan-proxies.service systemd/lama-cell@.service ~/.config/systemd/user/
+cp systemd/lama-caravan.service systemd/lama-caravan-proxies.service ~/.config/systemd/user/
 loginctl enable-linger $USER
 systemctl --user daemon-reload
 systemctl --user enable --now lama-caravan.service lama-caravan-proxies.service
 ```
+
+(The `lama-cell@.service` template is installed by the app itself the first
+time a cell starts — no need to copy it by hand.)
 
 Make sure no legacy crontab launcher is still present:
 

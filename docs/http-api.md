@@ -155,7 +155,8 @@ fleet token) requires the `caravan_session` cookie.
 
 | Method & path | Purpose |
 |---|---|
-| `GET /login` | Sign-in page (all other pages redirect here when auth is on). |
+| `GET /login` | Sign-in page (all other pages redirect here when auth is on). On a fresh controller with no accounts it 302s to `/setup`. |
+| `GET /setup` | First-run wizard: create the first account, shown the fleet token once. 302s to `/login` once auth is enabled. |
 | `POST /api/auth/setup` | Create the FIRST account (only works while no users exist) — turns the guard on. |
 | `POST /api/auth/login` / `POST /api/auth/logout` | Session cookie issue / revoke (rate-limited per IP). |
 | `GET /api/auth/me` | Current session's user/role (the UI header). |
