@@ -1373,6 +1373,14 @@
 /* Scheduled-poweroff clock. Dim like its siblings when idle; when a schedule
    is ARMED it stays lit (accent, not danger — a plan is not the act) so an
    armed daily shutdown is legible on the board at rest. */
+/* The three power controls (reboot / schedule / poweroff) as one cluster,
+   fenced off from the version controls beside them by a thin rule and a little
+   air — so the circular refresh arrow and the circular reboot arrow read as
+   belonging to different groups instead of one ambiguous run. */
+.node-power-ctl { display: inline-flex; align-items: center; gap: 2px;
+  margin-left: 6px; padding-left: 8px;
+  border-left: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+
 .node-power-sched { opacity: .38; }
 .node-power-sched:hover { opacity: 1; }
 .node-power-sched.armed { opacity: 1; color: var(--accent, #4a7dbd);

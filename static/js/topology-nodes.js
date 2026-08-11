@@ -1030,21 +1030,21 @@ export function nodesLaneHtml() {
     // drops a RAM stick on some boots and comes back with half its memory, which
     // starves cells until the machine is rebooted. Reboot only, never shutdown:
     // nothing on this board can switch a headless box back on.
-    const rebootBtn = `<button class="llama-ver-refresh node-reboot" type="button" data-t="node-reboot" data-t-id="${escapeHtml(String(n.id))}" data-reboot-host="${escapeHtml(String(n.id))}" title="${escapeHtml(t("hostRebootTitle"))}" aria-label="${escapeHtml(t("hostRebootTitle"))}">⏻</button>`;
+    const rebootBtn = `<button class="llama-ver-refresh node-reboot" type="button" data-t="node-reboot" data-t-id="${escapeHtml(String(n.id))}" data-reboot-host="${escapeHtml(String(n.id))}" title="${escapeHtml(t("hostRebootTitle"))}" aria-label="${escapeHtml(t("hostRebootTitle"))}">⟳︎</button>`;
     // Power off. Deliberately NOT the same glyph as reboot and deliberately
     // last: the two sit side by side, and the one that cannot be undone should
     // not be the one under the thumb. Its confirmation asks for the host's name
     // to be typed — see topology-render.js.
-    const powerOffBtn = `<button class="llama-ver-refresh node-poweroff" type="button" data-t="node-poweroff" data-t-id="${escapeHtml(String(n.id))}" data-poweroff-host="${escapeHtml(String(n.id))}" title="${escapeHtml(t("hostPowerOffTitle"))}" aria-label="${escapeHtml(t("hostPowerOffTitle"))}">⏼</button>`;
+    const powerOffBtn = `<button class="llama-ver-refresh node-poweroff" type="button" data-t="node-poweroff" data-t-id="${escapeHtml(String(n.id))}" data-poweroff-host="${escapeHtml(String(n.id))}" title="${escapeHtml(t("hostPowerOffTitle"))}" aria-label="${escapeHtml(t("hostPowerOffTitle"))}">⏻︎</button>`;
     // A schedule for that poweroff. The ⏰ lights up when one is armed and its
     // title shows the time, so an armed daily shutdown is visible at rest —
     // never a surprise. Opens the little editor in topology-render.js.
     const ps = n.powerSchedule || {};
     const psArmed = !!ps.enabled;
-    const powerSchedBtn = `<button class="llama-ver-refresh node-power-sched${psArmed ? " armed" : ""}" type="button" data-t="node-power-schedule" data-t-id="${escapeHtml(String(n.id))}" data-power-schedule-host="${escapeHtml(String(n.id))}" title="${escapeHtml(psArmed ? t("hostPowerSchedArmedTitle", { at: ps.at || "", daily: ps.daily ? t("hostPowerSchedDaily") : t("hostPowerSchedOnce") }) : t("hostPowerSchedTitle"))}" aria-label="${escapeHtml(t("hostPowerSchedTitle"))}">⏰</button>`;
+    const powerSchedBtn = `<button class="llama-ver-refresh node-power-sched${psArmed ? " armed" : ""}" type="button" data-t="node-power-schedule" data-t-id="${escapeHtml(String(n.id))}" data-power-schedule-host="${escapeHtml(String(n.id))}" title="${escapeHtml(psArmed ? t("hostPowerSchedArmedTitle", { at: ps.at || "", daily: ps.daily ? t("hostPowerSchedDaily") : t("hostPowerSchedOnce") }) : t("hostPowerSchedTitle"))}" aria-label="${escapeHtml(t("hostPowerSchedTitle"))}">⏰︎</button>`;
     const verChip = verLabel
-      ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${upstreamArrow}${verOutdated ? " ⬆" : ""}</span>${refreshBtn}${updateBtn}${staleBadge}${rebootBtn}${powerSchedBtn}${powerOffBtn}`
-      : `${refreshBtn}${rebootBtn}${powerSchedBtn}${powerOffBtn}`;
+      ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${upstreamArrow}${verOutdated ? " ⬆" : ""}</span>${refreshBtn}${updateBtn}${staleBadge}<span class="node-power-ctl">${rebootBtn}${powerSchedBtn}${powerOffBtn}</span>`
+      : `${refreshBtn}<span class="node-power-ctl">${rebootBtn}${powerSchedBtn}${powerOffBtn}</span>`;
     const servers = (n.servers || []);
     const collapsed = _collapsedNodes.has(n.id);
     const nextCellPort = nextTopologyCellPort();
