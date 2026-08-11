@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "தினமும் மீண்டும் செய்",
   hostPowerSchedDaily: "தினமும்",
   hostPowerSchedOnce: "ஒருமுறை",
+  hostPowerSchedNextToday: "அடுத்த பவர்-ஆஃப்: இன்று {at} மணிக்கு",
+  hostPowerSchedNextTomorrow: "அடுத்த பவர்-ஆஃப்: நாளை {at} மணிக்கு",
   hostPowerSchedSaved: "{host} {at} மணிக்கு அணைக்கப்படும் ({when})",
   hostPowerSchedCleared: "{host} க்கான பவர்-ஆஃப் திட்டம் அழிக்கப்பட்டது",
   hostPowerOffConfirmClient: "{host} ஐ பவர் ஆஃப் செய்யவா? உறுதிப்படுத்த அதன் பெயரைத் தட்டச்சு செய்யவும்.",

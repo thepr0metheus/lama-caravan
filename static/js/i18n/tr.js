@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "Her gün tekrarla",
   hostPowerSchedDaily: "her gün",
   hostPowerSchedOnce: "bir kez",
+  hostPowerSchedNextToday: "Sonraki kapanma: bugün saat {at}",
+  hostPowerSchedNextTomorrow: "Sonraki kapanma: yarın saat {at}",
   hostPowerSchedSaved: "{host} {at} ({when}) kapanacak",
   hostPowerSchedCleared: "{host} için kapatma zamanlaması temizlendi",
   hostPowerOffConfirmClient: "{host} kapatılsın mı? Onaylamak için adını yazın.",

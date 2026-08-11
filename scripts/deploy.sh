@@ -63,10 +63,17 @@ fi
 # Ask the deployed service what it is, and compare. This is the check the whole
 # version-passing exists for, made locally and immediately: a deploy that
 # reports success while the previous process keeps serving has no other symptom.
-sleep 3
-LIVE=$(ssh "$HOST" "curl -s --max-time 5 localhost:7990/health") || LIVE=""
-LIVE_V=$(printf '%s' "$LIVE" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("version",""))' 2>/dev/null || echo "")
-LIVE_C=$(printf '%s' "$LIVE" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("commit",""))' 2>/dev/null || echo "")
+# Poll, don't peek once: a restart takes a second or three to bind the port, and
+# a single early check reports the old version (or none) and cries MISMATCH on a
+# deploy that is merely mid-restart. Six tries over ~15s covers the startup.
+LIVE_V=""; LIVE_C=""
+for _try in 1 2 3 4 5 6; do
+  sleep 3
+  LIVE=$(ssh "$HOST" "curl -s --max-time 5 localhost:7990/health") || LIVE=""
+  LIVE_V=$(printf '%s' "$LIVE" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("version",""))' 2>/dev/null || echo "")
+  LIVE_C=$(printf '%s' "$LIVE" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("commit",""))' 2>/dev/null || echo "")
+  [ "$LIVE_V" = "$VERSION" ] && [ "$LIVE_C" = "$COMMIT" ] && break
+done
 
 if [ "$LIVE_V" != "$VERSION" ] || [ "$LIVE_C" != "$COMMIT" ]; then
   echo "deploy: MISMATCH — shipped $VERSION ($COMMIT), serving ${LIVE_V:-?} (${LIVE_C:-?})" >&2

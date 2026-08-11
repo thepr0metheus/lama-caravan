@@ -322,6 +322,8 @@ export default {
   hostPowerSchedDailyLabel: "Повторять ежедневно",
   hostPowerSchedDaily: "ежедневно",
   hostPowerSchedOnce: "однократно",
+  hostPowerSchedNextToday: "Следующее выключение: сегодня в {at}",
+  hostPowerSchedNextTomorrow: "Следующее выключение: завтра в {at}",
   hostPowerSchedSaved: "{host} выключится в {at} ({when})",
   hostPowerSchedCleared: "Плановое выключение отменено для {host}",
   hostPowerOffConfirmClient: "Выключить {host}? Введите имя хоста для подтверждения.",

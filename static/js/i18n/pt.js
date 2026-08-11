@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "Repetir diariamente",
   hostPowerSchedDaily: "diariamente",
   hostPowerSchedOnce: "uma vez",
+  hostPowerSchedNextToday: "Próximo desligamento: hoje às {at}",
+  hostPowerSchedNextTomorrow: "Próximo desligamento: amanhã às {at}",
   hostPowerSchedSaved: "{host} será desligada às {at} ({when})",
   hostPowerSchedCleared: "Agendamento de desligamento removido para {host}",
   hostPowerOffConfirmClient: "Desligar {host}? Digite o nome dele para confirmar.",

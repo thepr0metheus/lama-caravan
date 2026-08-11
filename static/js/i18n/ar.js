@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "التكرار يوميًا",
   hostPowerSchedDaily: "يوميًا",
   hostPowerSchedOnce: "مرة واحدة",
+  hostPowerSchedNextToday: "الإيقاف التالي: اليوم في {at}",
+  hostPowerSchedNextTomorrow: "الإيقاف التالي: غدًا في {at}",
   hostPowerSchedSaved: "سيتوقف تشغيل {host} في {at} ({when})",
   hostPowerSchedCleared: "تم مسح جدول إيقاف التشغيل لـ {host}",
   hostPowerOffConfirmClient: "إيقاف تشغيل {host}؟ اكتب اسمه للتأكيد.",

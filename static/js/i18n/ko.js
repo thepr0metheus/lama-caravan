@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "매일 반복",
   hostPowerSchedDaily: "매일",
   hostPowerSchedOnce: "한 번",
+  hostPowerSchedNextToday: "다음 전원 종료: 오늘 {at}",
+  hostPowerSchedNextTomorrow: "다음 전원 종료: 내일 {at}",
   hostPowerSchedSaved: "{host}이(가) {at}에 꺼집니다 ({when})",
   hostPowerSchedCleared: "{host}의 전원 끄기 예약이 해제되었습니다",
   hostPowerOffConfirmClient: "{host} 전원을 끕니다. 계속하려면 호스트 이름을 입력하세요.",

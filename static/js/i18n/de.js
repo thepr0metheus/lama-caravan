@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "Täglich wiederholen",
   hostPowerSchedDaily: "täglich",
   hostPowerSchedOnce: "einmalig",
+  hostPowerSchedNextToday: "Nächste Abschaltung: heute um {at}",
+  hostPowerSchedNextTomorrow: "Nächste Abschaltung: morgen um {at}",
   hostPowerSchedSaved: "{host} wird um {at} ausgeschaltet ({when})",
   hostPowerSchedCleared: "Abschaltplan für {host} gelöscht",
   hostPowerOffConfirmClient: "{host} herunterfahren? Zur Bestätigung den Namen eingeben.",

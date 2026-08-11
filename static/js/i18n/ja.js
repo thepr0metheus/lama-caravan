@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "毎日繰り返す",
   hostPowerSchedDaily: "毎日",
   hostPowerSchedOnce: "1回",
+  hostPowerSchedNextToday: "次の電源オフ: 今日 {at}",
+  hostPowerSchedNextTomorrow: "次の電源オフ: 明日 {at}",
   hostPowerSchedSaved: "{host} は {at} に電源オフします（{when}）",
   hostPowerSchedCleared: "{host} の電源オフスケジュールを解除しました",
   hostPowerOffConfirmClient: "{host} の電源を切りますか？ 確認のためホスト名を入力してください。",

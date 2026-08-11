@@ -886,6 +886,7 @@ export function openHostPowerScheduleModal(hostId, sched) {
       <div class="hps-row"><label for="hpsAt">${escapeHtml(t("hostPowerSchedAt"))}</label>
         <input type="time" id="hpsAt" data-t="host-power-schedule-at" value="${escapeHtml(s.at || "03:00")}"></div>
       <label class="hps-row"><input type="checkbox" id="hpsDaily" data-t="host-power-schedule-daily"${s.daily === false ? "" : " checked"}> <span>${escapeHtml(t("hostPowerSchedDailyLabel"))}</span></label>
+      <p class="hps-next" id="hpsNext" data-t="host-power-schedule-next"></p>
       <div class="hps-actions">
         <button type="button" class="mini-link" id="hpsCancel" data-t="host-power-schedule-cancel">${escapeHtml(t("cancel"))}</button>
         <button type="button" class="primary" id="hpsSave" data-t="host-power-schedule-save">${escapeHtml(t("save"))}</button>
@@ -915,6 +916,20 @@ export function openHostPowerScheduleModal(hostId, sched) {
       refreshTopology();
     } catch (err) { toast(err.message); }
   });
+  const nextLine = () => {
+    const el = overlay.querySelector("#hpsNext");
+    if (!overlay.querySelector("#hpsEnabled").checked) { el.textContent = ""; return; }
+    const at = overlay.querySelector("#hpsAt").value || "03:00";
+    const [ah, am] = at.split(":").map(Number);
+    const now = new Date();
+    // A time still ahead today fires today; a time already past waits for the
+    // next day — the very rule the operator could not see before.
+    const past = ah * 60 + am <= now.getHours() * 60 + now.getMinutes();
+    el.textContent = t(past ? "hostPowerSchedNextTomorrow" : "hostPowerSchedNextToday", { at });
+  };
+  overlay.querySelector("#hpsEnabled").addEventListener("change", nextLine);
+  overlay.querySelector("#hpsAt").addEventListener("input", nextLine);
+  nextLine();
   document.body.appendChild(overlay);
   overlay.querySelector("#hpsAt").focus();
 }

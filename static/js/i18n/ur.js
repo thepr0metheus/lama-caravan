@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "روزانہ دہرائیں",
   hostPowerSchedDaily: "روزانہ",
   hostPowerSchedOnce: "ایک بار",
+  hostPowerSchedNextToday: "اگلی بار بند ہونا: آج {at} بجے",
+  hostPowerSchedNextTomorrow: "اگلی بار بند ہونا: کل {at} بجے",
   hostPowerSchedSaved: "{host} {at} ({when}) پر بند ہو جائے گا",
   hostPowerSchedCleared: "{host} کے لیے پاور آف شیڈول صاف کر دیا گیا",
   hostPowerOffConfirmClient: "{host} کو بند کریں؟ تصدیق کے لیے اس کا نام ٹائپ کریں۔",

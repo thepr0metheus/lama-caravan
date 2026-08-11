@@ -67,10 +67,15 @@ def set_host_power_schedule(body):
     sched = normalize_power_schedule(body.get("schedule") or {})
     store = topology_store()
     schedules = _store_schedules(store)
-    # A fresh enable must not fire retroactively for a time already past today:
-    # stamp lastFired with today so the trigger waits for the NEXT occurrence.
+    # A fresh enable must not fire retroactively for a time ALREADY PAST today
+    # — stamp lastFired so the trigger waits for tomorrow. But a time still
+    # AHEAD today must fire today: enabling 22:56 at 22:52 should power off in
+    # four minutes, not tomorrow. So stamp only when the target already passed.
     if sched["enabled"]:
-        sched["lastFired"] = time.strftime("%Y-%m-%d", time.localtime())
+        now = time.localtime()
+        at_h, at_m = sched["at"].split(":")
+        if int(at_h) * 60 + int(at_m) <= now.tm_hour * 60 + now.tm_min:
+            sched["lastFired"] = time.strftime("%Y-%m-%d", now)
     schedules[host_id] = sched
     save_admin_state()
     return {"ok": True, "hostId": host_id, "schedule": sched}

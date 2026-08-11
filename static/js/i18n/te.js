@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "ప్రతిరోజూ పునరావృతం చేయి",
   hostPowerSchedDaily: "ప్రతిరోజూ",
   hostPowerSchedOnce: "ఒకసారి",
+  hostPowerSchedNextToday: "తదుపరి పవర్-ఆఫ్: ఈరోజు {at}కి",
+  hostPowerSchedNextTomorrow: "తదుపరి పవర్-ఆఫ్: రేపు {at}కి",
   hostPowerSchedSaved: "{host} {at}కి ఆఫ్ అవుతుంది ({when})",
   hostPowerSchedCleared: "{host} కోసం పవర్-ఆఫ్ షెడ్యూల్ తొలగించబడింది",
   hostPowerOffConfirmClient: "{host} ను పవర్ ఆఫ్ చేయాలా? నిర్ధారించడానికి దాని పేరు టైప్ చేయండి.",

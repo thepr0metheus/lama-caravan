@@ -321,6 +321,8 @@ export default {
   hostPowerSchedDailyLabel: "Repeat daily",
   hostPowerSchedDaily: "daily",
   hostPowerSchedOnce: "once",
+  hostPowerSchedNextToday: "Next power-off: today at {at}",
+  hostPowerSchedNextTomorrow: "Next power-off: tomorrow at {at}",
   hostPowerSchedSaved: "{host} will power off at {at} ({when})",
   hostPowerSchedCleared: "Power-off schedule cleared for {host}",
   hostPowerOffConfirmClient: "Power off {host}? Type its name to confirm.",

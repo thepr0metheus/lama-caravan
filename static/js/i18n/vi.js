@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "Lặp lại hằng ngày",
   hostPowerSchedDaily: "hằng ngày",
   hostPowerSchedOnce: "một lần",
+  hostPowerSchedNextToday: "Lần tắt nguồn tiếp theo: hôm nay lúc {at}",
+  hostPowerSchedNextTomorrow: "Lần tắt nguồn tiếp theo: ngày mai lúc {at}",
   hostPowerSchedSaved: "{host} sẽ tắt nguồn lúc {at} ({when})",
   hostPowerSchedCleared: "Đã xóa lịch tắt nguồn cho {host}",
   hostPowerOffConfirmClient: "Tắt nguồn {host}? Nhập tên của nó để xác nhận.",

@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "Répéter chaque jour",
   hostPowerSchedDaily: "chaque jour",
   hostPowerSchedOnce: "une fois",
+  hostPowerSchedNextToday: "Prochaine extinction : aujourd'hui à {at}",
+  hostPowerSchedNextTomorrow: "Prochaine extinction : demain à {at}",
   hostPowerSchedSaved: "{host} s'éteindra à {at} ({when})",
   hostPowerSchedCleared: "Extinction programmée supprimée pour {host}",
   hostPowerOffConfirmClient: "Éteindre {host} ? Saisissez son nom pour confirmer.",

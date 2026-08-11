@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "每天重复",
   hostPowerSchedDaily: "每天",
   hostPowerSchedOnce: "一次",
+  hostPowerSchedNextToday: "下次关机：今天 {at}",
+  hostPowerSchedNextTomorrow: "下次关机：明天 {at}",
   hostPowerSchedSaved: "{host} 将在 {at} 关机（{when}）",
   hostPowerSchedCleared: "已清除 {host} 的关机计划",
   hostPowerOffConfirmClient: "关闭 {host} 的电源？请输入它的名称以确认。",

@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "Ulangi setiap hari",
   hostPowerSchedDaily: "harian",
   hostPowerSchedOnce: "sekali",
+  hostPowerSchedNextToday: "Pemadaman berikutnya: hari ini pukul {at}",
+  hostPowerSchedNextTomorrow: "Pemadaman berikutnya: besok pukul {at}",
   hostPowerSchedSaved: "{host} akan dimatikan pada {at} ({when})",
   hostPowerSchedCleared: "Jadwal matikan daya dihapus untuk {host}",
   hostPowerOffConfirmClient: "Matikan {host}? Ketik namanya untuk konfirmasi.",

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- A scheduled poweroff for a time still ahead today now fires today, not
+  tomorrow. Enabling a schedule stamped `lastFired = today` unconditionally to
+  stop a time ALREADY past from firing retroactively at the moment of enabling
+  — but it also blocked a time still to come: arm 22:56 at 22:52 and nothing
+  happened until the next day. The stamp is now applied only when the target
+  has already passed; a future time today is left to fire.
+
+  And the dialog says when the next poweroff will actually be — "Next
+  power-off: today at 22:56" or "…tomorrow at 22:50", live as you type — so a
+  time already gone reads as tomorrow's instead of looking like a schedule
+  that silently does nothing. That confusion was the whole report: 22:50 set
+  at 22:52 was correctly waiting for tomorrow, with no way to see it.
+
 - A host can be scheduled to power off, not only powered off by hand. Each
   machine card gains a ⏰ next to its reboot/poweroff buttons; it opens a small
   editor with a time, an "enable" checkbox (off by default) and "repeat daily"

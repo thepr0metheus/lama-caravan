@@ -724,6 +724,8 @@ export default {
   hostPowerSchedDailyLabel: "दररोज पुनरावृत्ती करा",
   hostPowerSchedDaily: "दररोज",
   hostPowerSchedOnce: "एकदा",
+  hostPowerSchedNextToday: "पुढील पॉवर-ऑफ: आज {at} वाजता",
+  hostPowerSchedNextTomorrow: "पुढील पॉवर-ऑफ: उद्या {at} वाजता",
   hostPowerSchedSaved: "{host} {at} वाजता बंद होईल ({when})",
   hostPowerSchedCleared: "{host} साठी पॉवर-ऑफ शेड्यूल साफ केले",
   hostPowerOffConfirmClient: "{host} पॉवर ऑफ करायचा? खात्रीसाठी त्याचे नाव टाइप करा.",
