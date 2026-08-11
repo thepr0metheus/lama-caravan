@@ -204,6 +204,15 @@ fi
 
 # ── clone / update ────────────────────────────────────────────────────────────
 if [[ -d "${LLAMA_DIR}/.git" ]]; then
+  # A stale index.lock blocks every git command in this clone — and since the
+  # clone is a build artifact nobody hand-edits, a lock with NO live git
+  # process behind it can only be the corpse of a crashed/killed run (one from
+  # July sat here for 17 days failing every GUI update at "fetching"). Remove
+  # it only under that exact condition; with a live git process we still stop.
+  if [[ -f "${LLAMA_DIR}/.git/index.lock" ]] && ! pgrep -f "git.*$(basename "$LLAMA_DIR")" >/dev/null 2>&1; then
+    warn "removing stale ${LLAMA_DIR}/.git/index.lock (no live git process owns it)"
+    rm -f "${LLAMA_DIR}/.git/index.lock"
+  fi
   info "llama.cpp exists at ${LLAMA_DIR} — fetching ..."
   git -C "$LLAMA_DIR" fetch --tags -q
   # -f: the clone is a build artifact, not a workspace — discard local edits

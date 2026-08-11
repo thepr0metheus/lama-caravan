@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The GUI Update-build button heals a stale git `index.lock` instead of dying
+  on it. A crashed git run from July left the lock behind, and every update
+  click since failed at "fetching" with git's remove-it-manually advice —
+  which a GUI user has no way to follow. The clone is a build artifact nobody
+  hand-edits, so a lock with no live git process behind it can only be a
+  corpse; the installer now removes exactly that case and still stops when a
+  real git process owns the repo. Found by pressing the button as the
+  operator; after the fix the same button carried a full update to release
+  `b10357` and the new build served Muse Glimmer 30B on the first try.
+
 - The README catches up with the application — audited against the code, not
   refreshed from memory (35 confirmed gaps; 4 claimed ones did not survive
   verification and were dropped). The headline: **all four speech runners were

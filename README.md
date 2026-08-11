@@ -191,11 +191,11 @@ The built-in HuggingFace GGUF browser:
 ## Tested versions
 
 The exact versions the development fleet runs — re-verified and updated here
-whenever a component is upgraded (last verified: **2026-08-01**):
+whenever a component is upgraded (last verified: **2026-08-11**):
 
 | Component | Verified version |
 |---|---|
-| llama.cpp | release `b9947` (commit `3de7dd4c8`, built 2026-07-10), CUDA build — controller cells verified live; the Linux client converged onto the same commit via the fleet update button |
+| llama.cpp | release `b10357` (commit `689e227db`, built 2026-08-11), CUDA build — updated through the GUI Update-build button; verified live with Muse Glimmer 30B (vision+video modalities detected, ~70 t/s decode on the RTX 5090). The Linux client still runs `b9947` until its own ⇪ chip is pressed |
 | CUDA toolkit | 12.6 |
 | NVIDIA driver | 595.71 (controller), 580.159 (client) |
 | GPUs | RTX 5090 (Blackwell `sm_120`), RTX 3090 (`sm_86`) |
