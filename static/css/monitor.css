@@ -1369,3 +1369,22 @@
 .node-poweroff:hover { opacity: 1; color: var(--danger, #e05555);
   background: color-mix(in srgb, var(--danger, #e05555) 16%, transparent);
   border-color: var(--danger, #e05555); }
+
+/* Scheduled-poweroff clock. Dim like its siblings when idle; when a schedule
+   is ARMED it stays lit (accent, not danger — a plan is not the act) so an
+   armed daily shutdown is legible on the board at rest. */
+.node-power-sched { opacity: .38; }
+.node-power-sched:hover { opacity: 1; }
+.node-power-sched.armed { opacity: 1; color: var(--accent, #4a7dbd);
+  border-color: color-mix(in srgb, var(--accent, #4a7dbd) 55%, transparent); }
+
+/* The little schedule editor (built in remote-cells.js). Reuses .modal-overlay
+   / .modal; these are only its own rows. */
+.hps-overlay .modal { max-width: 340px; }
+.hps-warn { color: var(--muted); font-size: 12px; margin: 2px 0 12px; }
+.hps-row { display: flex; align-items: center; gap: 8px; margin: 9px 0; }
+.hps-row label:first-child { min-width: 96px; }
+.hps-row input[type=time] { background: var(--field); color: var(--text);
+  border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; font-size: 13px; }
+.hps-row input[type=checkbox] { accent-color: var(--accent); }
+.hps-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }

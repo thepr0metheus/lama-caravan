@@ -34,6 +34,7 @@ import {
   deleteTopologyClient,
   deleteTopologyClientAgent,
   discoveryAddCandidate,
+  openHostPowerScheduleModal,
   remoteStartupInFlight,
   renderNvidiaSmiSourceButtons,
   startRemoteStartWatch,
@@ -429,6 +430,16 @@ export function renderTopology() {
     });
   });
 
+  // ⏰ Scheduled poweroff editor.
+  $("topologyLlamaServers")?.querySelectorAll("[data-power-schedule-host]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const hostId = btn.getAttribute("data-power-schedule-host") || "";
+      const node = (topology?.nodes || []).find((n) => String(n.id) === hostId);
+      openHostPowerScheduleModal(hostId, node?.powerSchedule || {});
+    });
+  });
+
   // Stopped-slot Start / remove controls (both classic + node lane)
   bindServerSlotControls($("topologyLlamaServers"));
 
@@ -520,7 +531,7 @@ export function topologyStructureFingerprint() {
   // on/off and a finished build changing the binary version/mtime must
   // re-render the version chip (building indicator, stale badge, ⇪ button).
   const llamaVer = (topology.nodes || [])
-    .map((n) => `${n.id}:${(n.llamaBinaryVersion || "").slice(0, 40)}:${(n.llamaBinaryMtime || "").slice(0, 19)}:${n.llamaUpdate?.running ? 1 : 0}`)
+    .map((n) => `${n.id}:${(n.llamaBinaryVersion || "").slice(0, 40)}:${(n.llamaBinaryMtime || "").slice(0, 19)}:${n.llamaUpdate?.running ? 1 : 0}:${(n.powerSchedule || {}).enabled ? (n.powerSchedule.at || "") : ""}`)
     .sort().join(",");
   const view = `${topologyNodesViewOn ? 1 : 0}:${[..._collapsedNodes].sort().join("+")}`;
   // In-flight cell actions are structural: adding/clearing one must re-render

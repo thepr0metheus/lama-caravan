@@ -576,6 +576,9 @@ def topology_nodes(config, server_obj, clients):
     llama-servers running/declared on it + CPU/RAM. Server↔GPU is bound via
     per-process GPU memory (compute-apps)."""
     nodes = []
+    # Poweroff schedules, keyed by hostId — attached to each node so the board
+    # can show and edit the machine's shutdown time next to its power button.
+    _power_scheds = topology_store().get("hostPowerSchedules") or {}
 
     # ── controller node ─────────────────────────────────────────────
     ctrl_gpus = [dict(g) for g in (server_obj.get("gpus") or [])]
@@ -648,6 +651,7 @@ def topology_nodes(config, server_obj, clients):
         "gpus": ctrl_gpus,
         "servers": ctrl_servers,
         "orphanCells": orphan_cells,
+        "powerSchedule": _power_scheds.get(server_obj.get("id") or CONTROLLER_HOST_ID) or {},
     })
 
     # ── client nodes ─────────────────────────────────────────────────────────
@@ -688,6 +692,7 @@ def topology_nodes(config, server_obj, clients):
             "llamaBinaryVersion": client.get("llamaBinaryVersion") or "",
             "llamaBinaryMtime": client.get("llamaBinaryMtime") or "",
             "llamaUpdate": client.get("llamaUpdate") or {},
+            "powerSchedule": _power_scheds.get(cid) or {},
         })
 
     return nodes

@@ -1036,9 +1036,15 @@ export function nodesLaneHtml() {
     // not be the one under the thumb. Its confirmation asks for the host's name
     // to be typed — see topology-render.js.
     const powerOffBtn = `<button class="llama-ver-refresh node-poweroff" type="button" data-t="node-poweroff" data-t-id="${escapeHtml(String(n.id))}" data-poweroff-host="${escapeHtml(String(n.id))}" title="${escapeHtml(t("hostPowerOffTitle"))}" aria-label="${escapeHtml(t("hostPowerOffTitle"))}">⏼</button>`;
+    // A schedule for that poweroff. The ⏰ lights up when one is armed and its
+    // title shows the time, so an armed daily shutdown is visible at rest —
+    // never a surprise. Opens the little editor in topology-render.js.
+    const ps = n.powerSchedule || {};
+    const psArmed = !!ps.enabled;
+    const powerSchedBtn = `<button class="llama-ver-refresh node-power-sched${psArmed ? " armed" : ""}" type="button" data-t="node-power-schedule" data-t-id="${escapeHtml(String(n.id))}" data-power-schedule-host="${escapeHtml(String(n.id))}" title="${escapeHtml(psArmed ? t("hostPowerSchedArmedTitle", { at: ps.at || "", daily: ps.daily ? t("hostPowerSchedDaily") : t("hostPowerSchedOnce") }) : t("hostPowerSchedTitle"))}" aria-label="${escapeHtml(t("hostPowerSchedTitle"))}">⏰</button>`;
     const verChip = verLabel
-      ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${upstreamArrow}${verOutdated ? " ⬆" : ""}</span>${refreshBtn}${updateBtn}${staleBadge}${rebootBtn}${powerOffBtn}`
-      : `${refreshBtn}${rebootBtn}${powerOffBtn}`;
+      ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${upstreamArrow}${verOutdated ? " ⬆" : ""}</span>${refreshBtn}${updateBtn}${staleBadge}${rebootBtn}${powerSchedBtn}${powerOffBtn}`
+      : `${refreshBtn}${rebootBtn}${powerSchedBtn}${powerOffBtn}`;
     const servers = (n.servers || []);
     const collapsed = _collapsedNodes.has(n.id);
     const nextCellPort = nextTopologyCellPort();

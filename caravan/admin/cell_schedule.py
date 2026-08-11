@@ -128,6 +128,12 @@ def scheduler_tick(now=None):
 
 
 def start_scheduler_thread():
+    # Host poweroff schedules ride the SAME once-a-minute tick — one timer, two
+    # kinds of schedule. Imported here (not at module top) so cell_schedule
+    # stays free of the host-power layer above it; a failure in one never stops
+    # the other.
+    from caravan.admin.host_power_schedule import power_schedule_tick
+
     def loop():
         time.sleep(20)  # let the board settle after a deploy
         while True:
@@ -135,6 +141,10 @@ def start_scheduler_thread():
                 scheduler_tick()
             except Exception as exc:
                 print(f"[cell-schedule] tick error: {exc}")
+            try:
+                power_schedule_tick()
+            except Exception as exc:
+                print(f"[host-power-schedule] tick error: {exc}")
             time.sleep(60)
     thread = threading.Thread(target=loop, daemon=True)
     thread.start()

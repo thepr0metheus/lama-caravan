@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- A host can be scheduled to power off, not only powered off by hand. Each
+  machine card gains a ⏰ next to its reboot/poweroff buttons; it opens a small
+  editor with a time, an "enable" checkbox (off by default) and "repeat daily"
+  (on by default, the requested default). The same once-a-minute thread that
+  runs cell schedules fires the shutdown when the clock reaches the set time.
+
+  Poweroff is a one-way door — nothing on the board turns a machine back on —
+  so the schedule is a fire-once-per-day trigger, not an on/off window: deduped
+  by date, a three-minute catch window to survive the tick's drift (a
+  one-minute window would occasionally skip the minute and silently postpone a
+  day), never wrapping midnight, and a one-shot (daily off) disarms itself
+  after firing. Enabling stamps today so a time already past cannot fire
+  retroactively. The ⏰ stays lit with the time in its tooltip while armed, so a
+  daily shutdown is visible at rest rather than a surprise. This can schedule
+  the controller's own poweroff — intentional; it takes the board down with it,
+  exactly as the manual button does. Setting a schedule needs no typed-name
+  gate (storing it is not destructive); the editor warns plainly and defaults
+  to disabled.
+
 - The GUI Update-build button heals a stale git `index.lock` instead of dying
   on it. A crashed git run from July left the lock behind, and every update
   click since failed at "fetching" with git's remove-it-manually advice —

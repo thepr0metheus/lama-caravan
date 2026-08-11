@@ -83,6 +83,7 @@ from caravan.admin import auth as auth_mod
 from caravan.admin.status import controller_info, do_action, project_git_info, llama_builds_list, llama_cpp_info, llama_suspect_dismiss, llama_update_status, models_disk, start_llama_restore, start_llama_update, start_vllm_update, state, vllm_info
 from caravan.admin.cell_assets import cell_asset_bytes, cell_assets_manifest
 from caravan.admin.host_power import host_power
+from caravan.admin.host_power_schedule import set_host_power_schedule
 from caravan.admin.cell_ops import (
     client_server_slot_add,
     client_server_slot_delete,
@@ -1320,6 +1321,18 @@ def _post_api_host_poweroff(h, parsed, body):
         _hid = str((body or {}).get("hostId") or "")
         print(f"[host] POWEROFF requested for {_hid or '?'} — not reversible from here")
         h.send_json(host_power(body or {}, "poweroff"))
+        return
+
+@_route(POST_ROUTES, '/api/host/power-schedule')
+def _post_api_host_power_schedule(h, parsed, body):
+        # Stores WHEN to power a host off; the once-a-minute scheduler thread
+        # fires it. Storing a schedule is not itself destructive, so unlike the
+        # manual button it needs no typed-name gate — the UI gates ENABLING with
+        # a plain warning and an off-by-default checkbox.
+        _hid = str((body or {}).get("hostId") or "")
+        _en = bool(((body or {}).get("schedule") or {}).get("enabled"))
+        print(f"[host] power-schedule {'ENABLED' if _en else 'set'} for {_hid or '?'}")
+        h.send_json(set_host_power_schedule(body or {}))
         return
 
 @_route(POST_ROUTES, '/api/topology/client-llama/stop')

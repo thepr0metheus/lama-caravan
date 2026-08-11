@@ -869,6 +869,56 @@ export function renderSchedulePanel(pfx, hostId, cellPort, schedule) {
   }
 }
 
+// Scheduled poweroff editor for a host. Built from JS as a one-off overlay
+// rather than markup, because it lives only on the board and only opens on a
+// deliberate ⏰ click — no reason to carry it in every page's HTML. Reuses the
+// shared modal look; resolves when the operator saves or dismisses.
+export function openHostPowerScheduleModal(hostId, sched) {
+  const isCtrl = hostId === CONTROLLER_HOST_ID;
+  const s = sched || {};
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay hps-overlay";
+  overlay.innerHTML = `
+    <div class="modal" data-tone="ask" role="dialog" aria-modal="true" aria-labelledby="hpsTitle" data-t="host-power-schedule-modal">
+      <h2 id="hpsTitle">${escapeHtml(t("hostPowerSchedModalTitle", { host: hostId }))}</h2>
+      <p class="hps-warn">${escapeHtml(isCtrl ? t("hostPowerSchedWarnController") : t("hostPowerSchedWarnClient"))}</p>
+      <label class="hps-row"><input type="checkbox" id="hpsEnabled" data-t="host-power-schedule-enabled"${s.enabled ? " checked" : ""}> <span>${escapeHtml(t("hostPowerSchedEnable"))}</span></label>
+      <div class="hps-row"><label for="hpsAt">${escapeHtml(t("hostPowerSchedAt"))}</label>
+        <input type="time" id="hpsAt" data-t="host-power-schedule-at" value="${escapeHtml(s.at || "03:00")}"></div>
+      <label class="hps-row"><input type="checkbox" id="hpsDaily" data-t="host-power-schedule-daily"${s.daily === false ? "" : " checked"}> <span>${escapeHtml(t("hostPowerSchedDailyLabel"))}</span></label>
+      <div class="hps-actions">
+        <button type="button" class="mini-link" id="hpsCancel" data-t="host-power-schedule-cancel">${escapeHtml(t("cancel"))}</button>
+        <button type="button" class="primary" id="hpsSave" data-t="host-power-schedule-save">${escapeHtml(t("save"))}</button>
+      </div>
+    </div>`;
+  const close = () => overlay.remove();
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) close(); });
+  document.addEventListener("keydown", function esc(e) {
+    if (e.key === "Escape" && document.body.contains(overlay)) { close(); document.removeEventListener("keydown", esc); }
+  });
+  overlay.querySelector("#hpsCancel").addEventListener("click", close);
+  overlay.querySelector("#hpsSave").addEventListener("click", async () => {
+    const schedule = {
+      enabled: overlay.querySelector("#hpsEnabled").checked,
+      at: overlay.querySelector("#hpsAt").value || "03:00",
+      daily: overlay.querySelector("#hpsDaily").checked,
+    };
+    try {
+      const res = await api("/api/host/power-schedule", {
+        method: "POST", body: JSON.stringify({ hostId, schedule }),
+      });
+      const sc = res?.schedule || schedule;
+      toast(sc.enabled
+        ? t("hostPowerSchedSaved", { host: hostId, at: sc.at, when: sc.daily ? t("hostPowerSchedDaily") : t("hostPowerSchedOnce") })
+        : t("hostPowerSchedCleared", { host: hostId }));
+      close();
+      refreshTopology();
+    } catch (err) { toast(err.message); }
+  });
+  document.body.appendChild(overlay);
+  overlay.querySelector("#hpsAt").focus();
+}
+
 // Слот из текущей топологии для (hostId, port) — источник schedule.
 export function findSlotEntry(hostId, port) {
   return ((topology?.server || {}).llamaServers || [])
