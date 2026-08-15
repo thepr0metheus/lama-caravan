@@ -465,4 +465,11 @@ def normalize_agent_proxy_policy(policy):
         "preemptGraceSec": int_value("preemptGraceSec", 20, 1, 300),
         "preemptEnabled": bool(policy.get("preemptEnabled", True)),
         "stickySlotSec": int_value("stickySlotSec", 0, 0, 120),
+        # Absent from this dict, so every save dropped it and the proxy read its
+        # own hardcoded 60 no matter what the file said. A knob that silently
+        # does nothing is worse than no knob: the operator changes it, sees the
+        # value persist in the form, and concludes the behaviour is something
+        # else. The normaliser rebuilds the policy from scratch — being listed
+        # here is the whole of what it means for a setting to exist.
+        "loadingModelWaitSec": int_value("loadingModelWaitSec", 60, 0, 900),
     }

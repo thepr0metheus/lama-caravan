@@ -489,28 +489,55 @@ def save_agent_proxy_config(routes, routers=None):
 # so it feeds no router and never shows up in the kanban graph; the agent
 # machinery (OpenClaw sync, ↑☁ eligibility, assignments) skips kind="service".
 
+def _all_taken_ports(routes=None):
+    """Every number the fleet must not hand out, from ALL of its own registers.
+
+    There were two allocators with two different ideas of "taken": the bridge
+    one asked used_server_cell_ports() (cells, exclusions, the controller's own
+    web port, existing routes), while the agent one looked only at
+    agent-proxies.json. So an agent port could be minted onto a number a cell
+    already held or an operator had excluded, and the collision surfaced later
+    as a bind failure in a log nobody was reading. One register, both callers.
+    """
+    used = set()
+    try:
+        from caravan.admin.server_cells import used_server_cell_ports
+        used |= used_server_cell_ports()
+    except Exception:
+        pass
+    for r in (routes or []):
+        if isinstance(r, dict):
+            try:
+                used.add(int(r.get("port") or 0))
+            except (TypeError, ValueError):
+                continue
+    used.discard(0)
+    return used
+
+
+def port_is_listening(port):
+    """Something already bound locally? The registers describe what the caravan
+    INTENDS; this asks the kernel what is actually true. A number that is free
+    on paper and bound in fact fails at start-up, three steps after the choice."""
+    try:
+        from caravan.admin.systemd_ctl import listening_pid
+        pid, comm = listening_pid(int(port))
+        return bool(pid or comm)
+    except Exception:
+        return False
+
+
 def _next_free_proxy_port(routes):
     """Bridges share the fleet-wide cell numbering (8001, 8002, … — the same
     "next free port" a Reserve-cell would take): smallest port from that pool
     not held by a server slot on any host or by an existing proxy route."""
     from caravan.admin.paths import SERVER_CELL_BASE_PORT
-    from caravan.admin.server_cells import used_server_cell_ports
-    used = set()
-    try:
-        used |= used_server_cell_ports()
-    except Exception:
-        pass
-    for r in routes:
-        if isinstance(r, dict):
-            try:
-                used.add(int(r.get("port") or 0))
-            except (TypeError, ValueError):
-                pass
+    used = _all_taken_ports(routes)
     port = SERVER_CELL_BASE_PORT
-    while port in used:
+    while port in used or port_is_listening(port):
         port += 1
-    if port > 65535:
-        raise AppError("no free proxy port left", 500)
+        if port > 65535:
+            raise AppError("no free proxy port left", 500)
     return port
 
 def mint_bridge_port(block_id, label=""):
@@ -591,6 +618,74 @@ def mint_app_port(name):
     saved = save_agent_proxy_config(routes, payload.get("routers"))
     out = next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
     return {**out, "apiKey": api_key}
+
+def mint_agent_port(client_id, agent_id, label="", port=None):
+    """Create an AGENT entry port deliberately, with a name the operator chose.
+
+    Agent routes could only come into existence by being provisioned, which is
+    why every one of them is called "<Name> primary" and why the answer to
+    "who decided this?" was always "the provisioner". An operator who wants a
+    second port for an agent, or a port named after what it is for, had no way
+    to say so except by editing JSON on the controller.
+
+    Unlike a provisioned route this is born with an API key: a port that
+    listens on 0.0.0.0 with no credential is not a reasonable default for
+    something a person just created and will hand to an agent.
+    """
+    client_id = str(client_id or "").strip()
+    agent_id = str(agent_id or "").strip()
+    if not client_id or not agent_id:
+        raise AppError("clientId and agentId are required", 400)
+    payload = load_agent_proxy_config()
+    routes = payload.get("routes") or []
+    if port in (None, "", 0):
+        # From the AGENT base, not the cell base. _next_free_proxy_port() counts
+        # from SERVER_CELL_BASE_PORT because bridges deliberately share the cell
+        # numbering; an agent port does not, and handing one out at 22026 puts a
+        # proxy inside the range the cell picker draws from.
+        from caravan.admin.fleet_clients import _next_auto_proxy_primary_port
+        port = _next_auto_proxy_primary_port(
+            {int(r.get("port") or 0) for r in routes if isinstance(r, dict)})
+    else:
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            raise AppError("port must be a number", 400)
+        if port < 1024 or port > 65535:
+            raise AppError(f"port {port} is out of range", 400)
+        taken = _all_taken_ports(routes)
+        if port in taken:
+            raise AppError(f"port {port} is already taken — pick another", 409)
+    api_key = "lcv1_" + secrets.token_hex(16)
+    route = {
+        "label": (str(label or "").strip() or f"{agent_id} port")[:80],
+        "port": port,
+        # Legacy placeholder — the router graph owns the real upstream choice.
+        "upstreamHost": "127.0.0.1",
+        "upstreamPort": 8080,
+        "upstreamType": "llama",
+        "enabled": True,
+        "mode": "open",
+        "priority": 0,
+        "preemptible": True,
+        "clientTimeoutSeconds": 1800,
+        "routerId": DEFAULT_ROUTER_ID,
+        "clientId": client_id,
+        "role": "primary",
+        "apiKey": api_key,
+    }
+    routes.append(route)
+    from caravan.admin.paths import IS_CONTAINER
+    if not IS_CONTAINER:
+        try:
+            from caravan.common.procs import run
+            run(["sudo", "-n", "ufw", "allow", str(port)], timeout=5)
+        except Exception:
+            pass
+    saved = save_agent_proxy_config(routes, payload.get("routers"))
+    out = next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
+    return {**out, "apiKey": api_key}
+
 
 def delete_bridge_port(port):
     """Remove a bridge port. Refuses agent routes — those belong to the board."""

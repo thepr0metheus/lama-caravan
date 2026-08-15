@@ -1140,7 +1140,7 @@ def _post_api_agent_proxies_route_policy(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/agent-proxies/reconcile')
 def _post_api_agent_proxies_reconcile(h, parsed, body):
-        result = reconcile_agent_proxies()
+        result = reconcile_agent_proxies(dry_run=bool((body or {}).get("dryRun")))
         h.send_json({"ok": True, "result": result, "topology": topology_state(refresh_clients=False)})
         return
 
@@ -1313,6 +1313,21 @@ def _post_api_topology_client_heartbeat(h, parsed, body):
 def _post_api_topology_assignments(h, parsed, body):
         result = apply_topology_assignments(body)
         h.send_json({"ok": True, "result": result, "topology": topology_state()})
+        return
+
+@_route(POST_ROUTES, '/api/agent-port')
+def _post_api_agent_port(h, parsed, body):
+        from caravan.admin.proxies_config import mint_agent_port
+        route = mint_agent_port(body.get("clientId"), body.get("agentId"),
+                                body.get("label"), body.get("port"))
+        # Created FOR an agent, so bind it in the same breath — a new port the
+        # operator then has to attach by hand is two steps where they asked for
+        # one, and the gap between them is a port nobody uses.
+        bind = bind_agent_to_proxy({"hostId": body.get("clientId"),
+                                    "agentId": body.get("agentId"),
+                                    "port": route["port"]})
+        h.send_json({"ok": True, "route": route, "result": bind,
+                     "topology": topology_state()})
         return
 
 @_route(POST_ROUTES, '/api/topology/agent-proxy-bind')

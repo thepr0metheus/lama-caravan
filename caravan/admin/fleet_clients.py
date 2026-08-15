@@ -1,6 +1,7 @@
 """Client fleet management: heartbeats, remote llama-node lifecycle via the
 route-agent HTTP API, agent auto-provisioning and fleet-registry discovery."""
 import json
+import secrets
 import os
 import re
 import time
@@ -664,10 +665,27 @@ def update_topology_client(payload):
 def _next_auto_proxy_primary_port(used_ports):
     """Next port >= AGENT_PROXY_BASE_PORT where both port and port+1 are free
     (the +1 hole is the fossil of the retired fallback pair — kept so a
-    rollback to a pair-allocating build cannot collide)."""
+    rollback to a pair-allocating build cannot collide).
+
+    `used_ports` carries the routes; everything else the fleet has claimed comes
+    from the shared register. This allocator used to consult the routes file and
+    nothing else — not cells, not port exclusions, not the controller's own web
+    port, and not the kernel — while the bridge allocator next door consulted
+    all of them. The collision it could produce did not surface here: the port
+    was written, the bind failed, and the only trace was a line in a log.
+    """
+    from caravan.admin.proxies_config import _all_taken_ports, port_is_listening
+    claimed = set(used_ports)
+    try:
+        claimed |= _all_taken_ports()
+    except Exception:
+        pass
     candidate = AGENT_PROXY_BASE_PORT
-    while candidate in used_ports or (candidate + 1) in used_ports:
+    while (candidate in claimed or (candidate + 1) in claimed
+           or port_is_listening(candidate)):
         candidate += 2
+        if candidate > 65535:
+            raise AppError("no free agent proxy port left", 500)
     return candidate
 
 def _agent_is_manual(agent_id, host_entry):
@@ -744,6 +762,14 @@ def auto_provision_agent_proxies(client):
             "upstreamHost": "127.0.0.1", "upstreamPort": 8080,
             "upstreamType": "llama", "providerId": "",
             "enabled": True, "mode": "open", "priority": 0, "preemptible": True,
+            # Born with a credential. A provisioned port binds 0.0.0.0 the
+            # moment it is written, so "no apiKey" meant an open door onto the
+            # LAN until someone happened to open the route form and press the
+            # dice. Every route on this fleet has a key — all of them added by
+            # hand afterwards, which is the tell that the default was wrong.
+            # The key reaches the agent the same way the endpoint does, through
+            # apply-routes.
+            "apiKey": "lcv1_" + secrets.token_hex(16),
             "clientTimeoutSeconds": 0, "cloudFallbackProviderId": "", "cloudFallbackEligible": False,
             # Router redesign: new proxies feed the shared default router
             # and carry explicit role/client links (no label-suffix guessing).

@@ -11,7 +11,7 @@ import {
   saveRouters,
   topologyRouterOutputLabel,
 } from "./routers.js";
-import { state, topology, ui } from "./state.js";
+import { state, topology, ui, setTopology } from "./state.js";
 import {
   _proxyUpstreamStr,
   ensureStickyBarTicker,
@@ -979,7 +979,13 @@ export function canvasNodes(router) {
   // agent traffic, but with its own data-plane API key — apps stop borrowing
   // agent keys (born from a live incident: an app polling an agent's keyed
   // route without credentials = a steady 401 stream).
-  const appPortHtml = `<div class="cv-app-port-row"><button class="cv-app-port-btn" type="button" data-cv-app-port title="${escapeHtml(t("cvAppPortHint"))}">＋ ${escapeHtml(t("cvAppPortBtn"))}</button></div>`;
+  const appPortHtml = `<div class="cv-app-port-row">`
+    + `<button class="cv-app-port-btn" type="button" data-cv-app-port title="${escapeHtml(t("cvAppPortHint"))}">＋ ${escapeHtml(t("cvAppPortBtn"))}</button>`
+    // Reconcile deletes routes. It had no button at all — it ran only from curl,
+    // and the first time it ran after service bridges existed it deleted three
+    // live ones. Here it asks first, and shows exactly what it would remove.
+    + `<button class="cv-app-port-btn reconcile" type="button" data-cv-reconcile title="${escapeHtml(t("cvReconcileHint"))}">⟳ ${escapeHtml(t("cvReconcileBtn"))}</button>`
+    + `</div>`;
   // Dead agents — assignments whose agent the host no longer reports. Their
   // delete (which frees the ports they still hold) lived in the retired
   // Proxy-ports registry modal; this strip is its new home. Renders only when
@@ -1911,6 +1917,33 @@ document.addEventListener("click", (e) => {
   if (!btn) return;
   e.stopPropagation();
   deleteOrphanAgent(btn.dataset.cvOrphanClient, btn.dataset.cvOrphanAgent);
+});
+// ⟳ Reconcile — dry-run first, show what it would remove, then ask.
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest && e.target.closest("[data-cv-reconcile]");
+  if (!btn || btn.disabled) return;
+  e.stopPropagation();
+  btn.disabled = true;
+  try {
+    const plan = await api("/api/agent-proxies/reconcile", {
+      method: "POST", body: JSON.stringify({ dryRun: true }),
+    });
+    const changes = plan.result?.changes || [];
+    if (!changes.length) { toast(t("cvReconcileNothing")); btn.disabled = false; return; }
+    const lines = changes.map((c) => c.kind === "delete"
+      ? `✕ :${c.port} ${c.label || ""} — ${c.why}`
+      : `→ ${c.agentId}: ${c.from || "—"} ⇒ ${c.to || "—"} — ${c.why}`);
+    const ok = await appConfirm(t("cvReconcileConfirm", { count: String(changes.length) }),
+      { detail: lines.join("\n"), danger: changes.some((c) => c.kind === "delete") });
+    if (!ok) { btn.disabled = false; return; }
+    const res = await api("/api/agent-proxies/reconcile", {
+      method: "POST", body: JSON.stringify({}),
+    });
+    if (res.topology) setTopology(res.topology);
+    renderTopology();
+    toast(t("cvReconcileDone", { count: String((res.result?.deletedPorts || []).length) }));
+  } catch (err) { toast(err.message); }
+  btn.disabled = false;
 });
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest && e.target.closest("[data-cv-app-port]");

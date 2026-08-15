@@ -16,12 +16,20 @@ from caravan.admin.state import save_admin_state, topology_store
 from caravan.common.errors import AppError
 
 
-def reconcile_agent_proxies():
+def reconcile_agent_proxies(dry_run=False):
     """Clean up proxy/assignment drift from re-provisioning:
       • rewrite each ONLINE agent's stored assignment to match what it LIVE-uses
-        (primary = the proxy the agent reports) + the contiguous pair fallback (P+1);
+        (primary = the proxy the agent reports);
       • delete proxy routes no assignment references anymore (the stale duplicate set).
-    Offline agents (no live report) are left untouched. Returns a summary."""
+    Offline agents (no live report) are left untouched. Returns a summary.
+
+    With dry_run the plan is computed and NOTHING is written — same code path,
+    so the preview cannot describe a different operation than the one that runs.
+    That matters here more than usual: this function deletes routes, and the
+    first time it ran after service bridges were introduced it deleted three
+    live ones. A destructive action whose only account of itself arrives
+    afterwards is one an operator has no way to refuse.
+    """
     try:
         refresh_topology_clients_from_agents()
     except Exception:
@@ -32,6 +40,8 @@ def reconcile_agent_proxies():
     routes = cfg["routes"]
     assignments_store = store.setdefault("assignments", {})
     reassigned = 0
+    changes = []      # what the operator is being asked to approve
+    proposed = {}     # host -> assignments as they WOULD be, for the dry run
     for host_id, client in store.get("clients", {}).items():
         live = client.get("assignments")
         if not isinstance(live, list) or not live:
@@ -64,12 +74,24 @@ def reconcile_agent_proxies():
             if aid not in live_ids and aid not in tombstoned:
                 new_list.append(a)
         if json.dumps(host_entry.get("assignments")) != json.dumps(new_list):
-            host_entry["assignments"] = new_list
+            for before, after in zip(host_entry.get("assignments") or [], new_list):
+                if json.dumps(before) != json.dumps(after):
+                    changes.append({
+                        "kind": "reassign", "hostId": host_id,
+                        "agentId": after.get("agentId"),
+                        "from": ((before.get("routes") or [{}])[0] or {}).get("proxyId", ""),
+                        "to": ((after.get("routes") or [{}])[0] or {}).get("proxyId", ""),
+                        "why": "the agent reports a different proxy than the store holds",
+                    })
+            if not dry_run:
+                host_entry["assignments"] = new_list
+            proposed[host_id] = new_list
             reassigned += 1
     # Ports still referenced by any assignment → keep; the rest are stale dups → delete.
     referenced = set()
-    for host_entry in assignments_store.values():
-        for a in host_entry.get("assignments", []):
+    for host_id, host_entry in assignments_store.items():
+        rows = proposed.get(host_id, host_entry.get("assignments", []))
+        for a in rows:
             for r in a.get("routes", []):
                 pid = str(r.get("proxyId") or "")
                 if pid.startswith("skynet:proxy:"):
@@ -85,10 +107,20 @@ def reconcile_agent_proxies():
         return bool(str(r.get("clientId") or "")) and int(r["port"]) not in referenced
     kept = [r for r in routes if not _deletable(r)]
     deleted = sorted(int(r["port"]) for r in routes if _deletable(r))
+    for r in routes:
+        if _deletable(r):
+            changes.append({
+                "kind": "delete", "port": int(r["port"]),
+                "label": str(r.get("label") or ""), "clientId": str(r.get("clientId") or ""),
+                "why": "no assignment references this port any more",
+            })
+    if dry_run:
+        return {"dryRun": True, "reassigned": reassigned, "deletedPorts": deleted,
+                "keptPorts": sorted(int(r["port"]) for r in kept), "changes": changes}
     save_admin_state()
     if deleted:
         save_agent_proxy_config(kept)   # rewrites file + restarts agent-proxies + re-normalizes routers
-    return {"reassigned": reassigned, "deletedPorts": deleted, "keptPorts": sorted(int(r["port"]) for r in kept)}
+    return {"reassigned": reassigned, "changes": changes, "deletedPorts": deleted, "keptPorts": sorted(int(r["port"]) for r in kept)}
 
 def stop_agent_proxy_route(port=None, request_id=None):
     payload = load_agent_proxy_config()

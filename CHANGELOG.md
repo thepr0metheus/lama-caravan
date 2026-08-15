@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- Reconcile has a button, and it asks first. It deletes proxy routes, and it
+  ran only from curl — the first time it ran after service bridges existed it
+  deleted three live ones. It now offers a dry run through the same code path
+  (so the preview cannot describe a different operation than the one that runs)
+  and lists every route it would remove with the reason, before doing anything.
+
+- `loadingModelWaitSec` reaches the proxy. The policy normaliser rebuilds the
+  policy from scratch and did not name this key, so every save dropped it and
+  the proxy read its own hardcoded 60 no matter what the file said. It is now
+  normalised, bounded 0-900, and editable in the queue-policy form. A knob that
+  silently does nothing is worse than no knob: the value persisted in the form,
+  so the operator concluded the behaviour was something else.
+
+- An agent proxy port can be created deliberately, with a name the operator
+  chose. Agent routes could only come into existence by being provisioned —
+  which is why every one of them is called "<Name> primary" and why the answer
+  to "who decided this?" was always "the provisioner". The bind menu gains
+  "New port for this agent…": it mints the route, binds the agent to it, marks
+  the assignment manual and copies the URL and key. Unlike a provisioned route
+  it is born with an API key.
+
+- Provisioned routes are born with an API key too. A new route binds 0.0.0.0
+  the moment it is written, so "no apiKey" meant an open door onto the LAN until
+  somebody opened the route form and pressed the dice. Every route on this fleet
+  had a key, all of them added by hand afterwards — the tell that the default
+  was wrong.
+
+- Both port allocators consult the same register. The bridge one asked
+  used_server_cell_ports() (cells, exclusions, the controller's own web port,
+  existing routes); the agent one looked at the routes file and nothing else, so
+  it could mint onto a number a cell already held or an operator had excluded.
+  Both now also ask the kernel whether the port is already bound: a number free
+  on paper and bound in fact fails at start-up, three steps after the choice.
+
 - The host scan no longer reports the caravan's own processes as foreign
   occupants. It recognised cells and nothing else, so on 2026-07-29 it flagged
   port 8092 on foreman — the caravan's OWN scout — and the resulting exclusion

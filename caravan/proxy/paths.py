@@ -76,4 +76,6 @@ DEFAULT_POLICY = {
     "preemptGraceSec": int(os.environ.get("AGENT_PROXY_PREEMPT_GRACE_SEC", "20")),
     "preemptEnabled": os.environ.get("AGENT_PROXY_PREEMPT_ENABLED", "1") not in ("0", "false", "False"),
     "stickySlotSec": int(os.environ.get("AGENT_PROXY_STICKY_SLOT_SEC", "0")),
+    # How long to keep retrying a llama "Loading model" 503 before giving up.
+    "loadingModelWaitSec": int(os.environ.get("AGENT_PROXY_LOADING_MODEL_WAIT_SEC", "60")),
 }

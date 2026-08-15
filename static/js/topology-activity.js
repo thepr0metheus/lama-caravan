@@ -1,5 +1,6 @@
 // Per-card activity/health classes and live runtime panels.
 import { drawTopologyCables, topologyProxyClass } from "./cables.js";
+import { appPrompt } from "./dialogs.js";
 import { drawCanvasConnectors, syncQueueNodesLive } from "./canvas.js";
 import { attachTokenChartHover, drawMetricChart, drawTopologyGpuHistory } from "./charts.js";
 import { t } from "./i18n.js";
@@ -10,7 +11,7 @@ import { topologyRouteDetail } from "./topology-dnd.js";
 import { queueThresholds } from "./topology-modals.js";
 import { topologyAssignmentsForHost, topologyProxyOwner } from "./topology-proxies.js";
 import { _lastRuntimePanelHtml, renderTopology } from "./topology-render.js";
-import { $, api, escapeHtml, formatMemoryMiB, pill, toast } from "./utils.js";
+import { $, api, copyText, escapeHtml, formatMemoryMiB, pill, toast } from "./utils.js";
 
 export let stickySlotAnims = {};             // group -> absolute-time anchor for that server's sticky-slot bar { port, startMs, durationMs }
 export function topologyStatusPill(value) {
@@ -1318,6 +1319,7 @@ function openBindMenu(chip) {
   menu.innerHTML = `
     <div class="agent-bind-head">${escapeHtml(t("taBindHead"))} <b>${escapeHtml(agentId)}</b></div>
     <button type="button" class="agent-bind-row auto" data-bind-choice="">${escapeHtml(t("taBindAutomatic"))}</button>
+    <button type="button" class="agent-bind-row make" data-bind-new="1">${escapeHtml(t("taBindNewPort"))}</button>
     ${routes.map((p) => `
       <button type="button" class="agent-bind-row${String(p.port) === current ? " current" : ""}"
               data-bind-choice="${escapeHtml(String(p.port))}">
@@ -1331,6 +1333,26 @@ function openBindMenu(chip) {
   menu.style.top = `${box.bottom + 4}px`;
 
   menu.addEventListener("click", async (e) => {
+    if (e.target.closest("[data-bind-new]")) {
+      closeBindMenu();
+      const label = await appPrompt(t("taBindNewPortName"),
+        { placeholder: `${agentId} port` });
+      if (label === null) return;
+      try {
+        const res = await api("/api/agent-port", {
+          method: "POST",
+          body: JSON.stringify({ clientId: hostId, agentId, label }),
+        });
+        if (res.topology) setTopology(res.topology);
+        renderTopology();
+        // The key is shown once here and stays readable in the route form.
+        await copyText(`http://${location.hostname}:${res.route.port}/v1\n${res.route.apiKey}`);
+        toast(t("taBindNewPortMade", { port: String(res.route.port) }));
+      } catch (err) {
+        toast(`${t("taBindFailed")}: ${err.message || err}`, true);
+      }
+      return;
+    }
     const row = e.target.closest("[data-bind-choice]");
     if (!row) return;
     const port = row.dataset.bindChoice;
@@ -1358,15 +1380,20 @@ function openBindMenu(chip) {
 
 if (!window.__agentBindBound) {
   window.__agentBindBound = 1;
+  // Capture phase, deliberately: the route row's own click handler is ALSO on
+  // document, and stopPropagation between two listeners on the same node stops
+  // neither — clicking the chip opened the picker and the detail panel at once.
+  // Capture runs before any bubble-phase listener on document, so stopping here
+  // is the only thing that actually stops the other one.
   document.addEventListener("click", (e) => {
     const chip = e.target.closest("[data-agent-bind]");
     if (chip) {
       e.preventDefault();
-      e.stopPropagation();     // the route row itself opens a detail panel
+      e.stopPropagation();
       openBindMenu(chip);
       return;
     }
     if (!e.target.closest(".agent-bind-menu")) closeBindMenu();
-  });
+  }, true);
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeBindMenu(); });
 }
