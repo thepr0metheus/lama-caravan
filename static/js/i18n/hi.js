@@ -287,6 +287,8 @@ export default {
   tabEmbeddings: "एम्बेडिंग",
   tabAccess: "पहुँच",
   tabToolsService: "टूल और सेवा",
+  configSearchPlaceholder: "सेटिंग खोजें — नाम, फ़्लैग या विवरण",
+  configSearchEmpty: "कुछ नहीं मिला",
   grpEndpoint: "एंडपॉइंट",
   grpRuntime: "रनटाइम",
   grpBatching: "बैचिंग और थ्रेड",

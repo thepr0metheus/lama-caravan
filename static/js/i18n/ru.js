@@ -90,6 +90,8 @@ export default {
   tabEmbeddings: "Эмбеддинги",
   tabAccess: "Доступ",
   tabToolsService: "Инструменты и сервис",
+  configSearchPlaceholder: "Поиск настроек — имя, флаг или описание",
+  configSearchEmpty: "Ничего не найдено",
   grpEndpoint: "Эндпоинт",
   grpRuntime: "Рантайм",
   grpBatching: "Батчи и потоки",

@@ -1453,3 +1453,93 @@
   border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; font-size: 13px; }
 .hps-row input[type=checkbox] { accent-color: var(--accent); }
 .hps-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+
+/* ── finding a setting: search above the tabs, hover-a-flag below ──────────
+   Two ways into the same map (field -> tab), so an operator who knows the flag
+   name and one who only knows what they want both land on the same input. */
+.config-search {
+  grid-column: 1 / -1;
+  position: relative;
+  margin-top: 8px;
+}
+.config-search-input {
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg) 60%, var(--panel));
+  color: var(--text);
+}
+.config-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.config-search-results {
+  position: absolute;
+  z-index: 30;
+  left: 0; right: 0; top: calc(100% + 4px);
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+}
+.config-search-hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  color: var(--text);
+  cursor: pointer;
+}
+.config-search-hit:last-child { border-bottom: none; }
+.config-search-hit.active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.config-search-hit .hit-head {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+}
+.config-search-hit .hit-field { font-size: 11px; font-weight: 700; }
+.config-search-hit .hit-flag {
+  font-size: 10px; color: var(--muted);
+  padding: 1px 5px; border-radius: 4px;
+  background: color-mix(in srgb, var(--bg) 70%, var(--panel));
+}
+.config-search-hit .hit-tab {
+  margin-left: auto; font-size: 10px; color: var(--accent); white-space: nowrap;
+}
+/* The (?) text verbatim — the same sentence the field itself shows, so the
+   search result answers "is this the one I want?" without opening the tab. */
+.config-search-hit .hit-help {
+  display: block; margin-top: 2px;
+  font-size: 10px; line-height: 1.35; color: var(--muted);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.config-search-empty { padding: 9px 10px; font-size: 11px; color: var(--muted); }
+
+/* A located tab is marked, not activated: hovering a flag should say where the
+   setting lives without yanking the operator off the tab they are reading. */
+.advanced-tab-btn.tab-located {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 5px 5px 0 0;
+}
+.field.field-located {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: 6px;
+}
+@keyframes fieldFlash {
+  0%, 100% { box-shadow: 0 0 0 0 transparent; }
+  15%, 60% { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 70%, transparent); }
+}
+.field.field-flash { animation: fieldFlash 1.6s ease-out; border-radius: 6px; }
+
+/* Command tokens that trace back to a field are clickable — the cursor says so. */
+.cmd-token[data-cmd-field] { cursor: pointer; }
+.cmd-token[data-cmd-field]:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-radius: 4px;
+}

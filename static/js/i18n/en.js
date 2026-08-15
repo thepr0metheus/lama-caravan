@@ -90,6 +90,8 @@ export default {
   tabEmbeddings: "Embeddings",
   tabAccess: "Access",
   tabToolsService: "Tools & service",
+  configSearchPlaceholder: "Search settings — name, flag or description",
+  configSearchEmpty: "Nothing found",
   grpEndpoint: "Endpoint",
   grpRuntime: "Runtime",
   grpBatching: "Batching & threads",

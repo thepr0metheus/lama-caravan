@@ -287,6 +287,8 @@ export default {
   tabEmbeddings: "埋め込み",
   tabAccess: "アクセス",
   tabToolsService: "ツールとサービス",
+  configSearchPlaceholder: "設定を検索 — 名前・フラグ・説明",
+  configSearchEmpty: "見つかりません",
   grpEndpoint: "エンドポイント",
   grpRuntime: "ランタイム",
   grpBatching: "バッチとスレッド",

@@ -13,6 +13,7 @@ from caravan.admin.runners import RUNNERS
 from caravan.admin.config_builder import (
     CONFIG_FIELDS,
     FIELD_HELP,
+    flag_to_field_map,
     models_dir_from_config,
     parse_config,
 )
@@ -140,6 +141,14 @@ def controller_info():
         pass
     return info
 
+def _field_flags():
+    out = {}
+    for flag, field in flag_to_field_map().items():
+        if field:
+            out.setdefault(field, []).append(flag)
+    return {k: sorted(v) for k, v in out.items()}
+
+
 def state():
     config = parse_config()
     service = service_status()
@@ -152,6 +161,9 @@ def state():
         "config": config,
         "fields": CONFIG_FIELDS,
         "help": FIELD_HELP,
+        # field -> the llama-server flags it drives, so the config search finds
+        # a setting by the flag name too ("--ctx-size" as well as "CTX_SIZE").
+        "fieldFlags": _field_flags(),
         "favFields": [f for f in admin_state.get("favFields", []) if f in CONFIG_FIELDS],
         "paths": {
             "llamaHome": str(LLAMA_HOME),

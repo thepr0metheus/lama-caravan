@@ -325,6 +325,7 @@ from caravan.admin.config_builder import (
     build_config_block,
     build_llama_args,
     build_local_llama_command,
+    command_token_owners,
     build_remote_llama_args,
     is_command_cell,
     models_dir_from_config,
@@ -991,7 +992,12 @@ def _post_api_llama_command_preview(h, parsed, body):
         except AppError as exc:
             h.send_json({"ok": False, "error": str(exc), "tokens": []})
             return
-        h.send_json({"ok": True, "tokens": tokens, "command": " ".join(tokens)})
+        # Which field produced each token — drives hover-a-token-find-the-field
+        # in the config editor. Measured per request so it can never describe a
+        # command other than the one shown next to it.
+        owners = command_token_owners(cfg)
+        h.send_json({"ok": True, "tokens": tokens, "command": " ".join(tokens),
+                     "owners": owners})
         return
 
 @_route(POST_ROUTES, '/api/parse-extra-args')

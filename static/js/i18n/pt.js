@@ -287,6 +287,8 @@ export default {
   tabEmbeddings: "Embeddings",
   tabAccess: "Acesso",
   tabToolsService: "Ferramentas e serviço",
+  configSearchPlaceholder: "Buscar configurações — nome, flag ou descrição",
+  configSearchEmpty: "Nada encontrado",
   grpEndpoint: "Endpoint",
   grpRuntime: "Execução",
   grpBatching: "Lotes e threads",

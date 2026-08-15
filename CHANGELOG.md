@@ -2,6 +2,58 @@
 
 ## Unreleased
 
+- Finding a setting among eleven tabs. Two ways in, both automatic:
+
+  **Hover a flag in the command preview** and the tab it came from lights up,
+  along with the input itself; click it and you land there. Which field
+  produced which token is *measured*, not tabulated: the server blanks one
+  field, rebuilds the command, and sees what disappeared
+  (`command_token_owners`). A hand-written flag→field table would have been a
+  second list to maintain, and the flags it forgot would look — in the UI —
+  exactly like flags that belong to nothing. Two rules make the raw diff read
+  the way a person would: the narrowest claim wins (blanking the draft-model
+  file drops the whole spec block, but `--spec-draft-n-max` belongs to the
+  field of that name, whose own removal drops just that pair), and a
+  `--flag value` pair is one unit. On the production 22025 config it attributes
+  49 of 50 tokens; the one it does not is the llama-server binary path, which
+  is not a field. Costs under a millisecond on a warm header cache.
+
+  **A search box above the tabs** matches on field name, flag name
+  (`--ctx-size` finds CTX_SIZE) or the text of the `(?)` help, shows that help
+  verbatim in the result, names the tab, and jumps to the field on Enter or
+  click. Arrow keys walk the list and light each candidate's tab as they go.
+
+  Neither feature keeps a list of settings. The searchable set is the server's
+  own `CONFIG_FIELDS`, narrowed to those with a live input in this editor, so
+  a field added tomorrow is searchable by virtue of being rendered at all —
+  including the ones in static markup (MODEL_FILE, the mmproj row) and the
+  vLLM/whisper runner panels, which `renderField` never touches. Locating
+  resolves through the canonical input id (`pfx + FIELD`) rather than a marker
+  attribute, because a marker is a thing a new field can lack.
+
+- `scripts/check_field_homes.py` (new, in CI and in `deploy.sh`): every
+  `CONFIG_FIELDS` entry must have a group in `advancedGroups` — and so a tab —
+  or an entry in the guard's `NO_TAB` list saying where it is rendered instead.
+  A field with neither is one the search can name but never point at, which to
+  the operator is indistinguishable from a setting that is not there: the same
+  absence-rendered-as-normality defect as the unlit cable and the stale routes.
+  It also rejects a group on no tab, a field claimed by two groups, and a group
+  naming a field that no longer exists. Verified by adding a fake field and
+  watching CI-equivalent refuse it.
+
+- The flag names the search matches on now come from the builder's own emit
+  table (`_BUILDER_PAIRS`, hoisted out of `build_llama_args`) as well as the
+  EXTRA_ARGS parse tables — 111 flags over 76 fields, up from 102 over 68.
+  Before the hoist, a field added to the builder but never taught to the
+  parser had no flag to be searched by; `--ctx-checkpoints` found its field
+  only because the help text happens to quote the flag. Verified byte-identical
+  builder output across the full 22025 config and all 108 single-field
+  variations of it.
+
+- `--no-jinja` now folds back into ENABLE_JINJA when pasted into EXTRA_ARGS.
+  `--jinja` was already in the parse tables; its negation — the one the builder
+  actually emits, since b10357 made jinja default-on — was not.
+
 - The favicon is a knitted llama. It was still the terminal-window mark from
   the llamacpp-easy-admin days, spelling "ll.cpp" — a name the project has not
   carried for a long time. The new one is the splash screen's own walking

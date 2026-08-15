@@ -287,6 +287,8 @@ export default {
   tabEmbeddings: "ایمبیڈنگز",
   tabAccess: "رسائی",
   tabToolsService: "ٹولز اور سروس",
+  configSearchPlaceholder: "ترتیبات تلاش کریں — نام، فلیگ یا تفصیل",
+  configSearchEmpty: "کچھ نہیں ملا",
   grpEndpoint: "اینڈ پوائنٹ",
   grpRuntime: "رن ٹائم",
   grpBatching: "بیچنگ اور تھریڈز",

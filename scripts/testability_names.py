@@ -48,6 +48,8 @@ COMPOSED = {
     "hf-result": "hf.js: buildRepoRow sets div.dataset.t",
     # static/js/form.js — one per config tab, set on the constructed button
     "cell-config-tab": "form.js: renderFields sets data-t on each tab button",
+    "cell-config-search": "config-locator.js: the settings search input above the tabs",
+    "cell-config-search-results": "config-locator.js: the search suggestion list",
 }
 
 LITERAL = re.compile(r'data-t="([a-z][a-z0-9-]*)"')

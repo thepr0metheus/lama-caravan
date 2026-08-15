@@ -287,6 +287,8 @@ export default {
   tabEmbeddings: "Embedding",
   tabAccess: "Truy cập",
   tabToolsService: "Công cụ & dịch vụ",
+  configSearchPlaceholder: "Tìm cài đặt — tên, cờ hoặc mô tả",
+  configSearchEmpty: "Không tìm thấy",
   grpEndpoint: "Endpoint",
   grpRuntime: "Runtime",
   grpBatching: "Batch & luồng",

@@ -287,6 +287,8 @@ export default {
   tabEmbeddings: "எம்பெடிங்குகள்",
   tabAccess: "அணுகல்",
   tabToolsService: "கருவிகள் & சேவை",
+  configSearchPlaceholder: "அமைப்புகளைத் தேடு — பெயர், கொடி அல்லது விளக்கம்",
+  configSearchEmpty: "எதுவும் கிடைக்கவில்லை",
   grpEndpoint: "எண்ட்பாயிண்ட்",
   grpRuntime: "ரன்டைம்",
   grpBatching: "பேட்சிங் & த்ரெட்கள்",

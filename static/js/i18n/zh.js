@@ -287,6 +287,8 @@ export default {
   tabEmbeddings: "嵌入",
   tabAccess: "访问",
   tabToolsService: "工具与服务",
+  configSearchPlaceholder: "搜索设置 — 名称、参数或说明",
+  configSearchEmpty: "未找到结果",
   grpEndpoint: "端点",
   grpRuntime: "运行时",
   grpBatching: "批处理与线程",

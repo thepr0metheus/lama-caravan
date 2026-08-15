@@ -287,6 +287,8 @@ export default {
   tabEmbeddings: "التضمينات",
   tabAccess: "الوصول",
   tabToolsService: "الأدوات والخدمة",
+  configSearchPlaceholder: "ابحث في الإعدادات — الاسم أو الراية أو الوصف",
+  configSearchEmpty: "لا توجد نتائج",
   grpEndpoint: "نقطة النهاية",
   grpRuntime: "التشغيل",
   grpBatching: "الدفعات والخيوط",

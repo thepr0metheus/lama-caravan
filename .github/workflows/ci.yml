@@ -37,6 +37,10 @@ jobs:
           set -e
           python3 scripts/testability_names.py --check
           python3 scripts/check_boot_guard.py
+          # A field with no tab is a field the config search can name but never
+          # point at — indistinguishable, to the operator, from one that is not
+          # there at all.
+          python3 scripts/check_field_homes.py
 
       - name: JS syntax (ES modules)
         run: |

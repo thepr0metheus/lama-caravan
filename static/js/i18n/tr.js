@@ -287,6 +287,8 @@ export default {
   tabEmbeddings: "Gömmeler",
   tabAccess: "Erişim",
   tabToolsService: "Araçlar ve servis",
+  configSearchPlaceholder: "Ayarlarda ara — ad, bayrak veya açıklama",
+  configSearchEmpty: "Sonuç bulunamadı",
   grpEndpoint: "Uç nokta",
   grpRuntime: "Çalışma zamanı",
   grpBatching: "Toplu işlem ve iş parçacığı",

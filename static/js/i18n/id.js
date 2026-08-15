@@ -287,6 +287,8 @@ export default {
   tabEmbeddings: "Embedding",
   tabAccess: "Akses",
   tabToolsService: "Alat & layanan",
+  configSearchPlaceholder: "Cari pengaturan — nama, flag, atau deskripsi",
+  configSearchEmpty: "Tidak ada hasil",
   grpEndpoint: "Endpoint",
   grpRuntime: "Runtime",
   grpBatching: "Batch & thread",

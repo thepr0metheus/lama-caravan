@@ -4,6 +4,7 @@ turn a config dict into llama-server CLI args (single source of truth).
 CONFIG_FIELDS names and the marker lines are a contract with
 scripts/start-server.sh — never rename them here alone.
 """
+import difflib
 import json
 import math
 import re
@@ -392,6 +393,44 @@ def _infer_spec_type(spec_path):
     return "draft-simple"
 
 
+# The value-flags the builder emits, hoisted out of build_llama_args so the UI
+# can name a field's flag without a second, drifting copy of this list.
+_BUILDER_PAIRS = [
+    ("--ctx-size", "CTX_SIZE"), ("--threads", "THREADS"),
+    ("--threads-batch", "THREADS_BATCH"), ("--batch-size", "BATCH_SIZE"),
+    ("--ubatch-size", "UBATCH_SIZE"), ("--parallel", "PARALLEL"),
+    ("--n-gpu-layers", "N_GPU_LAYERS"),
+    ("--cache-type-k", "CACHE_TYPE_K"), ("--cache-type-v", "CACHE_TYPE_V"),
+    ("--predict", "N_PREDICT"), ("--keep", "KEEP"),
+    ("--cpu-range", "CPU_RANGE"), ("--poll", "POLL"),
+    ("--rope-scaling", "ROPE_SCALING"), ("--rope-scale", "ROPE_SCALE"),
+    ("--rope-freq-base", "ROPE_FREQ_BASE"), ("--rope-freq-scale", "ROPE_FREQ_SCALE"),
+    ("--numa", "NUMA"), ("--device", "DEVICE"),
+    ("--split-mode", "SPLIT_MODE"), ("--tensor-split", "TENSOR_SPLIT"),
+    ("--main-gpu", "MAIN_GPU"), ("--fit-target", "FIT_TARGET"),
+    ("--fit-ctx", "FIT_CTX"), ("--alias", "ALIAS"),
+    ("--api-prefix", "API_PREFIX"), ("--timeout", "TIMEOUT"),
+    ("--threads-http", "THREADS_HTTP"), ("--cache-reuse", "CACHE_REUSE"),
+    ("--cache-ram", "CACHE_RAM"), ("--sleep-idle-seconds", "SLEEP_IDLE_SECONDS"),
+    ("--api-key", "API_KEY"),
+    ("--image-min-tokens", "IMAGE_MIN_TOKENS"),
+    ("--image-max-tokens", "IMAGE_MAX_TOKENS"),
+    ("--reasoning", "REASONING"), ("--reasoning-format", "REASONING_FORMAT"),
+    ("--reasoning-budget", "REASONING_BUDGET"),
+    ("--chat-template", "CHAT_TEMPLATE"),
+    ("--pooling", "POOLING"),
+    ("--embd-normalize", "EMBD_NORMALIZE"),
+    # b10357 additions
+    ("--n-cpu-moe", "N_CPU_MOE"),
+    ("--spec-draft-p-min", "SPEC_DRAFT_P_MIN"),
+    ("--mtmd-batch-max-tokens", "MTMD_BATCH_MAX_TOKENS"),
+    ("--ctx-checkpoints", "CTX_CHECKPOINTS"),
+    ("--log-verbosity", "LOG_VERBOSITY"),
+    ("--cors-origins", "CORS_ORIGINS"),
+    ("--tools-runtime", "TOOLS_RUNTIME"),
+    ("--api-key-file", "API_KEY_FILE"),
+]
+
 def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
                      include_local_paths=True):
     """Return the full llama-server argument list (everything AFTER the binary).
@@ -416,41 +455,7 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
         "--port", str(c.get("PORT") or 8080),
         "--model", model_path,
     ]
-    pairs = [
-        ("--ctx-size", "CTX_SIZE"), ("--threads", "THREADS"),
-        ("--threads-batch", "THREADS_BATCH"), ("--batch-size", "BATCH_SIZE"),
-        ("--ubatch-size", "UBATCH_SIZE"), ("--parallel", "PARALLEL"),
-        ("--n-gpu-layers", "N_GPU_LAYERS"),
-        ("--cache-type-k", "CACHE_TYPE_K"), ("--cache-type-v", "CACHE_TYPE_V"),
-        ("--predict", "N_PREDICT"), ("--keep", "KEEP"),
-        ("--cpu-range", "CPU_RANGE"), ("--poll", "POLL"),
-        ("--rope-scaling", "ROPE_SCALING"), ("--rope-scale", "ROPE_SCALE"),
-        ("--rope-freq-base", "ROPE_FREQ_BASE"), ("--rope-freq-scale", "ROPE_FREQ_SCALE"),
-        ("--numa", "NUMA"), ("--device", "DEVICE"),
-        ("--split-mode", "SPLIT_MODE"), ("--tensor-split", "TENSOR_SPLIT"),
-        ("--main-gpu", "MAIN_GPU"), ("--fit-target", "FIT_TARGET"),
-        ("--fit-ctx", "FIT_CTX"), ("--alias", "ALIAS"),
-        ("--api-prefix", "API_PREFIX"), ("--timeout", "TIMEOUT"),
-        ("--threads-http", "THREADS_HTTP"), ("--cache-reuse", "CACHE_REUSE"),
-        ("--cache-ram", "CACHE_RAM"), ("--sleep-idle-seconds", "SLEEP_IDLE_SECONDS"),
-        ("--api-key", "API_KEY"),
-        ("--image-min-tokens", "IMAGE_MIN_TOKENS"),
-        ("--image-max-tokens", "IMAGE_MAX_TOKENS"),
-        ("--reasoning", "REASONING"), ("--reasoning-format", "REASONING_FORMAT"),
-        ("--reasoning-budget", "REASONING_BUDGET"),
-        ("--chat-template", "CHAT_TEMPLATE"),
-        ("--pooling", "POOLING"),
-        ("--embd-normalize", "EMBD_NORMALIZE"),
-        # b10357 additions
-        ("--n-cpu-moe", "N_CPU_MOE"),
-        ("--spec-draft-p-min", "SPEC_DRAFT_P_MIN"),
-        ("--mtmd-batch-max-tokens", "MTMD_BATCH_MAX_TOKENS"),
-        ("--ctx-checkpoints", "CTX_CHECKPOINTS"),
-        ("--log-verbosity", "LOG_VERBOSITY"),
-        ("--cors-origins", "CORS_ORIGINS"),
-        ("--tools-runtime", "TOOLS_RUNTIME"),
-        ("--api-key-file", "API_KEY_FILE"),
-    ]
+    pairs = _BUILDER_PAIRS
     for flag, key in pairs:
         if has(key):
             args += [flag, str(c[key]).strip()]
@@ -724,6 +729,9 @@ _EXTRA_PAIR_BOOL = {
     "--cont-batching": ("ENABLE_CONT_BATCHING", "1"), "-cb": ("ENABLE_CONT_BATCHING", "1"),
     "--no-cont-batching": ("ENABLE_CONT_BATCHING", "0"),
     "--webui": ("ENABLE_WEBUI", "1"), "--no-webui": ("ENABLE_WEBUI", "0"),
+    # --jinja lives in _EXTRA_FLAG_ON; its negation belongs here. b10357 made
+    # jinja default-on, so --no-jinja is the one the builder actually emits.
+    "--no-jinja": ("ENABLE_JINJA", "0"),
 }
 
 # Presence => "1".
@@ -732,6 +740,29 @@ _EXTRA_FLAG_ON = {
     "--embeddings": "ENABLE_EMBEDDINGS", "--embedding": "ENABLE_EMBEDDINGS",
     "--jinja": "ENABLE_JINJA", "--agent": "ENABLE_AGENT", "--ui-mcp-proxy": "ENABLE_MCP_PROXY",
 }
+
+def flag_to_field_map():
+    """Every llama-server flag this builder understands -> the field it belongs to.
+
+    Derived from the same four tables parse_extra_args uses, so a flag added to
+    the builder becomes traceable in the UI (hover a token in the command
+    preview, get the field and tab that produced it) without a second list to
+    keep in step. A second list is exactly how the old "8090" strings went
+    stale everywhere at once.
+    """
+    out = {}
+    for flag, field in _BUILDER_PAIRS:
+        out[flag] = field
+    for flag, field in _EXTRA_VALUE_FLAGS.items():
+        out[flag] = field
+    for flag, field in _EXTRA_ONOFF_FLAGS.items():
+        out[flag] = field
+    for flag, pair in _EXTRA_PAIR_BOOL.items():
+        out[flag] = pair[0]
+    for flag, pair in _EXTRA_FLAG_ON.items():
+        out[flag] = pair[0] if isinstance(pair, tuple) else pair
+    return out
+
 
 _EXTRA_ONOFF_TRUE = {"on", "auto", "1", "true", "yes", "enabled"}
 
@@ -802,6 +833,71 @@ def _join_models_path(models_dir, rel):
     if not rel:
         return ""
     return f"{str(models_dir).rstrip('/')}/{rel}"
+
+def command_token_owners(config, builder=None):
+    """Map each token of the built command to the config field that produced it.
+
+    Attribution is measured, not tabulated: blank one field, rebuild, and see
+    which tokens vanish. A table would be a second list to maintain, and the
+    fields it forgot would look, in the UI, exactly like fields that legitimately
+    contribute nothing — absence rendered as normality, the same defect class as
+    the unlit cable. Measuring cannot forget: a field added tomorrow is attributed
+    the moment it changes the command.
+
+    Two rules make the raw diff read the way a human would:
+      * narrowest claim wins — blanking SPEC_DRAFT_MODEL_FILE drops the whole
+        spec block, but --spec-draft-n-max belongs to SPEC_DRAFT_N_MAX, whose
+        own removal drops just that pair;
+      * a `--flag value` pair is one unit and takes the flag's owner.
+
+    Always-emitted defaults (--host, --model) survive blanking, so nothing is
+    measured for them; the static flag table fills those in afterwards.
+    """
+    build = builder or build_local_llama_command
+    try:
+        base = list(build(config))
+    except Exception:
+        return []
+    claims = {}
+    for field in CONFIG_FIELDS:
+        if not str(config.get(field, "") or "").strip():
+            continue
+        probe = dict(config)
+        probe[field] = ""
+        try:
+            without = build(probe)
+        except Exception:
+            continue
+        lost = []
+        matcher = difflib.SequenceMatcher(a=base, b=list(without), autojunk=False)
+        for tag, i1, i2, _j1, _j2 in matcher.get_opcodes():
+            if tag in ("delete", "replace"):
+                lost.extend(range(i1, i2))
+        if not lost:
+            continue
+        for index in lost:
+            prev = claims.get(index)
+            if prev is None or len(lost) < prev[0]:
+                claims[index] = (len(lost), field)
+    owners = [claims.get(i, (0, None))[1] for i in range(len(base))]
+
+    static = flag_to_field_map()
+    index = 0
+    while index < len(base):
+        token = base[index]
+        paired = (token.startswith("--") and index + 1 < len(base)
+                  and not base[index + 1].startswith("-"))
+        owner = owners[index] or (owners[index + 1] if paired else None)
+        if owner is None and token.startswith("-"):
+            owner = static.get(token)
+        owners[index] = owner
+        if paired:
+            owners[index + 1] = owner
+            index += 2
+        else:
+            index += 1
+    return owners
+
 
 def build_local_llama_command(config, *, llama_home=None):
     """[binary, *args] for a server running on THIS controller host, with all

@@ -20,6 +20,7 @@ import {
   syncFavoriteMirrors,
   updateStarStates,
 } from "./favorites.js";
+import { bindCommandLocator, renderConfigSearch } from "./config-locator.js";
 import { fieldHelp, labelWithTip, t } from "./i18n.js";
 import { _commandCellSlot, gpuComputeCap, renderBackups, renderCommandCellPreview, runnerRegistry } from "./llama-edit.js";
 import {
@@ -975,6 +976,11 @@ export function syncPortChipsEl(chips, value) {
 export function renderField(field, pfx = "") {
   const div = document.createElement("div");
   div.className = "field";
+  // Every field is addressable by name. The config search and the
+  // hover-a-flag-find-its-input link both resolve through this one attribute,
+  // so a field added later is covered by having been rendered at all — there is
+  // no second registry that could quietly omit it.
+  div.dataset.field = field;
   const help = fieldHelp(field);
   const fid = pfx + field;
   const labelRow = pfx
@@ -1484,7 +1490,14 @@ export function renderFields(pfx = "") {
 
   tabsEl.appendChild(bar);
   tabsEl.appendChild(body);
+  // Search above the bar: with eleven tabs, knowing a setting exists is no
+  // longer the same as being able to find it. It sits outside .advanced-tabs
+  // because the edge fades there are positioned from that box's top — inside,
+  // they would drift down onto the search row instead of the tabs.
+  wrap.appendChild(renderConfigSearch(pfx));
   wrap.appendChild(tabsEl);
+  // Hovering a flag in the command preview lights up its tab and input.
+  bindCommandLocator(pfx);
 
   // Fill the Favorites panel now that the canonical inputs exist in the DOM
   // (the mirrors bind to them by id).

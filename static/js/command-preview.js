@@ -96,12 +96,14 @@ export function renderCommandPreview(pfx = "") {
   clearTimeout(_cmdPreviewTimers[pfx]);
   _cmdPreviewTimers[pfx] = setTimeout(async () => {
     let tokens = [];
+    let owners = [];
     try {
       const res = await api("/api/llama-command-preview", {
         method: "POST",
         body: JSON.stringify({ config: cfg }),
       });
       tokens = res.tokens || [];
+      owners = Array.isArray(res.owners) ? res.owners : [];
     } catch (err) {
       if (seq !== _cmdPreviewSeq[pfx]) return;  // a newer request superseded us
       target.classList.remove("cmd-loading");
@@ -109,11 +111,11 @@ export function renderCommandPreview(pfx = "") {
       return;
     }
     if (seq !== _cmdPreviewSeq[pfx]) return;     // stale response, ignore
-    renderPreviewTokens(pfx, target, tokens);
+    renderPreviewTokens(pfx, target, tokens, owners);
   }, 160);
 }
 
-export function renderPreviewTokens(pfx, target, previewTokens) {
+export function renderPreviewTokens(pfx, target, previewTokens, owners = []) {
   target.classList.remove("cmd-loading");
   const currentTokens = currentBaselineTokens(pfx);
   if (!previewTokens.length) {
@@ -138,6 +140,13 @@ export function renderPreviewTokens(pfx, target, previewTokens) {
       }</span>`
     : "";
 
+  // Each token carries the config field that produced it (measured server-side),
+  // so hovering a flag can light up the tab and input it came from.
+  const ownerAttr = (index) => {
+    const field = owners[index];
+    return field ? ` data-cmd-field="${escapeHtml(String(field))}"` : "";
+  };
+
   // Group --flag value pairs into single visual blocks.
   const cmdParts = [];
   let ti = 0;
@@ -148,12 +157,12 @@ export function renderPreviewTokens(pfx, target, previewTokens) {
       const val = previewTokens[ti + 1];
       const changed = !unchanged.has(ti) || !unchanged.has(ti + 1);
       const cls = changed ? "cmd-token changed" : "cmd-token";
-      cmdParts.push(`<span class="${cls}">${escapeHtml(tok)} <span class="cmd-value">${escapeHtml(val)}</span></span>`);
+      cmdParts.push(`<span class="${cls}"${ownerAttr(ti)}>${escapeHtml(tok)} <span class="cmd-value">${escapeHtml(val)}</span></span>`);
       ti += 2;
     } else {
       const changed = !unchanged.has(ti);
       const cls = changed ? "cmd-token changed" : "cmd-token";
-      cmdParts.push(`<span class="${cls}">${escapeHtml(tok)}</span>`);
+      cmdParts.push(`<span class="${cls}"${ownerAttr(ti)}>${escapeHtml(tok)}</span>`);
       ti += 1;
     }
   }

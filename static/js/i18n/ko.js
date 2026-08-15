@@ -287,6 +287,8 @@ export default {
   tabEmbeddings: "임베딩",
   tabAccess: "접근",
   tabToolsService: "도구·서비스",
+  configSearchPlaceholder: "설정 검색 — 이름, 플래그 또는 설명",
+  configSearchEmpty: "찾을 수 없음",
   grpEndpoint: "엔드포인트",
   grpRuntime: "런타임",
   grpBatching: "배칭·스레드",

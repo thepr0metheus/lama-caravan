@@ -287,6 +287,8 @@ export default {
   tabEmbeddings: "ఎంబెడ్డింగ్‌లు",
   tabAccess: "యాక్సెస్",
   tabToolsService: "సాధనాలు & సేవ",
+  configSearchPlaceholder: "సెట్టింగ్‌లను వెతకండి — పేరు, ఫ్లాగ్ లేదా వివరణ",
+  configSearchEmpty: "ఏమీ దొరకలేదు",
   grpEndpoint: "ఎండ్‌పాయింట్",
   grpRuntime: "రన్‌టైమ్",
   grpBatching: "బ్యాచింగ్ & థ్రెడ్‌లు",
