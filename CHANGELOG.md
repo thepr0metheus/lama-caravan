@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- An interrupted model download says so instead of disappearing. Download jobs
+  live in memory, so restarting the service — a deploy, usually — lost every
+  in-flight one: the /hf job list went empty, which reads exactly like "all
+  downloads finished". Seen live on 2026-08-14, when a deploy cut a 39 GB
+  Muse Glimmer download off at 15 GB and the panel showed nothing at all.
+
+  Each partial now carries a small `.part.json` manifest naming the repo and
+  file it came from, so orphaned partials are listed as INTERRUPTED with the
+  bytes already fetched and a Resume button. The bytes themselves were never
+  the problem — the stable `.part` name already made downloads resumable, and
+  re-issuing the same download did pick up where it left off. What was missing
+  was any way to know that it had stopped.
+
+  A partial left over from before this change has no manifest; it is still
+  listed, but marked as not automatically resumable rather than pretending
+  otherwise.
+
 - Speculative decoding stops lying about what it is running. Four defects, all
   of which presented as "the cell is fine, just slower than it should be":
 

@@ -512,6 +512,12 @@
 
 .hf-dl-done  { color: #4caf50 !important; }
 .hf-dl-error { color: #f44336 !important; }
+/* An interrupted partial is not progress — it is stalled progress. Muted and
+   striped so a glance separates "still going" from "stopped and waiting". */
+.hf-dl-interrupted-fill {
+  background: repeating-linear-gradient(45deg,
+    #f4433680 0 6px, #f4433633 6px 12px) !important;
+}
 
 /* ── Models directory bar ─────────────────────────────────────────────────── */
 .topology-models-bar {

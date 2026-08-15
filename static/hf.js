@@ -21,6 +21,10 @@ function hfToast(message) {
 // is shared with the main app via localStorage) ─────────────────────────────
 const HFS = {
   en: {
+    dlResume: "Resume",
+    dlResuming: "Resuming…",
+    dlInterrupted: "Interrupted — {size} downloaded",
+    dlInterruptedNoManifest: "Interrupted — {size} on disk, source unknown",
     treeQuants: "Quantized versions",
     treeSiblings: "Other quants of {base}",
     tokenNotSet: "not set — gated models unavailable",
@@ -49,6 +53,10 @@ const HFS = {
     a11yInterfaceLanguage: "Interface language",
   },
   ru: {
+    dlResume: "Возобновить",
+    dlResuming: "Возобновление…",
+    dlInterrupted: "Прервано — загружено {size}",
+    dlInterruptedNoManifest: "Прервано — на диске {size}, источник неизвестен",
     treeQuants: "Квантованные версии",
     treeSiblings: "Другие кванты {base}",
     tokenNotSet: "не задан — закрытые модели недоступны",
@@ -77,6 +85,10 @@ const HFS = {
     a11yInterfaceLanguage: "Язык интерфейса",
   },
   zh: {
+    dlResume: "继续",
+    dlResuming: "正在继续…",
+    dlInterrupted: "已中断 — 已下载 {size}",
+    dlInterruptedNoManifest: "已中断 — 磁盘上有 {size}，来源未知",
     treeQuants: "量化版本",
     treeSiblings: "{base} 的其他量化版本",
     tokenNotSet: "未设置 — 无法访问受限模型",
@@ -113,6 +125,10 @@ const HFS = {
     a11yInterfaceLanguage: "界面语言",
   },
   hi: {
+    dlResume: "जारी रखें",
+    dlResuming: "जारी हो रहा है…",
+    dlInterrupted: "बाधित — {size} डाउनलोड हुआ",
+    dlInterruptedNoManifest: "बाधित — डिस्क पर {size}, स्रोत अज्ञात",
     treeQuants: "क्वांटाइज़्ड संस्करण",
     treeSiblings: "{base} के अन्य क्वांट",
     tokenNotSet: "सेट नहीं — गेटेड मॉडल अनुपलब्ध",
@@ -149,6 +165,10 @@ const HFS = {
     a11yInterfaceLanguage: "इंटरफ़ेस भाषा",
   },
   es: {
+    dlResume: "Reanudar",
+    dlResuming: "Reanudando…",
+    dlInterrupted: "Interrumpido — {size} descargados",
+    dlInterruptedNoManifest: "Interrumpido — {size} en disco, origen desconocido",
     treeQuants: "Versiones cuantizadas",
     treeSiblings: "Otras cuantizaciones de {base}",
     tokenNotSet: "no definido — modelos con acceso restringido no disponibles",
@@ -185,6 +205,10 @@ const HFS = {
     a11yInterfaceLanguage: "Idioma de la interfaz",
   },
   fr: {
+    dlResume: "Reprendre",
+    dlResuming: "Reprise…",
+    dlInterrupted: "Interrompu — {size} téléchargés",
+    dlInterruptedNoManifest: "Interrompu — {size} sur le disque, source inconnue",
     treeQuants: "Versions quantifiées",
     treeSiblings: "Autres quantifications de {base}",
     tokenNotSet: "non défini — modèles à accès restreint indisponibles",
@@ -221,6 +245,10 @@ const HFS = {
     a11yInterfaceLanguage: "Langue de l'interface",
   },
   ar: {
+    dlResume: "استئناف",
+    dlResuming: "جارٍ الاستئناف…",
+    dlInterrupted: "انقطع — تم تنزيل {size}",
+    dlInterruptedNoManifest: "انقطع — {size} على القرص، المصدر غير معروف",
     treeQuants: "إصدارات مكمّمة",
     treeSiblings: "تكميمات أخرى لـ {base}",
     tokenNotSet: "غير مضبوط — النماذج المقيدة غير متاحة",
@@ -257,6 +285,10 @@ const HFS = {
     a11yInterfaceLanguage: "لغة الواجهة",
   },
   bn: {
+    dlResume: "পুনরায় শুরু",
+    dlResuming: "পুনরায় শুরু হচ্ছে…",
+    dlInterrupted: "বাধাপ্রাপ্ত — {size} ডাউনলোড হয়েছে",
+    dlInterruptedNoManifest: "বাধাপ্রাপ্ত — ডিস্কে {size}, উৎস অজানা",
     treeQuants: "কোয়ান্টাইজড সংস্করণ",
     treeSiblings: "{base}-এর অন্যান্য কোয়ান্ট",
     tokenNotSet: "সেট করা নেই — গেটেড মডেল অনুপলব্ধ",
@@ -293,6 +325,10 @@ const HFS = {
     a11yInterfaceLanguage: "ইন্টারফেসের ভাষা",
   },
   pt: {
+    dlResume: "Retomar",
+    dlResuming: "Retomando…",
+    dlInterrupted: "Interrompido — {size} baixados",
+    dlInterruptedNoManifest: "Interrompido — {size} no disco, origem desconhecida",
     treeQuants: "Versões quantizadas",
     treeSiblings: "Outras quantizações de {base}",
     tokenNotSet: "não definido — modelos restritos indisponíveis",
@@ -329,6 +365,10 @@ const HFS = {
     a11yInterfaceLanguage: "Idioma da interface",
   },
   ja: {
+    dlResume: "再開",
+    dlResuming: "再開中…",
+    dlInterrupted: "中断 — {size} をダウンロード済み",
+    dlInterruptedNoManifest: "中断 — ディスク上に {size}、取得元は不明",
     treeQuants: "量子化バージョン",
     treeSiblings: "{base} の他の量子化版",
     tokenNotSet: "未設定 — ゲート付きモデルは利用できません",
@@ -365,6 +405,10 @@ const HFS = {
     a11yInterfaceLanguage: "インターフェース言語",
   },
   de: {
+    dlResume: "Fortsetzen",
+    dlResuming: "Wird fortgesetzt…",
+    dlInterrupted: "Unterbrochen — {size} heruntergeladen",
+    dlInterruptedNoManifest: "Unterbrochen — {size} auf dem Datenträger, Quelle unbekannt",
     treeQuants: "Quantisierte Versionen",
     treeSiblings: "Weitere Quantisierungen von {base}",
     tokenNotSet: "nicht gesetzt — zugangsbeschränkte Modelle nicht verfügbar",
@@ -401,6 +445,10 @@ const HFS = {
     a11yInterfaceLanguage: "Oberflächensprache",
   },
   id: {
+    dlResume: "Lanjutkan",
+    dlResuming: "Melanjutkan…",
+    dlInterrupted: "Terhenti — {size} terunduh",
+    dlInterruptedNoManifest: "Terhenti — {size} di disk, sumber tidak diketahui",
     treeQuants: "Versi terkuantisasi",
     treeSiblings: "Kuantisasi lain dari {base}",
     tokenNotSet: "belum disetel — model tertutup tidak tersedia",
@@ -437,6 +485,10 @@ const HFS = {
     a11yInterfaceLanguage: "Bahasa antarmuka",
   },
   ur: {
+    dlResume: "دوبارہ شروع",
+    dlResuming: "دوبارہ شروع ہو رہا ہے…",
+    dlInterrupted: "منقطع — {size} ڈاؤن لوڈ ہو چکا",
+    dlInterruptedNoManifest: "منقطع — ڈسک پر {size}، ماخذ نامعلوم",
     treeQuants: "کوانٹائزڈ ورژن",
     treeSiblings: "{base} کے دیگر کوانٹس",
     tokenNotSet: "سیٹ نہیں — گیٹڈ ماڈلز دستیاب نہیں",
@@ -473,6 +525,10 @@ const HFS = {
     a11yInterfaceLanguage: "انٹرفیس کی زبان",
   },
   tr: {
+    dlResume: "Sürdür",
+    dlResuming: "Sürdürülüyor…",
+    dlInterrupted: "Kesildi — {size} indirildi",
+    dlInterruptedNoManifest: "Kesildi — diskte {size}, kaynak bilinmiyor",
     treeQuants: "Nicemlenmiş sürümler",
     treeSiblings: "{base} için diğer nicemlemeler",
     tokenNotSet: "ayarlanmadı — kısıtlı modeller kullanılamaz",
@@ -509,6 +565,10 @@ const HFS = {
     a11yInterfaceLanguage: "Arayüz dili",
   },
   ko: {
+    dlResume: "이어받기",
+    dlResuming: "이어받는 중…",
+    dlInterrupted: "중단됨 — {size} 다운로드됨",
+    dlInterruptedNoManifest: "중단됨 — 디스크에 {size}, 출처 알 수 없음",
     treeQuants: "양자화 버전",
     treeSiblings: "{base}의 다른 양자화 버전",
     tokenNotSet: "설정 안 됨 — 게이트된 모델 사용 불가",
@@ -545,6 +605,10 @@ const HFS = {
     a11yInterfaceLanguage: "인터페이스 언어",
   },
   vi: {
+    dlResume: "Tiếp tục",
+    dlResuming: "Đang tiếp tục…",
+    dlInterrupted: "Đã gián đoạn — đã tải {size}",
+    dlInterruptedNoManifest: "Đã gián đoạn — {size} trên đĩa, không rõ nguồn",
     treeQuants: "Phiên bản lượng tử hóa",
     treeSiblings: "Các bản lượng tử hóa khác của {base}",
     tokenNotSet: "chưa đặt — không dùng được các mô hình bị khóa",
@@ -581,6 +645,10 @@ const HFS = {
     a11yInterfaceLanguage: "Ngôn ngữ giao diện",
   },
   it: {
+    dlResume: "Riprendi",
+    dlResuming: "Ripresa in corso…",
+    dlInterrupted: "Interrotto — {size} scaricati",
+    dlInterruptedNoManifest: "Interrotto — {size} su disco, origine sconosciuta",
     treeQuants: "Versioni quantizzate",
     treeSiblings: "Altre quantizzazioni di {base}",
     tokenNotSet: "non impostato — modelli gated non disponibili",
@@ -617,6 +685,10 @@ const HFS = {
     a11yInterfaceLanguage: "Lingua dell'interfaccia",
   },
   te: {
+    dlResume: "కొనసాగించు",
+    dlResuming: "కొనసాగిస్తోంది…",
+    dlInterrupted: "అంతరాయం — {size} డౌన్‌లోడ్ అయింది",
+    dlInterruptedNoManifest: "అంతరాయం — డిస్క్‌లో {size}, మూలం తెలియదు",
     treeQuants: "క్వాంటైజ్డ్ వెర్షన్లు",
     treeSiblings: "{base} ఇతర క్వాంట్లు",
     tokenNotSet: "సెట్ కాలేదు — గేటెడ్ మోడల్‌లు అందుబాటులో లేవు",
@@ -653,6 +725,10 @@ const HFS = {
     a11yInterfaceLanguage: "ఇంటర్‌ఫేస్ భాష",
   },
   mr: {
+    dlResume: "पुन्हा सुरू",
+    dlResuming: "पुन्हा सुरू करत आहे…",
+    dlInterrupted: "व्यत्यय — {size} डाउनलोड झाले",
+    dlInterruptedNoManifest: "व्यत्यय — डिस्कवर {size}, स्रोत अज्ञात",
     treeQuants: "क्वांटाइज्ड आवृत्त्या",
     treeSiblings: "{base} च्या इतर क्वांट आवृत्त्या",
     tokenNotSet: "सेट केलेले नाही — गेटेड मॉडेल्स अनुपलब्ध",
@@ -689,6 +765,10 @@ const HFS = {
     a11yInterfaceLanguage: "इंटरफेस भाषा",
   },
   ta: {
+    dlResume: "தொடர்க",
+    dlResuming: "தொடர்கிறது…",
+    dlInterrupted: "தடைபட்டது — {size} பதிவிறக்கப்பட்டது",
+    dlInterruptedNoManifest: "தடைபட்டது — வட்டில் {size}, மூலம் தெரியவில்லை",
     treeQuants: "குவாண்டைஸ் பதிப்புகள்",
     treeSiblings: "{base} இன் பிற குவாண்ட்கள்",
     tokenNotSet: "அமைக்கப்படவில்லை — கேட் செய்யப்பட்ட மாதிரிகள் கிடைக்காது",
@@ -1815,6 +1895,8 @@ let dlJobSeq = 0;
 // jobs still running on the server (their download threads outlive the page).
 // Only live jobs are stored; done / error / cancelled ones are dropped.
 const DL_STORE_KEY = "hfDlJobs";
+// Orphaned ".part" files reported by the server, newest scan wins.
+let interruptedRows = [];
 function saveDlJobs() {
   try {
     const live = dlJobs
@@ -1830,7 +1912,12 @@ async function restoreDlJobs() {
   try {
     const r = await fetch("/api/hf/download/jobs").then(x => x.json());
     if (r && r.ok && Array.isArray(r.jobs)) {
-      jobs = r.jobs.map(j => ({ jobId: j.jobId, title: j.title, totalFiles: j.total_files }));
+      // A partial with no live job behind it is not pollable — there is no
+      // thread to ask. It is a standing report of an interrupted download,
+      // rendered from what the scan already told us.
+      interruptedRows = r.jobs.filter(j => j.status === "interrupted");
+      jobs = r.jobs.filter(j => j.status !== "interrupted")
+                   .map(j => ({ jobId: j.jobId, title: j.title, totalFiles: j.total_files }));
     }
   } catch (_) {}
   if (!jobs) {
@@ -1861,8 +1948,33 @@ function refreshDownloadPanel() {
 
   const hasSelection = allFiles.length > 0;
   const hasJobs = dlJobs.length > 0;
+  const hasInterrupted = interruptedRows.length > 0;
 
-  if (!hasSelection && !hasJobs) { dlPanel.hidden = true; dlPanel.innerHTML = ""; return; }
+  if (!hasSelection && !hasJobs && !hasInterrupted) { dlPanel.hidden = true; dlPanel.innerHTML = ""; return; }
+
+  // ── interrupted partials (a restart cut these off) ──
+  let interruptedHTML = "";
+  for (const row of interruptedRows) {
+    const done  = row.total_bytes_done || 0;
+    const total = row.total_bytes || 0;
+    const pct   = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
+    const size  = total > 0 ? `${fmtBytes(done)} / ${fmtBytes(total)}` : fmtBytes(done);
+    const btn = row.resumable
+      ? `<button class="hf-dl-btn" data-action="resume-part" data-dest="${escapeHtml(row.destDir || "")}"` +
+        ` data-name="${escapeHtml(row.current_file || "")}" data-t="hf-download-resume"` +
+        ` data-t-id="${escapeHtml(row.current_file || "")}">${escapeHtml(hfT("dlResume"))}</button>`
+      : "";
+    interruptedHTML +=
+      `<div class="hf-dl-progress-row" data-t="hf-download-interrupted" data-t-id="${escapeHtml(row.current_file || "")}" style="display:flex;align-items:center;gap:10px">` +
+        `<div style="flex:1;min-width:0">` +
+          `<div class="hf-dl-job-title" style="font-size:12px;opacity:.75;margin-bottom:2px">${escapeHtml(row.title || "")}</div>` +
+          `<div class="hf-progress-bar"><div class="hf-progress-fill hf-dl-interrupted-fill" style="width:${pct}%"></div></div>` +
+          `<div class="hf-progress-label hf-dl-error" style="margin-top:3px">${
+            escapeHtml(hfT(row.resumable ? "dlInterrupted" : "dlInterruptedNoManifest", { file: row.current_file || "", size }))}</div>` +
+        `</div>` +
+        btn +
+      `</div>`;
+  }
 
   // ── active job progress sections (one row per concurrent download) ──
   let progressHTML = "";
@@ -1910,7 +2022,7 @@ function refreshDownloadPanel() {
       `</div>`;
   }
 
-  dlPanel.innerHTML = progressHTML + selectionHTML;
+  dlPanel.innerHTML = interruptedHTML + progressHTML + selectionHTML;
   dlPanel.hidden = false;
 
   dlPanel.querySelector("[data-expand]")?.addEventListener("click", () => {
@@ -1918,6 +2030,34 @@ function refreshDownloadPanel() {
     const btn  = dlPanel.querySelector("[data-expand]");
     body.hidden = !body.hidden;
     btn.textContent = body.hidden ? "▼ details" : "▲ hide";
+  });
+
+  dlPanel.querySelectorAll("[data-action=resume-part]").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      btn.disabled = true;
+      const destDir = btn.getAttribute("data-dest") || "";
+      const name = btn.getAttribute("data-name") || "";
+      try {
+        const r = await fetch("/api/hf/download/resume", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ destDir, name }),
+        }).then(x => x.json());
+        if (!r || !r.ok) throw new Error((r && r.error) || "resume failed");
+        // The row becomes a live job: drop it from the interrupted list so the
+        // same partial is not shown twice while the new job reports progress.
+        interruptedRows = interruptedRows.filter(x => x.current_file !== name);
+        const job = {
+          uid: "dlj" + (++dlJobSeq), jobId: r.jobId, title: name,
+          totalFiles: 1, pct: 0, labelText: hfT("dlResuming"), labelCls: "", cancelled: false,
+        };
+        dlJobs.push(job);
+        pollDownload(job);
+      } catch (err) {
+        btn.disabled = false;
+        hfToast(String(err.message || err));
+      }
+      refreshDownloadPanel();
+    });
   });
 
   dlPanel.querySelectorAll("[data-action=cancel-job]").forEach(btn => {

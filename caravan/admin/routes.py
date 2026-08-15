@@ -290,7 +290,9 @@ from caravan.admin.benchmarks import (
     hf_get_benchmarks,
     hf_get_reference_models,
 )
-from caravan.admin.downloads import _download_jobs, _download_jobs_lock, start_hf_download
+from caravan.admin.downloads import (_download_jobs, _download_jobs_lock,
+                                    resume_interrupted_download,
+                                    scan_interrupted_downloads, start_hf_download)
 from caravan.admin.terminal import terminal_frame_to_html, terminal_frame_to_text
 from caravan.admin.models import (
     detect_family,
@@ -457,6 +459,13 @@ def _get_api_hf_download_jobs(h, parsed):
                 _download_jobs.pop(_k, None)
             _jobs = [{"jobId": k, **v} for k, v in _download_jobs.items()
                      if v.get("status") != "done"]
+        # Partials with no running job behind them: a download the service was
+        # restarted out from under. Reporting them is the difference between
+        # "interrupted at 15 of 39 GB" and a blank panel that reads as success.
+        try:
+            _jobs += scan_interrupted_downloads(str(models_dir_from_config(parse_config())))
+        except Exception:
+            pass  # the live list must survive a bad models dir
         h.send_json({"ok": True, "jobs": _jobs})
         return
 
@@ -893,6 +902,23 @@ def _post_api_hf_download(h, parsed, body):
         _models_dir = str(models_dir_from_config(parse_config()))
         _token = admin_state.get("hfToken") or ""
         _jid = start_hf_download(_repo, _files, _models_dir, _token)
+        h.send_json({"ok": True, "jobId": _jid})
+        return
+
+@_route(POST_ROUTES, '/api/hf/download/resume')
+def _post_api_hf_download_resume(h, parsed, body):
+        _dd = str(body.get("destDir") or "").strip()
+        _name = str(body.get("name") or "").strip()
+        if not _dd or not _name:
+            h.send_json({"ok": False, "error": "missing destDir or name"})
+            return
+        _models_dir = str(models_dir_from_config(parse_config()))
+        _token = admin_state.get("hfToken") or ""
+        try:
+            _jid = resume_interrupted_download(_models_dir, _token, _dd, _name)
+        except ValueError as exc:
+            h.send_json({"ok": False, "error": str(exc)})
+            return
         h.send_json({"ok": True, "jobId": _jid})
         return
 
