@@ -46,6 +46,8 @@ COMPOSED = {
     "cell-source-stale": "topology-nodes.js: mbadge(..., 'cell-source-stale')",
     # static/hf.js — set through dataset.t on a constructed element
     "hf-result": "hf.js: buildRepoRow sets div.dataset.t",
+    # static/js/form.js — one per config tab, set on the constructed button
+    "cell-config-tab": "form.js: renderFields sets data-t on each tab button",
 }
 
 LITERAL = re.compile(r'data-t="([a-z][a-z0-9-]*)"')

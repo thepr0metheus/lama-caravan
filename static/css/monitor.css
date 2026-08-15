@@ -893,6 +893,10 @@
   white-space: nowrap;
 }
 .advanced-tab-btn:hover { color: var(--text); }
+/* Eleven tabs need a way to see which ones this cell actually touches. */
+.advanced-tab-btn.has-values::after { content: "";
+  display: inline-block; width: 5px; height: 5px; margin-left: 5px;
+  border-radius: 50%; background: var(--accent); vertical-align: middle; }
 .advanced-tab-btn.active {
   color: var(--accent);
   border-bottom-color: var(--accent);

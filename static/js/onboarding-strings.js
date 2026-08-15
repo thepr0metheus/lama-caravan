@@ -54,7 +54,7 @@ en: {
   tourCfgComputeT: "CPU or GPU",
   tourCfgComputeB: "Where this cell computes. <b>GPU</b> uses the selected card's VRAM; <b>CPU</b> keeps the GPU free (fine for small/quantized models or embedding workloads). The memory estimate and the command flags follow this choice.",
   tourCfgTabsT: "All the flags, sorted",
-  tourCfgTabsB: "<b>Favorites</b> collects the fields you starred (★) plus <code>EXTRA_ARGS</code> for anything not covered by a field — raw flags appended to the command. <b>Params / Inference / Hardware / Server</b> group every llama-server option with an explanation each.",
+  tourCfgTabsB: "<b>Favorites</b> collects the fields you starred (★) plus <code>EXTRA_ARGS</code> for anything not covered by a field — raw flags appended to the command. The eleven topic tabs after it — <b>Basics, Performance, Speculation, Memory &amp; KV, Placement, Context &amp; RoPE, Chat &amp; reasoning, Vision, Embeddings, Access, Tools &amp; service</b> — hold every llama-server option, with an explanation each. A dot on a tab means this cell sets something there.",
   tourCfgBackupsT: "Backups",
   tourCfgBackupsB: "Every save is versioned. The list shows previous configs of this cell — one click restores, so experiments are free.",
   tourCfgModelT: "Model",

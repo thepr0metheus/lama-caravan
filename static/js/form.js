@@ -3,7 +3,6 @@ import { effectiveModelsDir, renderCommandPreview } from "./command-preview.js";
 import {
   advancedGroups,
   advancedTabDefs,
-  basicFields,
   defaultOnOptionalToggles,
   dirtyOptionalToggles,
   fieldChoices,
@@ -1363,39 +1362,39 @@ export function renderFields(pfx = "") {
   favPanel.appendChild(favMirrors);
   body.appendChild(favPanel);
 
-  // Tab 0: Params — basic launch fields
-  const paramsBtn = document.createElement("button");
-  paramsBtn.className = "advanced-tab-btn" + (favActive ? "" : " active");
-  paramsBtn.type = "button";
-  paramsBtn.textContent = t("tabParams");
-  paramsBtn.dataset.i18n = "tabParams";
-  paramsBtn.dataset.advTab = "0";
-  bar.appendChild(paramsBtn);
-
-  const paramsPanel = document.createElement("div");
-  paramsPanel.className = "advanced-tab-panel" + (favActive ? "" : " active");
-  paramsPanel.dataset.advPanel = "0";
-  const paramsGrid = document.createElement("div");
-  paramsGrid.className = "advanced-grid";
-  basicFields.forEach((field) => paramsGrid.appendChild(renderField(field, pfx)));
-  paramsPanel.appendChild(paramsGrid);
-  // EXTRA_ARGS now lives pinned at the top of the Favorites tab (built above).
-  body.appendChild(paramsPanel);
-
-  // Tabs 1-3: Inference / Hardware / Server
+  // Tabs 0-10: every field lives in a group now, and every group in a tab.
+  // The old hardcoded "Params" tab (a flat basicFields list) is gone — its
+  // fields were dissolved into Basics / Performance / Memory / Tools&Service,
+  // so a field has exactly one home and the tab bar reads as a list of
+  // questions rather than three catch-alls.
+  // EXTRA_ARGS stays pinned at the top of the Favorites tab (built above).
   advancedTabDefs.forEach((tab, i) => {
-    const idx = i + 1;
+    const idx = i;
     const btn = document.createElement("button");
-    btn.className = "advanced-tab-btn";
+    btn.className = "advanced-tab-btn" + (!favActive && idx === 0 ? " active" : "");
     btn.type = "button";
     btn.textContent = t(tab.key);
     btn.dataset.i18n = tab.key;
     btn.dataset.advTab = String(idx);
+    // Literal data-t so the contract scanner (scripts/testability_names.py,
+    // which greps for data-t="…") sees it — a dataset assignment is invisible
+    // to it, and an unseen hook is one the E2E suite cannot rely on.
+    btn.setAttribute("data-t", "cell-config-tab");
+    btn.setAttribute("data-t-id", tab.key);
     bar.appendChild(btn);
 
     const panel = document.createElement("div");
-    panel.className = "advanced-tab-panel";
+    panel.className = "advanced-tab-panel" + (!favActive && idx === 0 ? " active" : "");
     panel.dataset.advPanel = String(idx);
+
+    // A dot on the tab when any of its fields carries a value: with eleven tabs
+    // the operator must see WHERE this cell differs from a vanilla one without
+    // opening each in turn.
+    const tabFields = tab.groups.flatMap((gk) =>
+      advancedGroups.find((g) => g.titleKey === gk)?.fields || []);
+    if (tabFields.some((f) => String(state.config[f] ?? "").trim() !== "")) {
+      btn.classList.add("has-values");
+    }
 
     tab.groups.forEach((groupKey) => {
       const group = advancedGroups.find((g) => g.titleKey === groupKey);

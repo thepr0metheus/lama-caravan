@@ -41,6 +41,23 @@ fi
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 [ "$BRANCH" = "main" ] || { echo "deploy: on '$BRANCH', not main" >&2; exit 1; }
 
+# The repo's own guards, run HERE rather than trusted to whoever remembers.
+# They existed and passed in CI, but CI reports minutes after the deploy has
+# already shipped: a missing i18n key reached production this way (a stale
+# translation label renders as its raw key, in every locale at once). Cheap
+# checks, and they gate the push instead of narrating it afterwards.
+for guard in check_messages_i18n check_i18n_calls testability_names check_boot_guard; do
+  script="scripts/${guard}.py"
+  [ -f "$script" ] || continue
+  args=""; [ "$guard" = "testability_names" ] && args="--check"
+  # shellcheck disable=SC2086
+  python3 "$script" $args >/dev/null 2>&1 || {
+    echo "deploy: guard failed — $script" >&2
+    python3 "$script" $args >&2
+    exit 1
+  }
+done
+
 VERSION=$(python3 -c 'import sys; sys.path.insert(0, "."); import caravan; print(caravan.__version__)')
 COMMIT=$(git rev-parse --short HEAD)
 echo "deploy: $VERSION ($COMMIT) → $HOST"

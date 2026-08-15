@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- The cell config form is reorganised from four tabs into eleven topic ones:
+  Basics, Performance, Speculation, Memory & KV, Placement, Context & RoPE,
+  Chat & reasoning, Vision, Embeddings, Access, Tools & service. The old
+  Server tab had grown into a bin of eight unrelated groups, and the flat
+  "Params" list mixed the endpoint with thread counts and KV types.
+
+  Every one of the 87 fields keeps exactly one home — the regrouping ran under
+  a check that refuses to write if a field is lost or duplicated. Nothing is
+  renamed, no saved config is touched, the backend is untouched: this is
+  purely where a field is *shown*. Speculation earning its own tab is the
+  clearest win — 17 of the fleet's 24 configured cells use it.
+
+  A dot on a tab marks where this cell actually sets something, so eleven tabs
+  do not mean eleven visits to find the two that differ from stock. Each tab
+  button carries `data-t="cell-config-tab"` with the tab key as `data-t-id`.
+
 - Typing a context size above the model's native window now engages the whole
   YaRN recipe by itself: `--rope-scaling yarn`, the computed factor,
   `--yarn-orig-ctx`, and the `--override-kv` that lifts llama-server's hard

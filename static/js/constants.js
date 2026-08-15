@@ -32,33 +32,42 @@ export const toggleFields = [
   "CONTEXT_SHIFT", "KV_UNIFIED", "REASONING_PRESERVE", "CACHE_IDLE_SLOTS", "MMPROJ_AUTO",
   "SWA_FULL", "ENABLE_RERANK", "CORS_CREDENTIALS"
 ];
-export const basicFields = [
-  "HOST", "PORT", "CTX_SIZE", "THREADS", "THREADS_BATCH", "BATCH_SIZE",
-  "UBATCH_SIZE", "PARALLEL", "N_GPU_LAYERS", "CACHE_TYPE_K", "CACHE_TYPE_V",
-  "ENABLE_JINJA", "ENABLE_FLASH_ATTN", "ENABLE_MLOCK", "ENABLE_METRICS",
-  "ENABLE_CONT_BATCHING", "ENABLE_WEBUI"
-];
 export const advancedGroups = [
-  { titleKey: "advancedGeneration", fields: ["N_PREDICT", "KEEP", "ENABLE_THINKING", "CONTEXT_SHIFT"] },
+  { titleKey: "grpEndpoint", fields: ["HOST", "PORT", "ALIAS", "API_PREFIX"] },
+  { titleKey: "grpRuntime", fields: ["CTX_SIZE", "N_GPU_LAYERS", "PARALLEL", "ENABLE_JINJA", "ENABLE_WEBUI"] },
+  { titleKey: "grpBatching", fields: ["THREADS", "THREADS_BATCH", "BATCH_SIZE", "UBATCH_SIZE", "ENABLE_CONT_BATCHING", "ENABLE_FLASH_ATTN"] },
+  { titleKey: "grpThroughput", fields: ["THREADS_HTTP", "TIMEOUT", "SLEEP_IDLE_SECONDS"] },
+  { titleKey: "grpCpu", fields: ["CPU_RANGE", "CPU_STRICT", "POLL", "NUMA"] },
   { titleKey: "advancedSpeculative", fields: ["SPEC_TYPE", "SPEC_DRAFT_N_GPU_LAYERS", "SPEC_DRAFT_N_MAX", "SPEC_DRAFT_N_MIN", "SPEC_DRAFT_P_MIN", "SPEC_DRAFT_CACHE_TYPE_K", "SPEC_DRAFT_CACHE_TYPE_V"] },
-  { titleKey: "advancedCpu", fields: ["CPU_RANGE", "CPU_STRICT", "POLL"] },
+  { titleKey: "grpKvCache", fields: ["CACHE_TYPE_K", "CACHE_TYPE_V", "KV_OFFLOAD", "KV_UNIFIED", "CTX_CHECKPOINTS", "SWA_FULL"] },
+  { titleKey: "advancedCache", fields: ["CACHE_PROMPT", "CACHE_REUSE", "CACHE_RAM", "CACHE_IDLE_SLOTS"] },
+  { titleKey: "advancedLoading", fields: ["LOAD_MODE", "MMAP", "ENABLE_MLOCK"] },
+  { titleKey: "grpDevices", fields: ["DEVICE", "MAIN_GPU", "SPLIT_MODE", "TENSOR_SPLIT", "N_CPU_MOE"] },
+  { titleKey: "grpAutofit", fields: ["FIT", "FIT_TARGET", "FIT_CTX"] },
   { titleKey: "advancedRope", fields: ["ROPE_SCALING", "ROPE_SCALE", "ROPE_FREQ_BASE", "ROPE_FREQ_SCALE"] },
-  { titleKey: "advancedGpu", fields: ["KV_OFFLOAD", "NUMA", "DEVICE", "SPLIT_MODE", "TENSOR_SPLIT", "MAIN_GPU", "N_CPU_MOE", "FIT", "FIT_TARGET", "FIT_CTX", "KV_UNIFIED"] },
-  { titleKey: "advancedServer", fields: ["ALIAS", "API_PREFIX", "TIMEOUT", "THREADS_HTTP", "ENABLE_PROPS", "ENABLE_SLOTS", "SLEEP_IDLE_SECONDS", "LOG_VERBOSITY"] },
-  { titleKey: "advancedCache", fields: ["CACHE_PROMPT", "CACHE_REUSE", "CACHE_RAM", "CACHE_IDLE_SLOTS", "CTX_CHECKPOINTS", "SWA_FULL"] },
+  { titleKey: "grpGeneration", fields: ["N_PREDICT", "KEEP", "CONTEXT_SHIFT"] },
+  { titleKey: "grpChatTemplate", fields: ["CHAT_TEMPLATE", "CHAT_TEMPLATE_KWARGS", "SKIP_CHAT_PARSING"] },
+  { titleKey: "advancedReasoning", fields: ["ENABLE_THINKING", "REASONING", "REASONING_FORMAT", "REASONING_BUDGET", "REASONING_PRESERVE"] },
+  { titleKey: "advancedVision", fields: ["IMAGE_MIN_TOKENS", "IMAGE_MAX_TOKENS", "MTMD_BATCH_MAX_TOKENS", "MMPROJ_AUTO"] },
+  { titleKey: "advancedEmbeddings", fields: ["ENABLE_EMBEDDINGS", "ENABLE_RERANK", "POOLING", "EMBD_NORMALIZE"] },
   { titleKey: "advancedNetwork", fields: ["API_KEY", "API_KEY_FILE", "SSL_CERT_FILE", "SSL_KEY_FILE"] },
   { titleKey: "advancedCors", fields: ["CORS_ORIGINS", "CORS_CREDENTIALS"] },
-  { titleKey: "advancedLoading", fields: ["LOAD_MODE", "MMAP"] },
-  { titleKey: "advancedVision", fields: ["IMAGE_MIN_TOKENS", "IMAGE_MAX_TOKENS", "MTMD_BATCH_MAX_TOKENS", "MMPROJ_AUTO"] },
-  { titleKey: "advancedReasoning", fields: ["REASONING", "REASONING_FORMAT", "REASONING_BUDGET", "REASONING_PRESERVE", "CHAT_TEMPLATE", "CHAT_TEMPLATE_KWARGS", "SKIP_CHAT_PARSING"] },
   { titleKey: "advancedTools", fields: ["ENABLE_TOOLS", "ENABLE_AGENT", "ENABLE_MCP_PROXY", "TOOLS_RUNTIME"] },
-  { titleKey: "advancedEmbeddings", fields: ["ENABLE_EMBEDDINGS", "ENABLE_RERANK", "POOLING", "EMBD_NORMALIZE"] },
+  { titleKey: "grpDiagnostics", fields: ["ENABLE_METRICS", "ENABLE_PROPS", "ENABLE_SLOTS", "LOG_VERBOSITY"] },
 ];
 
 export const advancedTabDefs = [
-  { key: "tabInference", groups: ["advancedGeneration", "advancedSpeculative"] },
-  { key: "tabHardware",  groups: ["advancedCpu", "advancedRope", "advancedGpu", "advancedLoading"] },
-  { key: "tabServer",    groups: ["advancedEmbeddings", "advancedServer", "advancedCache", "advancedNetwork", "advancedCors", "advancedVision", "advancedReasoning", "advancedTools"] },
+  { key: "tabBasics", groups: ["grpEndpoint", "grpRuntime"] },
+  { key: "tabPerformance", groups: ["grpBatching", "grpThroughput", "grpCpu"] },
+  { key: "tabSpeculation", groups: ["advancedSpeculative"] },
+  { key: "tabMemory", groups: ["grpKvCache", "advancedCache", "advancedLoading"] },
+  { key: "tabPlacement", groups: ["grpDevices", "grpAutofit"] },
+  { key: "tabContext", groups: ["advancedRope", "grpGeneration"] },
+  { key: "tabChat", groups: ["grpChatTemplate", "advancedReasoning"] },
+  { key: "tabVision", groups: ["advancedVision"] },
+  { key: "tabEmbeddings", groups: ["advancedEmbeddings"] },
+  { key: "tabAccess", groups: ["advancedNetwork", "advancedCors"] },
+  { key: "tabToolsService", groups: ["advancedTools", "grpDiagnostics"] },
 ];
 // EXTRA_ARGS (manual raw-flags escape hatch) is rendered separately on the
 // default Params tab for visibility — see renderFields().

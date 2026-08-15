@@ -206,7 +206,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 174 values. Regenerate with
+Generated from the source, not from memory — 175 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Fourteen of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -222,7 +222,7 @@ that is why there is a script and not a one-liner.
 **login** — `login-error`, `login-form`, `login-lang`, `login-password`, `login-submit`, `login-username`
 **models** — `models-delete-selected`, `models-hero-stats`, `models-model-select`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-unused-select-all`
 **node** — `node-poweroff`, `node-power-schedule`, `node-reboot`
-**host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `hf-download-interrupted`, `hf-download-resume`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `host-power-schedule-save`
+**host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `hf-download-interrupted`, `hf-download-resume`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
 **setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
 **system** — `system-controller-info`, `system-diag-checks`, `system-diag-service-repair`, `system-gc-close`, `system-gc-delete`, `system-gc-list`, `system-gc-modal`, `system-gc-open`, `system-gc-select-all`, `system-gc-selected`, `system-gc-summary`, `system-hero-stats`, `system-llama-build-update`, `system-llama-builds`, `system-llama-summary`, `system-llama-update-log`, `system-llama-versions-check`, `system-security-info`, `system-security-logout`, `system-tab-controller`, `system-tab-diag`, `system-tab-llama`, `system-tab-security`, `system-vllm-list`
 
