@@ -26,6 +26,7 @@ TRANSLATION_ALLOWLIST = {
     "appAcronym",              # the LAMA CARAVAN acronym expansion — English by design
     "topologyServerSection",   # brand string "LAMA CARAVAN Server"
     "tmPromptGenTps",          # "prompt / gen t/s" — all identifiers, identical in latin locales
+    "yarnChipAuto",            # "YaRN auto ×{factor}" — 'auto' is the same word in es/fr/pt/de/id/it
     "rtTitleOutputServer",     # "Output → server" — literally the same words in it/id
 }
 

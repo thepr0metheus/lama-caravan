@@ -1392,6 +1392,21 @@
 .hps-warn { color: var(--muted); font-size: 12px; margin: 2px 0 12px; }
 .hps-next { color: var(--accent); font-size: 12px; margin: 6px 0 0; min-height: 15px; }
 .ctx-yarn-hint { color: var(--accent); font-size: 12px; margin: 4px 0 0; }
+/* CTX_SIZE gets double width (pushing THREADS onward) and an inline YaRN chip:
+   the state must be readable at the field, not buried in a fine-print line.
+   auto = the builder derives the recipe; manual = explicit ROPE_* fields win. */
+.field.ctx-size-field { grid-column: span 2; }
+.ctx-size-row { display: flex; align-items: center; gap: 8px; }
+.ctx-size-row input { flex: 1; min-width: 0; }
+.yarn-chip { flex: none; font-size: 11px; font-weight: 600; letter-spacing: .02em;
+  padding: 4px 10px; border-radius: 999px; cursor: pointer;
+  border: 1px solid transparent; background: transparent; }
+.yarn-chip.auto { color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.yarn-chip.manual { color: #e5a50a;
+  border-color: color-mix(in srgb, #e5a50a 45%, transparent);
+  background: color-mix(in srgb, #e5a50a 12%, transparent); }
 /* Break between the legacy occupied strip (pre-migration numbers kept visible)
    and the fleet's configured range in the port-picker grid. */
 .port-grid-divider { grid-column: 1 / -1; height: 0;

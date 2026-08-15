@@ -98,21 +98,63 @@ export function option(path, label, selected) {
 // the placeholder's only writer.
 export function updateCtxYarnHint(pfx) {
   const ctxEl = $(pfx + "CTX_SIZE");
-  const hint = ctxEl?.parentElement?.querySelector(".ctx-yarn-hint");
+  const field = ctxEl?.closest(".field");
+  const hint = field?.querySelector(".ctx-yarn-hint");
+  const chip = field?.querySelector(".yarn-chip");
   if (!ctxEl || !hint) return;
   const modelVal = $(pfx + "MODEL_FILE")?.value || "";
   const native = Number(modelsByPath().get(modelVal)?.ggufMeta?.contextLength || 0)
     || Number(ctxEl.placeholder || 0);
   if (native > 0) ctxEl.placeholder = String(native);
   const val = Number(ctxEl.value || 0);
-  if (native > 0 && val > native) {
-    const factor = Math.ceil((val / native) * 100) / 100;
+  const manual = !!($(pfx + "ROPE_SCALING")?.value || "").trim();
+  const above = native > 0 && val > native;
+  const factor = above ? Math.ceil((val / native) * 100) / 100 : 0;
+  if (above && !manual) {
     hint.textContent = t("ctxYarnAutoHint", { native: String(native), factor: String(factor) });
     hint.hidden = false;
   } else {
     hint.hidden = true;
     hint.textContent = "";
   }
+  if (chip) {
+    if (manual) {
+      chip.hidden = false;
+      chip.className = "yarn-chip manual";
+      chip.textContent = t("yarnChipManual");
+      chip.title = t("yarnChipManualTitle");
+    } else if (above) {
+      chip.hidden = false;
+      chip.className = "yarn-chip auto";
+      chip.textContent = t("yarnChipAuto", { factor: String(factor) });
+      chip.title = t("yarnChipAutoTitle");
+    } else {
+      chip.hidden = true;
+    }
+  }
+}
+
+// The chip's click: AUTO -> MANUAL materialises the derived values into the
+// ROPE_* fields (so the operator can see and edit them); MANUAL -> AUTO clears
+// them, handing the recipe back to the builder.
+export function toggleYarnMode(pfx) {
+  const ctxEl = $(pfx + "CTX_SIZE");
+  const scalingEl = $(pfx + "ROPE_SCALING");
+  const scaleEl = $(pfx + "ROPE_SCALE");
+  if (!ctxEl || !scalingEl) return;
+  if ((scalingEl.value || "").trim()) {
+    scalingEl.value = "";
+    if (scaleEl) scaleEl.value = "";
+  } else {
+    const native = Number(ctxEl.placeholder || 0);
+    const val = Number(ctxEl.value || 0);
+    if (!(native > 0 && val > native)) return;
+    scalingEl.value = "yarn";
+    if (scaleEl) scaleEl.value = String(Math.ceil((val / native) * 100) / 100);
+  }
+  scalingEl.dispatchEvent(new Event("change", { bubbles: true }));
+  updateCtxYarnHint(pfx);
+  renderCommandPreview(pfx);
 }
 
 export function modelsByPath() {
@@ -1008,14 +1050,24 @@ export function renderField(field, pfx = "") {
       });
     });
   } else if (field === "CTX_SIZE") {
+    // Wider than a normal field, with a live YaRN chip beside the input: the
+    // fine-print hint alone was invisible in this dense grid — the operator
+    // typed 300000 and saw nothing change. The chip is also a real toggle
+    // between the two modes: AUTO (the builder derives the recipe) and MANUAL
+    // (explicit ROPE_* fields, which always win over the automation).
+    div.classList.add("ctx-size-field");
     div.innerHTML = `
       ${labelRow}
-      <input id="${fid}" name="${field}" value="${escapeHtml(state.config[field] || "")}">
+      <div class="ctx-size-row">
+        <input id="${fid}" name="${field}" value="${escapeHtml(state.config[field] || "")}">
+        <button type="button" class="yarn-chip" id="${fid}-yarn-chip" data-t="cell-yarn-chip" hidden></button>
+      </div>
       <p class="ctx-yarn-hint" data-t="cell-ctx-yarn-hint" hidden></p>
       <p>${help}</p>
     `;
     const input = div.querySelector("input");
     input.addEventListener("input", () => { updateCtxYarnHint(pfx); renderModelInsight(pfx); });
+    div.querySelector(".yarn-chip").addEventListener("click", () => toggleYarnMode(pfx));
   } else {
     // Fields with a closed value set get a datalist: every legal value becomes
     // discoverable without taking away free text, so a value llama.cpp adds
@@ -1030,7 +1082,10 @@ export function renderField(field, pfx = "") {
         choices.map((v) => `<option value="${escapeHtml(v)}"></option>`).join("")}</datalist>` : ""}
       <p>${help}</p>
     `;
-    div.querySelector("input")?.addEventListener("input", () => renderModelInsight(pfx));
+    div.querySelector("input")?.addEventListener("input", () => {
+      if (field === "ROPE_SCALING" || field === "ROPE_SCALE") updateCtxYarnHint(pfx);
+      renderModelInsight(pfx);
+    });
   }
   attachFavStar(div, field, pfx);
   return div;
