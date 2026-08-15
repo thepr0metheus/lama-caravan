@@ -5,6 +5,7 @@ CONFIG_FIELDS names and the marker lines are a contract with
 scripts/start-server.sh — never rename them here alone.
 """
 import json
+import math
 import re
 import shlex
 from pathlib import Path
@@ -605,12 +606,65 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
         args.append("--ui-mcp-proxy")
 
     # Fallback: raw extra flags typed in the admin UI, appended verbatim.
+    extra_raw = str(c.get("EXTRA_ARGS") or "")
     if has("EXTRA_ARGS"):
         try:
-            args += shlex.split(str(c["EXTRA_ARGS"]))
+            args += shlex.split(extra_raw)
         except ValueError:
-            args += str(c["EXTRA_ARGS"]).split()
+            args += extra_raw.split()
+
+    # ── Auto-YaRN: a context above the model's native window engages the whole
+    # recipe by itself. The operator types CTX_SIZE=300000 against a 262144
+    # model and gets --rope-scaling yarn, the computed factor, --yarn-orig-ctx,
+    # and the --override-kv that lifts llama-server's HARD slot cap at
+    # n_ctx_train (server-context.cpp) — the one piece nobody could know from
+    # the UI, measured live: without it 300000 silently became 262144.
+    # Explicit ROPE_* fields and EXTRA_ARGS spellings always win: this block
+    # only fills flags the operator did not state.
+    args += _auto_yarn_args(c, model_path, args_present=args, extra_raw=extra_raw)
     return args
+
+
+def _auto_yarn_args(c, model_path, *, args_present, extra_raw):
+    """The YaRN flags implied by CTX_SIZE exceeding the model's native window.
+
+    Local builds only: the header must be readable to know the native window
+    and the architecture (the --override-kv key is '<arch>.context_length').
+    A remote cell's model file lives on its client, so there the recipe stays
+    manual via EXTRA_ARGS — documented in the CTX_SIZE help.
+    """
+    try:
+        ctx = int(str(c.get("CTX_SIZE") or "0").strip() or "0")
+    except ValueError:
+        return []
+    if ctx <= 0:
+        return []
+    try:
+        path = Path(str(model_path))
+        if not path.is_file():
+            return []
+        # Lazy import: models.py imports this module (sidecar prefixes), so a
+        # top-level import here would be circular.
+        from caravan.admin.models import extract_runtime_meta, read_gguf_metadata_cached
+        meta = extract_runtime_meta(read_gguf_metadata_cached(path))
+    except Exception:
+        return []
+    native = int(meta.get("contextLength") or 0)
+    arch = str(meta.get("architecture") or "")
+    if not native or not arch or ctx <= native:
+        return []
+    out = []
+    if "--rope-scaling" not in args_present:
+        out += ["--rope-scaling", "yarn"]
+    if "--rope-scale" not in args_present:
+        # Ceil to 2 decimals: the factor must COVER the target, and a hair of
+        # headroom beats a hair of shortfall.
+        out += ["--rope-scale", f"{math.ceil(ctx / native * 100) / 100:g}"]
+    if "--yarn-orig-ctx" not in extra_raw:
+        out += ["--yarn-orig-ctx", str(native)]
+    if "--override-kv" not in extra_raw:
+        out += ["--override-kv", f"{arch}.context_length=int:{ctx}"]
+    return out
 
 # ── EXTRA_ARGS -> form fields (inverse of build_llama_args) ───────────────────
 # When a user pastes raw llama-server flags into EXTRA_ARGS, recognize the ones

@@ -90,6 +90,31 @@ export function option(path, label, selected) {
   return opt;
 }
 
+// The line under CTX_SIZE that says YaRN will auto-engage. Driven by the same
+// numbers the backend uses: the field value against the model's native window.
+// Self-sufficient: it resolves the native window from the MODEL_FILE field
+// itself (and repairs the placeholder while at it), because an editor opened
+// on an EXISTING cell never fires the model-change autofill that used to be
+// the placeholder's only writer.
+export function updateCtxYarnHint(pfx) {
+  const ctxEl = $(pfx + "CTX_SIZE");
+  const hint = ctxEl?.parentElement?.querySelector(".ctx-yarn-hint");
+  if (!ctxEl || !hint) return;
+  const modelVal = $(pfx + "MODEL_FILE")?.value || "";
+  const native = Number(modelsByPath().get(modelVal)?.ggufMeta?.contextLength || 0)
+    || Number(ctxEl.placeholder || 0);
+  if (native > 0) ctxEl.placeholder = String(native);
+  const val = Number(ctxEl.value || 0);
+  if (native > 0 && val > native) {
+    const factor = Math.ceil((val / native) * 100) / 100;
+    hint.textContent = t("ctxYarnAutoHint", { native: String(native), factor: String(factor) });
+    hint.hidden = false;
+  } else {
+    hint.hidden = true;
+    hint.textContent = "";
+  }
+}
+
 export function modelsByPath() {
   return new Map((state.models || []).map((row) => [row.path, row]));
 }
@@ -982,6 +1007,15 @@ export function renderField(field, pfx = "") {
         input.dispatchEvent(new Event("input", { bubbles: true }));
       });
     });
+  } else if (field === "CTX_SIZE") {
+    div.innerHTML = `
+      ${labelRow}
+      <input id="${fid}" name="${field}" value="${escapeHtml(state.config[field] || "")}">
+      <p class="ctx-yarn-hint" data-t="cell-ctx-yarn-hint" hidden></p>
+      <p>${help}</p>
+    `;
+    const input = div.querySelector("input");
+    input.addEventListener("input", () => { updateCtxYarnHint(pfx); renderModelInsight(pfx); });
   } else {
     // Fields with a closed value set get a datalist: every legal value becomes
     // discoverable without taking away free text, so a value llama.cpp adds
@@ -1054,6 +1088,7 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
   if (ctxEl) {
     const nativeCtx = Number(selected?.ggufMeta?.contextLength || 0);
     ctxEl.placeholder = nativeCtx > 0 ? String(nativeCtx) : "";
+    updateCtxYarnHint(pfx);
   }
 
   // MMPROJ — always overwrite (clear if none found).

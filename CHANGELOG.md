@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Typing a context size above the model's native window now engages the whole
+  YaRN recipe by itself: `--rope-scaling yarn`, the computed factor,
+  `--yarn-orig-ctx`, and the `--override-kv` that lifts llama-server's hard
+  slot cap at the training context — the one piece nobody could know from the
+  UI (measured live: without it a requested 300000 silently became 262144).
+  Explicit ROPE_* fields and EXTRA_ARGS spellings always win; the board's
+  command preview mirrors the same rule, and a live hint under CTX_SIZE says
+  what will happen. The field's placeholder already shows the native window,
+  read from the GGUF header. Local cells only — a client cell's model header
+  is not readable from the controller, so there the recipe stays manual via
+  EXTRA_ARGS (said in the field help).
+
+  Verified end to end on Qwen3.8-27B (native 262144): CTX_SIZE=300000 with
+  everything else untouched produced a 300000-token slot, and a needle planted
+  at 7% depth of a 289,574-token haystack was recalled exactly (prefill
+  1040 tok/s, generation at full context 36.6 tok/s, 28.8 GiB VRAM).
+
 - The fleet's port ranges become configuration, and the shipped defaults leave
   the crowded 8xxx neighbourhood. Cells now allocate from 22001 (span 998) and
   proxies from 23001 (cells' base + 1000, riding directly above the cell block

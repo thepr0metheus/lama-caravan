@@ -3,7 +3,7 @@ import { drawTopologyCables } from "./cables.js";
 import { CONTROLLER_HOST_ID } from "./constants.js";
 import { nodeTelemetryRowsHtml, renderTopologyIncidents } from "./charts.js";
 import { effectiveModelsDir } from "./command-preview.js";
-import { badge, mbadge, renderModelSelects } from "./form.js";
+import { badge, mbadge, modelsByPath, renderModelSelects } from "./form.js";
 import { t } from "./i18n.js";
 import {
   _modelBenchKey,
@@ -853,6 +853,19 @@ export function openNodeServerDetail(nodeId, port) {
     } else if (specType === "draft-mtp") {
       add("--spec-type", specType);            // built-in MTP head, no draft file
       add("--spec-draft-n-max", cfg.SPEC_DRAFT_N_MAX);
+    }
+    // Auto-YaRN mirror: CTX_SIZE above the model's native window makes the
+    // builder emit the whole recipe — the preview must say so too.
+    const yarnCtx = Number(cfg.CTX_SIZE || 0);
+    const yarnMeta = modelsByPath().get(cfg.MODEL_FILE || "")?.ggufMeta || {};
+    const yarnNative = Number(yarnMeta.contextLength || 0);
+    if (yarnCtx > yarnNative && yarnNative > 0 && yarnMeta.architecture) {
+      const extra = String(cfg.EXTRA_ARGS || "");
+      if (!cfg.ROPE_SCALING) add("--rope-scaling", "yarn");
+      if (!cfg.ROPE_SCALE) add("--rope-scale", String(Math.ceil((yarnCtx / yarnNative) * 100) / 100));
+      if (!extra.includes("--yarn-orig-ctx")) add("--yarn-orig-ctx", String(yarnNative));
+      if (!extra.includes("--override-kv"))
+        add("--override-kv", `${yarnMeta.architecture}.context_length=int:${yarnCtx}`);
     }
     if (!tokens.length) return "";
     const parts = [];

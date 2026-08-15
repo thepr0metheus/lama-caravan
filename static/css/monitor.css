@@ -1391,6 +1391,7 @@
 .hps-overlay .modal { max-width: 340px; }
 .hps-warn { color: var(--muted); font-size: 12px; margin: 2px 0 12px; }
 .hps-next { color: var(--accent); font-size: 12px; margin: 6px 0 0; min-height: 15px; }
+.ctx-yarn-hint { color: var(--accent); font-size: 12px; margin: 4px 0 0; }
 /* Break between the legacy occupied strip (pre-migration numbers kept visible)
    and the fleet's configured range in the port-picker grid. */
 .port-grid-divider { grid-column: 1 / -1; height: 0;
