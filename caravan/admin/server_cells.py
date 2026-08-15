@@ -57,9 +57,22 @@ def used_server_cell_ports(exclude_key=None):
     # (an orphan holds its port as firmly as a registered cell does). Safe to
     # consult now that orphans are VISIBLE on the board with a stop button —
     # before that, this check would have blocked a port nobody could free.
+    #
+    # exclude_key has to reach this set too. It did not, and the result was that
+    # a RUNNING cell could never have its config saved: the caller excluded the
+    # cell's registry entry, then its own live unit put the port straight back,
+    # and the save failed with "port is already reserved" — naming the cell as
+    # the squatter on its own port. Editing a stopped cell worked, which is why
+    # it read as intermittent.
     try:
         from caravan.admin.systemd_ctl import active_cell_unit_ports
-        used |= active_cell_unit_ports()
+        live = active_cell_unit_ports()
+        if exclude_key:
+            try:
+                live.discard(int(str(exclude_key).rsplit(":", 1)[-1]))
+            except (TypeError, ValueError):
+                pass
+        used |= live
     except Exception:
         pass
     return {p for p in used if p > 0}

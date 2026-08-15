@@ -24,13 +24,14 @@ year later.
 """
 import time
 
-from caravan.admin.paths import SERVER_CELL_BASE_PORT
+from caravan.admin.paths import SERVER_CELL_BASE_PORT, SERVER_CELL_UPPER_PORT
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.common.errors import AppError
 
-# How far above the base the scan looks. The picker draws to 8199, so a
-# listener past that could never be offered anyway.
-SCAN_UPPER = 8199
+# How far above the base the scan looks. The picker draws to the same ceiling,
+# so a listener past it could never be offered anyway. One number, one home:
+# both derive from paths so an operator's CARAVAN_CELL_* env moves everything.
+SCAN_UPPER = SERVER_CELL_UPPER_PORT
 
 
 def _store():

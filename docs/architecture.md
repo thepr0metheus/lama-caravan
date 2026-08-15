@@ -29,7 +29,7 @@ mtime, files diff cleanly in git, and a backup is a copy.)
                  │                                                                             │
  browser ──────► │  lama-caravan.service            lama-caravan-proxies.service              │
  (UI :7990)      │  app.py → caravan/admin/         agent-proxies.py → caravan/proxy/         │
-                 │  · serves UI + HTTP API          · one listener per route port (:8101+)    │
+                 │  · serves UI + HTTP API          · one listener per route port (:32001+)    │
                  │  · fleet topology & heartbeats   · queue admission / preemption            │
                  │  · writes agent-proxies.json ──► · router DAG (queue/schedule/rules)       │
                  │  · reads  proxy state/events ◄── · llama or cloud upstreams + translation  │
@@ -50,7 +50,7 @@ mtime, files diff cleanly in git, and a backup is a copy.)
 | Component | Where | What it does |
 |---|---|---|
 | Admin server (`caravan/admin`) | controller `:7990` | UI + API: fleet topology, launch configs, HF model browser, monitors, cloud accounts, queue thresholds. See [backend-admin.md](backend-admin.md). |
-| Proxy daemon (`caravan/proxy`) | controller `:8101+` (one port per route) | OpenAI-compatible reverse proxy per agent: admission queue, priority preemption, router DAG, cloud fallback, protocol translation. See [backend-proxy.md](backend-proxy.md). |
+| Proxy daemon (`caravan/proxy`) | controller `:32001+` (one port per route; this fleet's legacy routes at `:8101+`) | OpenAI-compatible reverse proxy per agent: admission queue, priority preemption, router DAG, cloud fallback, protocol translation. See [backend-proxy.md](backend-proxy.md). |
 | Server cells | controller + clients | Per-port llama-server instances. Controller cells run under `lama-cell@<port>.service` from generated `var/server-cells/<port>/start.sh`; client cells are managed remotely through the route-agent. |
 | Route-agent (`caravan-scout`, formerly `llm-easy-route-agent`, separate repo) | each client `:8092` | Publishes the host's llama nodes/GPUs to the admin (heartbeat) and executes start/stop/config/cache commands on behalf of the admin. |
 | Cell servers (moonshine, whisper, TTS — `cells/` in THIS repo) | controller + any client | The programs a "command cell" actually runs: ordinary servers managed like llama cells, with a health endpoint reporting download/load progress. The controller owns them and serves them over `/api/cell-assets`; every host materializes them into `$HOME`, where the generated cell command looks for them — the controller before starting a local cell, a scout before starting a client one. They used to live in the scout repo and were copied by hand into the controller, which is how the two copies drifted for months. |

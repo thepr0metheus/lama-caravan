@@ -13,6 +13,7 @@ from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
 from caravan.admin.launch import render_command_cell_shell_line, _sanitize_snapshot_name
 from caravan.admin.paths import (
+    AGENT_PROXY_BASE_PORT,
     CONTROLLER_HOST_ID,
     LEGACY_CONTROLLER_HOST_IDS,
     FLEET_REGISTRY_URL,
@@ -661,8 +662,10 @@ def update_topology_client(payload):
     return client
 
 def _next_auto_proxy_primary_port(used_ports):
-    """Next odd port >= 8101 where both port and port+1 are free."""
-    candidate = 8101
+    """Next port >= AGENT_PROXY_BASE_PORT where both port and port+1 are free
+    (the +1 hole is the fossil of the retired fallback pair — kept so a
+    rollback to a pair-allocating build cannot collide)."""
+    candidate = AGENT_PROXY_BASE_PORT
     while candidate in used_ports or (candidate + 1) in used_ports:
         candidate += 2
     return candidate

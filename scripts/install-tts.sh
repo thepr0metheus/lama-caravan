@@ -63,7 +63,7 @@ fi
 if [[ -n "$PREWARM" ]]; then
   for eng in $PREWARM; do
     info "Pre-warming '${eng}' venv (this downloads gigabytes)..."
-    bash "${HOME}/run_tts.sh" 8099 "$eng" --install-only \
+    bash "${HOME}/run_tts.sh" 22999 "$eng" --install-only \
       || warn "prewarm of ${eng} failed — its first cell start will retry"
   done
 fi

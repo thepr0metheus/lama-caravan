@@ -48,7 +48,7 @@ derive paths from its own `__file__` — it would point into `caravan/`. Covers 
 (`admin.json`, monitor history, incident log), secrets (`provider-secrets.json` and the OpenClaw
 config cache — outside the repo, 0600), the OpenClaw config-manager URLs (OPENCLAW_CONFIG_MANAGERS), the
 fleet-registry URL, and tunables (monitor interval/retention, token-history caps,
-`SERVER_CELL_BASE_PORT` 8001). NOTE: `PORT` is itself inside the cell numbering
+`SERVER_CELL_BASE_PORT`, default 22001 via `CARAVAN_CELL_BASE_PORT`). NOTE: `PORT` was once inside the cell numbering
 that starts at `SERVER_CELL_BASE_PORT`, so `used_server_cell_ports()` adds it to
 the taken set — otherwise a cell could be assigned the controller's own port and
 would only fail at `systemctl start`.
@@ -473,7 +473,7 @@ Key functions: `cell_assets_manifest`, `cell_asset_bytes`, `materialize_local_as
 
 Server slot/cell bookkeeping — pure data layer; the start/stop actions live in `cell_ops.py`. Slots
 are persistent `"hostId:port"` records in `topology_store()["serverSlots"]` so a proxy cable stays
-attached while a server is stopped or its model changes. Port allocation starts at 8001 and
+attached while a server is stopped or its model changes. Port allocation starts at the configured base (default 22001; `CARAVAN_CELL_BASE_PORT`) and
 collisions raise 409. `upsert_server_slot` deliberately keeps empty-string config values (an empty
 field is a *removed* flag — dropping it would make the edit form re-inherit the controller default),
 keeps a ≤10-entry command history for command cells (one-click revert), and regenerates on-disk cell

@@ -89,7 +89,57 @@ FLEET_REGISTRY_URL = os.environ.get("FLEET_REGISTRY_URL", "")
 # The controller's address as seen by clients — used to build the proxy
 # endpoints handed to agents (http://<this>:<port>/v1).
 TOPOLOGY_SERVER_IP = os.environ.get("LLAMA_TOPOLOGY_SERVER_IP", "127.0.0.1")
-SERVER_CELL_BASE_PORT = 8001
+# ── Fleet port ranges ────────────────────────────────────────────────────────
+# Cells (and bridges) allocate upward from the base; the span sets the ceiling
+# the picker draws and the exclusion scanner probes. Proxies get their own
+# block so the two families can never collide by construction.
+#
+# The shipped defaults moved 8001→22001 / 8101→32001 (v1.3.188): the 8xxx
+# neighbourhood is the industry's favourite squatting ground (8080 http-alt and
+# llama-server's own default, 8000 vLLM, 8888 Jupyter, 8123 Home Assistant…).
+# 22001–22999 is clean of popular app defaults (Syncthing's 22000 sits just
+# below the base) and safely under the k8s NodePort window (30000+) and every
+# ephemeral floor. The proxy block at 32001+ overlaps NodePort and would cross
+# the Linux ephemeral floor past 32767 — an accepted trade-off: the allocator
+# steps by 2 and a fleet needs ~380 routes before that matters. The +14000
+# cell offset preserves the trailing digits in full — cell 8010 became 22010 —
+# so logs stay readable across the move.
+#
+# Hard lessons encoded in the startup guard below: the controller once lived
+# at 8090 INSIDE the cell range and the allocator would happily hand its port
+# out (fixed by moving to 7990); a listener above the ephemeral floor loses a
+# bind race against random outgoing sockets.
+SERVER_CELL_BASE_PORT = int(os.environ.get("CARAVAN_CELL_BASE_PORT", "22001"))
+SERVER_CELL_PORT_SPAN = int(os.environ.get("CARAVAN_CELL_PORT_SPAN", "998"))
+SERVER_CELL_UPPER_PORT = SERVER_CELL_BASE_PORT + SERVER_CELL_PORT_SPAN
+AGENT_PROXY_BASE_PORT = int(os.environ.get(
+    "CARAVAN_PROXY_BASE_PORT", str(SERVER_CELL_BASE_PORT + 10000)))
+
+
+def validate_port_ranges():
+    """Refuse a configuration that will corrupt the fleet later. Called once at
+    admin startup — a loud early death beats an allocator that quietly hands
+    out the controller's own port."""
+    problems = []
+    if SERVER_CELL_BASE_PORT < 1024:
+        problems.append(f"cell base {SERVER_CELL_BASE_PORT} is inside the privileged range (<1024)")
+    if SERVER_CELL_PORT_SPAN < 10:
+        problems.append(f"cell span {SERVER_CELL_PORT_SPAN} leaves fewer than 10 ports")
+    if SERVER_CELL_UPPER_PORT >= 30000:
+        problems.append(
+            f"cell range ceiling {SERVER_CELL_UPPER_PORT} reaches into the k8s NodePort / "
+            "ephemeral neighbourhood (>=30000); listeners there lose bind races")
+    if SERVER_CELL_BASE_PORT <= PORT <= SERVER_CELL_UPPER_PORT:
+        problems.append(
+            f"controller port {PORT} sits INSIDE the cell range "
+            f"{SERVER_CELL_BASE_PORT}-{SERVER_CELL_UPPER_PORT} — the allocator would hand it out "
+            "(this exact bug forced the 8090→7990 move)")
+    if SERVER_CELL_BASE_PORT <= AGENT_PROXY_BASE_PORT <= SERVER_CELL_UPPER_PORT:
+        problems.append(
+            f"proxy base {AGENT_PROXY_BASE_PORT} sits inside the cell range "
+            f"{SERVER_CELL_BASE_PORT}-{SERVER_CELL_UPPER_PORT}; give proxies their own block")
+    if problems:
+        raise SystemExit("port range misconfiguration:\n  - " + "\n  - ".join(problems))
 _BENCH_CACHE_DIR = Path(_default("state/bench-cache", PROJECT_ROOT / ".bench_cache"))
 # OpenClaw configs (fetched from the configured managers) are the source of each
 # agent's wait_timeout. They can contain provider credentials, so the on-disk

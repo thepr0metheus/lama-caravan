@@ -38,11 +38,16 @@ LOG_RETENTION_DAYS = int(os.environ.get("AGENT_PROXY_LOG_RETENTION_DAYS", "30"))
 
 HOST = os.environ.get("AGENT_PROXY_HOST", "0.0.0.0")
 
+# Seed ports follow the fleet cell base so a fresh install lands inside the
+# open firewall block (base 22001 → 22083…22086; a legacy CARAVAN_CELL_BASE_PORT
+# of 8001 reproduces the historical 8083…8086).
+_SEED_BASE = int(os.environ.get("CARAVAN_CELL_BASE_PORT", "22001")) + 82
+
 DEFAULT_ROUTES = [
-    {"label": "agent-a", "port": 8083, "upstreamHost": UPSTREAM_HOST, "upstreamPort": UPSTREAM_PORT, "enabled": True},
-    {"label": "agent-b", "port": 8084, "upstreamHost": UPSTREAM_HOST, "upstreamPort": UPSTREAM_PORT, "enabled": True},
-    {"label": "agent-c", "port": 8085, "upstreamHost": UPSTREAM_HOST, "upstreamPort": UPSTREAM_PORT, "enabled": True},
-    {"label": "agent-d", "port": 8086, "upstreamHost": UPSTREAM_HOST, "upstreamPort": UPSTREAM_PORT, "enabled": True},
+    {"label": "agent-a", "port": _SEED_BASE + 0, "upstreamHost": UPSTREAM_HOST, "upstreamPort": UPSTREAM_PORT, "enabled": True},
+    {"label": "agent-b", "port": _SEED_BASE + 1, "upstreamHost": UPSTREAM_HOST, "upstreamPort": UPSTREAM_PORT, "enabled": True},
+    {"label": "agent-c", "port": _SEED_BASE + 2, "upstreamHost": UPSTREAM_HOST, "upstreamPort": UPSTREAM_PORT, "enabled": True},
+    {"label": "agent-d", "port": _SEED_BASE + 3, "upstreamHost": UPSTREAM_HOST, "upstreamPort": UPSTREAM_PORT, "enabled": True},
 ]
 
 HOP_HEADERS = {

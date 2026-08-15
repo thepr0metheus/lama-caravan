@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- The fleet's port ranges become configuration, and the shipped defaults leave
+  the crowded 8xxx neighbourhood. Cells now allocate from 22001 (span 998) and
+  proxies from 32001 — `CARAVAN_CELL_BASE_PORT`, `CARAVAN_CELL_PORT_SPAN` and
+  `CARAVAN_PROXY_BASE_PORT` override them per installation. The 8xxx block is
+  the industry's favourite squatting ground (8080 is http-alt and llama-server's
+  own default, 8000 vLLM, 8888 Jupyter, 8123 Home Assistant); 22001–22999 is
+  clean of popular app defaults and sits below the NodePort window and every
+  ephemeral floor. The +14000 cell offset keeps a port's trailing digits, so a
+  migrated cell stays recognisable in logs.
+
+  A startup guard now refuses configurations that produced real bugs before:
+  a controller port inside the cell range (the 8090 lesson), a ceiling
+  reaching the NodePort/ephemeral neighbourhood, a proxy base inside the cell
+  block. The port-picker grid and the board's next-port preview read the live
+  range from the topology payload instead of carrying hardcoded copies of it —
+  the copies are what went stale the last time a port moved.
+
+- A running cell can have its config saved again. The port-availability check
+  excluded the cell's own registry entry but not its own live systemd unit, so
+  the unit put the port straight back and the save failed with "server cell port
+  N is already reserved" — naming the cell as the squatter on its own port. Only
+  stopped cells could be edited, which made it read as intermittent rather than
+  as the flat rule it was. Found while trying to switch a running cell to an
+  ngram speculative type through the panel.
+
 - An interrupted model download says so instead of disappearing. Download jobs
   live in memory, so restarting the service — a deploy, usually — lost every
   in-flight one: the /hf job list went empty, which reads exactly like "all

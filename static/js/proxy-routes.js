@@ -16,7 +16,7 @@ export function renderAgentProxyRouteForm(route = {}, index = "new") {
   return `
     <div class="proxy-route-form" data-proxy-form="${escapeHtml(String(index))}">
       <label>${escapeHtml(t("proxyClientName"))}<input name="label" value="${escapeHtml(route.label || "")}" placeholder="agent-a"></label>
-      <label>${escapeHtml(t("proxyListenPort"))}<input name="port" type="number" min="1024" max="65535" value="${escapeHtml(String(route.port || ""))}" placeholder="8083"></label>
+      <label>${escapeHtml(t("proxyListenPort"))}<input name="port" type="number" min="1024" max="65535" value="${escapeHtml(String(route.port || ""))}" placeholder="22083"></label>
       <div class="proxy-route-actions">
         <button class="primary-mini-action" type="button" data-proxy-save="${escapeHtml(String(index))}">${escapeHtml(t("save"))}</button>
         <button class="mini-link" type="button" data-proxy-cancel>${escapeHtml(t("cancel"))}</button>

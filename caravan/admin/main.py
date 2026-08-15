@@ -11,7 +11,7 @@ from caravan.admin.openclaw import (
     load_openclaw_cache,
     sync_wait_timeouts_from_openclaw,
 )
-from caravan.admin.paths import DATA_DIR, HOST, IS_CONTAINER, PORT, PROJECT_ROOT
+from caravan.admin.paths import DATA_DIR, HOST, IS_CONTAINER, PORT, PROJECT_ROOT, validate_port_ranges
 from caravan.admin.proxies_config import read_agent_proxy_payload, write_agent_proxy_payload
 from caravan.admin.router_dsl import recompute_cloud_fallback_eligibility
 from caravan.admin.routes import Handler
@@ -44,6 +44,11 @@ def main():
     # Same directory systemd's WorkingDirectory points at; keeps every relative
     # path (var/, logs/, git commands) working when launched by hand.
     os.chdir(PROJECT_ROOT)
+
+    # A misconfigured port range corrupts state slowly (the allocator hands out
+    # the controller's own port, listeners lose ephemeral bind races); a loud
+    # early death is the cheap version of that lesson.
+    validate_port_ranges()
 
     # Single-volume layout (container/dev): make sure the tree exists before
     # any writer needs it, and supervise the proxy as a child — the image has

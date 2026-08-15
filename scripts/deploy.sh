@@ -69,7 +69,7 @@ fi
 LIVE_V=""; LIVE_C=""
 for _try in 1 2 3 4 5 6; do
   sleep 3
-  LIVE=$(ssh "$HOST" "curl -s --max-time 5 localhost:7990/health") || LIVE=""
+  LIVE=$(ssh "$HOST" "curl -s --max-time 5 localhost:${CARAVAN_DEPLOY_PORT:-7990}/health") || LIVE=""
   LIVE_V=$(printf '%s' "$LIVE" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("version",""))' 2>/dev/null || echo "")
   LIVE_C=$(printf '%s' "$LIVE" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("commit",""))' 2>/dev/null || echo "")
   [ "$LIVE_V" = "$VERSION" ] && [ "$LIVE_C" = "$COMMIT" ] && break

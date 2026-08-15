@@ -273,8 +273,8 @@ that tab is selected, and 1 after. That is correct behaviour, not a defect.
 ## Repeated elements carry their own name
 
 `cell-card`, `cell-configure` and `board-cell-add` each expose the identity
-their `data-t-id` carries — `Cell controller:8001`, `Configure:
-controller:8001`, `Reserve cell :8024 — skynet`. Before this they were
+their `data-t-id` carries — `Cell controller:22001`, `Configure:
+controller:22001`, `Reserve cell :22024 — skynet`. Before this they were
 announced identically 22, 22 and 2 times over.
 
 ## `login-*` and `setup-*` live on different pages

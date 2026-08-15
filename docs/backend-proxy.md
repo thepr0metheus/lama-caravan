@@ -4,7 +4,8 @@ The proxy daemon is the traffic half of lama-caravan. `agent-proxies.py` at the
 repo root is a 25-line launcher (kept at that name and path because systemd
 `ExecStart` runs it directly and `scripts/test_queue_node.py` loads it by
 path); the real code lives in `caravan/proxy/`, refactored out of a 3,030-line
-monolith. The daemon binds one HTTP listener per enabled route port (8101+ on
+monolith. The daemon binds one HTTP listener per enabled route port (CARAVAN_PROXY_BASE_PORT,
+default 32001+, on
 the live system), forwards OpenAI-compatible requests to upstream
 llama-servers or cloud providers, and enforces queueing and admission on the
 way through. It is stdlib-only.

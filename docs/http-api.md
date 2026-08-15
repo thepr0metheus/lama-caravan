@@ -180,7 +180,7 @@ fleet token) requires the `caravan_session` cookie.
 
 ## Proxy daemon surface (per route port)
 
-Each enabled route binds its own port (`:8101+`). The daemon is not a REST
+Each enabled route binds its own port (`CARAVAN_PROXY_BASE_PORT`, default `:32001+`; this fleet's historical routes sit at `:8101+`). The daemon is not a REST
 API — it forwards whatever OpenAI-compatible traffic arrives:
 
 | Method & path | Purpose |

@@ -63,7 +63,8 @@ install -m 0644 "${SRC}/whisper_server.py" "${HOME}/whisper_server.py"
 install -m 0755 "${SRC}/run_whisper.sh"    "${HOME}/run_whisper.sh"
 info "  installed ~/whisper_server.py + ~/run_whisper.sh"
 
-# No ufw rule here on purpose: the 8001–8099 inference range is already open, and
+# No ufw rule here on purpose: the fleet's inference range (default 22001–22999,
+# legacy installs 8001–8099) is already open, and
 # firewall changes are managed separately.
 
 info "whisper ready. CARAVAN command cell → COMMAND: bash ~/run_whisper.sh \$PORT large-v3   HEALTH_PATH: /health"

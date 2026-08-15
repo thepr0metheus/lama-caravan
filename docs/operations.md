@@ -148,7 +148,7 @@ Order that survives it, with no shim needed — a scout tolerates an unreachable
 controller and reconnects by itself:
 
 1. Open the new port in the firewall FIRST. On the controller the inference
-   range 8001–8099 is already open; anything outside it needs its own rule, and
+   range (default 22001–22999; legacy installs 8001–8099) is already open; anything outside it needs its own rule, and
    a forgotten rule is the one failure that looks like the app being broken.
 2. Re-point every scout while the controller is still on the old port —
    `POST http://<client>:8092/api/controller-url` with `{"url", "token"}`. It
@@ -163,7 +163,7 @@ Run the admin against scratch state so you don't touch `~/.local/state` or
 spam autobackups into the working tree:
 
 ```sh
-export LLAMACPP_ADMIN_PORT=8099
+export LLAMACPP_ADMIN_PORT=7991
 export LLAMA_ADMIN_STATE=/tmp/caravan-dev/admin.json
 export AGENT_PROXY_CONFIG_FILE=/tmp/caravan-dev/agent-proxies.json   # cp the real one for data
 export AGENT_PROXY_STATE_FILE=/tmp/caravan-dev/proxy-state.json

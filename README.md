@@ -272,8 +272,8 @@ move toward per-port launch scripts.
 ~/.config/systemd/user/lama-caravan.service
   -> ~/lama-caravan/.venv/bin/python app.py
 
-~/.config/systemd/user/lama-cell@8001.service
-  -> ~/lama-caravan/var/server-cells/8001/start.sh
+~/.config/systemd/user/lama-cell@22001.service
+  -> ~/lama-caravan/var/server-cells/22001/start.sh
 ```
 
 For boot-time autostart without waiting for an interactive SSH or
@@ -355,7 +355,8 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
   out of the used bar instead of a double-counted estimate.
 - Cells run on the controller or on any scout host — client GPUs and CPUs are
   first-class; models are cached and shipped from the controller.
-- Reserve globally numbered cells from port `8001` — the controller's own web
+- Reserve globally numbered cells from port `22001` (CARAVAN_CELL_BASE_PORT; proxies get
+  their own block at `32001+` via CARAVAN_PROXY_BASE_PORT) — the controller's own web
   port (`LLAMACPP_ADMIN_PORT`, default `7990`) sits inside that numbering and is
   held out of the pool automatically; generated `cell.json` +
   `start.sh` artifacts; `systemd --user` template units

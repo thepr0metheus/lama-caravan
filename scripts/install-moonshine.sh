@@ -54,11 +54,11 @@ info "installed ~/moonshine_server.py + ~/run_moonshine.sh"
 if [[ -n "$PREWARM" ]]; then
   for lang in $PREWARM; do
     info "prewarming '${lang}' (venv + model download)…"
-    bash "${HOME}/run_moonshine.sh" 8099 "$lang" --install-only \
+    bash "${HOME}/run_moonshine.sh" 22999 "$lang" --install-only \
       || warn "prewarm for '${lang}' failed — the cell will retry on first start"
   done
 else
-  bash "${HOME}/run_moonshine.sh" 8099 en --install-only \
+  bash "${HOME}/run_moonshine.sh" 22999 en --install-only \
     || warn "venv provisioning failed — the cell will retry on first start"
 fi
 info "done — add a moonshine cell in the caravan (Runner: moonshine, e.g. port 8025)"

@@ -194,6 +194,15 @@ export function openRemoteFormForHost(hostId, port = "") {
 // Ports the operator (or a scan) marked as belonging to something else on the
 // box. Fetched with the picker so a reopen shows the current set.
 let _portExclusions = [];
+
+// The fleet's real port window, served in the topology payload. The fallback
+// mirrors the shipped default and only matters for the first paint before
+// topology arrives — every later read tracks whatever CARAVAN_CELL_* says.
+function cellPortRange() {
+  const r = topology?.cellPortRange || {};
+  const from = Number(r.from) || 22001;
+  return { from, to: Number(r.to) || (from + 998) };
+}
 async function _loadPortExclusions() {
   try {
     const r = await api("/api/port-exclusions");
@@ -221,13 +230,16 @@ export function openPortPicker(hostId, port) {
     used.set(p, { kind: pr.kind === "service" ? "bridge" : "proxy", label: pr.label || "" });
   });
   const cur = Number(port);
-  // The grid always reaches 8199 (the fleet's firewall-friendly range) and
-  // stretches further if something already sits above it.
-  const maxUsed = Math.max(8030, ...used.keys());
-  const upper = Math.max(8199, maxUsed + 10);
+  // The grid always covers the fleet's configured range (the firewall-friendly
+  // window) and stretches further if something already sits above it — the
+  // migrated-from 80xx cells of an older install stay visible that way.
+  const range = cellPortRange();
+  const maxUsed = Math.max(range.from, ...used.keys());
+  const upper = Math.max(range.to, maxUsed + 10);
+  const lower = Math.min(range.from, ...[...used.keys()].filter(Number.isFinite));
   const curName = used.get(cur)?.name || "";
   let tiles = "";
-  for (let p = 8001; p <= upper; p++) {
+  for (let p = lower; p <= upper; p++) {
     const u = used.get(p);
     const isCur = p === cur;
     let cls, attr, title;
@@ -376,7 +388,7 @@ export function nextTopologyCellPort() {
     const port = Number(p.port || 0);
     if (port) used.add(port);
   });
-  let port = 8001;
+  let port = cellPortRange().from;
   while (used.has(port)) port += 1;
   return port;
 }

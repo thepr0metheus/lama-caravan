@@ -25,7 +25,7 @@ from caravan.admin.monitoring import (
     runtime_api,
 )
 from caravan.admin.openclaw import openclaw_configs_snapshot
-from caravan.admin.paths import CONTROLLER_HOST_ID, IS_CONTAINER, SERVICE_NAME, TOPOLOGY_SERVER_IP, is_controller_host
+from caravan.admin.paths import CONTROLLER_HOST_ID, IS_CONTAINER, SERVICE_NAME, TOPOLOGY_SERVER_IP, is_controller_host, AGENT_PROXY_BASE_PORT, SERVER_CELL_BASE_PORT, SERVER_CELL_UPPER_PORT
 from caravan.admin.proxies_config import (
     load_agent_proxy_config,
     read_agent_proxy_payload,
@@ -814,6 +814,11 @@ def topology_state(refresh_clients=True):
         # reads server/clients for now; `nodes` is the new spine.
         "nodes": topology_nodes(config, server_obj, clients),
         "proxies": proxies,
+        # The fleet's port ranges, so the picker grid and the front-side port
+        # preview draw the REAL window instead of a hardcoded copy of it — the
+        # copies are what went stale when the controller moved off 8090.
+        "cellPortRange": {"from": SERVER_CELL_BASE_PORT, "to": SERVER_CELL_UPPER_PORT,
+                          "proxyBase": AGENT_PROXY_BASE_PORT},
         # Routers (Роутеры) — the routing layer between proxies and servers.
         # inputs already derived from routes by normalize_routers.
         "routers": proxy_config.get("routers") or [],
