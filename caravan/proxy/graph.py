@@ -248,8 +248,14 @@ def _queue_spec_from_node(node, policy):
         sticky = int(sticky) if sticky is not None else 20
     except (TypeError, ValueError):
         sticky = 20
+    load_wait = cfg.get("loadingModelWaitSec")
+    try:
+        load_wait = int(load_wait) if load_wait is not None else None
+    except (TypeError, ValueError):
+        load_wait = None
     return {
         "nodeId": node.get("id"),
+        "loadingModelWaitSec": load_wait,                        # None ⇒ global policy
         "maxSlots": max_slots,                                   # None ⇒ auto from /slots
         "abortPct": _i("abortPct", "queueAbortPct", 85),
         "spillPct": _i("spillPct", "cloudFallbackPct", 20),

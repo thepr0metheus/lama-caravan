@@ -576,7 +576,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 write_proxy_event("upstream_started", route_label=route["label"], request_id=request_id, item=active, queue=queue, cloudMeta=cloud_meta or None, cloudHeaders=cloud_headers_debug)
                 # ── Retry on llama "Loading model" 503 (brief window during startup) ─
                 # Time-based: keep retrying every 3s for up to loadingModelWaitSec (default 60s).
-                _lm_wait = float((current_config().get("policy") or DEFAULT_POLICY).get("loadingModelWaitSec") or 60)
+                # The governing queue node wins; the global policy is the
+                # fallback — the same precedence stickySlotSec already uses, so
+                # one queue can wait out a slow-loading 70B while the rest of
+                # the fleet keeps the short window.
+                _lm_qspec = (route.get("queuePlan") or {}).get("spec") or {}
+                _lm_node = _lm_qspec.get("loadingModelWaitSec")
+                _lm_wait = float(_lm_node if _lm_node is not None
+                                 else ((current_config().get("policy") or DEFAULT_POLICY)
+                                       .get("loadingModelWaitSec") or 60))
                 _lm_retry_delay = 3.0
                 _lm_deadline = time.time() + _lm_wait
                 _lm_attempt = 0

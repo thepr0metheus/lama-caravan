@@ -214,6 +214,10 @@ def _normalize_node_config(node_type, cfg, edge_ids):
             "abortPct": _qint("abortPct", 85, 1, 100),
             "spillPct": _qint("spillPct", 20, 0, 100),
             "stickySlotSec": _qint("stickySlotSec", 20, 0, 120),
+            # Per-node retry window for a model that is still loading. Same
+            # shape as stickySlotSec: what the node says wins, and the global
+            # policy is the fallback when it says nothing.
+            "loadingModelWaitSec": _qint("loadingModelWaitSec", 60, 0, 900),
             "keepaliveSec": _qint("keepaliveSec", 20, 5, 120),
         }
     if node_type == "onError":

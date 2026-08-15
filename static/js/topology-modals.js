@@ -397,7 +397,6 @@ export function renderTopologyQueuePriorityModal() {
   const cloudPct = edits.cloudFallbackPct ?? (policy.cloudFallbackPct ?? 20);
   const priorPct = edits.priorityPreemptPct ?? (policy.priorityPreemptPct ?? 50);
   const abortPct = edits.queueAbortPct ?? (policy.queueAbortPct ?? 85);
-  const lmw = edits.loadingModelWaitSec ?? (policy.loadingModelWaitSec ?? 60);
   const ss = edits.stickySlotSec ?? (policy.stickySlotSec ?? 0);
   // Preemption settings (moved here from the crown's Priority modal so all
   // preemption knobs live in one place next to the 👑 threshold slider).
@@ -444,7 +443,6 @@ export function renderTopologyQueuePriorityModal() {
         <div class="topology-policy-grid" style="margin-top:10px">
           <label title="Reserve the local slot for the same proxy N seconds after its request finishes. 0 = disabled.">${escapeHtml(t("topologyStickySlot"))}<input name="stickySlotSec" type="number" min="0" max="120" value="${escapeHtml(String(ss))}" data-topology-qp-policy="stickySlotSec"></label>
           <label title="After 👑 preemption fires, how long to wait for the active request to release the slot after the stop signal before giving up.">${escapeHtml(t("topologyPreemptGrace"))}<input name="preemptGraceSec" type="number" min="1" max="300" value="${escapeHtml(String(pg))}" data-topology-qp-policy="preemptGraceSec"></label>
-          <label title="${escapeHtml(t("topologyLoadingWaitHint"))}">${escapeHtml(t("topologyLoadingWait"))}<input name="loadingModelWaitSec" type="number" min="0" max="900" value="${escapeHtml(String(lmw))}" data-topology-qp-policy="loadingModelWaitSec"></label>
           <label class="topology-checkbox" style="grid-column:1/-1"><input name="preemptEnabled" type="checkbox"${pe ? " checked" : ""} data-topology-qp-policy="preemptEnabled"> ${escapeHtml(t("topologyPreemptCheckbox"))}</label>
         </div>
 

@@ -629,12 +629,19 @@ export function queueNodeBodyHtml(router, n) {
       + `<span class="cv-port out${wired ? "" : " unset"}" data-cv-port="out" data-cv-qrole="${role}" title="${escapeHtml(role === "admit" ? t("cvDragToMain") : t("cvDragToOverflow"))}"></span>`
     + `</div>`;
   };
+  // Inherited default when this queue node says nothing: the global policy.
+  // Showing the inherited number (rather than a blank) is the difference
+  // between "not set" and "set to nothing", which for a retry window is the
+  // difference between 60 seconds and never retrying.
+  const _policyLoadWait = () =>
+    Number((topology?.proxyPolicy || {}).loadingModelWaitSec ?? 60);
   // ── inline, editable parameters (also in the ⚙ panel) ──
   const qnum = (key, val, min, max, ph) =>
     `<input class="cv-q-cfg-in" type="number" min="${min}" max="${max}" data-cv-q="${key}" value="${val === null || val === undefined ? "" : val}" placeholder="${ph || ""}" title="${escapeHtml(ph || key)}">`;
   const paramsGrid = `<div class="cv-q-cfg">`
     + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelOverflowAt"))} ${helpTip("cvTipOverflowAt")}</span>${qnum("spillPct", cfg.spillPct ?? 20, 0, 100, "% of wait")}<span class="cv-q-u">%</span></label>`
     + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelReserve"))} ${helpTip("cvTipReserve")}</span>${qnum("stickySlotSec", cfg.stickySlotSec ?? 20, 0, 120, "reserve for agent")}<span class="cv-q-u">s</span></label>`
+    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelLoadWait"))} ${helpTip("cvTipLoadWait")}</span>${qnum("loadingModelWaitSec", cfg.loadingModelWaitSec ?? _policyLoadWait(), 0, 900, "sec")}<span class="cv-q-cfg-unit">s</span></label>`
     + `</div>`;
   // History pane — auto-refresh if stale while open
   const histOpen = !!_cvQueueHistOpen[n.id];

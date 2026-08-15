@@ -8,12 +8,17 @@
   (so the preview cannot describe a different operation than the one that runs)
   and lists every route it would remove with the reason, before doing anything.
 
-- `loadingModelWaitSec` reaches the proxy. The policy normaliser rebuilds the
-  policy from scratch and did not name this key, so every save dropped it and
-  the proxy read its own hardcoded 60 no matter what the file said. It is now
-  normalised, bounded 0-900, and editable in the queue-policy form. A knob that
-  silently does nothing is worse than no knob: the value persisted in the form,
-  so the operator concluded the behaviour was something else.
+- `loadingModelWaitSec` reaches the proxy, and is set on the queue node. The
+  key was dropped by BOTH policy normalisers — each rebuilds the policy from
+  scratch and neither named it — so the value survived in the file and was
+  discarded on the way in, twice over. Fixing one side alone would have left the
+  knob just as inert, which is what made this worth checking twice.
+  It now follows the precedence stickySlotSec already uses: what the governing
+  queue node says wins, the global policy is the fallback. The field sits on the
+  queue node beside "Overflow at" and "Reserve" — where Stage D deliberately
+  moved queue settings when it retired the old modal — showing the inherited
+  value rather than a blank, because for a retry window "not set" and "set to
+  nothing" are 60 seconds and never.
 
 - An agent proxy port can be created deliberately, with a name the operator
   chose. Agent routes could only come into existence by being provisioned —
