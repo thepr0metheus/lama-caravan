@@ -886,7 +886,63 @@ def normalize_topology_assignment(assignment):
             raise AppError(f"duplicate route role: {role}", 400)
         seen_roles.add(role)
         normalized_routes.append({"role": role, "proxyId": proxy_id, "endpoint": endpoint})
-    return {"agentId": agent_id, "routes": normalized_routes}
+    out = {"agentId": agent_id, "routes": normalized_routes}
+    # Carried through deliberately: the normaliser rebuilds the row from
+    # scratch, so a field it does not name is a field that silently vanishes on
+    # the next save — and an operator's "leave this one alone" quietly reverting
+    # to automatic is the worst possible failure for this particular flag.
+    if assignment.get("manual") is not None:
+        out["manual"] = bool(assignment.get("manual"))
+    return out
+
+def bind_agent_to_proxy(payload):
+    """Point one agent at one proxy port, by hand, and keep it there.
+
+    Everything needed for this already existed — the assignment store, the
+    apply path, the port list — but no caller ever put them together, so the
+    only way an agent got a port was for the provisioner to choose one. That
+    made the arrangement unexplainable ("why is cerberus on 23117?") and
+    unchangeable. Binding sets `manual`, which is what stops provisioning from
+    re-deriving it on the next heartbeat.
+
+    Passing no port unbinds: the flag clears and the agent returns to automatic.
+    """
+    host_id = str(payload.get("hostId") or "").strip()
+    agent_id = str(payload.get("agentId") or "").strip()
+    if not host_id or not agent_id:
+        raise AppError("hostId and agentId are required", 400)
+
+    store = topology_store()
+    row = dict(store.get("assignments", {}).get(host_id) or {})
+    rows = [dict(a) for a in (row.get("assignments") or [])]
+    entry = next((a for a in rows if a.get("agentId") == agent_id), None)
+    if entry is None:
+        entry = {"agentId": agent_id, "routes": []}
+        rows.append(entry)
+
+    port = payload.get("port")
+    if port in (None, "", 0):
+        entry.pop("manual", None)
+    else:
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            raise AppError("port must be a number", 400)
+        known = {int(r.get("port", 0)) for r in load_agent_proxy_config().get("routes", [])}
+        if port not in known:
+            # Binding to a port with no route would leave the agent pointing at
+            # a closed socket while the panel showed a tidy assignment.
+            raise AppError(f"no proxy route on port {port}", 400)
+        entry["routes"] = [r for r in (entry.get("routes") or []) if r.get("role") != "primary"]
+        entry["routes"].insert(0, {
+            "role": "primary",
+            "proxyId": f"skynet:proxy:{port}",
+            "endpoint": f"http://{TOPOLOGY_SERVER_IP}:{port}/v1",
+        })
+        entry["manual"] = True
+
+    return apply_topology_assignments({"hostId": host_id, "assignments": rows})
+
 
 def apply_topology_assignments(payload):
     host_id = str(payload.get("hostId") or "").strip()
@@ -907,7 +963,14 @@ def apply_topology_assignments(payload):
     if client and client.get("agentUrl"):
         try:
             from caravan.admin.fleet_clients import _scout_headers
-            result = post_json(client["agentUrl"].rstrip("/") + "/api/routing/apply", {"assignments": normalized}, headers=_scout_headers())
+            # 45s, not the 5s default: applying a host means one SSH round trip
+            # per VM agent — read, write, restart — and this fleet has nine on
+            # one host. The scout already allows its script 30s, so a 5s ceiling
+            # here reported "timed out" over work that was proceeding normally,
+            # and the operator saw a failure where the routes did land.
+            result = post_json(client["agentUrl"].rstrip("/") + "/api/routing/apply",
+                               {"assignments": normalized}, headers=_scout_headers(),
+                               timeout=45)
             row["applyStatus"] = {"state": "ok" if result.get("ok") else "error", "result": result, "appliedAt": int(time.time())}
         except Exception as exc:
             row["applyStatus"] = {"state": "error", "error": str(exc), "appliedAt": int(time.time())}

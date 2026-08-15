@@ -2,6 +2,73 @@
 
 ## Unreleased
 
+- The host scan no longer reports the caravan's own processes as foreign
+  occupants. It recognised cells and nothing else, so on 2026-07-29 it flagged
+  port 8092 on foreman — the caravan's OWN scout — and the resulting exclusion
+  held one of its own agents' ports for three weeks. It now also counts the
+  controller's web port, every proxy route, and each scout's listen port as
+  ours. The ranges are configurable, so "they do not overlap today" was a fact
+  about this deployment rather than a property of the design.
+
+- An agent's proxy port can now be chosen by hand. The primary port chip on an
+  agent card opens a picker of every proxy route; choosing one binds the agent
+  to it and marks the assignment `manual`, which is what makes the choice stick
+  — provisioning re-derives every agent on every heartbeat, so anything it does
+  not deliberately skip it overwrites within seconds, silently. Picking
+  "Automatic" clears the flag. Everything this needed already existed on the
+  server; what was missing was any way to ask for it, so the only answer to
+  "why is cerberus on 23117?" was "the provisioner chose it" and the only way to
+  change it was to edit JSON on the controller.
+
+- The scout measures a VM agent's address instead of trusting the registry's
+  remembered one. Eight of nine VMs here had swapped addresses: the registry
+  still named .109 and .110, which no longer exist, while the guests sat on
+  .100-.108 — so routes were applied to whichever VM answered at the old number,
+  and a wrong-but-reachable host looks exactly like the right one. That is why
+  two earlier investigations closed this as resolved. `libvirt_domain_ip()`
+  already returned the right answer and simply was not consulted.
+
+- `apply-routes.py` applies again, after four weeks of doing nothing at all.
+  `agents.defaults.model` is a plain string in every live config here and the
+  dict-only read killed the script before it touched anything; "host" fell
+  through the restart dispatch and "launchd" matched no branch, so the macOS
+  agent had never once been restarted; VM restarts named a system unit that does
+  not exist there (the guests run the openclaw-gateway user unit); and a rebuilt
+  VM's changed host key reported a bare "Host key verification failed". Also:
+  an agent with no metadata used to fall back to the HOST agent's config file,
+  so applying a VM agent's route rewrote the host agent's endpoint instead.
+
+- Applying assignments to a host waits 45s instead of 5. One host here carries
+  nine VM agents, each an SSH round trip to read, write and restart; the 5s
+  default reported "timed out" over work that was completing normally, so the
+  operator saw a failure while the routes landed. The scout already allows its
+  own script 30s — the caller was the tighter bound.
+
+- Agent proxy auto-provisioning no longer mints a port per polling tick. The
+  gate calls an agent un-provisioned when its assignment names a proxy port that
+  no longer exists — and the write-back then appended a route "if the role is
+  missing", which is never true in exactly that case. So the stale record
+  survived, the gate failed again, and another port was minted: at board-polling
+  rate, one every second or two, each written to disk. This is the mechanism
+  behind the 2026-07-20 outage. The write-back now repoints the existing role's
+  record at the port just minted. `scripts/test_auto_provision.py` (new, in CI)
+  runs provisioning three times over a stale assignment and fails if the second
+  pass mints anything; against the old code it reproduces the leak exactly
+  (23001, 23003, 23005).
+
+- Provisioning no longer restarts the whole proxy service for one new port. The
+  listener watcher re-reads agent-proxies.json by mtime every 2s and binds it —
+  the path orphan-deletion already relies on. The restart dropped every live
+  connection on every other port, bridges included, and during the outage the
+  restarts raced each other for the very ports they were opening.
+
+- Agent proxy ports migrated 81xx → 23xxx (+15000), matching the range defaults
+  set in 1.3.188. All eleven agents moved; nothing is left on 81xx but the
+  promie-ui app port. Order mattered: create the new routes alongside the old
+  and DUPLICATE the router edges (moving them would strand the old inputs on
+  rules.default mid-flight), repoint each agent, restart it, update assignments,
+  and only then delete. The reverse order — delete first — is the outage.
+
 - Finding a setting among eleven tabs. Two ways in, both automatic:
 
   **Hover a flag in the command preview** and the tab it came from lights up,

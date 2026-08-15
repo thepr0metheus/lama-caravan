@@ -22,6 +22,7 @@ number means one thing across every host. It records WHY and WHERE it came
 from, because an unexplained hole in a port range is its own small mystery a
 year later.
 """
+import re
 import time
 
 from caravan.admin.paths import SERVER_CELL_BASE_PORT, SERVER_CELL_UPPER_PORT
@@ -123,7 +124,7 @@ def scan_foreign_listeners() -> dict:
     from caravan.admin.systemd_ctl import listening_pid
     from caravan.admin.paths import CONTROLLER_HOST_ID
 
-    ours = used_server_cell_ports()
+    ours = used_server_cell_ports() | _caravan_owned_ports()
     hosts = []
 
     found = []
@@ -140,6 +141,50 @@ def scan_foreign_listeners() -> dict:
 
     return {"ok": True, "hosts": hosts,
             "rangeFrom": SERVER_CELL_BASE_PORT, "rangeTo": SCAN_UPPER}
+
+
+def _caravan_owned_ports() -> set:
+    """Every port the caravan itself listens on, beyond the model cells.
+
+    The scan reports a listener it does not recognise as a foreign occupant and
+    offers to hold the number. Cells were the only thing it recognised, so any
+    other part of the caravan inside the scanned range was reported as somebody
+    else's process — and on 2026-07-29 that is exactly what happened: the scan
+    flagged port 8092 on foreman, which is the caravan's OWN scout, and the
+    resulting exclusion held one of its own agents' ports for three weeks.
+
+    Both ranges are configurable, so "they do not overlap today" is a fact about
+    this deployment, not a property of the design.
+    """
+    owned = set()
+    try:
+        from caravan.admin.paths import PORT as CONTROLLER_PORT
+        owned.add(int(CONTROLLER_PORT))
+    except Exception:
+        pass
+    try:
+        from caravan.admin.proxies_config import load_agent_proxy_config
+        for route in load_agent_proxy_config().get("routes", []):
+            try:
+                owned.add(int(route.get("port") or 0))
+            except (TypeError, ValueError):
+                continue
+    except Exception:
+        pass
+    # Each scout's own listen port, taken from the URL the controller reaches
+    # it on — the scout is a caravan process like any other.
+    try:
+        store = topology_store()
+        urls = [str((c or {}).get("agentUrl") or "") for c in (store.get("clients") or {}).values()]
+        urls += [str((a or {}).get("agentUrl") or "") for a in (store.get("assignments") or {}).values()]
+        for url in urls:
+            match = re.search(r":(\d+)", url.split("//")[-1])
+            if match:
+                owned.add(int(match.group(1)))
+    except Exception:
+        pass
+    owned.discard(0)
+    return owned
 
 
 def _client_scans(ours: set) -> list:

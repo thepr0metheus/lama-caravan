@@ -5,12 +5,12 @@ import { attachTokenChartHover, drawMetricChart, drawTopologyGpuHistory } from "
 import { t } from "./i18n.js";
 import { topologyCrownSvg } from "./model-meta.js";
 import { action, formatTps } from "./polling.js";
-import { state, topology, ui } from "./state.js";
+import { setTopology, state, topology, ui } from "./state.js";
 import { topologyRouteDetail } from "./topology-dnd.js";
 import { queueThresholds } from "./topology-modals.js";
 import { topologyAssignmentsForHost, topologyProxyOwner } from "./topology-proxies.js";
-import { _lastRuntimePanelHtml } from "./topology-render.js";
-import { $, api, escapeHtml, formatMemoryMiB, pill } from "./utils.js";
+import { _lastRuntimePanelHtml, renderTopology } from "./topology-render.js";
+import { $, api, escapeHtml, formatMemoryMiB, pill, toast } from "./utils.js";
 
 export let stickySlotAnims = {};             // group -> absolute-time anchor for that server's sticky-slot bar { port, startMs, durationMs }
 export function topologyStatusPill(value) {
@@ -1259,6 +1259,11 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
   const proxy = route ? (topology?.proxies || []).find((p) => p.id === route.proxyId) : null;
   const port = proxy?.port || (route?.proxyId || "").split(":").pop() || "";
   const muted = !!route && usage === "unused";
+  // Whether an operator pinned this agent's port by hand. Provisioning skips
+  // such agents, so the padlock is the only place the panel says why this one
+  // is not being re-derived like the rest.
+  const manualBound = ((topology?.assignments?.[client?.id]?.assignments) || [])
+    .some((a) => a.agentId === agent.id && a.manual);
   const unverified = !!route && usage === "unverified";
   const handle = route ? `
     <span class="topology-handle output ${escapeHtml(role)} ${muted ? "muted" : ""}"
@@ -1274,7 +1279,13 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
   return `
     <div class="topology-agent-route ${escapeHtml(role)} ${route ? "" : "empty"} ${muted ? "muted" : ""} ${unverified ? "unverified" : ""} ${escapeHtml(topologyStateHealthClasses(activity))}"${detailAttrs}>
       ${handle}
-      <span class="route-role-label">${escapeHtml(role)}${port ? `<span class="route-port-chip" title="${escapeHtml(t("taTitleProxyPort"))}">${escapeHtml(port)}</span>` : ""}${routeErrBadgeHtml(port)}</span>
+      <span class="route-role-label">${escapeHtml(role)}${port ? (role === "primary"
+        ? `<button type="button" class="route-port-chip bindable${manualBound ? " manual" : ""}"
+             data-agent-bind="1" data-bind-host="${escapeHtml(client.id || "")}"
+             data-bind-agent="${escapeHtml(agent.id || "")}" data-bind-port="${escapeHtml(String(port))}"
+             data-t="agent-proxy-bind"
+             title="${escapeHtml(manualBound ? t("taTitleBoundManual") : t("taTitleBindProxy"))}">${escapeHtml(port)}${manualBound ? "&#128274;" : ""}</button>`
+        : `<span class="route-port-chip" title="${escapeHtml(t("taTitleProxyPort"))}">${escapeHtml(port)}</span>`) : ""}${routeErrBadgeHtml(port)}</span>
       <code>${route ? escapeHtml(route.endpoint || "") : "-"}${muted ? ` <span class="route-muted-tag" title="${escapeHtml(t("taTitleMutedRoute"))}">${escapeHtml(t("taInactive"))}</span>` : ""}${unverified ? ` <span class="route-unverified-tag" title="${escapeHtml(t("taTitleUnverifiedRoute"))}">${escapeHtml(t("taUnverified"))}</span>` : ""}</code>
       ${timeoutHtml}
       ${incident ? `<small class="topology-incident-line ${incident.kind === "failed" ? "failed" : ""}">${escapeHtml(`${incident.title}: ${incident.summary}`)}</small>` : ""}
@@ -1282,3 +1293,80 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
   `;
 }
 
+
+// ── binding an agent to a proxy port by hand ────────────────────────────────
+// Everything this needs already existed on the server; what was missing was any
+// way to ask for it. Until now the only answer to "why is this agent on 23117?"
+// was "the provisioner picked it", and the only way to change it was to edit
+// JSON on the controller.
+function closeBindMenu() {
+  document.querySelector(".agent-bind-menu")?.remove();
+}
+
+function openBindMenu(chip) {
+  closeBindMenu();
+  const hostId = chip.dataset.bindHost;
+  const agentId = chip.dataset.bindAgent;
+  const current = String(chip.dataset.bindPort || "");
+  const routes = (topology?.proxies || [])
+    .filter((p) => Number(p.port) > 0)
+    .sort((a, b) => Number(a.port) - Number(b.port));
+
+  const menu = document.createElement("div");
+  menu.className = "agent-bind-menu";
+  menu.setAttribute("data-t", "agent-bind-menu");
+  menu.innerHTML = `
+    <div class="agent-bind-head">${escapeHtml(t("taBindHead"))} <b>${escapeHtml(agentId)}</b></div>
+    <button type="button" class="agent-bind-row auto" data-bind-choice="">${escapeHtml(t("taBindAutomatic"))}</button>
+    ${routes.map((p) => `
+      <button type="button" class="agent-bind-row${String(p.port) === current ? " current" : ""}"
+              data-bind-choice="${escapeHtml(String(p.port))}">
+        <span class="bind-port">${escapeHtml(String(p.port))}</span>
+        <span class="bind-label">${escapeHtml(p.label || "")}</span>
+      </button>`).join("")}
+  `;
+  document.body.appendChild(menu);
+  const box = chip.getBoundingClientRect();
+  menu.style.left = `${Math.min(box.left, window.innerWidth - menu.offsetWidth - 12)}px`;
+  menu.style.top = `${box.bottom + 4}px`;
+
+  menu.addEventListener("click", async (e) => {
+    const row = e.target.closest("[data-bind-choice]");
+    if (!row) return;
+    const port = row.dataset.bindChoice;
+    closeBindMenu();
+    try {
+      const res = await api("/api/topology/agent-proxy-bind", {
+        method: "POST",
+        body: JSON.stringify({ hostId, agentId, port: port ? Number(port) : null }),
+      });
+      // Repaint from the response rather than waiting for the next poll: the
+      // agent cards are cached between renders, so without this the padlock —
+      // the only sign the binding took — appears no earlier than the next full
+      // page load, and the operator sees their own action do nothing.
+      if (res.topology) setTopology(res.topology);
+      renderTopology();
+      const state = res.result?.applyStatus?.state;
+      toast(port
+        ? t(state === "ok" ? "taBindApplied" : "taBindStored")
+        : t("taBindCleared"));
+    } catch (err) {
+      toast(`${t("taBindFailed")}: ${err.message || err}`, true);
+    }
+  });
+}
+
+if (!window.__agentBindBound) {
+  window.__agentBindBound = 1;
+  document.addEventListener("click", (e) => {
+    const chip = e.target.closest("[data-agent-bind]");
+    if (chip) {
+      e.preventDefault();
+      e.stopPropagation();     // the route row itself opens a detail panel
+      openBindMenu(chip);
+      return;
+    }
+    if (!e.target.closest(".agent-bind-menu")) closeBindMenu();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeBindMenu(); });
+}

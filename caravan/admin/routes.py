@@ -142,6 +142,7 @@ from caravan.admin.fleet_clients import (
 )
 from caravan.admin.topology import (
     apply_topology_assignments,
+    bind_agent_to_proxy,
     normalize_topology_assignment,
     topology_nodes,
     topology_server,
@@ -1311,6 +1312,12 @@ def _post_api_topology_client_heartbeat(h, parsed, body):
 @_route(POST_ROUTES, '/api/topology/assignments')
 def _post_api_topology_assignments(h, parsed, body):
         result = apply_topology_assignments(body)
+        h.send_json({"ok": True, "result": result, "topology": topology_state()})
+        return
+
+@_route(POST_ROUTES, '/api/topology/agent-proxy-bind')
+def _post_api_topology_agent_proxy_bind(h, parsed, body):
+        result = bind_agent_to_proxy(body)
         h.send_json({"ok": True, "result": result, "topology": topology_state()})
         return
 

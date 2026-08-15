@@ -19,6 +19,12 @@ jobs:
       - name: queue node unit test
         run: python3 scripts/test_queue_node.py
 
+      # Guards the port-minting loop that caused the 2026-07-20 outage: the
+      # symptom is only visible across two provisioning passes, so it needs a
+      # test rather than review.
+      - name: auto-provisioning unit test
+        run: python3 scripts/test_auto_provision.py
+
       # These were one `run:` scalar with the second line indented under it,
       # which YAML folds into ONE command — so check_messages_i18n.py has been
       # riding along as argv to check_tour_i18n.py and never actually ran.

@@ -670,6 +670,22 @@ def _next_auto_proxy_primary_port(used_ports):
         candidate += 2
     return candidate
 
+def _agent_is_manual(agent_id, host_entry):
+    """True when an operator has taken this agent's proxy wiring off automatic.
+
+    Without this, "wire it by hand" is not a thing the panel can offer: the
+    provisioner re-derives every agent on every heartbeat, so any hand-made
+    arrangement it disagrees with is replaced within seconds, and the operator
+    watches their choice evaporate with no message explaining why. The flag is
+    per agent, not per host, so one deliberately-placed agent does not switch
+    off provisioning for the rest of the machine.
+    """
+    for entry in (host_entry.get("assignments") or []):
+        if entry.get("agentId") == agent_id:
+            return bool(entry.get("manual"))
+    return False
+
+
 def _agent_has_full_assignments(agent_id, host_entry, existing_ports):
     """True if the agent already has a primary route pointing to a real proxy port.
 
@@ -712,6 +728,8 @@ def auto_provision_agent_proxies(client):
         agent_id = agent.get("id") or ""
         if not agent_id:
             continue
+        if _agent_is_manual(agent_id, host_entry):
+            continue
         if _agent_has_full_assignments(agent_id, host_entry, existing_ports):
             continue
 
@@ -747,7 +765,12 @@ def auto_provision_agent_proxies(client):
         "routers": normalize_routers(proxy_config.get("routers"), all_routes),
         "stopRequests": proxy_config.get("stopRequests") or [],
     })
-    restart_agent_proxy(timeout=30)
+    # No restart: the proxy's listener_watcher re-reads agent-proxies.json by
+    # mtime every 2s and binds the new port itself — the same path
+    # topology_orphan_assignment_delete already relies on. Restarting dropped
+    # every live connection on every other port (bridges included) for the sake
+    # of one new listener, and during the 2026-07-20 incident the restarts
+    # raced each other for the ports they were meant to be opening.
 
     host_mut = assignments_store.setdefault(client_id, {
         "agentUrl": client.get("agentUrl", ""), "assignments": [],
@@ -758,15 +781,27 @@ def auto_provision_agent_proxies(client):
         if ag is None:
             ag = {"agentId": agent_id, "routes": []}
             existing.append(ag)
-        assigned_roles = {r.get("role") for r in ag.get("routes", [])}
         for role in ("primary",):
-            if role not in assigned_roles:
-                port = ports[role]
-                ag["routes"].append({
-                    "role": role,
-                    "proxyId": f"skynet:proxy:{port}",
-                    "endpoint": f"http://{server_ip}:{port}/v1",
-                })
+            port = ports[role]
+            entry = {
+                "role": role,
+                "proxyId": f"skynet:proxy:{port}",
+                "endpoint": f"http://{server_ip}:{port}/v1",
+            }
+            existing_route = next(
+                (r for r in ag["routes"] if r.get("role") == role), None)
+            if existing_route is None:
+                ag["routes"].append(entry)
+            else:
+                # HEAL, and the reason this branch exists at all: the gate above
+                # only mints when the assignment's proxyId names a port that is
+                # gone. Appending "if the role is missing" therefore never fired
+                # in exactly the case that minted — the stale record survived, the
+                # gate failed again on the next pass, and another port was minted.
+                # At board-polling rate that is a port every second or two, each
+                # one written to disk. This is the 2026-07-20 outage: the fix is
+                # to point the record at the port we just made, not to skip it.
+                existing_route.update(entry)
     host_mut["assignments"] = existing
     save_admin_state()
 
