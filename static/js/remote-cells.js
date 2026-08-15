@@ -230,16 +230,22 @@ export function openPortPicker(hostId, port) {
     used.set(p, { kind: pr.kind === "service" ? "bridge" : "proxy", label: pr.label || "" });
   });
   const cur = Number(port);
-  // The grid always covers the fleet's configured range (the firewall-friendly
-  // window) and stretches further if something already sits above it — the
-  // migrated-from 80xx cells of an older install stay visible that way.
+  // The grid covers the fleet's configured range (the firewall-friendly window)
+  // and stretches further if something already sits above it. Anything OCCUPIED
+  // below the base — legacy proxies, bridges, exclusions, a not-yet-migrated
+  // cell — is shown as a compact strip above a divider: those numbers must stay
+  // visible (and swappable/releasable), but the thousands of FREE ports between
+  // them and the base are not on offer any more, so they are not drawn. A first
+  // version drew the full run from 8022 to the base — a wall of dead tiles.
   const range = cellPortRange();
-  const maxUsed = Math.max(range.from, ...used.keys());
+  const usedPorts = [...used.keys()].filter(Number.isFinite);
+  const maxUsed = Math.max(range.from, ...usedPorts);
   const upper = Math.max(range.to, maxUsed + 10);
-  const lower = Math.min(range.from, ...[...used.keys()].filter(Number.isFinite));
+  const legacyPorts = usedPorts.filter((p) => p < range.from).sort((a, b) => a - b);
+  if (cur < range.from && !legacyPorts.includes(cur)) legacyPorts.push(cur);
   const curName = used.get(cur)?.name || "";
   let tiles = "";
-  for (let p = lower; p <= upper; p++) {
+  const drawTile = (p) => {
     const u = used.get(p);
     const isCur = p === cur;
     let cls, attr, title;
@@ -260,7 +266,10 @@ export function openPortPicker(hostId, port) {
       cls = `busy ${u.kind}`; attr = " disabled"; title = `${u.kind} · ${u.label}`;
     }
     tiles += `<button type="button" class="port-tile ${cls}"${attr} title="${escapeHtml(title)}">${p}</button>`;
-  }
+  };
+  legacyPorts.forEach(drawTile);
+  if (legacyPorts.length) tiles += `<span class="port-grid-divider" aria-hidden="true"></span>`;
+  for (let p = range.from; p <= upper; p++) drawTile(p);
   const legend = [["free", t("portPickerLegendFree")], ["busy cell", t("portPickerLegendCell")],
                   ["busy proxy", t("portPickerLegendProxy")], ["busy bridge", t("portPickerLegendBridge")],
                   ["busy excluded", t("portPickerLegendExcluded")],

@@ -1391,6 +1391,11 @@
 .hps-overlay .modal { max-width: 340px; }
 .hps-warn { color: var(--muted); font-size: 12px; margin: 2px 0 12px; }
 .hps-next { color: var(--accent); font-size: 12px; margin: 6px 0 0; min-height: 15px; }
+/* Break between the legacy occupied strip (pre-migration numbers kept visible)
+   and the fleet's configured range in the port-picker grid. */
+.port-grid-divider { grid-column: 1 / -1; height: 0;
+  border-top: 1px dashed color-mix(in srgb, var(--line) 80%, transparent);
+  margin: 6px 0; }
 .hps-row { display: flex; align-items: center; gap: 8px; margin: 9px 0; }
 .hps-row label:first-child { min-width: 96px; }
 .hps-row input[type=time] { background: var(--field); color: var(--text);
