@@ -2,6 +2,42 @@
 
 ## Unreleased
 
+- Speculative decoding stops lying about what it is running. Four defects, all
+  of which presented as "the cell is fine, just slower than it should be":
+
+  - An empty SPEC_TYPE silently became `draft-mtp`, so attaching a DFlash or
+    eagle3 sidecar launched it as an MTP head — the server started, drafted
+    nothing useful, and the panel looked correct. The type is now read from the
+    sidecar's own filename, using upstream's prefix convention.
+  - Only `mtp-` files were recognised as draft sidecars at all, so a `dflash-`
+    file was catalogued as an ordinary model and never offered. That single line
+    is why Muse Glimmer ran at a third of its speed.
+  - `--spec-type` was emitted only alongside a draft file, which made all five
+    `ngram-*` types — the ones needing no file and no extra VRAM — unreachable
+    from the UI. Six of eleven legal values could not be selected.
+  - The board's command preview printed `--spec-type` under different conditions
+    than the builder used, so it showed a command that was not the one running.
+
+  Measured on the controller's RTX 5090 with Muse Glimmer 30B: 70.2 tok/s with
+  no drafter, 157 with DFlash at the default depth of 3, and 227 at the
+  sidecar's own block size of 16. The panel now fills that depth in from the
+  GGUF header rather than a hardcoded number.
+
+- `ENABLE_JINJA` off was a no-op: `--jinja` became default-enabled upstream and
+  the builder only ever added the flag, never `--no-jinja`. The embeddings
+  safety net that worked by withholding it had quietly become inert too.
+  Flash attention had the mirror problem — off emitted nothing, and the binary's
+  default is `auto`, so it could not be forced off at all.
+
+- New b10357 flags reach the config panel: LOAD_MODE (superseding the now
+  deprecated MMAP/ENABLE_MLOCK pair), CORS_ORIGINS/CORS_CREDENTIALS,
+  TOOLS_RUNTIME, N_CPU_MOE, SPEC_DRAFT_P_MIN, SWA_FULL, ENABLE_RERANK,
+  MTMD_BATCH_MAX_TOKENS, CTX_CHECKPOINTS, LOG_VERBOSITY and API_KEY_FILE, in two
+  new sections (CORS, Model loading). SPEC_TYPE and LOAD_MODE gained a datalist
+  of their legal values. Help text that named `--draft-max`/`--draft-min` — flags
+  b10357 rejects outright — and a WebUI tool that no longer ships was corrected
+  across all 20 locales.
+
 - A scheduled poweroff for a time still ahead today now fires today, not
   tomorrow. Enabling a schedule stamped `lastFired = today` unconditionally to
   stop a time ALREADY past from firing retroactively at the moment of enabling

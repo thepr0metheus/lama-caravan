@@ -32,6 +32,18 @@ CONFIG_FIELDS = [
     "SPEC_DRAFT_N_MIN",
     "SPEC_DRAFT_CACHE_TYPE_K",
     "SPEC_DRAFT_CACHE_TYPE_V",
+    "SPEC_DRAFT_P_MIN",
+    "LOAD_MODE",
+    "N_CPU_MOE",
+    "MTMD_BATCH_MAX_TOKENS",
+    "CTX_CHECKPOINTS",
+    "LOG_VERBOSITY",
+    "CORS_ORIGINS",
+    "CORS_CREDENTIALS",
+    "TOOLS_RUNTIME",
+    "API_KEY_FILE",
+    "SWA_FULL",
+    "ENABLE_RERANK",
     "CTX_SIZE",
     "THREADS",
     "THREADS_BATCH",
@@ -148,11 +160,23 @@ FIELD_HELP = {
     "LLAMA_MODELS_DIR": "Directory where local GGUF models and mmproj files are stored.",
     "MODEL_FILE": "GGUF model path relative to the models directory.",
     "MMPROJ_FILE": "Multimodal projector path. Empty means text-only mode.",
-    "SPEC_TYPE": "Speculative decoding type (--spec-type). Official llama.cpp values: draft-mtp (Gemma 4 MTP text boost), draft-simple, draft-eagle3, ngram-*. Empty/none disables it.",
+    "SPEC_TYPE": "Speculative decoding type (--spec-type). Draft-model types (need a draft file): draft-dflash, draft-dspark, draft-eagle3, draft-mtp, draft-simple. Prompt-drafting types (no file, no extra VRAM): ngram-simple, ngram-map-k, ngram-map-k4v, ngram-mod, ngram-cache. Left empty with a draft file set, the type is read from the file name. Empty/none disables it.",
     "SPEC_DRAFT_MODEL_FILE": "Draft / MTP-head GGUF path (--model-draft), relative to the models directory. Required to enable speculative decoding.",
     "SPEC_DRAFT_N_GPU_LAYERS": "GPU layers for the draft model (--gpu-layers-draft). 999/all keeps the small drafter on GPU.",
-    "SPEC_DRAFT_N_MAX": "Maximum draft tokens proposed per speculative decoding step (--draft-max).",
-    "SPEC_DRAFT_N_MIN": "Minimum draft tokens before speculative decoding is used (--draft-min).",
+    "SPEC_DRAFT_N_MAX": "Maximum draft tokens per speculative step (--spec-draft-n-max, default 3). A DFlash sidecar denoises a whole block in one pass, so setting this to its block size (16 for Muse Glimmer) is worth roughly 3x throughput; values above the block size are ignored.",
+    "SPEC_DRAFT_N_MIN": "Minimum draft tokens before speculative decoding is used (--spec-draft-n-min).",
+    "SPEC_DRAFT_P_MIN": "Minimum draft probability before a token is proposed (--spec-draft-p-min, default 0.00). Raising it trades draft depth for acceptance rate.",
+    "LOAD_MODE": "How the model is loaded (--load-mode): none, mmap, mlock, mmap+mlock or dio. Supersedes the deprecated MMAP and ENABLE_MLOCK toggles — when set, those two are not emitted.",
+    "N_CPU_MOE": "Keep the MoE expert weights of the first N layers in CPU RAM (--n-cpu-moe). The knob that decides whether a large MoE model fits the card at all.",
+    "MTMD_BATCH_MAX_TOKENS": "Maximum image tokens per batch while encoding (--mtmd-batch-max-tokens, default 1024). Governs the transient VRAM spike of a vision cell.",
+    "CTX_CHECKPOINTS": "Context checkpoints kept per slot (--ctx-checkpoints, default 32). PARALLEL multiplies this, and the board memory estimate does not count it.",
+    "LOG_VERBOSITY": "Log verbosity threshold (--log-verbosity). Raise it to debug a crashing cell without hand-editing EXTRA_ARGS.",
+    "CORS_ORIGINS": "Comma-separated allowed CORS origins (--cors-origins, default *). The proxy does not terminate CORS, so a cell's policy is what a browser actually meets through a bridge port.",
+    "CORS_CREDENTIALS": "Allow credentialed cross-origin requests (--cors-credentials). Enabled together with the default origin * echoes any Origin back and always allows credentials — set CORS_ORIGINS before turning this on.",
+    "TOOLS_RUNTIME": "Run the built-in tools in a separate runtime (--tools-runtime): docker:IMAGE, podman:IMAGE, docker-container:ID, podman-container:ID or ssh:TARGET. Without it the tools, exec_shell_command included, run as the server process with no path restriction.",
+    "API_KEY_FILE": "Path to a file of API keys, one per line (--api-key-file). Keeps keys out of the process command line, where API_KEY is visible to any local user via ps.",
+    "SWA_FULL": "Allocate the full-size sliding-window KV cache (--swa-full, default off). The windowed default saves VRAM but changes prompt-cache reuse on SWA models such as Gemma 4.",
+    "ENABLE_RERANK": "Enable the reranking endpoint (--rerank). Wants POOLING=rank — a wrong pooling starts fine and returns nonsense.",
     "SPEC_DRAFT_CACHE_TYPE_K": "KV cache data type for draft model K cache (--cache-type-k-draft).",
     "SPEC_DRAFT_CACHE_TYPE_V": "KV cache data type for draft model V cache (--cache-type-v-draft).",
     "CTX_SIZE": "Requested context size. Larger values consume more KV cache memory.",
@@ -336,6 +360,37 @@ LLAMA_PATH_PLACEHOLDER_SPEC = "{{SPEC_PATH}}"
 def _flag_truthy(value):
     return str(value).strip().lower() in ("1", "true", "yes", "on")
 
+
+# Sidecar prefix → speculative type. This is upstream's own convention: llama.cpp
+# infers the type from the sidecar a draft REPO ships (PR #25989), but only for
+# -hfd downloads — a local --model-draft gets no inference at all and would run
+# with type NONE. We read the same prefixes off the filename so a dflash- sidecar
+# can never be launched as an MTP head.
+_SPEC_SIDECAR_TYPES = (
+    ("dflash", "draft-dflash"),
+    ("dspark", "draft-dspark"),
+    ("eagle3", "draft-eagle3"),
+    ("mtp", "draft-mtp"),
+)
+
+
+def _infer_spec_type(spec_path):
+    """Name the speculative type from a draft file, defaulting to draft-simple.
+
+    Matches on the FIRST token of the filename only ("dflash-kquant.gguf"), so a
+    model that merely contains one of these words somewhere in its name is not
+    mistaken for a sidecar. draft-simple — a plain second model drafted
+    autoregressively — is the right fallback; draft-mtp is not, because it aborts
+    outright on a model with no MTP head.
+    """
+    stem = Path(str(spec_path or "")).name.lower()
+    head = re.split(r"[-_.]", stem, 1)[0]
+    for prefix, spec_type in _SPEC_SIDECAR_TYPES:
+        if head == prefix:
+            return spec_type
+    return "draft-simple"
+
+
 def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
                      include_local_paths=True):
     """Return the full llama-server argument list (everything AFTER the binary).
@@ -385,6 +440,15 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
         ("--chat-template", "CHAT_TEMPLATE"),
         ("--pooling", "POOLING"),
         ("--embd-normalize", "EMBD_NORMALIZE"),
+        # b10357 additions
+        ("--n-cpu-moe", "N_CPU_MOE"),
+        ("--spec-draft-p-min", "SPEC_DRAFT_P_MIN"),
+        ("--mtmd-batch-max-tokens", "MTMD_BATCH_MAX_TOKENS"),
+        ("--ctx-checkpoints", "CTX_CHECKPOINTS"),
+        ("--log-verbosity", "LOG_VERBOSITY"),
+        ("--cors-origins", "CORS_ORIGINS"),
+        ("--tools-runtime", "TOOLS_RUNTIME"),
+        ("--api-key-file", "API_KEY_FILE"),
     ]
     for flag, key in pairs:
         if has(key):
@@ -427,8 +491,17 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
         if has(key):
             args.append(on if truthy(c[key]) else off)
 
+    # b10357 folds --mmap, --mlock and --direct-io into one enum, and stamps all
+    # three DEPRECATED. LOAD_MODE wins when set — two booleans cannot express
+    # five modes, and emitting both invites them to contradict each other.
+    # Leaving it empty keeps the old toggles working exactly as before.
+    load_mode = str(c.get("LOAD_MODE") or "").strip()
+    if load_mode:
+        args += ["--load-mode", load_mode]
+
     add_bool("KV_OFFLOAD", "--kv-offload", "--no-kv-offload")
-    add_bool("MMAP", "--mmap", "--no-mmap")
+    if not load_mode:
+        add_bool("MMAP", "--mmap", "--no-mmap")
     add_bool("CACHE_PROMPT", "--cache-prompt", "--no-cache-prompt")
     add_bool("ENABLE_SLOTS", "--slots", "--no-slots")
     add_bool("SKIP_CHAT_PARSING", "--skip-chat-parsing", "--no-skip-chat-parsing")
@@ -446,7 +519,7 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
         args.append("--cont-batching")
     if truthy(c.get("ENABLE_METRICS")):
         args.append("--metrics")
-    if truthy(c.get("ENABLE_MLOCK")):
+    if truthy(c.get("ENABLE_MLOCK")) and not load_mode:
         args.append("--mlock")
     is_embedding = truthy(c.get("ENABLE_EMBEDDINGS"))
     if is_embedding:
@@ -465,8 +538,19 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
     # embeddings is on — a safety net independent of what leaked into the config.
     if is_embedding:
         spec_type_raw = ""
-    if has("SPEC_DRAFT_MODEL_FILE") and not is_embedding:
-        spec_type = spec_type_raw or "draft-mtp"
+    # ngram-* drafts from the prompt itself and takes NO draft model. Gating
+    # --spec-type on a draft file made all five ngram types unreachable from the
+    # UI — the flag was simply never emitted, so the cell ran unspeculated while
+    # the panel showed a speculative type. They are the free speedup here: no
+    # extra VRAM, and they suit repetitive code / tool-call JSON traffic.
+    if spec_type_raw.startswith("ngram-"):
+        args += ["--spec-type", spec_type_raw]
+    elif has("SPEC_DRAFT_MODEL_FILE") and not is_embedding:
+        # An empty type used to default to draft-mtp, which silently launched a
+        # DFlash or eagle3 sidecar as an MTP head — the cell started, drafted
+        # nothing useful, and looked healthy. Name the type from the sidecar
+        # instead, using upstream's own prefix convention.
+        spec_type = spec_type_raw or _infer_spec_type(spec_path)
         if spec_type and spec_type != "none":
             args += ["--spec-type", spec_type, "--model-draft", spec_path]
             draft_gpu = str(c.get("SPEC_DRAFT_N_GPU_LAYERS") or "999").strip()
@@ -487,14 +571,32 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
         if draft_min:
             args += ["--spec-draft-n-min", draft_min]
 
-    if truthy(c.get("ENABLE_JINJA")) and not is_embedding:
+    # --jinja is default-ENABLED since b10357, so withholding the flag no longer
+    # turns it off: OFF has to be stated. This also restores the embeddings
+    # safety net above, which worked by withholding a flag that is now the
+    # default — it had quietly become a no-op.
+    if is_embedding or not truthy(c.get("ENABLE_JINJA")):
+        args.append("--no-jinja")
+    else:
         args.append("--jinja")
-    if truthy(c.get("ENABLE_FLASH_ATTN")):
-        args += ["--flash-attn", "on"]
+    # The binary's default is 'auto', not 'off', so emitting nothing for a false
+    # toggle left flash attention ON while the panel read OFF — and gave no way
+    # to force it off, which is exactly what a misbehaving vision projector needs.
+    if has("ENABLE_FLASH_ATTN"):
+        args += ["--flash-attn", "on" if truthy(c["ENABLE_FLASH_ATTN"]) else "off"]
     if not truthy(c.get("ENABLE_WEBUI")):
         args.append("--no-webui")
 
     # Built-in WebUI tools / MCP proxy (recent llama-server features).
+    # New in b10357. Note --tools/--agent/--mcp-servers-* silently narrow
+    # --cors-origins to localhost, so a cell serving a LAN browser app through a
+    # bridge port needs CORS_ORIGINS set explicitly once tools are on.
+    add_bool("CORS_CREDENTIALS", "--cors-credentials", "--no-cors-credentials")
+    if truthy(c.get("SWA_FULL")):
+        args.append("--swa-full")
+    if truthy(c.get("ENABLE_RERANK")):
+        args.append("--rerank")
+
     if truthy(c.get("ENABLE_TOOLS")):
         args += ["--tools", "all"]
     if truthy(c.get("ENABLE_AGENT")):

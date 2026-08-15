@@ -34,7 +34,7 @@ import {
 import { topologyLlamaDetailOpen } from "./topology-dnd.js";
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
-import { $, api, copyText, escapeHtml, toast } from "./utils.js";
+import { $, api, copyText, escapeHtml, inferSpecType, toast } from "./utils.js";
 
 // ── Host-centric node view (Stage 3a) ────────────────────────────────────────
 // Known safetensors format folder names (mirror of _ST_FORMAT_HINTS in
@@ -835,14 +835,23 @@ export function openNodeServerDetail(nodeId, port) {
       add("--mmproj", mmproj);
       if (String(cfg.OFFLOAD_MMPROJ || "").toLowerCase() === "true") tokens.push("--mmproj-offload");
     }
+    // Mirror config_builder.build_llama_args exactly. This preview used to print
+    // --spec-type whenever the field was non-empty, while the builder emitted it
+    // only alongside a draft file — so the board showed a command that was not
+    // the one being run, for the single field that carries the whole speculative
+    // story. Any change to the builder's spec branch belongs here too.
     const specTypeRaw = (cfg.SPEC_TYPE || "").trim().toLowerCase();
     const specType = specTypeRaw === "mtp" ? "draft-mtp" : specTypeRaw;
-    if (specType && specType !== "none") {
-      add("--spec-type", specType);
-      if (cfg.SPEC_DRAFT_MODEL_FILE) {
-        add("--model-draft", [cfg.LLAMA_MODELS_DIR, cfg.SPEC_DRAFT_MODEL_FILE].filter(Boolean).join("/"));
-        add("--gpu-layers-draft", cfg.SPEC_DRAFT_N_GPU_LAYERS);
-      }
+    const draftFile = cfg.SPEC_DRAFT_MODEL_FILE;
+    if (specType.startsWith("ngram-")) {
+      add("--spec-type", specType);            // drafts from the prompt; takes no draft model
+    } else if (draftFile) {
+      add("--spec-type", specType || inferSpecType(draftFile));
+      add("--model-draft", [cfg.LLAMA_MODELS_DIR, draftFile].filter(Boolean).join("/"));
+      add("--gpu-layers-draft", cfg.SPEC_DRAFT_N_GPU_LAYERS);
+      add("--spec-draft-n-max", cfg.SPEC_DRAFT_N_MAX);
+    } else if (specType === "draft-mtp") {
+      add("--spec-type", specType);            // built-in MTP head, no draft file
       add("--spec-draft-n-max", cfg.SPEC_DRAFT_N_MAX);
     }
     if (!tokens.length) return "";

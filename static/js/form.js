@@ -6,6 +6,7 @@ import {
   basicFields,
   defaultOnOptionalToggles,
   dirtyOptionalToggles,
+  fieldChoices,
   gemma4DefaultMmproj,
   gemma4DraftModel,
   modelFields,
@@ -44,7 +45,7 @@ import { saveConfig } from "./polling.js";
 import { _trCachedModels, _trClientCpu } from "./remote-cells.js";
 import { state, topology } from "./state.js";
 import { renderRuntime } from "./system-panels.js";
-import { $, api, escapeHtml, formatBool, toast } from "./utils.js";
+import { $, api, escapeHtml, formatBool, inferSpecType, toast } from "./utils.js";
 
 export function syncToggleLabel(input) {
   const span = input?.closest(".check-row")?.querySelector("span");
@@ -982,9 +983,17 @@ export function renderField(field, pfx = "") {
       });
     });
   } else {
+    // Fields with a closed value set get a datalist: every legal value becomes
+    // discoverable without taking away free text, so a value llama.cpp adds
+    // tomorrow is still typeable today.
+    const choices = fieldChoices[field];
+    const listId = choices ? `${fid}-choices` : "";
     div.innerHTML = `
       ${labelRow}
-      <input id="${fid}" name="${field}" value="${escapeHtml(state.config[field] || "")}">
+      <input id="${fid}" name="${field}" value="${escapeHtml(state.config[field] || "")}"${
+        listId ? ` list="${escapeHtml(listId)}"` : ""}>
+      ${choices ? `<datalist id="${escapeHtml(listId)}">${
+        choices.map((v) => `<option value="${escapeHtml(v)}"></option>`).join("")}</datalist>` : ""}
       <p>${help}</p>
     `;
     div.querySelector("input")?.addEventListener("input", () => renderModelInsight(pfx));
@@ -1060,13 +1069,47 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
   const specTypeEl = $(pfx + "SPEC_TYPE");
   if (draftEl) {
     const wantedDraft = selected?.suggestedDraft || "";
-    if (draftEl.value !== wantedDraft) { draftEl.value = wantedDraft; mcUpdateTrigger(draftEl); }
+    const draftChanged = draftEl.value !== wantedDraft;
+    if (draftChanged) { draftEl.value = wantedDraft; mcUpdateTrigger(draftEl); }
     if (specTypeEl) {
       const hasMtp = !!(wantedDraft || selected?.hasMtpBuiltin);
-      const wantedSpec = hasMtp ? (selected?.familyDefaults?.SPEC_TYPE || "draft-mtp") : "";
+      // The type must come from the SIDECAR, not from the family default: a
+      // DFlash sidecar launched as draft-mtp starts happily and drafts nothing,
+      // which is how a cell ends up at a third of its throughput while the panel
+      // looks correct. Family defaults only get to speak for a built-in MTP head.
+      const wantedSpec = !hasMtp ? ""
+        : wantedDraft ? inferSpecType(wantedDraft)
+        : (selected?.familyDefaults?.SPEC_TYPE || "draft-mtp");
       if (specTypeEl.value !== wantedSpec) specTypeEl.value = wantedSpec;
       const specEnabledEl = $(pfx + "SPEC_ENABLED");
       if (specEnabledEl) { specEnabledEl.checked = !!hasMtp; syncToggleLabel(specEnabledEl); }
+
+      // Draft depth follows the sidecar's own block size — a block-diffusion
+      // drafter proposes a whole block per pass, so the default 3 wastes most of
+      // it (measured: 157 tok/s at 3 against 227 at this file's 16).
+      //
+      // The depth belongs to the SIDECAR, not to the operator, so it is rewritten
+      // whenever a different sidecar is attached — same rule MMPROJ already
+      // follows. Without that, a stale value inherited from whichever model the
+      // form last held wins and silently caps the new drafter. A deliberate value
+      // still survives everything except swapping the drafter underneath it.
+      const nMaxEl = $(pfx + "SPEC_DRAFT_N_MAX");
+      const blockSize = Number(modelsByPath().get(wantedDraft)?.ggufMeta?.specBlockSize || 0);
+      if (nMaxEl && wantedDraft) {
+        // Upstream's own ceiling: n_draft_max = block_size for dspark, one less
+        // for dflash (the block's first slot holds the last real token, not a
+        // draft). Asking for the full block starts fine but logs "exceeds the
+        // trained block size -- clamping", which reads like a misconfiguration.
+        const usable = wantedSpec === "draft-dspark" ? blockSize : blockSize - 1;
+        const derived = usable > 1
+          ? String(usable)
+          : String(selected?.familyDefaults?.SPEC_DRAFT_N_MAX || "");
+        const cur = nMaxEl.value.trim();
+        if (derived && (draftChanged || !cur || cur === nMaxEl.dataset.autoNMax)) {
+          nMaxEl.value = derived;
+          nMaxEl.dataset.autoNMax = derived;
+        }
+      }
     }
   }
 

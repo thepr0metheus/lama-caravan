@@ -157,3 +157,24 @@ export function markPageState(state, detail = "") {
   else delete b.dataset.tStateDetail;
   b.setAttribute("aria-busy", state === "loading" ? "true" : "false");
 }
+
+// Sidecar prefix → speculative type, mirroring caravan/admin/config_builder.py's
+// _SPEC_SIDECAR_TYPES. llama.cpp itself infers this from a draft repo's sidecars
+// (PR #25989) but only for -hfd downloads; a local --model-draft gets nothing,
+// so both the command preview and the config panel name the type from the file.
+// Matches the FIRST token only, so "my-dflash-lookalike.gguf" is not a sidecar.
+const SPEC_SIDECAR_TYPES = [
+  ["dflash", "draft-dflash"],
+  ["dspark", "draft-dspark"],
+  ["eagle3", "draft-eagle3"],
+  ["mtp", "draft-mtp"],
+];
+
+export function inferSpecType(specPath) {
+  const stem = String(specPath || "").split("/").pop().toLowerCase();
+  const head = stem.split(/[-_.]/)[0];
+  const hit = SPEC_SIDECAR_TYPES.find(([prefix]) => head === prefix);
+  // draft-simple, not draft-mtp: a plain second model drafted autoregressively.
+  // draft-mtp aborts outright on a model with no MTP head.
+  return hit ? hit[1] : "draft-simple";
+}

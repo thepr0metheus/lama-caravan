@@ -4,6 +4,7 @@ from pathlib import Path
 from struct import calcsize, unpack
 
 from caravan.admin.config_builder import models_dir_from_config, parse_config
+from caravan.admin.config_builder import _SPEC_SIDECAR_TYPES as SPEC_SIDECAR_TYPES
 from caravan.admin.paths import LLAMA_HOME
 
 
@@ -48,6 +49,11 @@ def read_gguf_metadata_cached(path):
 def read_gguf_metadata(path, limit_keys=256):
     wanted_suffixes = (
         "block_count",
+        # Speculative sidecars carry <arch>.block_size — the number of tokens a
+        # block-diffusion drafter denoises per pass, and therefore the draft
+        # depth worth asking for. Without it here the key is filtered out
+        # before extract_runtime_meta ever sees it.
+        "block_size",
         "context_length",
         "embedding_length",
         "attention.head_count",
@@ -148,6 +154,12 @@ def extract_runtime_meta(meta):
         "keyLength": number("attention.key_length"),
         "valueLength": number("attention.value_length"),
         "poolingType": pooling_type,
+        # Speculative sidecars (dflash/dspark) denoise a whole block per pass, so
+        # their block size IS the useful draft depth: on Muse Glimmer, lifting
+        # --spec-draft-n-max from the default 3 to this 16 measured 157 -> 227
+        # tok/s. Reading it from the file keeps that number true for the next
+        # sidecar instead of hardcoding today's.
+        "specBlockSize": number("block_size"),
     }
 
 # Recommended flags per model family. Keys are family prefixes parsed from the top-level
@@ -268,8 +280,15 @@ def list_models(config=None):
         if is_vocab:
             continue
         is_mmproj = any(token in name for token in ["mmproj", "mm-proj", "projector"])
-        # Draft: filename starts with "mtp-", OR lives in a legacy "mtp" subdirectory.
-        is_draft = name.startswith("mtp-") or (len(parts) >= 2 and parts[1] == "mtp")
+        # Draft: filename starts with a speculative-sidecar prefix, OR lives in a
+        # legacy "mtp" subdirectory. Only "mtp-" was recognised until b10357, so a
+        # dflash-/dspark-/eagle3- sidecar was filed as an ordinary MODEL: it never
+        # reached suggestedDraft, and the operator had to know it existed and type
+        # its path by hand. That is what kept Muse Glimmer at a third of its speed.
+        is_draft = (
+            any(name.startswith(prefix + "-") for prefix, _ in SPEC_SIDECAR_TYPES)
+            or (len(parts) >= 2 and parts[1] == "mtp")
+        )
         if is_draft:
             kind = "draft"
         elif is_mmproj:
@@ -309,11 +328,23 @@ def list_models(config=None):
         # Also check the sibling "default/" folder — HF downloads files whose quant
         # isn't recognised (e.g. mtp-*, mmproj) there, next to the quant folder.
         default_sibling = str(Path(parent_rel).parent / "default")
+        # …and every OTHER sibling quant folder. An HF repo ships one projector
+        # and one speculative sidecar for the whole model, but the downloader
+        # files each under the quant folder it was named for — so picking the
+        # Q4_K_XL weights found no drafter sitting in Q4_K_M and silently offered
+        # none. Own folder first, then default/, then the rest, so a companion
+        # that really does belong to this quant still wins.
+        quant_root = str(Path(parent_rel).parent)
+        other_siblings = sorted(
+            d for d in companions_by_dir
+            if d not in (parent_rel, default_sibling) and str(Path(d).parent) == quant_root
+        )
+
         def _merge(key):
-            a = companions_by_dir.get(parent_rel, {}).get(key, [])
-            b = companions_by_dir.get(default_sibling, {}).get(key, [])
+            groups = [parent_rel, default_sibling, *other_siblings]
             seen = set()
-            return [x for x in a + b if not (x in seen or seen.add(x))]
+            return [x for g in groups for x in companions_by_dir.get(g, {}).get(key, [])
+                    if not (x in seen or seen.add(x))]
         compatible = _merge("mmproj")[:5]
         suggested_draft = (_merge("draft") or [""])[0]
 
@@ -367,14 +398,21 @@ def list_models(config=None):
     for path, rel, name, kind, size, mtime in ggufs:
         if kind not in ("mmproj", "draft"):
             continue
-        rows.append({
+        row = {
             "path": rel,
             "name": path.name,
             "kind": kind,
             "size": size,
             "sizeGb": round(size / (1024 ** 3), 2),
             "mtime": mtime,
-        })
+        }
+        # A speculative sidecar's header carries the draft depth worth asking for
+        # (<arch>.block_size). Companion rows used to ship without ggufMeta at
+        # all, so the panel had nothing to read and fell back to a default of 3 —
+        # a third of the throughput the file itself is asking for.
+        if kind == "draft":
+            row["ggufMeta"] = extract_runtime_meta(read_gguf_metadata_cached(path))
+        rows.append(row)
 
     return rows
 
