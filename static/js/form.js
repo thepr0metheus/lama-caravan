@@ -89,6 +89,19 @@ export function option(path, label, selected) {
   return opt;
 }
 
+// Re-run the tab bar's overflow bookkeeping for a form. Exported because the
+// bar has no width until the modal holding it is actually shown: at build time
+// the subtree is display:none, so the initial rAF measures zeros and the
+// ResizeObserver does not fire for it either. The open path calls this.
+export function syncConfigTabs(pfx) {
+  const bar = $(pfx + "dynamicFields")?.querySelector(".advanced-tab-bar");
+  if (!bar) return;
+  bar.dispatchEvent(new Event("scroll"));      // drives the edge fades
+  // Instant, not smooth: this is the opening frame, not a user gesture.
+  bar.querySelector(".advanced-tab-btn.active")
+    ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+}
+
 // The line under CTX_SIZE that says YaRN will auto-engage. Driven by the same
 // numbers the backend uses: the field value against the model's native window.
 // Self-sufficient: it resolves the native window from the MODEL_FILE field
@@ -1410,10 +1423,44 @@ export function renderFields(pfx = "") {
     body.appendChild(panel);
   });
 
+  // ── overflow plumbing ────────────────────────────────────────────────────
+  // Twelve tabs overflow a narrow modal. The bar scrolls; these keep the edge
+  // fades honest about which direction still has tabs, and let a trackpad's
+  // vertical gesture drive it (a horizontal-only scroller is otherwise
+  // unreachable on a mouse with no tilt wheel).
+  const syncTabFades = () => {
+    const max = bar.scrollWidth - bar.clientWidth;
+    tabsEl.classList.toggle("scroll-left", bar.scrollLeft > 1);
+    tabsEl.classList.toggle("scroll-right", bar.scrollLeft < max - 1);
+  };
+  bar.addEventListener("scroll", syncTabFades, { passive: true });
+  bar.addEventListener("wheel", (e) => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+    if (bar.scrollWidth <= bar.clientWidth) return;
+    e.preventDefault();
+    bar.scrollLeft += e.deltaY;
+    syncTabFades();
+  }, { passive: false });
+  // The bar has no width until it is in the DOM and the modal is laid out.
+  // Bring the active tab into view at the same moment: an active tab parked
+  // past the right edge would look like no tab is active at all.
+  requestAnimationFrame(() => {
+    syncTabFades();
+    bar.querySelector(".advanced-tab-btn.active")
+      ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  });
+  new ResizeObserver(syncTabFades).observe(bar);
+
   bar.addEventListener("click", (e) => {
     const btn = e.target.closest("[data-adv-tab]");
     if (!btn) return;
     const idx = btn.dataset.advTab;
+    // A tab clicked at the clipped edge should finish the journey itself.
+    btn.scrollIntoView({ block: "nearest", inline: "nearest" });
+    // Called outright rather than waiting on the scroll event: a programmatic
+    // scroll does not reliably deliver one here, and a stale fade is a lie
+    // about which direction still has tabs.
+    syncTabFades();
     bar.querySelectorAll(".advanced-tab-btn").forEach((b) => b.classList.toggle("active", b.dataset.advTab === idx));
     body.querySelectorAll(".advanced-tab-panel").forEach((p) => p.classList.toggle("active", p.dataset.advPanel === idx));
     // Refresh the favorite mirrors from their canonical inputs when shown.

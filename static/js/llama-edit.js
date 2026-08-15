@@ -10,7 +10,7 @@ import {
 import { CONTROLLER_HOST_ID, dirtyOptionalToggles, modelFields, numericFields, toggleFields } from "./constants.js";
 import { refreshFavoritesPanel } from "./favorites.js";
 import { findSlotEntry, renderSchedulePanel } from "./remote-cells.js";
-import { updateCtxYarnHint } from "./form.js";
+import { syncConfigTabs, updateCtxYarnHint } from "./form.js";
 import {
   badge,
   mcUpdateTrigger,
@@ -178,8 +178,9 @@ export function syncTeModelsDirPreview() {
 export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
   _teCellPort = cellPort ? String(cellPort) : "";
   renderSchedulePanel("te", CONTROLLER_HOST_ID, _teCellPort, findSlotEntry(CONTROLLER_HOST_ID, _teCellPort)?.schedule);
-  // The YaRN hint must be right on OPEN, not only after a model change.
-  setTimeout(() => updateCtxYarnHint("te-"), 0);
+  // The YaRN hint must be right on OPEN, not only after a model change; the
+  // tab bar needs the same treatment for its overflow state.
+  setTimeout(() => { updateCtxYarnHint("te-"); syncConfigTabs("te-"); }, 0);
   if (!teLlamaFormReady) {
     renderFields("te-");
     wireCellKindToggle("te-");

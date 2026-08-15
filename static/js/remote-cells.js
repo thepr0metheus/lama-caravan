@@ -13,6 +13,7 @@ import {
   renderModelInsight,
   renderModelSelects,
   syncCompanionMuting,
+  syncConfigTabs,
   syncToggleLabel,
 } from "./form.js";
 import { t } from "./i18n.js";
@@ -968,6 +969,9 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
   _trGpuName = String(gpuName || _trClientGpus[0]?.name || "");
   _trClientCpu = ((topology?.clients || []).find((c) => c.id === hostId) || {}).cpu || {};
   _trCellPort = cellPort ? String(cellPort) : "";
+  // Same as the controller editor: the tab bar's overflow state is only
+  // measurable once this modal is actually on screen.
+  setTimeout(() => syncConfigTabs("tr-"), 0);
 
   // One-time form field injection
   if (!_trFormReady) {

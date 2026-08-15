@@ -878,7 +878,36 @@
   background: color-mix(in srgb, var(--bg) 60%, var(--panel));
   padding: 0 4px;
   gap: 0;
+  /* Twelve tabs do not fit a narrow modal, and the parent clips overflow — the
+     last tab was simply unreachable. Scroll horizontally instead, with the
+     fade below telling the eye there is more. */
+  overflow-x: auto;
+  scrollbar-width: thin;
+  /* No scroll-behavior: smooth — it governs PROGRAMMATIC scrolls only
+     (the wheel stays as smooth as the OS makes it) and it silently
+     swallowed the scrollIntoView that brings a clicked edge tab in. */
+  scroll-padding-inline: 24px;   /* keep a scrolled-to tab clear of the fades */
 }
+.advanced-tab-bar::-webkit-scrollbar { height: 4px; }
+.advanced-tab-bar::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--line) 80%, transparent); border-radius: 2px; }
+.advanced-tab-bar::-webkit-scrollbar-track { background: transparent; }
+
+/* The fades live on the wrapper so they do not scroll away with the content.
+   Each is shown only while there is something to scroll to in that direction —
+   an edge that always glows would be a lie about where the content ends. */
+.advanced-tabs { position: relative; }
+.advanced-tabs::before, .advanced-tabs::after {
+  content: ""; position: absolute; top: 0; width: 26px; height: 34px;
+  pointer-events: none; opacity: 0; transition: opacity .15s; z-index: 1;
+}
+.advanced-tabs::before { left: 0;
+  background: linear-gradient(to right,
+    color-mix(in srgb, var(--bg) 60%, var(--panel)), transparent); }
+.advanced-tabs::after { right: 0;
+  background: linear-gradient(to left,
+    color-mix(in srgb, var(--bg) 60%, var(--panel)), transparent); }
+.advanced-tabs.scroll-left::before, .advanced-tabs.scroll-right::after { opacity: 1; }
 .advanced-tab-btn {
   padding: 7px 13px;
   font-size: 11px;
