@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- The favicon is a knitted llama. It was still the terminal-window mark from
+  the llamacpp-easy-admin days, spelling "ll.cpp" — a name the project has not
+  carried for a long time. The new one is the splash screen's own walking
+  llama, cell for cell from the same sprite grid, under the same `plKnit`
+  stitch pattern (a dark V and a light V per cell), in the caravan's accent
+  green with a lighter blanket. Nothing about it is a fresh drawing: it is the
+  animation's llama, standing still.
+
+  `/hf` had no `rel="icon"` at all and showed the browser's blank page mark;
+  it now points at the same file as the other four pages, and every reference
+  moved to `?v=3` so the old mark does not linger in caches.
+
 - The cell config form is reorganised from four tabs into eleven topic ones:
   Basics, Performance, Speculation, Memory & KV, Placement, Context & RoPE,
   Chat & reasoning, Vision, Embeddings, Access, Tools & service. The old
