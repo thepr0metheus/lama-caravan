@@ -7,8 +7,10 @@
   carried for a long time. The new one is the splash screen's own walking
   llama, cell for cell from the same sprite grid, under the same `plKnit`
   stitch pattern (a dark V and a light V per cell), in the caravan's accent
-  green with a lighter blanket. Nothing about it is a fresh drawing: it is the
-  animation's llama, standing still.
+  sand with a yellow blanket — `#a97e4f` and `#c9a83b`, lifted straight from
+  the caravan's own BODIES/BLANKETS palette rather than picked by eye.
+  Nothing about it is a fresh drawing: it is the animation's llama,
+  standing still.
 
   `/hf` had no `rel="icon"` at all and showed the browser's blank page mark;
   it now points at the same file as the other four pages, and every reference
