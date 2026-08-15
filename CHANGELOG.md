@@ -4,7 +4,8 @@
 
 - The fleet's port ranges become configuration, and the shipped defaults leave
   the crowded 8xxx neighbourhood. Cells now allocate from 22001 (span 998) and
-  proxies from 32001 — `CARAVAN_CELL_BASE_PORT`, `CARAVAN_CELL_PORT_SPAN` and
+  proxies from 23001 (cells' base + 1000, riding directly above the cell block
+  so one firewall rule covers both) — `CARAVAN_CELL_BASE_PORT`, `CARAVAN_CELL_PORT_SPAN` and
   `CARAVAN_PROXY_BASE_PORT` override them per installation. The 8xxx block is
   the industry's favourite squatting ground (8080 is http-alt and llama-server's
   own default, 8000 vLLM, 8888 Jupyter, 8123 Home Assistant); 22001–22999 is

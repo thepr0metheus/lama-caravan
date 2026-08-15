@@ -7,7 +7,7 @@
 # the board's "?" tour and System → Security (fleet token) walk you through it.
 #
 # Linux is the intended host: network_mode: host lets the proxy router bind
-# its per-agent ports (22083…, 32001+; legacy installs 8083…, 8101+) on the
+# its per-agent ports (22083…, 23001+; legacy installs 8083…, 8101+) on the
 # fly — Docker port publishing
 # can't follow a dynamic set. On Docker Desktop (macOS/Windows) enable its
 # host-networking option, or stick to the native install.

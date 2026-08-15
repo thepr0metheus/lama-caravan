@@ -356,7 +356,7 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 - Cells run on the controller or on any scout host — client GPUs and CPUs are
   first-class; models are cached and shipped from the controller.
 - Reserve globally numbered cells from port `22001` (CARAVAN_CELL_BASE_PORT; proxies get
-  their own block at `32001+` via CARAVAN_PROXY_BASE_PORT) — the controller's own web
+  their own block at `23001+` via CARAVAN_PROXY_BASE_PORT) — the controller's own web
   port (`LLAMACPP_ADMIN_PORT`, default `7990`) sits inside that numbering and is
   held out of the pool automatically; generated `cell.json` +
   `start.sh` artifacts; `systemd --user` template units

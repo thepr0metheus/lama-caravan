@@ -94,16 +94,17 @@ TOPOLOGY_SERVER_IP = os.environ.get("LLAMA_TOPOLOGY_SERVER_IP", "127.0.0.1")
 # the picker draws and the exclusion scanner probes. Proxies get their own
 # block so the two families can never collide by construction.
 #
-# The shipped defaults moved 8001→22001 / 8101→32001 (v1.3.188): the 8xxx
+# The shipped defaults moved 8001→22001 / 8101→23001 (v1.3.188): the 8xxx
 # neighbourhood is the industry's favourite squatting ground (8080 http-alt and
 # llama-server's own default, 8000 vLLM, 8888 Jupyter, 8123 Home Assistant…).
 # 22001–22999 is clean of popular app defaults (Syncthing's 22000 sits just
-# below the base) and safely under the k8s NodePort window (30000+) and every
-# ephemeral floor. The proxy block at 32001+ overlaps NodePort and would cross
-# the Linux ephemeral floor past 32767 — an accepted trade-off: the allocator
-# steps by 2 and a fleet needs ~380 routes before that matters. The +14000
-# cell offset preserves the trailing digits in full — cell 8010 became 22010 —
-# so logs stay readable across the move.
+# below the base), and the proxy block rides directly above it — one mental
+# block, one firewall rule (22001:23999), both safely under the k8s NodePort
+# window (30000+) and every ephemeral floor. The neighbours were rejected for
+# cause: 24007 GlusterFS, 25565 Minecraft, 26257 CockroachDB, 27xxx Steam and
+# MongoDB. The +14000 cell offset preserves the trailing digits in full —
+# cell 8010 became 22010 — so logs stay readable across the move; a future
+# legacy-proxy migration would use +15000 for the same reason (8101→23101).
 #
 # Hard lessons encoded in the startup guard below: the controller once lived
 # at 8090 INSIDE the cell range and the allocator would happily hand its port
@@ -113,7 +114,7 @@ SERVER_CELL_BASE_PORT = int(os.environ.get("CARAVAN_CELL_BASE_PORT", "22001"))
 SERVER_CELL_PORT_SPAN = int(os.environ.get("CARAVAN_CELL_PORT_SPAN", "998"))
 SERVER_CELL_UPPER_PORT = SERVER_CELL_BASE_PORT + SERVER_CELL_PORT_SPAN
 AGENT_PROXY_BASE_PORT = int(os.environ.get(
-    "CARAVAN_PROXY_BASE_PORT", str(SERVER_CELL_BASE_PORT + 10000)))
+    "CARAVAN_PROXY_BASE_PORT", str(SERVER_CELL_BASE_PORT + 1000)))
 
 
 def validate_port_ranges():
