@@ -1046,6 +1046,16 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
     }
   }
 
+  // CTX_SIZE placeholder — the model's own native window, read from the GGUF
+  // header. Not a value: the field stays whatever the operator set, but an
+  // emptied field now says what the model itself was trained to (and going
+  // past it is a conscious YaRN decision, not a guess).
+  const ctxEl = $(pfx + "CTX_SIZE");
+  if (ctxEl) {
+    const nativeCtx = Number(selected?.ggufMeta?.contextLength || 0);
+    ctxEl.placeholder = nativeCtx > 0 ? String(nativeCtx) : "";
+  }
+
   // MMPROJ — always overwrite (clear if none found).
   const mmprojEl = $(pfx + "MMPROJ_FILE");
   if (mmprojEl) {
