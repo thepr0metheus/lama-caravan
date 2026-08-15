@@ -1071,7 +1071,11 @@ export function renderField(field, pfx = "") {
     div.innerHTML = `
       ${labelRow}
       <div class="ctx-size-row">
-        <input id="${fid}" name="${field}" value="${escapeHtml(state.config[field] || "")}">
+        <div class="batch-combo">
+          <input id="${fid}" name="${field}" value="${escapeHtml(state.config[field] || "")}">
+          <button class="batch-scale-btn" type="button" data-scale="0.5">÷2</button>
+          <button class="batch-scale-btn" type="button" data-scale="2">×2</button>
+        </div>
         <button type="button" class="yarn-chip" id="${fid}-yarn-chip" data-t="cell-yarn-chip" hidden></button>
       </div>
       <p class="ctx-yarn-hint" data-t="cell-ctx-yarn-hint" hidden></p>
@@ -1080,6 +1084,17 @@ export function renderField(field, pfx = "") {
     const input = div.querySelector("input");
     input.addEventListener("input", () => { updateCtxYarnHint(pfx); renderModelInsight(pfx); });
     div.querySelector(".yarn-chip").addEventListener("click", () => toggleYarnMode(pfx));
+    // Same halve/double affordance the batch fields carry — context is the
+    // other number an operator walks up and down by powers of two, and it is
+    // the one where the next step may cross the model's native window and
+    // engage YaRN, so the chip has to re-read after every press.
+    div.querySelectorAll(".batch-scale-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const v = Math.max(1, Math.round(Number(input.value || 0) * Number(btn.dataset.scale)));
+        input.value = v;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    });
   } else {
     // Fields with a closed value set get a datalist: every legal value becomes
     // discoverable without taking away free text, so a value llama.cpp adds

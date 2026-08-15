@@ -1430,7 +1430,9 @@
    auto = the builder derives the recipe; manual = explicit ROPE_* fields win. */
 .field.ctx-size-field { grid-column: span 2; }
 .ctx-size-row { display: flex; align-items: center; gap: 8px; }
-.ctx-size-row input { flex: 1; min-width: 0; }
+/* The input now sits inside .batch-combo (the halve/double pair), so the
+   combo is the flex child that must stretch — not the input itself. */
+.ctx-size-row .batch-combo { flex: 1; min-width: 0; }
 .yarn-chip { flex: none; font-size: 11px; font-weight: 600; letter-spacing: .02em;
   padding: 4px 10px; border-radius: 999px; cursor: pointer;
   border: 1px solid transparent; background: transparent; }
