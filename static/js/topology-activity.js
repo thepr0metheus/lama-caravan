@@ -1345,8 +1345,9 @@ function openBindMenu(chip) {
         });
         if (res.topology) setTopology(res.topology);
         renderTopology();
-        // The key is shown once here and stays readable in the route form.
-        await copyText(`http://${location.hostname}:${res.route.port}/v1\n${res.route.apiKey}`);
+        // The port is born open (no key required, the fleet default), so there
+        // is nothing secret to hand over — just the address the agent will use.
+        await copyText(`http://${location.hostname}:${res.route.port}/v1`);
         toast(t("taBindNewPortMade", { port: String(res.route.port) }));
       } catch (err) {
         toast(`${t("taBindFailed")}: ${err.message || err}`, true);

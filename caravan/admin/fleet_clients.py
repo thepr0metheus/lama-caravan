@@ -762,14 +762,12 @@ def auto_provision_agent_proxies(client):
             "upstreamHost": "127.0.0.1", "upstreamPort": 8080,
             "upstreamType": "llama", "providerId": "",
             "enabled": True, "mode": "open", "priority": 0, "preemptible": True,
-            # Born with a credential. A provisioned port binds 0.0.0.0 the
-            # moment it is written, so "no apiKey" meant an open door onto the
-            # LAN until someone happened to open the route form and press the
-            # dice. Every route on this fleet has a key — all of them added by
-            # hand afterwards, which is the tell that the default was wrong.
-            # The key reaches the agent the same way the endpoint does, through
-            # apply-routes.
-            "apiKey": "lcv1_" + secrets.token_hex(16),
+            # No key by default, by the operator's decision (2026-08-16): a
+            # provisioned port is open until a key is set on it deliberately,
+            # in the route form. Worth knowing what that means: the listener
+            # binds 0.0.0.0, so on this fleet it is reachable from the whole
+            # LAN. The form's "do not require a key" checkbox is where that
+            # choice now lives, rather than in a blank field nobody reads.
             "clientTimeoutSeconds": 0, "cloudFallbackProviderId": "", "cloudFallbackEligible": False,
             # Router redesign: new proxies feed the shared default router
             # and carry explicit role/client links (no label-suffix guessing).

@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+- "Do not require a key" is now a checkbox, ticked by default, and new routes
+  are created without one. An empty apiKey already meant "this port is open",
+  but the form said so only by leaving a text box blank — which looks exactly
+  like a key the operator has not typed yet. Unticking generates a key rather
+  than leaving the field empty, so the act of asking for one cannot silently
+  produce an open port. Provisioned routes and hand-made agent ports no longer
+  mint a key either (1.3.199 had started doing so). Worth stating plainly: these
+  listeners bind 0.0.0.0, so an open port is reachable from the whole LAN — the
+  checkbox is where that choice is made now, deliberately, instead of being
+  inferred from an empty field. The "+ App port" flow keeps its generated key:
+  it exists to stop external apps borrowing an agent's credential.
+
+- A proxy port can be deleted, from the form it was created with. Deletion had
+  no single home: bridges came off the Cloud card, agent routes only vanished
+  when reconcile happened to notice nothing referenced them, and an app port
+  made by hand could be edited forever but never removed — so the one operation
+  an operator asks for by name had no answer short of editing JSON on the
+  controller. Delete takes the router wiring with it (a left-behind edge is
+  invisible on the board and outlives what it described) and refuses a port an
+  assignment still names, because the listener would go while the agent on the
+  other machine kept calling the number.
+
+- Bridge and app ports are minted in the proxy range. They counted from
+  SERVER_CELL_BASE_PORT, which was simply "the next free number" while there was
+  one flat range; 1.3.188 split cells (22001+) from proxies (23001+) and this
+  base was left behind, so a hand-made app port landed at 22026 among the model
+  cells. It never collided — the shared register keeps it out of the picker — it
+  was filed in the wrong drawer, which nobody notices until they go looking.
+
 - Reconcile has a button, and it asks first. It deletes proxy routes, and it
   ran only from curl — the first time it ran after service bridges existed it
   deleted three live ones. It now offers a dry run through the same code path

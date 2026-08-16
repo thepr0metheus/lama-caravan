@@ -1138,6 +1138,13 @@ def _post_api_agent_proxies_route_policy(h, parsed, body):
         h.send_json({"ok": True, "config": result, "monitor": system_monitor_state()})
         return
 
+@_route(POST_ROUTES, '/api/agent-proxies/route-delete')
+def _post_api_agent_proxies_route_delete(h, parsed, body):
+        from caravan.admin.proxies_config import delete_proxy_route
+        result = delete_proxy_route(body.get("port"), bool((body or {}).get("force")))
+        h.send_json({"ok": True, "result": result, "topology": topology_state()})
+        return
+
 @_route(POST_ROUTES, '/api/agent-proxies/reconcile')
 def _post_api_agent_proxies_reconcile(h, parsed, body):
         result = reconcile_agent_proxies(dry_run=bool((body or {}).get("dryRun")))

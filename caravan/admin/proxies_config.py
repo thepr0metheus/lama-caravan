@@ -528,12 +528,19 @@ def port_is_listening(port):
 
 
 def _next_free_proxy_port(routes):
-    """Bridges share the fleet-wide cell numbering (8001, 8002, … — the same
-    "next free port" a Reserve-cell would take): smallest port from that pool
-    not held by a server slot on any host or by an existing proxy route."""
-    from caravan.admin.paths import SERVER_CELL_BASE_PORT
+    """Smallest free port in the PROXY range for a bridge or app port.
+
+    These used to count from SERVER_CELL_BASE_PORT: with one flat range that was
+    simply "the next free number", but 1.3.188 split the ranges — cells at
+    22001+, proxies at 23001+ — and the old base was left behind, so a port
+    minted here landed among the model cells. It did not collide (the shared
+    register keeps it out of the picker), it was just filed in the wrong drawer,
+    which is the sort of thing nobody notices until they are looking for it.
+    Every listener the proxy owns belongs in the proxy range.
+    """
+    from caravan.admin.paths import AGENT_PROXY_BASE_PORT
     used = _all_taken_ports(routes)
-    port = SERVER_CELL_BASE_PORT
+    port = AGENT_PROXY_BASE_PORT
     while port in used or port_is_listening(port):
         port += 1
         if port > 65535:
@@ -628,9 +635,9 @@ def mint_agent_port(client_id, agent_id, label="", port=None):
     second port for an agent, or a port named after what it is for, had no way
     to say so except by editing JSON on the controller.
 
-    Unlike a provisioned route this is born with an API key: a port that
-    listens on 0.0.0.0 with no credential is not a reasonable default for
-    something a person just created and will hand to an agent.
+    Born without a key, matching the form's default: requiring one is a
+    deliberate act, made in the route form. The port binds 0.0.0.0, so on a flat
+    LAN that means anything on the network can reach it.
     """
     client_id = str(client_id or "").strip()
     agent_id = str(agent_id or "").strip()
@@ -656,7 +663,6 @@ def mint_agent_port(client_id, agent_id, label="", port=None):
         taken = _all_taken_ports(routes)
         if port in taken:
             raise AppError(f"port {port} is already taken — pick another", 409)
-    api_key = "lcv1_" + secrets.token_hex(16)
     route = {
         "label": (str(label or "").strip() or f"{agent_id} port")[:80],
         "port": port,
@@ -672,7 +678,6 @@ def mint_agent_port(client_id, agent_id, label="", port=None):
         "routerId": DEFAULT_ROUTER_ID,
         "clientId": client_id,
         "role": "primary",
-        "apiKey": api_key,
     }
     routes.append(route)
     from caravan.admin.paths import IS_CONTAINER
@@ -683,8 +688,55 @@ def mint_agent_port(client_id, agent_id, label="", port=None):
         except Exception:
             pass
     saved = save_agent_proxy_config(routes, payload.get("routers"))
-    out = next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
-    return {**out, "apiKey": api_key}
+    return next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
+
+
+def delete_proxy_route(port, force=False):
+    """Delete ANY proxy port from the board, with its router wiring.
+
+    Deletion had no single home: bridges came off the Cloud card, agent routes
+    only vanished when reconcile happened to notice nothing referenced them, and
+    an app port made by hand could be edited forever but never removed. So the
+    one operation an operator asks for by name — "how do I delete this?" — had
+    no answer that did not involve editing JSON on the controller.
+
+    A port still named by an assignment is refused unless forced: the listener
+    would go and the agent on the other machine would keep calling the number,
+    which is a silent outage somewhere the operator is not looking.
+    """
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        raise AppError("port must be a number", 400)
+    payload = load_agent_proxy_config()
+    routes = payload.get("routes") or []
+    target = next((r for r in routes if isinstance(r, dict) and int(r.get("port") or 0) == port), None)
+    if not target:
+        raise AppError(f"no proxy route on port {port}", 404)
+
+    if not force:
+        from caravan.admin.state import topology_store
+        bound = []
+        for host_id, row in (topology_store().get("assignments") or {}).items():
+            for entry in (row.get("assignments") or []):
+                for r in (entry.get("routes") or []):
+                    if str(r.get("proxyId") or "").endswith(f":{port}"):
+                        bound.append(f"{host_id}/{entry.get('agentId')}")
+        if bound:
+            raise AppError(
+                f"port {port} is still assigned to {', '.join(bound)} — "
+                f"point the agent elsewhere first", 409)
+
+    # Drop the router wiring too. Leaving it turns into an orphan edge, which is
+    # invisible on the board and outlives the thing it described.
+    routers = payload.get("routers") or []
+    for router in routers:
+        graph = router.get("graph") or {}
+        if isinstance(graph.get("edges"), list):
+            graph["edges"] = [e for e in graph["edges"]
+                              if str((e or {}).get("from") or "") != f"in:skynet:proxy:{port}"]
+    save_agent_proxy_config([r for r in routes if r is not target], routers)
+    return {"deleted": port, "label": str(target.get("label") or "")}
 
 
 def delete_bridge_port(port):

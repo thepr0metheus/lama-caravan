@@ -420,7 +420,11 @@ export function renderTopologyProxyForm() {
                 ${["open", "paused", "drain"].map((mode) => `<option value="${mode}"${values.mode === mode ? " selected" : ""}>${mode}</option>`).join("")}
               </select>
             </label>
-            <label>${escapeHtml(t("proxyApiKeyLabel"))}
+            <label class="proxy-nokey-row">
+              <input type="checkbox" name="noApiKey"${values.apiKey ? "" : " checked"} data-proxy-nokey>
+              <span>${escapeHtml(t("proxyNoKeyLabel"))}</span>
+            </label>
+            <label class="proxy-apikey-label"${values.apiKey ? "" : " hidden"}>${escapeHtml(t("proxyApiKeyLabel"))}
               <span class="proxy-apikey-row">
                 <input name="apiKey" placeholder="${escapeHtml(t("proxyApiKeyPlaceholder"))}" value="${escapeHtml(String(values.apiKey))}" autocomplete="off" spellcheck="false">
                 <button class="mini-link" type="button" data-proxy-genkey title="${escapeHtml(t("proxyApiKeyGenTip"))}">🎲</button>
@@ -431,6 +435,15 @@ export function renderTopologyProxyForm() {
           <div class="proxy-route-actions">
             <button class="primary-mini-action" type="button" data-topology-proxy-save>Save</button>
             <button class="mini-link" type="button" data-topology-proxy-cancel>Cancel</button>
+            <!-- Deleting a port had no button anywhere: bridges could be removed
+                 from the Cloud card and agent routes only by reconcile noticing
+                 they were unreferenced, so a port made by hand could be edited
+                 forever and never taken away. It belongs beside the settings it
+                 was created with — but only when there is something to delete;
+                 the same form is also the ADD form, where Delete would offer to
+                 remove a port that does not exist yet. -->
+            ${editingProxy ? `<button class="mini-link danger" type="button" data-topology-proxy-delete
+              title="${escapeHtml(t("proxyDeleteTip"))}">${escapeHtml(t("proxyDelete"))}</button>` : ""}
           </div>
         </div>
       </div>
@@ -448,7 +461,11 @@ export function readTopologyProxyForm() {
     upstreamPort: Number(form.querySelector('[name="upstreamPort"]')?.value || 8080),
     enabled: true,
     mode: form.querySelector('[name="mode"]')?.value || "open",
-    apiKey: form.querySelector('[name="apiKey"]')?.value.trim() || "",
+    // The checkbox is the statement; the text field is only where the key
+    // lives when there is one. Reading the field regardless would let a key
+    // typed and then waved off with the checkbox stay in force.
+    apiKey: form.querySelector('[data-proxy-nokey]')?.checked
+      ? "" : (form.querySelector('[name="apiKey"]')?.value.trim() || ""),
   };
 }
 

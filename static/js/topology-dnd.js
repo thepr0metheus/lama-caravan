@@ -124,6 +124,23 @@ export function bindTopologyDragAndDrop() {
     saveTopologyProxyForm().catch((err) => toast(err.message));
   });
   // Roll a fresh data-plane API key into the form field (saved on Save).
+  // "Do not require a key" is the plain-language version of "apiKey is empty",
+  // which the form used to express only by a blank text box — indistinguishable
+  // from a key the operator had not typed yet.
+  document.querySelector("[data-proxy-nokey]")?.addEventListener("change", (e) => {
+    const on = !!e.target.checked;
+    const label = document.querySelector("[data-topology-proxy-form] .proxy-apikey-label");
+    if (label) label.hidden = on;
+    const input = document.querySelector('[data-topology-proxy-form] [name="apiKey"]');
+    if (on && input) input.value = "";
+    if (!on && input && !input.value) {
+      // Unticking asks for a key; an empty box would save as "open" again and
+      // the operator would think they had closed the port.
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      input.value = "lcv1_" + [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+  });
   document.querySelector("[data-proxy-genkey]")?.addEventListener("click", () => {
     const input = document.querySelector('[data-topology-proxy-form] [name="apiKey"]');
     if (!input) return;
@@ -650,6 +667,35 @@ export function bindTopologyDragAndDrop() {
     ui.topologyProxyFormOpen = false;
     ui.topologyProxyEditingId = "";
     renderTopology();
+  });
+  document.querySelector("[data-topology-proxy-delete]")?.addEventListener("click", async () => {
+    // The id is `skynet:proxy:<port>`, not a bare number.
+    const port = Number(String(ui.topologyProxyEditingId || "").split(":").pop() || 0);
+    const route = (topology?.proxies || []).find((p) => Number(p.port) === port);
+    if (!port) return;
+    // Say what leaves with it. A port is a listener AND whatever the agent on
+    // the other side is configured to call, so deleting one without naming the
+    // agent turns a tidy click into a silent outage on some other machine.
+    const bound = Object.entries(topology?.assignments || {}).flatMap(([host, row]) =>
+      (row.assignments || [])
+        .filter((a) => (a.routes || []).some((r) => String(r.proxyId).endsWith(`:${port}`)))
+        .map((a) => `${host}/${a.agentId}`));
+    const detail = [
+      `:${port} ${route?.label || ""}`,
+      bound.length ? `${t("proxyDeleteBound")}: ${bound.join(", ")}` : t("proxyDeleteUnbound"),
+    ].join("\n");
+    if (!await appConfirm(t("proxyDeleteConfirm", { port: String(port) }),
+                          { detail, danger: true })) return;
+    try {
+      const res = await api("/api/agent-proxies/route-delete", {
+        method: "POST", body: JSON.stringify({ port }),
+      });
+      if (res.topology) setTopology(res.topology);
+      ui.topologyProxyFormOpen = false;
+      ui.topologyProxyEditingId = "";
+      renderTopology();
+      toast(t("proxyDeleted", { port: String(port) }));
+    } catch (err) { toast(err.message); }
   });
   // ── Router (Роутер) card → open in new tab ────────────────────────
   document.querySelectorAll("[data-topology-router]").forEach((card) => {
