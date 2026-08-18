@@ -1616,7 +1616,8 @@ export function readConfigForm(pfx = "") {
   config.ENV = $(pfx + "ENV")?.value || "";
   config.WORKDIR = ($(pfx + "WORKDIR")?.value || "").trim();
   ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL",
-   "WHISPER_MODEL", "MOONSHINE_MODEL", "SEAMLESS_TGT_LANG"].forEach((k) => {
+   "WHISPER_MODEL", "MOONSHINE_MODEL", "SEAMLESS_TGT_LANG",
+   "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG"].forEach((k) => {
     config[k] = ($(pfx + k)?.value || "").trim();
   });
   if (config.CELL_KIND === "command" || config.RUNNER === "vllm" || config.RUNNER === "whisper" || config.RUNNER === "moonshine") {

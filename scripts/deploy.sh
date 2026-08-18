@@ -46,7 +46,7 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD)
 # already shipped: a missing i18n key reached production this way (a stale
 # translation label renders as its raw key, in every locale at once). Cheap
 # checks, and they gate the push instead of narrating it afterwards.
-for guard in check_messages_i18n check_i18n_calls testability_names check_boot_guard check_field_homes; do
+for guard in check_messages_i18n check_i18n_calls testability_names check_boot_guard check_field_homes check_runner_model_fields; do
   script="scripts/${guard}.py"
   [ -f "$script" ] || continue
   args=""; [ "$guard" = "testability_names" ] && args="--check"

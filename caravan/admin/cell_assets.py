@@ -42,6 +42,8 @@ CELL_ASSETS = (
     "run_transcribe.sh",
     "seamless_server.py",
     "run_seamless.sh",
+    "translate_server.py",
+    "run_translate.sh",
 )
 
 # Which assets a runner needs in $HOME before its command can run. The command
@@ -52,6 +54,7 @@ RUNNER_ASSETS = {
     "custom": ("run_tts.sh", "tts_server.py"),
     "transcribe": ("run_transcribe.sh", "transcribe_server.py"),
     "seamless": ("run_seamless.sh", "seamless_server.py"),
+    "translate": ("run_translate.sh", "translate_server.py"),
 }
 
 

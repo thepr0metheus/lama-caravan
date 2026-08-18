@@ -189,7 +189,7 @@ export function renderTopology() {
       </div>` : "";
     return `
       <!-- data-t-id is the HOST ID, which is what cell-card ids are built from
-           (foreman:8004), while the heading shows the display NAME (atlas).
+           (client-a:8004), while the heading shows the display NAME (Alice).
            Without the id here the two cannot be joined from outside, and the
            lane looks unrelated to the cards — see docs/testability.md. -->
       <article class="topology-card client-card${isStale ? " client-stale" : ""}" data-t="board-client-card" data-t-id="${escapeHtml(client.id || "")}" data-client-id="${escapeHtml(client.id || "")}" style="${escapeHtml(topologyAccentStyle(client.id || displayName))}">
@@ -396,7 +396,7 @@ export function renderTopology() {
   // wrong click ends with someone walking to the rack.
   //
   // The gate is TYPING the host's name, not clicking through a warning. A
-  // confirm dialog is one keystroke from a reflex; spelling out "atlas" cannot
+  // confirm dialog is one keystroke from a reflex; spelling out the name cannot
   // be done by muscle memory, and it forces the operator to read which host
   // they are on — the two node headers look alike, which is the mistake worth
   // preventing.

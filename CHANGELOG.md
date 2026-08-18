@@ -2,6 +2,59 @@
 
 ## Unreleased
 
+- The board names the model a cell is actually running. It read `MODEL_FILE`
+  for every runner, but only llama keeps its model there, so the NLLB cell
+  rendered as "google gemma-4-31B-it" — the model picker's leftover value —
+  wearing chips for a quantization, a parameter count, an mmproj and a 100k
+  context window, all describing a model that was not loaded. Nothing was empty
+  and nothing errored; the card was confidently wrong.
+
+  Each runner now declares which config key holds its model, and
+  `scripts/check_runner_model_fields.py` fails the build when one does not, so
+  a runner added later cannot inherit another's field by omission.
+
+  The same reading turned up three more of the same shape. The 🌐 language chip
+  read a `targetLang` the server never produced and fell through to
+  `SEAMLESS_TGT_LANG`, a key every cell inherits from the controller defaults —
+  so the NLLB cell wore the seamless cell's language. Quantization, parameter
+  count, mmproj, mtp and the token window are llama concepts read off an
+  inherited config, and are now drawn only for cells that measure work in
+  tokens. And "configured vs empty slot" was a hand-written list of runner ids,
+  which went stale the moment a runner was added: seamless and translate cells,
+  fully configured, rendered as empty reserved slots.
+
+- The NLLB cell reports its 202 languages. `NllbTokenizer` has no
+  `additional_special_tokens` attribute in transformers 5.x, and the first
+  version asked for it inside a `try/except` — so the failure became an empty
+  list and the cell advertised zero languages while translating perfectly. The
+  codes live in the tokenizer's vocab. An empty list now says so in the log,
+  because it means `/health` advertises nothing and requests stop being
+  validated.
+
+- New runner: **translate** (NLLB-200) — text in one language to text in
+  another. It is the other half of the cascade: the seamless cell goes from
+  speech straight to translated text and refuses to say what it heard, which is
+  right when you only want the translation and wrong when you need the source
+  words too. whisper plus this gives both halves, each one inspectable.
+
+  A dedicated MT model rather than an LLM because the two fail differently: an
+  LLM reads the text it is translating as possible instructions, and at 600M
+  against 12B this one is cheap enough for text nobody is waiting on.
+
+  Three things about it are deliberate. Its model is an **HF repo id** that
+  downloads itself, so this runner needs nothing from the model browser — which
+  matters because NLLB ships `pytorch_model.bin` and no safetensors, and our
+  one-click artifact requires safetensors. It serves `POST /v1/translate`, NOT
+  `/v1/chat/completions`: pretending to be a chat model would invite prompts it
+  cannot follow, and the last time a cell here borrowed a protocol's field names
+  it inherited their meanings too. And its language codes are FLORES-200 —
+  language AND script — so a short code that maps to several scripts (`ace`,
+  `zho`) is answered with a 400 naming the candidates rather than a confident
+  guess in a writing system nobody asked for.
+
+  It shares the seamless venv: same torch, same transformers, nothing new to
+  install.
+
 - A TTS cell says which device it actually got. `_pick_device` falls back to CPU
   when VRAM is short or the probe throws — sensible, and until now recorded only
   in one start-up log line. So a cell the operator put on the GPU could be
@@ -185,7 +238,7 @@
 
 - The host scan no longer reports the caravan's own processes as foreign
   occupants. It recognised cells and nothing else, so on 2026-07-29 it flagged
-  port 8092 on foreman — the caravan's OWN scout — and the resulting exclusion
+  port 8092 on a client — the caravan's OWN scout — and the resulting exclusion
   held one of its own agents' ports for three weeks. It now also counts the
   controller's web port, every proxy route, and each scout's listen port as
   ours. The ranges are configurable, so "they do not overlap today" was a fact
@@ -198,7 +251,7 @@
   not deliberately skip it overwrites within seconds, silently. Picking
   "Automatic" clears the flag. Everything this needed already existed on the
   server; what was missing was any way to ask for it, so the only answer to
-  "why is cerberus on 23117?" was "the provisioner chose it" and the only way to
+  "why is this agent on 23117?" was "the provisioner chose it" and the only way to
   change it was to edit JSON on the controller.
 
 - The scout measures a VM agent's address instead of trusting the registry's
@@ -964,7 +1017,7 @@
   carrying the host id.
 
   That last one answers a question rather than a request: cards are addressed by
-  host id (`foreman:8004`) while the lane shows the display name (`atlas`), so
+  host id (`client-a:8004`) while the lane shows the display name (`Alice`), so
   the clients lane read as unrelated to the cards it owns. Both are now on the
   same element. Documented alongside the third cell state — `reserved`, a held
   port with nothing configured, which offers neither start nor stop and is where
@@ -1154,7 +1207,7 @@
   CPU-cell logic. Both fixed — moonshine reaches `stopped` with a Start button
   and reads as a CPU cell in every state (its ONNX models are CPU-only).
   Verified end-to-end through the UI on BOTH a controller cell (:8008) and a
-  client cell (:8023 on foreman): reserve → pick the 🌙 tile → Apply → Start →
+  client cell (:8023 on a client): reserve → pick the 🌙 tile → Apply → Start →
   health in 2 s → speech transcribed on the CPU, 0 VRAM.
 
 ## 1.3.75 — 2026-07-19

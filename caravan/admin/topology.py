@@ -10,8 +10,10 @@ from caravan.admin.proxy_stats import proxy_ports_last_seen
 from caravan.admin.cloud import cloud_accounts_state, cloud_blocks_state, cloud_provider_presets_public
 from caravan.admin.config_builder import models_dir_from_config, parse_config
 from caravan.admin.cell_assets import cell_source_state
-from caravan.admin.runners import (cell_artifact_label, effective_health_path,
-                                   runner_id, uses_command_path)
+from caravan.admin.runners import (cell_artifact_label, cell_model_ref,
+                                   effective_command, effective_health_path,
+                                   runner_id, uses_command_path,
+                                   uses_token_context)
 from caravan.admin.fleet_clients import assignment_port_claims, refresh_topology_clients_from_agents, topology_clients
 from caravan.admin.llama_metrics import runtime_metrics_sample, runtime_phase, vllm_metrics_sample
 from caravan.admin.models import display_model_name
@@ -72,6 +74,19 @@ def _cell_meta(health, cfg, is_command):
     meta = dict((health or {}).get("meta") or {})
     if is_command and (health or {}).get("status") == "ok":
         meta["sourceState"] = cell_source_state(runner_id(cfg), meta.get("source"))
+    # What language a translating cell writes. The card wants this and was
+    # reading a `targetLang` nothing ever produced, so it silently fell through
+    # to the config's SEAMLESS_TGT_LANG — which every cell inherits from the
+    # controller defaults. An NLLB cell configured for rus_Cyrl therefore wore
+    # the SEAMLESS cell's language. The running cell reports the truth on its
+    # health path; the config is the fallback for a stopped one, keyed by the
+    # runner so one runner's field can never label another's cell.
+    tgt = str((health or {}).get("targetLang") or "").strip()
+    if not tgt:
+        _key = {"seamless": "SEAMLESS_TGT_LANG", "translate": "TRANSLATE_TGT_LANG"}.get(runner_id(cfg))
+        tgt = str((cfg or {}).get(_key) or "").strip() if _key else ""
+    if tgt:
+        meta["targetLang"] = tgt
     return meta
 
 
@@ -177,6 +192,8 @@ def topology_server(config=None):
     def _slot_ctx_max(host_id, port):
         slot = topology_store().get("serverSlots", {}).get(server_slot_key(host_id, port)) or {}
         cfg = slot.get("config") or {}
+        if not uses_token_context(cfg):
+            return None
         try:
             return int(cfg.get("CTX_SIZE") or 0) or None
         except (TypeError, ValueError):
@@ -339,14 +356,20 @@ def topology_server(config=None):
         gpu_name = ""
         if client.get("gpus"):
             gpu_name = str((client["gpus"][0] or {}).get("name") or "")
-        model_path = str(slot.get("model") or "")
         slot_cfg = slot.get("config") or {}
+        # Ask the runner where its model lives. The stored `model` is whatever
+        # the save form sent — for a non-llama cell that is the model picker's
+        # leftover MODEL_FILE, i.e. a model the cell is not running.
+        model_path = cell_model_ref(slot_cfg) or str(slot.get("model") or "")
         slot_is_command = uses_command_path(slot_cfg)
         # A configured command cell has no MODEL_FILE but still counts as
         # "configured" (stopped), not an empty "reserved" slot.
-        slot_phase = "stopped" if (model_path or (slot_is_command and (
-            slot_cfg.get("COMMAND") or slot_cfg.get("VLLM_MODEL")
-            or str(slot_cfg.get("RUNNER") or "").strip().lower() in ("whisper", "moonshine")))) else "reserved"
+        # Configured vs empty: a command cell counts as configured when it has
+        # a command to run. The test used to be a hand-written list of runner
+        # ids, which went stale the moment a runner was added — seamless and
+        # translate cells, fully configured, rendered as empty "reserved" slots.
+        slot_phase = "stopped" if (model_path or (
+            slot_is_command and effective_command(slot_cfg).strip())) else "reserved"
         service_name = SERVICE_NAME if is_controller_slot else ""
         cell_status = {}
         cell_pid = None
@@ -902,7 +925,7 @@ def bind_agent_to_proxy(payload):
     Everything needed for this already existed — the assignment store, the
     apply path, the port list — but no caller ever put them together, so the
     only way an agent got a port was for the provisioner to choose one. That
-    made the arrangement unexplainable ("why is cerberus on 23117?") and
+    made the arrangement unexplainable ("why is this agent on 23117?") and
     unchangeable. Binding sets `manual`, which is what stops provisioning from
     re-deriving it on the next heartbeat.
 

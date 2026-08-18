@@ -1,7 +1,7 @@
 """Reboot or power off a fleet host from the board.
 
 A host sometimes needs a power cycle for reasons the fleet cannot fix in
-software — atlas loses a RAM stick on some boots and comes back with half its
+software — a host can lose a RAM stick on some boots and come back with half its
 memory, which starves cells until someone reboots it. Walking to the machine or
 opening a terminal for that is the only reason left to leave the board, so the
 board offers the button.

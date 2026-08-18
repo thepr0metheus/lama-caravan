@@ -469,7 +469,14 @@ def display_model_name(model_path):
         return ""
     if path.lower().endswith(".gguf"):
         return path.split("/")[-1]
-    return path.split("/")[0]
+    parts = [p for p in path.split("/") if p]
+    # Two segments is not that layout — it is a Hugging Face repo id,
+    # <author>/<model>, which is how the runners that download their own weights
+    # name a model (facebook/nllb-200-distilled-600M). Applying the local rule
+    # to it labels every such cell with the AUTHOR: "facebook".
+    if len(parts) == 2:
+        return parts[-1]
+    return parts[0]
 
 
 def list_st_artifacts(config=None):

@@ -606,6 +606,52 @@
               </select>
               <p class="field-note">faster-whisper downloads the model on first start; language is chosen per request.</p>
             </div>
+            <div class="field whisper-cell-fields" id="tr-translateFields" style="display:none">
+              <div class="label-row" style="margin-top:8px"><label for="tr-TRANSLATE_MODEL">TRANSLATE_MODEL</label></div>
+              <input id="tr-TRANSLATE_MODEL" name="TRANSLATE_MODEL" style="width:100%" data-t="cell-remote-translate-model"
+                     placeholder="facebook/nllb-200-distilled-600M" autocomplete="off">
+              <div class="label-row" style="margin-top:8px"><label for="tr-TRANSLATE_SRC_LANG">TRANSLATE_SRC_LANG</label></div>
+              <select id="tr-TRANSLATE_SRC_LANG" name="TRANSLATE_SRC_LANG" style="width:100%" data-t="cell-remote-translate-src">
+                <option value="eng_Latn" selected>eng_Latn · English</option>
+                <option value="rus_Cyrl">rus_Cyrl · Russian</option>
+                <option value="deu_Latn">deu_Latn · German</option>
+                <option value="fra_Latn">fra_Latn · French</option>
+                <option value="spa_Latn">spa_Latn · Spanish</option>
+                <option value="ita_Latn">ita_Latn · Italian</option>
+                <option value="por_Latn">por_Latn · Portuguese</option>
+                <option value="pol_Latn">pol_Latn · Polish</option>
+                <option value="ukr_Cyrl">ukr_Cyrl · Ukrainian</option>
+                <option value="tur_Latn">tur_Latn · Turkish</option>
+                <option value="arb_Arab">arb_Arab · Arabic</option>
+                <option value="zho_Hans">zho_Hans · Chinese (Simplified)</option>
+                <option value="zho_Hant">zho_Hant · Chinese (Traditional)</option>
+                <option value="jpn_Jpan">jpn_Jpan · Japanese</option>
+                <option value="kor_Hang">kor_Hang · Korean</option>
+                <option value="hin_Deva">hin_Deva · Hindi</option>
+                <option value="vie_Latn">vie_Latn · Vietnamese</option>
+              </select>
+              <div class="label-row" style="margin-top:8px"><label for="tr-TRANSLATE_TGT_LANG">TRANSLATE_TGT_LANG</label></div>
+              <select id="tr-TRANSLATE_TGT_LANG" name="TRANSLATE_TGT_LANG" style="width:100%" data-t="cell-remote-translate-tgt">
+                <option value="eng_Latn">eng_Latn · English</option>
+                <option value="rus_Cyrl" selected>rus_Cyrl · Russian</option>
+                <option value="deu_Latn">deu_Latn · German</option>
+                <option value="fra_Latn">fra_Latn · French</option>
+                <option value="spa_Latn">spa_Latn · Spanish</option>
+                <option value="ita_Latn">ita_Latn · Italian</option>
+                <option value="por_Latn">por_Latn · Portuguese</option>
+                <option value="pol_Latn">pol_Latn · Polish</option>
+                <option value="ukr_Cyrl">ukr_Cyrl · Ukrainian</option>
+                <option value="tur_Latn">tur_Latn · Turkish</option>
+                <option value="arb_Arab">arb_Arab · Arabic</option>
+                <option value="zho_Hans">zho_Hans · Chinese (Simplified)</option>
+                <option value="zho_Hant">zho_Hant · Chinese (Traditional)</option>
+                <option value="jpn_Jpan">jpn_Jpan · Japanese</option>
+                <option value="kor_Hang">kor_Hang · Korean</option>
+                <option value="hin_Deva">hin_Deva · Hindi</option>
+                <option value="vie_Latn">vie_Latn · Vietnamese</option>
+              </select>
+              <p class="field-note">Text in, text out. The model downloads itself on first start (2.5 GB). Weights are CC-BY-NC-4.0 (non-commercial).</p>
+            </div>
             <div class="field whisper-cell-fields" id="tr-seamlessFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="tr-SEAMLESS_TGT_LANG">SEAMLESS_TGT_LANG</label></div>
               <select id="tr-SEAMLESS_TGT_LANG" name="SEAMLESS_TGT_LANG" style="width:100%" data-t="cell-remote-seamless-lang">
@@ -850,6 +896,52 @@
                 <option value="distil-large-v3">distil-large-v3 · 1.5 GB</option>
               </select>
               <p class="field-note">faster-whisper downloads the model on first start; language is chosen per request.</p>
+            </div>
+            <div class="field whisper-cell-fields" id="te-translateFields" style="display:none">
+              <div class="label-row" style="margin-top:8px"><label for="te-TRANSLATE_MODEL">TRANSLATE_MODEL</label></div>
+              <input id="te-TRANSLATE_MODEL" name="TRANSLATE_MODEL" style="width:100%" data-t="cell-edit-translate-model"
+                     placeholder="facebook/nllb-200-distilled-600M" autocomplete="off">
+              <div class="label-row" style="margin-top:8px"><label for="te-TRANSLATE_SRC_LANG">TRANSLATE_SRC_LANG</label></div>
+              <select id="te-TRANSLATE_SRC_LANG" name="TRANSLATE_SRC_LANG" style="width:100%" data-t="cell-edit-translate-src">
+                <option value="eng_Latn" selected>eng_Latn · English</option>
+                <option value="rus_Cyrl">rus_Cyrl · Russian</option>
+                <option value="deu_Latn">deu_Latn · German</option>
+                <option value="fra_Latn">fra_Latn · French</option>
+                <option value="spa_Latn">spa_Latn · Spanish</option>
+                <option value="ita_Latn">ita_Latn · Italian</option>
+                <option value="por_Latn">por_Latn · Portuguese</option>
+                <option value="pol_Latn">pol_Latn · Polish</option>
+                <option value="ukr_Cyrl">ukr_Cyrl · Ukrainian</option>
+                <option value="tur_Latn">tur_Latn · Turkish</option>
+                <option value="arb_Arab">arb_Arab · Arabic</option>
+                <option value="zho_Hans">zho_Hans · Chinese (Simplified)</option>
+                <option value="zho_Hant">zho_Hant · Chinese (Traditional)</option>
+                <option value="jpn_Jpan">jpn_Jpan · Japanese</option>
+                <option value="kor_Hang">kor_Hang · Korean</option>
+                <option value="hin_Deva">hin_Deva · Hindi</option>
+                <option value="vie_Latn">vie_Latn · Vietnamese</option>
+              </select>
+              <div class="label-row" style="margin-top:8px"><label for="te-TRANSLATE_TGT_LANG">TRANSLATE_TGT_LANG</label></div>
+              <select id="te-TRANSLATE_TGT_LANG" name="TRANSLATE_TGT_LANG" style="width:100%" data-t="cell-edit-translate-tgt">
+                <option value="eng_Latn">eng_Latn · English</option>
+                <option value="rus_Cyrl" selected>rus_Cyrl · Russian</option>
+                <option value="deu_Latn">deu_Latn · German</option>
+                <option value="fra_Latn">fra_Latn · French</option>
+                <option value="spa_Latn">spa_Latn · Spanish</option>
+                <option value="ita_Latn">ita_Latn · Italian</option>
+                <option value="por_Latn">por_Latn · Portuguese</option>
+                <option value="pol_Latn">pol_Latn · Polish</option>
+                <option value="ukr_Cyrl">ukr_Cyrl · Ukrainian</option>
+                <option value="tur_Latn">tur_Latn · Turkish</option>
+                <option value="arb_Arab">arb_Arab · Arabic</option>
+                <option value="zho_Hans">zho_Hans · Chinese (Simplified)</option>
+                <option value="zho_Hant">zho_Hant · Chinese (Traditional)</option>
+                <option value="jpn_Jpan">jpn_Jpan · Japanese</option>
+                <option value="kor_Hang">kor_Hang · Korean</option>
+                <option value="hin_Deva">hin_Deva · Hindi</option>
+                <option value="vie_Latn">vie_Latn · Vietnamese</option>
+              </select>
+              <p class="field-note">Text in, text out. The model downloads itself on first start (2.5 GB). Weights are CC-BY-NC-4.0 (non-commercial).</p>
             </div>
             <div class="field whisper-cell-fields" id="te-seamlessFields" style="display:none">
               <div class="label-row" style="margin-top:8px"><label for="te-SEAMLESS_TGT_LANG">SEAMLESS_TGT_LANG</label></div>

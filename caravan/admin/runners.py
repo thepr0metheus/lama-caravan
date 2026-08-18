@@ -33,6 +33,7 @@ from caravan.common.errors import AppError
 RUNNERS = [
     {
         "id": "llama-server",
+        "modelField": "MODEL_FILE",
         "icon": "\U0001f999",
         "labelKey": "runnerLlama",
         "benefitsKey": "runnerLlamaBenefits",
@@ -44,6 +45,7 @@ RUNNERS = [
     },
     {
         "id": "vllm",
+        "modelField": "VLLM_MODEL",
         "icon": "\u26a1",
         "labelKey": "runnerVllm",
         "benefitsKey": "runnerVllmBenefits",
@@ -67,6 +69,7 @@ RUNNERS = [
         # (tiny\u2026large-v3) \u2014 faster-whisper downloads it itself, MODEL_FILE is
         # unused; language is a per-request field of the API, not a launch arg.
         "id": "whisper",
+        "modelField": "WHISPER_MODEL",
         "icon": "\U0001f399\ufe0f",
         "labelKey": "runnerWhisper",
         "benefitsKey": "runnerWhisperBenefits",
@@ -83,6 +86,7 @@ RUNNERS = [
         # 250M params on a laptop core, so the GPUs stay free for LLMs. The
         # "model" is a language code; the package downloads weights itself.
         "id": "moonshine",
+        "modelField": "MOONSHINE_MODEL",
         "icon": "🌙",
         "labelKey": "runnerMoonshine",
         "benefitsKey": "runnerMoonshineBenefits",
@@ -103,6 +107,7 @@ RUNNERS = [
         # not another runner. It is why RUSSIAN finally has a good cell: GigaAM-v3
         # sits near 8% WER where whisper large-v3 sits at 21-25%.
         "id": "transcribe",
+        "modelField": "MODEL_FILE",
         "icon": "\U0001f4dd",
         "labelKey": "runnerTranscribe",
         "benefitsKey": "runnerTranscribeBenefits",
@@ -123,6 +128,7 @@ RUNNERS = [
         # runner to this one.
         # Weights are CC-BY-NC-4.0 — non-commercial, unlike whisper (MIT).
         "id": "seamless",
+        "modelField": "MODEL_FILE",
         "icon": "\U0001f310",
         "labelKey": "runnerSeamless",
         "benefitsKey": "runnerSeamlessBenefits",
@@ -133,7 +139,31 @@ RUNNERS = [
         "minCompute": None,
     },
     {
+        # NLLB-200 text translation. The other half of the cascade: seamless
+        # goes speech -> translated text in one hop and refuses to say what it
+        # heard, which is right when you only want the translation and wrong
+        # when you need the source words too. whisper + this gives you both,
+        # each half inspectable.
+        # A dedicated MT model rather than an LLM because they fail differently:
+        # an LLM reads the text it translates as possible instructions, and at
+        # 600M against 12B this one is cheap enough for text nobody waits on.
+        # Its model is an HF REPO ID, like vLLM's — it downloads itself, so
+        # nothing has to come through the model browser.
+        # Weights are CC-BY-NC-4.0 — non-commercial.
+        "id": "translate",
+        "modelField": "TRANSLATE_MODEL",
+        "icon": "\U0001f504",
+        "labelKey": "runnerTranslate",
+        "benefitsKey": "runnerTranslateBenefits",
+        "artifacts": ["*"],
+        "formats": ["*"],
+        "health": "/health",
+        "api": "raw",
+        "minCompute": None,
+    },
+    {
         "id": "custom",
+        "modelField": None,
         "icon": "\U0001f6e0\ufe0f",
         "labelKey": "runnerCustom",
         "benefitsKey": "runnerCustomBenefits",
@@ -163,6 +193,41 @@ def runner_id(config) -> str:
     if str((config or {}).get("CELL_KIND") or "").strip().lower() == "command":
         return "custom"
     return "llama-server"
+
+
+def uses_token_context(config) -> bool:
+    """True when this cell's work is measured in tokens, so CTX_SIZE means
+    something to it.
+
+    Every cell config inherits CTX_SIZE from the controller defaults, including
+    the ones that will never read it. Rendering it anyway put "🪟 100k" on a
+    translation cell — a precise number, in the unit of a different runner,
+    for a limit that does not exist. An allow-list is the safe direction here:
+    a runner added later shows no window until someone decides it has one.
+    """
+    return runner_id(config or {}) in ("llama-server", "vllm")
+
+
+def cell_model_ref(config) -> str:
+    """The thing a cell actually serves, as its own runner names it.
+
+    Every runner keeps its model somewhere different — MODEL_FILE for llama,
+    VLLM_MODEL for vLLM, TRANSLATE_MODEL for NLLB — and the board used to read
+    MODEL_FILE for all of them. A translate cell serving nllb-200 therefore
+    rendered as "google gemma-4-31B-it" with a full set of chips (quant, size,
+    mmproj, a 100k window) describing a model that was not running: the model
+    picker's leftover value, drawn as fact.
+
+    Reading `modelField` off the registry means a new runner cannot inherit
+    that lie by omission — check_runner_model_fields.py fails the build if it
+    does not say where its model lives.
+    """
+    cfg = config or {}
+    for row in RUNNERS:
+        if row["id"] == runner_id(cfg):
+            field = row.get("modelField")
+            return str(cfg.get(field) or "").strip() if field else ""
+    return str(cfg.get("MODEL_FILE") or "").strip()
 
 
 def cell_artifact_label(config) -> str:
@@ -248,7 +313,7 @@ def uses_command_path(config) -> bool:
     """True when the cell launches through the generic command machinery
     (custom cells always; vllm/whisper compile their fields into a command)."""
     return runner_id(config) in {"custom", "vllm", "whisper", "moonshine",
-                                 "transcribe", "seamless"}
+                                 "transcribe", "seamless", "translate"}
 
 
 def build_whisper_command(config) -> str:
@@ -317,6 +382,21 @@ def build_seamless_command(config) -> str:
     return f'bash $HOME/run_seamless.sh "$PORT" {model} {tgt}'
 
 
+def build_translate_command(config) -> str:
+    """The run_translate.sh line for an NLLB cell.
+
+    The model is an HF repo id by default — the weights download themselves on
+    first start, so this runner needs nothing from the model browser and no
+    MODEL_FILE. A local directory works too, and is passed through unchanged."""
+    import shlex
+    cfg = config or {}
+    model = str(cfg.get("TRANSLATE_MODEL") or "").strip() or "facebook/nllb-200-distilled-600M"
+    src = str(cfg.get("TRANSLATE_SRC_LANG") or "eng_Latn").strip() or "eng_Latn"
+    tgt = str(cfg.get("TRANSLATE_TGT_LANG") or "rus_Cyrl").strip() or "rus_Cyrl"
+    return (f'bash $HOME/run_translate.sh "$PORT" {shlex.quote(model)} '
+            f'{shlex.quote(src)} {shlex.quote(tgt)}')
+
+
 def build_vllm_command(config) -> str:
     """The `vllm serve …` line for a cell config (no bootstrap, no exec)."""
     import shlex
@@ -352,6 +432,8 @@ def effective_command(config, with_bootstrap=False) -> str:
         return build_transcribe_command(config)
     if rid == "seamless":
         return build_seamless_command(config)
+    if rid == "translate":
+        return build_translate_command(config)
     if rid == "vllm":
         cmd = build_vllm_command(config)
         if with_bootstrap:
@@ -382,6 +464,6 @@ def effective_health_path(config) -> str:
     rid = runner_id(config)
     if rid == "vllm":
         return "/v1/models"
-    if rid in ("whisper", "moonshine", "transcribe", "seamless"):
+    if rid in ("whisper", "moonshine", "transcribe", "seamless", "translate"):
         return "/health"
     return ""

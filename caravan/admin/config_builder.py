@@ -142,6 +142,10 @@ CONFIG_FIELDS = [
     "MOONSHINE_MODEL",         # moonshine language: en es zh ja ko vi uk ar
     # seamless runner (RUNNER="seamless"): run_seamless.sh "$PORT" <dir> <lang>
     "SEAMLESS_TGT_LANG",       # ISO 639-3 target for the TEXT it produces
+    # translate runner (RUNNER="translate"): run_translate.sh "$PORT" <model> <src> <tgt>
+    "TRANSLATE_MODEL",         # HF repo id (downloads itself) or a local dir
+    "TRANSLATE_SRC_LANG",      # FLORES-200 source, e.g. eng_Latn
+    "TRANSLATE_TGT_LANG",      # FLORES-200 target, e.g. rus_Cyrl
 ]
 
 FIELD_HELP = {
@@ -159,6 +163,9 @@ FIELD_HELP = {
     "DTYPE": "Activation dtype (--dtype): auto, bfloat16 or float16.",
     "TENSOR_PARALLEL": "GPUs to shard across (--tensor-parallel-size). 1 on single-GPU hosts.",
     "WHISPER_MODEL": "faster-whisper model size (tiny…large-v3). Downloaded automatically on first start; language is chosen per request.",
+    "TRANSLATE_MODEL": "NLLB checkpoint: an HF repo id (facebook/nllb-200-distilled-600M, 2.5 GB, downloads itself on first start) or a local directory. Weights are CC-BY-NC-4.0 — non-commercial.",
+    "TRANSLATE_SRC_LANG": "Language of the text coming IN, as FLORES-200 (eng_Latn, rus_Cyrl — language AND script). NLLB is told the source rather than detecting it. Short codes like en or eng are resolved when unambiguous; a language written in several scripts must be spelled out. Per-request override: send `src_lang`.",
+    "TRANSLATE_TGT_LANG": "Language the text comes OUT in, as FLORES-200 (rus_Cyrl, eng_Latn). Per-request override: send `tgt_lang`.",
     "SEAMLESS_TGT_LANG": "Language SeamlessM4T translates INTO, as ISO 639-3 (rus, eng, deu, fra, spa, zho…). The cell outputs text in this language only — English audio with rus here gives Russian, and no English transcript is produced along the way. Per-request override: send `language` with the audio.",
     "MOONSHINE_MODEL": "Moonshine v2 language (en es zh ja ko vi uk ar) — CPU-only STT, the model downloads itself on first start. en is MIT-licensed; the rest need the free Moonshine Community License (registration + attribution). No Russian — use whisper for RU.",
     "PORT": "llama.cpp HTTP port. OpenAI-compatible API is /v1 on this port.",

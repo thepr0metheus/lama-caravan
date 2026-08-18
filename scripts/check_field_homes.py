@@ -55,6 +55,9 @@ NO_TAB = {
     "WHISPER_MODEL": "whisper runner panel",
     "MOONSHINE_MODEL": "moonshine runner panel",
     "SEAMLESS_TGT_LANG": "seamless runner panel",
+    "TRANSLATE_MODEL": "translate runner panel",
+    "TRANSLATE_SRC_LANG": "translate runner panel",
+    "TRANSLATE_TGT_LANG": "translate runner panel",
 }
 
 CONSTANTS = ROOT / "static/js/constants.js"

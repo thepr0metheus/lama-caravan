@@ -49,6 +49,7 @@ function runnerChipHtml(runnerId) {
                  "whisper": ["🎙", "whisper"], "moonshine": ["🌙", "moonshine"],
                  "transcribe": ["📝", "transcribe.cpp"],
                  "seamless": ["🌐", "seamless"],
+                 "translate": ["🔄", "nllb"],
                  "custom": ["🛠", "command"] }[runnerId];
   if (!meta) return "";
   return `<span class="mbadge mbadge-cmd node-runner-chip">${meta[0]} ${meta[1]}</span>`;
@@ -349,14 +350,21 @@ export function nodeServerCardHtml(node, s) {
   // The cell reports the real one on its health path, so prefer that and show
   // nothing rather than the fiction when it is unavailable.
   const _audioMs = Number((s.cellMeta || {}).maxAudioMs || 0);
+  // Only llama and vLLM measure their work in tokens. Every other runner keeps
+  // an inherited CTX_SIZE in its saved config that it will never read, so an
+  // allow-list of token cells is the safe direction: a runner added later gets
+  // no window chip until someone decides it has one, instead of silently
+  // inheriting a precise, fictional "🪟 100k".
+  const _runner = String(_scfg.RUNNER || (String(_scfg.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server")).toLowerCase();
+  const _isTokenCell = !_runner || ["llama-server", "vllm"].includes(_runner);
   const _isSpeechCell = _audioMs > 0
-    || ["transcribe", "whisper", "moonshine", "seamless"].includes(String(_scfg.RUNNER || "").toLowerCase());
+    || ["transcribe", "whisper", "moonshine", "seamless"].includes(_runner);
   const ctxChip = _isSpeechCell
     ? (_audioMs > 0 ? mbadge("ctx", `🪟 ${Math.round(_audioMs / 1000)} s`, t("audioWindowChipTitle")) : "")
     : (s.ctxMax
         ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(s.ctxMax || 0))}`, t("topologyCtxUsageTip") || "Context window")
         : "");
-  const slotCtxChip = (!_isSpeechCell && !s.ctxMax && _scfg.CTX_SIZE)
+  const slotCtxChip = (_isTokenCell && !_isSpeechCell && !s.ctxMax && _scfg.CTX_SIZE)
     ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.CTX_SIZE)))}`) : "";
   const _benchKey = s.model ? (_modelBenchKey(s.model) || "") : "";
   const _bdata = _benchKey ? serverBenchCache.get(_benchKey) : null;
@@ -368,22 +376,22 @@ export function nodeServerCardHtml(node, s) {
   // indistinguishable — and the one fact that tells them apart is the one the
   // cell already reports. Taken from the live report first, falling back to the
   // saved config so a stopped cell still says what it is configured for.
-  const _tgtLang = String((s.cellMeta || {}).targetLang || _scfg.SEAMLESS_TGT_LANG || "").trim();
+  const _tgtLang = String((s.cellMeta || {}).targetLang || "").trim();
   const langChip = _tgtLang
     ? mbadge("it", `🌐 ${escapeHtml(_tgtLang)}`, t("targetLangChipTitle"))
     : "";
   const chips = [
     langChip,
-    parsed.quant ? mbadge("quant", `🎛 ${escapeHtml(parsed.quant)}`) : "",
+    parsed.quant && _isTokenCell ? mbadge("quant", `🎛 ${escapeHtml(parsed.quant)}`) : "",
     parsed.size ? mbadge("size", `⚖ ${escapeHtml(parsed.size)}`) : "",
-    parsed.variant ? mbadge("it", `🤖 ${escapeHtml(parsed.variant)}`) : "",
+    parsed.variant && _isTokenCell ? mbadge("it", `🤖 ${escapeHtml(parsed.variant)}`) : "",
     // Prefer real /props modalities; fall back to the mmproj-presence heuristic.
     mods ? [
       mods.vision ? mbadge("vision", "👁 vision") : "",
       mods.audio ? mbadge("audio", "🎙 audio") : "",
       mods.video ? mbadge("video", "🎬 video") : "",
-    ].join("") : (hasVision ? mbadge("mmproj", "📷 mmproj") : ""),
-    hasMtp ? mbadge("mtp", "⚡ mtp") : "",
+    ].join("") : (hasVision && _isTokenCell ? mbadge("mmproj", "📷 mmproj") : ""),
+    hasMtp && _isTokenCell ? mbadge("mtp", "⚡ mtp") : "",
     ctxChip || slotCtxChip,
     benchChip,
   ].filter(Boolean).join("");
@@ -439,7 +447,6 @@ export function nodeServerCardHtml(node, s) {
   // models have no GPU build), so it deliberately stays OUT of
   // runnerDefaultsGpu AND counts as a CPU cell even without a TTS_DEVICE=cpu
   // pin; a bare custom command resolves its device at start (VRAM probe) → "auto".
-  const _runner = String(_scfg.RUNNER || (String(_scfg.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server")).toLowerCase();
   const runnerDefaultsGpu = _runner === "llama-server" || _runner === "vllm" || _runner === "whisper"
     || _runner === "transcribe";
   const runnerCpuOnly = _runner === "moonshine";
@@ -1059,7 +1066,7 @@ export function nodesLaneHtml() {
     const staleBadge = staleBinary
       ? `<span class="llama-ver-stale" title="${escapeHtml(t("staleBinaryTitle"))}">⟳ ${escapeHtml(t("staleBinaryBadge"))}</span>`
       : "";
-    // Power-cycle this host. Some faults are not fixable in software — atlas
+    // Power-cycle this host. Some faults are not fixable in software — a host
     // drops a RAM stick on some boots and comes back with half its memory, which
     // starves cells until the machine is rebooted. Reboot only, never shutdown:
     // nothing on this board can switch a headless box back on.

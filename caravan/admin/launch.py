@@ -23,6 +23,7 @@ from caravan.admin.runners import (
     VLLM_BOOTSTRAP_LINES,
     build_moonshine_command,
     build_seamless_command,
+    build_translate_command,
     build_transcribe_command,
     effective_command,
     build_vllm_command,
@@ -55,6 +56,7 @@ def render_command_cell_script(config):
     is_moonshine = runner_id(merged) == "moonshine"
     is_transcribe = runner_id(merged) == "transcribe"
     is_seamless = runner_id(merged) == "seamless"
+    is_translate = runner_id(merged) == "translate"
     if is_vllm:
         if not merged.get("VLLM_MODEL"):
             raise AppError("VLLM_MODEL is required for a vLLM cell")
@@ -85,6 +87,10 @@ def render_command_cell_script(config):
         if not merged.get("MODEL_FILE"):
             raise AppError("MODEL_FILE is required for a seamless cell", 400)
         command = build_seamless_command(merged)
+    elif is_translate:
+        # No MODEL_FILE and nothing to resolve: its model is a repo id the
+        # launcher hands straight to transformers, which fetches it itself.
+        command = build_translate_command(merged)
     else:
         # Be forgiving: strip a leading `exec ` — we add our own.
         command = re.sub(r"^\s*exec\s+", "", merged.get("COMMAND") or "").strip()
@@ -96,6 +102,7 @@ def render_command_cell_script(config):
                   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION",
                   "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL",
                   "MOONSHINE_MODEL", "SEAMLESS_TGT_LANG",
+                  "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG",
                   # transcribe is the one command-path runner with a real model
                   # file; the others leave this empty and the block says so.
                   "MODEL_FILE",

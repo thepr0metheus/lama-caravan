@@ -496,6 +496,7 @@ so check what a cell actually runs before putting it in front of paying users:
 | Moonshine EN model | MIT |
 | Moonshine non-EN models | Moonshine Community Licence — free under $1M/yr revenue, registration + attribution |
 | **SeamlessM4T v2 weights** | **CC-BY-NC-4.0 — non-commercial** |
+| **NLLB-200 weights** | **CC-BY-NC-4.0 — non-commercial** |
 | **XTTS-v2 model** | **Coqui Public Model Licence — non-commercial** |
 | **F5-TTS base model** | **trained on CC-BY-NC data — non-commercial in practice** |
 | GGUF models you download | whatever their publisher says (Llama, Qwen and Gemma each differ) |
@@ -663,6 +664,7 @@ cell server + launcher into `$HOME` (`~/<runner>_server.py`, `~/run_<runner>.sh`
 | 🌙 moonshine (STT+TTS) | `scripts/install-moonshine.sh` | `bash ~/run_moonshine.sh $PORT en` | self-downloads per language |
 | 📝 transcribe.cpp (STT) | `scripts/install-transcribe.sh` | `bash ~/run_transcribe.sh $PORT <model>.gguf` | the ordinary **MODEL_FILE picker** — ASR GGUFs download through the same `/hf` browser as LLMs |
 | 🌐 seamless (speech→translated text) | `scripts/install-seamless.sh` | `bash ~/run_seamless.sh $PORT <model dir> rus` | the **MODEL_FILE picker** — download `facebook/seamless-m4t-v2-large` (FP32 safetensors artifact) from `/hf`. Weights are **CC-BY-NC-4.0**: non-commercial. Outputs the target language only, with no source transcript |
+| 🔄 NLLB (text translation) | none — shares the seamless venv | `bash ~/run_translate.sh $PORT <repo id> eng_Latn rus_Cyrl` | the model is an **HF repo id** and downloads itself (2.5 GB for the distilled 600M), so nothing goes through `/hf`. Weights are **CC-BY-NC-4.0**. Serves `POST /v1/translate` — not a chat model |
 | 🗣️ TTS (voice clone) | `scripts/install-tts.sh` | `bash ~/run_tts.sh $PORT xtts\|f5\|cosyvoice` | each engine self-installs its venv + weights on first start |
 
 Every cell sets `HEALTH_PATH: /health`. What each `/health` answers is a small

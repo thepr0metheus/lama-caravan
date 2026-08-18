@@ -150,7 +150,7 @@ def _caravan_owned_ports() -> set:
     offers to hold the number. Cells were the only thing it recognised, so any
     other part of the caravan inside the scanned range was reported as somebody
     else's process — and on 2026-07-29 that is exactly what happened: the scan
-    flagged port 8092 on foreman, which is the caravan's OWN scout, and the
+    flagged port 8092 on a client, which is the caravan's OWN scout, and the
     resulting exclusion held one of its own agents' ports for three weeks.
 
     Both ranges are configurable, so "they do not overlap today" is a fact about

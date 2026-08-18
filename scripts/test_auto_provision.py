@@ -59,17 +59,17 @@ def make_harness(fc, assignments, routes):
 
 
 CLIENT = {
-    "id": "foreman",
+    "id": "client-a",
     "agentUrl": "http://10.0.0.2:8092",
-    "agents": [{"id": "cerberus", "name": "Cerberus"}],
+    "agents": [{"id": "agent-a", "name": "Agent A"}],
 }
 
 
 def test_stale_assignment_heals():
     """An assignment pointing at a deleted port must be repointed, not re-minted."""
     fc = load_module()
-    assignments = {"foreman": {"agentUrl": "", "assignments": [
-        {"agentId": "cerberus", "routes": [{
+    assignments = {"client-a": {"agentUrl": "", "assignments": [
+        {"agentId": "agent-a", "routes": [{
             "role": "primary",
             "proxyId": "skynet:proxy:9999",          # this port is gone
             "endpoint": "http://10.0.0.1:9999/v1",
@@ -83,7 +83,7 @@ def test_stale_assignment_heals():
     check("first pass mints exactly one port", len(after_first) == 1, after_first)
 
     minted = after_first[0]
-    route = store["assignments"]["foreman"]["assignments"][0]["routes"][0]
+    route = store["assignments"]["client-a"]["assignments"][0]["routes"][0]
     check("assignment now names the minted port",
           route["proxyId"] == f"skynet:proxy:{minted}", route)
     check("endpoint follows the proxyId",
@@ -122,8 +122,8 @@ def test_manual_agent_is_left_alone():
     disappeared.
     """
     fc = load_module()
-    assignments = {"foreman": {"agentUrl": "", "assignments": [
-        {"agentId": "cerberus", "manual": True, "routes": [{
+    assignments = {"client-a": {"agentUrl": "", "assignments": [
+        {"agentId": "agent-a", "manual": True, "routes": [{
             "role": "primary",
             "proxyId": "skynet:proxy:9999",      # deliberately not a live port
             "endpoint": "http://10.0.0.1:9999/v1",
@@ -136,11 +136,11 @@ def test_manual_agent_is_left_alone():
         fc.auto_provision_agent_proxies(CLIENT)
 
     check("manual agent mints no ports", routes == [], routes)
-    route = store["assignments"]["foreman"]["assignments"][0]["routes"][0]
+    route = store["assignments"]["client-a"]["assignments"][0]["routes"][0]
     check("manual agent keeps the operator's port",
           route["proxyId"] == "skynet:proxy:9999", route)
     check("the manual flag survives", 
-          store["assignments"]["foreman"]["assignments"][0].get("manual") is True)
+          store["assignments"]["client-a"]["assignments"][0].get("manual") is True)
 
 
 def test_no_service_restart():

@@ -235,6 +235,7 @@ export function runnerDeviceCaps(runner) {
     // explicitly rather than left to the default branch, which belongs to
     // llama-server and would take this runner with it if it ever changed.
     case "seamless":  return { cpu: true,  gpu: true,  auto: false };
+    case "translate": return { cpu: true,  gpu: true,  auto: false };
     case "custom":    return { cpu: true,  gpu: true,  auto: true  };
     default:          return { cpu: true,  gpu: true,  auto: false };  // llama-server
   }

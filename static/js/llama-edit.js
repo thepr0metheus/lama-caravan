@@ -795,6 +795,7 @@ export function renderRunnerTabs(pfx) {
                       "whisper": "runnerWhisperMinus", "moonshine": "runnerMoonshineMinus",
                       "transcribe": "runnerTranscribeMinus",
                       "seamless": "runnerSeamlessMinus",
+                      "translate": "runnerTranslateMinus",
                       "custom": "runnerCustomMinus" };
   wrap.innerHTML = runnerRegistry().map((r) => {
     const avail = runnerAvailability(r, pfx);
@@ -845,7 +846,11 @@ export function applyCellKindUI(pfx) {
   // seamless behaves like transcribe: a command-path runner that genuinely
   // consumes the shared picker — its model is a downloaded ST directory.
   const isSeamless = runner === "seamless";
-  const nonLlama = isCommand || isVllm || isWhisper || isMoonshine || isTranscribe || isSeamless;
+  // translate takes no MODEL_FILE at all: its model is a repo id in its own
+  // field, so the shared picker is irrelevant to it — like vLLM.
+  const isTranslate = runner === "translate";
+  const nonLlama = isCommand || isVllm || isWhisper || isMoonshine || isTranscribe
+                   || isSeamless || isTranslate;
   // Use inline display, not the [hidden] attr: .field has a stylesheet `display`
   // rule that would otherwise keep the command fields visible in llama mode.
   const llamaFields = $(pfx + "llamaFields");
@@ -866,6 +871,8 @@ export function applyCellKindUI(pfx) {
   // language it translates INTO — so its block is shown, not just carried.
   const seamlessFields = $(pfx + "seamlessFields");
   if (seamlessFields) seamlessFields.style.display = (isSeamless && pfx !== "tr-") ? "" : "none";
+  const translateFields = $(pfx + "translateFields");
+  if (translateFields) translateFields.style.display = isTranslate ? "" : "none";
   // Aside: llama VRAM/preview vs. the command preview + history (vllm/whisper
   // reuse the command aside — their exec line renders into the same preview).
   const llamaAside = $(pfx + "llamaAside");
@@ -1160,6 +1167,15 @@ export function _buildCommandExecPreview(pfx) {
     return [`export PORT=${port}`,
             "# first start provisions ~/moonshine-venv and fetches the model",
             `exec bash $HOME/run_moonshine.sh "$PORT" ${lang}`].join("\n");
+  }
+  if (effectiveRunnerId(pfx) === "translate") {
+    const model = ($(pfx + "TRANSLATE_MODEL")?.value || "").trim()
+      || "facebook/nllb-200-distilled-600M";
+    const src = ($(pfx + "TRANSLATE_SRC_LANG")?.value || "eng_Latn").trim();
+    const tgt = ($(pfx + "TRANSLATE_TGT_LANG")?.value || "rus_Cyrl").trim();
+    return [`export PORT=${port}`,
+            "# the model downloads itself on first start (~2.5 GB)",
+            `exec bash $HOME/run_translate.sh "$PORT" ${model} ${src} ${tgt}`].join("\n");
   }
   if (effectiveRunnerId(pfx) === "seamless") {
     const mf = ($(pfx + "MODEL_FILE")?.value || "").trim();
