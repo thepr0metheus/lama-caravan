@@ -63,23 +63,34 @@ def _log(msg):
 
 # --------------------------- engines ------------------------------------- #
 def _pick_device(need_gb: float = 2.5) -> str:
+    # The answer is recorded, not just logged: a cell that fell back to CPU
+    # because VRAM was short looks exactly like one running on the GPU the
+    # operator picked, and runs many times slower. One line at start-up is not
+    # somewhere anybody looks afterwards.
     """cuda when TTS_DEVICE says so or enough VRAM is actually FREE, else cpu.
     The GPU cells (gemma/whisper) usually own almost all VRAM — starting one
     more CUDA model would OOM, and a CPU XTTS (~1-3 s per sentence) beats a
     dead cell. TTS_DEVICE=cuda|cpu overrides the guess."""
     dev = os.environ.get("TTS_DEVICE", "").lower()
     if dev in ("cuda", "cpu"):
+        _state["device"] = dev
+        _state["deviceReason"] = "TTS_DEVICE"
         return dev
     try:
         import torch
         if torch.cuda.is_available():
             free, _total = torch.cuda.mem_get_info()
             if free >= need_gb * 1024 ** 3:
+                _state["device"] = "cuda"
                 return "cuda"
             _log(f"device: only {free / 1024 ** 3:.1f} GB VRAM free "
                  f"(< {need_gb} GB) -> cpu")
+            _state["deviceReason"] = (f"only {free / 1024 ** 3:.1f} GB VRAM free, "
+                                      f"needs {need_gb} GB")
     except Exception as e:
         _log(f"device probe failed ({e}) -> cpu")
+        _state["deviceReason"] = f"probe failed: {e}"
+    _state["device"] = "cpu"
     return "cpu"
 
 
@@ -281,6 +292,8 @@ class H(BaseHTTPRequestHandler):
             # command-cell probe reads status=ok all the same.
             self._send(200,
                        json.dumps({"status": "ok", "engine": ENGINE,
+                                   "device": _state.get("device") or "",
+                                   "deviceReason": _state.get("deviceReason") or "",
                                    "source": SOURCE}).encode(),
                        "application/json")
             return

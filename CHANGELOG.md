@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- A TTS cell says which device it actually got. `_pick_device` falls back to CPU
+  when VRAM is short or the probe throws — sensible, and until now recorded only
+  in one start-up log line. So a cell the operator put on the GPU could be
+  running on CPU at a fraction of the speed, looking identical on the board and
+  in /health. It now reports `device` and, when it is not what was asked for,
+  `deviceReason`.
+
+  Audited the other cell servers for the swallow that whisper had: transcribe,
+  moonshine and tts all answer 400/500 with a reason from their request
+  handlers, and all three record load failures into the state /health reads.
+  whisper was the only one that returned success for a failure.
+
 - A whisper transcription that FAILED no longer answers 200 with an empty
   transcript. The exception was logged and execution fell through to the normal
   response, so a caller received `{"text": ""}` — indistinguishable from a clip
