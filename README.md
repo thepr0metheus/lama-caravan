@@ -495,11 +495,12 @@ so check what a cell actually runs before putting it in front of paying users:
 | coqui-tts *(the XTTS engine's code)* | MPL-2.0 |
 | Moonshine EN model | MIT |
 | Moonshine non-EN models | Moonshine Community Licence — free under $1M/yr revenue, registration + attribution |
+| **SeamlessM4T v2 weights** | **CC-BY-NC-4.0 — non-commercial** |
 | **XTTS-v2 model** | **Coqui Public Model Licence — non-commercial** |
 | **F5-TTS base model** | **trained on CC-BY-NC data — non-commercial in practice** |
 | GGUF models you download | whatever their publisher says (Llama, Qwen and Gemma each differ) |
 
-The two rows in bold are the ones that surprise people: the *engine* is open
+The rows in bold are the ones that surprise people: the *engine* is open
 source while the *weights* it loads are not free for commercial use. The engine
 picker in the cell editor repeats this next to each choice, because a dropdown
 is where the decision actually gets made. CosyVoice2 is the voice-clone engine
@@ -661,6 +662,7 @@ cell server + launcher into `$HOME` (`~/<runner>_server.py`, `~/run_<runner>.sh`
 | 🎙️ whisper (STT) | `scripts/install-whisper.sh` — also auto-run by `install-llama.sh` | `bash ~/run_whisper.sh $PORT large-v3` | self-downloads on first start (progress shows as a % bar on the card) |
 | 🌙 moonshine (STT+TTS) | `scripts/install-moonshine.sh` | `bash ~/run_moonshine.sh $PORT en` | self-downloads per language |
 | 📝 transcribe.cpp (STT) | `scripts/install-transcribe.sh` | `bash ~/run_transcribe.sh $PORT <model>.gguf` | the ordinary **MODEL_FILE picker** — ASR GGUFs download through the same `/hf` browser as LLMs |
+| 🌐 seamless (speech→translated text) | `scripts/install-seamless.sh` | `bash ~/run_seamless.sh $PORT <model dir> rus` | the **MODEL_FILE picker** — download `facebook/seamless-m4t-v2-large` (FP32 safetensors artifact) from `/hf`. Weights are **CC-BY-NC-4.0**: non-commercial. Outputs the target language only, with no source transcript |
 | 🗣️ TTS (voice clone) | `scripts/install-tts.sh` | `bash ~/run_tts.sh $PORT xtts\|f5\|cosyvoice` | each engine self-installs its venv + weights on first start |
 
 Every cell sets `HEALTH_PATH: /health`. What each `/health` answers is a small

@@ -13,9 +13,17 @@
 # unlike whisper (MIT) and GigaAM, and it is a property of the model, not of
 # this script.
 set -e
-PORT="${1:-22030}"
-MODEL_DIR="${2:-}"
-TGT="${3:-rus}"
+# --install-only may appear in ANY position: provisioning the venv is something
+# you do BEFORE a model exists, so requiring it after a model directory made the
+# flag useless for its only purpose.
+INSTALL_ONLY=0
+ARGS=()
+for a in "$@"; do
+  if [ "$a" = "--install-only" ]; then INSTALL_ONLY=1; else ARGS+=("$a"); fi
+done
+PORT="${ARGS[0]:-22030}"
+MODEL_DIR="${ARGS[1]:-}"
+TGT="${ARGS[2]:-rus}"
 VENV="${VENV:-$HOME/seamless-venv}"
 
 # Its own venv, deliberately. The box's vllm-venv already holds a working torch,
@@ -25,10 +33,13 @@ if [ ! -x "$VENV/bin/python" ]; then
   echo "seamless: creating venv $VENV …"
   python3 -m venv "$VENV"
   "$VENV/bin/pip" -q install -U pip
-  # cu128 wheels cover Blackwell (sm_120); on a CPU-only host pip falls back to
-  # the CPU build of the same version.
-  "$VENV/bin/pip" install torch --index-url https://download.pytorch.org/whl/cu128 \
-    || "$VENV/bin/pip" install torch
+  # Match the CUDA the box already runs rather than pinning a variant. This
+  # host's driver carries 13.2 and its vLLM venv runs cu130; installing cu128
+  # beside it put two CUDA runtimes on one machine for no reason and made the
+  # two venvs impossible to consolidate later. Override with SEAMLESS_TORCH_INDEX;
+  # a CPU-only host falls through to the default build.
+  IDX="${SEAMLESS_TORCH_INDEX:-https://download.pytorch.org/whl/cu130}"
+  "$VENV/bin/pip" install torch --index-url "$IDX" || "$VENV/bin/pip" install torch
   "$VENV/bin/pip" install "transformers>=4.36" sentencepiece protobuf numpy
 fi
 
@@ -41,8 +52,8 @@ if [ -z "$SERVER" ]; then
   exit 1
 fi
 
-if [ "${4:-}" = "--install-only" ] || [ "${3:-}" = "--install-only" ]; then
-  echo "seamless: venv ready at $VENV"
+if [ "$INSTALL_ONLY" = "1" ]; then
+  echo "seamless: venv ready at $VENV (install-only)"
   exit 0
 fi
 

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- The seamless launcher stops pinning cu128. This host's driver carries CUDA
+  13.2 and its vLLM venv runs cu130; installing cu128 beside it put two CUDA
+  runtimes on one machine for no reason and foreclosed ever consolidating the
+  two venvs. It now installs the build that matches, overridable with
+  SEAMLESS_TORCH_INDEX.
+
+- `--install-only` is honoured in any argument position. Provisioning a venv is
+  something you do BEFORE a model exists, and requiring the flag after a model
+  directory made it useless for its only purpose — `run_seamless.sh 22027
+  --install-only` would have tried to load a model called "--install-only".
+
+- `scripts/install-seamless.sh` (new), like every other speech runner has. The
+  launcher self-installs, but its venv is a ~7 GB torch stack: doing that on a
+  cell's first start leaves the board showing a cell failing its health check
+  for the whole install, which reads as broken rather than busy.
+
 - New runner: **seamless** (SeamlessM4T v2) — speech in one language to TEXT in
   another, in one model. The fleet could already do English speech to Russian
   text with whisper plus an LLM, but that is two cells and the translator only
