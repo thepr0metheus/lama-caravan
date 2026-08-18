@@ -289,6 +289,8 @@ export default {
   tabAccess: "접근",
   tabToolsService: "도구·서비스",
   taTitleBindProxy: "프록시 포트에 고정",
+  targetLangChipTitle: "이 셀이 출력하는 언어",
+  runnerControllerOnly: "컨트롤러 전용 — 클라이언트는 GGUF 파일을 동기화하며 체크포인트 폴더는 받지 않습니다",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "음성에서 번역문까지 하나의 모델로: 영어 오디오를 넣으면 러시아어 텍스트가 나옵니다. 중간 전사는 없습니다.",
   runnerSeamlessMinus: "비상업 라이선스(CC-BY-NC-4.0). 대상 언어만 출력합니다. SDPA/FlashAttention 커널이 없어 whisper보다 느립니다.",

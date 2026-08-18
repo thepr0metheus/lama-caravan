@@ -289,6 +289,8 @@ export default {
   tabAccess: "الوصول",
   tabToolsService: "الأدوات والخدمة",
   taTitleBindProxy: "الربط بمنفذ وسيط",
+  targetLangChipTitle: "اللغة التي تكتب بها هذه الخلية",
+  runnerControllerOnly: "على المتحكم فقط — العملاء يزامنون ملفات GGUF لا مجلدات نقاط التفتيش",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "نموذج واحد من الكلام إلى النص المترجم: صوت إنجليزي يدخل، نص روسي يخرج، بلا تفريغ وسيط.",
   runnerSeamlessMinus: "رخصة غير تجارية (CC-BY-NC-4.0). يُخرج اللغة الهدف فقط. لا توجد أنوية SDPA/FlashAttention، لذا أبطأ من whisper.",

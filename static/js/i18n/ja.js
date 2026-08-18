@@ -289,6 +289,8 @@ export default {
   tabAccess: "アクセス",
   tabToolsService: "ツールとサービス",
   taTitleBindProxy: "プロキシポートに固定",
+  targetLangChipTitle: "このセルが書き出す言語",
+  runnerControllerOnly: "コントローラー専用 — クライアントが同期するのは GGUF ファイルで、チェックポイントのフォルダではありません",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "音声から訳文まで一つのモデルで：英語音声を入れるとロシア語テキストが出ます。中間の書き起こしはありません。",
   runnerSeamlessMinus: "非商用ライセンス（CC-BY-NC-4.0）。出力は目的言語のみ。SDPA/FlashAttention 非対応のため whisper より低速です。",

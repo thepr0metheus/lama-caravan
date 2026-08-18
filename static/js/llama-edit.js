@@ -668,6 +668,14 @@ const KIND_REASON = {
 // vLLM and custom read their artifact from somewhere other than MODEL_FILE, so
 // what sits in that field cannot disqualify them.
 function runnerAvailability(runner, pfx) {
+  // Client forms cannot offer a directory checkpoint: the controller shows its
+  // safetensors artifacts only to its own forms, because the scout's model cache
+  // is .gguf throughout — download, listing and eviction all key on that suffix.
+  // Leaving the runner selectable there produced a panel with nothing to pick,
+  // which reads as broken rather than unsupported.
+  if (pfx === "tr-" && (runner.artifacts || []).includes("seamless-st")) {
+    return { ok: false, reasonKey: "runnerControllerOnly" };
+  }
   // `artifacts` is the current field; `formats` is what older registries carry.
   const accepts = runner.artifacts || null;
   if (!accepts) {
@@ -857,7 +865,7 @@ export function applyCellKindUI(pfx) {
   // Unlike whisper/moonshine, seamless has a real setting of its own — the
   // language it translates INTO — so its block is shown, not just carried.
   const seamlessFields = $(pfx + "seamlessFields");
-  if (seamlessFields) seamlessFields.style.display = isSeamless ? "" : "none";
+  if (seamlessFields) seamlessFields.style.display = (isSeamless && pfx !== "tr-") ? "" : "none";
   // Aside: llama VRAM/preview vs. the command preview + history (vllm/whisper
   // reuse the command aside — their exec line renders into the same preview).
   const llamaAside = $(pfx + "llamaAside");

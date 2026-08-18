@@ -289,6 +289,8 @@ export default {
   tabAccess: "Accès",
   tabToolsService: "Outils et service",
   taTitleBindProxy: "Lier à un port proxy",
+  targetLangChipTitle: "Langue dans laquelle cette cellule ecrit",
+  runnerControllerOnly: "Controleur uniquement — les clients synchronisent des fichiers GGUF, pas des dossiers de checkpoint",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "Un seul modele de la parole au texte traduit : audio anglais en entree, texte russe en sortie, sans transcription intermediaire.",
   runnerSeamlessMinus: "Licence non commerciale (CC-BY-NC-4.0). Ne produit que la langue cible. Pas de noyaux SDPA/FlashAttention, donc plus lent que whisper.",

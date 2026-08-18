@@ -289,6 +289,8 @@ export default {
   tabAccess: "Akses",
   tabToolsService: "Alat & layanan",
   taTitleBindProxy: "Ikat ke port proxy",
+  targetLangChipTitle: "Bahasa yang ditulis sel ini",
+  runnerControllerOnly: "Hanya di controller — klien menyinkronkan berkas GGUF, bukan folder checkpoint",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "Satu model dari ucapan ke teks terjemahan: audio inggris masuk, teks rusia keluar, tanpa transkrip perantara.",
   runnerSeamlessMinus: "Lisensi non-komersial (CC-BY-NC-4.0). Hanya menghasilkan bahasa tujuan. Tanpa kernel SDPA/FlashAttention, lebih lambat dari whisper.",

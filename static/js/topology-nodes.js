@@ -363,7 +363,17 @@ export function nodeServerCardHtml(node, s) {
   const _aaScore = _bdata?.scores?.aa_intelligence;
   const benchChip = _aaScore != null ? mbadge("bench", `🧠 ${_aaScore}`) : "";
   if (s.model) fetchServerBenchIfNeeded(s.model);
+  // What language a translating cell WRITES. The card carried no language at
+  // all, so two cells serving different languages off the same checkpoint were
+  // indistinguishable — and the one fact that tells them apart is the one the
+  // cell already reports. Taken from the live report first, falling back to the
+  // saved config so a stopped cell still says what it is configured for.
+  const _tgtLang = String((s.cellMeta || {}).targetLang || _scfg.SEAMLESS_TGT_LANG || "").trim();
+  const langChip = _tgtLang
+    ? mbadge("it", `🌐 ${escapeHtml(_tgtLang)}`, t("targetLangChipTitle"))
+    : "";
   const chips = [
+    langChip,
     parsed.quant ? mbadge("quant", `🎛 ${escapeHtml(parsed.quant)}`) : "",
     parsed.size ? mbadge("size", `⚖ ${escapeHtml(parsed.size)}`) : "",
     parsed.variant ? mbadge("it", `🤖 ${escapeHtml(parsed.variant)}`) : "",

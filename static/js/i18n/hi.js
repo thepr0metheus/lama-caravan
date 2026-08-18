@@ -289,6 +289,8 @@ export default {
   tabAccess: "पहुँच",
   tabToolsService: "टूल और सेवा",
   taTitleBindProxy: "प्रॉक्सी पोर्ट से बाँधें",
+  targetLangChipTitle: "यह सेल जिस भाषा में लिखता है",
+  runnerControllerOnly: "केवल कंट्रोलर पर — क्लाइंट GGUF फ़ाइलें सिंक करते हैं, चेकपॉइंट फ़ोल्डर नहीं",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "भाषण से अनुवादित पाठ तक एक ही मॉडल: अंग्रेज़ी ऑडियो अंदर, रूसी पाठ बाहर, बीच में कोई प्रतिलेख नहीं।",
   runnerSeamlessMinus: "गैर-वाणिज्यिक लाइसेंस (CC-BY-NC-4.0)। केवल लक्ष्य भाषा देता है। SDPA/FlashAttention कर्नेल नहीं, इसलिए whisper से धीमा।",

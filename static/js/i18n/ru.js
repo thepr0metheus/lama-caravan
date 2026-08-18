@@ -91,6 +91,8 @@ export default {
   tabAccess: "Доступ",
   tabToolsService: "Инструменты и сервис",
   taTitleBindProxy: "Привязать к порту прокси",
+  targetLangChipTitle: "Язык, на котором пишет эта ячейка",
+  runnerControllerOnly: "Только на контроллере — клиенты синхронизируют GGUF-файлы, а не папки чекпоинтов",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "Одна модель от речи до переведённого текста: на входе английское аудио, на выходе русский текст, без промежуточной расшифровки, чьи ошибки унаследует второй шаг.",
   runnerSeamlessMinus: "Некоммерческая лицензия (CC-BY-NC-4.0). Отдаёт только целевой язык — исходной расшифровки нет. Ядра SDPA/FlashAttention не поддержаны, поэтому медленнее whisper.",

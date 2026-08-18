@@ -289,6 +289,8 @@ export default {
   tabAccess: "رسائی",
   tabToolsService: "ٹولز اور سروس",
   taTitleBindProxy: "پراکسی پورٹ سے منسلک کریں",
+  targetLangChipTitle: "یہ سیل جس زبان میں لکھتا ہے",
+  runnerControllerOnly: "صرف کنٹرولر پر — کلائنٹ GGUF فائلیں سنک کرتے ہیں، چیک پوائنٹ فولڈر نہیں",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "تقریر سے ترجمہ شدہ متن تک ایک ہی ماڈل: انگریزی آڈیو اندر، روسی متن باہر، درمیان میں کوئی نقل نہیں۔",
   runnerSeamlessMinus: "غیر تجارتی لائسنس (CC-BY-NC-4.0)۔ صرف ہدف زبان دیتا ہے۔ SDPA/FlashAttention نہیں، اس لیے whisper سے سست۔",

@@ -289,6 +289,8 @@ export default {
   tabAccess: "Truy cập",
   tabToolsService: "Công cụ & dịch vụ",
   taTitleBindProxy: "Gắn vào cổng proxy",
+  targetLangChipTitle: "Ngon ngu o nay viet ra",
+  runnerControllerOnly: "Chi tren controller — may khach dong bo tep GGUF, khong phai thu muc checkpoint",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "Mot mo hinh tu giong noi den van ban da dich: audio tieng anh vao, van ban tieng nga ra, khong co ban ghi trung gian.",
   runnerSeamlessMinus: "Giay phep phi thuong mai (CC-BY-NC-4.0). Chi tao ngon ngu dich. Khong co kernel SDPA/FlashAttention nen cham hon whisper.",

@@ -289,6 +289,8 @@ export default {
   tabAccess: "యాక్సెస్",
   tabToolsService: "సాధనాలు & సేవ",
   taTitleBindProxy: "ప్రాక్సీ పోర్ట్‌కు కట్టు",
+  targetLangChipTitle: "ఈ సెల్ రాసే భాష",
+  runnerControllerOnly: "కంట్రోలర్‌లో మాత్రమే — క్లయింట్లు GGUF ఫైళ్లను సింక్ చేస్తాయి, చెక్‌పాయింట్ ఫోల్డర్లను కాదు",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "మాట నుంచి అనువాద పాఠం వరకు ఒకే మోడల్: ఇంగ్లిష్ ఆడియో లోపలికి, రష్యన్ పాఠం బయటికి, మధ్యలో ప్రతిలేఖనం లేదు.",
   runnerSeamlessMinus: "వాణిజ్యేతర లైసెన్స్ (CC-BY-NC-4.0). లక్ష్య భాషను మాత్రమే ఇస్తుంది. SDPA/FlashAttention లేవు, కాబట్టి whisper కంటే నెమ్మది.",

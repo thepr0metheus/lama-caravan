@@ -79,7 +79,7 @@ def _source_stamp():
 
 
 SOURCE = _source_stamp()
-_state = {"ready": False, "error": "", "device": "", "dtype": ""}
+_state = {"ready": False, "error": "", "device": "", "dtype": "", "langs": []}
 _lock = threading.Lock()
 _model = None
 _processor = None
@@ -111,6 +111,21 @@ def _load():
         model = SeamlessM4Tv2ForSpeechToText.from_pretrained(MODEL_DIR, dtype=dtype)
         model = model.to("cuda" if use_cuda else "cpu").eval()
         _model = model
+        # Which target languages this checkpoint has, from the map generate()
+        # itself validates against — generation_config's text_decoder_lang_to_code_id.
+        # An earlier version scanned the tokenizer for __xxx__ tokens of a fixed
+        # length and lost cmn_Hant, which is longer: the list looked complete and
+        # was short by one, and the only symptom would have been a 400 for a
+        # language the model can in fact produce.
+        try:
+            gen = getattr(model, "generation_config", None)
+            codes = list(getattr(gen, "text_decoder_lang_to_code_id", None) or {})
+            if not codes:                      # older configs: fall back to the file
+                with open(os.path.join(MODEL_DIR, "generation_config.json"), "rb") as fh:
+                    codes = list(json.load(fh).get("text_decoder_lang_to_code_id") or {})
+            _state["langs"] = sorted(codes)
+        except Exception:  # noqa: BLE001
+            _state["langs"] = []
         _state["device"] = "cuda" if use_cuda else "cpu"
         _state["dtype"] = "bfloat16" if use_cuda else "float32"
         _state["ready"] = True
@@ -118,6 +133,60 @@ def _load():
     except Exception as exc:  # noqa: BLE001
         _state["error"] = f"{type(exc).__name__}: {exc}"
         _log(f"load failed: {_state['error']}")
+
+
+# ISO 639-1 -> 639-3, for the languages this family serves. The OpenAI API and
+# most clients speak two-letter codes; this model speaks three. Without the
+# bridge, `language=en` — the single most likely value any whisper client will
+# send — reached the model as an unknown token and came back a 500.
+#
+# This is an ADDITIVE convenience, deliberately: an alias missing from here
+# degrades to "pass the three-letter code", never to a wrong language. The
+# authoritative list is what the checkpoint itself reports.
+#
+# Ambiguous on purpose, where 639-1 is coarser than the model:
+#   ar -> arb  (Modern Standard Arabic, not ary/arz dialects the model also has)
+#   zh -> cmn  (Mandarin, not yue)
+#   az -> azj  (North Azerbaijani)  fa -> pes (Western Persian)
+#   mn -> khk  (Halh Mongolian)     ms -> zsm (Standard Malay)
+#   uz -> uzn  (Northern Uzbek)     sw -> swh (Coastal Swahili)
+_ISO1_TO_3 = {
+    "af": "afr", "am": "amh", "ar": "arb", "as": "asm", "az": "azj", "be": "bel",
+    "bn": "ben", "bs": "bos", "bg": "bul", "ca": "cat", "cs": "ces", "cy": "cym",
+    "da": "dan", "de": "deu", "el": "ell", "en": "eng", "et": "est", "eu": "eus",
+    "fa": "pes", "fi": "fin", "fr": "fra", "ga": "gle", "gl": "glg", "gu": "guj",
+    "he": "heb", "hi": "hin", "hr": "hrv", "hu": "hun", "hy": "hye", "id": "ind",
+    "ig": "ibo", "is": "isl", "it": "ita", "ja": "jpn", "jv": "jav", "ka": "kat",
+    "kk": "kaz", "km": "khm", "kn": "kan", "ko": "kor", "ky": "kir", "lo": "lao",
+    "lt": "lit", "lv": "lvs", "mk": "mkd", "ml": "mal", "mn": "khk", "mr": "mar",
+    "ms": "zsm", "mt": "mlt", "my": "mya", "ne": "npi", "nl": "nld", "no": "nob",
+    "pa": "pan", "pl": "pol", "ps": "pbt", "pt": "por", "ro": "ron", "ru": "rus",
+    "sd": "snd", "sk": "slk", "sl": "slv", "sn": "sna", "so": "som", "es": "spa",
+    "sr": "srp", "sv": "swe", "sw": "swh", "ta": "tam", "te": "tel", "tg": "tgk",
+    "th": "tha", "tl": "tgl", "tr": "tur", "uk": "ukr", "ur": "urd", "uz": "uzn",
+    "vi": "vie", "yo": "yor", "zh": "cmn", "zu": "zul",
+}
+
+
+class LangError(ValueError):
+    """A language code this cell cannot serve. Carries the accepted list so the
+    caller is told what WOULD work, rather than left to guess."""
+
+
+def _resolve_lang(code):
+    """Normalise a requested language to a code this checkpoint has."""
+    raw = str(code or "").strip().lower().replace("-", "_")
+    if not raw:
+        return TGT_LANG
+    known = _state.get("langs") or []
+    if raw in known:
+        return raw
+    mapped = _ISO1_TO_3.get(raw[:2]) if len(raw) in (2, 5) else None
+    if mapped and (not known or mapped in known):
+        return mapped
+    if not known:                      # tokenizer unreadable: let the model judge
+        return raw
+    raise LangError(raw)
 
 
 def _boundary(ctype):
@@ -237,6 +306,16 @@ class Handler(BaseHTTPRequestHandler):
                 "status": "ok", "engine": "seamless-m4t-v2",
                 "model": _model_name(MODEL_DIR),
                 "kinds": ["asr"], "targetLang": TGT_LANG,
+                # What this cell accepts, straight from the checkpoint, so a UI
+                # builds its language list from the cell instead of a table of
+                # its own that can disagree with what is loaded.
+                "langs": _state.get("langs") or [],
+                "codeset": "iso639-3",
+                "acceptsIso639_1": True,
+                # Stated rather than left to be discovered: the model detects the
+                # source language itself and reports no verdict, so there is
+                # nothing for a caller to set and nothing honest to return.
+                "srcLang": "auto",
                 "device": _state["device"], "dtype": _state["dtype"],
                 "maxAudioMs": MAX_AUDIO_MS, "source": SOURCE,
             })
@@ -259,9 +338,30 @@ class Handler(BaseHTTPRequestHandler):
         if not raw:
             self._send(400, {"error": "multipart field `file` is required"})
             return
-        # `language` is OpenAI's field name and means the TARGET here, which is
-        # the one thing about this cell a whisper client must be told.
-        tgt = (_field(body, "language") or _field(body, "target_lang") or TGT_LANG).lower()
+        # Field names, in order of preference:
+        #   tgt_lang   — unambiguous, and what a caller should use
+        #   language   — OpenAI's name. In THAT protocol it means the language
+        #                being SPOKEN; here it is the language written. The
+        #                collision is real and cannot be resolved silently, so
+        #                the unambiguous name exists and this one is kept only so
+        #                clients written against the first release keep working.
+        #   src_lang   — accepted and NOT used: this model detects the source
+        #                from the audio itself. /health says so, so a caller can
+        #                see it without running an experiment.
+        requested = (_field(body, "tgt_lang") or _field(body, "target_lang")
+                     or _field(body, "language") or "")
+        try:
+            tgt = _resolve_lang(requested)
+        except LangError as exc:
+            # 400, not 500: a language this cell cannot serve is the caller's
+            # to fix, and a 500 is indistinguishable from the cell having died.
+            self._send(400, {
+                "error": f"unsupported language {exc.args[0]!r}",
+                "accepted": _state.get("langs") or [],
+                "codeset": "iso639-3",
+                "hint": "two-letter ISO 639-1 codes are accepted where unambiguous",
+            })
+            return
         try:
             audio = _decode_audio(raw)
             text = _translate(audio, tgt)
@@ -269,7 +369,8 @@ class Handler(BaseHTTPRequestHandler):
             _log(f"translate error: {exc}")
             self._send(500, {"error": f"{type(exc).__name__}: {exc}"})
             return
-        self._send(200, {"text": text, "language": tgt,
+        self._send(200, {"text": text, "language": tgt, "tgtLang": tgt,
+                         "srcLang": None,   # not knowable: see /health srcLang
                          "durationMs": int(len(audio) / SAMPLE_RATE * 1000)})
 
 

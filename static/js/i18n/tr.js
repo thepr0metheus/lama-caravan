@@ -289,6 +289,8 @@ export default {
   tabAccess: "Erişim",
   tabToolsService: "Araçlar ve servis",
   taTitleBindProxy: "Bir proxy portuna bağla",
+  targetLangChipTitle: "Bu hucrenin yazdigi dil",
+  runnerControllerOnly: "Yalnizca denetleyicide — istemciler GGUF dosyalarini eslestirir, checkpoint klasorlerini degil",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "Konusmadan cevrilmis metne tek model: ingilizce ses girer, rusca metin cikar, aradaki dokum olmadan.",
   runnerSeamlessMinus: "Ticari olmayan lisans (CC-BY-NC-4.0). Yalnizca hedef dili uretir. SDPA/FlashAttention cekirdekleri yok, whisper'dan yavas.",

@@ -289,6 +289,8 @@ export default {
   tabAccess: "访问",
   tabToolsService: "工具与服务",
   taTitleBindProxy: "绑定到代理端口",
+  targetLangChipTitle: "该单元输出的语言",
+  runnerControllerOnly: "仅限控制器 — 客户端同步的是 GGUF 文件，不是检查点目录",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "从语音直达译文的单一模型：输入英语音频，输出俄语文本，中间不产生转写。",
   runnerSeamlessMinus: "非商业许可（CC-BY-NC-4.0）。只输出目标语言。没有 SDPA/FlashAttention 内核，比 whisper 慢。",

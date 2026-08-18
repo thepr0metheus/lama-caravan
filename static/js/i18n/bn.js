@@ -289,6 +289,8 @@ export default {
   tabAccess: "অ্যাক্সেস",
   tabToolsService: "টুল ও সার্ভিস",
   taTitleBindProxy: "প্রক্সি পোর্টে বাঁধুন",
+  targetLangChipTitle: "এই সেল যে ভাষায় লেখে",
+  runnerControllerOnly: "শুধু কন্ট্রোলারে — ক্লায়েন্ট GGUF ফাইল সিঙ্ক করে, চেকপয়েন্ট ফোল্ডার নয়",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "বক্তৃতা থেকে অনূদিত লেখা পর্যন্ত এক মডেল: ইংরেজি অডিও ঢুকলে রুশ লেখা বেরোয়, মাঝে কোনো প্রতিলিপি নেই।",
   runnerSeamlessMinus: "অবাণিজ্যিক লাইসেন্স (CC-BY-NC-4.0)। কেবল লক্ষ্য ভাষা দেয়। SDPA/FlashAttention কার্নেল নেই, তাই whisper-এর চেয়ে ধীর।",

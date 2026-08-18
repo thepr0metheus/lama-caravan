@@ -289,6 +289,8 @@ export default {
   tabAccess: "அணுகல்",
   tabToolsService: "கருவிகள் & சேவை",
   taTitleBindProxy: "ப்ராக்சி போர்ட்டுடன் இணை",
+  targetLangChipTitle: "இந்த செல் எழுதும் மொழி",
+  runnerControllerOnly: "கன்ட்ரோலரில் மட்டும் — கிளையன்ட்கள் GGUF கோப்புகளை ஒத்திசைக்கின்றன, சோதனைப்புள்ளி கோப்புறைகளை அல்ல",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "பேச்சிலிருந்து மொழிபெயர்ப்பு வரை ஒரே மாதிரி: ஆங்கில ஒலி உள்ளே, ரஷ்ய உரை வெளியே, இடைப்பட்ட எழுத்துப்படி இல்லை.",
   runnerSeamlessMinus: "வணிகமற்ற உரிமம் (CC-BY-NC-4.0). இலக்கு மொழியை மட்டுமே தரும். SDPA/FlashAttention இல்லை, எனவே whisper-ஐ விட மெதுவானது.",

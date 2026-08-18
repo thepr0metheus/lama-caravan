@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+- The seamless cell's API, after its first consumer read it:
+
+  **`tgt_lang` is the field to use.** `language` is OpenAI's name and in THAT
+  protocol means the language being SPOKEN — a hint to the recogniser. Here it
+  meant the language written. Any client written against whisper would have sent
+  the speaker's language and got output in it, quietly. The collision cannot be
+  resolved silently, so the unambiguous name exists; `language` keeps working so
+  clients written against the first release are not broken.
+
+  **Two-letter codes work.** `language=en` — the single most likely value a
+  whisper client sends — reached the model as an unknown token and came back a
+  500. ISO 639-1 is now bridged to the model's 639-3, additively: an alias this
+  table lacks degrades to "pass the three-letter code", never to a wrong
+  language.
+
+  **An unknown language is a 400, with the list.** A 500 is indistinguishable
+  from the cell having died, so the caller showed "server error" for what was a
+  typo. The body now carries the accepted codes.
+
+  **/health advertises what the cell can do** — `langs` read from the loaded
+  checkpoint's own tokenizer, `codeset`, and `srcLang: "auto"`. A UI builds its
+  language list from the cell rather than from a table of its own that can
+  disagree with what is loaded.
+
+  Not done, and worth stating: the consumer also asked for the DETECTED source
+  language in the response. This model does not report one — its output carries
+  the target language token, not a verdict on the input — so there is nothing to
+  return that would not be invented. `/health` says `srcLang: "auto"` so the
+  absence is visible rather than surprising.
+
 - The model picker stops promising vLLM for a SeamlessM4T checkpoint. Every
   safetensors row wore ⚡ — written when safetensors meant "vLLM's format", and
   now wrong for at least one family: vLLM does not load this architecture. So

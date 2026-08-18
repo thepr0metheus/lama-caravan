@@ -289,6 +289,8 @@ export default {
   tabAccess: "प्रवेश",
   tabToolsService: "साधने व सेवा",
   taTitleBindProxy: "प्रॉक्सी पोर्टला जोडा",
+  targetLangChipTitle: "हा सेल ज्या भाषेत लिहितो ती",
+  runnerControllerOnly: "फक्त कंट्रोलरवर — क्लायंट GGUF फाइली सिंक करतात, चेकपॉइंट फोल्डर नाही",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "बोलण्यापासून भाषांतरित मजकुरापर्यंत एकच मॉडेल: इंग्रजी ऑडिओ आत, रशियन मजकूर बाहेर, मधे प्रतिलेख नाही.",
   runnerSeamlessMinus: "अव्यावसायिक परवाना (CC-BY-NC-4.0). फक्त लक्ष्य भाषा देते. SDPA/FlashAttention नाहीत, म्हणून whisper पेक्षा हळू.",

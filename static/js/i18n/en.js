@@ -91,6 +91,8 @@ export default {
   tabAccess: "Access",
   tabToolsService: "Tools & service",
   taTitleBindProxy: "Bind to a proxy port",
+  targetLangChipTitle: "Language this cell writes in",
+  runnerControllerOnly: "Controller only — client hosts sync GGUF files, not checkpoint folders",
   runnerSeamless: "Seamless",
   runnerSeamlessBenefits: "One model from speech to translated text: English audio in, Russian text out, with no intermediate transcript for the second stage to inherit mistakes from.",
   runnerSeamlessMinus: "Non-commercial licence (CC-BY-NC-4.0). Outputs the target language only — no source transcript. No SDPA/FlashAttention kernels, so slower than whisper.",
