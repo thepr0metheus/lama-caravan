@@ -163,8 +163,16 @@ def _translate(audio, tgt_lang):
         for chunk in chunks:
             if len(chunk) < SAMPLE_RATE // 10:      # < 100 ms: nothing to say
                 continue
-            inputs = _processor(audios=chunk, sampling_rate=SAMPLE_RATE,
-                                return_tensors="pt")
+            # transformers renamed this argument: `audios` through 4.x,
+            # `audio` from 5.0, and the old name now raises rather than warns.
+            # Try the current spelling and fall back, so one server file works
+            # on whichever version a host's venv resolved to.
+            try:
+                inputs = _processor(audio=chunk, sampling_rate=SAMPLE_RATE,
+                                    return_tensors="pt")
+            except (TypeError, ValueError):
+                inputs = _processor(audios=chunk, sampling_rate=SAMPLE_RATE,
+                                    return_tensors="pt")
             inputs = {k: v.to(_model.device) for k, v in inputs.items()}
             if _state["dtype"] == "bfloat16":
                 inputs = {k: (v.to(torch.bfloat16) if v.is_floating_point() else v)
