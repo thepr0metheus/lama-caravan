@@ -40,6 +40,32 @@ MAX_AUDIO_MS = int(os.environ.get("SEAMLESS_MAX_AUDIO_MS", "30000"))
 SAMPLE_RATE = 16000
 
 
+# Format tokens the /hf downloader uses as the LAST path segment. The layout is
+# <model>/<author>/<FORMAT>/, so the basename of a downloaded checkpoint is the
+# precision, not a name — reporting it made the board label a cell "FP32", which
+# says nothing about which model is running and is the same for every one of them.
+_FORMAT_SEGMENTS = {"FP32", "FP16", "BF16", "INT8", "INT4", "FP8", "Q8", "Q4", "ST",
+                    "GPTQ", "AWQ", "NVFP4", "MXFP4"}
+
+
+def _model_name(directory):
+    """The model's name from a downloaded checkpoint path.
+
+    Reverses the download layout: drop a trailing format segment, then the
+    author segment it sat under. A directory that follows neither convention
+    keeps its own basename, which is the best available answer for a folder
+    someone assembled by hand.
+    """
+    parts = [p for p in str(directory or "").rstrip("/").split("/") if p]
+    if not parts:
+        return "seamless-m4t-v2"
+    if parts[-1].upper() in _FORMAT_SEGMENTS:
+        parts.pop()                     # .../<model>/<author>/FP32 -> .../<model>/<author>
+        if len(parts) >= 2:
+            parts.pop()                 # -> .../<model>
+    return parts[-1]
+
+
 def _source_stamp():
     """Digest of THIS file, taken once at import — the only moment it is
     guaranteed to be the source the interpreter actually loaded. A long-running
@@ -209,7 +235,7 @@ class Handler(BaseHTTPRequestHandler):
             # cannot read it drops the cell as unidentifiable.
             self._send(200, {
                 "status": "ok", "engine": "seamless-m4t-v2",
-                "model": os.path.basename(MODEL_DIR.rstrip("/")) or "seamless-m4t-v2",
+                "model": _model_name(MODEL_DIR),
                 "kinds": ["asr"], "targetLang": TGT_LANG,
                 "device": _state["device"], "dtype": _state["dtype"],
                 "maxAudioMs": MAX_AUDIO_MS, "source": SOURCE,

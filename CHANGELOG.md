@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- A directory-based model shows its name on the board, not its precision. The
+  cell label came from `model_path.split("/")[-1]`, which is the filename for a
+  GGUF and the FORMAT segment for a safetensors checkpoint laid out
+  <model>/<author>/<FORMAT>/ — so every such cell read "FP32", naming no model
+  and identical across all of them. One rule now covers both, in
+  `display_model_name`.
+
+- A seamless cell reports its model name, not its precision. The download layout
+  is <model>/<author>/<FORMAT>/, so taking the basename gave "FP32" — a label
+  that says nothing about which model is running and reads identically on every
+  such cell. It now reverses that layout, and a hand-assembled folder keeps its
+  own basename.
+
 - The seamless launcher stops pinning cu128. This host's driver carries CUDA
   13.2 and its vLLM venv runs cu130; installing cu128 beside it put two CUDA
   runtimes on one machine for no reason and foreclosed ever consolidating the

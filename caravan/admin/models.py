@@ -455,6 +455,23 @@ def _st_arch(directory):
     return hit
 
 
+def display_model_name(model_path):
+    """A label for a cell's model, from the path the config stores.
+
+    A GGUF path ends in the file, so its basename IS the name. A safetensors
+    checkpoint is a DIRECTORY laid out <model>/<author>/<FORMAT>/, so the
+    basename is the precision — every such cell rendered as "FP32", which names
+    no model and is identical across all of them. The first segment is the name,
+    the same rule list_st_artifacts already applies.
+    """
+    path = str(model_path or "").strip().strip("/")
+    if not path:
+        return ""
+    if path.lower().endswith(".gguf"):
+        return path.split("/")[-1]
+    return path.split("/")[0]
+
+
 def list_st_artifacts(config=None):
     """Safetensors checkpoints in the models tree: one artifact per directory
     holding *.safetensors files. The /hf download layout is

@@ -14,6 +14,7 @@ from caravan.admin.runners import (cell_artifact_label, effective_health_path,
                                    runner_id, uses_command_path)
 from caravan.admin.fleet_clients import assignment_port_claims, refresh_topology_clients_from_agents, topology_clients
 from caravan.admin.llama_metrics import runtime_metrics_sample, runtime_phase, vllm_metrics_sample
+from caravan.admin.models import display_model_name
 from caravan.admin.monitoring import (
     cpu_snapshot,
     gpu_compute_apps,
@@ -446,7 +447,7 @@ def topology_server(config=None):
             "name": str((controller_name if is_controller_slot else client.get("name")) or host_id),
             "port": port,
             "host": (controller_ip if is_controller_slot else client_ip),
-            "model": model_path.split("/")[-1] if model_path else "",
+            "model": display_model_name(model_path),
             "cellLabel": cell_artifact_label(slot.get("config") or {}),
             "cellMeta": _cell_meta(_ch, slot.get("config") or {}, slot_is_command),
             "modelPath": model_path,
