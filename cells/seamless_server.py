@@ -175,16 +175,21 @@ class LangError(ValueError):
 
 def _resolve_lang(code):
     """Normalise a requested language to a code this checkpoint has."""
-    raw = str(code or "").strip().lower().replace("-", "_")
+    raw = str(code or "").strip().replace("-", "_").strip("_")
     if not raw:
         return TGT_LANG
     known = _state.get("langs") or []
-    if raw in known:
-        return raw
-    mapped = _ISO1_TO_3.get(raw[:2]) if len(raw) in (2, 5) else None
-    if mapped and (not known or mapped in known):
-        return mapped
-    if not known:                      # tokenizer unreadable: let the model judge
+    # Case-insensitive, canonical spelling out. Not all codes are lower-case —
+    # cmn_Hant carries a capital, and lower-casing the request made the one
+    # language the list had just been fixed to include unreachable anyway.
+    index = {k.lower(): k for k in known}
+    hit = index.get(raw.lower())
+    if hit:
+        return hit
+    mapped = _ISO1_TO_3.get(raw[:2].lower()) if len(raw) in (2, 5) else None
+    if mapped:
+        return index.get(mapped.lower(), mapped) if known else mapped
+    if not known:                      # config unreadable: let the model judge
         return raw
     raise LangError(raw)
 
