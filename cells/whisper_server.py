@@ -222,6 +222,7 @@ class H(BaseHTTPRequestHandler):
         want_segs = fmt in ("verbose_json", "srt", "vtt") or want_words
         translating = task == "translate"
         text = ""
+        failure = ""                          # set when transcription raised
         detected = ""                         # what whisper decided it heard
         out_segs, out_words, duration = [], [], 0.0
         if wav:
@@ -255,11 +256,22 @@ class H(BaseHTTPRequestHandler):
                 duration = float(getattr(info, "duration", 0.0) or 0.0)
             except Exception as e:  # noqa: BLE001
                 sys.stderr.write(f"transcribe error: {e}\n")
+                failure = f"{type(e).__name__}: {e}"
             finally:
                 try:
                     os.remove(path)
                 except OSError:
                     pass
+        # A transcription that FAILED is not a transcription of silence. The
+        # error was logged and then execution fell through to the normal
+        # response, so a caller got 200 with {"text": ""} — indistinguishable
+        # from a clip with nothing in it, and the reason (here: the GPU was
+        # full) reached nobody. Observed live 2026-08-18: whisper answered
+        # empty for twenty minutes while the log filled with CUDA OOM.
+        if failure:
+            self._send(500, json.dumps({"error": failure}).encode(),
+                       "application/json; charset=utf-8")
+            return
         # Answer in the shape that was ASKED for. Returning JSON to a client that
         # requested srt is the same class of wrong as returning nothing: it looks
         # like an answer and is not the one requested.

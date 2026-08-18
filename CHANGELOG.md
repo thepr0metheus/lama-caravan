@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- A whisper transcription that FAILED no longer answers 200 with an empty
+  transcript. The exception was logged and execution fell through to the normal
+  response, so a caller received `{"text": ""}` — indistinguishable from a clip
+  with nothing in it, while the reason reached nobody. Observed live on
+  2026-08-18: the cell answered empty for twenty minutes because the GPU was
+  full, and the board, the health check and the response all looked fine.
+
 - The seamless cell's API, after its first consumer read it:
 
   **`tgt_lang` is the field to use.** `language` is OpenAI's name and in THAT
