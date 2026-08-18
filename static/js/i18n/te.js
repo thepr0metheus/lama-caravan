@@ -118,6 +118,7 @@ export default {
   usageStatsSubscriptionNote: "ఫ్లాట్-రేట్ సబ్‌స్క్రిప్షన్ — API ధరల వద్ద అంచనా",
   fieldHelp: {
     WHISPER_MODEL: "faster-whisper మోడల్ పరిమాణం (tiny…large-v3). మొదటి ప్రారంభంలో ఆటో-డౌన్‌లోడ్; భాష ప్రతి అభ్యర్థనలో.",
+    SEAMLESS_TGT_LANG: "SeamlessM4T అనువదించే లక్ష్య భాష (ISO 639-3: rus, eng, deu, fra…). సెల్ దీన్ని మాత్రమే ఇస్తుంది; మూల ప్రతిలేఖనం ఉండదు. అభ్యర్థనలో `language` తో మార్చవచ్చు.",
     MOONSHINE_MODEL: "Moonshine v2 భాష (en es zh ja ko vi uk ar) — మొదటి ప్రారంభంలో మోడల్ తనే డౌన్‌లోడ్, CPU మాత్రమే. en MIT; మిగిలినవి ఉచిత Moonshine Community License కింద.",
     RUNNER: "ఈ సెల్ ప్రారంభ విధానం: llama-server లేదా అనుకూల నిర్వహిత కమాండ్.",
     VLLM_MODEL: "HF repo id (ఉదా. nvidia/Qwen3.6-27B-NVFP4) లేదా లోకల్ పాత్; vLLM మొదటిసారి ప్రారంభించినప్పుడు HF repoలను దాని స్వంత కాష్‌లోకి డౌన్‌లోడ్ చేస్తుంది.",
@@ -288,6 +289,10 @@ export default {
   tabAccess: "యాక్సెస్",
   tabToolsService: "సాధనాలు & సేవ",
   taTitleBindProxy: "ప్రాక్సీ పోర్ట్‌కు కట్టు",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "మాట నుంచి అనువాద పాఠం వరకు ఒకే మోడల్: ఇంగ్లిష్ ఆడియో లోపలికి, రష్యన్ పాఠం బయటికి, మధ్యలో ప్రతిలేఖనం లేదు.",
+  runnerSeamlessMinus: "వాణిజ్యేతర లైసెన్స్ (CC-BY-NC-4.0). లక్ష్య భాషను మాత్రమే ఇస్తుంది. SDPA/FlashAttention లేవు, కాబట్టి whisper కంటే నెమ్మది.",
+  runnerNeedsSeamlessSt: "SeamlessM4T చెక్‌పాయింట్ ఫోల్డర్ కావాలి",
   proxyNoKeyLabel: "కీ అవసరం లేదు (పోర్ట్ తెరిచి ఉంది)",
   proxyDelete: "తొలగించు",
   proxyDeleteTip: "ఈ పోర్ట్‌ను, దాని రౌటర్ కనెక్షన్‌ను తొలగించు",

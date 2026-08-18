@@ -643,7 +643,14 @@ export function artifactKind(model) {
   if (!path) return "";
   if (path.startsWith("moonshine/")) return "moonshine-lang";
   if (path.startsWith("whisper/models--Systran--faster-whisper-")) return "whisper-size";
-  if (!path.toLowerCase().endsWith(".gguf")) return "safetensors";
+  if (!path.toLowerCase().endsWith(".gguf")) {
+    // A SeamlessM4T checkpoint gets its OWN kind, not the generic one. If it
+    // answered "safetensors", the runner picker's "a runner that names this
+    // kind wins" rule would drag every ST folder — Qwen, anything — onto the
+    // seamless runner the moment it was selected.
+    const st = (state.artifacts || []).find((r) => r.path === path);
+    return String(st?.arch || "").startsWith("seamless_m4t") ? "seamless-st" : "safetensors";
+  }
   const row = (state.models || []).find((r) => r.path === path);
   if (!row) return "";                       // unknown file — see above
   return (row.ggufMeta || {}).sttVariant ? "asr-gguf" : "llm-gguf";
@@ -654,6 +661,7 @@ const KIND_REASON = {
   "asr-gguf": "runnerNeedsAsrGguf",
   "whisper-size": "runnerNeedsWhisperSize",
   "moonshine-lang": "runnerNeedsMoonshineLang",
+  "seamless-st": "runnerNeedsSeamlessSt",
 };
 
 // Can this runner launch the currently selected artifact? "*" accepts anything —
@@ -778,6 +786,7 @@ export function renderRunnerTabs(pfx) {
   const MINUS_KEY = { "llama-server": "runnerLlamaMinus", "vllm": "runnerVllmMinus",
                       "whisper": "runnerWhisperMinus", "moonshine": "runnerMoonshineMinus",
                       "transcribe": "runnerTranscribeMinus",
+                      "seamless": "runnerSeamlessMinus",
                       "custom": "runnerCustomMinus" };
   wrap.innerHTML = runnerRegistry().map((r) => {
     const avail = runnerAvailability(r, pfx);
@@ -825,7 +834,10 @@ export function applyCellKindUI(pfx) {
   // it is the only one that genuinely CONSUMES the shared model picker — its
   // model is a GGUF path, so nothing dims and nothing gets cleared on save.
   const isTranscribe = runner === "transcribe";
-  const nonLlama = isCommand || isVllm || isWhisper || isMoonshine || isTranscribe;
+  // seamless behaves like transcribe: a command-path runner that genuinely
+  // consumes the shared picker — its model is a downloaded ST directory.
+  const isSeamless = runner === "seamless";
+  const nonLlama = isCommand || isVllm || isWhisper || isMoonshine || isTranscribe || isSeamless;
   // Use inline display, not the [hidden] attr: .field has a stylesheet `display`
   // rule that would otherwise keep the command fields visible in llama mode.
   const llamaFields = $(pfx + "llamaFields");
@@ -842,6 +854,10 @@ export function applyCellKindUI(pfx) {
   // picker; the container stays as the hidden carrier of MOONSHINE_MODEL.
   const moonshineFields = $(pfx + "moonshineFields");
   if (moonshineFields) moonshineFields.style.display = "none";
+  // Unlike whisper/moonshine, seamless has a real setting of its own — the
+  // language it translates INTO — so its block is shown, not just carried.
+  const seamlessFields = $(pfx + "seamlessFields");
+  if (seamlessFields) seamlessFields.style.display = isSeamless ? "" : "none";
   // Aside: llama VRAM/preview vs. the command preview + history (vllm/whisper
   // reuse the command aside — their exec line renders into the same preview).
   const llamaAside = $(pfx + "llamaAside");
@@ -1127,6 +1143,25 @@ export function _buildCommandExecPreview(pfx) {
     return [`export PORT=${port}`,
             "# the engine and its venv come from scripts/install-transcribe.sh",
             `exec bash $HOME/run_transcribe.sh "$PORT" ${model}`].join("\n");
+  }
+  if (effectiveRunnerId(pfx) === "moonshine") {
+    // This branch was missing: a moonshine cell showed the llama-server line,
+    // which is a preview of a command it would never run — the operator reads
+    // it as what will happen and it is simply another cell's command.
+    const lang = ($(pfx + "MOONSHINE_MODEL")?.value || "en").trim() || "en";
+    return [`export PORT=${port}`,
+            "# first start provisions ~/moonshine-venv and fetches the model",
+            `exec bash $HOME/run_moonshine.sh "$PORT" ${lang}`].join("\n");
+  }
+  if (effectiveRunnerId(pfx) === "seamless") {
+    const mf = ($(pfx + "MODEL_FILE")?.value || "").trim();
+    const model = (mf && !mf.startsWith("/") && !mf.startsWith("$"))
+      ? `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${mf}`
+      : `"${mf || "…"}"`;
+    const tgt = ($(pfx + "SEAMLESS_TGT_LANG")?.value || "rus").trim() || "rus";
+    return [`export PORT=${port}`,
+            "# first start provisions ~/seamless-venv (torch + transformers)",
+            `exec bash $HOME/run_seamless.sh "$PORT" ${model} ${tgt}`].join("\n");
   }
   const cmd = ($(pfx + "COMMAND")?.value || "").trim().replace(/^\s*exec\s+/, "");
   const lines = [`export PORT=${port}`];

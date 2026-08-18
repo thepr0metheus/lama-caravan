@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- New runner: **seamless** (SeamlessM4T v2) — speech in one language to TEXT in
+  another, in one model. The fleet could already do English speech to Russian
+  text with whisper plus an LLM, but that is two cells and the translator only
+  ever sees the transcriber's guess: a misheard name is translated faithfully
+  into the wrong name and nothing downstream can tell. Here the translation is
+  conditioned on the audio. Serves the OpenAI-shaped
+  POST /v1/audio/transcriptions so existing clients need no new code path.
+
+  It takes a safetensors DIRECTORY, and gets its own artifact kind rather than
+  the generic one: the picker's rule is that a runner naming a kind beats a
+  runner accepting anything, so a generic claim would have dragged every ST
+  folder in the tree onto this runner the moment it was selected. The kind is
+  measured — model_type read from config.json, cached by mtime like GGUF
+  headers — not guessed from the directory name, which is the sort of list that
+  drifts the first time someone renames a download.
+
+  Two things worth knowing before using it: the weights are CC-BY-NC-4.0
+  (non-commercial, unlike whisper's MIT), and the output is the target language
+  only — no source transcript is produced for callers who wanted one.
+
 - "Do not require a key" is now a checkbox, ticked by default, and new routes
   are created without one. An empty apiKey already meant "this port is open",
   but the form said so only by leaving a text box blank — which looks exactly

@@ -1,4 +1,5 @@
 """GGUF model catalog: metadata parsing, family detection, local model listing."""
+import json
 import re
 from pathlib import Path
 from struct import calcsize, unpack
@@ -421,6 +422,39 @@ _ST_FORMAT_HINTS = ("NVFP4", "MXFP4", "AWQ", "GPTQ", "AUTOROUND", "FP8",
                     "INT4", "W4A16", "BNB", "BF16", "FP16", "FP32")
 
 
+_ST_ARCH_CACHE = {}
+
+
+def _st_arch(directory):
+    """model_type from a checkpoint's config.json, cached by (path, mtime).
+
+    list_st_artifacts deliberately reads no files — it runs on every /api/state.
+    But the runner picker needs to tell a SeamlessM4T checkpoint from any other
+    safetensors folder, and guessing from the directory NAME is the kind of
+    list that drifts the first time somebody renames a download. One small JSON
+    per directory, cached the same way GGUF headers are, keeps the answer
+    measured without paying for it on every poll.
+    """
+    try:
+        cfg = directory / "config.json"
+        st = cfg.stat()
+        key = (str(cfg), int(st.st_mtime), st.st_size)
+    except OSError:
+        return ""
+    hit = _ST_ARCH_CACHE.get(key)
+    if hit is None:
+        try:
+            with open(cfg, "rb") as fh:
+                hit = str(json.loads(fh.read(65536).decode("utf-8", "replace")
+                                     ).get("model_type") or "")
+        except Exception:  # noqa: BLE001
+            hit = ""
+        for old in [k for k in _ST_ARCH_CACHE if k[0] == key[0] and k != key]:
+            _ST_ARCH_CACHE.pop(old, None)
+        _ST_ARCH_CACHE[key] = hit
+    return hit
+
+
 def list_st_artifacts(config=None):
     """Safetensors checkpoints in the models tree: one artifact per directory
     holding *.safetensors files. The /hf download layout is
@@ -461,6 +495,7 @@ def list_st_artifacts(config=None):
             "path": rel,                       # directory, relative to the models root
             "name": parts[0] if parts else rel,
             "kind": "safetensors",
+            "arch": _st_arch(d),               # model_type, for runner matching
             "format": fmt or "ST",
             "files": entry["files"],
             "size": entry["size"],

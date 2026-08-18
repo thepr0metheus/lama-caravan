@@ -118,6 +118,7 @@ export default {
   usageStatsSubscriptionNote: "اشتراك بسعر ثابت — مُقدّر بأسعار API",
   fieldHelp: {
     WHISPER_MODEL: "حجم نموذج faster-whisper‏ (tiny…large-v3). يُنزَّل تلقائيًا عند أول تشغيل؛ تُختار اللغة في كل طلب.",
+    SEAMLESS_TGT_LANG: "اللغة التي يترجم إليها SeamlessM4T بترميز ISO 639-3 (rus, eng, deu, fra…). تُخرج الخلية هذه اللغة فقط بلا تفريغ للمصدر. يمكن تجاوزها لكل طلب عبر `language`.",
     MOONSHINE_MODEL: "لغة Moonshine v2 ‏(en es zh ja ko vi uk ar) — يُنزّل النموذج نفسه عند أول تشغيل، معالج فقط. ‏en رخصة MIT؛ والبقية ضمن Moonshine Community License المجانية.",
     RUNNER: "أسلوب تشغيل هذه الخلية: llama-server أو أمر مخصص مُدار.",
     VLLM_MODEL: "معرّف مستودع HF (مثل nvidia/Qwen3.6-27B-NVFP4) أو مسار محلي؛ يقوم vLLM بتنزيل مستودعات HF إلى ذاكرته المؤقتة الخاصة عند أول تشغيل.",
@@ -288,6 +289,10 @@ export default {
   tabAccess: "الوصول",
   tabToolsService: "الأدوات والخدمة",
   taTitleBindProxy: "الربط بمنفذ وسيط",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "نموذج واحد من الكلام إلى النص المترجم: صوت إنجليزي يدخل، نص روسي يخرج، بلا تفريغ وسيط.",
+  runnerSeamlessMinus: "رخصة غير تجارية (CC-BY-NC-4.0). يُخرج اللغة الهدف فقط. لا توجد أنوية SDPA/FlashAttention، لذا أبطأ من whisper.",
+  runnerNeedsSeamlessSt: "يحتاج مجلد نقطة تفتيش SeamlessM4T",
   proxyNoKeyLabel: "لا تطلب مفتاحاً (المنفذ مفتوح)",
   proxyDelete: "حذف",
   proxyDeleteTip: "إزالة هذا المنفذ وتوصيلاته في الموجه",

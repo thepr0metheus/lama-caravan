@@ -118,6 +118,7 @@ export default {
   usageStatsSubscriptionNote: "abonnement forfaitaire — estimé aux prix de l'API",
   fieldHelp: {
     WHISPER_MODEL: "Taille du modèle faster-whisper (tiny…large-v3). Téléchargé au premier démarrage ; langue choisie par requête.",
+    SEAMLESS_TGT_LANG: "Langue VERS laquelle SeamlessM4T traduit (ISO 639-3 : rus, eng, deu, fra…). La cellule ne produit que celle-ci, sans transcription de la source. Remplacable par requete via `language`.",
     MOONSHINE_MODEL: "Langue Moonshine v2 (en es zh ja ko vi uk ar) — le modèle se télécharge seul au premier démarrage, CPU uniquement. en est MIT ; le reste sous la Moonshine Community License gratuite.",
     RUNNER: "Mode de lancement de cette cellule : llama-server ou une commande personnalisée gérée.",
     VLLM_MODEL: "Id de repo HF (ex. nvidia/Qwen3.6-27B-NVFP4) ou chemin local ; vLLM télécharge les repos HF dans son propre cache au premier démarrage.",
@@ -288,6 +289,10 @@ export default {
   tabAccess: "Accès",
   tabToolsService: "Outils et service",
   taTitleBindProxy: "Lier à un port proxy",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "Un seul modele de la parole au texte traduit : audio anglais en entree, texte russe en sortie, sans transcription intermediaire.",
+  runnerSeamlessMinus: "Licence non commerciale (CC-BY-NC-4.0). Ne produit que la langue cible. Pas de noyaux SDPA/FlashAttention, donc plus lent que whisper.",
+  runnerNeedsSeamlessSt: "Necessite un dossier de checkpoint SeamlessM4T",
   proxyNoKeyLabel: "Ne pas exiger de cle (port ouvert)",
   proxyDelete: "Supprimer",
   proxyDeleteTip: "Retirer ce port et son cablage dans le routeur",

@@ -50,6 +50,8 @@ COMPOSED = {
     "cell-config-tab": "form.js: renderFields sets data-t on each tab button",
     "agent-proxy-bind": "topology-activity.js: the clickable primary port chip",
     "agent-bind-menu": "topology-activity.js: the proxy-port picker it opens",
+    "cell-edit-seamless-lang": "index.html: seamless target-language select (edit form)",
+    "cell-remote-seamless-lang": "index.html: seamless target-language select (remote form)",
     "cell-config-search": "config-locator.js: the settings search input above the tabs",
     "cell-config-search-results": "config-locator.js: the search suggestion list",
 }

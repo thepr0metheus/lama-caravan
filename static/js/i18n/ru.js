@@ -91,6 +91,10 @@ export default {
   tabAccess: "Доступ",
   tabToolsService: "Инструменты и сервис",
   taTitleBindProxy: "Привязать к порту прокси",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "Одна модель от речи до переведённого текста: на входе английское аудио, на выходе русский текст, без промежуточной расшифровки, чьи ошибки унаследует второй шаг.",
+  runnerSeamlessMinus: "Некоммерческая лицензия (CC-BY-NC-4.0). Отдаёт только целевой язык — исходной расшифровки нет. Ядра SDPA/FlashAttention не поддержаны, поэтому медленнее whisper.",
+  runnerNeedsSeamlessSt: "Нужна папка чекпоинта SeamlessM4T",
   proxyNoKeyLabel: "Не требовать ключ (порт открыт)",
   proxyDelete: "Удалить",
   proxyDeleteTip: "Убрать этот порт вместе с его разводкой в роутере",
@@ -1182,6 +1186,7 @@ export default {
   topologyCloudAddBlock: "Добавить модель",
   fieldHelp: {
     WHISPER_MODEL: "Размер модели faster-whisper (tiny…large-v3). Скачивается автоматически при первом старте; язык выбирается в каждом запросе.",
+    SEAMLESS_TGT_LANG: "Язык, НА который переводит SeamlessM4T, кодом ISO 639-3 (rus, eng, deu, fra…). Ячейка отдаёт только его: английское аудио при rus даст русский текст, английской расшифровки не будет. Разово переопределяется полем `language` в запросе.",
     MOONSHINE_MODEL: "Язык Moonshine v2 (en es zh ja ko vi uk ar) — модель скачивается сама при первом старте, только CPU. en — MIT; остальные — бесплатная Moonshine Community License.",
     RUNNER: "Способ запуска ячейки: llama-server или своя управляемая команда.",
     VLLM_MODEL: "Идентификатор HF-репозитория (например nvidia/Qwen3.6-27B-NVFP4) или локальный путь; vLLM скачивает HF-репозитории в свой кэш при первом запуске.",

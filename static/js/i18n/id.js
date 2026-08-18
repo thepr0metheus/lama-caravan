@@ -118,6 +118,7 @@ export default {
   usageStatsSubscriptionNote: "langganan tarif tetap — diperkirakan dengan harga API",
   fieldHelp: {
     WHISPER_MODEL: "Ukuran model faster-whisper (tiny…large-v3). Diunduh otomatis saat start pertama; bahasa per permintaan.",
+    SEAMLESS_TGT_LANG: "Bahasa TUJUAN terjemahan SeamlessM4T (ISO 639-3: rus, eng, deu, fra…). Sel hanya menghasilkan bahasa ini, tanpa transkrip sumber. Bisa ditimpa per permintaan lewat `language`.",
     MOONSHINE_MODEL: "Bahasa Moonshine v2 (en es zh ja ko vi uk ar) — model mengunduh sendiri saat start pertama, hanya CPU. en MIT; sisanya di bawah Moonshine Community License gratis.",
     RUNNER: "Cara peluncuran sel ini: llama-server atau perintah kustom yang dikelola.",
     VLLM_MODEL: "Id repo HF (mis. nvidia/Qwen3.6-27B-NVFP4) atau path lokal; vLLM mengunduh repo HF ke cache-nya sendiri saat pertama kali dijalankan.",
@@ -288,6 +289,10 @@ export default {
   tabAccess: "Akses",
   tabToolsService: "Alat & layanan",
   taTitleBindProxy: "Ikat ke port proxy",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "Satu model dari ucapan ke teks terjemahan: audio inggris masuk, teks rusia keluar, tanpa transkrip perantara.",
+  runnerSeamlessMinus: "Lisensi non-komersial (CC-BY-NC-4.0). Hanya menghasilkan bahasa tujuan. Tanpa kernel SDPA/FlashAttention, lebih lambat dari whisper.",
+  runnerNeedsSeamlessSt: "Perlu folder checkpoint SeamlessM4T",
   proxyNoKeyLabel: "Tidak perlu kunci (port terbuka)",
   proxyDelete: "Hapus",
   proxyDeleteTip: "Hapus port ini beserta sambungan routernya",

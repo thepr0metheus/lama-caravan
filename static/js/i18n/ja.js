@@ -118,6 +118,7 @@ export default {
   usageStatsSubscriptionNote: "定額サブスクリプション — API 価格で見積もり",
   fieldHelp: {
     WHISPER_MODEL: "faster-whisper のモデルサイズ（tiny…large-v3）。初回起動時に自動ダウンロード。言語はリクエストごと。",
+    SEAMLESS_TGT_LANG: "SeamlessM4T が翻訳する対象言語（ISO 639-3: rus, eng, deu, fra…）。セルはこの言語だけを出力し、原語の書き起こしは作りません。リクエストの `language` で上書きできます。",
     MOONSHINE_MODEL: "Moonshine v2 の言語（en es zh ja ko vi uk ar）— 初回起動時にモデルを自動ダウンロード、CPU 専用。en は MIT、残りは無料の Moonshine Community License。",
     RUNNER: "このセルの起動方式：llama-server またはカスタムの管理コマンド。",
     VLLM_MODEL: "HF リポジトリ id（例: nvidia/Qwen3.6-27B-NVFP4）またはローカルパス。vLLM は初回起動時に HF リポジトリを自身のキャッシュにダウンロードします。",
@@ -288,6 +289,10 @@ export default {
   tabAccess: "アクセス",
   tabToolsService: "ツールとサービス",
   taTitleBindProxy: "プロキシポートに固定",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "音声から訳文まで一つのモデルで：英語音声を入れるとロシア語テキストが出ます。中間の書き起こしはありません。",
+  runnerSeamlessMinus: "非商用ライセンス（CC-BY-NC-4.0）。出力は目的言語のみ。SDPA/FlashAttention 非対応のため whisper より低速です。",
+  runnerNeedsSeamlessSt: "SeamlessM4T のチェックポイントフォルダが必要です",
   proxyNoKeyLabel: "キーを要求しない（ポートは開放）",
   proxyDelete: "削除",
   proxyDeleteTip: "このポートとルーターの結線を削除します",

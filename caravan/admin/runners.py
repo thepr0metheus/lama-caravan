@@ -113,6 +113,26 @@ RUNNERS = [
         "minCompute": None,
     },
     {
+        # SeamlessM4T v2: speech in one language -> TEXT in another, one model.
+        # The fleet could already do EN speech -> RU text with whisper plus an
+        # LLM, but that is two cells and the translator only ever sees the
+        # transcriber's guess — a misheard name is translated faithfully into
+        # the wrong name. Here the translation is conditioned on the audio.
+        # It takes a safetensors DIRECTORY, not a gguf: hence its own artifact
+        # kind, so picking any other ST folder does not silently switch the
+        # runner to this one.
+        # Weights are CC-BY-NC-4.0 — non-commercial, unlike whisper (MIT).
+        "id": "seamless",
+        "icon": "\U0001f310",
+        "labelKey": "runnerSeamless",
+        "benefitsKey": "runnerSeamlessBenefits",
+        "artifacts": ["seamless-st"],
+        "formats": ["*"],
+        "health": "/health",
+        "api": "raw",
+        "minCompute": None,
+    },
+    {
         "id": "custom",
         "icon": "\U0001f6e0\ufe0f",
         "labelKey": "runnerCustom",
@@ -227,7 +247,8 @@ VLLM_BOOTSTRAP_LINES = [
 def uses_command_path(config) -> bool:
     """True when the cell launches through the generic command machinery
     (custom cells always; vllm/whisper compile their fields into a command)."""
-    return runner_id(config) in {"custom", "vllm", "whisper", "moonshine", "transcribe"}
+    return runner_id(config) in {"custom", "vllm", "whisper", "moonshine",
+                                 "transcribe", "seamless"}
 
 
 def build_whisper_command(config) -> str:
@@ -278,6 +299,24 @@ def build_moonshine_command(config) -> str:
     return f'bash $HOME/run_moonshine.sh "$PORT" {lang}'
 
 
+def build_seamless_command(config) -> str:
+    """The run_seamless.sh line for a SeamlessM4T cell.
+
+    Takes a DIRECTORY (the downloaded HF folder), not a file: the model is a
+    sharded safetensors checkpoint plus its processor config, and transformers
+    wants the folder. Resolved against LLAMA_MODELS_DIR when relative, which is
+    how the picker stores it — same convention as transcribe."""
+    model = str((config or {}).get("MODEL_FILE") or "").strip()
+    if not model:
+        raise AppError("MODEL_FILE is required for a seamless cell", 400)
+    tgt = str((config or {}).get("SEAMLESS_TGT_LANG") or "rus").strip().lower() or "rus"
+    if not model.startswith("/") and not model.startswith("$"):
+        model = '"${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/' + model
+    else:
+        model = f'"{model}"'
+    return f'bash $HOME/run_seamless.sh "$PORT" {model} {tgt}'
+
+
 def build_vllm_command(config) -> str:
     """The `vllm serve …` line for a cell config (no bootstrap, no exec)."""
     import shlex
@@ -311,6 +350,8 @@ def effective_command(config, with_bootstrap=False) -> str:
     rid = runner_id(config)
     if rid == "transcribe":
         return build_transcribe_command(config)
+    if rid == "seamless":
+        return build_seamless_command(config)
     if rid == "vllm":
         cmd = build_vllm_command(config)
         if with_bootstrap:
@@ -341,6 +382,6 @@ def effective_health_path(config) -> str:
     rid = runner_id(config)
     if rid == "vllm":
         return "/v1/models"
-    if rid in ("whisper", "moonshine", "transcribe"):
+    if rid in ("whisper", "moonshine", "transcribe", "seamless"):
         return "/health"
     return ""

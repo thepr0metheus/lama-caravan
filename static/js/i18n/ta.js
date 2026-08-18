@@ -118,6 +118,7 @@ export default {
   usageStatsSubscriptionNote: "நிலையான-கட்டண சந்தா — API விலைகளில் மதிப்பிடப்பட்டது",
   fieldHelp: {
     WHISPER_MODEL: "faster-whisper மாடல் அளவு (tiny…large-v3). முதல் தொடக்கத்தில் தானாக பதிவிறக்கம்; மொழி ஒவ்வொரு கோரிக்கையிலும்.",
+    SEAMLESS_TGT_LANG: "SeamlessM4T மொழிபெயர்க்கும் இலக்கு மொழி (ISO 639-3: rus, eng, deu, fra…). செல் இதை மட்டுமே தரும்; மூல எழுத்துப்படி உருவாகாது. கோரிக்கையில் `language` மூலம் மாற்றலாம்.",
     MOONSHINE_MODEL: "Moonshine v2 மொழி (en es zh ja ko vi uk ar) — முதல் தொடக்கத்தில் மாடல் தானே பதிவிறக்கம், CPU மட்டும். en MIT; மீதவை இலவச Moonshine Community License கீழ்.",
     RUNNER: "இந்த செல்லின் தொடக்க வகை: llama-server அல்லது தனிப்பயன் நிர்வகிக்கப்பட்ட கட்டளை.",
     VLLM_MODEL: "HF repo id (எ.கா. nvidia/Qwen3.6-27B-NVFP4) அல்லது ஒரு லோக்கல் பாத்; vLLM முதல் முறை தொடங்கும்போது HF repoக்களை அதன் சொந்த கேச்சில் பதிவிறக்குகிறது.",
@@ -288,6 +289,10 @@ export default {
   tabAccess: "அணுகல்",
   tabToolsService: "கருவிகள் & சேவை",
   taTitleBindProxy: "ப்ராக்சி போர்ட்டுடன் இணை",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "பேச்சிலிருந்து மொழிபெயர்ப்பு வரை ஒரே மாதிரி: ஆங்கில ஒலி உள்ளே, ரஷ்ய உரை வெளியே, இடைப்பட்ட எழுத்துப்படி இல்லை.",
+  runnerSeamlessMinus: "வணிகமற்ற உரிமம் (CC-BY-NC-4.0). இலக்கு மொழியை மட்டுமே தரும். SDPA/FlashAttention இல்லை, எனவே whisper-ஐ விட மெதுவானது.",
+  runnerNeedsSeamlessSt: "SeamlessM4T சோதனைப்புள்ளி கோப்புறை தேவை",
   proxyNoKeyLabel: "சாவி தேவையில்லை (போர்ட் திறந்தது)",
   proxyDelete: "நீக்கு",
   proxyDeleteTip: "இந்த போர்ட்டையும் அதன் ரவுட்டர் இணைப்பையும் நீக்கு",

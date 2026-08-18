@@ -212,6 +212,10 @@ def server_cell_action(body: dict) -> dict:
                 # back on — its model is a GGUF path, so an unconfigured cell has
                 # to be caught here rather than crashing inside the builder.
                 raise AppError("transcribe cell has no model — configure it first", 400)
+            elif rid == "seamless" and not model:
+                # Same shape as transcribe: its model is a downloaded directory,
+                # so there is no default to fall back on.
+                raise AppError("seamless cell has no model — configure it first", 400)
             # whisper/moonshine need nothing: size and language both have defaults.
         elif not model:
             raise AppError("cell has no saved model — configure it first", 400)

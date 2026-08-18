@@ -91,6 +91,10 @@ export default {
   tabAccess: "Access",
   tabToolsService: "Tools & service",
   taTitleBindProxy: "Bind to a proxy port",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "One model from speech to translated text: English audio in, Russian text out, with no intermediate transcript for the second stage to inherit mistakes from.",
+  runnerSeamlessMinus: "Non-commercial licence (CC-BY-NC-4.0). Outputs the target language only — no source transcript. No SDPA/FlashAttention kernels, so slower than whisper.",
+  runnerNeedsSeamlessSt: "Needs a SeamlessM4T checkpoint folder",
   proxyNoKeyLabel: "Do not require a key (port is open)",
   proxyDelete: "Delete",
   proxyDeleteTip: "Remove this port and its router wiring",
@@ -1182,6 +1186,7 @@ export default {
   topologyCloudAddBlock: "Add model block",
   fieldHelp: {
     WHISPER_MODEL: "faster-whisper model size (tiny…large-v3). Downloaded automatically on first start; language is chosen per request.",
+    SEAMLESS_TGT_LANG: "Language SeamlessM4T translates INTO, as ISO 639-3 (rus, eng, deu, fra…). The cell outputs this language only — English audio with rus gives Russian, and no English transcript is produced. Per-request override: send `language` with the audio.",
     MOONSHINE_MODEL: "Moonshine v2 language (en es zh ja ko vi uk ar) — the model downloads itself on first start, CPU-only. en is MIT; the rest fall under the free Moonshine Community License.",
     RUNNER: "Launch flavour of this cell: llama-server or a custom managed command.",
     VLLM_MODEL: "HF repo id (e.g. nvidia/Qwen3.6-27B-NVFP4) or a local path; vLLM downloads HF repos into its own cache on first start.",

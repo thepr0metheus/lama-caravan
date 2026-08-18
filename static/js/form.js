@@ -546,6 +546,7 @@ export function renderModelSelects(pfx = "") {
       kind: "st",
       stName: row.name,
       stFormat: row.format,
+      stArch: row.arch || "",
     }));
   }
   // Whisper models join the same picker (🎙) on EVERY form: the "model" is a
@@ -607,9 +608,12 @@ export function renderModelSelects(pfx = "") {
       const ROW_KIND = { whisper: "whisper-size", moonshine: "moonshine-lang", st: "safetensors" };
       modelItems.forEach((it) => {
         if (it.missing) return;
+        // A SeamlessM4T folder is its own kind, so a generic ST runner does not
+        // claim it and it does not claim every other ST folder in return.
         const kind = it.kind === "model"
           ? (it.sttVariant ? "asr-gguf" : "llm-gguf")
-          : ROW_KIND[it.kind];
+          : (it.kind === "st" && String(it.stArch || "").startsWith("seamless_m4t")
+             ? "seamless-st" : ROW_KIND[it.kind]);
         if (kind) it.wrongRunner = !accepts.includes(kind);
       });
     }
@@ -1605,7 +1609,7 @@ export function readConfigForm(pfx = "") {
   config.ENV = $(pfx + "ENV")?.value || "";
   config.WORKDIR = ($(pfx + "WORKDIR")?.value || "").trim();
   ["VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION", "DTYPE", "TENSOR_PARALLEL",
-   "WHISPER_MODEL", "MOONSHINE_MODEL"].forEach((k) => {
+   "WHISPER_MODEL", "MOONSHINE_MODEL", "SEAMLESS_TGT_LANG"].forEach((k) => {
     config[k] = ($(pfx + k)?.value || "").trim();
   });
   if (config.CELL_KIND === "command" || config.RUNNER === "vllm" || config.RUNNER === "whisper" || config.RUNNER === "moonshine") {

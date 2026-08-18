@@ -118,6 +118,7 @@ export default {
   usageStatsSubscriptionNote: "정액 구독 — API 가격으로 추정",
   fieldHelp: {
     WHISPER_MODEL: "faster-whisper 모델 크기(tiny…large-v3). 첫 시작 시 자동 다운로드, 언어는 요청마다 선택.",
+    SEAMLESS_TGT_LANG: "SeamlessM4T가 번역해 낼 대상 언어(ISO 639-3: rus, eng, deu, fra…). 셀은 이 언어만 출력하며 원문 전사는 만들지 않습니다. 요청의 `language`로 덮어쓸 수 있습니다.",
     MOONSHINE_MODEL: "Moonshine v2 언어(en es zh ja ko vi uk ar) — 첫 시작 시 모델 자동 다운로드, CPU 전용. en은 MIT; 나머지는 무료 Moonshine Community License.",
     RUNNER: "이 셀의 실행 방식: llama-server 또는 커스텀 관리 명령.",
     VLLM_MODEL: "HF 저장소 id(예: nvidia/Qwen3.6-27B-NVFP4) 또는 로컬 경로; vLLM은 처음 시작할 때 HF 저장소를 자체 캐시에 다운로드합니다.",
@@ -288,6 +289,10 @@ export default {
   tabAccess: "접근",
   tabToolsService: "도구·서비스",
   taTitleBindProxy: "프록시 포트에 고정",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "음성에서 번역문까지 하나의 모델로: 영어 오디오를 넣으면 러시아어 텍스트가 나옵니다. 중간 전사는 없습니다.",
+  runnerSeamlessMinus: "비상업 라이선스(CC-BY-NC-4.0). 대상 언어만 출력합니다. SDPA/FlashAttention 커널이 없어 whisper보다 느립니다.",
+  runnerNeedsSeamlessSt: "SeamlessM4T 체크포인트 폴더가 필요합니다",
   proxyNoKeyLabel: "키를 요구하지 않음 (포트 개방)",
   proxyDelete: "삭제",
   proxyDeleteTip: "이 포트와 라우터 배선을 제거합니다",

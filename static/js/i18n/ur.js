@@ -118,6 +118,7 @@ export default {
   usageStatsSubscriptionNote: "فلیٹ ریٹ سبسکرپشن — API قیمتوں پر تخمینہ",
   fieldHelp: {
     WHISPER_MODEL: "faster-whisper ماڈل سائز (tiny…large-v3)۔ پہلے آغاز پر خود ڈاؤن لوڈ؛ زبان ہر درخواست میں۔",
+    SEAMLESS_TGT_LANG: "وہ زبان جس میں SeamlessM4T ترجمہ کرتا ہے (ISO 639-3: rus, eng, deu, fra…)۔ سیل صرف یہی دیتا ہے، ماخذ کی نقل نہیں بنتی۔ درخواست میں `language` سے بدلا جا سکتا ہے۔",
     MOONSHINE_MODEL: "Moonshine v2 زبان (en es zh ja ko vi uk ar) — پہلے آغاز پر ماڈل خود ڈاؤن لوڈ، صرف CPU۔ en ایم آئی ٹی؛ باقی مفت Moonshine Community License کے تحت۔",
     RUNNER: "اس سیل کے آغاز کی قسم: llama-server یا اپنی منظم کمانڈ۔",
     VLLM_MODEL: "HF repo id (مثلاً nvidia/Qwen3.6-27B-NVFP4) یا لوکل پاتھ؛ vLLM پہلی بار شروع ہونے پر HF repo کو اپنے کیش میں ڈاؤن لوڈ کرتا ہے۔",
@@ -288,6 +289,10 @@ export default {
   tabAccess: "رسائی",
   tabToolsService: "ٹولز اور سروس",
   taTitleBindProxy: "پراکسی پورٹ سے منسلک کریں",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "تقریر سے ترجمہ شدہ متن تک ایک ہی ماڈل: انگریزی آڈیو اندر، روسی متن باہر، درمیان میں کوئی نقل نہیں۔",
+  runnerSeamlessMinus: "غیر تجارتی لائسنس (CC-BY-NC-4.0)۔ صرف ہدف زبان دیتا ہے۔ SDPA/FlashAttention نہیں، اس لیے whisper سے سست۔",
+  runnerNeedsSeamlessSt: "SeamlessM4T چیک پوائنٹ فولڈر درکار ہے",
   proxyNoKeyLabel: "کلید درکار نہیں (پورٹ کھلا)",
   proxyDelete: "حذف کریں",
   proxyDeleteTip: "یہ پورٹ اور اس کی راؤٹر وائرنگ ہٹائیں",

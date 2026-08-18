@@ -118,6 +118,7 @@ export default {
   usageStatsSubscriptionNote: "ফ্ল্যাট-রেট সাবস্ক্রিপশন — API দামে অনুমানিত",
   fieldHelp: {
     WHISPER_MODEL: "faster-whisper মডেলের আকার (tiny…large-v3)। প্রথম চালুতে স্বয়ংক্রিয় ডাউনলোড; ভাষা প্রতি অনুরোধে।",
+    SEAMLESS_TGT_LANG: "SeamlessM4T যে ভাষায় অনুবাদ করে (ISO 639-3: rus, eng, deu, fra…)। সেল কেবল এটিই দেয়, উৎসের প্রতিলিপি হয় না। অনুরোধে `language` দিয়ে বদলানো যায়।",
     MOONSHINE_MODEL: "Moonshine v2 ভাষা (en es zh ja ko vi uk ar) — প্রথম চালুতে মডেল নিজেই ডাউনলোড, শুধু CPU। en MIT; বাকিগুলি বিনামূল্যের Moonshine Community License-এর অধীনে।",
     RUNNER: "এই সেলের লঞ্চ পদ্ধতি: llama-server অথবা একটি কাস্টম ম্যানেজড কমান্ড।",
     VLLM_MODEL: "HF repo id (যেমন nvidia/Qwen3.6-27B-NVFP4) বা লোকাল পাথ; vLLM প্রথম শুরুতে HF repo নিজের ক্যাশে ডাউনলোড করে।",
@@ -288,6 +289,10 @@ export default {
   tabAccess: "অ্যাক্সেস",
   tabToolsService: "টুল ও সার্ভিস",
   taTitleBindProxy: "প্রক্সি পোর্টে বাঁধুন",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "বক্তৃতা থেকে অনূদিত লেখা পর্যন্ত এক মডেল: ইংরেজি অডিও ঢুকলে রুশ লেখা বেরোয়, মাঝে কোনো প্রতিলিপি নেই।",
+  runnerSeamlessMinus: "অবাণিজ্যিক লাইসেন্স (CC-BY-NC-4.0)। কেবল লক্ষ্য ভাষা দেয়। SDPA/FlashAttention কার্নেল নেই, তাই whisper-এর চেয়ে ধীর।",
+  runnerNeedsSeamlessSt: "SeamlessM4T চেকপয়েন্ট ফোল্ডার দরকার",
   proxyNoKeyLabel: "কী লাগবে না (পোর্ট খোলা)",
   proxyDelete: "মুছুন",
   proxyDeleteTip: "এই পোর্ট ও এর রাউটার সংযোগ সরান",

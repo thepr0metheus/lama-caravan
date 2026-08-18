@@ -118,6 +118,7 @@ export default {
   usageStatsSubscriptionNote: "sabit ücretli abonelik — API fiyatlarıyla tahmin edildi",
   fieldHelp: {
     WHISPER_MODEL: "faster-whisper model boyutu (tiny…large-v3). İlk başlatmada otomatik iner; dil istek başına seçilir.",
+    SEAMLESS_TGT_LANG: "SeamlessM4T'nin cevirdigi HEDEF dil (ISO 639-3: rus, eng, deu, fra…). Hucre yalnizca bunu uretir, kaynak dokumu olmaz. Istek basina `language` ile degistirilebilir.",
     MOONSHINE_MODEL: "Moonshine v2 dili (en es zh ja ko vi uk ar) — model ilk başlatmada kendini indirir, yalnız CPU. en MIT; kalanlar ücretsiz Moonshine Community License altında.",
     RUNNER: "Bu hücrenin başlatma türü: llama-server ya da özel yönetilen bir komut.",
     VLLM_MODEL: "HF repo id'si (örn. nvidia/Qwen3.6-27B-NVFP4) veya yerel bir yol; vLLM ilk başlatmada HF repolarını kendi önbelleğine indirir.",
@@ -288,6 +289,10 @@ export default {
   tabAccess: "Erişim",
   tabToolsService: "Araçlar ve servis",
   taTitleBindProxy: "Bir proxy portuna bağla",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "Konusmadan cevrilmis metne tek model: ingilizce ses girer, rusca metin cikar, aradaki dokum olmadan.",
+  runnerSeamlessMinus: "Ticari olmayan lisans (CC-BY-NC-4.0). Yalnizca hedef dili uretir. SDPA/FlashAttention cekirdekleri yok, whisper'dan yavas.",
+  runnerNeedsSeamlessSt: "SeamlessM4T checkpoint klasoru gerekir",
   proxyNoKeyLabel: "Anahtar isteme (port acik)",
   proxyDelete: "Sil",
   proxyDeleteTip: "Bu portu ve router baglantisini kaldir",

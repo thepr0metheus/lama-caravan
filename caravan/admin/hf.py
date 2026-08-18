@@ -125,16 +125,31 @@ def hf_list_files(repo_id):
         # into ONE downloadable artifact (config/tokenizer/shards/index) so the
         # repo lands in the models tree as <model>/<author>/<FORMAT>/…
         low = name.lower()
-        if low in _SKIP_REPO_FILES or low.endswith((".md", ".png", ".jpg", ".jpeg", ".gif", ".pdf")):
+        if low in _SKIP_REPO_FILES or low.endswith((".md", ".png", ".jpg", ".jpeg", ".gif", ".pdf", ".svg")):
             other_files.append({"path": path, "name": name, "size": size})
             continue
         st_files.append({"path": path, "name": name, "size": size})
     result = {"ok": True, "repo": repo_id, "files": files, "lastModified": last_modified}
+    has_st = any(f["name"].lower().endswith(".safetensors") for f in st_files)
     # No safetensors weights in the repo -> the collected candidates are just
     # unsupported extras (onnx, tf, bins…): surface them in the grey list too.
-    if not any(f["name"].lower().endswith(".safetensors") for f in st_files):
+    if not has_st:
         other_files.extend(st_files)
         st_files = []
+    else:
+        # A repo that ships safetensors often ships the SAME weights again in
+        # another runtime's format. facebook/seamless-m4t-v2-large carries three
+        # fairseq2 .pt checkpoints — 20.6 GB of the 29.9 GB total — that
+        # transformers never opens. Bundling them into the one-click artifact
+        # charges the operator triple the disk and triple the wait for files
+        # nothing will read, and the artifact gives no hint that this is what is
+        # happening. Move the duplicates to the grey list, where they can still
+        # be fetched deliberately.
+        dup = (".pt", ".pth", ".bin", ".h5", ".msgpack", ".onnx", ".ckpt", ".tflite")
+        keep = []
+        for f in st_files:
+            (other_files if f["name"].lower().endswith(dup) else keep).append(f)
+        st_files = keep
     other_files.sort(key=lambda f: f["name"].lower())
     if other_files:
         result["otherFiles"] = other_files

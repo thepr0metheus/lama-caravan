@@ -2232,6 +2232,10 @@ async function downloadSafetensors(repoId, st) {
   const modelName = deriveModelName(repoId);
   const destDir = `${modelName}/${author}/${st.format}`;
   const payload = st.files.map((f) => ({ path: f.path, name: f.name, size: f.size, destDir }));
+  // The per-file download path checks this; the safetensors one never did, and
+  // safetensors repos are the BIG ones — tens of gigabytes committed with no
+  // word about the disk until it filled up mid-transfer.
+  if (!diskFitCheck(st.files)) return;
   const totalGb = (st.totalSize / 1e9).toFixed(2);
   if (!await hfConfirm(`⬇ ${st.format} · ${totalGb} GB`, `${repoId} → ${destDir}/`, hfT("a11yStartDownload"), false)) return;
   const job = {

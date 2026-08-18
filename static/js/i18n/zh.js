@@ -118,6 +118,7 @@ export default {
   usageStatsSubscriptionNote: "固定费率订阅 — 按 API 价格估算",
   fieldHelp: {
     WHISPER_MODEL: "faster-whisper 模型大小（tiny…large-v3）。首次启动自动下载；语言按请求选择。",
+    SEAMLESS_TGT_LANG: "SeamlessM4T 翻译成的目标语言（ISO 639-3：rus、eng、deu、fra…）。单元只输出该语言，不产生源语言转写。可用请求中的 `language` 覆盖。",
     MOONSHINE_MODEL: "Moonshine v2 语言（en es zh ja ko vi uk ar）——首次启动自动下载模型，仅 CPU。en 为 MIT；其余为免费的 Moonshine Community License。",
     RUNNER: "此单元的启动方式：llama-server 或自定义受管命令。",
     VLLM_MODEL: "HF 仓库 id（例如 nvidia/Qwen3.6-27B-NVFP4）或本地路径；vLLM 首次启动时会将 HF 仓库下载到自己的缓存中。",
@@ -288,6 +289,10 @@ export default {
   tabAccess: "访问",
   tabToolsService: "工具与服务",
   taTitleBindProxy: "绑定到代理端口",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "从语音直达译文的单一模型：输入英语音频，输出俄语文本，中间不产生转写。",
+  runnerSeamlessMinus: "非商业许可（CC-BY-NC-4.0）。只输出目标语言。没有 SDPA/FlashAttention 内核，比 whisper 慢。",
+  runnerNeedsSeamlessSt: "需要 SeamlessM4T 检查点目录",
   proxyNoKeyLabel: "不要求密钥（端口开放）",
   proxyDelete: "删除",
   proxyDeleteTip: "移除该端口及其在路由器中的连线",

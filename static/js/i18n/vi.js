@@ -118,6 +118,7 @@ export default {
   usageStatsSubscriptionNote: "thuê bao trọn gói — ước tính theo giá API",
   fieldHelp: {
     WHISPER_MODEL: "Cỡ mô hình faster-whisper (tiny…large-v3). Tự tải ở lần khởi động đầu; ngôn ngữ chọn theo yêu cầu.",
+    SEAMLESS_TGT_LANG: "Ngon ngu DICH cua SeamlessM4T (ISO 639-3: rus, eng, deu, fra…). O chi tao ngon ngu nay, khong co ban ghi nguon. Ghi de theo tung yeu cau bang `language`.",
     MOONSHINE_MODEL: "Ngôn ngữ Moonshine v2 (en es zh ja ko vi uk ar) — mô hình tự tải ở lần khởi động đầu, chỉ CPU. en là MIT; phần còn lại theo Moonshine Community License miễn phí.",
     RUNNER: "Kiểu khởi chạy của ô này: llama-server hoặc một lệnh tùy chỉnh được quản lý.",
     VLLM_MODEL: "Id repo HF (vd. nvidia/Qwen3.6-27B-NVFP4) hoặc đường dẫn cục bộ; vLLM tải repo HF vào cache riêng của nó khi khởi động lần đầu.",
@@ -288,6 +289,10 @@ export default {
   tabAccess: "Truy cập",
   tabToolsService: "Công cụ & dịch vụ",
   taTitleBindProxy: "Gắn vào cổng proxy",
+  runnerSeamless: "Seamless",
+  runnerSeamlessBenefits: "Mot mo hinh tu giong noi den van ban da dich: audio tieng anh vao, van ban tieng nga ra, khong co ban ghi trung gian.",
+  runnerSeamlessMinus: "Giay phep phi thuong mai (CC-BY-NC-4.0). Chi tao ngon ngu dich. Khong co kernel SDPA/FlashAttention nen cham hon whisper.",
+  runnerNeedsSeamlessSt: "Can thu muc checkpoint SeamlessM4T",
   proxyNoKeyLabel: "Khong yeu cau khoa (cong mo)",
   proxyDelete: "Xoa",
   proxyDeleteTip: "Go cong nay va day noi trong router",

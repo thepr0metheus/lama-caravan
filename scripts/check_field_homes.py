@@ -54,6 +54,7 @@ NO_TAB = {
     "TENSOR_PARALLEL": "vLLM runner panel",
     "WHISPER_MODEL": "whisper runner panel",
     "MOONSHINE_MODEL": "moonshine runner panel",
+    "SEAMLESS_TGT_LANG": "seamless runner panel",
 }
 
 CONSTANTS = ROOT / "static/js/constants.js"
