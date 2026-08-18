@@ -430,7 +430,14 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
       // gguf → llama.cpp (native) + vLLM (experimental, dimmed); safetensors →
       // vLLM, dimmed when NO fleet GPU meets the format's compute requirement.
       let runnerIcons = "";
-      if (item.kind === "st") {
+      if (item.kind === "st" && String(item.stArch || "").startsWith("seamless_m4t")) {
+        // This branch exists because the one below assumes safetensors means
+        // vLLM — true when ST arrived, and now wrong for at least one family.
+        // vLLM does not load this architecture, so the ⚡ was not merely
+        // confusing next to a 🌐 runner tab: it named an engine that cannot
+        // start the thing, which is worse than naming none.
+        runnerIcons = `<span class="mc-runners" title="seamless (speech → translated text)">🌐</span>`;
+      } else if (item.kind === "st") {
         const reqs = (state.runners || []).find((r) => r.id === "vllm")?.formatRequirements || {};
         const need = reqs[String(item.stFormat || "").toLowerCase()];
         let blocked = false;

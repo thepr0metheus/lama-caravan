@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- The model picker stops promising vLLM for a SeamlessM4T checkpoint. Every
+  safetensors row wore ⚡ — written when safetensors meant "vLLM's format", and
+  now wrong for at least one family: vLLM does not load this architecture. So
+  the icon did not merely disagree with the 🌐 runner tab beside it, it named an
+  engine that cannot start the thing, which is worse than naming none. The row
+  now wears the runner that can.
+
+- Board polish for the seamless runner: it gets its engine chip (🌐) like every
+  other runner, and it joins the speech-cell list. That second one matters when
+  the cell is STOPPED: without it the card fell through to the context-window
+  branch and drew "🪟 100k" from a leftover CTX_SIZE — a confident, precise and
+  entirely fictional number, which is the exact failure the comment beside that
+  code warns about. Its device capabilities are now stated rather than inherited
+  from the default branch, which belongs to llama-server.
+
 - A directory-based model shows its name on the board, not its precision. The
   cell label came from `model_path.split("/")[-1]`, which is the filename for a
   GGUF and the FORMAT segment for a safetensors checkpoint laid out

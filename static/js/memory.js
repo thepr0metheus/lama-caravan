@@ -231,6 +231,10 @@ export function runnerDeviceCaps(runner) {
     // ggml runs on whatever the build carries; CUDA_VISIBLE_DEVICES= (what the
     // CPU tile writes) makes a CUDA build fall back, so the pin is real here.
     case "transcribe": return { cpu: true, gpu: true,  auto: false };
+    // Runs on either; the server picks CUDA when it sees a GPU. Stated
+    // explicitly rather than left to the default branch, which belongs to
+    // llama-server and would take this runner with it if it ever changed.
+    case "seamless":  return { cpu: true,  gpu: true,  auto: false };
     case "custom":    return { cpu: true,  gpu: true,  auto: true  };
     default:          return { cpu: true,  gpu: true,  auto: false };  // llama-server
   }

@@ -48,6 +48,7 @@ function runnerChipHtml(runnerId) {
   const meta = { "llama-server": ["🦙", "llama.cpp"], "vllm": ["⚡", "vLLM"],
                  "whisper": ["🎙", "whisper"], "moonshine": ["🌙", "moonshine"],
                  "transcribe": ["📝", "transcribe.cpp"],
+                 "seamless": ["🌐", "seamless"],
                  "custom": ["🛠", "command"] }[runnerId];
   if (!meta) return "";
   return `<span class="mbadge mbadge-cmd node-runner-chip">${meta[0]} ${meta[1]}</span>`;
@@ -349,7 +350,7 @@ export function nodeServerCardHtml(node, s) {
   // nothing rather than the fiction when it is unavailable.
   const _audioMs = Number((s.cellMeta || {}).maxAudioMs || 0);
   const _isSpeechCell = _audioMs > 0
-    || ["transcribe", "whisper", "moonshine"].includes(String(_scfg.RUNNER || "").toLowerCase());
+    || ["transcribe", "whisper", "moonshine", "seamless"].includes(String(_scfg.RUNNER || "").toLowerCase());
   const ctxChip = _isSpeechCell
     ? (_audioMs > 0 ? mbadge("ctx", `🪟 ${Math.round(_audioMs / 1000)} s`, t("audioWindowChipTitle")) : "")
     : (s.ctxMax
