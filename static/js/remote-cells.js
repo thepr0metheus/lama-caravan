@@ -1142,7 +1142,11 @@ export async function submitRemoteLlamaStart() {
   const isCommand      = runnerId === "custom";
   const port           = parseInt(config.PORT || "8180", 10);
   const modelPath      = (config.MODEL_FILE || "").trim();
-  const gpuLayers      = parseInt(config.N_GPU_LAYERS || "999", 10);
+  // "auto"/"all" are legal values (llama.cpp fits what the card holds and
+  // leaves the rest in RAM). parseInt would send NaN; the real -ngl travels
+  // inside `config`, this number is bookkeeping for the heartbeat.
+  const _nglRaw = String(config.N_GPU_LAYERS ?? "").trim().toLowerCase();
+  const gpuLayers = /^\d+$/.test(_nglRaw) ? parseInt(_nglRaw, 10) : 999;
   const ctxSize        = parseInt(config.CTX_SIZE || "4096", 10);
   const cacheModels    = !!$("tr-cacheModels")?.checked;
   // A CELL's Apply only saves the config (the start is the card's ▶ button), so

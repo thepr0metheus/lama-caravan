@@ -4,7 +4,7 @@ the handlers return the composite state()."""
 import os
 import shutil
 
-from caravan.admin.config_builder import is_command_cell
+from caravan.admin.config_builder import is_command_cell, gpu_layers_int
 from caravan.admin.runners import runner_id, uses_command_path
 from caravan.admin.fleet_clients import client_llama_start, client_llama_stop
 from caravan.admin.cell_assets import assets_for_runner, materialize_local_assets
@@ -223,7 +223,7 @@ def server_cell_action(body: dict) -> dict:
             "hostId": host_id,
             "modelPath": model,
             "port": port,
-            "gpuLayers": int(cfg.get("N_GPU_LAYERS") or 999),
+            "gpuLayers": gpu_layers_int(cfg.get("N_GPU_LAYERS")),
             "ctxSize": int(cfg.get("CTX_SIZE") or 4096),
             "cacheModels": bool(slot.get("cacheModels", False)),
             "config": cfg,

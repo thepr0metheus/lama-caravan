@@ -38,6 +38,7 @@ import {
   refreshComputeTarget,
   selectedModelRows,
   vramFit,
+  offloadSplit,
   vramFitForPfx,
 } from "./memory.js";
 import { _modelBenchKey, fetchPickerBenchBatch, serverBenchCache } from "./model-meta.js";
@@ -425,6 +426,10 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
         fname = `whisper · ${item.whSize}`;
         dir = item.value;
         if (!item.whOnDisk) el.classList.add("mc-dim");
+      } else if (item.kind === "translate") {
+        fname = `nllb · ${item.trName}`;
+        dir = item.trRepo;
+        if (!item.whOnDisk) el.classList.add("mc-dim");
       }
       // Runner icons LEFT of the name — which engines can launch this artifact:
       // gguf → llama.cpp (native) + vLLM (experimental, dimmed); safetensors →
@@ -456,6 +461,8 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
         runnerIcons = `<span class="mc-runners" title="moonshine (CPU speech-to-text)">🌙</span>`;
       } else if (item.kind === "whisper") {
         runnerIcons = `<span class="mc-runners" title="whisper (faster-whisper)">🎙</span>`;
+      } else if (item.kind === "translate") {
+        runnerIcons = `<span class="mc-runners" title="NLLB (text → text translation)">🔄</span>`;
       } else if (item.kind === "model" && item.sttVariant && !item.missing) {
         // An ASR gguf is NOT a llama artifact: llama-server cannot load it, so
         // it must not wear the llama icon that every other gguf row wears.
@@ -588,6 +595,34 @@ export function renderModelSelects(pfx = "") {
         whOnDisk: true,
         mtime: 0,
       }));
+  }
+  // NLLB checkpoints join the picker too (🔄). Same shape as whisper: the row
+  // is the model, the runner's own field carries the value, and the weights
+  // download themselves on the target host into <models>/translate. Sizes are
+  // the download, not the VRAM.
+  {
+    const have = new Set(state.translateOnDisk || []);
+    [["facebook/nllb-200-distilled-600M", "600M distilled", "2.5 GB"],
+     ["facebook/nllb-200-distilled-1.3B", "1.3B distilled", "5.5 GB"],
+     ["facebook/nllb-200-1.3B", "1.3B", "5.5 GB"],
+     ["facebook/nllb-200-3.3B", "3.3B", "17.6 GB"]]
+      .forEach(([repo, name, sizeLabel]) => modelItems.push({
+        value: `translate/models--${repo.replace("/", "--")}`,
+        kind: "translate",
+        trRepo: repo,
+        trName: name,
+        sizeLabel,
+        whOnDisk: pfx === "tr-" || have.has(repo),
+        mtime: 0,
+      }));
+    // A repo id the operator set by hand still gets a row, so the picker never
+    // shows a blank for a cell that has a model.
+    (state.translateOnDisk || []).forEach((repo) => {
+      const value = `translate/models--${repo.replace("/", "--")}`;
+      if (modelItems.some((i) => i.value === value)) return;
+      modelItems.push({ value, kind: "translate", trRepo: repo,
+                        trName: repo.split("/").pop(), whOnDisk: true, mtime: 0 });
+    });
   }
   if (currentModel && !modelItems.find((i) => i.value === currentModel)) {
     modelItems.unshift({ value: currentModel, kind: "model", label: currentModel, missing: true });
@@ -860,10 +895,23 @@ export function renderModelInsight(pfx = "") {
 
   const { modelSize, mmprojSize, fileTotalSize, kvSize, batchSize, runtimeSize } = estimateRuntimeMemoryGb(pfx);
   const cpuMode = computeIsCpu(pfx);
+  // With a partial offload the card only holds part of the model, so judging
+  // the fit by the whole runtime size called a working configuration "over" and
+  // said nothing about the RAM side — which is the half that decides whether an
+  // oversized model runs at all.
+  const split = offloadSplit(pfx);
+  const vramNeed = split.known ? split.vramGb : runtimeSize;
+  const ramNeed = split.known && split.ramGb > 0 ? split.ramGb : runtimeSize;
   const fit = cpuMode
     ? ramFitForPfx(runtimeSize, pfx)
-    : (pfx ? vramFitForPfx(runtimeSize, pfx) : vramFit(runtimeSize));
-  const ram = ramFit(runtimeSize);
+    : (pfx ? vramFitForPfx(vramNeed, pfx) : vramFit(vramNeed));
+  const ram = ramFit(cpuMode ? runtimeSize : ramNeed);
+  const splitChip = (!cpuMode && split.partial)
+    ? `<div class="size-chip estimate split-chip"><span>${t("offloadSplit")}</span><strong>${
+        t("offloadSplitValue", { n: split.layersGpu, total: split.layers,
+                                 vram: formatSizeGb(split.vramGb), ram: formatSizeGb(split.ramGb) })
+      }</strong></div>`
+    : "";
   const sizeChips = `
     <div class="size-grid">
       <div class="size-chip"><span>${t("modelSize")}</span><strong>${formatSizeGb(modelSize)}</strong></div>
@@ -874,6 +922,7 @@ export function renderModelInsight(pfx = "") {
       <div class="size-chip estimate runtime-total ${fit.kind}"><span>${t("runtimeSize")}</span><strong>${kvSize ? formatSizeGb(runtimeSize) : "n/a"}</strong></div>
       <div class="size-chip estimate ${fit.kind}"><span>${cpuMode ? t("ramFit") : t("vramFit")}</span><strong>${fit.html}</strong></div>
       <div class="size-chip estimate ram-fit ${ram.kind}"><span>${t("ramFit")}</span><strong>${ram.html}</strong></div>
+      ${splitChip}
     </div>
   `;
 
@@ -932,11 +981,15 @@ export function renderModelInsight(pfx = "") {
         ${vramPill}
         ${ramPill}
       </div>
+      ${split.partial ? `<div class="insight-split" style="font-size:11px">⚖ ${
+        t("offloadSplitValue", { n: split.layersGpu, total: split.layers,
+                                 vram: formatSizeGb(split.vramGb), ram: formatSizeGb(split.ramGb) })
+      }</div>` : ""}
       ${mtpBuiltinCompact}
       ${warnLine}
       ${familyBoxCompact}
     `;
-    renderAsideVramBar(pfx, runtimeSize);
+    renderAsideVramBar(pfx, split.known && !cpuMode ? split.vramGb : runtimeSize);
   } else {
     // Full tile layout
     box.innerHTML = `

@@ -92,6 +92,67 @@ def parse_tabs(text):
     return out
 
 
+INDEX_HTML = ROOT / "static/index.html"
+EDIT_JS = ROOT / "static/js/llama-edit.js"
+
+# Panels the editor populates from the saved config, by field id. Anything a
+# runner renders must sit inside one of them or it never gets its saved value.
+PANEL_IDS = ["commandFields", "vllmFields", "whisperFields", "moonshineFields",
+             "seamlessFields", "translateFields"]
+
+
+def check_runner_panel_fields():
+    """A runner-panel field must live inside a panel the loader walks.
+
+    The loader used to name its fields one by one, and the seamless and
+    translate panels were never added — so a cell saved with SEAMLESS_TGT_LANG
+    = eng opened showing the select's default "rus". The form presented its own
+    default as the cell's setting, which is indistinguishable from the cell
+    really being set that way, and Apply then wrote the default back.
+
+    Two things are checked: the loader still walks every panel that exists in
+    the markup, and each NO_TAB field claiming a runner panel is really inside
+    one.
+    """
+    errors = []
+    html = INDEX_HTML.read_text(encoding="utf-8")
+    js = EDIT_JS.read_text(encoding="utf-8")
+
+    # The loader's own array, not merely a mention of the name elsewhere in the
+    # file — the first version of this check passed while the panel was removed
+    # from the loader, because applyCellKindUI names it too.
+    m_loader = re.search(r'\[([^\]]*?Fields"[^\]]*)\]\.forEach\(\(panel\)', js, re.S)
+    loader_panels = set(re.findall(r'"([a-zA-Z]+Fields)"', m_loader.group(1))) if m_loader else set()
+    if not loader_panels:
+        errors.append("could not find the runner-panel loader array in llama-edit.js")
+
+    for panel in re.findall(r'id="te-([a-zA-Z]+Fields)"', html):
+        if panel in ("llamaFields", "dynamicFields"):
+            continue                      # llama fields load through their own path
+        if panel not in PANEL_IDS:
+            errors.append(f"panel {panel} exists in index.html but is not in PANEL_IDS here")
+        if panel not in loader_panels:
+            errors.append(f"panel {panel} is not in the loader's list in llama-edit.js — "
+                          f"its fields would open showing defaults, not saved values")
+
+    # Which ids sit inside each panel: crude but enough — panels are flat blocks.
+    inside = set()
+    for panel in PANEL_IDS:
+        m = re.search(rf'id="te-{panel}"', html)
+        if not m:
+            continue
+        chunk = html[m.end():m.end() + 6000]
+        inside.update(re.findall(r'id="te-([A-Z][A-Z0-9_]*)"', chunk))
+
+    for field, where in NO_TAB.items():
+        if "runner panel" not in where and "vLLM runner" not in where:
+            continue
+        if field not in inside:
+            errors.append(f"{field} says it is rendered in a runner panel, but no "
+                          f'id="te-{field}" appears inside one — the loader cannot reach it')
+    return errors
+
+
 def main():
     text = CONSTANTS.read_text(encoding="utf-8")
     groups = parse_groups(text)
@@ -135,6 +196,8 @@ def main():
         errors.append(f"group {homes[field]} names {field}, which is not a CONFIG_FIELDS entry")
     for field in sorted(set(NO_TAB) - set(CONFIG_FIELDS)):
         errors.append(f"NO_TAB names {field}, which is not a CONFIG_FIELDS entry — stale entry")
+
+    errors.extend(check_runner_panel_fields())
 
     if errors:
         print("field homes: FAILED", file=sys.stderr)

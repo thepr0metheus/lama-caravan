@@ -33,6 +33,7 @@ from caravan.common.errors import AppError
 RUNNERS = [
     {
         "id": "llama-server",
+        "sharedPicker": "source",
         "modelField": "MODEL_FILE",
         "icon": "\U0001f999",
         "labelKey": "runnerLlama",
@@ -45,6 +46,7 @@ RUNNERS = [
     },
     {
         "id": "vllm",
+        "sharedPicker": "aim",
         "modelField": "VLLM_MODEL",
         "icon": "\u26a1",
         "labelKey": "runnerVllm",
@@ -69,6 +71,7 @@ RUNNERS = [
         # (tiny\u2026large-v3) \u2014 faster-whisper downloads it itself, MODEL_FILE is
         # unused; language is a per-request field of the API, not a launch arg.
         "id": "whisper",
+        "sharedPicker": "carrier",
         "modelField": "WHISPER_MODEL",
         "icon": "\U0001f399\ufe0f",
         "labelKey": "runnerWhisper",
@@ -86,6 +89,7 @@ RUNNERS = [
         # 250M params on a laptop core, so the GPUs stay free for LLMs. The
         # "model" is a language code; the package downloads weights itself.
         "id": "moonshine",
+        "sharedPicker": "carrier",
         "modelField": "MOONSHINE_MODEL",
         "icon": "🌙",
         "labelKey": "runnerMoonshine",
@@ -107,6 +111,7 @@ RUNNERS = [
         # not another runner. It is why RUSSIAN finally has a good cell: GigaAM-v3
         # sits near 8% WER where whisper large-v3 sits at 21-25%.
         "id": "transcribe",
+        "sharedPicker": "source",
         "modelField": "MODEL_FILE",
         "icon": "\U0001f4dd",
         "labelKey": "runnerTranscribe",
@@ -128,6 +133,7 @@ RUNNERS = [
         # runner to this one.
         # Weights are CC-BY-NC-4.0 — non-commercial, unlike whisper (MIT).
         "id": "seamless",
+        "sharedPicker": "source",
         "modelField": "MODEL_FILE",
         "icon": "\U0001f310",
         "labelKey": "runnerSeamless",
@@ -151,11 +157,14 @@ RUNNERS = [
         # nothing has to come through the model browser.
         # Weights are CC-BY-NC-4.0 — non-commercial.
         "id": "translate",
+        "sharedPicker": "carrier",
         "modelField": "TRANSLATE_MODEL",
         "icon": "\U0001f504",
         "labelKey": "runnerTranslate",
         "benefitsKey": "runnerTranslateBenefits",
-        "artifacts": ["*"],
+        # Its own kind, like whisper's sizes: the picker rows ARE this runner's
+        # checkpoints, so picking one lands here and nothing else claims them.
+        "artifacts": ["nllb-repo"],
         "formats": ["*"],
         "health": "/health",
         "api": "raw",
@@ -163,6 +172,7 @@ RUNNERS = [
     },
     {
         "id": "custom",
+        "sharedPicker": "ignored",
         "modelField": None,
         "icon": "\U0001f6e0\ufe0f",
         "labelKey": "runnerCustom",
@@ -393,8 +403,14 @@ def build_translate_command(config) -> str:
     model = str(cfg.get("TRANSLATE_MODEL") or "").strip() or "facebook/nllb-200-distilled-600M"
     src = str(cfg.get("TRANSLATE_SRC_LANG") or "eng_Latn").strip() or "eng_Latn"
     tgt = str(cfg.get("TRANSLATE_TGT_LANG") or "rus_Cyrl").strip() or "rus_Cyrl"
-    return (f'bash $HOME/run_translate.sh "$PORT" {shlex.quote(model)} '
-            f'{shlex.quote(src)} {shlex.quote(tgt)}')
+    # Under the SAME root as every other model, exactly as whisper does. Left to
+    # itself the library downloads into ~/.cache/huggingface, where 4.7 GB is
+    # invisible to the models page, uncounted by the disk figures, out of reach
+    # of the model GC — and, because the picker lists the models tree, gives the
+    # editor nothing to show for a runner that plainly has a model.
+    cache = '"${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/translate"'
+    return (f'env HUGGINGFACE_HUB_CACHE={cache} bash $HOME/run_translate.sh "$PORT" '
+            f'{shlex.quote(model)} {shlex.quote(src)} {shlex.quote(tgt)}')
 
 
 def build_vllm_command(config) -> str:

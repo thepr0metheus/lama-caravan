@@ -81,6 +81,7 @@ export const fieldChoices = {
   SPEC_TYPE: ["none", "draft-simple", "draft-eagle3", "draft-mtp", "draft-dflash",
     "draft-dspark", "ngram-simple", "ngram-map-k", "ngram-map-k4v", "ngram-mod", "ngram-cache"],
   LOAD_MODE: ["none", "mmap", "mlock", "mmap+mlock", "dio"],
+  N_GPU_LAYERS: ["auto", "all", "0"],
 };
 
 export const modelFields = ["LLAMA_MODELS_DIR", "MODEL_FILE", "MMPROJ_FILE", "CHAT_TEMPLATE_FILE"];

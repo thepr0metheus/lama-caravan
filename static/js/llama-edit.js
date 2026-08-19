@@ -79,8 +79,7 @@ window.addEventListener("caravan:langchange", () => {
   const gpuSuffix = gpuName ? ` · ${gpuName}` : "";
   const titleEl = $("topologyLlamaEditTitle");
   if (titleEl) {
-    titleEl.textContent = t(_teTitleMode === "add" ? "llamaEditTitleAdd" : "llamaEditTitleEdit",
-      { name: `${serverName}${gpuSuffix}` });
+    titleEl.textContent = _cellEditTitleText("te-", _teTitleMode, `${serverName}${gpuSuffix}`);
   }
   const saveRestartBtn = $("topologyLlamaEditSaveRestart");
   if (saveRestartBtn) {
@@ -202,6 +201,15 @@ export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
       _teSlotHasConfig = true;
     }
   }
+  if (!_teSlotHasConfig) {
+    // A cell with nothing saved yet inherits the controller's own config, where
+    // N_GPU_LAYERS is 999 — "put every layer on the GPU". That is the setting
+    // that turns "too big for the card" into a failed start instead of a slow
+    // run, and it is not a decision anyone made for this cell; it is the legacy
+    // single-server value arriving by inheritance. A fresh cell starts from the
+    // engine's own default, which fits what it can and leaves the rest in RAM.
+    _teFormConfig = { ..._teFormConfig, N_GPU_LAYERS: "auto" };
+  }
   applyConfigToForm(_teFormConfig, "te-");
   // Populate hidden models-dir from effective value so command preview is correct
   const teMdEl = $("te-LLAMA_MODELS_DIR");
@@ -232,7 +240,7 @@ export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
   _teTitleMode = mode;   // remembered so a language switch re-renders the title live
   const titleEl = $("topologyLlamaEditTitle");
   if (titleEl) {
-    titleEl.textContent = t(mode === "add" ? "llamaEditTitleAdd" : "llamaEditTitleEdit", { name: `${serverName}${gpuSuffix}` });
+    titleEl.textContent = _cellEditTitleText("te-", mode, `${serverName}${gpuSuffix}`);
     // LOCAL badge next to title (not in actions bar)
     let badge = titleEl.parentElement.querySelector(".topo-edit-mode-badge");
     if (!badge) {
@@ -398,12 +406,27 @@ export function applyConfigToForm(config, pfx = "") {
   if (whEl) whEl.value = config.WHISPER_MODEL || "large-v3";
   const msEl = $(pfx + "MOONSHINE_MODEL");
   if (msEl) msEl.value = config.MOONSHINE_MODEL || "en";
+  // Everything else inside a runner panel, keyed by the field's own id. This
+  // was a hand-written list and it went stale exactly as such lists do: the
+  // seamless and translate panels were never added, so a cell saved with
+  // SEAMLESS_TGT_LANG=eng opened showing the select's default "rus" — the form
+  // presenting its own default as the cell's setting, and Apply silently
+  // retargeting the cell. A new panel is now populated by existing.
+  ["commandFields", "vllmFields", "whisperFields", "moonshineFields",
+   "seamlessFields", "translateFields"].forEach((panel) => {
+    $(pfx + panel)?.querySelectorAll("input, select, textarea").forEach((el) => {
+      const key = String(el.id || "").slice(pfx.length);
+      if (!key || !(key in config)) return;
+      if (el.type === "checkbox") el.checked = !!config[key];
+      else el.value = config[key] ?? "";
+    });
+  });
   // vLLM/whisper cells clear MODEL_FILE on save, and merging with the global
   // config would leak the main service's model into the picker. So the picker
   // ALWAYS shows the cell's own artifact (vLLM with a local path) or nothing
   // (HF repo id / whisper, whose model is a size name) — never the leak.
   const _rid = String(config.RUNNER || "").toLowerCase();
-  if (_rid === "vllm" || _rid === "whisper" || _rid === "moonshine") {
+  if (_rid === "vllm" || _rid === "whisper" || _rid === "moonshine" || _rid === "translate") {
     const vm = String(config.VLLM_MODEL || "").trim().replace(/\/+$/, "");
     const base = (state.paths?.modelsDir || "").replace(/\/+$/, "");
     let rel = "";
@@ -419,6 +442,10 @@ export function applyConfigToForm(config, pfx = "") {
     if (_rid === "moonshine") {
       const lang = String(config.MOONSHINE_MODEL || "").trim().toLowerCase() || "en";
       rel = `moonshine/${lang}`;
+    }
+    if (_rid === "translate") {
+      const repo = String(config.TRANSLATE_MODEL || "").trim() || "facebook/nllb-200-distilled-600M";
+      rel = `translate/models--${repo.replace("/", "--")}`;
     }
     const mEl = $(pfx + "MODEL_FILE");
     if (mEl) {
@@ -643,6 +670,7 @@ export function artifactKind(model) {
   if (!path) return "";
   if (path.startsWith("moonshine/")) return "moonshine-lang";
   if (path.startsWith("whisper/models--Systran--faster-whisper-")) return "whisper-size";
+  if (path.startsWith("translate/models--")) return "nllb-repo";
   if (!path.toLowerCase().endsWith(".gguf")) {
     // A SeamlessM4T checkpoint gets its OWN kind, not the generic one. If it
     // answered "safetensors", the runner picker's "a runner that names this
@@ -662,6 +690,7 @@ const KIND_REASON = {
   "whisper-size": "runnerNeedsWhisperSize",
   "moonshine-lang": "runnerNeedsMoonshineLang",
   "seamless-st": "runnerNeedsSeamlessSt",
+  "nllb-repo": "runnerNeedsNllbRepo",
 };
 
 // Can this runner launch the currently selected artifact? "*" accepts anything —
@@ -761,7 +790,8 @@ function markWhisperOptions(pfx) {
 // Idempotent and re-run on every render so tooltips follow language switches.
 const _STATIC_TIP_FIELDS = ["COMMAND", "ENV", "WORKDIR", "HEALTH_PATH",
   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION", "QUANTIZATION",
-  "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL", "MOONSHINE_MODEL"];
+  "DTYPE", "TENSOR_PARALLEL", "WHISPER_MODEL", "MOONSHINE_MODEL",
+  "SEAMLESS_TGT_LANG", "TRANSLATE_MODEL", "TRANSLATE_SRC_LANG", "TRANSLATE_TGT_LANG"];
 function injectStaticFieldTips(pfx) {
   _STATIC_TIP_FIELDS.forEach((f) => {
     const label = _cellKindOverlay(pfx)?.querySelector(`label[for="${pfx}${f}"]`);
@@ -819,17 +849,50 @@ export function renderRunnerTabs(pfx) {
   }
 }
 
+// The modal's title. It said "Add Llama Server" whatever runner was selected,
+// so an NLLB cell was configured under a heading naming a different engine —
+// the same mislabel as the model picker below it, one line higher. The runner
+// names itself here; the label is already translated for the tabs.
+function _cellEditTitleText(pfx, mode, name) {
+  // pfx matters: this modal's fields are "te-"-prefixed. Called with "" it
+  // reads the /config page's RUNNER instead, and the topology tick then
+  // repainted a correct title back to whatever that page had selected.
+  const rid = effectiveRunnerId(pfx);
+  const meta = runnerRegistry().find((r) => r.id === rid) || {};
+  const runner = ((meta.icon ? meta.icon + " " : "") + t(meta.labelKey || rid)).trim();
+  return t(mode === "add" ? "cellEditTitleAdd" : "cellEditTitleEdit", { runner, name });
+}
+
+export function refreshCellEditTitle(pfx) {
+  const titleEl = pfx === "tr-" ? null : $("topologyLlamaEditTitle");
+  if (!titleEl || !_teTitleMode) return;
+  const serverName = topology?.server?.name || "Controller";
+  const gpuName = (topology?.server?.gpus || [])[0]?.name || "";
+  titleEl.textContent = _cellEditTitleText(pfx, _teTitleMode,
+    `${serverName}${gpuName ? ` · ${gpuName}` : ""}`);
+}
+
 export function applyCellKindUI(pfx) {
   const overlay = _cellKindOverlay(pfx);
   const kindEl = $(pfx + "CELL_KIND");
   if (!overlay || !kindEl) return;
   const runner = effectiveRunnerId(pfx);
   const isCommand = runner === "custom";
-  // A custom command ignores the shared model picker (only COMMAND + $PORT
-  // reach the exec line) — dim the MODEL_FILE block so the picked model does
-  // not read as active config. whisper/vLLM DO consume the shared picker.
+  // Does this runner read anything from the shared picker? It is the runner's
+  // own declaration (sharedPicker in the registry), not a list maintained here:
+  // "ignored" means the field is dead weight for it. A new cell inherits the
+  // controller's MODEL_FILE like every other default, so an NLLB cell — whose
+  // model is a repo id in its own field — opened showing a 21 GB gemma GGUF
+  // with its size, its chips and its HF link, directly above a runner that
+  // cannot load it. Dimming was not enough: a dimmed model card is still a
+  // model card. Runners that ignore the picker do not get one.
+  const _rmeta = runnerRegistry().find((r) => r.id === runner) || {};
+  const ignoresPicker = (_rmeta.sharedPicker || (isCommand ? "ignored" : "source")) === "ignored";
   const modelField = $(pfx + "MODEL_FILE")?.closest(".field");
-  if (modelField) modelField.classList.toggle("runner-ignores-model", isCommand);
+  if (modelField) {
+    modelField.style.display = ignoresPicker ? "none" : "";
+    modelField.classList.remove("runner-ignores-model");
+  }
   // Keep both hidden inputs coherent: RUNNER is the source of truth, CELL_KIND
   // stays populated for legacy readers (scout, old backups, start.sh blocks).
   const rEl = $(pfx + "RUNNER");
@@ -873,6 +936,12 @@ export function applyCellKindUI(pfx) {
   if (seamlessFields) seamlessFields.style.display = (isSeamless && pfx !== "tr-") ? "" : "none";
   const translateFields = $(pfx + "translateFields");
   if (translateFields) translateFields.style.display = isTranslate ? "" : "none";
+  // TRANSLATE_MODEL is now picked in the SHARED picker (a 🔄 row per NLLB
+  // checkpoint) — two inputs for one value is what made the editor able to
+  // disagree with itself in the first place. The input stays in the DOM as the
+  // carrier of the value, like whisper's size and moonshine's language.
+  const trModelField = $(pfx + "TRANSLATE_MODEL")?.closest(".field");
+  if (trModelField) trModelField.style.display = "none";
   // Aside: llama VRAM/preview vs. the command preview + history (vllm/whisper
   // reuse the command aside — their exec line renders into the same preview).
   const llamaAside = $(pfx + "llamaAside");
@@ -887,6 +956,7 @@ export function applyCellKindUI(pfx) {
   // transcribe, an ASR gguf under llama), so it has to be repainted here too —
   // otherwise the dimming still describes the runner you just left.
   renderModelSelects(pfx);
+  refreshCellEditTitle(pfx);
   // Runs on open and on every runner switch — the right beat to (re)decide
   // whether this window is editing something that is already live.
   syncRunningBeam(pfx);
@@ -914,6 +984,15 @@ export function wireCellKindToggle(pfx) {
       applyCellKindUI(pfx);
       return;
     }
+    if ((btn.dataset.runner || "") === "translate") {
+      const mEl = $(pfx + "MODEL_FILE");
+      const repo = ($(pfx + "TRANSLATE_MODEL")?.value || "").trim() || "facebook/nllb-200-distilled-600M";
+      const want = `translate/models--${repo.replace("/", "--")}`;
+      if (mEl && mEl.value !== want) {
+        mEl.value = want;
+        if (mEl.tagName === "SELECT") mcUpdateTrigger(mEl);
+      }
+    }
     if ((btn.dataset.runner || "") === "whisper") {
       const mEl = $(pfx + "MODEL_FILE");
       const size = ($(pfx + "WHISPER_MODEL")?.value || "").trim() || "large-v3";
@@ -937,6 +1016,15 @@ export function wireCellKindToggle(pfx) {
       if (rEl) rEl.value = "moonshine";
       const mEl2 = $(pfx + "MOONSHINE_MODEL");
       if (mEl2) mEl2.value = ms[1];
+      applyCellKindUI(pfx);
+      return;
+    }
+    const tr = model.match(/^translate\/models--(.+)$/);
+    if (tr) {
+      const rEl = $(pfx + "RUNNER");
+      if (rEl) rEl.value = "translate";
+      const tEl = $(pfx + "TRANSLATE_MODEL");
+      if (tEl) tEl.value = tr[1].replace("--", "/");
       applyCellKindUI(pfx);
       return;
     }
@@ -1174,8 +1262,9 @@ export function _buildCommandExecPreview(pfx) {
     const src = ($(pfx + "TRANSLATE_SRC_LANG")?.value || "eng_Latn").trim();
     const tgt = ($(pfx + "TRANSLATE_TGT_LANG")?.value || "rus_Cyrl").trim();
     return [`export PORT=${port}`,
-            "# the model downloads itself on first start (~2.5 GB)",
-            `exec bash $HOME/run_translate.sh "$PORT" ${model} ${src} ${tgt}`].join("\n");
+            "# model downloads on first start into <models root>/translate",
+            `exec env HUGGINGFACE_HUB_CACHE="\${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/translate" `
+            + `bash $HOME/run_translate.sh "$PORT" ${model} ${src} ${tgt}`].join("\n");
   }
   if (effectiveRunnerId(pfx) === "seamless") {
     const mf = ($(pfx + "MODEL_FILE")?.value || "").trim();
@@ -1280,7 +1369,12 @@ export function renderCommandCellPreview(pfx) {
   const slot = _commandCellSlot(pfx);
   const cur = $(pfx + "cmdCurrent");
   if (cur) {
-    const saved = ((slot && slot.slotConfig && slot.slotConfig.COMMAND) || "").trim();
+    // savedCommand is the backend's own render of the saved config, so runners
+    // that build their line from fields (vLLM, whisper, seamless, NLLB) show
+    // what they actually run. COMMAND is the custom cell's copy of the same
+    // thing and stays as the fallback for an older payload.
+    const saved = ((slot && (slot.savedCommand
+      || (slot.slotConfig && slot.slotConfig.COMMAND))) || "").trim();
     cur.textContent = saved || t("cmdNotSavedYet");
   }
   const hist = $(pfx + "cmdHistory");

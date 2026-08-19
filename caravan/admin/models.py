@@ -542,6 +542,25 @@ def list_whisper_sizes(config=None):
     return sizes
 
 
+def list_translate_models(config=None):
+    """NLLB checkpoints already downloaded under <root>/translate, as repo ids.
+
+    The HF cache names a directory models--<author>--<name>; the picker wants
+    author/name. Directory names only, no file reads — this runs on every
+    /api/state."""
+    models_dir = models_dir_from_config(config or parse_config())
+    troot = models_dir / "translate"
+    out = []
+    if troot.is_dir():
+        for d in sorted(troot.glob("models--*")):
+            if not d.is_dir():
+                continue
+            parts = d.name.split("--")
+            if len(parts) >= 3:
+                out.append(f"{parts[1]}/{'--'.join(parts[2:])}")
+    return out
+
+
 def list_chat_templates(config=None):
     config = config or parse_config()
     models_dir = models_dir_from_config(config)

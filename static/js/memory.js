@@ -89,6 +89,51 @@ export function estimateRuntimeMemoryGb(pfx = "") {
   };
 }
 
+// How the weights divide between the card and RAM.
+//
+// The estimate above sums the WHOLE model and compares it to VRAM, which is
+// only true when every layer is on the GPU. With a partial offload — the thing
+// that makes a 70B start on a 32 GB card — it reads "over" for a configuration
+// that fits perfectly well, and never says how much lands in RAM.
+//
+// llama.cpp's own fitting ('auto') decides this at load time from its real
+// accounting; this predicts the same shape so the operator can see the split
+// before starting, and is labelled an estimate because that is what it is.
+export function offloadSplit(pfx = "") {
+  const { selected } = selectedModelRows(pfx);
+  const est = estimateRuntimeMemoryGb(pfx);
+  // blockCount lives in ggufMeta, not on the row — reading it off the row gave
+  // 0, which this function treats as "layer count unknown", so the split simply
+  // never appeared. A quiet nothing rather than a visible wrong number, which
+  // is the harder kind to notice.
+  const layers = Number(selected?.ggufMeta?.blockCount || 0);
+  const raw = String(($(pfx + "N_GPU_LAYERS")?.value ?? state.config?.N_GPU_LAYERS ?? "").trim() || "auto").toLowerCase();
+  const kvOnGpu = !!($(pfx + "KV_OFFLOAD")?.checked ?? true);
+  const out = { layers, layersGpu: layers, vramGb: est.runtimeSize, ramGb: 0,
+                mode: raw, partial: false, known: layers > 0 };
+  if (!selected || !layers) return out;            // no layer count → no claim
+  const perLayer = est.fileTotalSize / layers;
+
+  let onGpu;
+  if (raw === "0") onGpu = 0;
+  else if (raw === "all" || raw === "max") onGpu = layers;
+  else if (/^\d+$/.test(raw)) onGpu = Math.min(layers, parseInt(raw, 10));
+  else {
+    // auto (or empty): as many as the free VRAM holds, after the caches.
+    const gpus = computeTargetGpus(pfx);
+    const sel = computeSelectedGpuIdx(pfx);
+    const use = (sel && sel.length) ? gpus.filter((g) => sel.includes(Number(g.index))) : gpus;
+    const freeGb = use.reduce((sum, g) => sum + gpuFreeMiB(g), 0) / 1024;
+    const forWeights = freeGb - (kvOnGpu ? est.kvSize : 0) - est.batchSize - 0.6;
+    onGpu = perLayer > 0 ? Math.max(0, Math.min(layers, Math.floor(forWeights / perLayer))) : 0;
+  }
+  out.layersGpu = onGpu;
+  out.partial = onGpu > 0 && onGpu < layers;
+  out.vramGb = onGpu * perLayer + (onGpu > 0 ? (kvOnGpu ? est.kvSize : 0) + est.batchSize : 0);
+  out.ramGb = (layers - onGpu) * perLayer + (onGpu > 0 && kvOnGpu ? 0 : est.kvSize);
+  return out;
+}
+
 // FREE VRAM on a GPU (accounts for memory already in use by other processes).
 // Prefer nvidia-smi's memory.free; fall back to total-used, then total.
 export function gpuFreeMiB(row) {
@@ -191,7 +236,13 @@ export function applyComputeTarget(pfx, sel) {
     const all = computeTargetGpus(pfx).map((g) => Number(g.index));
     const idx = (sel.gpuIdx && sel.gpuIdx.length ? sel.gpuIdx : all).slice().sort((a, b) => a - b);
     const isAll = idx.length === all.length;
-    set("N_GPU_LAYERS", "999");
+    // "auto", not 999. llama.cpp's -ngl defaults to auto: it puts as many
+    // layers on the card as fit and leaves the rest in RAM, which is exactly
+    // what makes a model larger than VRAM start at all. Writing 999 here meant
+    // "all layers on the GPU" — every cell this tile touched had the engine's
+    // own spill-to-RAM turned off, and an oversized model failed instead of
+    // running slowly. An exact number still works for pinning the split by hand.
+    set("N_GPU_LAYERS", "auto");
     set("DEVICE", isAll ? "" : idx.map((i) => `CUDA${i}`).join(","));
     set("MAIN_GPU", isAll ? "" : String(idx[0]));
     set("SPLIT_MODE", idx.length > 1 ? "layer" : "");

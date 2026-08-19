@@ -90,6 +90,27 @@ def _cell_meta(health, cfg, is_command):
     return meta
 
 
+def _start_script_command(path):
+    """The exec line inside a generated start.sh — what the cell WILL run.
+
+    start.sh is a snapshot taken when the operator pressed Apply; starting a
+    cell does not re-render it. So this is the only honest answer to "what is
+    this cell saved with", and when it disagrees with the freshly-built preview
+    the editor shows both, which is the signal to press Apply.
+    """
+    if not path:
+        return ""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if line.startswith("exec "):
+                    return line[5:].strip()
+    except OSError:
+        return ""
+    return ""
+
+
 def _slot_model_size_bytes(model_path, models_dir):
     """Weights-on-disk for a stopped cell's ≈VRAM badge. Controller paths stat
     directly (multi-part GGUFs sum their siblings); client paths fall back to a
@@ -512,6 +533,16 @@ def topology_server(config=None):
             "schedule": slot.get("schedule") or None,
             "slotConfig": slot.get("config") or {},
             "commandHistory": slot.get("commandHistory") or [],
+            # The launch line this cell is SAVED with — read from the start.sh
+            # that would actually run, not re-rendered from the config. The two
+            # differ whenever the controller's command builder has changed since
+            # the operator last pressed Apply, and that difference is exactly
+            # what the operator needs to see: re-rendering here would hide it and
+            # claim the cell already runs the new line. (Only a custom cell keeps
+            # its command in COMMAND, which is why reading that key told everyone
+            # else "not saved yet" about cells running for hours.)
+            "savedCommand": (_start_script_command((slot.get("artifact") or {}).get("startScript"))
+                             if slot_is_command else ""),
             "bootEnabled": cell_boot == "enabled",
             "pid": cell_pid,
             # All unit PIDs — vLLM holds the GPU in a forked worker, and the

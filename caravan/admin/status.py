@@ -18,7 +18,8 @@ from caravan.admin.config_builder import (
     parse_config,
 )
 from caravan.admin.llama_metrics import runtime_phase
-from caravan.admin.models import list_chat_templates, list_models, list_st_artifacts, list_whisper_sizes
+from caravan.admin.models import (list_chat_templates, list_models, list_st_artifacts,
+                                  list_translate_models, list_whisper_sizes)
 from caravan.admin.monitoring import cpu_state, gpu_state, memory_state, runtime_api
 from caravan.admin.openclaw import notify_openclaw_config_managers, openclaw_config_manager_state
 from caravan.admin.paths import ADMIN_SERVICE_NAME, AGENT_PROXY_SERVICE_NAME, IS_CONTAINER, LLAMA_HOME, PROJECT_ROOT, SERVER_CELLS_DIR, SERVICE_NAME, START_SCRIPT
@@ -175,6 +176,7 @@ def state():
         "models": list_models(config),
         "artifacts": list_st_artifacts(config),
         "whisperOnDisk": list_whisper_sizes(config),
+        "translateOnDisk": list_translate_models(config),
         "chatTemplates": list_chat_templates(config),
         "service": service,
         "runtime": runtime,

@@ -48,6 +48,7 @@ jobs:
           # there at all.
           python3 scripts/check_field_homes.py
           python3 scripts/check_runner_model_fields.py
+          python3 scripts/check_command_mirrors.py
 
       - name: JS syntax (ES modules)
         run: |

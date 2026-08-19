@@ -10,7 +10,7 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args
+from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args, gpu_layers_int
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
 from caravan.admin.launch import render_command_cell_shell_line, _sanitize_snapshot_name
 from caravan.admin.paths import (
@@ -132,7 +132,7 @@ def client_llama_start(body: dict) -> dict:
     payload = {
         "modelPath": str(body.get("modelPath") or "").strip(),
         "port": int(body.get("port") or 8180),
-        "gpuLayers": int(body.get("gpuLayers") or 999),
+        "gpuLayers": gpu_layers_int(body.get("gpuLayers")),
         "ctxSize": int(body.get("ctxSize") or 4096),
         # When False (default) the remote re-downloads every start and purges
         # on stop — no GGUF persists on the client disk. When True it keeps the

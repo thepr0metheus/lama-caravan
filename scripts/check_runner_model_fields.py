@@ -30,6 +30,14 @@ def main():
                 f"        cells with MODEL_FILE, which belongs to a different runner.\n"
                 f"        Name the config key it keeps its model in, or None if it has none.")
             continue
+        picker = row.get("sharedPicker")
+        if picker not in ("source", "carrier", "aim", "ignored"):
+            errors.append(
+                f"runner {rid} declares sharedPicker={picker!r}. Say how it relates to the\n"
+                f"        editor's shared model picker: source (it launches what the picker\n"
+                f"        names), carrier (the picker is the UI for its own field), aim\n"
+                f"        (picking an artifact writes its own field), ignored (it reads\n"
+                f"        nothing from it — the picker is then hidden for this runner).")
         field = row["modelField"]
         if field is None:
             continue
@@ -50,7 +58,9 @@ def main():
             print(f"  - {err}", file=sys.stderr)
         return 1
     named = sum(1 for r in RUNNERS if r.get("modelField"))
-    print(f"runner model fields OK: {named}/{len(RUNNERS)} runners name a model field")
+    hidden = sum(1 for r in RUNNERS if r.get("sharedPicker") == "ignored")
+    print(f"runner model fields OK: {named}/{len(RUNNERS)} runners name a model field, "
+          f"{hidden} hide the shared picker")
     return 0
 
 

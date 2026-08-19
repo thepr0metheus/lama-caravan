@@ -197,7 +197,7 @@ FIELD_HELP = {
     "BATCH_SIZE": "Logical prompt batch size. Higher can improve prompt throughput.",
     "UBATCH_SIZE": "Physical batch chunk size. Higher can use more VRAM.",
     "PARALLEL": "Number of parallel slots. Higher shares context memory across users.",
-    "N_GPU_LAYERS": "How many model layers to offload to GPU. 999 means all possible.",
+    "N_GPU_LAYERS": "How many layers go on the GPU (--n-gpu-layers). \"auto\" fits as many as the card holds and leaves the rest in RAM — that is what lets a model larger than VRAM run at all, slowly. \"all\" forces every layer onto the card; an exact number pins the split by hand. 0 = CPU only.",
     "CACHE_TYPE_K": "KV cache quantization for K. q8_0 saves memory with good quality.",
     "CACHE_TYPE_V": "KV cache quantization for V. q8_0 saves memory with good quality.",
     "N_PREDICT": "Maximum generated tokens. -1 means unlimited.",
@@ -262,6 +262,24 @@ FIELD_HELP = {
     "EMBD_NORMALIZE": "Embedding normalization (--embd-normalize): -1 none, 0 max-abs-int16, 1 taxicab, 2 euclidean/L2 (default), >2 p-norm. Leave blank for the llama.cpp default (L2).",
     "EXTRA_ARGS": "Raw extra llama-server flags appended verbatim to the command, space-separated (e.g. --some-new-flag value). Escape hatch for options without a dedicated field.",
 }
+
+def gpu_layers_int(value, default=999):
+    """N_GPU_LAYERS as a NUMBER, for the places that need one.
+
+    The field is a string: llama.cpp takes an exact count, 'auto' (fit as many
+    layers as the device holds — the engine's own default) or 'all'. int() on
+    'auto' raises, and this value travels to the client start path, so a cell
+    set to auto would have failed to start with a 500 rather than doing the one
+    thing auto exists for.
+    """
+    text = str(value if value is not None else "").strip().lower()
+    if not text or text in ("auto", "all", "max"):
+        return default
+    try:
+        return int(text)
+    except ValueError:
+        return default
+
 
 def split_config(text):
     begin = text.find(CONFIG_BEGIN)
