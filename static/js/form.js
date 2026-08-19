@@ -909,7 +909,8 @@ export function renderModelInsight(pfx = "") {
   const splitChip = (!cpuMode && split.partial)
     ? `<div class="size-chip estimate split-chip"><span>${t("offloadSplit")}</span><strong>${
         t("offloadSplitValue", { n: split.layersGpu, total: split.layers,
-                                 vram: formatSizeGb(split.vramGb), ram: formatSizeGb(split.ramGb) })
+                                 vram: split.vramGb > 0.05 ? formatSizeGb(split.vramGb) : "0 GB",
+                                 ram: split.ramGb > 0.05 ? formatSizeGb(split.ramGb) : "0 GB" })
       }</strong></div>`
     : "";
   const sizeChips = `
@@ -983,7 +984,8 @@ export function renderModelInsight(pfx = "") {
       </div>
       ${split.partial ? `<div class="insight-split" style="font-size:11px">⚖ ${
         t("offloadSplitValue", { n: split.layersGpu, total: split.layers,
-                                 vram: formatSizeGb(split.vramGb), ram: formatSizeGb(split.ramGb) })
+                                 vram: split.vramGb > 0.05 ? formatSizeGb(split.vramGb) : "0 GB",
+                                 ram: split.ramGb > 0.05 ? formatSizeGb(split.ramGb) : "0 GB" })
       }</div>` : ""}
       ${mtpBuiltinCompact}
       ${warnLine}

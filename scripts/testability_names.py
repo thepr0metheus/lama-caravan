@@ -42,6 +42,11 @@ COMPOSED = {
     # static/js/memory.js — the CPU/GPU/auto tiles, data-t-id cpu|gpu|auto
     "cell-edit-compute": "memory.js: tHook by prefix",
     "cell-remote-compute": "memory.js: tHook by prefix",
+    # static/js/memory.js — weights placement, data-t-id auto|all|manual (+slider)
+    "cell-edit-offload": "memory.js: tHook by prefix",
+    "cell-remote-offload": "memory.js: tHook by prefix",
+    "cell-edit-offload-slider": "memory.js: tSlider by prefix",
+    "cell-remote-offload-slider": "memory.js: tSlider by prefix",
     # static/js/topology-nodes.js — passed to mbadge() as its testId argument
     "cell-source-stale": "topology-nodes.js: mbadge(..., 'cell-source-stale')",
     # static/hf.js — set through dataset.t on a constructed element

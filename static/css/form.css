@@ -1064,3 +1064,23 @@ button.cmd-dirty::after {
 
 .cmd-health-lbl { display: inline-flex; align-items: center; gap: 7px; cursor: pointer; }
 .cmd-health-toggle { accent-color: var(--ok,#3fb950); width: 15px; height: 15px; cursor: pointer; }
+
+/* ── Weights placement: where the layers go when the model outgrows the card ──
+   Deliberately the same tiles as the compute target above it, because it is the
+   same kind of decision one step finer: that one picks the device, this one
+   picks how much of the model the device holds. The bar carries the answer —
+   proportion, not layer counts, is what the operator is actually choosing. */
+.offload-plan { margin-top: 10px; }
+.offload-plan .compute-card.warn.active { border-color: var(--warn, #d29922); }
+.plan-slider { width: 100%; margin: 10px 0 4px; accent-color: var(--ok, #3fb950); }
+.plan-bar {
+  display: flex; height: 8px; border-radius: 4px; overflow: hidden;
+  background: var(--line, #30363d); margin-top: 6px;
+}
+.plan-bar-vram { background: var(--ok, #3fb950); }
+.plan-bar-ram  { background: #4593ff; }
+.plan-readout { margin-top: 6px; font-size: 12px; color: var(--muted); }
+.plan-readout.bad { color: var(--bad, #f85149); }
+/* Two cards: alternating shades so the segments read as separate devices. */
+.plan-bar-gpu0 { background: var(--ok, #3fb950); }
+.plan-bar-gpu1 { background: #7ee787; }
