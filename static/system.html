@@ -254,6 +254,9 @@
       <button class="sys-tab" data-tab="security" role="tab" aria-selected="false" data-t="system-tab-security">
         <span class="sys-tab-ico" aria-hidden="true">🛡️</span><span class="sys-tab-label" data-i18n="securitySection">Security</span>
       </button>
+      <button class="sys-tab" data-tab="settings" role="tab" aria-selected="false" data-t="system-tab-settings">
+        <span class="sys-tab-ico" aria-hidden="true">💾</span><span class="sys-tab-label" data-i18n="settingsBundleSection">Settings file</span>
+      </button>
       <button class="sys-tab" data-tab="diag" role="tab" aria-selected="false" data-t="system-tab-diag">
         <span class="sys-tab-ico" aria-hidden="true">🩺</span><span class="sys-tab-label" data-i18n="diagSection">Diagnostics</span>
       </button>
@@ -298,6 +301,24 @@
           </div>
         </div>
         <div id="securityInfo" class="security-info" data-t="system-security-info" role="region" aria-labelledby="sysSecurityHead"><span class="muted">…</span></div>
+      </div>
+    </section>
+
+    <section class="sys-panel" data-panel="settings">
+      <div class="panel settings-bundle-panel">
+        <div class="section-title">
+          <h2 class="title-with-tip"><span id="sysSettingsHead" data-i18n="settingsBundleSection">Settings file</span><span id="settingsBundleTip"></span></h2>
+          <div class="button-row">
+            <span class="button-with-tip"><button id="settingsExportBtn" type="button" data-i18n="settingsExport" data-t="system-settings-export">Save all settings</button></span>
+            <span class="button-with-tip"><button id="settingsImportBtn" type="button" data-i18n="settingsImport" data-t="system-settings-import">Load from file</button></span>
+            <input type="file" id="settingsImportFile" accept="application/json,.json" hidden data-t="system-settings-file">
+          </div>
+        </div>
+        <label class="settings-secrets-row">
+          <input type="checkbox" id="settingsWithSecrets" data-t="system-settings-secrets">
+          <span data-i18n="settingsIncludeSecrets">Include secrets (API keys, HF token)</span>
+        </label>
+        <div id="settingsBundleInfo" class="settings-bundle-info" data-t="system-settings-info" role="region" aria-labelledby="sysSettingsHead"></div>
       </div>
     </section>
 

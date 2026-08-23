@@ -291,6 +291,8 @@ from caravan.admin.benchmarks import (
     hf_get_benchmarks,
     hf_get_reference_models,
 )
+from caravan.admin.settings_bundle import (SETTINGS_BACKUP_DIR, apply_bundle,
+                                          export_bundle, preview_import)
 from caravan.admin.downloads import (_download_jobs, _download_jobs_lock,
                                     resume_interrupted_download,
                                     scan_interrupted_downloads, start_hf_download)
@@ -441,6 +443,30 @@ def _get_api_hf_token(h, parsed):
         token = admin_state.get("hfToken") or ""
         masked = ("●●●●" + token[-4:]) if len(token) >= 8 else ("set" if token else "")
         h.send_json({"ok": True, "set": bool(token), "masked": masked})
+        return
+
+@_route(GET_ROUTES, '/api/settings/export')
+def _get_api_settings_export(h, parsed):
+        # Everything the panel can change, in one file. `secrets=1` opts into
+        # carrying the API keys and the HF token; without it they leave as
+        # placeholders and the import puts the local ones back.
+        _q = urllib.parse.parse_qs(parsed.query or "")
+        _sec = (_q.get("secrets") or ["0"])[0].strip() in ("1", "true", "yes")
+        _bundle = export_bundle(include_secrets=_sec)
+        h.send_json({"ok": True, "bundle": _bundle})
+        return
+
+@_route(GET_ROUTES, '/api/settings/backups')
+def _get_api_settings_backups(h, parsed):
+        # The copies taken automatically before each import, newest first.
+        _rows = []
+        try:
+            for _p in sorted(SETTINGS_BACKUP_DIR.glob("*.json"), reverse=True)[:20]:
+                _rows.append({"name": _p.name, "bytes": _p.stat().st_size,
+                              "mtime": int(_p.stat().st_mtime)})
+        except OSError:
+            pass
+        h.send_json({"ok": True, "backups": _rows})
         return
 
 @_route(GET_ROUTES, '/api/hf/download/status')
@@ -888,6 +914,25 @@ GET_PREFIX_ROUTES = [
     ('/css/', _get_static_subdir),
 ]
 
+
+@_route(POST_ROUTES, '/api/settings/import')
+def _post_api_settings_import(h, parsed, body):
+        # dryRun answers "what would this change" before anything is written —
+        # a restore that surprises the operator is the failure mode worth
+        # designing against, since the reason to restore is usually a surprise.
+        _bundle = body.get("bundle")
+        if not isinstance(_bundle, dict):
+            h.send_json({"ok": False, "error": "no settings bundle in the request"})
+            return
+        try:
+            if body.get("dryRun"):
+                h.send_json({"ok": True, "dryRun": True, **preview_import(_bundle)})
+                return
+            _res = apply_bundle(_bundle)
+            h.send_json({"ok": True, **_res})
+        except AppError as exc:
+            h.send_json({"ok": False, "error": str(exc)})
+        return
 
 @_route(POST_ROUTES, '/api/hf/download')
 def _post_api_hf_download(h, parsed, body):

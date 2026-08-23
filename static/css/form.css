@@ -1084,3 +1084,6 @@ button.cmd-dirty::after {
 /* Two cards: alternating shades so the segments read as separate devices. */
 .plan-bar-gpu0 { background: var(--ok, #3fb950); }
 .plan-bar-gpu1 { background: #7ee787; }
+/* The settings file that carries accounts and keys says so where it is made. */
+.settings-warn { color: var(--warn, #d29922); font-size: 12px; margin: 6px 0 0; }
+.settings-file-list { margin: 4px 0; padding-left: 18px; font-size: 12px; }

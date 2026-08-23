@@ -49,6 +49,7 @@ jobs:
           python3 scripts/check_field_homes.py
           python3 scripts/check_runner_model_fields.py
           python3 scripts/check_command_mirrors.py
+          python3 scripts/test_settings_bundle.py
 
       - name: JS syntax (ES modules)
         run: |

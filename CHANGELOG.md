@@ -2,6 +2,50 @@
 
 ## Unreleased
 
+- **A settings file.** The System page grows a *Settings file* tab: one button
+  writes everything the GUI can change into a JSON file the browser downloads,
+  another reads one back. It exists because letting something loose in the panel
+  to see what the buttons do — an agent, or a person — is also how a fleet's
+  routing, a cell's launch line and a client's label get quietly rewritten.
+  Per-cell snapshots answered "undo this cell"; nothing answered "put the whole
+  panel back".
+
+  What travels: the controller config every new cell inherits, the admin store
+  (topology, cells, layout, schedules, favourites), proxy routes, cloud
+  providers, client labels, the model catalog, and each cell's saved config
+  *and* its start.sh — a cell restored without the script systemd runs is a card
+  whose ▶ has nothing behind it.
+
+  With the box ticked it also carries the **accounts database and the cloud
+  provider keys** — the two things a wrecked controller cannot be rebuilt
+  without, and the two that make an export dangerous to leave lying around. So
+  the bundle declares that it carries them, the panel warns where the file is
+  made rather than in documentation nobody reads at that moment, the restored
+  accounts database is written chmod 0600, and the in-memory session caches are
+  cleared: a restored database behind stale caches keeps admitting people it no
+  longer knows, so the restore would look applied and not be.
+
+  Two rules decide the rest. *Settings, not history*: token history, sampled
+  load and the incident log stay put, because a record restored from another day
+  is worse than a record that is missing. And *secrets leave only when asked*:
+  API keys and the HF token become a placeholder unless the box is ticked, the
+  file lists what it hid, and importing a redacted file carries the LOCAL keys
+  forward rather than overwriting a working key with the placeholder.
+
+  An import previews what it would replace before writing anything, and copies
+  the current settings (secrets included) first, so restoring the wrong file is
+  answered by another import rather than an apology.
+
+  Verified on the production controller: a cell created, deleted through the
+  board, and brought back from the file — record, launch script, and a start
+  that answers on /health; a client removed from the registry and restored with
+  its alias and assignments; and twelve live API keys untouched across the round
+  trip.
+
+- The system page reads its own tab list from the markup. It was hand-written,
+  so the new tab opened the FIRST tab instead — no error, no empty panel, just a
+  different page than the one asked for.
+
 - The board names the model a cell is actually running. It read `MODEL_FILE`
   for every runner, but only llama keeps its model there, so the NLLB cell
   rendered as "google gemma-4-31B-it" — the model picker's leftover value —
