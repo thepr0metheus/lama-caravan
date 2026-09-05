@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "Chiudi selettore di porta",
   cmdHistoryRevert: "ripristina",
   okAction: "OK",
+  promptTabHint: "Tab inserisce il suggerimento",
   gcSelectAll: "Seleziona tutti gli inutilizzati",
   gcDelete: "Elimina selezionati",
   gcConfirm: "Eliminare {count} file di modello dal disco? Non può essere annullato.",

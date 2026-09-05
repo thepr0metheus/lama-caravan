@@ -50,6 +50,9 @@ from caravan.proxy.translate import (
     _anthropic_to_completions_json,
     _chat_to_anthropic_body,
     _chat_to_responses_body,
+    _responses_passthrough_body,
+    is_responses_request,
+    iter_responses_passthrough,
     _extract_chatgpt_account_id,
     _iter_anthropic_as_completions_sse,
     _iter_responses_as_completions_sse,
@@ -626,6 +629,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 is_cloud = route_is_cloud or cloud_fallback_provider_id is not None
                 is_subscription = False
                 is_anthropic = False
+                responses_passthrough = False
+                responses_client_stream = True
                 send_body = body
                 completion_id = None
                 subscription_model = None
@@ -669,9 +674,16 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     headers["X-Agent-Proxy"] = route["label"]
                     headers["X-Agent-Proxy-Request-Id"] = request_id
                     if is_subscription:
-                        # Translate request to Responses API format
                         model_override = provider.get("model") if str(provider.get("modelMode") or "rewrite") == "rewrite" else None
-                        send_body, subscription_model = _chat_to_responses_body(body, model_override)
+                        if is_responses_request(parsed.path, body):
+                            # The client speaks Responses already (Codex CLI): the
+                            # body goes through as written, and the stream comes
+                            # back untranslated.
+                            responses_passthrough = True
+                            send_body, subscription_model, responses_client_stream = _responses_passthrough_body(body, model_override)
+                        else:
+                            # Translate a chat/completions request to the Responses API format
+                            send_body, subscription_model = _chat_to_responses_body(body, model_override)
                         completion_id = "chatcmpl-" + str(_uuid.uuid4()).replace("-", "")[:24]
                         token = auth_pair[1][7:]  # strip "Bearer "
                         account_id = _extract_chatgpt_account_id(token) or ""
@@ -873,7 +885,50 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 if _conn_exc is not None:
                     raise _conn_exc
                 break
-            if is_subscription and status == 200:
+            if is_subscription and status == 200 and responses_passthrough:
+                # A Responses client gets the codex stream as it came — event
+                # by event — or, when it asked for a buffered answer, the final
+                # `response` object of `response.completed` as JSON.
+                if responses_client_stream:
+                    if not headers_sent:
+                        self.send_response(200, "OK")
+                        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+                        self.send_header("Cache-Control", "no-cache")
+                        self.send_header("Connection", "close")
+                        _on_client(self.end_headers)
+                        _sse_open[0] = True
+                    for chunk in iter_responses_passthrough(upstream, stream):
+                        if first_byte_ms is None:
+                            first_byte_ms = round((time.time() - started) * 1000)
+                        bytes_out += len(chunk)
+                        chunks += 1
+                        _client_write(chunk)
+                        if stop_requested(request_id):
+                            raise ProxyRequestStopped("request stopped by traffic policy")
+                        now = time.time()
+                        if now - last_state_write >= 1:
+                            last_state_write = now
+                            update_active(str(route["port"]), request_id, {
+                                "bytes": bytes_out, "chunks": chunks,
+                                "firstByteMs": first_byte_ms, "stream": stream,
+                                "elapsedMs": round((now - started) * 1000),
+                            })
+                else:
+                    for chunk in iter_responses_passthrough(upstream, stream, keep_response=True):
+                        if first_byte_ms is None:
+                            first_byte_ms = round((time.time() - started) * 1000)
+                        chunks += 1
+                    final = json.dumps(stream.pop("response", None) or {"error": {"message": "stream ended without response.completed"}}).encode("utf-8")
+                    bytes_out = len(final)
+                    if not headers_sent:
+                        self.send_response(200 if stream.get("done") else 502, "OK" if stream.get("done") else "Bad Gateway")
+                        self.send_header("Content-Type", "application/json")
+                        self.send_header("Content-Length", str(len(final)))
+                        self.send_header("Connection", "close")
+                        _on_client(self.end_headers)
+                    self.wfile.write(final)
+                    self.wfile.flush()
+            elif is_subscription and status == 200:
                 # Send chat/completions-compatible SSE headers (skip if already sent via keep-alive)
                 if not headers_sent:
                     self.send_response(200, "OK")

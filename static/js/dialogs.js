@@ -25,6 +25,8 @@ function openDialog(message, opts, mode) {
     if (path) path.textContent = opts.detail || "";
     const input = $("confirmInput");
     input.hidden = mode !== "prompt";
+    const hint = $("confirmInputHint");
+    if (hint) hint.hidden = true;
     if (mode === "prompt") {
       // A passphrase must not sit in plain sight, and must not be offered to a
       // password manager as a new credential — this box is a key someone else
@@ -33,7 +35,24 @@ function openDialog(message, opts, mode) {
       input.autocomplete = opts.password ? "off" : "";
       input.value = opts.value == null ? "" : String(opts.value);
       input.placeholder = opts.placeholder || "";
-      input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); settleAppConfirm(true); } };
+      // The placeholder is a suggestion, and Tab takes it: an empty box (or a
+      // typed prefix of the suggestion) fills with it and keeps the caret; a box
+      // that already holds it, or something else, tabs on as usual. The keycap
+      // under the box shows only while the suggestion is on offer.
+      const offered = () => !!input.placeholder && input.value !== input.placeholder
+        && input.placeholder.startsWith(input.value);
+      const syncHint = () => { if (hint) { hint.hidden = !offered(); hint.title = t("promptTabHint"); } };
+      input.oninput = syncHint;
+      input.onkeydown = (e) => {
+        if (e.key === "Enter") { e.preventDefault(); settleAppConfirm(true); return; }
+        if (e.key === "Tab" && !e.shiftKey && offered()) {
+          e.preventDefault();
+          input.value = input.placeholder;
+          if (typeof input.setSelectionRange === "function") input.setSelectionRange(input.value.length, input.value.length);
+          syncHint();
+        }
+      };
+      syncHint();
     }
     const btn = $("confirmDelete");
     // The markup carries data-i18n="deleteAction", but this line overwrites the
@@ -74,6 +93,8 @@ export function settleAppConfirm(ok) {
   _mode = "confirm";
   $("confirmOverlay").hidden = true;
   $("confirmInput").hidden = true;
+  const hint = $("confirmInputHint");
+  if (hint) hint.hidden = true;
   $("confirmDelete").classList.remove("danger");
   // Legacy openers (backup delete, service action, save/restart) write the
   // dialog fields directly and expect the destructive look.

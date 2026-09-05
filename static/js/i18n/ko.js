@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "포트 선택기 닫기",
   cmdHistoryRevert: "되돌리기",
   okAction: "OK",
+  promptTabHint: "Tab 키로 제안 입력",
   gcSelectAll: "사용되지 않는 항목 모두 선택",
   gcDelete: "선택 항목 삭제",
   gcConfirm: "디스크에서 모델 파일 {count}개를 삭제할까요? 되돌릴 수 없습니다.",

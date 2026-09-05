@@ -27,6 +27,15 @@ def request_summary(body, headers):
     if not isinstance(payload, dict):
         return summary
     messages = payload.get("messages") if isinstance(payload.get("messages"), list) else []
+    # A Responses-API body (Codex CLI) carries `input` instead: a list of items
+    # in the same role/content shape, or a bare string standing for one user
+    # turn. Read it the same way, or the route panel shows a request of nothing.
+    if not messages and "input" in payload:
+        raw_input = payload.get("input")
+        if isinstance(raw_input, list):
+            messages = [it for it in raw_input if isinstance(it, dict) and "role" in it]
+        elif isinstance(raw_input, str):
+            messages = [{"role": "user", "content": raw_input}]
     prompt_text_chars = 0
     image_parts = 0
     roles = []

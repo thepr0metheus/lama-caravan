@@ -146,6 +146,90 @@ def _chat_to_responses_body(body_bytes, override_model=None):
     # top_p, frequency_penalty, presence_penalty, max_tokens — omit them.
     return json.dumps(body).encode("utf-8"), model_name
 
+def is_responses_request(path, body_bytes):
+    """A client already speaking the Responses API: the path says so, or the body
+    carries `input` and no `messages`. Codex CLI is the first such client — it
+    talks Responses only, and the chat translator turned its `input` into an
+    empty list, which the codex backend refused with "input must be provided"."""
+    if str(path or "").rstrip("/").endswith("/responses"):
+        return True
+    try:
+        payload = json.loads(body_bytes or b"")
+    except Exception:
+        return False
+    return isinstance(payload, dict) and "input" in payload and "messages" not in payload
+
+
+def _responses_passthrough_body(body_bytes, override_model=None):
+    """A Responses-API request bound for chatgpt.com/backend-api/codex/responses.
+
+    The body goes through as the client wrote it — `input`, `instructions`,
+    `tools`, `reasoning`, `text` are the client's — with the three fields the
+    subscription backend dictates: the block's model when the block rewrites,
+    `store: false` (the backend keeps nothing) and `stream: true` (it only
+    streams; a client that asked for a buffered answer gets it assembled from
+    the stream). Returns (new_body_bytes, model_name, client_wants_stream)."""
+    try:
+        payload = json.loads(body_bytes or b"")
+    except Exception:
+        payload = None
+    if not isinstance(payload, dict):
+        payload = {"input": []}
+    model_name = override_model or payload.get("model") or "gpt-5.4-mini"
+    client_stream = bool(payload.get("stream", True))
+    payload["model"] = model_name
+    payload["store"] = False
+    payload["stream"] = True
+    # The public Responses API takes `input` as a bare string; the subscription
+    # backend answers "Input must be a list" to that. One user turn, then.
+    if isinstance(payload.get("input"), str):
+        payload["input"] = [{"role": "user", "content": [{"type": "input_text", "text": payload["input"]}]}]
+    return json.dumps(payload).encode("utf-8"), model_name, client_stream
+
+
+def iter_responses_passthrough(upstream, summary, keep_response=False):
+    """Relay a Responses-API SSE stream untouched, keeping the same tallies the
+    translator keeps (delta text, usage, done) in `summary` for the journal.
+    `keep_response` stores the final `response` object too — only for a client
+    that asked for a buffered answer; the journal must not carry the output."""
+    done_items = []
+    for raw in upstream:
+        yield raw
+        line = raw.decode("utf-8", errors="replace").strip()
+        if not line.startswith("data: "):
+            continue
+        try:
+            ev = json.loads(line[6:])
+        except Exception:
+            continue
+        etype = ev.get("type", "")
+        summary["events"] = summary.get("events", 0) + 1
+        if etype == "response.output_text.delta":
+            summary["deltaTextChars"] = summary.get("deltaTextChars", 0) + len(str(ev.get("delta") or ""))
+        elif etype == "response.output_item.done" and isinstance(ev.get("item"), dict):
+            done_items.append(ev["item"])
+        elif etype == "response.completed":
+            response_obj = ev.get("response") or {}
+            # The subscription backend's final response carries no `output` —
+            # the items only ever arrive as output_item.done events. A buffered
+            # client would get a completed response with nothing in it.
+            if not response_obj.get("output") and done_items:
+                response_obj = dict(response_obj, output=done_items)
+            usage = response_obj.get("usage") or {}
+            if usage:
+                summary["usage"] = {
+                    "prompt_tokens": usage.get("input_tokens", 0),
+                    "completion_tokens": usage.get("output_tokens", 0),
+                    "total_tokens": usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
+                }
+            summary["finishReasons"] = ["tool_calls" if any(
+                isinstance(item, dict) and item.get("type") == "function_call"
+                for item in (response_obj.get("output") or [])) else "stop"]
+            summary["done"] = True
+            if keep_response:
+                summary["response"] = response_obj
+
+
 def _iter_responses_as_completions_sse(upstream, completion_id, model_name):
     """Translate OpenAI Responses API SSE stream into chat/completions SSE format.
     Yields bytes chunks ready to write directly to the client socket.

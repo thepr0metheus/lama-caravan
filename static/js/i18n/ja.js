@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "ポート選択を閉じる",
   cmdHistoryRevert: "戻す",
   okAction: "OK",
+  promptTabHint: "Tab で候補を入力",
   gcSelectAll: "未使用をすべて選択",
   gcDelete: "選択項目を削除",
   gcConfirm: "{count} 個のモデルファイルをディスクから削除しますか？この操作は元に戻せません。",

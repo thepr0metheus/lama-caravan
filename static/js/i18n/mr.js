@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "पोर्ट निवडक बंद करा",
   cmdHistoryRevert: "पूर्ववत",
   okAction: "OK",
+  promptTabHint: "Tab सूचना भरतो",
   gcSelectAll: "सर्व न वापरलेले निवडा",
   gcDelete: "निवडलेले हटवा",
   gcConfirm: "डिस्कवरून {count} मॉडेल फाइल(ली) हटवायच्या? हे पूर्ववत करता येणार नाही.",

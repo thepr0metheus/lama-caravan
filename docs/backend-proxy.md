@@ -138,7 +138,11 @@ What happens to one `POST /v1/chat/completions` arriving on a proxy port:
      an **openai-subscription** account (or a `chatgpt.com` baseUrl) gets the
      request translated by `_chat_to_responses_body` and posted to
      `/backend-api/codex/responses` with JWT-derived `chatgpt-account-id`
-     headers; an **anthropic** provider on `/chat/completions` gets
+     headers — unless the client already speaks the Responses API
+     (`/v1/responses`, or a body with `input` and no `messages`, as Codex CLI
+     sends): then `_responses_passthrough_body` forwards it as written, with
+     only the block's model, `store: false` and `stream: true` imposed; an
+     **anthropic** provider on `/chat/completions` gets
      `_chat_to_anthropic_body` and the `/messages` path; any other provider
      gets a base-path rewrite plus `rewrite_model_in_body` when
      `modelMode == "rewrite"`.
@@ -150,7 +154,10 @@ What happens to one `POST /v1/chat/completions` arriving on a proxy port:
 
 6. **Response relay.** Subscription and Anthropic SSE streams are translated
    chunk-by-chunk back into chat-completions SSE (`_iter_responses_…`,
-   `_iter_anthropic_…`); a buffered Anthropic response is converted whole by
+   `_iter_anthropic_…`); a Responses client gets the subscription stream
+   untranslated (`iter_responses_passthrough`, which still tallies delta text
+   and usage for the journal), or the final `response` object as JSON when it
+   asked for `stream: false`; a buffered Anthropic response is converted whole by
    `_anthropic_to_completions_json`. Native llama/OpenAI SSE is passed through
    line-by-line until `data: [DONE]`; non-streaming bodies are relayed with
    the first 1 MiB captured for `response_summary`. Every chunk updates byte/
@@ -321,6 +328,7 @@ kinds for events and incidents.
 - Owns: request/response format conversion, the error taxonomy.
 - Key functions: `rewrite_model_in_body`, `classify_proxy_error`,
   `_chat_to_responses_body`, `_iter_responses_as_completions_sse`,
+  `is_responses_request`, `_responses_passthrough_body`, `iter_responses_passthrough`,
   `_chat_to_anthropic_body`, `_iter_anthropic_as_completions_sse`,
   `_anthropic_to_completions_json`, `_extract_chatgpt_account_id`.
 

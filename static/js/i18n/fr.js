@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "Fermer le sélecteur de port",
   cmdHistoryRevert: "restaurer",
   okAction: "OK",
+  promptTabHint: "Tab insère la suggestion",
   gcSelectAll: "Sélectionner tous les inutilisés",
   gcDelete: "Supprimer la sélection",
   gcConfirm: "Supprimer {count} fichier(s) de modèle du disque ? Cette action est irréversible.",

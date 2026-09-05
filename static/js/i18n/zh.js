@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "关闭端口选择器",
   cmdHistoryRevert: "还原",
   okAction: "OK",
+  promptTabHint: "按 Tab 填入建议",
   gcSelectAll: "选择所有未使用",
   gcDelete: "删除所选",
   gcConfirm: "从磁盘删除 {count} 个模型文件？此操作无法撤销。",

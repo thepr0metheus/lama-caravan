@@ -29,7 +29,9 @@ What that gives you in practice:
   model — the caravan holds the keys/OAuth, meters the spend and logs the
   requests. Point a transcription tool, a translator overlay or an IDE plugin
   at `http://controller:port` and it speaks to `gpt-…`/OpenRouter/Anthropic
-  without owning a single credential.
+  without owning a single credential. Chat Completions and the Responses API
+  (`/v1/responses`, what Codex CLI speaks) both work, on API-key and
+  subscription blocks alike.
 - **Local ⇄ cloud routing you can draw.** Each port has a visual pipeline (the
   kanban): queue nodes with priorities and admission limits, **schedule nodes**
   (nights on the big GPU, work hours to the cloud), weighted splits,
@@ -47,14 +49,14 @@ What that gives you in practice:
 - **Your whole zoo of hardware as one fleet — client GPUs included.** Put the
   [caravan-scout](https://github.com/thepr0metheus/caravan-scout) sidecar on a
   box whose GPU or CPU you want in the pool: its hardware and cells appear on
-  the board, and you launch cells there remotely — **any of the six runners,
+  the board, and you launch cells there remotely — **any of the eight runners,
   on that host's own GPU or CPU**, models cached and shipped from the
   controller. Before starting you see a "will it fit" estimate against BOTH
   pools (RAM and VRAM) of that exact host; a running cell shows what it
   *actually* holds, measured per-process from `nvidia-smi` — on the
   controller and on scout hosts alike. A machine that only *runs* agents
   needs nothing installed — see [Deployment model](#deployment-model-a-scout-only-where-there-is-hardware-to-share).
-- **Six runners, one lifecycle.** A cell is not just llama.cpp — pick the
+- **Eight runners, one lifecycle.** A cell is not just llama.cpp — pick the
   engine per cell, and they all share the same cards, health checks,
   start/stop/schedule machinery and memory math:
   - 🦙 **llama.cpp** — GGUF, CPU offload, MTP speculative decoding, KV-cache control
@@ -72,6 +74,10 @@ What that gives you in practice:
     ordinary model picker. The best free **Russian** recognizer of the set —
     GigaAM-v3 near 8% WER against 21-25% for whisper large-v3, cased and
     punctuated, from a 260 MB file
+  - 🌐 **Seamless** — speech to translated text in one model (SeamlessM4T v2):
+    a Russian sentence in, an English transcript out
+  - 🔄 **NLLB** — text translation (NLLB-200), the same card and lifecycle as
+    every other cell
   - 🛠️ **Custom command** — any process that listens on `$PORT` becomes a
     managed cell: health-checked, logged, scheduled, restarted
 - **Voice-clone TTS ships as command cells.** One bundled server, three
@@ -243,19 +249,18 @@ server cells and GPU telemetry on the right:
 
 ![Topology board](docs/screenshots/board.png)
 
-The cell editor: the six-runner row (llama.cpp / vLLM / whisper / moonshine /
-transcribe.cpp / custom), the CPU/GPU/auto compute target, memory math against BOTH pools — with
-the measured live usage of the running cell — every flag explained, and the
-exact command it will run. A running cell's window wears the same animated
-border comet as its card on the board:
+The cell editor: the runner row (llama.cpp / vLLM / whisper / moonshine /
+transcribe.cpp / Seamless / NLLB / custom), the memory estimate against BOTH pools
+of the host, the MTP draft and mmproj companions of a multimodal GGUF, the
+schedule window, every flag explained, and the exact command it will run:
 
 ![Cell editor](docs/screenshots/editor.png)
 
-The routing kanban — the development fleet, live: twelve agents on the left,
-backup and queue rule nodes in the middle (schedule, weighted, round-robin,
+The routing kanban — the development fleet, live: fifteen client ports on the
+left, backup and queue rule nodes in the middle (schedule, weighted, round-robin,
 failover, by-type and by-size are one click away in the palette), local cells
-and cloud models as outputs. The dashed run is the queue's overflow spilling to
-a cloud model:
+and cloud models as outputs on the right. The dashed run is the queue's overflow
+spilling to a cloud model:
 
 ![Routing kanban](docs/screenshots/kanban.png)
 
@@ -432,8 +437,9 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 
 **Cells & runners**
 
-- Six runners per cell — 🦙 llama.cpp, ⚡ vLLM, 🎙️ whisper, 🌙 moonshine,
-  📝 transcribe.cpp, 🛠️ custom command — same lifecycle, health checks and cards for all of them.
+- Eight runners per cell — 🦙 llama.cpp, ⚡ vLLM, 🎙️ whisper, 🌙 moonshine,
+  📝 transcribe.cpp, 🌐 Seamless, 🔄 NLLB, 🛠️ custom command — same lifecycle,
+  health checks and cards for all of them.
 - One CPU/GPU/auto compute-target control for every runner; unavailable options
   are disabled per engine. A multi-GPU host picks cards with chips (or a
   checklist beyond four), and llama.cpp gets the matching

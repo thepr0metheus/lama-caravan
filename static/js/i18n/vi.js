@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "Đóng bộ chọn cổng",
   cmdHistoryRevert: "hoàn tác",
   okAction: "OK",
+  promptTabHint: "Tab điền gợi ý",
   gcSelectAll: "Chọn tất cả không dùng",
   gcDelete: "Xóa mục đã chọn",
   gcConfirm: "Xóa {count} tệp mô hình khỏi đĩa? Không thể hoàn tác.",

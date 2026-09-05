@@ -317,7 +317,12 @@ SUB_TOKEN = "hdr." + _SUB_CLAIM + ".sig"
 SUB_EVENTS = [
     b'data: {"type":"response.output_text.delta","delta":"he"}\n\n',
     b'data: {"type":"response.output_text.delta","delta":"llo"}\n\n',
-    b'data: {"type":"response.completed","response":{"output":[],'
+    # The codex backend sends each finished item as output_item.done and a
+    # completed response WITHOUT `output` — seen live; a buffered Responses
+    # client gets the items assembled from these.
+    b'data: {"type":"response.output_item.done","item":{"type":"message","role":"assistant",'
+    b'"content":[{"type":"output_text","text":"hello"}]}}\n\n',
+    b'data: {"type":"response.completed","response":{"status":"completed",'
     b'"usage":{"input_tokens":3,"output_tokens":2}}}\n\n',
 ]
 sub_seen = []
@@ -839,6 +844,98 @@ def test_subscription_translation():
     check(text == "hello", f"текст собрался из дельт (получено {text!r})")
 
 
+def test_responses_passthrough():
+    """Клиент, говорящий на Responses API (Codex CLI), проходит сквозь порт подписки.
+
+    Переводчик chat→Responses брал только `messages`; тело с `input` уезжало
+    наверх с пустым `input`, и codex-бэкенд отвечал «One of input… must be
+    provided». Сквозной режим: тело как написано, поток — как пришёл.
+    """
+    from caravan.proxy.translate import is_responses_request
+    print("сквозной responses-api через подписку:")
+    check(is_responses_request("/v1/responses", b"{}") is True, "путь /v1/responses опознаётся сам по себе")
+    check(is_responses_request("/v1/chat/completions", b'{"input":"hi"}') is True,
+          "тело с input и без messages опознаётся на любом пути")
+    check(is_responses_request("/v1/chat/completions", BODY) is False, "negative: chat-тело с messages — не Responses")
+    check(is_responses_request("/v1/chat/completions", b"not json") is False, "negative: мусор — не Responses")
+
+    req = {"model": "m", "instructions": "sys", "store": True, "stream": True,
+           "input": [{"role": "user", "content": [{"type": "input_text", "text": "hi"}]}],
+           "tools": [{"type": "function", "name": "f", "parameters": {"type": "object"}}],
+           "reasoning": {"effort": "low"}}
+    before = len(sub_seen)
+    conn = http.client.HTTPConnection("127.0.0.1", P_SUB, timeout=30)
+    conn.request("POST", "/v1/responses", body=json.dumps(req).encode(),
+                 headers={"Content-Type": "application/json"})
+    resp = conn.getresponse()
+    got_headers = {k.lower(): v for k, v in resp.getheaders()}
+    body = resp.read()
+    conn.close()
+
+    check(len(sub_seen) == before + 1, f"апстрим получил один запрос (получено {len(sub_seen)-before})")
+    path, sent_headers, sent_body = sub_seen[-1]
+    low = {k.lower(): v for k, v in sent_headers.items()}
+    check(path == "/backend-api/codex/responses", f"путь переписан на codex (получено {path!r})")
+    check(low.get("authorization") == f"Bearer {SUB_TOKEN}" and low.get("chatgpt-account-id") == "acct-test-123",
+          "токен и идентификатор аккаунта — как у переводящей ветки")
+    sent = json.loads(sent_body)
+    check(sent.get("input") == req["input"], f"input ушёл как написан (получено {sent.get('input')!r})")
+    check(sent.get("instructions") == "sys" and sent.get("tools") == req["tools"] and sent.get("reasoning") == req["reasoning"],
+          "instructions, tools и reasoning клиента не тронуты")
+    check(sent.get("store") is False and sent.get("stream") is True,
+          f"бэкенд подписки диктует store:false и stream:true (получено store={sent.get('store')!r}, stream={sent.get('stream')!r})")
+    check(sent.get("model") == "m", f"без блока модель клиента остаётся (получено {sent.get('model')!r})")
+    check("messages" not in sent, "negative: поле messages не появилось из ниоткуда")
+    from caravan.proxy.translate import _responses_passthrough_body
+    as_string, _, _ = _responses_passthrough_body(json.dumps({"model": "m", "input": "hi", "stream": True}).encode(), None)
+    check(json.loads(as_string)["input"] == [{"role": "user", "content": [{"type": "input_text", "text": "hi"}]}],
+          "boundary: input строкой (публичный API разрешает) становится одним ходом пользователя — бэкенд подписки берёт только список")
+
+    check(resp.status == 200, f"клиенту 200 (получено {resp.status})")
+    check(got_headers.get("content-type", "").startswith("text/event-stream"),
+          f"клиенту поток (получено {got_headers.get('content-type')!r})")
+    check(body == b"".join(SUB_EVENTS),
+          f"поток отдан БЕЗ перевода — события Responses как пришли (получено {body[:80]!r}…)")
+    check(b"chat.completion.chunk" not in body and not body.endswith(b"data: [DONE]\n\n"),
+          "negative: ни кадров completions, ни дописанного [DONE]")
+
+    row = {r.get("route"): r for r in _finished_events((f"r{P_SUB}",))}.get(f"r{P_SUB}") or {}
+    item = row.get("item") or {}
+    check(int(item.get("chunks") or 0) >= len(SUB_EVENTS) and int(item.get("bytes") or 0) == len(b"".join(SUB_EVENTS)),
+          f"журнал считает ровно отданные байты, чанков не меньше событий (chunks={item.get('chunks')}, bytes={item.get('bytes')})")
+    usage = (item.get("stream") or {}).get("usage") or {}
+    check(usage.get("prompt_tokens") == 3 and usage.get("completion_tokens") == 2,
+          f"usage из response.completed учтён для счётчика расходов (получено {usage!r})")
+    check("response" not in (item.get("stream") or {}), "negative: сам объект ответа в журнал не попал")
+    req_summary = item.get("request") or {}
+    check(req_summary.get("messages") == 1 and req_summary.get("roles") == ["user"] and req_summary.get("promptTextChars") == 2,
+          f"сводка запроса читает input как сообщения — панель маршрута не покажет «запрос ни о чём» (получено {req_summary.get('messages')!r}, {req_summary.get('roles')!r}, {req_summary.get('promptTextChars')!r})")
+
+    # Буферизованный ответ: клиент просит stream:false — наверх всё равно stream:true,
+    # вниз — объект response из response.completed.
+    req["stream"] = False
+    conn = http.client.HTTPConnection("127.0.0.1", P_SUB, timeout=30)
+    conn.request("POST", "/v1/responses", body=json.dumps(req).encode(),
+                 headers={"Content-Type": "application/json"})
+    resp = conn.getresponse()
+    got_headers = {k.lower(): v for k, v in resp.getheaders()}
+    body = resp.read()
+    conn.close()
+    sent = json.loads(sub_seen[-1][2])
+    check(sent.get("stream") is True, f"наверх всё равно stream:true (получено {sent.get('stream')!r})")
+    check(resp.status == 200 and got_headers.get("content-type", "").startswith("application/json"),
+          f"клиенту 200 JSON (получено {resp.status} {got_headers.get('content-type')!r})")
+    try:
+        final = json.loads(body)
+    except Exception:
+        final = {}
+    check(final.get("usage", {}).get("input_tokens") == 3 and final.get("status") == "completed",
+          f"тело — объект response из response.completed (получено {body[:120]!r})")
+    texts = [c.get("text") for it in final.get("output") or [] for c in (it.get("content") or []) if isinstance(c, dict)]
+    check(texts == ["hello"],
+          f"output собран из output_item.done — бэкенд подписки в completed его не отдаёт (получено {final.get('output')!r})")
+
+
 def test_loading_model_retry():
     """Ячейка ещё грузит модель: 503 ретраится, любой другой 503 — нет.
 
@@ -1335,7 +1432,7 @@ for fn in (test_blocked_modes, test_unrouted, test_api_key,
            test_error_kind_reaching_the_client, test_error_kind_in_the_journal,
            test_classifier_both_sides, test_response_headers,
            test_streaming_relay, test_streaming_journal, test_anthropic_translation,
-           test_subscription_translation, test_loading_model_retry,
+           test_subscription_translation, test_responses_passthrough, test_loading_model_retry,
            test_loading_model_journal, test_queue_waits_for_a_free_slot,
            test_queue_visible_in_journal, test_keepalive_holds_a_queued_client,
            test_keepalive_not_sent_without_streaming,

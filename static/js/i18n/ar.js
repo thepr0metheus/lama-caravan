@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "إغلاق منتقي المنافذ",
   cmdHistoryRevert: "استعادة",
   okAction: "OK",
+  promptTabHint: "Tab يُدخل الاقتراح",
   gcSelectAll: "تحديد كل غير المستخدم",
   gcDelete: "حذف المحدد",
   gcConfirm: "حذف {count} ملف(ات) نماذج من القرص؟ لا يمكن التراجع.",

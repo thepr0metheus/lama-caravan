@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "போர்ட் தேர்வியை மூடு",
   cmdHistoryRevert: "மீட்டமை",
   okAction: "OK",
+  promptTabHint: "Tab பரிந்துரையை நிரப்பும்",
   gcSelectAll: "பயன்படுத்தப்படாத அனைத்தையும் தேர்வுசெய்",
   gcDelete: "தேர்ந்தெடுக்கப்பட்டவற்றை நீக்கு",
   gcConfirm: "வட்டிலிருந்து {count} மாதிரி கோப்பு(கள்) நீக்கவா? இதை மாற்ற முடியாது.",

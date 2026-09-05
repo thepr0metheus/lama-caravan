@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "پورٹ منتخب کنندہ بند کریں",
   cmdHistoryRevert: "واپس",
   okAction: "OK",
+  promptTabHint: "Tab تجویز بھر دیتا ہے",
   gcSelectAll: "تمام غیر مستعمل منتخب کریں",
   gcDelete: "منتخب حذف کریں",
   gcConfirm: "ڈسک سے {count} ماڈل فائل(ز) حذف کریں؟ یہ واپس نہیں ہو سکتا۔",

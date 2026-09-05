@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "Portauswahl schließen",
   cmdHistoryRevert: "zurücksetzen",
   okAction: "OK",
+  promptTabHint: "Tab übernimmt den Vorschlag",
   gcSelectAll: "Alle ungenutzten auswählen",
   gcDelete: "Ausgewählte löschen",
   gcConfirm: "{count} Modelldatei(en) von der Festplatte löschen? Dies kann nicht rückgängig gemacht werden.",

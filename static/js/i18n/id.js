@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "Tutup pemilih port",
   cmdHistoryRevert: "kembalikan",
   okAction: "OK",
+  promptTabHint: "Tab mengisi saran",
   gcSelectAll: "Pilih semua yang tak terpakai",
   gcDelete: "Hapus yang dipilih",
   gcConfirm: "Hapus {count} berkas model dari disk? Tindakan ini tidak dapat dibatalkan.",

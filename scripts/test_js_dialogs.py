@@ -46,7 +46,7 @@ const build = () => {
   globalThis.__fields = {
     confirmOverlay: { hidden: true, dataset: {}, querySelector: (sel) => (sel === ".modal" ? modal : null) },
     confirmTitle: node("title"), confirmText: node("text"), confirmMeta: node("meta"), confirmPath: node("path"),
-    confirmInput: node("input"), confirmDelete: node("ok"), confirmCancel: node("cancel"),
+    confirmInput: node("input"), confirmInputHint: node("hint"), confirmDelete: node("ok"), confirmCancel: node("cancel"),
   };
   return modal;
 };
@@ -113,6 +113,26 @@ PINS = [
     ("meta_cleared_on_open", '',
      '(() => { F().confirmMeta.hidden = false; F().confirmMeta.innerHTML = "<b>old</b>"; m.appConfirm("x"); return [F().confirmMeta.hidden, F().confirmMeta.innerHTML]; })()',
      '[true,""]', "мета-блок легаси-открывалок очищается при каждом открытии"),
+    ("prompt_tab_takes_the_suggestion",
+     '',
+     'await (async () => { const p = m.appPrompt("Name", { placeholder: "hermes port" }); const shown = !F().confirmInputHint.hidden; let prevented = false; F().confirmInput.onkeydown({ key: "Tab", shiftKey: false, preventDefault: () => { prevented = true; } }); const after = [F().confirmInput.value, prevented, F().confirmInputHint.hidden, F().confirmOverlay.hidden]; m.settleAppConfirm(true); return [shown, after, await p]; })()',
+     '[true,["hermes port",true,true,false],"hermes port"]',
+     "positive: Tab в пустом поле подставляет подсказку из плейсхолдера, диалог остаётся открыт, клавиша-подсказка прячется; OK возвращает подставленное"),
+    ("prompt_tab_moves_on_when_the_box_holds_it_or_something_else",
+     '',
+     '(() => { m.appPrompt("Name", { placeholder: "hermes port" }); const tab = () => { let prevented = false; F().confirmInput.onkeydown({ key: "Tab", shiftKey: false, preventDefault: () => { prevented = true; } }); return prevented; }; F().confirmInput.value = "hermes port"; const held = tab(); F().confirmInput.value = "other"; F().confirmInput.oninput(); const other = [tab(), F().confirmInput.value, F().confirmInputHint.hidden]; F().confirmInput.value = "her"; F().confirmInput.oninput(); const prefix = [F().confirmInputHint.hidden, tab(), F().confirmInput.value]; m.settleAppConfirm(false); return [held, other, prefix]; })()',
+     '[false,[false,"other",true],[false,true,"hermes port"]]',
+     "boundary: поле уже держит подсказку или чужой текст — Tab идёт дальше по фокусу, ничего не меняя, клавиша скрыта; набранный префикс подсказки — клавиша видна и Tab дописывает её"),
+    ("prompt_shift_tab_and_no_placeholder_pass_through",
+     '',
+     '(() => { m.appPrompt("Name", { placeholder: "hermes port" }); let a = false; F().confirmInput.onkeydown({ key: "Tab", shiftKey: true, preventDefault: () => { a = true; } }); const v1 = F().confirmInput.value; m.settleAppConfirm(false); m.appPrompt("Name"); const hidden = F().confirmInputHint.hidden; let b = false; F().confirmInput.onkeydown({ key: "Tab", shiftKey: false, preventDefault: () => { b = true; } }); const v2 = F().confirmInput.value; m.settleAppConfirm(false); return [a, v1, hidden, b, v2]; })()',
+     '[false,"",true,false,""]',
+     "negative: Shift+Tab — обычная навигация назад, поле не трогается; без плейсхолдера подсказки нет: клавиша скрыта, Tab не перехватывается"),
+    ("confirm_mode_hides_the_tab_hint",
+     '',
+     '(() => { m.appPrompt("Name", { placeholder: "x" }); const shown = !F().confirmInputHint.hidden; m.settleAppConfirm(false); const afterSettle = F().confirmInputHint.hidden; m.appConfirm("Sure?"); const inConfirm = F().confirmInputHint.hidden; m.settleAppConfirm(false); return [shown, afterSettle, inConfirm]; })()',
+     '[true,true,true]',
+     "negative: клавиша видна только в открытом prompt: после закрытия и у обычного confirm она скрыта"),
 ]
 
 

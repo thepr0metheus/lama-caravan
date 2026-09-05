@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "పోర్ట్ పికర్‌ను మూసివేయండి",
   cmdHistoryRevert: "రివర్ట్",
   okAction: "OK",
+  promptTabHint: "Tab సూచనను నింపుతుంది",
   gcSelectAll: "అన్ని ఉపయోగించనివి ఎంచుకోండి",
   gcDelete: "ఎంచుకున్నవి తొలగించండి",
   gcConfirm: "డిస్క్ నుండి {count} మోడల్ ఫైల్(లు) తొలగించాలా? దీన్ని వెనక్కి తీసుకోలేరు.",

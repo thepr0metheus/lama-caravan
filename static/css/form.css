@@ -635,6 +635,34 @@ button.cmd-dirty::after {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--dlg-tone) 16%, transparent);
 }
 
+/* The suggestion keycap sits inside the box on the right; it is shown by
+   dialogs.js only while Tab would take the placeholder. The wrapper collapses
+   with the input, so confirm dialogs keep their spacing. */
+.confirm-input-wrap {
+  position: relative;
+}
+
+.confirm-input-wrap:has(#confirmInput[hidden]) {
+  display: none;
+}
+
+.confirm-input-hint {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--field) 70%, var(--line));
+  pointer-events: none;
+}
+
 #confirmOverlay .modal-actions {
   margin-top: 2px;
 }

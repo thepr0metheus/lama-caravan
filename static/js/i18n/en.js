@@ -700,6 +700,7 @@ export default {
   a11yClosePortPicker: "Close port picker",
   cmdHistoryRevert: "revert",
   okAction: "OK",
+  promptTabHint: "Tab fills in the suggestion",
   gcSelectAll: "Select all unused",
   gcDelete: "Delete selected",
   gcConfirm: "Delete {count} model file(s) from the disk? This cannot be undone.",

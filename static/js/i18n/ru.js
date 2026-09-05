@@ -701,6 +701,7 @@ export default {
   a11yClosePortPicker: "Закрыть выбор порта",
   cmdHistoryRevert: "вернуть",
   okAction: "OK",
+  promptTabHint: "Tab подставит подсказку",
   gcSelectAll: "Выбрать все неиспользуемые",
   gcDelete: "Удалить выбранные",
   gcConfirm: "Удалить {count} файл(ов) моделей с диска? Это необратимо.",

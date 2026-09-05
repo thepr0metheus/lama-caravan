@@ -1112,6 +1112,7 @@ export default {
   a11yClosePortPicker: "Port seçiciyi kapat",
   cmdHistoryRevert: "geri al",
   okAction: "OK",
+  promptTabHint: "Tab öneriyi doldurur",
   gcSelectAll: "Kullanılmayanların tümünü seç",
   gcDelete: "Seçilenleri sil",
   gcConfirm: "Diskten {count} model dosyası silinsin mi? Bu geri alınamaz.",
