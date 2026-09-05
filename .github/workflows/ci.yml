@@ -126,7 +126,11 @@ jobs:
           # that could not, both reporting green while the thing they guard was
           # deleted.
           python3 scripts/check_undefined_names.py
-          python3 scripts/test_golden.py
+          # tests/golden/ is a photograph of one operator's fleet and is never
+          # mirrored, so the public tree has no snapshots to compare against.
+          # Skip there, out loud; in a tree that has the directory the test
+          # stays as strict as before (missing snapshots are a failure).
+          if [ -d tests/golden ]; then python3 scripts/test_golden.py; else echo "golden: skipped — no tests/golden/ in this tree (not mirrored)"; fi
           python3 scripts/test_guards_fail.py
 
       - name: JS syntax (ES modules)
