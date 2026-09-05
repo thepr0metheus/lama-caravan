@@ -26,6 +26,11 @@ function openDialog(message, opts, mode) {
     const input = $("confirmInput");
     input.hidden = mode !== "prompt";
     if (mode === "prompt") {
+      // A passphrase must not sit in plain sight, and must not be offered to a
+      // password manager as a new credential — this box is a key someone else
+      // chose, not an account being created.
+      input.type = opts.password ? "password" : "text";
+      input.autocomplete = opts.password ? "off" : "";
       input.value = opts.value == null ? "" : String(opts.value);
       input.placeholder = opts.placeholder || "";
       input.onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); settleAppConfirm(true); } };

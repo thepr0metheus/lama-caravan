@@ -35,7 +35,6 @@ is MIT, but check the card before assuming (some ASR weights are CC-BY-NC).
 from __future__ import annotations
 
 import array
-import hashlib
 import io
 import json
 import os
@@ -43,44 +42,140 @@ import re
 import sys
 import threading
 import wave
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8000
-MODEL_PATH = sys.argv[2] if len(sys.argv) > 2 else ""
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cell_base import CellServer   # noqa: E402
 
-
-def _source_stamp():
-    """Digest of THIS file, taken once at import — the only moment it is
-    guaranteed to be the source the interpreter actually loaded. The controller
-    refreshes $HOME copies when a cell starts, so a long-running process can be
-    older than the file beside it; hashing per request would report the file and
-    hide precisely that. See cells/whisper_server.py for the full story."""
-    try:
-        with open(os.path.abspath(__file__), "rb") as fh:
-            return hashlib.sha256(fh.read()).hexdigest()[:12]
-    except Exception:  # noqa: BLE001
-        return ""
-
-
-SOURCE = _source_stamp()
-
-_state = {"ready": False, "error": "", "phase": "loading"}
 _model = None
 _session = None
-# Read off the loaded model, never hardcoded: each family has its own window
-# (gigaam-v3 is 25 s) and the whole point of this runner is that the file
-# decides. 0 until the model is up.
 _window_ms = 0
 _meta = {}
-# The engine is one resident session; concurrent requests must not interleave
-# inside it. Transcription is fast (tens of ms), so a plain lock is enough and
-# avoids a worker pool that would multiply the model's memory.
+_model_path = ""
 _lock = threading.Lock()
 
 
-def _log(msg: str) -> None:
-    sys.stderr.write(msg + "\n")
-    sys.stderr.flush()
+def log(msg: str) -> None:
+    print(msg, flush=True)
+
+
+class TranscribeCell(CellServer):
+    """GGUF speech recognition through transcribe.cpp.
+
+    Answers 404 on any other path — a health reply to an unknown GET is a 200
+    with the wrong body. Speaks HTTP/1.1 because its callers pipeline chunks
+    and would otherwise pay a handshake for each one.
+    """
+    default_port = 8000
+    engine = "transcribe.cpp"
+    kinds = ["asr"]
+    health_paths = ("/", "/health")
+    protocol_version = "HTTP/1.1"
+
+    @property
+    def model_name(self):
+        return _model_slug()
+
+    def extra_health(self):
+        # Read off the LOADED model, not off argv: a card that takes its
+        # identity from the command line can advertise a model that failed to
+        # be what it claimed.
+        return dict(_meta)
+
+    def load(self):
+        global _model, _session, _window_ms, _meta, _model_path
+        _model_path = self.args[0] if self.args else ""
+        if not _model_path or not os.path.isfile(_model_path):
+            raise FileNotFoundError(f"model file not found: {_model_path}")
+        import transcribe_cpp
+        _model = transcribe_cpp.Model(_model_path)
+        _session = _model.session().__enter__()
+        caps = getattr(_model, "capabilities", None)
+        _window_ms = int(getattr(caps, "max_audio_ms", 0) or 0)
+        _meta = {
+            "arch": str(getattr(_model, "arch", "") or ""),
+            "variant": str(getattr(_model, "variant", "") or ""),
+            "backend": str(getattr(_model, "backend", "") or ""),
+            # "langs" is the contract's name for this; "languages" stays one
+            # release so a consumer reading the old key is not broken by the
+            # rename. Two names for one value is exactly the drift the contract
+            # exists to end — the duplicate goes when the release lands.
+            "langs": list(getattr(caps, "languages", ()) or ()),
+            "languages": list(getattr(caps, "languages", ()) or ()),
+            "maxAudioMs": _window_ms,
+        }
+        log(f"transcribe: {_model_slug()} ready on :{self.port}")
+
+    def handle(self, body, headers, path):
+        if path not in ("/v1/audio/transcriptions", "/transcribe"):
+            return 404, json.dumps({"error": "not found"}).encode(), "application/json"
+        ctype = headers.get("Content-Type", "")
+        wav = _extract_file(body, ctype)
+        if not wav:
+            return 400, json.dumps({"error": "need multipart file=wav"}).encode(), "application/json"
+        try:
+            samples, sr = _wav_to_floats(wav)
+            samples = _resample_16k(samples, sr)
+        except Exception as exc:  # noqa: BLE001
+            return 400, json.dumps({"error": f"bad wav: {exc}"}).encode(), "application/json"
+
+        fmt = (_fields(body, ctype, "response_format") or ["json"])[0].lower() or "json"
+        gran = {g.lower() for g in _fields(body, ctype, "timestamp_granularities")}
+        pieces = _split_at_quiet(samples, _window_ms)
+        texts, words, segments = [], [], []
+        offset_ms = 0.0
+        with _lock:
+            for piece in pieces:
+                res = _session.run(piece)
+                text = (getattr(res, "text", "") or "").strip()
+                texts.append(text)
+                dur_ms = len(piece) / 16.0            # 16 samples per ms at 16 kHz
+                if text:
+                    # One segment per piece: the engine gives none, and the
+                    # seams are the only division we actually know about.
+                    segments.append({
+                        "id": len(segments), "seek": 0,
+                        "start": round(offset_ms / 1000.0, 3),
+                        "end": round((offset_ms + dur_ms) / 1000.0, 3),
+                        "text": text,
+                    })
+                words.extend(_words_from_tokens(getattr(res, "tokens", ()), offset_ms))
+                offset_ms += dur_ms
+        full = " ".join(t for t in texts if t)
+        total_s = round(len(samples) / 16000.0, 3)
+
+        if fmt == "text":
+            return 200, (full + "\n").encode(), "text/plain; charset=utf-8"
+        if fmt in ("srt", "vtt"):
+            lines = ["WEBVTT", ""] if fmt == "vtt" else []
+            for i, seg in enumerate(segments, 1):
+                if fmt == "srt":
+                    lines.append(str(i))
+                lines.append(f"{_srt_ts(seg['start'], fmt == 'srt')} --> "
+                             f"{_srt_ts(seg['end'], fmt == 'srt')}")
+                lines.append(seg["text"])
+                lines.append("")
+            return (200, ("\n".join(lines)).encode(),
+                    "application/x-subrip; charset=utf-8" if fmt == "srt"
+                    else "text/vtt; charset=utf-8")
+        if fmt == "verbose_json":
+            out = {"task": "transcribe", "language": (_meta.get("languages") or [""])[0],
+                   "duration": total_s, "text": full, "segments": segments}
+            # Same rule as the whisper cell: words ride on the explicit
+            # granularity, so a caller that asked for segments only is not
+            # handed a payload several times larger than it wanted.
+            if "word" in gran:
+                out["words"] = words
+            if len(pieces) > 1:
+                out["chunks"] = len(pieces)
+            return 200, json.dumps(out).encode(), "application/json"
+
+        body_out = {"text": full}
+        # Say when the recording was cut. The seams are where this cell can lose
+        # a word, so the caller gets to know they exist rather than reading a
+        # joined transcript as one clean pass.
+        if len(pieces) > 1:
+            body_out["chunks"] = len(pieces)
+        return 200, json.dumps(body_out).encode(), "application/json"
 
 
 def _model_slug() -> str:
@@ -90,39 +185,9 @@ def _model_slug() -> str:
     tells the operator what is actually running, where "transcribe.cpp" alone
     would leave every such cell looking identical.
     """
-    base = os.path.basename(MODEL_PATH or "")
+    base = os.path.basename(_model_path or "")
     base = re.sub(r"\.gguf$", "", base, flags=re.I)
     return re.sub(r"-(F16|F32|BF16|Q\d[^-]*)$", "", base, flags=re.I) or "transcribe"
-
-
-def _load() -> None:
-    global _model, _session, _window_ms, _meta
-    try:
-        if not MODEL_PATH or not os.path.isfile(MODEL_PATH):
-            raise FileNotFoundError(f"model file not found: {MODEL_PATH}")
-        import transcribe_cpp
-        _model = transcribe_cpp.Model(MODEL_PATH)
-        _session = _model.session().__enter__()
-        caps = getattr(_model, "capabilities", None)
-        _window_ms = int(getattr(caps, "max_audio_ms", 0) or 0)
-        # What the ENGINE says it loaded, not what argv asked for. A card that
-        # reads its identity out of the command line can advertise a model that
-        # failed to be what it claimed; these three come off the object.
-        _meta = {
-            "arch": str(getattr(_model, "arch", "") or ""),
-            "variant": str(getattr(_model, "variant", "") or ""),
-            "backend": str(getattr(_model, "backend", "") or ""),
-            "languages": list(getattr(caps, "languages", ()) or ()),
-            "maxAudioMs": _window_ms,
-        }
-        _state["ready"] = True
-        _state["phase"] = "ok"
-        _log(f"transcribe: {_model_slug()} ready on :{PORT}")
-    except Exception as exc:  # noqa: BLE001
-        _state["error"] = str(exc)
-        _state["phase"] = "error"
-        _log(f"transcribe: load failed: {exc}")
-
 
 def _wav_to_floats(data: bytes):
     """wav bytes -> (list[float] mono, sample_rate). 16-bit PCM expected."""
@@ -305,145 +370,5 @@ def _extract_file(body: bytes, ctype: str):
     return None
 
 
-class H(BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
-
-    def log_message(self, *args):   # quiet: the cell log is for the engine
-        pass
-
-    def _send(self, code: int, payload, ctype="application/json"):
-        body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def _path(self):
-        return (self.path or "/").split("?")[0].rstrip("/") or "/"
-
-    def do_GET(self):
-        if self._path() not in ("/", "/health"):
-            self._send(404, {"error": "not found"})
-            return
-        # "model" and "engine" are what a LAN client names this card by; a bare
-        # "ok" once left the whisper cell nameless among its peers. The rest is
-        # read off the loaded model, so the card cannot advertise a backend or a
-        # language the cell does not actually have.
-        if _state["ready"]:
-            self._send(200, dict({"status": "ok", "model": _model_slug(),
-                                  "engine": "transcribe.cpp", "kinds": ["asr"],
-                                  "source": SOURCE}, **_meta))
-        elif _state["error"]:
-            self._send(500, {"status": "error", "error": _state["error"],
-                             "source": SOURCE})
-        else:
-            # CARAVAN reads this shape as a "loading" cell phase rather than a
-            # silent STARTING (see command_cell_health on the controller).
-            self._send(503, {"status": "loading", "downloadedBytes": 0,
-                             "totalBytes": 0, "source": SOURCE})
-
-    def do_POST(self):
-        if self._path() not in ("/v1/audio/transcriptions", "/transcribe"):
-            self._send(404, {"error": "not found"})
-            return
-        if not _state["ready"] or _session is None:
-            self._send(503, {"error": "model loading"})
-            return
-        ln = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(ln)
-        wav = _extract_file(body, self.headers.get("Content-Type", ""))
-        if not wav:
-            self._send(400, {"error": "need multipart file=wav"})
-            return
-        try:
-            samples, sr = _wav_to_floats(wav)
-            samples = _resample_16k(samples, sr)
-        except Exception as exc:  # noqa: BLE001
-            self._send(400, {"error": f"bad wav: {exc}"})
-            return
-        ctype = self.headers.get("Content-Type", "")
-        fmt = (_fields(body, ctype, "response_format") or ["json"])[0].lower() or "json"
-        gran = {g.lower() for g in _fields(body, ctype, "timestamp_granularities")}
-        try:
-            pieces = _split_at_quiet(samples, _window_ms)
-            texts, words, segments = [], [], []
-            offset_ms = 0.0
-            with _lock:
-                for piece in pieces:
-                    res = _session.run(piece)
-                    text = (getattr(res, "text", "") or "").strip()
-                    texts.append(text)
-                    dur_ms = len(piece) / 16.0            # 16 samples per ms at 16 kHz
-                    if text:
-                        # One segment per piece: the engine gives none, and the
-                        # seams are the only division we actually know about.
-                        segments.append({
-                            "id": len(segments), "seek": 0,
-                            "start": round(offset_ms / 1000.0, 3),
-                            "end": round((offset_ms + dur_ms) / 1000.0, 3),
-                            "text": text,
-                        })
-                    words.extend(_words_from_tokens(getattr(res, "tokens", ()), offset_ms))
-                    offset_ms += dur_ms
-            full = " ".join(t for t in texts if t)
-            total_s = round(len(samples) / 16000.0, 3)
-
-            if fmt == "text":
-                self._send(200, (full + "\n").encode(), "text/plain; charset=utf-8")
-                return
-            if fmt in ("srt", "vtt"):
-                lines = ["WEBVTT", ""] if fmt == "vtt" else []
-                for i, seg in enumerate(segments, 1):
-                    if fmt == "srt":
-                        lines.append(str(i))
-                    lines.append(f"{_srt_ts(seg['start'], fmt == 'srt')} --> "
-                                 f"{_srt_ts(seg['end'], fmt == 'srt')}")
-                    lines.append(seg["text"])
-                    lines.append("")
-                self._send(200, ("\n".join(lines)).encode(),
-                           "application/x-subrip; charset=utf-8" if fmt == "srt"
-                           else "text/vtt; charset=utf-8")
-                return
-            if fmt == "verbose_json":
-                out = {"task": "transcribe", "language": (_meta.get("languages") or [""])[0],
-                       "duration": total_s, "text": full, "segments": segments}
-                # Same rule as the whisper cell: words ride on the explicit
-                # granularity, so a caller that asked for segments only is not
-                # handed a payload several times larger than it wanted.
-                if "word" in gran:
-                    out["words"] = words
-                if len(pieces) > 1:
-                    out["chunks"] = len(pieces)
-                self._send(200, out)
-                return
-
-            body_out = {"text": full}
-            # Say when the recording was cut. The seams are where this cell can
-            # lose a word, so the caller gets to know they exist rather than
-            # reading a joined transcript as one clean pass.
-            if len(pieces) > 1:
-                body_out["chunks"] = len(pieces)
-            self._send(200, body_out)
-        except Exception as exc:  # noqa: BLE001
-            _log(f"transcribe error: {exc}")
-            self._send(500, {"error": str(exc)})
-
-
-class _Serve(ThreadingHTTPServer):
-    """Accept queue deep enough for a caller that pipelines requests.
-
-    socketserver's default is 5, and a queue that shallow does not refuse — the
-    kernel drops the SYN and the caller retries at 1s, 3s, 7s, which reads as
-    this cell being slow rather than being over its listen limit. A transcription
-    client sending chunks back-to-back is exactly that shape of load.
-    """
-    request_queue_size = 64
-    daemon_threads = True
-
-
 if __name__ == "__main__":
-    # Bind first, load after: the port answers 503 with a loading marker while
-    # the weights come up, so the board shows "loading" instead of a dead port.
-    threading.Thread(target=_load, daemon=True).start()
-    _Serve(("0.0.0.0", PORT), H).serve_forever()
+    TranscribeCell().serve()

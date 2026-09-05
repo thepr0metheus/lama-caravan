@@ -155,7 +155,51 @@ def main():
     check("a plain import leaves the cloud keys alone",
           json.loads(secrets_file.read_text())["openai"] == "sk-cloud-key")
 
-    # 7. Nonsense is refused rather than half-applied.
+    # 7. The passphrase locks ONLY the credentials, and only when asked.
+    try:
+        import cryptography  # noqa: F401
+        have_crypto = True
+    except ImportError:
+        have_crypto = False
+    if not have_crypto:
+        print("  skip passphrase checks — no cryptography package on this host")
+    else:
+        AUTH_DB.write_bytes(b"SQLite format 3\x00-locked-accounts")
+        write(secrets_file, {"openai": "sk-locked"})
+        locked = sb.encrypt_credentials(sb.export_bundle(include_secrets=True), "hunter2")
+        check("a passphrase declares itself on the file", locked.get("credentialsEncrypted") is True)
+        check("the accounts database is unreadable without it",
+              isinstance(locked["files"]["auth-db"]["content"], dict)
+              and locked["files"]["auth-db"]["content"].get("enc") == sb.ENC_MARK)
+        # The half that must NOT be locked: a restore is reached for when things
+        # are already broken, and a forgotten passphrase must not take the cells
+        # and the routes down with it.
+        check("the cells stay readable without the passphrase",
+              isinstance(locked["files"]["server-cells"]["content"], dict)
+              and "22222" in locked["files"]["server-cells"]["content"])
+        check("the topology stays readable without the passphrase",
+              locked["files"]["admin-state"]["content"]["topology"]["clients"] == {"a": {}})
+
+        AUTH_DB.unlink()
+        secrets_file.unlink()
+        res = sb.apply_bundle(locked)          # no passphrase
+        check("without the passphrase the credentials are skipped, not mangled",
+              sorted(res["skipped"]) == ["auth-db", "provider-secrets"], str(res.get("skipped")))
+        check("and the rest still restored", (port_dir / "cell.json").is_file())
+        check("nothing was written where the credentials go", not AUTH_DB.exists())
+
+        try:
+            sb.apply_bundle(locked, "wrong-one")
+            check("a wrong passphrase is refused", False, "it accepted it")
+        except AppError as exc:
+            check("a wrong passphrase is refused", "passphrase" in str(exc).lower(), str(exc))
+
+        res = sb.apply_bundle(locked, "hunter2")
+        check("the right passphrase restores the accounts database",
+              AUTH_DB.is_file() and AUTH_DB.read_bytes().endswith(b"-locked-accounts"))
+        check("and the cloud keys", json.loads(secrets_file.read_text())["openai"] == "sk-locked")
+
+    # 8. Nonsense is refused rather than half-applied.
     for name, payload in (("not a bundle", {"hello": "world"}),
                           ("a future format", {"kind": "lama-caravan-settings", "format": 999,
                                                "files": {}}),
@@ -167,7 +211,7 @@ def main():
         except AppError:
             check(f"refuses {name}", True)
 
-    # 8. The preview reports before anything is written.
+    # 9. The preview reports before anything is written.
     fresh = sb.export_bundle()
     preview = sb.preview_import(fresh)
     check("preview of an unchanged bundle changes nothing",

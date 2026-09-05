@@ -36,22 +36,24 @@ What that gives you in practice:
   round-robin, failover/spill when a server is busy or down, request-size
   forks (small prompts → small local model, huge contexts → cloud), content
   rules. Changes hot-reload in ~2 s, no restarts.
-- **Queues instead of timeouts.** One GPU shared by five agents stops being a
-  free-for-all: requests line up with priorities and per-route limits instead
-  of stepping on each other.
+- **Queues instead of timeouts — one GPU can serve many agents.** Requests
+  line up with priorities and per-route limits, and the waiting ones are *held*
+  rather than dropped. See [One GPU, many agents](#one-gpu-many-agents) below —
+  it is the feature people are most surprised by.
 - **Money and privacy.** Local tokens cost electricity; the cloud is used only
   where you routed it. Usage & spend statistics show tokens/requests/costs per
   agent and per backend, so the routing pays for itself visibly. Sensitive
   agents can be pinned to local-only routes — those prompts never leave the LAN.
-- **Your whole zoo of hardware as one fleet — client GPUs included.** The
-  [caravan-scout](https://github.com/thepr0metheus/caravan-scout) sidecar turns
-  any Linux/macOS box into a fleet member: its GPUs and running agents appear
-  on the board, and you launch cells there remotely — **any of the six
-  runners, on the client's own GPU or CPU**, models cached and shipped from
-  the controller. Before starting you see a "will it fit" estimate against
-  BOTH pools (RAM and VRAM) of that exact host; a running cell shows what it
+- **Your whole zoo of hardware as one fleet — client GPUs included.** Put the
+  [caravan-scout](https://github.com/thepr0metheus/caravan-scout) sidecar on a
+  box whose GPU or CPU you want in the pool: its hardware and cells appear on
+  the board, and you launch cells there remotely — **any of the six runners,
+  on that host's own GPU or CPU**, models cached and shipped from the
+  controller. Before starting you see a "will it fit" estimate against BOTH
+  pools (RAM and VRAM) of that exact host; a running cell shows what it
   *actually* holds, measured per-process from `nvidia-smi` — on the
-  controller and on clients alike.
+  controller and on scout hosts alike. A machine that only *runs* agents
+  needs nothing installed — see [Deployment model](#deployment-model-a-scout-only-where-there-is-hardware-to-share).
 - **Six runners, one lifecycle.** A cell is not just llama.cpp — pick the
   engine per cell, and they all share the same cards, health checks,
   start/stop/schedule machinery and memory math:
@@ -106,6 +108,91 @@ cost in cloud tokens.
 
 The long version of that day — with the kanban that implements it — lives in
 [docs/day-with-the-caravan.md](docs/day-with-the-caravan.md).
+
+## Deployment model: a scout only where there is hardware to share
+
+**We are moving away from the model where every client machine has to run
+caravan-scout.** The scout is the sidecar of a host that *shares hardware*: a
+box with a GPU (or spare CPU) you want in the pool installs it, and from then
+on its GPUs, its cells and their memory appear on the board and are launched
+from it. A machine that merely *runs agents* installs nothing. Its client card
+and its agents' proxy cards are created **by hand on the board** (Clients lane
+→ add client → add agent → port), the controller owns those records, and the
+agent simply points at its port on the controller — that is the whole
+integration.
+
+Why: fewer moving parts on machines that gain nothing from a sidecar, a
+clearer support boundary ("what do I need to install?" — nothing, unless you
+are sharing a GPU), and expectations that match what the feature does: the
+scout is a hardware donor's agent, not a registry of everything that runs on
+your network.
+
+The last releases moved the architecture onto this decision: client and agent
+cards are made and edited on the board and are the source of truth; a scout's
+report can no longer create, rewrite or delete them (it stays one of the
+liveness sources); a new client gets its first agent card immediately; the
+kanban lists the same clients as the board, in the same order; a dead scout's
+leftovers are cleaned from the board without touching hand-made records.
+
+## One GPU, many agents
+
+<a id="one-gpu-many-agents"></a>
+
+Three agents ask for 30 minutes of GPU each, at the same moment, and you own
+one card.
+
+Without a queue you get one answer and two casualties: the other agents sit
+watching a silent socket, hit their own read timeout at a minute or two, and
+give up with *"nobody is processing my tokens"*. The work is not slow — it is
+**lost**, along with whatever chain of steps the agent was in the middle of.
+
+With the caravan the same three finish in about 90 minutes, one after another,
+and nobody drops:
+
+```
+agent A ──┐                    ┌── 0–30 min ── answer
+agent B ──┼── one proxy queue ─┼── 30–60 min ─ answer
+agent C ──┘   (per upstream)   └── 60–90 min ─ answer
+              waiting agents stay connected
+```
+
+**How the waiting one survives.** A queued request is not a paused request: the
+proxy answers immediately and keeps the stream alive, sending a keepalive frame
+about every 20 s (configurable) until real tokens start flowing. The shape of
+that frame is the whole trick, and it was found the hard way — clients reset
+their read timeout
+**only on chunks that carry actual token text**. SSE comments, role-only chunks
+and `content: null` are ignored by them, so the obvious keepalives did nothing.
+The caravan sends a `reasoning_content` delta instead: it counts as token
+activity for the timer, but lands in the model's *thinking* channel, so it
+never pollutes the visible answer. From the agent's side the request looks
+exactly like a slow model that is already working.
+
+**What bounds the wait.** Not a number we invented — the client's *own*
+timeout. The caravan reads it out of the agent's config, matches it to the
+proxy port the agent calls, and stores it on the route, so the queue's
+thresholds scale against the budget that client actually has (an hour is
+assumed while it is unknown). Chained queues share one absolute deadline, so a
+second queue cannot hand out a fresh full budget after the first has already
+spent part of it.
+
+**What the queue is not.** It is not one global line: each request competes
+only for the slots of *its own* upstream, and the slot count is read from that
+server's real `--parallel`. Inside a server the order is plain arrival order —
+priority buys no place in the line. What it buys is the right to *take a slot
+back*: once a crowned route has waited its share of the budget (half, by
+default) it can preempt a running request, while crowned requests that are
+already running are never the victim. An agent that hangs up leaves the queue
+immediately instead of holding a place. And a route with a spill edge does not
+wait to the end — after a fraction of its budget (a fifth, by default) it walks
+out to whatever that edge points at, a cloud model or another server. That edge
+is a line you draw on the kanban.
+
+**The honest part.** Everything still takes 90 minutes: the queue buys you
+*completion instead of collapse*, not speed. And the keepalive only exists for
+**streaming** requests — a non-streaming client sitting in the queue is still
+just a client waiting on a silent socket, and survives only if its own timeout
+is long enough. Details in [docs/backend-proxy.md](docs/backend-proxy.md).
 
 ## Quick start (Docker)
 
@@ -184,7 +271,8 @@ The built-in HuggingFace GGUF browser:
 | Python | **3.10+**, standard library only — no pip packages (tested on 3.12) |
 | llama.cpp | a `llama-server` build **b400+** (needs `--chat-template-file`; see [Tested versions](#tested-versions)) |
 | GPU serving | NVIDIA driver + `nvidia-smi` for telemetry; CUDA build of llama.cpp (CPU-only also works) |
-| Client hosts | Linux (systemd --user) or macOS (launchd), Python 3.10+, [caravan-scout](https://github.com/thepr0metheus/caravan-scout) |
+| Scout hosts (share a GPU/CPU) | Linux (systemd --user) or macOS (launchd), Python 3.10+, [caravan-scout](https://github.com/thepr0metheus/caravan-scout) |
+| Agent-only machines | nothing to install — the agent points at its proxy port on the controller |
 | Browser | any modern browser — native ES modules, no build step |
 | Storage | plain JSON files + an embedded SQLite file (accounts/sessions); no database server required |
 
@@ -537,7 +625,7 @@ The full endpoint reference (the admin surface and the proxy surface) lives in
 - `POST /api/topology/client-heartbeat` — heartbeat receiver for
   `caravan-scout` on client hosts.
 - `POST /api/topology/assignments` — store desired `agent -> proxy` routes and
-  push them to the client's scout.
+  push them to the client's scout, when the client has one.
 - `GET /metrics` — Prometheus metrics: clients, cells, GPU, routes.
 
 ## Topology GUI
@@ -563,26 +651,27 @@ Topology state is stored in the admin state file:
 ~/.local/state/llamacpp-easy-admin/admin.json
 ```
 
-Client hosts run `caravan-scout` and heartbeat into:
+Hosts that share hardware run `caravan-scout` and heartbeat into:
 
 ```text
 POST http://<controller-ip>:7990/api/topology/client-heartbeat
 ```
 
-The initial graph model is:
+The graph model is:
 
 ```text
-client host -> local agent -> proxy route -> llama-server instance -> GPU(s)
+client -> agent -> proxy route -> llama-server instance -> GPU(s)
 ```
 
-Assignments are owned by the admin server. Client route agents act as local
-executors and report applied state.
+Clients, agents and assignments are owned by the admin server and made on the
+board; a scout, where there is one, acts as a local executor and reports
+applied state and liveness — it never creates or deletes those records.
 
-In the `Topology` view, set the connection role to `Primary` or `Fallback`, then
-drag a client agent card onto a proxy port card. The UI stores the desired
-assignment in the admin state and immediately calls the registered
-`caravan-scout` on that client host. Holding Shift while dropping forces
-the dropped route to `Fallback`.
+On the board, set the connection role to `Primary` or `Fallback`, then drag a
+client agent card onto a proxy port card. The UI stores the desired assignment
+in the admin state; if that client runs a scout, the assignment is pushed to
+it, otherwise the card is the record and the agent uses its port. Holding
+Shift while dropping forces the dropped route to `Fallback`.
 
 ## Install llama.cpp
 

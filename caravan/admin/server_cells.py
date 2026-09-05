@@ -6,6 +6,8 @@ from caravan.admin.config_builder import is_command_cell
 from caravan.admin.launch import write_server_cell_artifacts
 from caravan.admin.paths import PORT, SERVER_CELL_BASE_PORT, is_controller_host, canonical_host_id
 from caravan.admin.state import save_admin_state, topology_store
+from caravan.domain.host import host_for
+from caravan.admin.state import topology as topo
 from caravan.common.errors import AppError
 
 
@@ -130,10 +132,7 @@ def upsert_server_slot(host_id, port, config=None, model=None, label=None):
                                 "ts": int(time.time())})
                 slot["commandHistory"] = hist[:10]
         slot["config"] = {k: v for k, v in config.items() if v is not None}
-        if is_controller_host(host_id):
-            artifact = write_server_cell_artifacts(host_id, port, config)
-            if artifact:
-                slot["artifact"] = artifact
+        host_for(host_id).refresh_launch_files(slot, port, config)
     store["serverSlots"][key] = slot
     save_admin_state()
     return slot
@@ -177,10 +176,7 @@ def reassign_server_slot_port(body):
     cfg = slot.get("config")
     if isinstance(cfg, dict) and cfg:
         cfg["PORT"] = str(new_port)
-        if is_controller_host(host_id):
-            artifact = write_server_cell_artifacts(host_id, new_port, cfg)
-            if artifact:
-                slot["artifact"] = artifact
+        host_for(host_id).refresh_launch_files(slot, new_port, cfg)
     store["serverSlots"][new_key] = slot
     save_admin_state()
     # Cables follow the cell: srv:<old> → srv:<new> across every router.
@@ -219,7 +215,7 @@ def swap_server_slot_ports(body):
         raise AppError("hostId, port and targetPort are required", 400)
     if port_a == port_b:
         raise AppError("a cell cannot swap with itself", 400)
-    slots = topology_store().get("serverSlots", {})
+    slots = topo.slots()
     key_a = server_slot_key(host_a, port_a)
     slot_a = slots.get(key_a)
     if not slot_a:
@@ -240,10 +236,7 @@ def swap_server_slot_ports(body):
         cfg = slot.get("config")
         if isinstance(cfg, dict) and cfg:
             cfg["PORT"] = str(new_port)
-            if is_controller_host(host_id):
-                art = write_server_cell_artifacts(host_id, new_port, cfg)
-                if art:
-                    slot["artifact"] = art
+            host_for(host_id).refresh_launch_files(slot, new_port, cfg)
         return slot
 
     # Detach both, then reattach on the swapped ports (avoids a key collision
@@ -267,9 +260,8 @@ def swap_server_slot_ports(body):
 def set_server_slot_note(host_id, port, note):
     """Free-form user note on a cell slot (shown on the board card and in the
     cell detail modal). Empty note clears it."""
-    store = topology_store()
-    key = server_slot_key(host_id, port)
-    slot = store.get("serverSlots", {}).get(key)
+    key = topo.slot_key(host_id, port)
+    slot = topo.find_slot(host_id, port)
     if not slot:
         raise AppError(f"no server slot {key}", 404)
     note = str(note or "").strip()[:280]
@@ -288,10 +280,10 @@ def reserve_server_cell(body):
     raw_port = body.get("port")
     port = int(raw_port) if raw_port not in (None, "") else next_server_cell_port()
     key = server_slot_key(host_id, port)
-    assert_server_cell_port_available(port, exclude_key=key if key in topology_store().get("serverSlots", {}) else None)
+    assert_server_cell_port_available(port, exclude_key=key if topo.has_slot(host_id, port) else None)
     slot = upsert_server_slot(host_id, port, label=body.get("label"))
     slot["kind"] = "serverCell"
-    topology_store()["serverSlots"][server_slot_key(host_id, port)] = slot
+    topo.put_slot(host_id, port, slot)
     save_admin_state()
     return {"ok": True, "cell": slot, "nextPort": next_server_cell_port()}
 

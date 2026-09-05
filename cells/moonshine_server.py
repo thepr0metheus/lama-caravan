@@ -38,40 +38,25 @@ Licensing: EN model is MIT; the others are Moonshine Community License
 Usage: moonshine_server.py [port] [language]        # defaults: 8025 en
 Setup: see run_moonshine.sh (creates ~/moonshine venv, installs the package).
 """
+# Annotations are not evaluated at import: the macOS client runs stock
+# Python 3.9, where `str | None` in a signature is a TypeError the moment the
+# def executes — the module never loads, the cell never listens, and the board
+# just says it did not come up.
 from __future__ import annotations
 
-import hashlib
+import gc
 import io
 import json
 import os
 import re
 import sys
 import threading
-from collections import OrderedDict
-import gc
 import wave
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from collections import OrderedDict
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8025
-LANG = (sys.argv[2] if len(sys.argv) > 2 else "en").lower()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cell_base import CellServer   # noqa: E402
 
-
-def _source_stamp():
-    """Digest of THIS file, taken once at import — the only moment it is
-    guaranteed to be the source the interpreter actually loaded. The controller
-    refreshes $HOME copies when a cell starts, so a long-running process can be
-    older than the file beside it; hashing per request would report the file and
-    hide precisely that. See cells/whisper_server.py for the full story."""
-    try:
-        with open(os.path.abspath(__file__), "rb") as fh:
-            return hashlib.sha256(fh.read()).hexdigest()[:12]
-    except Exception:  # noqa: BLE001
-        return ""
-
-
-SOURCE = _source_stamp()
-
-_state = {"ready": False, "error": ""}
 _lock = threading.Lock()
 _transcriber = None
 _tts_lock = threading.Lock()
@@ -93,23 +78,86 @@ TTS_LOCALE = {
 }
 
 
-def _log(msg):
+def log(msg):
     sys.stderr.write(msg + "\n")
     sys.stderr.flush()
 
 
-def _load():
-    global _transcriber
-    try:
+class MoonshineCell(CellServer):
+    """Recognition and synthesis in one cell, loaded independently.
+
+    `kinds` is what puts the row in both sections of a LAN client's list; a
+    client predating it still reads `model` and treats the cell as a
+    recognizer, so shipping this never broke an older one.
+    """
+    default_port = 8025
+    engine = "moonshine"
+    kinds = ["asr", "tts"]
+
+    @property
+    def language(self):
+        return (self.args[0] if self.args else "en").lower()
+
+    @property
+    def model_name(self):
+        return f"moonshine-{self.language}"
+
+    def extra_health(self):
+        return {"langs": [self.language]}
+
+    def load(self):
+        global _transcriber
         from moonshine_voice import get_model_for_language
         from moonshine_voice.transcriber import Transcriber
-        path, arch = get_model_for_language(LANG)   # downloads on first run
+        path, arch = get_model_for_language(self.language)   # downloads on first run
         _transcriber = Transcriber(path, arch)
-        _state["ready"] = True
-        _log(f"moonshine[{LANG}] ready on :{PORT} ({path})")
-    except Exception as exc:  # noqa: BLE001
-        _state["error"] = str(exc)
-        _log(f"moonshine[{LANG}]: load failed: {exc}")
+        log(f"moonshine[{self.language}] ready on :{self.port} ({path})")
+
+    def ready_required(self, path):
+        # Synthesis does not wait for the recognizer: the two load
+        # independently, and a voice request answered with "model loading"
+        # would make the cell look less capable than it is.
+        return not path.endswith("/speech")
+
+    def handle_get(self, path, query):
+        if not path.endswith("/voices"):
+            return None
+        lang = "en"
+        for kv in query.split("&"):
+            if kv.startswith("language="):
+                lang = kv.split("=", 1)[1]
+        try:
+            return 200, json.dumps(_voice_list(lang)).encode(), "application/json"
+        except ValueError as e:
+            return 400, json.dumps({"error": str(e)}).encode(), "application/json"
+
+    def handle(self, body, headers, path):
+        if path.endswith("/speech"):                      # ---- TTS ----
+            try:
+                req = json.loads(body.decode("utf-8") or "{}")
+            except Exception:  # noqa: BLE001
+                return 400, json.dumps({"error": "need json {text, language}"}).encode(), "application/json"
+            text = (req.get("text") or "").strip()
+            if not text:
+                return 400, json.dumps({"error": "need json {text, language}"}).encode(), "application/json"
+            try:
+                samples, sr = _synthesize(text, req.get("language") or "en",
+                                          req.get("voice"))
+            except ValueError as e:
+                return 400, json.dumps({"error": str(e)}).encode(), "application/json"
+            return 200, _wav_bytes(samples, sr), "audio/wav"
+
+        if _transcriber is None:                          # ---- STT ----
+            return 503, json.dumps({"error": "model loading"}).encode(), "application/json"
+        wav = _extract_file(body, headers.get("Content-Type", ""))
+        if not wav:
+            return 400, json.dumps({"error": "need multipart file=wav"}).encode(), "application/json"
+        audio, sr = _wav_to_floats(wav)
+        with _lock:                          # one CPU inference at a time
+            res = _transcriber.transcribe_without_streaming(audio, sr)
+        text = " ".join(
+            l.text for l in (getattr(res, "lines", None) or [])).strip()
+        return 200, json.dumps({"text": text}).encode(), "application/json"
 
 
 def _wav_to_floats(data: bytes):
@@ -143,7 +191,7 @@ def _synthesize(text: str, lang: str, voice: str | None = None):
             from moonshine_voice.tts import TextToSpeech
             tts = TextToSpeech(tag, voice=vid)   # downloads the voice once
             _tts[key] = tts
-            _log(f"moonshine tts[{tag}{' ' + vid if vid else ''}] ready")
+            log(f"moonshine tts[{tag}{' ' + vid if vid else ''}] ready")
             while len(_tts) > max(1, TTS_CACHE_MAX):
                 (old_tag, old_vid), dead = _tts.popitem(last=False)
                 # close() releases the voice's runtime sessions. Dropping the
@@ -152,10 +200,10 @@ def _synthesize(text: str, lang: str, voice: str | None = None):
                 try:
                     dead.close()
                 except Exception as exc:  # noqa: BLE001
-                    _log(f"moonshine tts close failed: {exc}")
+                    log(f"moonshine tts close failed: {exc}")
                 del dead
                 gc.collect()
-                _log(f"moonshine tts[{old_tag}{' ' + old_vid if old_vid else ''}]"
+                log(f"moonshine tts[{old_tag}{' ' + old_vid if old_vid else ''}]"
                      f" evicted ({len(_tts)}/{TTS_CACHE_MAX} held)")
         else:
             _tts.move_to_end(key)                # keep the freshly used one
@@ -199,107 +247,5 @@ def _extract_file(body: bytes, ctype: str):
     return None
 
 
-class H(BaseHTTPRequestHandler):
-    def log_message(self, *a):  # quiet
-        pass
-
-    def _send(self, code, obj):
-        body = json.dumps(obj).encode()
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_GET(self):
-        path = (self.path or "").split("?", 1)[0].rstrip("/")
-        if path.endswith("/voices"):         # which stock voices this cell offers
-            q = (self.path or "").split("?", 1)
-            lang = "en"
-            if len(q) > 1:
-                for kv in q[1].split("&"):
-                    if kv.startswith("language="):
-                        lang = kv.split("=", 1)[1]
-            try:
-                self._send(200, _voice_list(lang))
-            except ValueError as e:
-                self._send(400, {"error": str(e)})
-            except Exception as e:  # noqa: BLE001
-                self._send(500, {"error": str(e)})
-            return
-        if _state["ready"]:
-            # «model» keeps older clients working (they read it as an ASR cell);
-            # «kinds» is what lets a new client also list us as a voice
-            self._send(200, {"status": "ok", "model": f"moonshine-{LANG}",
-                             "kinds": ["asr", "tts"], "source": SOURCE})
-        elif _state["error"]:
-            self._send(500, {"status": "error", "error": _state["error"],
-                             "source": SOURCE})
-        else:
-            self._send(503, {"status": "loading", "source": SOURCE})
-
-    def do_POST(self):
-        ln = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(ln)
-        path = (self.path or "").split("?", 1)[0].rstrip("/")
-        if path.endswith("/speech"):             # ---- TTS ----
-            try:
-                req = json.loads(body.decode("utf-8") or "{}")
-            except Exception:
-                self._send(400, {"error": "need json {text, language}"})
-                return
-            text = (req.get("text") or "").strip()
-            if not text:
-                self._send(400, {"error": "need json {text, language}"})
-                return
-            try:
-                samples, sr = _synthesize(text, req.get("language") or "en",
-                                          req.get("voice"))
-                wav = _wav_bytes(samples, sr)
-            except ValueError as e:
-                self._send(400, {"error": str(e)})
-                return
-            except Exception as e:  # noqa: BLE001
-                _log(f"synthesize error: {e}")
-                self._send(500, {"error": str(e)})
-                return
-            self.send_response(200)
-            self.send_header("Content-Type", "audio/wav")
-            self.send_header("Content-Length", str(len(wav)))
-            self.end_headers()
-            self.wfile.write(wav)
-            return
-        if not _state["ready"] or _transcriber is None:   # ---- STT ----
-            self._send(503, {"error": "model loading"})
-            return
-        wav = _extract_file(body, self.headers.get("Content-Type", ""))
-        if not wav:
-            self._send(400, {"error": "need multipart file=wav"})
-            return
-        try:
-            audio, sr = _wav_to_floats(wav)
-            with _lock:                          # one CPU inference at a time
-                res = _transcriber.transcribe_without_streaming(audio, sr)
-            text = " ".join(
-                l.text for l in (getattr(res, "lines", None) or [])).strip()
-            self._send(200, {"text": text})
-        except Exception as e:  # noqa: BLE001
-            _log(f"transcribe error: {e}")
-            self._send(500, {"error": str(e)})
-
-
-class _Serve(ThreadingHTTPServer):
-    """Accept queue deep enough for a caller that pipelines requests.
-
-    socketserver's default is 5, and a queue that shallow does not refuse — the
-    kernel drops the SYN and the caller retries at 1s, 3s, 7s, which reads as
-    this cell being slow rather than being over its listen limit. A transcription
-    client sending chunks back-to-back is exactly that shape of load.
-    """
-    request_queue_size = 64
-    daemon_threads = True
-
-
 if __name__ == "__main__":
-    threading.Thread(target=_load, daemon=True).start()
-    _Serve(("0.0.0.0", PORT), H).serve_forever()
+    MoonshineCell().serve()

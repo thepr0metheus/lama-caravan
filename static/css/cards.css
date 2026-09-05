@@ -625,9 +625,33 @@ button.llama-edit-head:hover .llama-edit-pencil {
   min-width: 0;
 }
 
-.topology-agent strong,
-.topology-agent span {
-  display: block;
+/* Заголовок блока агента ломался: `strong` и `span` были блочными, поэтому имя,
+   карандаш и подпись становились в три строки, а точка живости уезжала под имя.
+   Имя и кнопки — одна строка, подпись — вторая. */
+.topology-agent strong { display: inline; }
+.topology-agent span { display: block; }
+.topology-agent-summary > div {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+/* Заголовок переносится, а не сжимается. Пока он был одной нерастяжимой
+   строкой, имя ужималось до «Open…», адрес звонившего рвался посреди числа, а
+   род агента и кнопки толкались за остаток. Имя не сжимается вовсе — это
+   главное слово карточки; остальное уходит на вторую строку, когда не влезло. */
+.topology-agent-summary .agent-title-line {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 6px; min-width: 0;
+}
+.topology-agent-summary .agent-title-line > strong {
+  flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.topology-agent-summary .agent-title-line > .route-caller { flex: 0 0 auto; }
+/* Род агента прижат вправо в той же строке: два слова не стоят отдельного ряда. */
+.topology-agent-summary .agent-title-line > .agent-kind {
+  display: inline; margin-left: auto; flex: 0 1 auto;
+  font-size: 10px; letter-spacing: .03em; color: var(--muted);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 .topology-agent span:not(.topology-port-dot) {
@@ -649,25 +673,88 @@ button.llama-edit-head:hover .llama-edit-pencil {
   flex: 0 0 auto;
 }
 
-.topology-agent-routes {
-  display: grid;
-  gap: 4px;
-  padding-top: 6px;
-  border-top: 1px solid var(--line);
+/* Клиент, заведённый руками, молчит по праву: это заметка, а не тревога — без
+   красного и без кнопки удаления рядом. Красная плашка с «Delete» под записью,
+   которая ничего не нарушила, читалась как «убери эту ошибку», и запись теряли. */
+/* Заголовок клиента без скаута — строка, а не карточка: рассказывать о хосте
+   нечего, а назвать группу и дать три действия нужно. */
+.client-caption {
+  display: flex; align-items: center; gap: 6px;
+  padding: 2px 2px 4px; font-size: 12px; color: var(--muted);
+}
+.client-caption > strong { color: var(--text); }
+
+.client-quiet-note {
+  font-size: 10px; color: var(--muted); opacity: .7;
+  padding: 4px 2px 0; font-style: italic;
 }
 
+.topology-agent-routes {
+  display: grid;
+  gap: 3px;
+  padding-top: 5px;
+  margin-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+}
+
+/* Строка маршрута: сверху — что это (роль, порт, окно), снизу — куда (адрес).
+   Раньше колонок было две, а элементов три, поэтому чип окна вываливался на
+   собственную строку отдельной большой пилюлей: число висело в стороне от
+   маршрута, к которому относится. Теперь первая строка читается как подпись
+   «роль · порт · окно», а адрес идёт под ней — он длинный, и место ему нужно
+   всё. */
+/* Строка маршрута — три яруса, сверху вниз по убыванию важности:
+   1. чем он опознаётся: роль и порт;
+   2. куда ведёт: адрес, мелко и приглушённо;
+   3. что о нём объявлено: окно, имя модели, бюджет ожидания.
+   Раньше все шесть элементов стояли в один ряд фиксированного грида: чипы
+   вылезали за карточку, а число окна висело в стороне от маршрута, к которому
+   относится. Ярусы дают порядок чтения и, главное, переносятся. */
 .topology-agent-route {
   position: relative;
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 8px;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  column-gap: 6px;
+  row-gap: 2px;
   width: 100%;
   box-sizing: border-box;
-  padding-left: 18px;
-  border-left: 3px solid var(--accent);
-  min-height: 28px;
+  padding: 4px 8px 5px 9px;
+  border-left: 2px solid var(--accent);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--line) 12%, transparent);
 }
+/* Два яруса вместо трёх: сверху — чем маршрут опознаётся и что о нём объявлено,
+   снизу — адрес. Ярус с адресом был отдельным ради строки, которая целиком
+   выводится из номера порта, и стоил по двадцать пикселей на каждый маршрут. */
+.topology-agent-route > .route-role-label { order: 1; flex: 1 1 100%; min-width: 0; }
+/* Значок состояния теперь ВНУТРИ строки роли, слева от слова: как отдельный
+   элемент строки маршрута он уезжал на собственный ярус — метка роли занимает
+   всю ширину, — и «✓» повисал над словом PRIMARY, а «?» под словом FALLBACK.
+   Значок относится к роли, значит и стоять должен при ней. */
+.topology-agent-route > .route-settings { order: 3; flex: 1 1 100%; }
+.topology-agent-route > code { order: 4; flex: 1 1 100%; }
+/* Селектор нарочно длиннее нужного: правило `.topology-agent span:not(.dot)`
+   задаёт 12px и по специфичности (0-2-1) бьёт короткое `.topology-agent-route >
+   .route-role-label` (0-2-0). Роль и адрес звонившего рисовались 12-м кеглем
+   вместо 9-го — та же история, что с min-height у кнопок: старое широкое
+   правило молча перебивает новое узкое. */
+.topology-agent .topology-agent-route > .route-role-label {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 9px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted);
+}
+/* Отдельной строки с адресом больше нет: адрес стоит на самом чипе. Правило
+   оставлено на случай, если <code> вернётся в строку маршрута. */
+.topology-agent-route > code {
+  font-size: 8.5px; color: var(--muted); overflow-wrap: anywhere;
+  line-height: 1.2; opacity: .55;
+}
+/* Объявленное о маршруте — своя строка, которая ПЕРЕНОСИТСЯ. Пока чипы были
+   ячейками грида, четвёртый уезжал за край карточки и его просто не было
+   видно. */
+.route-settings { display: flex; flex-wrap: wrap; gap: 3px 4px; min-width: 0; margin-top: 1px; }
+.route-settings > button { max-width: 100%; }
 
 .topology-route-timeout {
   grid-column: 1 / -1;

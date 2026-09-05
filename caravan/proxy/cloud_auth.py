@@ -5,7 +5,7 @@ import os
 import time
 
 from caravan.common.fsio import atomic_write_text
-from caravan.proxy.paths import CLOUD_PROVIDERS_FILE, PROVIDER_SECRETS_FILE
+from caravan.proxy.paths import MODEL_CATALOG_FILE, CLOUD_PROVIDERS_FILE, PROVIDER_SECRETS_FILE
 from caravan.proxy.runtime import config_lock
 
 
@@ -30,6 +30,28 @@ def _read_cloud_data():
         }
     return {"accounts": [], "blocks": []}
 
+def _cached_context_length(account_id, model_id):
+    """What the account's catalogue last heard from the provider for this model.
+
+    A cache, deliberately: the alternative is a network call on an endpoint the
+    proxy answers locally today, which would let a third party's availability
+    decide whether this port can describe itself. Absent when the catalogue has
+    not been refreshed or the provider named no window — absence stays absence.
+    """
+    if not account_id or not model_id:
+        return None
+    try:
+        data = json.loads(MODEL_CATALOG_FILE.read_text(encoding="utf-8"))
+        models = (((data.get("accounts") or {}).get(str(account_id)) or {}).get("models")) or []
+    except Exception:
+        return None
+    for model in models:
+        if isinstance(model, dict) and model.get("id") == model_id:
+            found = model.get("contextLength")
+            return found if isinstance(found, int) and found > 0 else None
+    return None
+
+
 def load_cloud_provider(block_id):
     """Resolve a proxy route's providerId (a model-block id) to an effective
     provider dict combining the block (model/modelMode) and its account
@@ -53,6 +75,15 @@ def load_cloud_provider(block_id):
         "oauthConfig": account.get("oauthConfig") if isinstance(account.get("oauthConfig"), dict) else {},
         "model": block.get("model") or "",
         "modelMode": block.get("modelMode") or "rewrite",
+        # The operator's own figure is the rule: it is deliberate, and it is the
+        # only source for a provider that publishes none. The number the
+        # provider reports is used ONLY when the operator ticked contextAuto —
+        # it used to be a silent fallback, and a number nobody chose is the
+        # same trap as a guessed one (docs/why.md). Neither known → absent.
+        "contextLength": (_cached_context_length(account.get("id"), block.get("model"))
+                          or block.get("contextLength")
+                          if block.get("contextAuto")
+                          else block.get("contextLength")),
     }
 
 def load_cloud_account(account_id):

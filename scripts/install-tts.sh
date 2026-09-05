@@ -37,7 +37,7 @@ if ! nvidia-smi -L >/dev/null 2>&1 \
   warn "No NVIDIA GPU detected — skipping TTS provisioning."
   exit 0
 fi
-if [[ ! -f "${SRC}/tts_server.py" || ! -f "${SRC}/run_tts.sh" ]]; then
+if [[ ! -f "${SRC}/cell_base.py" || ! -f "${SRC}/tts_server.py" || ! -f "${SRC}/run_tts.sh" ]]; then
   err "cell servers missing under ${SRC} — is this a full checkout?"
   exit 1
 fi
@@ -45,9 +45,12 @@ fi
 info "NVIDIA GPU detected — provisioning voice-clone TTS cells"
 have python3 || { err "python3 required"; exit 1; }
 
+# cell_base.py rides along with every server: the server imports it from its
+# own directory, so a $HOME copy without it starts and dies on ImportError.
+install -m 0644 "${SRC}/cell_base.py"      "${HOME}/cell_base.py"
 install -m 0644 "${SRC}/tts_server.py" "${HOME}/tts_server.py"
 install -m 0755 "${SRC}/run_tts.sh"    "${HOME}/run_tts.sh"
-info "  installed ~/tts_server.py + ~/run_tts.sh"
+info "  installed ~/tts_server.py + ~/cell_base.py + ~/run_tts.sh"
 
 # torchcodec (torch>=2.9 audio IO) needs the system ffmpeg shared libraries.
 if ldconfig -p 2>/dev/null | grep -q libavutil; then

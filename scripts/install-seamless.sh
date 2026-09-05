@@ -32,7 +32,7 @@ err()  { echo -e "${RED}[error]${NC}  $*" >&2; }
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${REPO_DIR}/cells"
 
-if [[ ! -f "${SRC}/seamless_server.py" || ! -f "${SRC}/run_seamless.sh" ]]; then
+if [[ ! -f "${SRC}/cell_base.py" || ! -f "${SRC}/seamless_server.py" || ! -f "${SRC}/run_seamless.sh" ]]; then
   err "cell servers missing under ${SRC} — is this a full checkout?"
   exit 1
 fi
@@ -46,9 +46,12 @@ fi
 command -v ffmpeg &>/dev/null \
   || warn "ffmpeg not found — the cell decodes WAV natively but needs ffmpeg for anything else"
 
+# cell_base.py rides along with every server: the server imports it from its
+# own directory, so a $HOME copy without it starts and dies on ImportError.
+install -m 0644 "${SRC}/cell_base.py"      "${HOME}/cell_base.py"
 install -m 0644 "${SRC}/seamless_server.py" "${HOME}/seamless_server.py"
 install -m 0755 "${SRC}/run_seamless.sh"    "${HOME}/run_seamless.sh"
-info "installed ~/seamless_server.py + ~/run_seamless.sh"
+info "installed ~/seamless_server.py + ~/cell_base.py + ~/run_seamless.sh"
 
 info "building the venv (torch + transformers, several minutes)…"
 bash "${HOME}/run_seamless.sh" --install-only \

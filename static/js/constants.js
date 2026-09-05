@@ -14,6 +14,7 @@ export const numericFields = [
   "API_KEY", "SSL_CERT_FILE", "SSL_KEY_FILE",
   "IMAGE_MIN_TOKENS",
   "IMAGE_MAX_TOKENS", "REASONING", "REASONING_FORMAT", "REASONING_BUDGET",
+  "TEMPERATURE", "TOP_K", "TOP_P", "MIN_P",
   "CHAT_TEMPLATE", "CHAT_TEMPLATE_FILE", "CHAT_TEMPLATE_KWARGS",
   "SPEC_TYPE", "SPEC_DRAFT_MODEL_FILE",
   "SPEC_DRAFT_N_GPU_LAYERS", "SPEC_DRAFT_N_MAX", "SPEC_DRAFT_N_MIN",
@@ -47,6 +48,10 @@ export const advancedGroups = [
   { titleKey: "advancedRope", fields: ["ROPE_SCALING", "ROPE_SCALE", "ROPE_FREQ_BASE", "ROPE_FREQ_SCALE"] },
   { titleKey: "grpGeneration", fields: ["N_PREDICT", "KEEP", "CONTEXT_SHIFT"] },
   { titleKey: "grpChatTemplate", fields: ["CHAT_TEMPLATE", "CHAT_TEMPLATE_KWARGS", "SKIP_CHAT_PARSING"] },
+  // Sampling DEFAULTS. A request that sends its own temperature still wins —
+  // these decide what happens for the callers that send none, which is where
+  // llama.cpp's 0.80 quietly replaces whatever the model was tuned for.
+  { titleKey: "grpSampling", fields: ["TEMPERATURE", "TOP_K", "TOP_P", "MIN_P"] },
   { titleKey: "advancedReasoning", fields: ["ENABLE_THINKING", "REASONING", "REASONING_FORMAT", "REASONING_BUDGET", "REASONING_PRESERVE"] },
   { titleKey: "advancedVision", fields: ["IMAGE_MIN_TOKENS", "IMAGE_MAX_TOKENS", "MTMD_BATCH_MAX_TOKENS", "MMPROJ_AUTO"] },
   { titleKey: "advancedEmbeddings", fields: ["ENABLE_EMBEDDINGS", "ENABLE_RERANK", "POOLING", "EMBD_NORMALIZE"] },
@@ -63,7 +68,7 @@ export const advancedTabDefs = [
   { key: "tabMemory", groups: ["grpKvCache", "advancedCache", "advancedLoading"] },
   { key: "tabPlacement", groups: ["grpDevices", "grpAutofit"] },
   { key: "tabContext", groups: ["advancedRope", "grpGeneration"] },
-  { key: "tabChat", groups: ["grpChatTemplate", "advancedReasoning"] },
+  { key: "tabChat", groups: ["grpChatTemplate", "grpSampling", "advancedReasoning"] },
   { key: "tabVision", groups: ["advancedVision"] },
   { key: "tabEmbeddings", groups: ["advancedEmbeddings"] },
   { key: "tabAccess", groups: ["advancedNetwork", "advancedCors"] },

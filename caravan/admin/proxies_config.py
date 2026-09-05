@@ -4,6 +4,7 @@ import json
 import secrets
 
 from caravan.admin.cloud import cloud_blocks_state, load_cloud_data, save_cloud_data
+from caravan.admin.state import topology as topo
 from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE, CONTROLLER_HOST_ID
 from caravan.admin.router_dsl import (
     DEFAULT_ROUTER_ID,
@@ -16,50 +17,32 @@ from caravan.admin.router_dsl import (
 from caravan.admin.systemd_ctl import restart_agent_proxy
 from caravan.common.errors import AppError
 from caravan.common.fsio import atomic_write_text
+from caravan.store.proxies import ProxyStore
 
 
-DEFAULT_AGENT_PROXY_ROUTES = [
-    {"label": "jim", "port": 8083, "upstreamHost": "127.0.0.1", "upstreamPort": 8080, "enabled": True},
-    {"label": "pam", "port": 8084, "upstreamHost": "127.0.0.1", "upstreamPort": 8080, "enabled": True},
-    {"label": "michael", "port": 8085, "upstreamHost": "127.0.0.1", "upstreamPort": 8080, "enabled": True},
-    {"label": "dwight", "port": 8086, "upstreamHost": "127.0.0.1", "upstreamPort": 8080, "enabled": True},
-]
+# What a caravan with no proxy config has: nothing. It used to have four —
+# named after agents that were retired long ago, on ports that now belong to
+# other things (8083 is a bridge). They appeared whenever the file was missing
+# OR unreadable, so a corrupt config came up looking like a working four-route
+# configuration, and the first write replaced the file that could have been
+# recovered. An empty list is the only honest answer to "we could not read it".
+DEFAULT_AGENT_PROXY_ROUTES = []
+
+#: The document itself. Everything about how it is read, upgraded, backed up and
+#: written lives in the store; this module is what the caravan DOES with it.
+_store = ProxyStore(AGENT_PROXY_CONFIG_FILE, default_router_id=DEFAULT_ROUTER_ID)
+
 
 def _migrate_legacy_router_payload(payload):
-    """Back-compat: upgrade the pre-rename 'switchboard' schema to 'router' in place.
+    """Back-compat: upgrade the pre-rename 'switchboard' schema to 'router' in place."""
+    return _store.upgrade(payload)
 
-    Old files (e.g. the controller's agent-proxies.json before this refactor) carry the key
-    `switchboards[]`, the id `sb:default`, and per-route `switchboardId`. Rewrite them
-    to the new router schema. Idempotent — no-op once the file has been written back
-    in the new shape. The OLD literals must NOT be renamed by the rename script, which
-    is why this lives in a dedicated function added after the rename."""
-    if not isinstance(payload, dict):
-        return payload
-    legacy_id, new_id = "sb:default", DEFAULT_ROUTER_ID
-    if "routers" not in payload and isinstance(payload.get("switchboards"), list):
-        payload["routers"] = payload.pop("switchboards")
-    for router in (payload.get("routers") or []):
-        if isinstance(router, dict) and router.get("id") == legacy_id:
-            router["id"] = new_id
-    for route in (payload.get("routes") or []):
-        if not isinstance(route, dict):
-            continue
-        if "routerId" not in route and "switchboardId" in route:
-            route["routerId"] = route.pop("switchboardId")
-        if route.get("routerId") == legacy_id:
-            route["routerId"] = new_id
-    return payload
 
 def read_agent_proxy_payload():
-    if AGENT_PROXY_CONFIG_FILE.exists():
-        try:
-            payload = json.loads(AGENT_PROXY_CONFIG_FILE.read_text(encoding="utf-8"))
-            if isinstance(payload, dict):
-                return _migrate_legacy_router_payload(payload)
-        except Exception:
-            pass
-    return {"routes": DEFAULT_AGENT_PROXY_ROUTES, "policy": normalize_agent_proxy_policy({}),
-            "routers": [], "stopRequests": []}
+    return _store.payload({"routes": DEFAULT_AGENT_PROXY_ROUTES,
+                           "policy": normalize_agent_proxy_policy({}),
+                           "routers": [], "stopRequests": []})
+
 
 def write_agent_proxy_payload(payload):
     # Keep ↑☁ cloud-fallback eligibility in sync with the current graph connections
@@ -74,35 +57,8 @@ def write_agent_proxy_payload(payload):
                     payload.get("routers"), payload.get("routes"))
     except Exception:
         pass
-    # ── Защита графа: если новая запись уничтожает непустой граф — сохраняем его ──
-    # Перед каждой перезаписью проверяем: если в текущем файле есть nodes/edges,
-    # а в новом payload их нет — восстанавливаем граф из старой версии.
-    # Также делаем резервную копию каждый раз когда в файле есть граф с узлами.
-    try:
-        if AGENT_PROXY_CONFIG_FILE.exists():
-            old_raw = json.loads(AGENT_PROXY_CONFIG_FILE.read_text(encoding="utf-8"))
-            old_graph_nodes = []
-            for r in (old_raw.get("routers") or []):
-                old_graph_nodes.extend(r.get("graph", {}).get("nodes") or [])
-            if old_graph_nodes:
-                # Есть живые узлы — сохраняем бэкап
-                import datetime as _dt
-                ts = _dt.datetime.now().strftime("%Y%m%d-%H%M%S")
-                bak = AGENT_PROXY_CONFIG_FILE.with_name(f"{AGENT_PROXY_CONFIG_FILE.stem}.json.bak-graph-{ts}")
-                bak.write_text(AGENT_PROXY_CONFIG_FILE.read_text(encoding="utf-8"), encoding="utf-8")
-                # Если новый payload теряет граф — восстанавливаем из старого
-                new_graph_nodes = []
-                for r in (payload.get("routers") or []):
-                    new_graph_nodes.extend(r.get("graph", {}).get("nodes") or [])
-                if not new_graph_nodes:
-                    # Перенести граф из старой версии в новую
-                    old_by_id = {r["id"]: r for r in (old_raw.get("routers") or []) if r.get("id")}
-                    for r in (payload.get("routers") or []):
-                        if not r.get("graph", {}).get("nodes") and r.get("id") in old_by_id:
-                            r["graph"] = old_by_id[r["id"]].get("graph") or r.get("graph") or {}
-    except Exception:
-        pass
-    atomic_write_text(AGENT_PROXY_CONFIG_FILE, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    _store.write(_store.protect_graph(payload, _store.stamp()))
+
 
 def load_agent_proxy_config():
     payload = read_agent_proxy_payload()
@@ -717,7 +673,7 @@ def delete_proxy_route(port, force=False):
     if not force:
         from caravan.admin.state import topology_store
         bound = []
-        for host_id, row in (topology_store().get("assignments") or {}).items():
+        for host_id, row in topo.assignments().items():
             for entry in (row.get("assignments") or []):
                 for r in (entry.get("routes") or []):
                     if str(r.get("proxyId") or "").endswith(f":{port}"):

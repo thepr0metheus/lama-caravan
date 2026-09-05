@@ -374,7 +374,13 @@
       <svg id="topologyCables" class="topology-cables" aria-hidden="true"></svg>
       <div class="topology-column">
         <div class="section-title topology-title">
-          <h2 class="title-with-tip"><span id="boardClientsHead" data-i18n="topologyClientsSection">Clients with caravan-scout</span><span id="topologyClientsTip"></span></h2>
+          <h2 class="title-with-tip"><span id="boardClientsHead" data-i18n="topologyClientsSection">Clients and their proxies</span><span id="topologyClientsTip"></span></h2>
+          <div class="topology-head-actions">
+            <button id="topologyAdoptBtn" type="button" class="icon-action prominent" hidden
+              data-t="clients-adopt" data-title-i18n="topologyAdoptClients"
+              aria-label="Move scout clients to manual">⇩</button>
+            <button id="topologyClientAddBtn" type="button" class="icon-action prominent" data-t="client-add" data-title-i18n="topologyClientAdd" aria-label="Add a client">＋</button>
+          </div>
         </div>
         <div id="topologyClients" class="topology-stack" data-t="board-clients-lane" role="region" aria-labelledby="boardClientsHead"></div>
       </div>

@@ -65,7 +65,6 @@ export function renderSectionTips() {
     systemHistoryTip: "systemHistoryHelp",
     systemGpuTip: "gpuMonitorHelp",
     systemGpuUsersTip: "gpuUsersHelp",
-    systemAgentProxyRoutesTip: "agentProxyRouteHelp",
     systemClientsTip: "clientsHelp",
     systemLlamaActivityTip: "llamaActivityHelp",
     systemTokenTip: "tokenSpeedHelp",

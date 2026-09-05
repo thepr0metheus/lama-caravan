@@ -34,13 +34,18 @@ import {
 import { topologyLlamaDetailOpen } from "./topology-dnd.js";
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
+import { runnerRegistry } from "./llama-edit.js";
 import { $, api, copyText, escapeHtml, inferSpecType, toast } from "./utils.js";
 
 // ── Host-centric node view (Stage 3a) ────────────────────────────────────────
 // Known safetensors format folder names (mirror of _ST_FORMAT_HINTS in
 // caravan/admin/models.py) — used to read <Model>/<author>/<FORMAT> paths.
+// NOT "ST": that is the badge the backend shows when it recognises none of
+// these, never a directory anyone writes. Listing it here made the mirror
+// strip a segment the backend would have kept, so the two would have disagreed
+// about the model's own name. check_command_mirrors keeps the lists equal.
 const _ST_FMT = new Set(["NVFP4", "MXFP4", "AWQ", "GPTQ", "AUTOROUND", "FP8",
-                         "INT4", "W4A16", "BNB", "BF16", "FP16", "FP32", "ST"]);
+                         "INT4", "W4A16", "BNB", "BF16", "FP16", "FP32"]);
 
 // Runner identity chip shown IN the model-name row of every cell card —
 // replaces the generic "chip" svg so the engine is readable at a glance.
@@ -356,7 +361,10 @@ export function nodeServerCardHtml(node, s) {
   // no window chip until someone decides it has one, instead of silently
   // inheriting a precise, fictional "🪟 100k".
   const _runner = String(_scfg.RUNNER || (String(_scfg.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server")).toLowerCase();
-  const _isTokenCell = !_runner || ["llama-server", "vllm"].includes(_runner);
+  // The allow-list moved to the runner classes on the controller and arrives
+  // in state.runners; keeping a copy here is how the two came to disagree.
+  const _isTokenCell = !_runner
+    || !!runnerRegistry().find((r) => r.id === _runner)?.tokenContext;
   const _isSpeechCell = _audioMs > 0
     || ["transcribe", "whisper", "moonshine", "seamless"].includes(_runner);
   const ctxChip = _isSpeechCell
@@ -741,12 +749,23 @@ export function openNodeServerDetail(nodeId, port) {
   const hasMtpBuiltin = _mtpRe.test(s.model || "") || _mtpRe.test(s.modelPath || "");
   const hasMtp = !!s.specDraft || hasMtpBuiltin || (s.specType || "").toLowerCase() === "draft-mtp";
   const _scfg = s.slotConfig || {};
-  const isCmd = String(_scfg.CELL_KIND || "").toLowerCase() === "command";
-  const isVllm = String(_scfg.RUNNER || "").toLowerCase() === "vllm";
-  const isWhisper = String(_scfg.RUNNER || "").toLowerCase() === "whisper";
-  const isMoonshine = String(_scfg.RUNNER || "").toLowerCase() === "moonshine";
-  const isTranscribe = String(_scfg.RUNNER || "").toLowerCase() === "transcribe";
-  const nsdCtxChip = s.ctxMax
+  // ONE lookup, from the registry the backend derives from the runner classes.
+  // This modal used to enumerate five runners by hand and draw everything else
+  // as llama-server: a translate cell showed `llama-server --model … --ctx-size
+  // 100000 --spec-type draft-mtp`, a command it has never run, plus a 🪟 100k
+  // window for a translator that has no context window. Confidently wrong, and
+  // nothing about it looked broken.
+  const _runnerId = String(_scfg.RUNNER || "").trim().toLowerCase()
+    || (String(_scfg.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server");
+  const _runnerRow = runnerRegistry().find((r) => r.id === _runnerId) || null;
+  const isCmd = _runnerId === "custom";
+  const isLlama = _runnerId === "llama-server";
+  // CTX_SIZE is inherited by every cell config, including the ones that will
+  // never read it. Only a runner that says its work is measured in tokens gets
+  // the chip; an unknown runner says nothing, so it gets none.
+  const _hasCtx = !!(_runnerRow ? _runnerRow.tokenContext : isLlama);
+  const nsdCtxChip = !_hasCtx ? ""
+    : s.ctxMax
     ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(s.ctxMax))}`, t("topologyCtxUsageTip") || "Context window")
     : (_scfg.CTX_SIZE ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.CTX_SIZE)))}`) : "");
   const addr = `${s.clientIp || node.ip || ""}:${s.port}`;
@@ -769,66 +788,46 @@ export function openNodeServerDetail(nodeId, port) {
 
   const row = (k, v) => v ? `<div class="nsd-row"><span class="nsd-k">${escapeHtml(k)}</span><span class="nsd-v">${v}</span></div>` : "";
 
-  // Build formatted command block from slotConfig
+  const cmdSection = (lines) => {
+    const cmdText = lines.join("\n");
+    const pre = lines.map((l) => `<span class="cmd-token">${escapeHtml(l)}</span>`).join("\n");
+    return `<div class="nsd-cfg-section"><div class="nsd-cfg-head">COMMAND <button class="nsd-copy-btn" type="button" data-copy="${escapeHtml(cmdText)}" title="${escapeHtml(t("copyCommand"))}">⎘</button></div><pre class="command-preview nsd-cmd-pre">${pre}</pre></div>`;
+  };
+
+  // The command block. For everything except llama-server this is the line
+  // start.sh actually holds, read off the file — not a mirror of the builder
+  // rewritten in JS. There were four such mirrors here, one per runner someone
+  // had remembered to add, and the two nobody added fell through to the llama
+  // branch and were drawn as llama cells.
   const cmdBlockHtml = (() => {
     const cfg = s.slotConfig || {};
-    if (isMoonshine) {
-      const lang = String(cfg.MOONSHINE_MODEL || "").trim().toLowerCase() || "en";
-      return [`export PORT=${port}`, `exec bash $HOME/run_moonshine.sh "$PORT" ${lang}`];
-    }
-    if (isTranscribe) {
-      const mf = String(cfg.MODEL_FILE || "").trim();
-      const model = (mf && !mf.startsWith("/") && !mf.startsWith("$"))
-        ? `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${mf}` : `"${mf || "…"}"`;
-      const lines = [`export PORT=${cfg.PORT || s.port || ""}`,
-                     `exec bash $HOME/run_transcribe.sh "$PORT" ${model}`];
-      const cmdText = lines.join("\n");
-      const pre = lines.map((l) => `<span class="cmd-token">${escapeHtml(l)}</span>`).join("\n");
-      return `<div class="nsd-cfg-section"><div class="nsd-cfg-head">COMMAND <button class="nsd-copy-btn" type="button" data-copy="${escapeHtml(cmdText)}" title="Copy">⎘</button></div><pre class="command-preview nsd-cmd-pre">${pre}</pre></div>`;
-    }
-    if (isWhisper) {
-      const size = String(cfg.WHISPER_MODEL || "").trim() || "large-v3";
-      const lines = [`export PORT=${cfg.PORT || s.port || ""}`,
-                     `exec env HUGGINGFACE_HUB_CACHE="\${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/whisper" bash $HOME/run_whisper.sh "$PORT" ${size}`];
-      const cmdText = lines.join("\n");
-      const pre = lines.map((l) => `<span class="cmd-token">${escapeHtml(l)}</span>`).join("\n");
-      return `<div class="nsd-cfg-section"><div class="nsd-cfg-head">COMMAND <button class="nsd-copy-btn" type="button" data-copy="${escapeHtml(cmdText)}" title="Copy">⎘</button></div><pre class="command-preview nsd-cmd-pre">${pre}</pre></div>`;
-    }
-    if (isVllm) {
-      // Simplified mirror of build_vllm_command() — the authoritative script
-      // lives in the cell's start.sh; this is the human-readable summary.
-      const m = String(cfg.VLLM_MODEL || "").trim() || "…";
-      const served = String(cfg.ALIAS || "").trim() || (m.split("/").filter(Boolean).pop() || "").toLowerCase();
-      const p = ["$HOME/vllm-venv/bin/vllm serve", m, '--host 0.0.0.0 --port "$PORT"'];
-      if (served) p.push(`--served-model-name ${served}`);
-      if (cfg.MAX_MODEL_LEN) p.push(`--max-model-len ${cfg.MAX_MODEL_LEN}`);
-      if (cfg.GPU_MEMORY_UTILIZATION) p.push(`--gpu-memory-utilization ${cfg.GPU_MEMORY_UTILIZATION}`);
-      const q = String(cfg.QUANTIZATION || "").toLowerCase();
-      if (q && q !== "auto") p.push(`--quantization ${q}`);
-      const dt = String(cfg.DTYPE || "").toLowerCase();
-      if (dt && dt !== "auto") p.push(`--dtype ${dt}`);
-      const tp = String(cfg.TENSOR_PARALLEL || "").trim();
-      if (tp && tp !== "0" && tp !== "1") p.push(`--tensor-parallel-size ${tp}`);
-      const lines = [`export PORT=${cfg.PORT || s.port || ""}`, `exec ${p.join(" ")}`];
-      const cmdText = lines.join("\n");
-      const pre = lines.map((l) => `<span class="cmd-token">${escapeHtml(l)}</span>`).join("\n");
-      return `<div class="nsd-cfg-section"><div class="nsd-cfg-head">COMMAND <button class="nsd-copy-btn" type="button" data-copy="${escapeHtml(cmdText)}" title="Copy">⎘</button></div><pre class="command-preview nsd-cmd-pre">${pre}</pre></div>`;
-    }
-    if (isCmd) {
-      const port = cfg.PORT || s.port || "";
-      const lines = [`export PORT=${port}`];
-      String(cfg.ENV || "").split(/[\n,]/).forEach((raw) => {
-        const it = raw.trim(); if (!it || it.startsWith("#") || !it.includes("=")) return;
-        const i = it.indexOf("="); const k = it.slice(0, i).trim();
-        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) return;
-        lines.push(`export ${k}="${it.slice(i + 1).trim()}"`);
-      });
-      if (cfg.WORKDIR) lines.push(`cd ${cfg.WORKDIR}`);
-      const c = String(cfg.COMMAND || "").trim().replace(/^\s*exec\s+/, "");
-      lines.push(`exec ${c || "…"}`);
-      const cmdText = lines.join("\n");
-      const pre = lines.map((l) => `<span class="cmd-token">${escapeHtml(l)}</span>`).join("\n");
-      return `<div class="nsd-cfg-section"><div class="nsd-cfg-head">COMMAND <button class="nsd-copy-btn" type="button" data-copy="${escapeHtml(cmdText)}" title="Copy">⎘</button></div><pre class="command-preview nsd-cmd-pre">${pre}</pre></div>`;
+    if (!isLlama) {
+      // The backend answers this for BOTH kinds of host: a controller cell from
+      // its start.sh, a client cell from the same builder that hands the scout
+      // its line. A custom cell's COMMAND is the last fallback — it IS the
+      // config, so it is a fact and not a re-render.
+      const saved = String(s.savedCommand || (isCmd ? cfg.COMMAND : "") || "")
+        .trim().replace(/^\s*exec\s+/, "");
+      if (!saved) {
+        // Never applied, and nothing to read. Said plainly rather than guessed —
+        // but only when it is TRUE: this line once appeared on client cells that
+        // had been serving for hours, because it was asked for a start.sh that
+        // only a controller host ever has.
+        return `<div class="nsd-cfg-section"><div class="nsd-cfg-head">COMMAND</div>`
+             + `<pre class="command-preview nsd-cmd-pre muted">${escapeHtml(t("cmdNotSavedYet"))}</pre></div>`;
+      }
+      const lines = [`export PORT=${cfg.PORT || s.port || ""}`];
+      if (isCmd) {
+        String(cfg.ENV || "").split(/[\n,]/).forEach((raw) => {
+          const it = raw.trim(); if (!it || it.startsWith("#") || !it.includes("=")) return;
+          const i = it.indexOf("="); const k = it.slice(0, i).trim();
+          if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) return;
+          lines.push(`export ${k}="${it.slice(i + 1).trim()}"`);
+        });
+        if (cfg.WORKDIR) lines.push(`cd ${cfg.WORKDIR}`);
+      }
+      lines.push(`exec ${saved}`);
+      return cmdSection(lines);
     }
     if (!Object.keys(cfg).length) return "";
     const tokens = [];
@@ -917,20 +916,17 @@ export function openNodeServerDetail(nodeId, port) {
           ${row("Address", `<a href="http://${escapeHtml(addr)}" target="_blank" rel="noopener" class="topology-addr-link nsd-addr-link" onclick="event.stopPropagation()">${escapeHtml(addr)} ↗</a>`)}
           ${isCmd
             ? row("Command", `<code class="nsd-cmd-inline">${escapeHtml(String(_scfg.COMMAND || "").replace(/^\s*exec\s+/, "") || "—")}</code>`)
-            : isVllm
-            ? row("Model", `<code class="nsd-cmd-inline">${escapeHtml(String(_scfg.VLLM_MODEL || "") || "—")}</code>`)
-            : isMoonshine
-            ? row("Model", `<code class="nsd-cmd-inline">moonshine ${escapeHtml(String(_scfg.MOONSHINE_MODEL || "en"))}</code>`)
-            : isWhisper
-            ? row("Model", `<code class="nsd-cmd-inline">faster-whisper ${escapeHtml(String(_scfg.WHISPER_MODEL || "large-v3"))}</code>`)
+            : _runnerRow && _runnerRow.modelField && !isLlama
+            // Each runner keeps its model in its OWN field; reading MODEL_FILE
+            // for all of them is what once labelled an NLLB cell "gemma".
+            ? row("Model", `<code class="nsd-cmd-inline">${escapeHtml(String(_scfg[_runnerRow.modelField] || "") || "—")}</code>`)
             : row("Model", escapeHtml(parsed.label || s.model || ""))}
-          ${isVllm ? row("Runner", `${mbadge("cmd", "⚡ vllm")}${mbadge("cmd", "❤ /v1/models")}`) : ""}
-          ${isWhisper ? row("Runner", `${mbadge("cmd", "🎙 whisper")}${mbadge("cmd", "❤ /health")}`) : ""}
-          ${isMoonshine ? row("Runner", `${mbadge("cmd", "🌙 moonshine")}${mbadge("cmd", "❤ /health")}`) : ""}
-          ${isTranscribe ? row("Runner", `${mbadge("cmd", "📝 transcribe.cpp")}${mbadge("cmd", "❤ /health")}`) : ""}
+          ${(!isLlama && !isCmd && _runnerRow)
+            ? row("Runner", `${mbadge("cmd", `${_runnerRow.icon || ""} ${t(_runnerRow.labelKey) || _runnerRow.id}`)}${_runnerRow.health ? mbadge("cmd", `❤ ${_runnerRow.health}`) : ""}`)
+            : ""}
           ${isCmd
             ? (row("Health", _scfg.HEALTH_PATH ? `<code>${escapeHtml(_scfg.HEALTH_PATH)}</code>` : "") + row("Workdir", _scfg.WORKDIR ? `<code>${escapeHtml(_scfg.WORKDIR)}</code>` : ""))
-            : (() => { const chips = [parsed.quant ? mbadge("quant", `🎛 ${escapeHtml(parsed.quant)}`) : "", parsed.size ? mbadge("size", `⚖ ${escapeHtml(parsed.size)}`) : "", parsed.variant ? mbadge("it", `🤖 ${escapeHtml(parsed.variant)}`) : "", s.mmproj ? mbadge("mmproj", "📷 mmproj") : "", hasMtp ? mbadge("mtp", "⚡ mtp") : "", nsdCtxChip].filter(Boolean).join(""); return chips ? `<div class="nsd-row"><span class="nsd-k"></span><span class="nsd-v"><span class="model-chips">${chips}</span></span></div>` : ""; })()}
+            : (() => { const chips = [parsed.quant ? mbadge("quant", `🎛 ${escapeHtml(parsed.quant)}`) : "", parsed.size ? mbadge("size", `⚖ ${escapeHtml(parsed.size)}`) : "", parsed.variant ? mbadge("it", `🤖 ${escapeHtml(parsed.variant)}`) : "", s.mmproj ? mbadge("mmproj", "📷 mmproj") : "", (hasMtp && _hasCtx) ? mbadge("mtp", "⚡ mtp") : "", nsdCtxChip].filter(Boolean).join(""); return chips ? `<div class="nsd-row"><span class="nsd-k"></span><span class="nsd-v"><span class="model-chips">${chips}</span></span></div>` : ""; })()}
           ${row("GPU", gpuLines ? escapeHtml(gpuLines) : (running ? "CPU" : ""))}
           ${row(t("topologyTokenSpeedHead"), (s.promptTps != null || s.genTps != null) ? `${formatTps(s.promptTps || 0)} / ${formatTps(s.genTps || 0)} t/s (${t("topologyPromptGen")})` : "")}
           ${row("Context", s.ctxMax ? `${s.ctxUsed != null ? escapeHtml(formatCtxTokens(s.ctxUsed)) : "—"} / ${escapeHtml(formatCtxTokens(s.ctxMax))} ${escapeHtml(t("topologyLlamaContextWindow").toLowerCase())}` : "")}

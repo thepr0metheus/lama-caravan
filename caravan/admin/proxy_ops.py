@@ -14,6 +14,7 @@ from caravan.admin.proxies_config import (
 from caravan.admin.proxy_stats import agent_proxy_sample
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.common.errors import AppError
+from caravan.domain.client_proxy import AgentAssignment, ProxyRoute
 
 
 def reconcile_agent_proxies(dry_run=False):
@@ -67,8 +68,9 @@ def reconcile_agent_proxies(dry_run=False):
             # Fallback pairs are retired: assignments are rewritten primary-only,
             # which in turn leaves the fallback routes unreferenced below — the
             # standard deletion path then removes them and restarts the proxies.
-            rts = [{"role": "primary", "proxyId": f"skynet:proxy:{port}", "endpoint": f"http://{server_ip}:{port}/v1"}]
-            new_list.append({"agentId": aid, "routes": rts})
+            new_list.append(AgentAssignment.rewired(
+                aid, existing.get(aid),
+                ProxyRoute.for_port("primary", port, server_ip)).to_dict())
         tombstoned = set(store.get("deletedAgents", {}).get(host_id, []))
         for aid, a in existing.items():  # keep offline agents' assignments as-is — but not tombstoned ones
             if aid not in live_ids and aid not in tombstoned:

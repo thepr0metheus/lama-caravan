@@ -19,41 +19,128 @@ here borrowed a protocol's field names it inherited their meanings too.
 Usage: translate_server.py <port> <model> [src_lang] [tgt_lang]
        model: an HF repo id (facebook/nllb-200-distilled-600M) or a local dir
 """
-import hashlib
 import json
 import os
 import sys
 import threading
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8040
-MODEL = sys.argv[2] if len(sys.argv) > 2 else "facebook/nllb-200-distilled-600M"
-SRC_LANG = sys.argv[3] if len(sys.argv) > 3 else "eng_Latn"
-TGT_LANG = sys.argv[4] if len(sys.argv) > 4 else "rus_Cyrl"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cell_base import CellServer   # noqa: E402
 
-# NLLB emits at most this many tokens per call; longer input is split on
-# sentence boundaries first. The model's own config says max_length 200, and a
-# request that silently loses its tail is worse than one that takes two passes.
 MAX_NEW_TOKENS = int(os.environ.get("TRANSLATE_MAX_TOKENS", "256"))
 
-
-def _source_stamp():
-    try:
-        with open(os.path.abspath(__file__), "rb") as fh:
-            return hashlib.sha256(fh.read()).hexdigest()[:12]
-    except Exception:  # noqa: BLE001
-        return ""
-
-
-SOURCE = _source_stamp()
 _state = {"ready": False, "error": "", "device": "", "dtype": "", "langs": []}
 _lock = threading.Lock()
 _model = None
 _tokenizer = None
+_model_id = "facebook/nllb-200-distilled-600M"
+#: Умолчания ячейки для языков. Живут модулем, потому что _resolve_lang —
+#: свободная функция: ей нужен запасной вариант, а не экземпляр.
+_src_lang = "eng_Latn"
+_tgt_lang = "rus_Cyrl"
 
 
-def _log(msg):
+def log(msg):
     print(f"[translate] {msg}", flush=True)
+
+
+class TranslateCell(CellServer):
+    """NLLB: text in, text out, with the language pair named by the caller.
+
+    Unlike the speech cell this one cannot detect its input — NLLB is TOLD the
+    source language — so /health says `srcLangRequired` rather than leaving a
+    caller to find out from output that is confidently wrong.
+    """
+    default_port = 8040
+    engine = "nllb"
+    kinds = ["translate"]
+    protocol_version = "HTTP/1.1"
+    json_ensure_ascii = False
+    json_content_type = "application/json; charset=utf-8"
+
+    @property
+    def model_name(self):
+        return _model_id
+
+    def is_health(self, path):
+        # Anything ending in /health, and the root: what this cell has always
+        # answered. A fixed list would 404 a caller already using /v1/health.
+        return path == "/" or path.endswith("/health")
+
+    def ready_required(self, path):
+        # A POST to a path this cell does not serve is a 404 whether or not the
+        # model is up; 503 "model loading" would send the caller off to wait for
+        # a load that was never going to make that path exist.
+        return path.endswith("/translate") or path.endswith("/translations")
+
+    def extra_health(self):
+        return {
+            "srcLang": _src_lang, "targetLang": _tgt_lang,
+            # FLORES-200: language AND script. Said explicitly because a caller
+            # who assumes ISO 639-3 will send `rus` and be surprised — it works
+            # here, but only because short codes are resolved.
+            "langs": _state.get("langs") or [],
+            "codeset": "flores200",
+            "acceptsShortCodes": True,
+            # Unlike the speech cell, this one cannot detect its input:
+            # NLLB is TOLD the source language and translates accordingly.
+            "srcLangRequired": True,
+            "device": _state.get("device"), "dtype": _state.get("dtype"),
+            "maxNewTokens": MAX_NEW_TOKENS,
+        }
+
+    def load(self):
+        global _model_id, _src_lang, _tgt_lang
+        if self.args:
+            _model_id = self.args[0]
+        if len(self.args) > 1:
+            _src_lang = self.args[1]
+        if len(self.args) > 2:
+            _tgt_lang = self.args[2]
+        _load()
+        if _state.get("error"):
+            raise RuntimeError(_state["error"])
+
+    def _lang_error(self, exc, field):
+        payload = {"error": f"unsupported {field} {exc.code!r}",
+                   "codeset": "flores200"}
+        if exc.candidates:
+            payload["error"] = (f"ambiguous {field} {exc.code!r} — "
+                                f"name the script")
+            payload["candidates"] = exc.candidates
+        else:
+            payload["accepted"] = _state.get("langs") or []
+        return 400, payload, None
+
+    def handle(self, body, headers, path):
+        if not path.endswith("/translate") and not path.endswith("/translations"):
+            return 404, {"error": "not found"}, None
+        try:
+            req = json.loads(body or b"{}")
+        except Exception:  # noqa: BLE001
+            return 400, {"error": "body must be JSON {text|texts, src_lang, tgt_lang}"}, None
+        texts = req.get("texts")
+        if texts is None:
+            single = req.get("text")
+            texts = [single] if isinstance(single, str) else None
+        if not isinstance(texts, list) or not texts:
+            return 400, {"error": "need `text` (string) or `texts` (list of strings)"}, None
+        try:
+            src = _resolve_lang(req.get("src_lang") or req.get("srcLang"), _src_lang)
+        except LangError as exc:
+            return self._lang_error(exc, "src_lang")
+        try:
+            tgt = _resolve_lang(req.get("tgt_lang") or req.get("tgtLang"), _tgt_lang)
+        except LangError as exc:
+            return self._lang_error(exc, "tgt_lang")
+        done = _translate([str(t) for t in texts], src, tgt)
+        payload = {"texts": done, "srcLang": src, "tgtLang": tgt}
+        # `text` echoed back only when `text` was sent: a caller that asked for a
+        # list gets a list, and one that asked for a string does not have to
+        # unwrap one. Adding it unconditionally made a batch of 1 look singular.
+        if len(done) == 1 and "texts" not in req:
+            payload["text"] = done[0]
+        return 200, payload, None
 
 
 def _load():
@@ -63,8 +150,8 @@ def _load():
         from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
         use_cuda = torch.cuda.is_available()
         dtype = torch.float16 if use_cuda else torch.float32
-        _tokenizer = AutoTokenizer.from_pretrained(MODEL)
-        model = AutoModelForSeq2SeqLM.from_pretrained(MODEL, dtype=dtype)
+        _tokenizer = AutoTokenizer.from_pretrained(_model_id)
+        model = AutoModelForSeq2SeqLM.from_pretrained(_model_id, dtype=dtype)
         _model = model.to("cuda" if use_cuda else "cpu").eval()
         # The languages this checkpoint has, read from the tokenizer's VOCAB.
         # NLLB codes are FLORES-200: language AND script, eng_Latn / rus_Cyrl.
@@ -79,20 +166,20 @@ def _load():
                 if len(c) == 8 and c[3] == "_" and c[:3].isalpha() and c[4:].isalpha())
         except Exception as exc:  # noqa: BLE001
             _state["langs"] = []
-            _log(f"language list unreadable: {exc}")
+            log(f"language list unreadable: {exc}")
         if not _state["langs"]:
             # Say it out loud: an empty list means /health advertises nothing and
             # _resolve_lang stops validating, which is a real degradation and not
             # something to discover from a puzzling 400 later.
-            _log("WARNING: no language codes found — requests will not be validated")
+            log("WARNING: no language codes found — requests will not be validated")
         _state["device"] = "cuda" if use_cuda else "cpu"
         _state["dtype"] = "float16" if use_cuda else "float32"
         _state["ready"] = True
-        _log(f"ready on {_state['device']} ({_state['dtype']}), "
-             f"{len(_state['langs'])} languages, {SRC_LANG} -> {TGT_LANG}")
+        log(f"ready on {_state['device']} ({_state['dtype']}), "
+             f"{len(_state['langs'])} languages, {_src_lang} -> {_tgt_lang}")
     except Exception as exc:  # noqa: BLE001
         _state["error"] = f"{type(exc).__name__}: {exc}"
-        _log(f"load failed: {_state['error']}")
+        log(f"load failed: {_state['error']}")
 
 
 # ISO 639-1 -> 639-3, the short codes clients actually send. Only where the
@@ -173,106 +260,5 @@ def _translate(texts, src, tgt):
     return out
 
 
-class Handler(BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
-
-    def log_message(self, *_a):
-        pass
-
-    def _send(self, code, payload):
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_GET(self):
-        path = (self.path or "").split("?", 1)[0].rstrip("/")
-        if not path.endswith("/health") and path not in ("", "/"):
-            self._send(404, {"error": "not found"})
-            return
-        if _state["ready"]:
-            self._send(200, {
-                "status": "ok", "engine": "nllb", "model": MODEL,
-                "kinds": ["translate"],
-                "srcLang": SRC_LANG, "targetLang": TGT_LANG,
-                # FLORES-200: language AND script. Said explicitly because a
-                # caller who assumes ISO 639-3 will send `rus` and be surprised
-                # — it works here, but only because short codes are resolved.
-                "langs": _state.get("langs") or [],
-                "codeset": "flores200",
-                "acceptsShortCodes": True,
-                # Unlike the speech cell, this one cannot detect its input:
-                # NLLB is TOLD the source language and translates accordingly.
-                "srcLangRequired": True,
-                "device": _state.get("device"), "dtype": _state.get("dtype"),
-                "maxNewTokens": MAX_NEW_TOKENS, "source": SOURCE,
-            })
-        elif _state["error"]:
-            self._send(500, {"status": "error", "error": _state["error"], "source": SOURCE})
-        else:
-            self._send(503, {"status": "loading", "source": SOURCE})
-
-    def _lang_error(self, exc, field):
-        payload = {"error": f"unsupported {field} {exc.code!r}",
-                   "codeset": "flores200"}
-        if exc.candidates:
-            payload["error"] = (f"ambiguous {field} {exc.code!r} — "
-                                f"name the script")
-            payload["candidates"] = exc.candidates
-        else:
-            payload["accepted"] = _state.get("langs") or []
-        self._send(400, payload)
-
-    def do_POST(self):
-        path = (self.path or "").split("?", 1)[0].rstrip("/")
-        if not path.endswith("/translate") and not path.endswith("/translations"):
-            self._send(404, {"error": "not found"})
-            return
-        if not _state["ready"]:
-            self._send(503, {"error": _state["error"] or "loading"})
-            return
-        try:
-            req = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-        except Exception:  # noqa: BLE001
-            self._send(400, {"error": "body must be JSON {text|texts, src_lang, tgt_lang}"})
-            return
-        texts = req.get("texts")
-        if texts is None:
-            single = req.get("text")
-            texts = [single] if isinstance(single, str) else None
-        if not isinstance(texts, list) or not texts:
-            self._send(400, {"error": "need `text` (string) or `texts` (list of strings)"})
-            return
-        try:
-            src = _resolve_lang(req.get("src_lang") or req.get("srcLang"), SRC_LANG)
-        except LangError as exc:
-            self._lang_error(exc, "src_lang")
-            return
-        try:
-            tgt = _resolve_lang(req.get("tgt_lang") or req.get("tgtLang"), TGT_LANG)
-        except LangError as exc:
-            self._lang_error(exc, "tgt_lang")
-            return
-        try:
-            done = _translate([str(t) for t in texts], src, tgt)
-        except Exception as exc:  # noqa: BLE001
-            _log(f"translate error: {exc}")
-            self._send(500, {"error": f"{type(exc).__name__}: {exc}"})
-            return
-        payload = {"texts": done, "srcLang": src, "tgtLang": tgt}
-        if len(done) == 1 and "texts" not in req:
-            payload["text"] = done[0]
-        self._send(200, payload)
-
-
-def main():
-    threading.Thread(target=_load, daemon=True).start()
-    srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    _log(f"listening on :{PORT} (model={MODEL!r}, {SRC_LANG} -> {TGT_LANG})")
-    srv.serve_forever()
-
-
 if __name__ == "__main__":
-    main()
+    TranslateCell().serve()

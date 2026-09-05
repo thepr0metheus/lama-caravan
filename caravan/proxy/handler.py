@@ -12,6 +12,7 @@ import uuid as _uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlsplit
 
+from caravan.common.context_window import served_window
 from caravan.proxy.cloud_auth import (
     CLOUD_PROVIDER_AUTH,
     load_cloud_account,
@@ -90,6 +91,172 @@ def _upstream_failure_summary(status, body):
     return reason, kind[:60]
 
 
+def _with_context_window(body):
+    """Copy the served context window to the top level of each model entry.
+
+    The clients that read a context window disagree on the name as much as the
+    servers do — Continue reads `max_model_len`, LibreChat reads
+    `context_length`, and llama.cpp's own `meta.n_ctx` is read by none of the
+    nine surveyed — so the number is published under both widely-read names,
+    beside the nested one rather than instead of it. Nothing is invented: an
+    entry whose server reported no size keeps no size, because a guessed context
+    is worse than an absent one (docs/why.md).
+
+    Returns the re-serialised body, or the original bytes untouched when it is
+    not a model list this can safely read.
+    """
+    try:
+        payload = json.loads(body)
+    except Exception:
+        return body
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        return body
+    touched = False
+    for entry in payload["data"]:
+        if not isinstance(entry, dict):
+            continue
+        window = served_window(entry)
+        if window is None:
+            continue
+        for name in ("context_length", "max_model_len"):
+            # An upstream that already answers under this name keeps its own
+            # value: this republishes what the server said, it does not correct it.
+            if name not in entry:
+                entry[name] = window
+                touched = True
+    if not touched:
+        return body
+    return json.dumps(payload).encode("utf-8")
+
+
+# Paths a client tries before it knows what kind of server answers this port:
+# llama.cpp's /props and /version, Ollama's /api/tags and /api/show. A cloud
+# bridge has none of them — and the subscription branch sends EVERY path to
+# /backend-api/codex/responses, so a GET arrived there as "Method Not Allowed"
+# and POST /api/show reached the paid API as a request with no input at all.
+# 152 such answers in one production day painted the route's error panel red
+# while every real completion succeeded. The port answers for itself now: 404
+# is the true statement — this server has no such endpoint — and it costs no
+# upstream call. Only for a CLOUD upstream: on a llama route each of these
+# belongs to the upstream and stays forwarded.
+CLOUD_ABSENT_PATHS = frozenset({
+    "/props", "/v1/props", "/version", "/api/version",
+    "/api/tags", "/api/show", "/api/ps", "/api/v1/models",
+})
+
+
+def _override_context_window(body, window):
+    """Проставить окно оператора поверх того, что отдал апстрим.
+
+    Под обоими именами, которые читают клиенты, — теми же, что и
+    `_with_context_window`: назвать одно и промолчать о втором значит отдать
+    половине клиентов число, а половине ничего. Вложенное `meta.n_ctx` не
+    трогается: там ФАКТ о запущенном сервере, а не решение оператора.
+    """
+    try:
+        payload = json.loads(body)
+        rows = payload.get("data")
+        if not isinstance(rows, list):
+            return body
+        for row in rows:
+            if isinstance(row, dict):
+                row["context_length"] = row["max_model_len"] = window
+        return json.dumps(payload).encode("utf-8")
+    except Exception:
+        return body
+
+
+def _route_model_name(route):
+    """Имя, под которым ЭТОТ порт объявляет свою модель, или "".
+
+    Клиент спрашивает `/v1/models` и ищет там СВОЙ id. Не найдя — берёт
+    встроенное умолчание (у одного это 256k), и окно, честно опубликованное
+    под именем апстрима, до него не доходит вовсе. Имя задаётся оператором на
+    маршруте и приезжает сюда той же копией, что и окно.
+    """
+    return str((route or {}).get("modelName") or "").strip()
+
+
+def _rename_models(body, name):
+    """Переименовать модели в ответе `/v1/models` под объявленное имя.
+
+    Переименовывается ЕДИНСТВЕННАЯ запись: порт объявляет одну модель, и если
+    апстрим вернул список, выбирать за клиента, какая из них «та самая», мы не
+    вправе — тогда ответ остаётся как есть.
+    """
+    if not name:
+        return body
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except Exception:
+        return body
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
+        return body
+    if data[0].get("id") == name:
+        return body
+    data[0]["id"] = name
+    return json.dumps(payload).encode("utf-8")
+
+
+def _route_context_window(route):
+    """Окно контекста, заданное оператором ДЛЯ ЭТОГО порта, или None.
+
+    Число модели — одно на всех, кто в неё маршрутизирует; здесь живёт то,
+    сколько разрешено этому потребителю, и оно побеждает. Задаётся оно на
+    клиентской прокси-ячейке (назначение в документе контроллера), а сюда
+    приезжает копией на маршруте: процесс прокси документа контроллера не
+    видит — он читает только свои файлы (см. reconcile_proxy_metadata).
+
+    Включённая галка «брать от модели» означает ОТКАЗ от своего числа, поэтому
+    возвращается None и в дело идёт модельное. Ноль и мусор — тоже None: клиент
+    прочитал бы ноль как настоящий предел.
+    """
+    if (route or {}).get("contextAuto"):
+        return None
+    try:
+        window = int(route.get("contextLength") or 0)
+    except (TypeError, ValueError):
+        return None
+    return window if window > 0 else None
+
+
+def _cloud_model_entry(route):
+    """The one model a cloud-routed port serves, in OpenAI's model shape.
+
+    Shared by /v1/models and /v1/models/<id> so the two can never disagree
+    about what this port answers with.
+    """
+    provider = load_cloud_provider(route.get("providerId") or "")
+    entry = {
+        "id": (provider.get("model") if provider else None) or route.get("label") or "default",
+        "object": "model",
+        "created": int(time.time()),
+        "owned_by": (provider.get("type") if provider else None) or "cloud",
+    }
+    # Stated by the operator on the model block, or last reported by the
+    # account's own catalogue. Omitted when neither knows: several providers
+    # publish no window at all, and a guessed one is worse than none
+    # (docs/why.md).
+    window = (provider or {}).get("contextLength")
+    if isinstance(window, int) and window > 0:
+        entry["context_length"] = window
+        entry["max_model_len"] = window
+    # THIS port's own figure wins over the block's, and it is applied here
+    # rather than at the caller — the promise above ("shared, so the two can
+    # never disagree") held only for the id and the owner: /v1/models applied
+    # the operator's window afterwards and retrieve-model did not, so one port
+    # answered 32768 to a list and 200000 to a lookup of the same model.
+    own = _route_context_window(route)
+    if own is not None:
+        entry["context_length"] = entry["max_model_len"] = own
+    # Имя оператора побеждает имя блока: клиент ищет в ответе СВОЙ id.
+    name = _route_model_name(route)
+    if name:
+        entry["id"] = name
+    return entry
+
+
 class ProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -119,12 +286,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         payload = json.dumps({"error": {"message": f"proxy {route.get('label') or ''} requires an API key "
                                                    "(Authorization: Bearer <key>)", "type": "unauthorized"}}).encode("utf-8")
         try:
-            self.send_response(401)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
-            self.send_header("Connection", "close")
-            self.end_headers()
-            self.wfile.write(payload)
+            self._send_bytes(401, payload)
         except Exception:
             pass
         write_proxy_event("blocked", route_label=route.get("label") or "", request_id=request_id,
@@ -154,12 +316,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             reason = route["unrouted"]
             payload503 = json.dumps({"error": {"message": f"proxy {route['label']} is not routed to a router output ({reason})", "type": "unrouted"}}).encode("utf-8")
             try:
-                self.send_response(503)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(payload503)))
-                self.send_header("Connection", "close")
-                self.end_headers()
-                self.wfile.write(payload503)
+                self._send_bytes(503, payload503)
             except Exception:
                 pass
             write_proxy_event("blocked", route_label=route["label"], request_id=request_id,
@@ -303,18 +460,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
             payload = json.dumps({"error": str(exc), "kind": exc.kind}).encode("utf-8")
             try:
                 if headers_sent:
-                    # SSE stream already open — encode error as event then [DONE]
-                    err_event = (f"event: error\ndata: {json.dumps({'error': str(exc), 'kind': exc.kind})}"
-                                 f"\n\ndata: [DONE]\n\n").encode()
-                    self.wfile.write(err_event)
-                    self.wfile.flush()
+                    self._send_sse_error({"error": str(exc), "kind": exc.kind})
                 else:
-                    self.send_response(status)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", str(len(payload)))
-                    self.send_header("Connection", "close")
-                    self.end_headers()
-                    self.wfile.write(payload)
+                    self._send_bytes(status, payload)
             except Exception:
                 pass
             result = {
@@ -374,11 +522,37 @@ class ProxyHandler(BaseHTTPRequestHandler):
         _hb_interval = float((current_config().get("policy") or {}).get("queueKeepaliveSec") or 20)
         _hb_interval = max(5.0, min(_hb_interval, 30.0))
 
+        def _on_client(fn):
+            # Run one write to the CLIENT. A failure here is the only direct
+            # observation this thread ever gets that the client is gone: the
+            # heartbeat probe exists just for streaming requests, so for a plain
+            # POST there is no other signal. Without this, the EPIPE from
+            # writing to a vanished client fell through to the upstream-leg
+            # branch and was recorded as the UPSTREAM dropping the connection —
+            # the same false blame the kind was introduced to remove, pointing
+            # the other way. Mark it as the heartbeat would, which also tears the
+            # upstream socket down so the cell stops generating into the void.
+            #
+            # Both kinds of write go through here. The body goes through
+            # _client_write; the response HEADERS go through end_headers(),
+            # which is where the buffered header block first touches the socket
+            # — and an agent that is killed usually dies while the cell is still
+            # generating, so the headers are the write that fails. The first
+            # version of this marking covered only the body and missed exactly
+            # that, the common production case.
+            try:
+                return fn()
+            except (BrokenPipeError, ConnectionResetError, OSError):
+                _abort_for_client_gone()
+                raise
+
         def _client_write(data):
-            with _wfile_lock:
-                self.wfile.write(data)
-                self.wfile.flush()
-                _last_client_write[0] = time.time()
+            def _do():
+                with _wfile_lock:
+                    self.wfile.write(data)
+                    self.wfile.flush()
+                    _last_client_write[0] = time.time()
+            _on_client(_do)
 
         # Our own reference to the upstream TCP socket: once the response headers
         # arrive, http.client detaches conn.sock (Connection: close), so tearing
@@ -706,7 +880,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                     self.send_header("Cache-Control", "no-cache")
                     self.send_header("Connection", "close")
-                    self.end_headers()
+                    _on_client(self.end_headers)
                     _sse_open[0] = True
                 for chunk in _iter_responses_as_completions_sse(upstream, completion_id, subscription_model or "gpt-5.4-mini"):
                     if first_byte_ms is None:
@@ -745,7 +919,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
                         self.send_header("Cache-Control", "no-cache")
                         self.send_header("Connection", "close")
-                        self.end_headers()
+                        _on_client(self.end_headers)
                         _sse_open[0] = True
                     for chunk in _iter_anthropic_as_completions_sse(upstream, completion_id, _amodel):
                         if first_byte_ms is None:
@@ -789,7 +963,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         self.send_header("Content-Type", "application/json")
                         self.send_header("Content-Length", str(len(translated)))
                         self.send_header("Connection", "close")
-                        self.end_headers()
+                        _on_client(self.end_headers)
                     self.wfile.write(translated)
                     self.wfile.flush()
             else:
@@ -802,7 +976,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     if upstream_error_raw:
                         # Already read the error body for logging — send it with correct length
                         self.send_header("Content-Length", str(len(upstream_error_raw)))
-                    self.end_headers()
+                    _on_client(self.end_headers)
                 if upstream_error_raw:
                     if headers_sent:
                         # SSE stream already open — encode error as event
@@ -850,6 +1024,21 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             "elapsedMs": round((now - started) * 1000),
                         })
                     if STREAM_DONE_MARKER in chunk:
+                        # Stopping here is our choice, so the frame we leave the
+                        # client with has to be complete. readline() returns the
+                        # marker without the blank line that ENDS the event, and
+                        # that line is still in the socket when we break. Without
+                        # it a parser that follows the SSE format never dispatches
+                        # [DONE] — it waits for a terminator that never comes,
+                        # until the connection closes. Both translating iterators
+                        # already yield "data: [DONE]\n\n", and _send_sse_error
+                        # writes it too: this passthrough was the one streaming
+                        # path of three that ended a frame unterminated.
+                        trailing = len(chunk) - len(chunk.rstrip(b"\n"))
+                        missing = b"\n" * max(0, 2 - trailing)
+                        if missing:
+                            _client_write(missing)
+                            bytes_out += len(missing)
                         break
             elif not is_subscription and not is_anthropic:
                 if is_event_stream:
@@ -866,8 +1055,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         chunks += 1
                         if len(capture) < BODY_CAPTURE_LIMIT:
                             capture.extend(chunk[:BODY_CAPTURE_LIMIT - len(capture)])
-                        self.wfile.write(chunk)
-                        self.wfile.flush()
+                        _client_write(chunk)
                         if stop_requested(request_id):
                             raise ProxyRequestStopped("request stopped by traffic policy")
                         now = time.time()
@@ -898,33 +1086,29 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 error_kind = "client_disconnected"
             else:
                 error = str(exc)
-                error_kind = "stopped" if isinstance(exc, ProxyRequestStopped) else classify_proxy_error(exc)
+                # client_present=True is earned here, not assumed. Every write to
+                # the client goes through _client_write, which flags a failed
+                # write as the client leaving before re-raising; the heartbeat
+                # flags a silent departure the same way. So an exception that
+                # reaches this else did NOT come from the client side — it came
+                # from the upstream leg, and a reset there is the upstream's.
+                # (An earlier version of this comment claimed the client was
+                # "still on the socket" because the flag was unset. For a
+                # non-streaming request nothing was watching the socket at all.)
+                error_kind = ("stopped" if isinstance(exc, ProxyRequestStopped)
+                              else classify_proxy_error(exc, client_present=True))
             try:
                 if _client_gone[0]:
                     pass   # nobody to write the error frame to
                 elif headers_sent:
-                    # SSE stream already open — encode error as event
-                    err_data = json.dumps({"error": error})
-                    self.wfile.write(f"event: error\ndata: {err_data}\n\ndata: [DONE]\n\n".encode())
-                    self.wfile.flush()
+                    # The kind travels with the error, as it already does for a
+                    # blocked request: it was computed two lines up and reached
+                    # only the journal, so a client could see that something
+                    # failed but never what.
+                    self._send_sse_error({"error": error, "kind": error_kind})
                 else:
-                    payload = json.dumps({"error": error}).encode("utf-8")
-                    self.send_response(status)
-                    self.send_header("Content-Type", "application/json")
-                    self.send_header("Content-Length", str(len(payload)))
-                    # This handler speaks HTTP/1.1, so a client that says
-                    # keep-alive — which every modern SDK does by default — gets
-                    # a persistent connection unless we say otherwise. The
-                    # success path closes at the `self.close_connection = True`
-                    # above, but an exception jumps over it, and this was the
-                    # one response path with no Connection header of its own.
-                    # The thread then parks in readline() with no socket
-                    # timeout, holding a listener thread for as long as the
-                    # client keeps the socket. Every other reply here already
-                    # sends this header; this branch was the gap.
-                    self.send_header("Connection", "close")
-                    self.end_headers()
-                    self.wfile.write(payload)
+                    self._send_bytes(status, json.dumps(
+                        {"error": error, "kind": error_kind}).encode("utf-8"))
             except Exception:
                 pass
         finally:
@@ -1012,35 +1196,117 @@ class ProxyHandler(BaseHTTPRequestHandler):
             finish_active(str(route["port"]), request_id, result)
             write_proxy_event("finished", route_label=route["label"], request_id=request_id, item=result, status=status, error=error, errorKind=error_kind)
 
-    def _send_models_fast(self, route):
-        mode = str(route.get("mode") or "open").lower()
-        if mode in ("paused", "drain"):
-            payload = json.dumps({"error": f"proxy route {route['label']} is {mode}", "kind": "blocked"}).encode("utf-8")
-            self.send_response(503)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(payload)))
-            self.send_header("Connection", "close")
-            self.end_headers()
-            self.wfile.write(payload)
-            return
-        upstream_type = str(route.get("upstreamType") or "llama")
-        if upstream_type == "cloud":
-            provider = load_cloud_provider(route.get("providerId") or "")
-            model_id = (provider.get("model") if provider else None) or route.get("label") or "default"
-            owned_by = (provider.get("type") if provider else None) or "cloud"
-        else:
-            model_id = route.get("label") or "default"
-            owned_by = "llama.cpp"
-        body = json.dumps({
-            "object": "list",
-            "data": [{"id": model_id, "object": "model", "created": int(time.time()), "owned_by": owned_by}],
-        }).encode("utf-8")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
+    def _send_bytes(self, status, body, ctype="application/json"):
+        """One complete reply: status, type, length, and Connection: close.
+
+        The last header is why this exists rather than being written out at each
+        site. This handler speaks HTTP/1.1, so a client that says keep-alive —
+        which every modern SDK does by default — gets a persistent connection
+        unless we say otherwise. The success path closes explicitly, but an
+        exception jumps over that, and one hand-written copy of this block had
+        no Connection header of its own: the thread then parked in readline()
+        with no socket timeout, holding a listener thread for as long as the
+        client kept the socket. Four copies of five lines, and the bug was one
+        line missing from one of them.
+        """
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Connection", "close")
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_sse_error(self, payload):
+        """Report a failure inside an SSE stream that is already open.
+
+        Once headers are sent the status is spent, so the only way left to tell
+        the client anything is an error event followed by [DONE] — without the
+        terminator a client waits out its own read timeout instead of failing.
+        """
+        data = json.dumps(payload)
+        self.wfile.write(f"event: error\ndata: {data}\n\ndata: [DONE]\n\n".encode())
+        self.wfile.flush()
+
+    def _send_models(self, route):
+        """Answer GET /v1/models with what the model behind this port serves.
+
+        The port is an entry point, not a model. Which output actually serves a
+        request is the router's decision, and it can land on a different cell —
+        or on a cloud block — than the route's own upstream fields name. Built
+        from the label instead, this endpoint told a client an id that no
+        completion ever came back with, and a port whose cell was stopped, or
+        that was bound to no router at all, still advertised a model as if it
+        were there. That is absence rendered as normality (docs/why.md): an
+        endpoint that cannot serve now says so instead.
+
+        Cloud outputs keep a synthesised answer on purpose. The account's own
+        /v1/models lists the provider's entire catalogue, while this port routes
+        to exactly the one model its block pins; relaying the catalogue would
+        advertise hundreds of models the port will not serve.
+        """
+        mode = str(route.get("mode") or "open").lower()
+        if mode in ("paused", "drain"):
+            self._send_bytes(503, json.dumps(
+                {"error": f"proxy route {route['label']} is {mode}", "kind": "blocked"}).encode("utf-8"))
+            return
+        # Same resolution a request goes through (proxy()), with a neutral ctx:
+        # a GET carries no model, no token count and is neither audio nor
+        # embeddings, so the graph answers with the output a plain chat request
+        # would reach.
+        route = apply_router(route, current_config(),
+                             ctx={"model": "", "maxTokens": None, "audio": False, "embeddings": False})
+        upstream_type = str(route.get("upstreamType") or "llama")
+        if route.get("unrouted") and upstream_type != "cloud":
+            reason = route["unrouted"]
+            self._send_bytes(503, json.dumps({"error": {
+                "message": f"proxy {route.get('label') or ''} is not routed to a router output ({reason})",
+                "type": "unrouted"}}).encode("utf-8"))
+            return
+        if upstream_type == "cloud":
+            entry = _cloud_model_entry(route)
+            self._send_bytes(200, json.dumps({"object": "list", "data": [entry]}).encode("utf-8"))
+            return
+        host, port = route.get("upstreamHost"), route.get("upstreamPort")
+        try:
+            conn = http.client.HTTPConnection(host, port, timeout=10)
+            try:
+                conn.request("GET", "/v1/models", headers={"Host": f"{host}:{port}"})
+                resp = conn.getresponse()
+                body = resp.read()
+                ctype = resp.getheader("Content-Type") or "application/json"
+                status = resp.status
+            finally:
+                conn.close()
+        except Exception as exc:
+            self._send_bytes(502, json.dumps({"error": {
+                "message": f"upstream {host}:{port} did not answer /v1/models: {exc}",
+                "type": "upstream_unavailable"}}).encode("utf-8"))
+            return
+        if status == 200:
+            body = _with_context_window(body)
+            own = _route_context_window(route)
+            if own is not None:
+                body = _override_context_window(body, own)
+            body = _rename_models(body, _route_model_name(route))
+        self._send_bytes(status, body, ctype)
+
+    def _routed_upstream_type(self):
+        """"cloud" or "llama" for THIS port, as the router decides it.
+
+        The stored route can name 127.0.0.1 and still send every request to a
+        cloud block through the graph — that is the shape running in
+        production. Reading the stored field alone was the blind spot that let
+        /health fall through to the cloud leg on exactly those ports.
+        """
+        route = live_route_for_port(self.server.route.get("port")) or self.server.route
+        route = apply_router(route, current_config(),
+                             ctx={"model": "", "maxTokens": None, "audio": False, "embeddings": False})
+        return str(route.get("upstreamType") or "llama"), route
+
+    def _send_cloud_absent(self, path):
+        self._send_bytes(404, json.dumps({"error": {
+            "message": f"{path} is not served by a cloud bridge port",
+            "type": "not_found"}}).encode("utf-8"))
 
     def do_GET(self):
         path = urlsplit(self.path).path
@@ -1049,11 +1315,32 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if not self._api_key_ok(route):
                 self._reject_unauthorized(route, f"{time.time_ns()}-{threading.get_ident()}")
                 return
-            self._send_models_fast(route)
+            self._send_models(route)
             return
+        if path in CLOUD_ABSENT_PATHS:
+            upstream_type, _route = self._routed_upstream_type()
+            if upstream_type == "cloud":
+                self._send_cloud_absent(path)
+                return
+        if path.startswith("/v1/models/") and len(path) > len("/v1/models/"):
+            upstream_type, route = self._routed_upstream_type()
+            if upstream_type == "cloud":
+                if not self._api_key_ok(route):
+                    self._reject_unauthorized(route, f"{time.time_ns()}-{threading.get_ident()}")
+                    return
+                # OpenAI's retrieve-model. Answered from the same source as
+                # /v1/models, so the two cannot disagree; an id this port does
+                # not serve is a 404, which is the honest answer and the one
+                # the spec gives.
+                entry = _cloud_model_entry(route)
+                if entry["id"] == path[len("/v1/models/"):]:
+                    self._send_bytes(200, json.dumps(entry).encode("utf-8"))
+                else:
+                    self._send_cloud_absent(path)
+                return
         if path == "/health":
-            route = live_route_for_port(self.server.route.get("port")) or self.server.route
-            if str(route.get("upstreamType") or "llama") == "cloud":
+            upstream_type, route = self._routed_upstream_type()
+            if upstream_type == "cloud":
                 # Bridge health is the port itself: cloud APIs have no /health,
                 # so forwarding answered 405 and painted the activity strip red
                 # every time an external consumer probed its endpoint. But "the
@@ -1066,16 +1353,19 @@ class ProxyHandler(BaseHTTPRequestHandler):
                           else ("no credentials for account" if provider else "cloud provider not configured"))
                 payload = {"status": "ok"} if not reason else {"status": "degraded", "reason": reason}
                 body = json.dumps(payload).encode("utf-8")
-                self.send_response(200 if not reason else 503)
-                self.send_header("Content-Type", "application/json")
-                self.send_header("Content-Length", str(len(body)))
-                self.send_header("Connection", "close")
-                self.end_headers()
-                self.wfile.write(body)
+                self._send_bytes(200 if not reason else 503, body)
                 return
         self.proxy()
 
     def do_POST(self):
+        # /api/show is Ollama's model-info call and it is a POST. Left to
+        # proxy() it was translated into a Responses request with no input and
+        # sent to the paid API, which rejected it 26 times in one day.
+        if urlsplit(self.path).path in CLOUD_ABSENT_PATHS:
+            upstream_type, _route = self._routed_upstream_type()
+            if upstream_type == "cloud":
+                self._send_cloud_absent(urlsplit(self.path).path)
+                return
         self.proxy()
 
     def do_OPTIONS(self):

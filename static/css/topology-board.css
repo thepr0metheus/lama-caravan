@@ -67,6 +67,19 @@
   gap: 8px;
 }
 
+/* В лейне клиентов кнопка «завести клиента» — во всю ширину, как карточки под
+   ней: квадрат 34px в углу читался как служебная иконка, а это главное действие
+   лейна. Когда рядом появляется кнопка переноса, обе делят ширину поровну. */
+.topology-board > .topology-column:first-of-type .topology-head-actions {
+  display: flex;
+  width: 100%;
+  gap: 8px;
+}
+.topology-board > .topology-column:first-of-type .topology-head-actions > .icon-action.prominent {
+  flex: 1 1 auto;
+  width: auto;
+}
+
 .topology-stack {
   display: grid;
   gap: 10px;

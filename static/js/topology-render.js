@@ -27,6 +27,8 @@ import {
   stopTopologyMonitor,
 } from "./polling.js";
 import {
+  editRouteContext,
+  addTopologyClient,
   _pendingCellActions,
   _stoppingCells,
   bindServerSlotControls,
@@ -40,6 +42,9 @@ import {
   startRemoteStartWatch,
   submitLlamaStop,
   topologyClientGpusHtml,
+  adoptScoutClients,
+  editRouteModel,
+  editRouteWait,
 } from "./remote-cells.js";
 import { renderTopologyRouterCard, renderTopologyRouterDetail } from "./routers.js";
 import { setTopology, state, topology, ui } from "./state.js";
@@ -57,12 +62,15 @@ import {
   renderService,
 } from "./system-panels.js";
 import {
+  clientLivenessLineHtml,
   drawRouteTokenHistory,
   refreshTopologyActivityState,
   topologyGpuActivity,
   topologyRouteDetailHtml,
   topologyStateHealthClasses,
   topologyStatusPill,
+  clientAgeText,
+  sortedTopologyClients,
 } from "./topology-activity.js";
 import {
   bindTopologyDragAndDrop,
@@ -97,6 +105,12 @@ import {
   topologyAssignmentsForHost,
   topologyBoardAssignmentsForHost,
   topologyGroupedAgents,
+  scoutOwnedCounts,
+  clientLaneAgentCards,
+  clientCardIsRedundant,
+  clientNeedsCaption,
+  clientHasScout,
+  AGENT_IDLE_HOURS,
 } from "./topology-proxies.js";
 import { renderUsageStatsModal } from "./usage-stats.js";
 import { $, api, escapeHtml, formatMemoryMiB, markPageState, toast } from "./utils.js";
@@ -144,6 +158,69 @@ export function setActiveView(view) {
   }
 }
 
+// Найденное скаутом и ещё не заведённое — предложение завести это отсюда.
+// Оно принадлежит клиенту, чьи записи ведёт СКАУТ: у клиента, которого ведёт
+// доска, агенты заводятся кнопкой ＋ в самой карточке, и второй, чужой способ
+// рядом с ней — не помощь, а вопрос «какой из них правильный». Вынесено в
+// отдельную функцию, потому что иначе правило непинуемо: карточка собирается
+// внутри большой DOM-процедуры.
+// Молчание клиента, заведённого РУКАМИ, — не поломка: такой клиент не обязан
+// отзываться, это решение 3 в docs/clients-page.md. А доска кричала на него
+// красным «агент не отвечает» и ставила рядом кнопку удаления, так что «убрать
+// эту тревогу» и «удалить запись» выглядели одним жестом — на нём и потеряли
+// запись, которую никто не собирался трогать. Вынесено функцией, потому что
+// иначе правило непинуемо: карточка собирается внутри большой DOM-процедуры.
+// Карточка хоста у клиента, заведённого руками и ни разу не отвечавшего,
+// говорила «не знаю» ЧЕТЫРЬМЯ способами сразу: «ip n/a», плашка состояния,
+// «never answered» и заметка под ними. Четыре строки об одном и том же
+// отсутствии — и на их фоне терялось единственное, ради чего карточка нужна:
+// переименовать, добавить агента, удалить клиента.
+//
+// Остаётся заголовок с этими тремя действиями и одна честная строка внизу.
+// Как только клиент отзовётся или у него появится адрес — всё вернётся: это
+// правило о молчании, а не о том, что клиент ручной.
+export function clientHasNothingToReport(client) {
+  if (clientHasScout(client)) return false;
+  const age = client?.ageSeconds;
+  return (age === null || age === undefined) && !client?.ip;
+}
+
+
+export function clientStaleBannerHtml(client, isStale) {
+  if (!isStale) return "";
+  // Признак — НЕ «заведён руками», а «есть ли скаут». Усыновление поставило
+  // manual каждому клиенту флота, и хост со скаутом, который замолчал, стал
+  // получать заметку «отзываться не обязан» — про машину, которая обязана.
+  // Молчание там настоящая поломка, и тревога должна остаться.
+  if (!clientHasScout(client)) {
+    return `
+      <div class="client-quiet-note">
+        <span>${escapeHtml(t("topologyClientQuiet"))}</span>
+      </div>`;
+  }
+  return `
+      <div class="client-stale-banner">
+        <span>${escapeHtml(t("topologyAgentNoContact"))}</span>
+        <button class="client-delete-btn" type="button"
+          data-client-delete="${escapeHtml(client?.id || "")}">${escapeHtml(t("deleteAction"))}</button>
+      </div>`;
+}
+
+export function clientDiscoveryBannerHtml(client, candidates) {
+  const rows = Array.isArray(candidates) ? candidates : [];
+  if (client?.manual || !rows.length) return "";
+  return `
+      <div class="client-discovery-banner">
+        ${rows.map((c) => `
+          <div class="discovery-row">
+            <span>🔍 ${escapeHtml(c.machine || "")} (${escapeHtml(c.runtime || "")}${c.ip ? ", " + escapeHtml(c.ip) : ""}) — not in registry</span>
+            <button class="client-discovery-btn" type="button"
+              data-discover-add="${escapeHtml(c.suggestedId || "")}"
+              data-discover-host="${escapeHtml(c.ip || "")}">Add to fleet</button>
+          </div>`).join("")}
+      </div>`;
+}
+
 export function renderTopology() {
   if (!topology) return;
   // Park live stat/chart elements back home before any innerHTML rebuild so we
@@ -156,7 +233,7 @@ export function renderTopology() {
   const updatedEl = $("topologyUpdated");
   if (updatedEl) updatedEl.textContent = updated ? `${t("topologyUpdatedLabel")} ${updated}` : "";
 
-  const clients = topology.clients || [];
+  const clients = sortedTopologyClients(topology.clients || []);
   const clientsEl = $("topologyClients");
   if (clientsEl) clientsEl.innerHTML = clients.length ? clients.map((client) => {
     const assignments = topologyBoardAssignmentsForHost(client.id);
@@ -169,25 +246,28 @@ export function renderTopology() {
       client.platform || "",
     ].filter(Boolean).join(" · ");
     const isStale = client.state === "stale";
-    const staleBanner = isStale ? `
-      <div class="client-stale-banner">
-        <span>${escapeHtml(t("topologyAgentNoContact"))}</span>
-        <button class="client-delete-btn" type="button"
-          data-client-delete="${escapeHtml(client.id)}">${escapeHtml(t("deleteAction"))}</button>
-      </div>` : "";
+    const staleBanner = clientStaleBannerHtml(client, isStale);
+    const silent = clientHasNothingToReport(client);
     // Discovery hints: running agent-* machines on this host that aren't in the fleet registry.
     const candidates = Array.isArray(client.candidates) ? client.candidates : [];
-    const discoveryBanner = candidates.length ? `
-      <div class="client-discovery-banner">
-        ${candidates.map((c) => `
-          <div class="discovery-row">
-            <span>🔍 ${escapeHtml(c.machine || "")} (${escapeHtml(c.runtime || "")}${c.ip ? ", " + escapeHtml(c.ip) : ""}) — not in registry</span>
-            <button class="client-discovery-btn" type="button"
-              data-discover-add="${escapeHtml(c.suggestedId || "")}"
-              data-discover-host="${escapeHtml(c.ip || "")}">Add to fleet</button>
-          </div>`).join("")}
+    const discoveryBanner = clientDiscoveryBannerHtml(client, candidates);
+    // Карточка хоста — только там, где есть скаут: она вся про то, что он
+    // рассказал. Без него её место занимает либо карточка единственного агента
+    // (она же берёт управление клиентом), либо тонкая строка-заголовок.
+    const hostCard = !clientCardIsRedundant(client, (client.agents || []).length);
+    const caption = clientNeedsCaption(client, (client.agents || []).length) ? `
+      <div class="client-caption" data-t="board-client-caption" data-t-id="${escapeHtml(client.id || "")}">
+        <strong>${escapeHtml(displayName)}</strong>
+        <button class="client-rename-btn" type="button" title="${escapeHtml(t("trTitleSetName"))}"
+          data-client-rename="${escapeHtml(client.id)}" data-client-name="${escapeHtml(displayName)}">✎</button>
+        <button class="client-rename-btn" type="button" data-t="client-agent-add"
+          title="${escapeHtml(t("topologyAgentAdd"))}"
+          data-client-agent-add="${escapeHtml(client.id)}">＋</button>
+        <button class="client-rename-btn danger" type="button" data-t="client-delete"
+          title="${escapeHtml(t("topologyClientDelete"))}"
+          data-client-delete="${escapeHtml(client.id)}">✕</button>
       </div>` : "";
-    return `
+    return `${caption}${!hostCard ? "" : `
       <!-- data-t-id is the HOST ID, which is what cell-card ids are built from
            (client-a:8004), while the heading shows the display NAME (Alice).
            Without the id here the two cannot be joined from outside, and the
@@ -198,19 +278,38 @@ export function renderTopology() {
             <strong>${escapeHtml(displayName)}</strong>
             <button class="client-rename-btn" type="button" title="${escapeHtml(t("trTitleSetName"))}"
               data-client-rename="${escapeHtml(client.id)}" data-client-name="${escapeHtml(displayName)}">✎</button>
-            <span>${escapeHtml(client.ip || "ip n/a")}</span>
+            <!-- Прокси назначается АГЕНТУ, а завести агента руками было нечем:
+                 у ручного клиента в карточке жили только «переименовать» и
+                 «удалить», поэтому запись существовала и настраиваться не
+                 могла. -->
+            <button class="client-rename-btn" type="button" data-t="client-agent-add"
+              title="${escapeHtml(t("topologyAgentAdd"))}"
+              data-client-agent-add="${escapeHtml(client.id)}">＋</button>
+            <!-- Удаление живёт в заголовке, спокойной кнопкой. Раньше оно
+                 сидело ВНУТРИ красной плашки «агент не отвечает», и убрать её
+                 у клиента, который просто молчит по праву, значило удалить
+                 запись. Убрав плашку у ручных, я вместе с ней чуть не унёс
+                 единственный способ их удалить — что было бы своей ловушкой. -->
+            <button class="client-rename-btn danger" type="button" data-t="client-delete"
+              title="${escapeHtml(t("topologyClientDelete"))}"
+              data-client-delete="${escapeHtml(client.id)}">✕</button>
+            ${silent ? "" : `<span>${escapeHtml(client.ip || "ip n/a")}</span>`}
           </div>
-          <div class="client-state-line">
-            ${topologyStatusPill(client.state)}
-            <span data-live-age>${client.ageSeconds ?? "?"}s ago</span>
-          </div>
+          ${silent ? "" : `<div class="client-state-line">${clientLivenessLineHtml(client)}</div>`}
         </div>
         <div class="client-meta-line" data-live-meta${clientMeta ? "" : ' style="display:none"'}>${escapeHtml(clientMeta)}</div>
         ${topologyClientGpusHtml(client)}
-        <div class="topology-agents">${topologyGroupedAgents(client, assignments)}</div>
+        <div class="topology-agents">${client.manual ? "" : topologyGroupedAgents(client, assignments)}</div>
         ${discoveryBanner}
         ${staleBanner}
-      </article>
+      </article>`}
+      ${clientLaneAgentCards(client, assignments).map((card) => `
+      <article class="topology-card agent-card${card.idle ? " idle" : ""}" data-t="board-agent-card"
+               data-t-id="${escapeHtml(client.id || "")}"
+               data-client-id="${escapeHtml(client.id || "")}"
+               data-agent-id="${escapeHtml(card.agentId || "")}"${card.idle ? `
+               title="${escapeHtml(t("agentIdleTip", { hours: String(AGENT_IDLE_HOURS) }))}"` : ""}
+               style="${escapeHtml(topologyAccentStyle(client.id || displayName))}">${card.html}</article>`).join("")}
     `;
   }).join("") : `<article class="topology-card"><div class="topology-muted">${escapeHtml(t("topologyClientsWaiting"))}</div></article>`;
 
@@ -245,6 +344,45 @@ export function renderTopology() {
       renderTopology();
     });
   });
+  // Правка окна контекста прямо на строке маршрута.
+  document.querySelectorAll("[data-route-ctx]").forEach((chip) => {
+    chip.addEventListener("click", (e) => {
+      e.stopPropagation();
+      editRouteContext(chip.dataset.ctxHost, chip.dataset.ctxAgent, chip.dataset.ctxRole,
+                       chip.dataset.ctxValue, !!chip.dataset.ctxAuto);
+    });
+  });
+  document.querySelectorAll("[data-route-wait]").forEach((chip) => {
+    chip.addEventListener("click", (e) => {
+      e.stopPropagation();
+      editRouteWait(chip.dataset.waitProxy, chip.dataset.waitValue);
+    });
+  });
+  document.querySelectorAll("[data-route-model]").forEach((chip) => {
+    chip.addEventListener("click", (e) => {
+      e.stopPropagation();
+      editRouteModel(chip.dataset.modelHost, chip.dataset.modelAgent, chip.dataset.modelRole,
+                     chip.dataset.modelValue);
+    });
+  });
+  // Завести клиента руками — кнопка в шапке лейна.
+  const addClientBtn = document.getElementById("topologyClientAddBtn");
+  if (addClientBtn && !addClientBtn.dataset.bound) {
+    addClientBtn.dataset.bound = "1";
+    addClientBtn.addEventListener("click", () => addTopologyClient());
+  }
+  // Перенос записей скаута под доску. Кнопка видна ТОЛЬКО когда есть что
+  // переносить и исчезает, когда не осталось: предложение, которое ничего не
+  // делает, читается как сломанное — и учит не верить кнопкам вообще.
+  const adoptBtn = document.getElementById("topologyAdoptBtn");
+  if (adoptBtn) {
+    if (!adoptBtn.dataset.bound) {
+      adoptBtn.dataset.bound = "1";
+      adoptBtn.addEventListener("click", () => adoptScoutClients());
+    }
+    const owned = scoutOwnedCounts();
+    adoptBtn.hidden = !(owned.clients || owned.agents);
+  }
   // Delete stale client buttons (whole-client cards)
   document.querySelectorAll("[data-client-delete]").forEach((btn) => {
     btn.addEventListener("click", () => deleteTopologyClient(btn.dataset.clientDelete));
@@ -508,8 +646,24 @@ export function topologyServerPhase(s) {
 export function topologyStructureFingerprint() {
   if (!topology) return "";
   const server = topology.server || {};
+  // Агенты и НАСТРОЙКИ их маршрутов входят в отпечаток наравне с назначениями:
+  // всё, чего здесь нет, на доске не появляется до перезагрузки страницы — и
+  // читается как «не сохранилось». Так и было: агент, заведённый руками, лежал
+  // в записи невидимым, а чип окна контекста показывал прежнее число.
   const clients = (topology.clients || [])
-    .map((c) => `${c.id}:${c.name || ""}:${c.state}:${(c.gpus || []).length}:${topologyAssignmentsForHost(c.id).length}`)
+    .map((c) => {
+      // Берётся то, что доска РИСУЕТ, — слияние живого отчёта и сохранённой
+      // записи. Пока здесь стоял topologyAssignmentsForHost, у клиента с живым
+      // отчётом побеждал отчёт, и правка сохранённого (окно контекста, флаг
+      // «руками») в отпечаток не попадала: доска молчала до перезагрузки.
+      const routes = topologyBoardAssignmentsForHost(c.id)
+        .map((row) => `${row.agentId}${row.manual ? "!" : ""}=` + (row.routes || [])
+          .map((r) => `${r.role}@${r.proxyId || ""}#${r.contextLength || ""}${r.contextAuto ? "A" : ""}`)
+          .sort().join("+"))
+        .sort().join(";");
+      return `${c.id}:${c.name || ""}:${c.state}:${(c.gpus || []).length}:`
+        + `${(c.agents || []).map((a) => a.id).sort().join("|")}:${routes}`;
+    })
     .sort().join(",");
   const classicSrv = (server.llamaServers || [])
     .map((s) => `${s.id}:${s.port}:${s.model || ""}:${topologyServerPhase(s)}:${s.reachable === false ? 0 : 1}`)
@@ -652,7 +806,7 @@ export function syncTopologyLive() {
   (topology.clients || []).forEach((client) => {
     const card = document.querySelector(`.client-card[data-client-id="${CSS.escape(client.id || "")}"]`);
     if (!card) return;
-    _liveSet(card, "[data-live-age]", `${client.ageSeconds ?? "?"}s ago`);
+    _liveSet(card, "[data-live-age]", clientAgeText(client));
     const ccpu = client.cpu || {}, cram = ccpu.ram || {};
     const meta = [
       ccpu.loadPct != null ? `CPU ${ccpu.loadPct}%` : "",

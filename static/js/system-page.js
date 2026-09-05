@@ -4,7 +4,7 @@
 // system-panels.js — this file only orchestrates the page.
 import { applyLanguage, applyTheme, initLanguage, onLangChange, setupLangSelect, t } from "./i18n.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
-import { appConfirm, settleAppConfirm } from "./dialogs.js";
+import { appConfirm, appPrompt, settleAppConfirm } from "./dialogs.js";
 import { setState, state, ui } from "./state.js";
 import {
   bindModelGc,
@@ -140,7 +140,12 @@ function _stamp() {
 
 async function exportSettings() {
   const secrets = !!$("settingsWithSecrets")?.checked;
-  const res = await api(`/api/settings/export?secrets=${secrets ? 1 : 0}`);
+  const passphrase = ($("settingsPassphrase")?.value || "").trim();
+  // A passphrase goes in a body, never a query string: URLs reach logs, shell
+  // history and referrers.
+  const res = passphrase
+    ? await api("/api/settings/export", { method: "POST", body: { secrets, passphrase } })
+    : await api(`/api/settings/export?secrets=${secrets ? 1 : 0}`);
   if (!res?.ok) { toast(t("settingsExportFailed")); return; }
   const text = JSON.stringify(res.bundle, null, 2);
   // Handed over as a download rather than written server-side: the operator
@@ -205,9 +210,17 @@ async function importSettings(file) {
     t("settingsImportConfirm", { n: willChange.length, list: willChange.join(", ") || "—" }),
     { confirmLabel: t("settingsImport"), scene: "danger" });
   if (!ok) return;
-  const res = await api("/api/settings/import", { method: "POST", body: { bundle } });
+  let passphrase = "";
+  if (dry.changes.some((c) => c.action === "locked")) {
+    passphrase = await appPrompt(t("settingsPassphrasePrompt"), { password: true }) || "";
+    // An empty answer is a decision, not a mistake: the rest of the file still
+    // restores and the credentials are reported as skipped.
+  }
+  const res = await api("/api/settings/import", { method: "POST", body: { bundle, passphrase } });
   if (!res?.ok) { toast(res?.error || t("settingsImportFailed")); return; }
-  toast(t("settingsImported"));
+  toast((res.skipped || []).length
+    ? t("settingsImportedSkipped", { list: res.skipped.join(", ") })
+    : t("settingsImported"));
   refreshAll();
 }
 
@@ -222,8 +235,28 @@ function bindSettingsBundle() {
     }
     el.textContent = secrets?.checked ? `⚠ ${t("settingsHasCredentials")}` : "";
   };
-  secrets?.addEventListener("change", warn);
-  warn();
+  const passRow = $("settingsPassRow");
+  const sync = () => {
+    warn();
+    // Offered only with the credentials, because it protects only those: the
+    // cells and the routes stay readable whatever happens to the passphrase.
+    // And only where the host can actually do it — a control that errors when
+    // used is worse than one that explains why it is not there.
+    const can = state?.settingsPassphrase !== false;
+    if (passRow) passRow.hidden = !secrets?.checked || !can;
+    const note = document.querySelector(".settings-nopass");
+    if (secrets?.checked && !can && !note) {
+      const el = document.createElement("p");
+      el.className = "settings-warn settings-nopass";
+      el.textContent = t("settingsPassphraseUnavailable");
+      passRow?.after(el);
+    } else if ((can || !secrets?.checked) && note) {
+      note.remove();
+    }
+    if (!secrets?.checked && $("settingsPassphrase")) $("settingsPassphrase").value = "";
+  };
+  secrets?.addEventListener("change", sync);
+  sync();
   $("settingsExportBtn")?.addEventListener("click", () => {
     exportSettings().catch((err) => { console.warn(err); toast(t("settingsExportFailed")); });
   });

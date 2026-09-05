@@ -23,7 +23,11 @@ jobs:
       # symptom is only visible across two provisioning passes, so it needs a
       # test rather than review.
       - name: auto-provisioning unit test
-        run: python3 scripts/test_auto_provision.py
+        run: |
+          set -e
+          python3 scripts/test_auto_provision.py
+          python3 scripts/test_client_records.py
+          python3 scripts/test_token_history.py
 
       # These were one `run:` scalar with the second line indented under it,
       # which YAML folds into ONE command — so check_messages_i18n.py has been
@@ -31,6 +35,12 @@ jobs:
       - name: i18n coverage
         run: |
           set -e
+          # check_messages_i18n stands aside on a host without node, so that its
+          # absence reads as "not checked here" rather than as a traceback. That
+          # is only safe while SOMEBODY checks: this runner is that somebody, so
+          # a runner that lost node must fail loudly instead of skipping it for
+          # every locale at once.
+          node --version
           python3 scripts/check_tour_i18n.py
           python3 scripts/check_messages_i18n.py
           python3 scripts/check_i18n_calls.py
@@ -48,8 +58,76 @@ jobs:
           # there at all.
           python3 scripts/check_field_homes.py
           python3 scripts/check_runner_model_fields.py
+          python3 scripts/check_installer_assets.py
+          python3 scripts/check_cell_python_floor.py
+          python3 scripts/check_cell_self_capture.py
+          python3 scripts/check_cell_card_keys.py
+          python3 scripts/check_proxy_id_namespace.py
+          python3 scripts/check_carried_fields.py
+          python3 scripts/check_board_live_patch.py
+          python3 scripts/check_static_modules.py
+          python3 scripts/check_oop_contract.py
+          python3 scripts/test_admin_store.py
+          python3 scripts/test_topology_store.py
+          python3 scripts/test_proxy_store.py
+          python3 scripts/test_auth_store.py
+          python3 scripts/test_cloud_store.py
+          python3 scripts/test_slot_artifacts.py
+          python3 scripts/test_scout_errors.py
+          python3 scripts/test_query_flags.py
+          python3 scripts/test_proxy_models.py
+          python3 scripts/test_cloud_context.py
+          python3 scripts/test_request_body.py
+          python3 scripts/check_context_window.py
+          python3 scripts/test_proxy_forward.py
+          python3 scripts/test_api_body.py
+          python3 scripts/test_js_model_meta.py
+          python3 scripts/test_js_usage_stats.py
+          python3 scripts/test_js_memory.py
+          python3 scripts/test_js_command_preview.py
+          python3 scripts/test_js_form.py
+          python3 scripts/test_js_topology_activity.py
+          python3 scripts/test_js_topology_nodes.py
+          python3 scripts/test_js_llama_edit.py
+          python3 scripts/test_js_remote_cells.py
+          python3 scripts/test_js_client_proxies.py
+          python3 scripts/test_js_routers.py
+          python3 scripts/test_js_cloud.py
+          python3 scripts/test_js_dialogs.py
+          python3 scripts/test_js_topology_modals.py
+          python3 scripts/test_js_charts.py
+          python3 scripts/test_js_cables.py
+          python3 scripts/test_js_history.py
+          python3 scripts/test_js_favorites.py
+          python3 scripts/test_js_config_locator.py
+          python3 scripts/test_js_system_panels.py
+          python3 scripts/test_js_models_page.py
+          python3 scripts/test_js_system_page.py
+          python3 scripts/test_js_polling.py
+          python3 scripts/test_js_utils.py
+          python3 scripts/test_js_i18n.py
+          python3 scripts/test_js_onboarding.py
+          python3 scripts/test_js_onboarding_tours.py
+          python3 scripts/test_js_main.py
+          python3 scripts/test_js_topology_dnd.py
+          python3 scripts/test_js_data_modules.py
+          python3 scripts/test_js_canvas.py
+          python3 scripts/test_js_topology_render.py
+          python3 scripts/check_proxy_response_paths.py
+          python3 scripts/check_ci_coverage.py
           python3 scripts/check_command_mirrors.py
           python3 scripts/test_settings_bundle.py
+          python3 scripts/test_download_retry.py
+          python3 scripts/test_cell_servers.py
+          python3 scripts/check_cell_health_contract.py
+          # Правило, потерявшее и код и ссылку, — потерянный инцидент.
+          python3 scripts/check_why_refs.py
+          # Every guard above must be able to fail. Two were found in one day
+          # that could not, both reporting green while the thing they guard was
+          # deleted.
+          python3 scripts/check_undefined_names.py
+          python3 scripts/test_golden.py
+          python3 scripts/test_guards_fail.py
 
       - name: JS syntax (ES modules)
         run: |

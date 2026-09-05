@@ -1,0 +1,765 @@
+#!/usr/bin/env python3
+"""Снимок static/js/remote-cells.js — действия за кнопками клиентских ячеек.
+
+Что пинится у действия: ЧТО уходит на провод (calls(): путь, метод, тело),
+ЧТО видит оператор (toastText()) и ЧТО остаётся в состоянии (множества
+_stoppingCells/_pendingCellActions/_deletingSlots/_reservingCells/
+_newReservedCells/_pendingRemoteStarts). История починок: мгновенное busy
+и pending-состояние (87f5ea7), выбор порта минует порты прокси (4bfeeab),
+карточка «starting» до появления настоящей.
+
+fetch — записывающий (_js_globals.mjs): вызовы в __fetchCalls, ответ из
+__fetchReply[path] или {ok:true}; __status делает api() бросающим. Подтверждение
+appConfirm — заглушка с заданным ответом (__stubReturns). Тост — элемент
+словаря __fields, его textContent и есть текст для оператора. Время заморожено.
+
+Запуск: python3 scripts/test_js_remote_cells.py
+"""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _node import find_node, node_search_paths  # noqa: E402
+
+STUBS = ("topology-render,topology-modals,cables,routers,cloud,history,dialogs,favorites,config-locator,system-panels,"
+         "onboarding,topology-dnd,canvas,usage-stats,dialog-llamas,models-page,system-page,onboarding-tours")
+
+PREAMBLE = r"""
+import "./_js_globals.mjs";
+import { pathToFileURL } from "node:url";
+const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
+st.setState({ config: {}, runners: [], artifacts: [], models: [], paths: {} });
+st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, nodes: [] });
+Date.now = () => 1_700_000_100_000;
+globalThis.__stubReturns = { "dialogs.appConfirm": async () => true };
+const le = await import(pathToFileURL(process.env.JS_ROOT + "/llama-edit.js").href);
+const rc = await import(pathToFileURL(process.env.JS_ROOT + "/remote-cells.js").href);
+const cst = await import(pathToFileURL(process.env.JS_ROOT + "/constants.js").href);
+const ui = st.ui;
+const norm = (s) => String(s).replace(/\s+/g, " ").trim();
+const toastEl = () => ({ textContent: "", classList: { add() {}, remove() {} } });
+const F = (fields) => { globalThis.__fields = { toast: toastEl(), ...fields }; };
+const reset = () => { st.setState({ config: {}, runners: [], artifacts: [], models: [], paths: {} });
+  st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, nodes: [] });
+  F({}); globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {}; globalThis.__stubReturns = { "dialogs.appConfirm": async () => true };
+  for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingRemoteStarts, rc._pendingCellActions, rc._reservingCells]) c.clear(); };
+const calls = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c.method, body: c.body }));
+const toastText = () => globalThis.__fields.toast.textContent;
+const out = {};
+"""
+
+# (id, setup, expression, expected JSON string, message). Filled from the pin
+# workflow; see docs/oop-rewrite.md, phase 7, snapshot 6.
+PINS = [
+    # ── remote_actions ──
+    # ── завести клиента руками ──
+    ('add_client_wire',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "  box-a  ";',
+     'await (async () => { await rc.addTopologyClient(); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [{"path": "/api/topology/client/create", "method": "POST", "body": "{\\"hostId\\":\\"box-a\\"}"}], "toast": ""}',
+     'positive: на провод уходит обрезанный hostId, без выдуманных полей'),
+    ('add_client_cancelled',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => null;',
+     'await (async () => { await rc.addTopologyClient(); return calls(); })()',
+     '[]',
+     'negative: отменённый диалог не шлёт ничего'),
+    ('add_client_blank',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "   ";',
+     'await (async () => { await rc.addTopologyClient(); return calls(); })()',
+     '[]',
+     'negative: имя из одних пробелов — тоже отмена, а не клиент без имени'),
+    ('add_client_refusal_shown',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "dup";'
+     ' globalThis.__fetchReply["/api/topology/client/create"] = { __status: 409, error: "client already exists: dup" };',
+     'await (async () => { await rc.addTopologyClient(); return toastText(); })()',
+     '"Error: client already exists: dup"',
+     'as-is: отказ сервера доходит до оператора с приставкой «Error:» — так его печатает toast(String(e))'),
+    # ── удаление клиента: обещание обратимости ──
+    ('delete_manual_client_says_it_will_not_return',
+     'st.setTopology({ proxies: [], routers: [], assignments: {},'
+     ' clients: [{ id: "c1", name: "C1", manual: true }] });'
+     ' globalThis.__prompts=[]; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg) => { globalThis.__prompts.push(msg); return false; };',
+     'await (async () => { await rc.deleteTopologyClient("c1"); return globalThis.__prompts[0].includes("NOT come back"); })()',
+     'true',
+     'defect-history: подтверждение обещало возврат «со следующим сердцебиением» — для ручного клиента это неправда, и на ней потеряли запись'),
+    ('delete_scout_client_keeps_the_old_promise',
+     'st.setTopology({ proxies: [], routers: [], assignments: {},'
+     ' clients: [{ id: "c1", name: "C1" }] });'
+     ' globalThis.__prompts=[]; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg) => { globalThis.__prompts.push(msg); return false; };',
+     'await (async () => { await rc.deleteTopologyClient("c1"); return globalThis.__prompts[0].includes("re-appear"); })()',
+     'true',
+     'negative: клиента от скаута сердцебиение действительно вернёт — прежний текст остаётся правдой'),
+    ('delete_declined_sends_nothing',
+     'st.setTopology({ proxies: [], routers: [], assignments: {},'
+     ' clients: [{ id: "c1", name: "C1", manual: true }] });'
+     ' globalThis.__stubReturns["dialogs.appConfirm"] = async () => false;',
+     'await (async () => { await rc.deleteTopologyClient("c1"); return calls(); })()',
+     '[]',
+     'negative: отказ в подтверждении ничего не удаляет'),
+    # ── агент, заведённый руками ──
+    ('add_agent_wire',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "  ag-1  ";',
+     'await (async () => { await rc.addTopologyAgent("box-a"); return calls(); })()',
+     '[{"path": "/api/topology/client/agent", "method": "POST", "body": "{\\"hostId\\":\\"box-a\\",\\"agentId\\":\\"ag-1\\"}"}]',
+     'positive: на провод уходит обрезанный id и клиент, без выдуманных полей'),
+    ('add_agent_blank',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "   ";',
+     'await (async () => { await rc.addTopologyAgent("box-a"); return calls(); })()',
+     '[]',
+     'negative: имя из пробелов — отмена, а не агент без имени'),
+    ('add_agent_cancelled',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => null;',
+     'await (async () => { await rc.addTopologyAgent("box-a"); return calls(); })()',
+     '[]',
+     'negative: отменённый диалог не шлёт ничего'),
+    ('add_agent_refusal_shown',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "dup";'
+     ' globalThis.__fetchReply["/api/topology/client/agent"] = { __status: 409, error: "agent \\"dup\\" already exists on this client" };',
+     'await (async () => { await rc.addTopologyAgent("box-a"); return toastText(); })()',
+     '"Error: agent \\"dup\\" already exists on this client"',
+     'as-is: отказ сервера доходит до оператора'),
+    # ── перенос клиентов скаута под доску ──
+    ('adopt_wire_and_report',
+     'st.setTopology({ proxies: [], routers: [], clients: [{ id: "c1" }],'
+     ' assignments: { c1: { assignments: [{ agentId: "a1", routes: [] }] } } });'
+     ' globalThis.__fetchReply["/api/topology/clients/adopt"] = { clients: 1, agents: 1 };',
+     'await (async () => { await rc.adoptScoutClients(); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [{"path": "/api/topology/clients/adopt", "method": "POST", "body": "{}"}], "toast": "Moved to manual: 1 client(s), 1 agent row(s)"}',
+     'positive: уходит один POST без тела-выдумки, отчёт называет числа сервера'),
+    ('adopt_nothing_to_do',
+     'st.setTopology({ proxies: [], routers: [], clients: [{ id: "c1", manual: true }],'
+     ' assignments: { c1: { assignments: [{ agentId: "a1", manual: true, routes: [] }] } } });',
+     'await (async () => { await rc.adoptScoutClients(); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [], "toast": ""}',
+     'negative: переносить нечего — ни запроса, ни тоста, кнопка и не должна быть видна'),
+    ('adopt_declined',
+     'st.setTopology({ proxies: [], routers: [], clients: [{ id: "c1" }],'
+     ' assignments: { c1: { assignments: [{ agentId: "a1", routes: [] }] } } });'
+     ' globalThis.__stubReturns["dialogs.appConfirm"] = async () => false;',
+     'await (async () => { await rc.adoptScoutClients(); return calls(); })()',
+     '[]',
+     'negative: отказ в подтверждении ничего не отправляет'),
+    ('adopt_reports_zero_honestly',
+     'st.setTopology({ proxies: [], routers: [], clients: [{ id: "c1" }],'
+     ' assignments: { c1: { assignments: [{ agentId: "a1", routes: [] }] } } });'
+     ' globalThis.__fetchReply["/api/topology/clients/adopt"] = {};',
+     'await (async () => { await rc.adoptScoutClients(); return toastText(); })()',
+     '"Moved to manual: 0 client(s), 0 agent row(s)"',
+     'boundary: сервер не назвал чисел — печатается ноль, а не «готово»'),
+    ('adopt_refusal_shown',
+     'st.setTopology({ proxies: [], routers: [], clients: [{ id: "c1" }],'
+     ' assignments: { c1: { assignments: [{ agentId: "a1", routes: [] }] } } });'
+     ' globalThis.__fetchReply["/api/topology/clients/adopt"] = { __status: 500, error: "boom" };',
+     'await (async () => { await rc.adoptScoutClients(); return toastText(); })()',
+     '"Error: boom"',
+     'as-is: отказ сервера доходит до оператора, а не тонет'),
+    # ── окно контекста маршрута ──
+    ('route_ctx_number',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => " 8192 ";',
+     'await (async () => { await rc.editRouteContext("h","a","primary",0,false); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [{"path": "/api/topology/agent-route/context", "method": "POST", "body": "{\\"hostId\\":\\"h\\",\\"agentId\\":\\"a\\",\\"role\\":\\"primary\\",\\"contextLength\\":\\"8192\\"}"}], "toast": ""}',
+     'positive: число уходит обрезанным, оба поля — одно состояние'),
+    ('route_ctx_auto',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "AUTO";',
+     'await (async () => { await rc.editRouteContext("h","a","primary",0,false); return calls(); })()',
+     '[{"path": "/api/topology/agent-route/context", "method": "POST", "body": "{\\"hostId\\":\\"h\\",\\"agentId\\":\\"a\\",\\"role\\":\\"primary\\",\\"contextAuto\\":true}"}]',
+     'positive: слово auto в любом регистре — это галка «от модели»'),
+    ('route_ctx_empty_clears',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "  ";',
+     'await (async () => { await rc.editRouteContext("h","a","primary",8192,false); return calls(); })()',
+     '[{"path": "/api/topology/agent-route/context", "method": "POST", "body": "{\\"hostId\\":\\"h\\",\\"agentId\\":\\"a\\",\\"role\\":\\"primary\\"}"}]',
+     'positive: пусто — это ЯВНОЕ «снять», и на провод уходит именно снятие'),
+    ('route_ctx_typo_refused',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "8k";',
+     'await (async () => { await rc.editRouteContext("h","a","primary",8192,false); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [], "toast": "Enter a number of tokens, \\u00abauto\\u00bb, or nothing to clear"}',
+     'defect-history: опечатка молча СНИМАЛА настройку и рапортовала успехом — теперь отказ, и ничего не уходит'),
+    ('route_ctx_zero_refused',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "0";',
+     'await (async () => { await rc.editRouteContext("h","a","primary",8192,false); return calls(); })()',
+     '[]',
+     'boundary: ноль — не окно в ноль токенов и не «снять»; просят сказать яснее'),
+    ('route_ctx_cancelled',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => null;',
+     'await (async () => { await rc.editRouteContext("h","a","primary",8192,false); return calls(); })()',
+     '[]',
+     'negative: отменённый диалог не шлёт ничего'),
+    ('ntp_default_empty',
+     '',
+     'rc.nextTopologyCellPort()',
+     '22001',
+     'positive: nextTopologyCellPort: пустая топология → 22001 (from по умолчанию из cellPortRange)'),
+    ('ntp_gap_fill',
+     'st.topology.nodes = [{ servers: [{ port: 22001 }, { port: 22003 }] }];',
+     'rc.nextTopologyCellPort()',
+     '22002',
+     'positive: nextTopologyCellPort: заняты 22001 и 22003 → дыра 22002 заполняется'),
+    ('ntp_proxy_blocks_gap',
+     'st.topology.nodes = [{ servers: [{ port: 22001 }, { port: 22003 }] }]; st.topology.proxies = [{ port: 22002 }];',
+     'rc.nextTopologyCellPort()',
+     '22004',
+     'defect-history: nextTopologyCellPort (4bfeeab): прокси держит 22002 → объединение портов ячеек и прокси → 22004'),
+    ('ntp_string_ports_count',
+     'st.topology.nodes = [{ servers: [{ port: "22001" }] }]; st.topology.proxies = [{ port: "22002" }];',
+     'rc.nextTopologyCellPort()',
+     '22003',
+     'boundary: nextTopologyCellPort: строковые порты ячейки и прокси тоже считаются занятыми → 22003'),
+    ('ntp_bad_ports_ignored',
+     'st.topology.nodes = [{ servers: [{ port: 0 }, { port: "abc" }, {}] }]; st.topology.proxies = [{}];',
+     'rc.nextTopologyCellPort()',
+     '22001',
+     'negative: nextTopologyCellPort: порт 0 / "abc" / отсутствующий не занимают ничего → 22001'),
+    ('ntp_proxy_only_at_from',
+     'st.topology.proxies = [{ port: 22001 }];',
+     'rc.nextTopologyCellPort()',
+     '22002',
+     'positive: nextTopologyCellPort: прокси на самом from → 22002 (без единой ячейки)'),
+    ('ntp_range_override',
+     'st.topology.cellPortRange = { from: 30001, to: 30999 };',
+     'rc.nextTopologyCellPort()',
+     '30001',
+     'positive: cellPortRange: диапазон берётся из topology.cellPortRange (не из state) → from=30001'),
+    ('ntp_range_zero_falls_back',
+     'st.topology.cellPortRange = { from: 0 };',
+     'rc.nextTopologyCellPort()',
+     '22001',
+     'boundary: cellPortRange: from=0 ложный → дефолт 22001'),
+    ('ntp_range_to_not_enforced',
+     'st.topology.cellPortRange = { from: 22001, to: 22002 }; st.topology.nodes = [{ servers: [{ port: 22001 }, { port: 22002 }] }];',
+     'rc.nextTopologyCellPort()',
+     '22003',
+     'as-is: КАК ЕСТЬ: верхняя граница `to` не проверяется — при полном диапазоне 22001–22002 выдаётся 22003'),
+    ('fse_client_match_string_port',
+     'st.topology.server = { llamaServers: [{ port: 22001, clientId: "h1", tag: "a" }] };',
+     'rc.findSlotEntry("h1", "22001") ?? null',
+     '{"port": 22001, "clientId": "h1", "tag": "a"}',
+     'positive: findSlotEntry: числовой port записи и строковый запрос совпадают по String() → запись (undefined приводится к null через ??)'),
+    ('fse_wrong_host',
+     'st.topology.server = { llamaServers: [{ port: 22001, clientId: "h1" }] };',
+     'rc.findSlotEntry("h2", 22001) ?? null',
+     'null',
+     'negative: findSlotEntry: другой хост → undefined (null через ??)'),
+    ('fse_wrong_port',
+     'st.topology.server = { llamaServers: [{ port: 22001, clientId: "h1" }] };',
+     'rc.findSlotEntry("h1", 22002) ?? null',
+     'null',
+     'negative: findSlotEntry: другой порт → undefined (null через ??)'),
+    ('fse_controller_matches_no_clientId',
+     'st.topology.server = { llamaServers: [{ port: 22002, tag: "local" }] };',
+     'rc.findSlotEntry(cst.CONTROLLER_HOST_ID, 22002) ?? null',
+     '{"port": 22002, "tag": "local"}',
+     'positive: findSlotEntry: hostId=controller ищет запись с пустым/отсутствующим clientId'),
+    ('fse_controller_skips_client_entry',
+     'st.topology.server = { llamaServers: [{ port: 22001, clientId: "h1" }] };',
+     'rc.findSlotEntry(cst.CONTROLLER_HOST_ID, 22001) ?? null',
+     'null',
+     'negative: findSlotEntry: controller не видит клиентскую запись того же порта'),
+    ('fse_client_skips_controller_entry',
+     'st.topology.server = { llamaServers: [{ port: 22001, clientId: "" }] };',
+     'rc.findSlotEntry("h1", 22001) ?? null',
+     'null',
+     'negative: findSlotEntry: клиент не видит контроллерную запись (clientId "") того же порта'),
+    ('fse_no_server_block',
+     '',
+     'rc.findSlotEntry("h1", 22001) ?? null',
+     'null',
+     'negative: findSlotEntry: topology.server отсутствует → undefined без броска'),
+    ('fse_first_duplicate_wins',
+     'st.topology.server = { llamaServers: [{ port: 22001, clientId: "h1", tag: "first" }, { port: 22001, clientId: "h1", tag: "second" }] };',
+     'rc.findSlotEntry("h1", 22001) ?? null',
+     '{"port": 22001, "clientId": "h1", "tag": "first"}',
+     'boundary: findSlotEntry: при дубликатах возвращается первая запись'),
+    ('csa_stop_wire_and_state',
+     '',
+     'await (async () => { await rc.cellServiceAction("h1", "22001", "stop"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"stop\\"}"}], "toast": "", "pending": "stop", "stopping": ["h1:22001"]}',
+     'defect-history: cellServiceAction (87f5ea7): stop — на провод {hostId, port:22001 (Number из строки), action}; сразу после await pending="stop" и _stoppingCells держат ключ (их снимет таймер 1200 мс); тоста нет'),
+    ('csa_start_clears_pending',
+     '',
+     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"start\\"}"}], "toast": "", "pending": null, "stopping": []}',
+     'defect-history: cellServiceAction: start — pending снят сразу после ответа, _stoppingCells пуст, тоста нет'),
+    ('csa_boot_clears_pending',
+     '',
+     'await (async () => { await rc.cellServiceAction("h1", 22001, "boot"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"boot\\"}"}], "toast": "", "pending": null, "stopping": []}',
+     'positive: cellServiceAction: boot идёт по ветке start — pending снят сразу'),
+    ('csa_port_nan_body',
+     '',
+     'await (async () => { await rc.cellServiceAction("h1", "abc", "start"); return { calls: calls(), pending: rc._pendingCellActions.get("h1:abc") ?? null }; })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":null,\\"action\\":\\"start\\"}"}], "pending": null}',
+     'as-is: КАК ЕСТЬ: нечисловой порт → Number("abc")=NaN → на провод уходит port:null, запрос не блокируется'),
+    ('csa_reply_busy_hint',
+     'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, error: "slot already in progress" };',
+     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"start\\"}"}], "toast": "⚠️ slot already in progress — this host runs one server slot at a time — wait for the current start to finish", "pending": null, "stopping": []}',
+     'defect-history: cellServiceAction: ответ ok:false с «already/in progress» → тост с ошибкой И подсказкой cellSlotBusyHint'),
+    ('csa_reply_busy_case_insensitive',
+     'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, error: "Already Running here" };',
+     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return toastText(); })()',
+     '"⚠️ Already Running here — this host runs one server slot at a time — wait for the current start to finish"',
+     'boundary: cellServiceAction: регэксп busy нечувствителен к регистру («Already Running») → подсказка добавлена'),
+    ('csa_reply_plain_error',
+     'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, error: "boom" };',
+     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"start\\"}"}], "toast": "⚠️ boom", "pending": null, "stopping": []}',
+     'negative: cellServiceAction: ответ ok:false «boom» → тост «⚠️ boom» без подсказки busy'),
+    ('csa_reply_result_error_precedence',
+     'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, result: { error: "nested" }, error: "outer" };',
+     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return toastText(); })()',
+     '"⚠️ nested"',
+     'positive: cellServiceAction: result.error имеет приоритет над error верхнего уровня'),
+    ('csa_reply_false_no_text',
+     'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false };',
+     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return toastText(); })()',
+     '"⚠️ the action failed"',
+     'boundary: cellServiceAction: ok:false без текста → t("cellActionFailed")'),
+    ('csa_reply_ok_missing_no_toast',
+     'globalThis.__fetchReply["/api/topology/server-cell/action"] = { result: "whatever" };',
+     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return toastText(); })()',
+     '""',
+     'negative: cellServiceAction: ответ без поля ok (не === false) → тоста нет'),
+    ('csa_stop_reply_error_keeps_pending',
+     'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, error: "boom" };',
+     'await (async () => { await rc.cellServiceAction("h1", 22001, "stop"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"stop\\"}"}], "toast": "⚠️ boom", "pending": "stop", "stopping": ["h1:22001"]}',
+     'as-is: КАК ЕСТЬ: агент отверг stop (ok:false), но pending/_stoppingCells всё равно висят до таймера 1200 мс — тост «⚠️ boom» при занятых кнопках'),
+    ('csa_throw_500_start',
+     'globalThis.__fetchReply["/api/topology/server-cell/action"] = { __status: 500, error: "nope" };',
+     'await (async () => { await rc.cellServiceAction("h1", 22001, "start"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"start\\"}"}], "toast": "Error: nope", "pending": null, "stopping": []}',
+     'negative: cellServiceAction: api бросил (500 «nope») → catch: тост «Error: nope», pending и stopping очищены'),
+    ('csa_throw_500_stop',
+     'globalThis.__fetchReply["/api/topology/server-cell/action"] = { __status: 500, error: "nope" };',
+     'await (async () => { await rc.cellServiceAction("h1", 22001, "stop"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
+     '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"stop\\"}"}], "toast": "Error: nope", "pending": null, "stopping": []}',
+     'negative: cellServiceAction: stop при 500 → catch снимает _stoppingCells и pending немедленно (без таймера), тост «Error: nope»'),
+    ('dss_success',
+     '',
+     'await (async () => { await rc.deleteServerSlot("h1", "22001"); return { calls: calls(), toast: toastText(), deleting: [...rc._deletingSlots] }; })()',
+     '{"calls": [{"path": "/api/topology/server-slot/delete", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001}"}], "toast": "", "deleting": []}',
+     'positive: deleteServerSlot: на провод {hostId, port:22001 (Number)}; после успеха _deletingSlots пуст, тоста нет'),
+    ('dss_deleting_set_before_wire',
+     'globalThis.__snap = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._deletingSlots]; };',
+     'await (async () => { await rc.deleteServerSlot("h1", 22001); return globalThis.__snap; })()',
+     '["h1:22001"]',
+     'positive: deleteServerSlot: ключ h1:22001 лежит в _deletingSlots уже на первом renderTopology — до запроса'),
+    ('dss_error_500',
+     'globalThis.__fetchReply["/api/topology/server-slot/delete"] = { __status: 500, error: "nope" };',
+     'await (async () => { await rc.deleteServerSlot("h1", 22001); return { calls: calls(), toast: toastText(), deleting: [...rc._deletingSlots] }; })()',
+     '{"calls": [{"path": "/api/topology/server-slot/delete", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001}"}], "toast": "Error: nope", "deleting": []}',
+     'as-is: КАК ЕСТЬ: при 500 ключ снят, а тост показывает сырой String(Error) — «Error: nope»'),
+    ('doa_yes_freed_ports',
+     'globalThis.__fetchReply["/api/topology/orphan-assignment/delete"] = { ok: true, freedPorts: [23001, 23002] };',
+     'await (async () => { await rc.deleteOrphanAgent("c1", "a1"); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [{"path": "/api/topology/orphan-assignment/delete", "method": "POST", "body": "{\\"clientId\\":\\"c1\\",\\"agentId\\":\\"a1\\"}"}], "toast": "Removed a1; freed ports: :23001 :23002"}',
+     'positive: deleteOrphanAgent: подтверждено → {clientId, agentId}; freedPorts → t(agentRemovedPorts) с портами «:23001 :23002»'),
+    ('doa_yes_no_freed_field',
+     '',
+     'await (async () => { await rc.deleteOrphanAgent("c1", "a1"); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [{"path": "/api/topology/orphan-assignment/delete", "method": "POST", "body": "{\\"clientId\\":\\"c1\\",\\"agentId\\":\\"a1\\"}"}], "toast": "Removed a1"}',
+     'positive: deleteOrphanAgent: ответ без freedPorts → t(agentRemoved)'),
+    ('doa_yes_empty_freed',
+     'globalThis.__fetchReply["/api/topology/orphan-assignment/delete"] = { ok: true, freedPorts: [] };',
+     'await (async () => { await rc.deleteOrphanAgent("c1", "a1"); return toastText(); })()',
+     '"Removed a1"',
+     'boundary: deleteOrphanAgent: freedPorts=[] → та же ветка agentRemoved'),
+    ('doa_confirm_text',
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return false; };',
+     'await (async () => { await rc.deleteOrphanAgent("c1", "a1"); return globalThis.__msg; })()',
+     '{"msg": "Delete dead agent “a1” (c1) and free its ports?\\n\\nIts assignment records and proxy routes will be removed. If the agent shows up on a heartbeat again, it will be re-assigned.", "opts": {"confirmLabel": "Delete"}}',
+     'positive: deleteOrphanAgent: текст и опции диалога подтверждения (agent=a1, client=c1, confirmLabel=Delete)'),
+    ('doa_no',
+     'globalThis.__stubReturns["dialogs.appConfirm"] = async () => false;',
+     'await (async () => { await rc.deleteOrphanAgent("c1", "a1"); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [], "toast": ""}',
+     'negative: deleteOrphanAgent: отказ в диалоге → ни запроса, ни тоста'),
+    ('doa_500',
+     'globalThis.__fetchReply["/api/topology/orphan-assignment/delete"] = { __status: 500, error: "nope" };',
+     'await (async () => { await rc.deleteOrphanAgent("c1", "a1"); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [{"path": "/api/topology/orphan-assignment/delete", "method": "POST", "body": "{\\"clientId\\":\\"c1\\",\\"agentId\\":\\"a1\\"}"}], "toast": "Error: nope"}',
+     'negative: deleteOrphanAgent: 500 → тост «Error: nope»'),
+    ('rsc_yes_reply_cell',
+     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; globalThis.__fetchReply["/api/topology/server-slot/add"] = { cell: { hostId: "h1", port: 22007 } };',
+     'await (async () => { await rc.reserveServerCell("h1"); return ({ calls: calls(), toast: toastText(), reserving: [...rc._reservingCells.entries()], fresh: [...rc._newReservedCells], snap: globalThis.__snap, confirm: globalThis.__msg }); })()',
+     '{"calls": [{"path": "/api/topology/server-slot/add", "method": "POST", "body": "{\\"hostId\\":\\"h1\\"}"}], "toast": "", "reserving": [], "fresh": ["h1:22007"], "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]], "confirm": {"msg": "Reserve cell :22001? The port is claimed fleet-wide; the cell can be configured and started later.", "opts": {"danger": false, "confirmLabel": "Reserve cell", "scene": "create"}}}',
+     'positive: reserveServerCell: до запроса _reservingCells h1→{port:22001, startedAt: замороженный Date.now 1700000100 с}; на провод {hostId}; ответ cell → _newReservedCells «h1:22007»; после await _reservingCells пуст; текст диалога'),
+    ('rsc_yes_reply_slot_alias',
+     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; globalThis.__fetchReply["/api/topology/server-slot/add"] = { slot: { hostId: "h1", port: 22008 } };',
+     'await (async () => { await rc.reserveServerCell("h1"); return [...rc._newReservedCells]; })()',
+     '["h1:22008"]',
+     'positive: reserveServerCell: ответ с полем slot (вместо cell) тоже принимается → «h1:22008»'),
+    ('rsc_yes_reply_empty_falls_back',
+     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; };',
+     'await (async () => { await rc.reserveServerCell("h1"); return { fresh: [...rc._newReservedCells], reserving: [...rc._reservingCells.entries()] }; })()',
+     '{"fresh": ["h1:22001"], "reserving": []}',
+     'boundary: reserveServerCell: ответ {ok:true} без cell/slot → ключ из hostId и pendingPort «h1:22001»'),
+    ('rsc_porthint_wins',
+     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.nodes = [{ servers: [{ port: 22001 }] }];',
+     'await (async () => { await rc.reserveServerCell("h1", "22010"); return { snap: globalThis.__snap, confirm: globalThis.__msg.msg, fresh: [...rc._newReservedCells] }; })()',
+     '{"snap": [["h1", {"port": 22010, "startedAt": 1700000100000}]], "confirm": "Reserve cell :22010? The port is claimed fleet-wide; the cell can be configured and started later.", "fresh": ["h1:22010"]}',
+     'positive: reserveServerCell: portHint "22010" побеждает nextTopologyCellPort в диалоге, в _reservingCells (startedAt = замороженный Date.now) и в fallback-ключе'),
+    ('rsc_no_hint_uses_next',
+     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.nodes = [{ servers: [{ port: 22001 }] }];',
+     'await (async () => { await rc.reserveServerCell("h1"); return { snap: globalThis.__snap, confirm: globalThis.__msg.msg, fresh: [...rc._newReservedCells] }; })()',
+     '{"snap": [["h1", {"port": 22002, "startedAt": 1700000100000}]], "confirm": "Reserve cell :22002? The port is claimed fleet-wide; the cell can be configured and started later.", "fresh": ["h1:22002"]}',
+     'negative: reserveServerCell: без portHint порт = nextTopologyCellPort (22001 занят → 22002); startedAt = замороженный Date.now'),
+    ('rsc_no',
+     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async () => false;',
+     'await (async () => { await rc.reserveServerCell("h1"); return ({ calls: calls(), toast: toastText(), reserving: [...rc._reservingCells.entries()], fresh: [...rc._newReservedCells], snap: globalThis.__snap, confirm: globalThis.__msg }); })()',
+     '{"calls": [], "toast": "", "reserving": [], "fresh": [], "snap": null, "confirm": null}',
+     'negative: reserveServerCell: отказ в диалоге → ни запроса, ни рендера, ни состояния'),
+    ('rsc_500',
+     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; globalThis.__fetchReply["/api/topology/server-slot/add"] = { __status: 500, error: "nope" };',
+     'await (async () => { await rc.reserveServerCell("h1"); return ({ calls: calls(), toast: toastText(), reserving: [...rc._reservingCells.entries()], fresh: [...rc._newReservedCells], snap: globalThis.__snap, confirm: globalThis.__msg }); })()',
+     '{"calls": [{"path": "/api/topology/server-slot/add", "method": "POST", "body": "{\\"hostId\\":\\"h1\\"}"}], "toast": "Error: nope", "reserving": [], "fresh": [], "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]], "confirm": {"msg": "Reserve cell :22001? The port is claimed fleet-wide; the cell can be configured and started later.", "opts": {"danger": false, "confirmLabel": "Reserve cell", "scene": "create"}}}',
+     'negative: reserveServerCell: 500 → _reservingCells снят, _newReservedCells пуст, тост «Error: nope» (startedAt в снимке = замороженный Date.now)'),
+    ('rsc_empty_host',
+     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; };',
+     'await (async () => { await rc.reserveServerCell(""); return ({ calls: calls(), toast: toastText(), reserving: [...rc._reservingCells.entries()], fresh: [...rc._newReservedCells], snap: globalThis.__snap, confirm: globalThis.__msg }); })()',
+     '{"calls": [{"path": "/api/topology/server-slot/add", "method": "POST", "body": "{\\"hostId\\":\\"\\"}"}], "toast": "", "reserving": [], "fresh": [], "snap": [], "confirm": {"msg": "Reserve cell :22001? The port is claimed fleet-wide; the cell can be configured and started later.", "opts": {"danger": false, "confirmLabel": "Reserve cell", "scene": "create"}}}',
+     'as-is: КАК ЕСТЬ: пустой hostId не блокируется — диалог показан, на провод {hostId:""}, ни спиннера, ни вспышки новой ячейки'),
+    ('dtc_yes_named',
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.clients = [{ id: "c1", name: "Crab" }];',
+     'await (async () => { await rc.deleteTopologyClient("c1"); return { calls: calls(), toast: toastText(), confirm: globalThis.__msg }; })()',
+     '{"calls": [{"path": "/api/topology/client/delete", "method": "POST", "body": "{\\"clientId\\":\\"c1\\"}"}], "toast": "", "confirm": {"msg": "Delete client “Crab” from the list?\\n\\nIf the agent is alive, it will re-appear on its next heartbeat.", "opts": {"confirmLabel": "Delete"}}}',
+     'positive: deleteTopologyClient: диалог с именем клиента «Crab», на провод {clientId}, тоста нет'),
+    ('dtc_no',
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return false; };',
+     'await (async () => { await rc.deleteTopologyClient("c1"); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [], "toast": ""}',
+     'negative: deleteTopologyClient: отказ → ничего'),
+    ('dtc_500',
+     'globalThis.__fetchReply["/api/topology/client/delete"] = { __status: 500, error: "nope" };',
+     'await (async () => { await rc.deleteTopologyClient("c1"); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [{"path": "/api/topology/client/delete", "method": "POST", "body": "{\\"clientId\\":\\"c1\\"}"}], "toast": "Error: nope"}',
+     'negative: deleteTopologyClient: 500 → тост «Error: nope»'),
+    ('dtca_yes_named',
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.clients = [{ id: "c1", agents: [{ id: "a1", name: "Scout" }] }];',
+     'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { calls: calls(), toast: toastText(), confirm: globalThis.__msg }; })()',
+     '{"calls": [{"path": "/api/topology/client/agent/delete", "method": "POST", "body": "{\\"clientId\\":\\"c1\\",\\"agentId\\":\\"a1\\"}"}], "toast": "", "confirm": {"msg": "Delete agent “Scout” from the list?\\n\\nIf the agent starts again, it will re-appear on its next heartbeat.", "opts": {"confirmLabel": "Delete"}}}',
+     'positive: deleteTopologyClientAgent: диалог с именем агента «Scout», на провод {clientId, agentId}'),
+    ('dtca_yes_unknown_uses_id',
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.clients = [{ id: "c1" }];',
+     'await (async () => { await rc.deleteTopologyClientAgent("c1", "a7"); return { calls: calls(), confirm: globalThis.__msg.msg }; })()',
+     '{"calls": [{"path": "/api/topology/client/agent/delete", "method": "POST", "body": "{\\"clientId\\":\\"c1\\",\\"agentId\\":\\"a7\\"}"}], "confirm": "Delete agent “a7” from the list?\\n\\nIf the agent starts again, it will re-appear on its next heartbeat."}',
+     'boundary: deleteTopologyClientAgent: агент не найден → в диалоге его id'),
+    ('dtca_no',
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return false; };',
+     'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [], "toast": ""}',
+     'negative: deleteTopologyClientAgent: отказ → ничего'),
+    ('dtca_500',
+     'globalThis.__fetchReply["/api/topology/client/agent/delete"] = { __status: 500, error: "nope" };',
+     'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [{"path": "/api/topology/client/agent/delete", "method": "POST", "body": "{\\"clientId\\":\\"c1\\",\\"agentId\\":\\"a1\\"}"}], "toast": "Error: nope"}',
+     'negative: deleteTopologyClientAgent: 500 → тост «Error: nope»'),
+    ('dac_full_registered',
+     'globalThis.__prompts = []; globalThis.__pi = 0; globalThis.__stubReturns["dialogs.appPrompt"] = async (msg, opts) => { globalThis.__prompts.push({ msg, opts }); return ["forge", "10.0.0.5", "8092"][globalThis.__pi++]; };',
+     'await (async () => { await rc.discoveryAddCandidate("cand-1", "10.0.0.1"); return { calls: calls(), toast: toastText(), prompts: globalThis.__prompts }; })()',
+     '{"calls": [{"path": "/api/topology/discover/add", "method": "POST", "body": "{\\"id\\":\\"forge\\",\\"name\\":\\"forge\\",\\"host\\":\\"10.0.0.5\\",\\"port\\":8092}"}], "toast": "Registered forge into the fleet registry", "prompts": [{"msg": "Agent id for the registry", "opts": {"value": "cand-1", "scene": "create"}}, {"msg": "Host / IP", "opts": {"value": "10.0.0.1", "scene": "create"}}, {"msg": "OpenClaw gateway port on 10.0.0.5", "opts": {"value": "18796", "scene": "create"}}]}',
+     'positive: discoveryAddCandidate: три промпта (id/host/port с дефолтами cand-1, 10.0.0.1, 18796) → {id, name:id, host, port:8092}, тост agentRegistered'),
+    ('dac_defaults_accepted',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async (msg, opts) => opts.value;',
+     'await (async () => { await rc.discoveryAddCandidate("cand-1", "10.0.0.1"); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [{"path": "/api/topology/discover/add", "method": "POST", "body": "{\\"id\\":\\"cand-1\\",\\"name\\":\\"cand-1\\",\\"host\\":\\"10.0.0.1\\",\\"port\\":18796}"}], "toast": "Registered cand-1 into the fleet registry"}',
+     'positive: discoveryAddCandidate: приняты дефолты → id=cand-1, host=10.0.0.1, port=18796'),
+    ('dac_trim_and_parseint',
+     'globalThis.__prompts = []; globalThis.__pi = 0; globalThis.__stubReturns["dialogs.appPrompt"] = async (msg, opts) => { globalThis.__prompts.push({ msg, opts }); return ["  forge ", " 10.0.0.5 ", "8092abc"][globalThis.__pi++]; };',
+     'await (async () => { await rc.discoveryAddCandidate("cand-1", "10.0.0.1"); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [{"path": "/api/topology/discover/add", "method": "POST", "body": "{\\"id\\":\\"forge\\",\\"name\\":\\"forge\\",\\"host\\":\\"10.0.0.5\\",\\"port\\":8092}"}], "toast": "Registered forge into the fleet registry"}',
+     'as-is: КАК ЕСТЬ: id/host обрезаются trim, порт через parseInt — «8092abc» молча становится 8092'),
+    ('dac_cancel_id',
+     'globalThis.__prompts = []; globalThis.__pi = 0; globalThis.__stubReturns["dialogs.appPrompt"] = async (msg, opts) => { globalThis.__prompts.push({ msg, opts }); return [""][globalThis.__pi++]; };',
+     'await (async () => { await rc.discoveryAddCandidate("cand-1", "10.0.0.1"); return { calls: calls(), toast: toastText(), asked: globalThis.__prompts.length }; })()',
+     '{"calls": [], "toast": "", "asked": 1}',
+     'negative: discoveryAddCandidate: пустой id → выход после первого промпта, без запроса и тоста'),
+    ('dac_cancel_ip_null',
+     'globalThis.__prompts = []; globalThis.__pi = 0; globalThis.__stubReturns["dialogs.appPrompt"] = async (msg, opts) => { globalThis.__prompts.push({ msg, opts }); return ["forge", null][globalThis.__pi++]; };',
+     'await (async () => { await rc.discoveryAddCandidate("cand-1", "10.0.0.1"); return { calls: calls(), toast: toastText(), asked: globalThis.__prompts.length }; })()',
+     '{"calls": [], "toast": "", "asked": 2}',
+     'negative: discoveryAddCandidate: null (отмена) на host → выход после второго промпта'),
+    ('dac_bad_port',
+     'globalThis.__prompts = []; globalThis.__pi = 0; globalThis.__stubReturns["dialogs.appPrompt"] = async (msg, opts) => { globalThis.__prompts.push({ msg, opts }); return ["forge", "10.0.0.5", "abc"][globalThis.__pi++]; };',
+     'await (async () => { await rc.discoveryAddCandidate("cand-1", "10.0.0.1"); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [], "toast": "port is required"}',
+     'negative: discoveryAddCandidate: нечисловой порт → тост t(portRequired), запроса нет'),
+    ('dac_reply_not_ok',
+     'globalThis.__prompts = []; globalThis.__pi = 0; globalThis.__stubReturns["dialogs.appPrompt"] = async (msg, opts) => { globalThis.__prompts.push({ msg, opts }); return ["forge", "10.0.0.5", "8092"][globalThis.__pi++]; }; globalThis.__fetchReply["/api/topology/discover/add"] = { ok: false, error: "dup" };',
+     'await (async () => { await rc.discoveryAddCandidate("cand-1", "10.0.0.1"); return toastText(); })()',
+     '"Add failed: dup"',
+     'negative: discoveryAddCandidate: ответ ok:false → t(agentAddFailed) с err'),
+    ('dac_reply_not_ok_no_error',
+     'globalThis.__prompts = []; globalThis.__pi = 0; globalThis.__stubReturns["dialogs.appPrompt"] = async (msg, opts) => { globalThis.__prompts.push({ msg, opts }); return ["forge", "10.0.0.5", "8092"][globalThis.__pi++]; }; globalThis.__fetchReply["/api/topology/discover/add"] = { ok: false };',
+     'await (async () => { await rc.discoveryAddCandidate("cand-1", "10.0.0.1"); return toastText(); })()',
+     '"Add failed: ?"',
+     'boundary: discoveryAddCandidate: ok:false без error → err «?»'),
+    ('dac_500',
+     'globalThis.__prompts = []; globalThis.__pi = 0; globalThis.__stubReturns["dialogs.appPrompt"] = async (msg, opts) => { globalThis.__prompts.push({ msg, opts }); return ["forge", "10.0.0.5", "8092"][globalThis.__pi++]; }; globalThis.__fetchReply["/api/topology/discover/add"] = { __status: 500, error: "nope" };',
+     'await (async () => { await rc.discoveryAddCandidate("cand-1", "10.0.0.1"); return toastText(); })()',
+     '"Error: nope"',
+     'negative: discoveryAddCandidate: 500 → тост «Error: nope»'),
+    ('sls_yes_named',
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.clients = [{ id: "h1", name: "Crab" }]; rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 });',
+     'await (async () => { await rc.submitLlamaStop("h1"); return ({ calls: calls(), toast: toastText(), stoppingHosts: [...rc._stoppingHosts], pending: [...rc._pendingRemoteStarts.keys()], confirm: globalThis.__msg }); })()',
+     '{"calls": [{"path": "/api/topology/client-llama/stop", "method": "POST", "body": "{\\"hostId\\":\\"h1\\"}"}], "toast": "", "stoppingHosts": ["h1"], "pending": [], "confirm": {"msg": "Stop llama-server on Crab?\\n\\nThe model will be unloaded from VRAM. The admin panel stays up.", "opts": {"confirmLabel": "Stop", "scene": "stop"}}}',
+     'positive: submitLlamaStop: диалог с именем «Crab»; pending-старт h1 снят; на провод {hostId}; после await _stoppingHosts ещё держит h1 (таймер 1500 мс); тоста нет'),
+    ('sls_no',
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return false; }; rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 });',
+     'await (async () => { await rc.submitLlamaStop("h1"); return ({ calls: calls(), toast: toastText(), stoppingHosts: [...rc._stoppingHosts], pending: [...rc._pendingRemoteStarts.keys()], confirm: globalThis.__msg }); })()',
+     '{"calls": [], "toast": "", "stoppingHosts": [], "pending": ["h1"], "confirm": {"msg": "Stop llama-server on h1?\\n\\nThe model will be unloaded from VRAM. The admin panel stays up.", "opts": {"confirmLabel": "Stop", "scene": "stop"}}}',
+     'negative: submitLlamaStop: отказ → нет запроса, pending-старт остаётся, имя в диалоге = hostId (клиент не найден)'),
+    ('sls_500_silent',
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; globalThis.__fetchReply["/api/topology/client-llama/stop"] = { __status: 500, error: "nope" };',
+     'await (async () => { await rc.submitLlamaStop("h1"); return ({ calls: calls(), toast: toastText(), stoppingHosts: [...rc._stoppingHosts], pending: [...rc._pendingRemoteStarts.keys()], confirm: globalThis.__msg }); })()',
+     '{"calls": [{"path": "/api/topology/client-llama/stop", "method": "POST", "body": "{\\"hostId\\":\\"h1\\"}"}], "toast": "", "stoppingHosts": [], "pending": [], "confirm": {"msg": "Stop llama-server on h1?\\n\\nThe model will be unloaded from VRAM. The admin panel stays up.", "opts": {"confirmLabel": "Stop", "scene": "stop"}}}',
+     'as-is: КАК ЕСТЬ: 500 при остановке проглатывается — _stoppingHosts снят, но тоста НЕТ (catch(_) без toast)'),
+    ('rprs_entry_frozen',
+     '',
+     '(rc.registerPendingRemoteStart({ hostId: "h1", port: 22001, modelName: "m" }), rc._pendingRemoteStarts.get("h1"))',
+     '{"phase": "starting", "startedAt": 1700000100000, "hostId": "h1", "port": 22001, "modelName": "m"}',
+     'positive: registerPendingRemoteStart: запись phase=starting, startedAt = замороженный Date.now (1700000100 с), поля info'),
+    ('rprs_info_phase_overrides_default',
+     '',
+     '(rc.registerPendingRemoteStart({ hostId: "h1", phase: "downloading", startedAt: 5 }), rc._pendingRemoteStarts.get("h1"))',
+     '{"phase": "downloading", "startedAt": 5, "hostId": "h1"}',
+     'as-is: КАК ЕСТЬ: ...info идёт после дефолтов — phase/startedAt из info перекрывают «starting»/Date.now'),
+    ('rsif_empty_false',
+     '',
+     'rc.remoteStartupInFlight()',
+     'false',
+     'negative: remoteStartupInFlight: ничего не стартует → false'),
+    ('rsif_pending_true',
+     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 });',
+     'rc.remoteStartupInFlight()',
+     'true',
+     'positive: remoteStartupInFlight: есть pending phase=starting → true'),
+    ('rsif_false_after_clear',
+     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); rc.clearPendingRemoteStart("h1");',
+     '({ inFlight: rc.remoteStartupInFlight(), size: rc._pendingRemoteStarts.size })',
+     '{"inFlight": false, "size": 0}',
+     'negative: clearPendingRemoteStart: после очистки → false, карта пуста'),
+    ('rsif_pending_timeout_phase_false',
+     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); rc._pendingRemoteStarts.get("h1").phase = "timeout";',
+     'rc.remoteStartupInFlight()',
+     'false',
+     'boundary: remoteStartupInFlight: pending с phase=timeout не считается стартующим → false'),
+    ('rsif_server_startup_phases',
+     '',
+     '["resolving", "downloading", "loading", "running", "stopped", "error"].map((ph) => { st.topology.server = { llamaServers: [{ isRemote: true, phase: ph }] }; return ph + "=" + rc.remoteStartupInFlight(); })',
+     '["resolving=true", "downloading=true", "loading=true", "running=false", "stopped=false", "error=false"]',
+     'boundary: remoteStartupInFlight: удалённый сервер в resolving/downloading/loading → true; running/stopped/error → false'),
+    ('rsif_server_not_remote_false',
+     'st.topology.server = { llamaServers: [{ isRemote: false, phase: "downloading" }] };',
+     'rc.remoteStartupInFlight()',
+     'false',
+     'negative: remoteStartupInFlight: локальный (isRemote:false) сервер в downloading не считается → false'),
+    ('nsch_no_pending_empty',
+     '',
+     'rc.nodeStartingCardHtml({ id: "h1", ip: "10.0.0.9" })',
+     '""',
+     'negative: nodeStartingCardHtml: без pending-старта → ""'),
+    ('nsch_other_host_pending_empty',
+     'rc.registerPendingRemoteStart({ hostId: "h2", port: 22001 });',
+     'rc.nodeStartingCardHtml({ id: "h1", ip: "10.0.0.9" })',
+     '""',
+     'negative: nodeStartingCardHtml: pending на другом хосте → ""'),
+    ('nsch_card_full',
+     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001, modelName: "m", clientIp: "10.0.0.5" });',
+     'norm(rc.nodeStartingCardHtml({ id: "h1", ip: "10.0.0.9", servers: [] }))',
+     '"<article class=\\"node-server loading\\" data-pending-remote-start=\\"h1\\"> <div class=\\"node-server-head\\"> <span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-addr-link\\" style=\\"pointer-events:none\\">10.0.0.5:22001</span> <span class=\\"pill warn\\">loading</span> <span style=\\"flex:1\\"></span> <button class=\\"mini-link\\" type=\\"button\\" data-pending-remote-dismiss=\\"h1\\" style=\\"color:var(--muted,#888)\\" title=\\"Dismiss\\">✕</button> </div> <div class=\\"topology-muted\\" style=\\"font-size:12px;padding:2px 0\\">m</div> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">starting…</div> </article>"',
+     'positive: nodeStartingCardHtml: полная карточка — clientIp:port, pill loading, кнопка ✕, строка модели, «starting…»'),
+    ('nsch_card_minimal_node_ip',
+     'rc.registerPendingRemoteStart({ hostId: "h1" });',
+     'norm(rc.nodeStartingCardHtml({ id: "h1", ip: "10.0.0.9" }))',
+     '"<article class=\\"node-server loading\\" data-pending-remote-start=\\"h1\\"> <div class=\\"node-server-head\\"> <span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-addr-link\\" style=\\"pointer-events:none\\">10.0.0.9</span> <span class=\\"pill warn\\">loading</span> <span style=\\"flex:1\\"></span> <button class=\\"mini-link\\" type=\\"button\\" data-pending-remote-dismiss=\\"h1\\" style=\\"color:var(--muted,#888)\\" title=\\"Dismiss\\">✕</button> </div> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">starting…</div> </article>"',
+     'boundary: nodeStartingCardHtml: без clientIp/port/modelName → адрес = node.ip без порта, строки модели нет'),
+    ('nsch_phase_timeout_empty_keeps_pending',
+     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); rc._pendingRemoteStarts.get("h1").phase = "timeout";',
+     '({ html: rc.nodeStartingCardHtml({ id: "h1" }), pending: [...rc._pendingRemoteStarts.keys()] })',
+     '{"html": "", "pending": ["h1"]}',
+     'negative: nodeStartingCardHtml: phase≠starting → "", запись НЕ удаляется'),
+    ('nsch_server_running_clears_pending',
+     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); globalThis.__stubReturns["topology-render.topologyServerPhase"] = () => "running";',
+     '({ html: rc.nodeStartingCardHtml({ id: "h1", servers: [{ port: 22001 }] }), pending: [...rc._pendingRemoteStarts.keys()] })',
+     '{"html": "", "pending": []}',
+     'positive: nodeStartingCardHtml: у узла есть сервер с фазой ≠ stopped (заглушка topologyServerPhase → running) → "" и pending снят'),
+    ('nsch_server_stopped_keeps_card',
+     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); globalThis.__stubReturns["topology-render.topologyServerPhase"] = () => "stopped";',
+     '({ html: norm(rc.nodeStartingCardHtml({ id: "h1", ip: "10.0.0.9", servers: [{ port: 22001 }] })), pending: [...rc._pendingRemoteStarts.keys()] })',
+     '{"html": "<article class=\\"node-server loading\\" data-pending-remote-start=\\"h1\\"> <div class=\\"node-server-head\\"> <span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-addr-link\\" style=\\"pointer-events:none\\">10.0.0.9:22001</span> <span class=\\"pill warn\\">loading</span> <span style=\\"flex:1\\"></span> <button class=\\"mini-link\\" type=\\"button\\" data-pending-remote-dismiss=\\"h1\\" style=\\"color:var(--muted,#888)\\" title=\\"Dismiss\\">✕</button> </div> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">starting…</div> </article>", "pending": ["h1"]}',
+     'negative: nodeStartingCardHtml: все серверы узла stopped (заглушка → stopped) → карточка остаётся, pending жив'),
+    ('tcg_no_gpus',
+     '',
+     '[rc.topologyClientGpusHtml({}), rc.topologyClientGpusHtml({ gpus: [] }), rc.topologyClientGpusHtml(null)]',
+     '["", "", ""]',
+     'negative: topologyClientGpusHtml: нет gpus / пустой массив / null → ""'),
+    ('tcg_driver_missing',
+     '',
+     'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "RTX 3090", driverStatus: "driver_missing" }] }))',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px\\"> <span>🖥 <b>RTX 3090</b> <span class=\\"topology-muted\\" style=\\"color:var(--warn,#e0a000)\\">⚠ NVIDIA driver needed (no nvidia-smi)</span> </span> </div> </div>"',
+     'positive: topologyClientGpusHtml: driverStatus=driver_missing → строка с ⚠ и без VRAM/слотов'),
+    ('tcg_normal_defaults',
+     '',
+     'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "RTX 3090", memoryUsedMiB: 512, memoryTotalMiB: 24576 }] }))',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>RTX 3090</b> <span class=\\"topology-muted\\">VRAM 512 MiB/24.0 GB · 0% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
+     'positive: topologyClientGpusHtml: обычная строка — VRAM 512 MiB/24.0 GB, util по умолчанию «0», temp «n/a», без слотов → «available»'),
+    ('tcg_normal_values',
+     '',
+     'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "RTX 3090", memoryUsedMiB: 12288, memoryTotalMiB: 24576, utilizationGpuPct: 37, temperatureC: 61 }] }))',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>RTX 3090</b> <span class=\\"topology-muted\\">VRAM 12.0 GB/24.0 GB · 37% · 61C</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
+     'positive: topologyClientGpusHtml: заданные util/temp → «37% · 61C», 12288 MiB → 12.0 GB'),
+    ('tcg_gpu_no_fields',
+     '',
+     'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{}] }))',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>GPU</b> <span class=\\"topology-muted\\">VRAM / · 0% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
+     'as-is: КАК ЕСТЬ: GPU без полей → имя «GPU» и пустое «VRAM /» (formatMemoryMiB(undefined) → "")'),
+    ('tcg_running_1d13h',
+     '',
+     'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "RTX" }], llamaNodes: [{ running: true, port: 22001, modelPath: "/models/x/m.gguf", uptimeSec: 86400 + 3600 * 13 }] }))',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>RTX</b> <span class=\\"topology-muted\\">VRAM / · 0% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22001 · m.gguf · up 1d 13h </span> </div> </div>"',
+     'positive: topologyClientGpusHtml: запущенный слот — «▶ :22001 · m.gguf · up 1d 13h» (86400+13·3600 с = 1 день 13 ч, не 2d)'),
+    ('tcg_fmtdur_2h5m',
+     '',
+     '(norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{}], llamaNodes: [{ running: true, port: 22001, uptimeSec: 3600 * 2 + 60 * 5 }] })).match(/▶[^<]*/g) || []).map((s) => s.trim())',
+     '["▶ :22001 · up 2h 5m"]',
+     'positive: fmtDur: 2·3600+5·60 → «2h 5m»'),
+    ('tcg_fmtdur_5m',
+     '',
+     '(norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{}], llamaNodes: [{ running: true, port: 22001, uptimeSec: 300 }] })).match(/▶[^<]*/g) || []).map((s) => s.trim())',
+     '["▶ :22001 · up 5m"]',
+     'positive: fmtDur: 300 с → «5m»'),
+    ('tcg_fmtdur_30s',
+     '',
+     '(norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{}], llamaNodes: [{ running: true, port: 22001, uptimeSec: 30 }] })).match(/▶[^<]*/g) || []).map((s) => s.trim())',
+     '["▶ :22001 · up 30s"]',
+     'positive: fmtDur: 30 с → «30s»'),
+    ('tcg_fmtdur_boundaries',
+     '',
+     '[59, 60, 3599, 3600, 86399, 86400, -5, "90"].map((s) => s + "→" + (norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{}], llamaNodes: [{ running: true, port: 22001, uptimeSec: s }] })).match(/▶[^<]*/g) || []).map((s) => s.trim())[0])',
+     '["59→▶ :22001 · up 59s", "60→▶ :22001 · up 1m", "3599→▶ :22001 · up 59m", "3600→▶ :22001 · up 1h 0m", "86399→▶ :22001 · up 23h 59m", "86400→▶ :22001 · up 1d 0h", "-5→▶ :22001 · up 0s", "90→▶ :22001 · up 1m"]',
+     'boundary: fmtDur на границах: 59→59s, 60→1m, 3599→59m, 3600→1h 0m, 86399→23h 59m, 86400→1d 0h, -5→0s (clamp), "90"→1m (Number)'),
+    ('tcg_uptime_zero_omitted',
+     '',
+     '(norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{}], llamaNodes: [{ running: true, port: 22001, uptimeSec: 0 }] })).match(/▶[^<]*/g) || []).map((s) => s.trim())',
+     '["▶ :22001"]',
+     'negative: topologyClientGpusHtml: uptimeSec=0 ложный → суффикс «up …» не рисуется'),
+    ('tcg_celllabel_from_fleet',
+     'st.topology.nodes = [{ servers: [{ clientId: "c1", port: "22001", cellLabel: "whisper" }] }];',
+     '(norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{}], llamaNodes: [{ running: true, port: 22001 }] })).match(/▶[^<]*/g) || []).map((s) => s.trim())',
+     '["▶ :22001 · whisper"]',
+     'positive: topologyClientGpusHtml: command-ячейка без modelPath берёт cellLabel из topology.nodes[].servers по clientId+port (порт-строка совпадает)'),
+    ('tcg_celllabel_beats_modelpath',
+     'st.topology.nodes = [{ servers: [{ clientId: "c1", port: 22001, cellLabel: "whisper" }] }];',
+     '(norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{}], llamaNodes: [{ running: true, port: 22001, modelPath: "/m/x.gguf" }] })).match(/▶[^<]*/g) || []).map((s) => s.trim())',
+     '["▶ :22001 · whisper"]',
+     'positive: topologyClientGpusHtml: cellLabel имеет приоритет над basename modelPath'),
+    ('tcg_celllabel_other_client_ignored',
+     'st.topology.nodes = [{ servers: [{ clientId: "c2", port: 22001, cellLabel: "whisper" }] }];',
+     '(norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{}], llamaNodes: [{ running: true, port: 22001 }] })).match(/▶[^<]*/g) || []).map((s) => s.trim())',
+     '["▶ :22001"]',
+     'negative: topologyClientGpusHtml: ячейка другого клиента на том же порту не даёт имени → голый порт'),
+    ('tcg_legacy_single_llamaNode',
+     '',
+     '(norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{}], llamaNode: { running: true, port: 22002, modelPath: "m.gguf" } })).match(/▶[^<]*/g) || []).map((s) => s.trim())',
+     '["▶ :22002 · m.gguf"]',
+     'positive: topologyClientGpusHtml: легаси-одиночный llamaNode (без llamaNodes) тоже рисуется'),
+    ('tcg_not_running_available',
+     '',
+     'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "RTX" }], llamaNodes: [{ running: false, port: 22001 }, { running: true, port: 0 }, { running: "true", port: 22003 }, null] }))',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>RTX</b> <span class=\\"topology-muted\\">VRAM / · 0% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
+     'negative: topologyClientGpusHtml: running:false / port 0 / running:"true" (не ===true) / null отфильтрованы → «available for model servers»'),
+    ('tcg_two_gpus_both_list_all_running',
+     '',
+     'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "A" }, { name: "B" }], llamaNodes: [{ running: true, port: 22001 }, { running: true, port: 22002, modelPath: "q.gguf" }] }))',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>A</b> <span class=\\"topology-muted\\">VRAM / · 0% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22001 </span><br><span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22002 · q.gguf </span> </div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>B</b> <span class=\\"topology-muted\\">VRAM / · 0% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22001 </span><br><span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22002 · q.gguf </span> </div> </div>"',
+     'as-is: КАК ЕСТЬ: слот не привязан к GPU — оба запущенных слота повторяются под КАЖДОЙ картой (через <br>)'),
+    ('tcg_escapes_html',
+     '',
+     'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "<b>x</b>", temperatureC: "<i>" }] }))',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>&lt;b&gt;x&lt;/b&gt;</b> <span class=\\"topology-muted\\">VRAM / · 0% · &lt;i&gt;C</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
+     'positive: topologyClientGpusHtml: имя GPU и temp экранируются'),
+]
+
+_fail = []
+
+
+def check(cond, msg):
+    print(("  ok  " if cond else " FAIL ") + msg)
+    if not cond:
+        _fail.append(msg)
+
+
+def main():
+    if len(PINS) < 40:
+        print(f"js remote-cells FAILED: всего {len(PINS)} пинов — снимок пуст или урезан")
+        return 1
+    node = find_node()
+    if node is None:
+        print("js remote-cells: SKIPPED — node не найден ни в PATH, ни у менеджеров версий: " + ", ".join(node_search_paths()))
+        return 0
+    ids = [p[0] for p in PINS]
+    dup = {i for i in ids if ids.count(i) > 1}
+    if dup:
+        print(f"js remote-cells FAILED: повторяющиеся id пинов: {sorted(dup)}")
+        return 1
+    def blocks(pins, sink):
+        return [f"try {{ reset(); {setup}\n  {sink}[{json.dumps(pid)}] = {expr}; }} catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
+                for pid, setup, expr, _exp, _msg in pins]
+    # Каждый пин обязан быть независим от соседей: reset() перед ним для того и
+    # стоит. Доказывается это здесь же — весь набор прогоняется ВТОРОЙ раз в
+    # обратном порядке, и значения должны совпасть. Без этой проверки пин может
+    # проходить из-за состояния, оставленного предыдущим (так и было: два пина
+    # про «порт не задан» зеленели лишь потому, что шли раньше открытия ячейки).
+    probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
+             + "\n".join(blocks(list(reversed(PINS)), "rev")).replace("out[", "rev[")
+             + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")
+    harness = ROOT / "scripts" / "_js_harness.mjs"
+    probe_path = ROOT / "scripts" / ".probe_js_remote_cells.tmp.mjs"
+    probe_path.write_text(probe)
+    try:
+        env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"), "JS_STUBS": STUBS,
+               "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
+        run = subprocess.run(
+            [node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
+             str(probe_path)], capture_output=True, text=True, env=env, cwd=ROOT, timeout=120)
+    finally:
+        probe_path.unlink(missing_ok=True)
+    if run.returncode != 0:
+        print(run.stdout); print(run.stderr)
+        print("js remote-cells FAILED: node вышел с кодом %d" % run.returncode)
+        return 1
+    both = json.loads(run.stdout.strip().splitlines()[-1])
+    got, rev = both["out"], both["rev"]
+    for pid, _s, _e, _x, _m in PINS:
+        if got.get(pid, "\0missing") != rev.get(pid, "\0missing"):
+            _fail.append(f"пин {pid} зависит от порядка: прямой прогон {json.dumps(got.get(pid), ensure_ascii=False)[:120]}, "
+                         f"обратный {json.dumps(rev.get(pid), ensure_ascii=False)[:120]}")
+    section = ""
+    for pid, _setup, _expr, expected, msg in PINS:
+        head = pid.split("_", 1)[0]
+        if head != section:
+            section = head
+            print(f"{section}:")
+        want = json.loads(expected)
+        have = got.get(pid, {"__missing": True})
+        ok = have == want
+        check(ok, msg if ok else f"{msg}\n        ожидалось {json.dumps(want, ensure_ascii=False)[:300]}\n        получено  {json.dumps(have, ensure_ascii=False)[:300]}")
+    print(f"порядок: {len(PINS)} пинов дают те же значения в обратном порядке" if not _fail else "")
+    print()
+    if _fail:
+        print(f"FAILED ({len(_fail)}):")
+        for f in _fail:
+            print("  - " + f.splitlines()[0])
+        return 1
+    print(f"js remote-cells OK: настоящий модуль в node, {len(PINS)} пинов действий клиентских ячеек значениями")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

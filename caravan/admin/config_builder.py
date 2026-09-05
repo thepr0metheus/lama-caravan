@@ -13,7 +13,9 @@ from pathlib import Path
 
 from caravan.admin.paths import DEFAULT_MODELS_DIR, LLAMA_HOME, START_SCRIPT
 from caravan.common.errors import AppError
+from caravan.common.flags import truthy
 from caravan.admin.runners import runner_id
+from caravan.domain.runner import for_config
 from caravan.common.fsio import read_text
 
 
@@ -93,6 +95,10 @@ CONFIG_FIELDS = [
     "IMAGE_MIN_TOKENS",
     "IMAGE_MAX_TOKENS",
     "REASONING",
+    "TEMPERATURE",
+    "TOP_K",
+    "TOP_P",
+    "MIN_P",
     "REASONING_FORMAT",
     "REASONING_BUDGET",
     "REASONING_PRESERVE",
@@ -239,6 +245,16 @@ FIELD_HELP = {
     "IMAGE_MIN_TOKENS": "Minimum image tokens for dynamic-resolution vision models.",
     "IMAGE_MAX_TOKENS": "Maximum image tokens for dynamic-resolution vision models.",
     "REASONING": "Reasoning mode: on, off, or auto.",
+    "TEMPERATURE": "Default sampling temperature (--temp). Applies to requests that do not send one of "
+                   "their own; llama.cpp's own default is 0.80. 0 = always the most likely token, which is "
+                   "what models tuned for tool calling and phone-style answers are usually measured at. "
+                   "A caller can still override it per request.",
+    "TOP_K": "Default top-k (--top-k): consider only the K most likely tokens. 0 disables it. "
+             "llama.cpp's default is 40. Ignored when the request sends its own.",
+    "TOP_P": "Default top-p / nucleus (--top-p): consider the most likely tokens up to this cumulative "
+             "probability. 1.0 disables it. llama.cpp's default is 0.95.",
+    "MIN_P": "Default min-p (--min-p): drop tokens less likely than this fraction of the best one. "
+             "0 disables it. llama.cpp's default is 0.05.",
     "REASONING_FORMAT": "Reasoning output format: none, deepseek, deepseek-legacy, or auto.",
     "REASONING_BUDGET": "Thinking token budget. -1 unrestricted, 0 disables thinking budget.",
     "REASONING_PRESERVE": "Keep the reasoning trace across the whole chat history, not only the last turn (--reasoning-preserve). Empty = template default; needs a template with supports_preserve_reasoning (Qwen3.6 suggests enabling).",
@@ -387,8 +403,10 @@ LLAMA_PATH_PLACEHOLDER_SPEC = "{{SPEC_PATH}}"
 #                        placeholders the route-agent substitutes after download)
 #   • GUI preview     -> POST /api/llama-command-preview
 # Adding a new flag means editing build_llama_args() and nothing else.
-def _flag_truthy(value):
-    return str(value).strip().lower() in ("1", "true", "yes", "on")
+# «Да» пишется одинаково в строке запроса, в конфиге ячейки и в теле запроса —
+# один словарь на всё, см. caravan/common/flags.py. Раньше их было два, и более
+# узкий молчал о том, что выбрасывает.
+_flag_truthy = truthy
 
 
 # Sidecar prefix → speculative type. This is upstream's own convention: llama.cpp
@@ -443,6 +461,8 @@ _BUILDER_PAIRS = [
     ("--api-key", "API_KEY"),
     ("--image-min-tokens", "IMAGE_MIN_TOKENS"),
     ("--image-max-tokens", "IMAGE_MAX_TOKENS"),
+    ("--temp", "TEMPERATURE"), ("--top-k", "TOP_K"),
+    ("--top-p", "TOP_P"), ("--min-p", "MIN_P"),
     ("--reasoning", "REASONING"), ("--reasoning-format", "REASONING_FORMAT"),
     ("--reasoning-budget", "REASONING_BUDGET"),
     ("--chat-template", "CHAT_TEMPLATE"),
@@ -941,8 +961,13 @@ def build_local_llama_command(config, *, llama_home=None):
     return [f"{home.rstrip('/')}/build/bin/llama-server", *args]
 
 def is_command_cell(config):
-    """True when a cell runs a generic managed command instead of llama-server."""
-    return runner_id(config) == "custom"
+    """True when a cell runs a command a PERSON wrote, not one built from fields.
+
+    Not the same as "launches through the command machinery" — whisper, vLLM and
+    the rest do that too, but their command is regenerated from their own fields
+    every time, so there is no previous command worth offering to revert to.
+    """
+    return for_config(config).free_form_command
 
 def models_dir_from_config(config):
     return Path(config.get("LLAMA_MODELS_DIR") or str(DEFAULT_MODELS_DIR)).expanduser()

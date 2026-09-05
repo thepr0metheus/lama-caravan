@@ -196,6 +196,100 @@ def export_bundle(include_secrets=False):
     }
 
 
+ENC_MARK = "aes-256-gcm/scrypt"
+
+
+def passphrase_available():
+    """Whether this host can lock the credentials at all.
+
+    The project runs on the standard library, and AES is not in it. Rather than
+    make `cryptography` the first dependency for one optional feature, the
+    capability is DECLARED: where it is missing the control says so instead of
+    offering a lock that errors when used. Installing it into the service venv
+    is what turns the feature on:
+
+        .venv/bin/pip install cryptography
+    """
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+def _derive(passphrase, salt):
+    import hashlib
+    # scrypt, not a plain hash: the thing being protected is a file someone can
+    # copy and attack offline for as long as they like.
+    # maxmem explicitly: n=2^15 needs ~32 MB and OpenSSL's default ceiling is
+    # exactly 32 MB, so the derivation fails on the boundary rather than running
+    # slowly. Silent-looking failures at a limit are worth pinning down.
+    return hashlib.scrypt(passphrase.encode("utf-8"), salt=salt, n=2 ** 15, r=8, p=1,
+                          dklen=32, maxmem=96 * 1024 * 1024)
+
+
+def _aesgcm(key):
+    try:
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    except ImportError:
+        raise AppError("passphrase protection needs the 'cryptography' package on this host")
+    return AESGCM(key)
+
+
+def encrypt_credentials(bundle, passphrase):
+    """Lock ONLY the accounts database and the cloud keys.
+
+    Deliberately not the whole file. A settings export is reached for when
+    something is already broken, and that is the worst moment to discover the
+    passphrase is gone — so the cells, the routes and the topology stay readable
+    no matter what, and only the two things that are dangerous to leave lying
+    around need the word.
+    """
+    if not passphrase:
+        return bundle
+    import base64
+    import os as _os
+    for name in _credential_files():
+        entry = (bundle.get("files") or {}).get(name)
+        if not entry or entry.get("content") is None:
+            continue
+        salt = _os.urandom(16)
+        nonce = _os.urandom(12)
+        raw = json.dumps(entry["content"]).encode("utf-8")
+        blob = _aesgcm(_derive(passphrase, salt)).encrypt(nonce, raw, None)
+        entry["content"] = {
+            "enc": ENC_MARK,
+            "salt": base64.b64encode(salt).decode("ascii"),
+            "nonce": base64.b64encode(nonce).decode("ascii"),
+            "data": base64.b64encode(blob).decode("ascii"),
+        }
+        entry["encrypted"] = True
+    bundle["credentialsEncrypted"] = True
+    return bundle
+
+
+def _decrypt_entry(entry, passphrase):
+    """The content, or None when it stays locked. Never a partial answer."""
+    import base64
+    content = entry.get("content")
+    if not isinstance(content, dict) or content.get("enc") != ENC_MARK:
+        return content
+    if not passphrase:
+        return None
+    key = _derive(passphrase, base64.b64decode(content["salt"]))
+    try:
+        raw = _aesgcm(key).decrypt(base64.b64decode(content["nonce"]),
+                                   base64.b64decode(content["data"]), None)
+    except AppError:
+        raise
+    except Exception:  # noqa: BLE001
+        # GCM authenticates: a wrong passphrase cannot half-decrypt into
+        # plausible nonsense, it fails. Say which, rather than letting the
+        # caller wonder whether the file was damaged.
+        raise AppError("wrong passphrase for the credentials in this settings file")
+    return json.loads(raw.decode("utf-8"))
+
+
 def _merge_secrets(name, incoming, current):
     """Carry a redacted secret forward from what is on disk.
 
@@ -263,8 +357,11 @@ def preview_import(bundle):
             rows.append({"name": name, "action": "skip",
                          "note": (entry or {}).get("omitted") or "not in the file"})
             continue
-        rows.append({"name": name, "action": "replace",
-                     "note": "credentials" if kind == "base64" else "cloud keys"})
+        locked = isinstance(entry.get("content"), dict) and entry["content"].get("enc")
+        rows.append({"name": name,
+                     "action": "locked" if locked else "replace",
+                     "note": ("needs the passphrase" if locked
+                              else "credentials" if kind == "base64" else "cloud keys")})
 
     cells = (files.get("server-cells") or {}).get("content") or {}
     here = {}
@@ -289,7 +386,7 @@ def preview_import(bundle):
             "exportedAt": bundle.get("exportedAt")}
 
 
-def apply_bundle(bundle):
+def apply_bundle(bundle, passphrase=""):
     """Write the bundle's settings over the current ones.
 
     The pre-import copy is taken FIRST and its path is returned, so the answer to
@@ -301,6 +398,7 @@ def apply_bundle(bundle):
     atomic_write_text(before, json.dumps(export_bundle(include_secrets=True), indent=2), mkdir=True)
 
     written = []
+    skipped = []
     files = bundle["files"]
     for name, path in _files().items():
         entry = files.get(name)
@@ -337,6 +435,14 @@ def apply_bundle(bundle):
         entry = files.get(name)
         if not entry or entry.get("content") is None:
             continue                          # a bundle without them changes nothing here
+        entry = dict(entry)
+        decoded = _decrypt_entry(entry, passphrase)
+        if decoded is None:
+            # Locked and no passphrase given: everything else still restores.
+            # Silently skipping would be the worse failure, so it is reported.
+            skipped.append(name)
+            continue
+        entry["content"] = decoded
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         if kind == "base64":
@@ -375,4 +481,4 @@ def apply_bundle(bundle):
     admin_state.clear()
     admin_state.update(fresh)
 
-    return {"written": written, "backup": str(before)}
+    return {"written": written, "skipped": skipped, "backup": str(before)}

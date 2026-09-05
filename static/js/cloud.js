@@ -422,6 +422,8 @@ export function openCloudBlockModal(blockId, accountId) {
     model: block?.model || "",
     origModel: block?.model || "",   // to warn when an EDIT rewires the block to another model
     modelMode: block?.modelMode || "rewrite",
+    contextLength: block?.contextLength ? String(block.contextLength) : "",
+    contextAuto: !!block?.contextAuto,
   };
   topologyCloudBlockModalOpen = true;
   renderTopology();
@@ -635,6 +637,10 @@ export function renderTopologyCloudBlockModal() {
   const models = [...modelById.values()].map((m) => (fetchedIds.size && !fetchedIds.has(m.id)
     ? { ...m, name: `${m.name || m.id} ⚠` }
     : m));
+  // What the provider itself last reported for the picked model, shown as the
+  // input's placeholder: the operator sees the number that will be advertised
+  // if they type nothing, instead of guessing whether anything is known.
+  const providerWindow = modelById.get(f.model)?.contextLength || 0;
   return `
     <div class="topology-policy-overlay" data-topology-cloud-block-overlay>
       <div class="topology-policy-modal cloud-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(title)}">
@@ -651,6 +657,12 @@ export function renderTopologyCloudBlockModal() {
             ? `<select data-block-field="model">${models.map((m) => `<option value="${escapeHtml(m.id)}"${m.id === f.model ? " selected" : ""}>${escapeHtml(m.name || m.id)}</option>`).join("")}</select>`
             : `<input type="text" data-block-field="model" value="${escapeHtml(f.model)}" placeholder="gpt-4o-mini">`}</label>
           ${models.length ? `<label>${escapeHtml(t("topologyCloudModelCustom"))}<input type="text" data-block-field-custom placeholder="gpt-5.2"></label>` : ""}
+          <label title="${escapeHtml(t("topologyCloudContextHint"))}">${escapeHtml(t("topologyCloudContextLength"))}<input type="number" min="1" step="1" data-block-field="contextLength" value="${escapeHtml(f.contextLength)}" placeholder="${escapeHtml(t("topologyCloudContextEmpty"))}"></label>
+          <div class="cloud-span cloud-ctx-reported" data-t="cloud-context-reported">
+            <span class="topology-muted">${escapeHtml(t("topologyCloudContextReported"))}</span>
+            <b>${escapeHtml(providerWindow ? String(providerWindow) : t("topologyCloudContextAuto"))}</b>
+          </div>
+          <label class="cloud-span cloud-expose-line" title="${escapeHtml(t("topologyCloudContextAutoHint"))}"><input type="checkbox" data-block-field-context-auto${f.contextAuto ? " checked" : ""}> ${escapeHtml(t("topologyCloudContextAutoUse"))}</label>
           <label>${escapeHtml(t("topologyCloudModelMode"))}<select data-block-field="modelMode">
             <option value="rewrite"${(f.modelMode || "rewrite") !== "passthrough" ? " selected" : ""}>${escapeHtml(t("topologyCloudModelRewrite"))}</option>
             <option value="passthrough"${(f.modelMode || "rewrite") === "passthrough" ? " selected" : ""}>${escapeHtml(t("topologyCloudModelPassthrough"))}</option>
@@ -750,6 +762,11 @@ export async function saveCloudBlock() {
   if (customModel) f.model = customModel;
   const modeEl = document.querySelector('[data-block-field="modelMode"]');
   if (modeEl && modeEl.value) f.modelMode = modeEl.value;
+  // Left blank = "I state nothing", which is not the same as zero: the server
+  // drops the key entirely. Nothing takes its place unless the switch below is
+  // ticked — a window nobody chose is the trap this codebase keeps returning to.
+  f.contextLength = (document.querySelector('[data-block-field="contextLength"]')?.value || "").trim();
+  f.contextAuto = !!document.querySelector("[data-block-field-context-auto]")?.checked;
   const exposeNew = !!document.querySelector("[data-block-field-expose]")?.checked;
   if (!f.model) { toast("Pick a model first"); return; }
   // Editing an existing block to another model keeps its id (and every cb:<id>
@@ -771,6 +788,11 @@ export async function saveCloudBlock() {
     const blockRes = await api("/api/cloud-blocks/save", {
       method: "POST",
       body: JSON.stringify({ block: { id: blockId, accountId: f.accountId, name: f.model || blockId, model: f.model, modelMode: f.modelMode || "rewrite",
+        // Both always sent, blank included: clearing the field must REMOVE a
+        // stated window, and unticking the switch must turn it off, rather than
+        // leaving what was there standing.
+        contextLength: f.contextLength || "",
+        contextAuto: !!f.contextAuto,
         ...(f.isNew ? { exposed: exposeNew } : {}) } }),
     });
     if (blockRes.topology) setTopology(blockRes.topology);

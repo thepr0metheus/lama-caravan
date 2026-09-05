@@ -5,7 +5,6 @@ import { appPrompt } from "./dialogs.js";
 import { readConfigForm } from "./form.js";
 import { t } from "./i18n.js";
 import { closeConfirmModal } from "./llama-edit.js";
-import { addAgentProxyRoute } from "./proxy-routes.js";
 import { _nvidiaSmiSource } from "./remote-cells.js";
 import { setState, state, topology, ui } from "./state.js";
 import {
@@ -246,7 +245,6 @@ export function bindMonitorDrawer() {
     });
   });
   $("systemMonitorRetention")?.addEventListener("change", saveSystemMonitorRetention);
-  $("addAgentProxyRoute")?.addEventListener("click", addAgentProxyRoute);
 }
 
 export function renderGpuUsers({ clients, activeSlots, recentRequests, gpuUtil, promptTps, predictTps, activity }) {

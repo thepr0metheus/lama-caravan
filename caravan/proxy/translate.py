@@ -500,14 +500,24 @@ def _anthropic_to_completions_json(data_bytes, completion_id, model_name):
     }
     return json.dumps(result, ensure_ascii=False).encode("utf-8")
 
-def classify_proxy_error(exc):
-    if isinstance(exc, (BrokenPipeError, ConnectionResetError)):
-        return "client_disconnected"
+def classify_proxy_error(exc, client_present=False):
+    """Name the failure a proxied request died of.
+
+    `client_present` is the one fact this function cannot infer and the caller
+    always has. A reset socket means "the client hung up" only when the client
+    might have; on the upstream leg, where the handler has already established
+    the client is still there, the same errno means the upstream died. Guessing
+    it wrong is not cosmetic: the board branches on this value, so a cell that
+    accepted a connection and closed it — how a dying llama-server behaves —
+    was titled "client disconnected", explained as "client closed connection
+    while proxy was still streaming", and left at degraded instead of failed.
+    """
+    reset = (isinstance(exc, (BrokenPipeError, ConnectionResetError))
+             or "Broken pipe" in str(exc) or "Connection reset" in str(exc))
+    if reset:
+        return "upstream_disconnected" if client_present else "client_disconnected"
     if isinstance(exc, (TimeoutError, socket.timeout)):
         return "upstream_timeout"
-    text = str(exc)
-    if "Broken pipe" in text or "Connection reset" in text:
-        return "client_disconnected"
-    if "timed out" in text:
+    if "timed out" in str(exc):
         return "upstream_timeout"
     return "proxy_error"

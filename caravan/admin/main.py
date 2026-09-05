@@ -61,6 +61,16 @@ def main():
         from caravan.admin import proxy_supervisor
         proxy_supervisor.start()
 
+    # One-shot: write down the context-window choice blocks used to get by
+    # accident (caravan/admin/cloud.py:migrate_context_auto).
+    try:
+        from caravan.admin.cloud import migrate_context_auto
+        _stamped = migrate_context_auto()
+        if _stamped:
+            print(f"cloud: contextAuto stamped on {_stamped} blocks that relied on the provider's figure", flush=True)
+    except Exception as exc:
+        print(f"cloud: contextAuto migration skipped ({exc})", flush=True)
+
     # Warm the OpenClaw config cache from disk so wait_timeout sync works even before
     # the agents respond (or while they're down).
     load_openclaw_cache()

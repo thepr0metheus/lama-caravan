@@ -32,6 +32,7 @@ CELLS_DIR = os.path.join(
 # listing: this endpoint hands files to every agent in the fleet, so a stray
 # file dropped into cells/ must not become fleet-readable by accident.
 CELL_ASSETS = (
+    "cell_base.py",
     "moonshine_server.py",
     "run_moonshine.sh",
     "tts_server.py",
@@ -48,13 +49,17 @@ CELL_ASSETS = (
 
 # Which assets a runner needs in $HOME before its command can run. The command
 # names the launcher; the launcher expects its server next to it.
+# cell_base.py rides with every python server: the subclass imports it, so a
+# client that received only the subclass has a cell that cannot start. The scout
+# fetches exactly what this table names, so naming it here is what puts it on
+# the client — an older scout included, since it reads the list from us.
 RUNNER_ASSETS = {
-    "moonshine": ("run_moonshine.sh", "moonshine_server.py"),
-    "whisper": ("run_whisper.sh", "whisper_server.py"),
-    "custom": ("run_tts.sh", "tts_server.py"),
-    "transcribe": ("run_transcribe.sh", "transcribe_server.py"),
-    "seamless": ("run_seamless.sh", "seamless_server.py"),
-    "translate": ("run_translate.sh", "translate_server.py"),
+    "moonshine": ("run_moonshine.sh", "cell_base.py", "moonshine_server.py"),
+    "whisper": ("run_whisper.sh", "cell_base.py", "whisper_server.py"),
+    "custom": ("run_tts.sh", "cell_base.py", "tts_server.py"),
+    "transcribe": ("run_transcribe.sh", "cell_base.py", "transcribe_server.py"),
+    "seamless": ("run_seamless.sh", "cell_base.py", "seamless_server.py"),
+    "translate": ("run_translate.sh", "cell_base.py", "translate_server.py"),
 }
 
 
@@ -132,17 +137,29 @@ def server_stamp(runner: str) -> str:
     """The stamp a cell of this runner reports in /health when it is running the
     version we currently ship — the first 12 hex of the server's sha256.
 
-    Kept in step with `_source_stamp()` in each cells/*_server.py: the cell
-    hashes its own file at import, we hash the same file here. "" when the
-    runner has no python server (vLLM, llama-server) or the file is missing.
+    Kept in step with `_source_stamp()` in cells/cell_base.py: the cell hashes
+    the code it is RUNNING, we hash the same files here. Both sides cover the
+    base AND the subclass — the behaviour lives in two files now, and a fix to
+    the base with an untouched subclass is still a cell running yesterday's
+    code. Same files, same order (sorted by absolute path), same concatenation:
+    if the two ever disagree, every cell reports "stale" forever and nobody can
+    tell which ones really are.
+
+    "" when the runner has no python server (vLLM, llama-server) or a file is
+    missing.
     """
-    for name in assets_for_runner(runner):
-        if name.endswith("_server.py"):
-            try:
-                return asset_digest(os.path.join(CELLS_DIR, name))[:12]
-            except OSError:
-                return ""
-    return ""
+    paths = sorted(os.path.abspath(os.path.join(CELLS_DIR, name))
+                   for name in assets_for_runner(runner) if name.endswith(".py"))
+    if not paths:
+        return ""
+    parts = []
+    for path in paths:
+        try:
+            with open(path, "rb") as fh:
+                parts.append(fh.read())
+        except OSError:
+            return ""
+    return hashlib.sha256(b"\n".join(parts)).hexdigest()[:12]
 
 
 def cell_source_state(runner: str, reported: str) -> str:

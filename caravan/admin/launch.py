@@ -19,15 +19,9 @@ from caravan.admin.config_builder import (
 )
 from caravan.admin.paths import DEFAULT_MODELS_DIR, SERVER_CELLS_DIR, START_SCRIPT
 from caravan.common.errors import AppError
+from caravan.domain.runner import for_config
 from caravan.admin.runners import (
-    VLLM_BOOTSTRAP_LINES,
-    build_moonshine_command,
-    build_seamless_command,
-    build_translate_command,
-    build_transcribe_command,
     effective_command,
-    build_vllm_command,
-    build_whisper_command,
     runner_id,
     uses_command_path,
 )
@@ -51,52 +45,12 @@ def render_command_cell_script(config):
     port = merged.get("PORT") or ""
     if not port.isdigit():
         raise AppError("PORT must be a number")
-    is_vllm = runner_id(merged) == "vllm"
-    is_whisper = runner_id(merged) == "whisper"
-    is_moonshine = runner_id(merged) == "moonshine"
-    is_transcribe = runner_id(merged) == "transcribe"
-    is_seamless = runner_id(merged) == "seamless"
-    is_translate = runner_id(merged) == "translate"
-    if is_vllm:
-        if not merged.get("VLLM_MODEL"):
-            raise AppError("VLLM_MODEL is required for a vLLM cell")
-        command = build_vllm_command(merged)
-    elif is_whisper:
-        # The command references ${LLAMA_MODELS_DIR} for the shared model root —
-        # make sure the config block carries a concrete value on the controller.
-        if not merged.get("LLAMA_MODELS_DIR"):
-            merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
-        command = build_whisper_command(merged)
-    elif is_moonshine:
-        # Like whisper, the command is SYNTHESIZED from the runner's own field —
-        # requiring COMMAND here rejected a perfectly valid moonshine cell.
-        command = build_moonshine_command(merged)
-    elif is_transcribe:
-        # Its model is a GGUF PATH, so like whisper it needs the shared model
-        # root spelled out rather than left to the launcher's fallback.
-        if not merged.get("LLAMA_MODELS_DIR"):
-            merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
-        if not merged.get("MODEL_FILE"):
-            raise AppError("MODEL_FILE is required for a transcribe cell", 400)
-        command = build_transcribe_command(merged)
-    elif is_seamless:
-        # Its model is a DIRECTORY under the shared model root, so the block
-        # must carry a concrete LLAMA_MODELS_DIR the same way transcribe does.
-        if not merged.get("LLAMA_MODELS_DIR"):
-            merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
-        if not merged.get("MODEL_FILE"):
-            raise AppError("MODEL_FILE is required for a seamless cell", 400)
-        command = build_seamless_command(merged)
-    elif is_translate:
-        # No MODEL_FILE and nothing to resolve: its model is a repo id the
-        # launcher hands straight to transformers, which fetches it itself.
-        command = build_translate_command(merged)
-    else:
-        # Be forgiving: strip a leading `exec ` — we add our own.
-        command = re.sub(r"^\s*exec\s+", "", merged.get("COMMAND") or "").strip()
-        if not command:
-            raise AppError("COMMAND is required for a command cell")
-        merged["COMMAND"] = command  # keep the config block and the exec line in sync
+    runner = for_config(merged)
+    # Each runner completes and validates the config block for itself: getting
+    # this wrong produces a cell that starts and then cannot find its model.
+    # It used to be a chain of `elif is_whisper:` here, which meant every new
+    # runner was a branch someone had to remember to add.
+    command = runner.prepare(merged)
 
     block_keys = ("RUNNER", "CELL_KIND", "PORT", "HEALTH_PATH", "WORKDIR", "COMMAND",
                   "VLLM_MODEL", "MAX_MODEL_LEN", "GPU_MEMORY_UTILIZATION",
@@ -137,8 +91,9 @@ def render_command_cell_script(config):
     workdir = shell_path_value(merged.get("WORKDIR"))
     if workdir:
         lines.append(f'cd "{workdir}"')
-    if is_vllm:
-        lines += ["", *VLLM_BOOTSTRAP_LINES]
+    boot = runner.bootstrap_lines(merged)
+    if boot:
+        lines += ["", *boot]
     lines += [
         "",
         LAUNCH_COMMAND_BEGIN + " — generated command cell; edit via the admin UI, not by hand",

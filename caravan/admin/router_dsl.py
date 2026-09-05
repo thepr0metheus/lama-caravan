@@ -380,6 +380,20 @@ def normalize_agent_proxy_route(route):
         # Client wait timeout (seconds) — synced from OpenClaw config by admin.
         # Used as base for percentage-based queue thresholds.
         "clientTimeoutSeconds": max(0, int(route.get("clientTimeoutSeconds") or 0)),
+        # Окно контекста ЭТОГО потребителя — копия настройки с клиентской
+        # прокси-ячейки (её возит reconcile_proxy_metadata). Нормализатор
+        # пересобирает маршрут, поэтому поле надо НАЗВАТЬ здесь: за эту работу
+        # это четвёртая граница пересборки, и предыдущие три роняли поле молча.
+        # Пишется только заданное: ноль клиент прочитал бы как настоящий предел.
+        **({"contextLength": int(route["contextLength"])}
+           if str(route.get("contextLength") or "").strip().lstrip("-").isdigit()
+           and int(route["contextLength"]) > 0 else {}),
+        **({"contextAuto": True} if route.get("contextAuto") else {}),
+        # Имя, под которым порт объявляет свою модель. Клиент ищет в /v1/models
+        # СВОЙ id и, не найдя, берёт встроенное умолчание — окно, объявленное
+        # под чужим именем, до него не доходит. Пусто — имя апстрима.
+        **({"modelName": str(route["modelName"]).strip()[:120]}
+           if str(route.get("modelName") or "").strip() else {}),
         # Cloud fallback provider block id — set when the user activates the ↑☁ ability.
         # Non-empty = ability ACTIVE (queued request forwards to this cloud provider).
         "cloudFallbackProviderId": str(route.get("cloudFallbackProviderId") or "").strip(),

@@ -197,6 +197,16 @@ def main():
     for field in sorted(set(NO_TAB) - set(CONFIG_FIELDS)):
         errors.append(f"NO_TAB names {field}, which is not a CONFIG_FIELDS entry — stale entry")
 
+    # A group's heading is DATA (titleKey: "…"), not a t("…") call, so the i18n
+    # call-checker never sees it: a group added with a key nobody defined renders
+    # its own key as the heading. Cheap to check here, where the groups already
+    # are.
+    en = (ROOT / "static/js/i18n/en.js").read_text(encoding="utf-8")
+    for group_key, _fields in groups:
+        if not re.search(rf'^\s*{re.escape(group_key)}: ', en, re.M):
+            errors.append(f"group {group_key} has no title in i18n/en.js — the tab would "
+                          f"show the key itself as its heading")
+
     errors.extend(check_runner_panel_fields())
 
     if errors:

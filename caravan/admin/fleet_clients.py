@@ -38,10 +38,14 @@ from caravan.admin.server_cells import (
     upsert_server_slot,
 )
 from caravan.admin.state import save_admin_state, topology_store
+from caravan.admin.state import topology as topo
 from caravan.admin.systemd_ctl import restart_agent_proxy
 from caravan.admin.telemetry import _normalize_modalities
 from caravan.common.errors import AppError
+from caravan.domain.client import FleetClient
+from caravan.domain.client_proxy import AgentAssignment, ProxyRoute
 from caravan.common.fetch import fetch_json, post_json
+from caravan.service.scout import Scout
 
 
 def _scout_headers():
@@ -70,47 +74,25 @@ def client_monitor(host_id: str, kind: str) -> dict:
     ).rstrip("/")
     if not agent_url:
         raise AppError(f"no agentUrl for client {host_id}", 400)
-    try:
-        result = fetch_json(f"{agent_url}/api/monitor/{kind}", timeout=5, headers=_scout_headers())
-    except Exception as exc:
-        raise AppError(f"client unreachable: {exc}", 502)
-    return result
+    return _scout(host_id).read(f"/api/monitor/{kind}", timeout=5)
 
 def client_llama_update(body: dict) -> dict:
     """Start a llama.cpp update job on a client scout. Empty tag → latest
     release; the UI passes the controller's commit to converge the fleet."""
-    agent_url = _client_agent_url(str((body or {}).get("hostId") or ""))
+    scout = _scout(str((body or {}).get("hostId") or ""))
     payload = {"tag": str((body or {}).get("tag") or "").strip()}
-    try:
-        return post_json(f"{agent_url}/api/llama-node/update", payload,
-                         timeout=15, headers=_scout_headers())
-    except Exception as exc:
-        raise AppError(f"client unreachable: {exc}", 502)
+    return scout.post("/api/llama-node/update", payload, timeout=15)
 
 def client_llama_update_status(host_id: str) -> dict:
-    agent_url = _client_agent_url(host_id)
-    try:
-        return fetch_json(f"{agent_url}/api/llama-node/update-status",
-                          timeout=10, headers=_scout_headers())
-    except Exception as exc:
-        raise AppError(f"client unreachable: {exc}", 502)
+    return _scout(host_id).read("/api/llama-node/update-status", timeout=10)
 
 def client_llama_builds(host_id: str) -> dict:
-    agent_url = _client_agent_url(host_id)
-    try:
-        return fetch_json(f"{agent_url}/api/llama-node/builds",
-                          timeout=10, headers=_scout_headers())
-    except Exception as exc:
-        raise AppError(f"client unreachable: {exc}", 502)
+    return _scout(host_id).read("/api/llama-node/builds", timeout=10)
 
 def client_llama_restore(body: dict) -> dict:
-    agent_url = _client_agent_url(str((body or {}).get("hostId") or ""))
+    scout = _scout(str((body or {}).get("hostId") or ""))
     payload = {"id": str((body or {}).get("id") or "").strip()}
-    try:
-        return post_json(f"{agent_url}/api/llama-node/restore", payload,
-                         timeout=15, headers=_scout_headers())
-    except Exception as exc:
-        raise AppError(f"client unreachable: {exc}", 502)
+    return scout.post("/api/llama-node/restore", payload, timeout=15)
 
 def client_llama_start(body: dict) -> dict:
     """Forward a llama-node start request to the named client route-agent."""
@@ -176,21 +158,9 @@ def client_llama_start(body: dict) -> dict:
             assert_server_cell_port_available(payload["port"], exclude_key=key)
     else:
         key = server_slot_key(host_id, payload["port"])
-        assert_server_cell_port_available(payload["port"], exclude_key=key if key in topology_store().get("serverSlots", {}) else None)
+        assert_server_cell_port_available(payload["port"], exclude_key=key if topo.has_slot(host_id, payload["port"]) else None)
 
-    try:
-        result = post_json(f"{agent_url}/api/llama-node/start", payload, timeout=10, headers=_scout_headers())
-    except urllib.error.HTTPError as exc:
-        # Surface the route-agent's own error message instead of a bare 500.
-        detail = ""
-        try:
-            body = exc.read().decode("utf-8")
-            detail = (json.loads(body) or {}).get("error") or body
-        except Exception:
-            detail = str(exc)
-        raise AppError(f"{host_id}: {detail}".strip(), 502)
-    except urllib.error.URLError as exc:
-        raise AppError(f"{host_id} unreachable: {exc.reason}", 502)
+    result = _scout(host_id).post("/api/llama-node/start", payload, timeout=10)
     if result.get("ok"):
         # Persist a server slot so the proxy cable stays attached across
         # stop / model change.
@@ -201,23 +171,14 @@ def client_llama_start(body: dict) -> dict:
             pass
     return {"ok": result.get("ok", False), "hostId": host_id, "result": result}
 
+def _scout(host_id):
+    """The scout of a registered client, ready to be called."""
+    return Scout.for_host(host_id, topo, headers=_scout_headers())
+
+
 def _client_agent_url(host_id: str) -> str:
     """Return agentUrl for a registered client, raise AppError if not found."""
-    host_id = str(host_id or "").strip()
-    if not host_id:
-        raise AppError("hostId is required", 400)
-    store = topology_store()
-    client = store["clients"].get(host_id)
-    if not client:
-        raise AppError(f"client not registered: {host_id}", 404)
-    assignments = store.get("assignments", {})
-    agent_url = str(
-        (assignments.get(host_id) or {}).get("agentUrl") or
-        client.get("agentUrl") or ""
-    ).rstrip("/")
-    if not agent_url:
-        raise AppError(f"no agentUrl for client {host_id}", 400)
-    return agent_url
+    return _scout(host_id).agent_url
 
 def _safe_path_seg(value, fallback="_"):
     """Sanitize one path segment (host id / GPU model) for use as a folder name."""
@@ -294,12 +255,18 @@ def client_llama_configs_save(body: dict) -> dict:
     return {"ok": True, "hostId": host_id, "filename": f"{target}/{dest.name}", "savedAt": stamp}
 
 def client_llama_list_cache(host_id: str) -> dict:
-    """List cached .gguf model files on a client host's disk."""
-    agent_url = _client_agent_url(host_id)
-    try:
-        result = fetch_json(f"{agent_url}/api/llama-node/list-cache", timeout=5, headers=_scout_headers())
-    except Exception as exc:
-        raise AppError(f"client unreachable: {exc}", 502)
+    """List cached .gguf model files on a client host's disk.
+
+    A failure is reported as a failure. This used to hardcode `"ok": True` and
+    read `models` with an empty default, so a host that could not be asked came
+    back as "fine, and its cache is empty" — the operator was shown an answer
+    where there was none. `models` stays present either way, because callers
+    iterate it without looking first.
+    """
+    result = _scout(host_id).read("/api/llama-node/list-cache", timeout=5)
+    if not result.get("ok", True):
+        return {"ok": False, "hostId": host_id,
+                "error": result.get("error") or "", "models": []}
     return {"ok": True, "hostId": host_id, "models": result.get("models", [])}
 
 def client_llama_configs_delete(body: dict) -> dict:
@@ -326,24 +293,120 @@ def client_llama_stop(body: dict) -> dict:
     host_id = str(body.get("hostId") or "").strip()
     if not host_id:
         raise AppError("hostId is required", 400)
-    store = topology_store()
-    assignments = store.get("assignments", {})
-    client_meta = store["clients"].get(host_id)
-    if not client_meta:
-        raise AppError(f"client not registered: {host_id}", 404)
-    agent_url = str(
-        (assignments.get(host_id) or {}).get("agentUrl") or
-        client_meta.get("agentUrl") or ""
-    ).rstrip("/")
-    if not agent_url:
-        raise AppError(f"no agentUrl for client {host_id}", 400)
     # Forward the port so the agent stops the RIGHT slot (a client can run several
     # servers now). No port = stop all slots (legacy behaviour).
     stop_body = {}
     if body.get("port"):
         stop_body["port"] = int(body["port"])
-    result = post_json(f"{agent_url}/api/llama-node/stop", stop_body, timeout=10, headers=_scout_headers())
+    result = _scout(host_id).post("/api/llama-node/stop", stop_body, timeout=10)
     return {"ok": result.get("ok", False), "hostId": host_id, "result": result}
+
+def fallback_port_for(assignment) -> int | None:
+    """Порт-сосед праймари для роли fallback, или None.
+
+    Рядом с каждым выданным праймари намеренно оставлена дыра +1 — фоссилия
+    снятых с вооружения пар. Именно её и надо занимать, когда оператор заводит
+    фолбэк руками: иначе второй порт агента уезжает в конец диапазона, и пара
+    перестаёт читаться глазами. None — «соседа нет», а не «ноль»: без праймари
+    сосед не определён, а занятый чужим агентом сосед не предлагается.
+    """
+    routes = (assignment or {}).get("routes") if isinstance(assignment, dict) else None
+    primary = next((r for r in (routes or [])
+                    if isinstance(r, dict) and str(r.get("role") or "primary") == "primary"), None)
+    if not primary:
+        return None
+    pid = str(primary.get("proxyId") or "")
+    tail = pid.rsplit(":", 1)[-1]
+    if not tail.isdigit():
+        return None
+    candidate = int(tail) + 1
+    for host_id, entry in (topology_store().get("assignments") or {}).items():
+        for row in (entry.get("assignments") or []):
+            for route in (row.get("routes") or []):
+                if str(route.get("proxyId") or "").rsplit(":", 1)[-1] == str(candidate):
+                    return None
+    return candidate
+
+
+def topology_client_add_agent(body: dict) -> dict:
+    """Завести агента у клиента руками.
+
+    Без этого ручной клиент был записью, которую нельзя настроить: прокси
+    назначается АГЕНТУ, а завести агента было нечем — в карточке жили только
+    «переименовать» и «удалить».
+    """
+    host_id = str(body.get("hostId") or "").strip()
+    store = topology_store()
+    client = (store.get("clients") or {}).get(host_id)
+    if not isinstance(client, dict):
+        raise AppError(f"no such client: {host_id or '(empty)'}", 404)
+    agent = FleetClient.add_agent(client, body.get("agentId"), body.get("name"))
+    save_admin_state()
+    return agent
+
+
+def adopt_scout_clients() -> dict:
+    """Сделать доску хозяином записей, которые завёл caravan-scout.
+
+    Ничего не создаётся и не удаляется: у каждой записи меняется единственный
+    факт — кто хозяин. После этого провижининг в неё не лезет, а скаут остаётся
+    источником сведений о живости, каким и был. Операция идемпотентна: второй
+    вызов ничего не находит, потому что нечего находить.
+
+    Отчёт — числами, а не «готово»: оператору надо увидеть, что именно
+    произошло, особенно когда не произошло ничего.
+    """
+    store = topology_store()
+    clients = store.get("clients") or {}
+    assignments = store.get("assignments") or {}
+    touched_clients = 0
+    touched_agents = 0
+    for host_id, client in clients.items():
+        changed = FleetClient.adopt(client)
+        if str(host_id).casefold() in {r.casefold() for r in FleetClient.RESERVED_IDS}:
+            continue
+        rows = (assignments.get(host_id) or {}).get("assignments")
+        for index, raw in enumerate(rows if isinstance(rows, list) else []):
+            if not isinstance(raw, dict) or raw.get("manual"):
+                continue
+            # Через переносящий конструктор, а не сборкой с нуля: строка несёт
+            # настройки оператора, и усыновление — не повод их пересобрать.
+            assignment = AgentAssignment.from_raw(raw)
+            assignment.manual = True
+            rows[index] = assignment.to_dict()
+            touched_agents += 1
+            changed = True
+        if changed:
+            touched_clients += 1
+    if touched_clients or touched_agents:
+        save_admin_state()
+    return {"clients": touched_clients, "agents": touched_agents}
+
+
+def topology_client_create(body: dict) -> dict:
+    """Завести клиента руками. Он обычный — просто ещё ни разу не отвечал.
+
+    `lastSeen` не ставится, поэтому запись честно читается как молчащая
+    (`state: "stale"`, возраст неизвестен), а не как живая.
+
+    Вместе с клиентом заводится его первый агент — с тем же именем. Раньше
+    список агентов оставался пустым «как факт», и оператор получал не
+    карточку, а строку-заголовок с ＋ и ✕: чтобы назначить порт, надо было
+    догадаться нажать ＋ и второй раз ввести то же имя. Карточка с пустыми
+    primary/fallback — и есть то, что просят, создавая клиента; агент,
+    которого не хотели, снимается одним ✕.
+    """
+    store = topology_store()
+    row = FleetClient.manual(body.get("hostId") or body.get("id"),
+                             name=body.get("name"), ip=body.get("ip"),
+                             agent_url=body.get("agentUrl"))
+    if row["id"] in store["clients"]:
+        raise AppError(f'client already exists: {row["id"]}', 409)
+    FleetClient.add_agent(row, row["id"], name=row.get("name") or row["id"])
+    store["clients"][row["id"]] = row
+    save_admin_state()
+    return row
+
 
 def topology_client_delete(body: dict) -> dict:
     client_id = str(body.get("clientId") or "").strip()
@@ -487,11 +550,7 @@ def topology_orphan_assignment_delete(body: dict) -> dict:
 def client_llama_purge_cache(body: dict) -> dict:
     """Ask a client to delete its downloaded model cache (keeps a running model)."""
     host_id = str(body.get("hostId") or "").strip()
-    agent_url = _client_agent_url(host_id)
-    try:
-        result = post_json(f"{agent_url}/api/llama-node/purge-cache", {}, timeout=30, headers=_scout_headers())
-    except Exception as exc:
-        raise AppError(f"client unreachable: {exc}", 502)
+    result = _scout(host_id).post("/api/llama-node/purge-cache", timeout=30)
     return {"ok": result.get("ok", False), "hostId": host_id, "result": result}
 
 def normalize_client_gpus(raw):
@@ -521,25 +580,10 @@ def normalize_client_gpus(raw):
 
 def topology_client_from_heartbeat(payload):
     host = payload.get("host") if isinstance(payload.get("host"), dict) else {}
-    host_id = str(host.get("id") or host.get("name") or "").strip()[:120]
-    if not host_id:
-        raise AppError("host.id is required", 400)
-    # The controller's own id is a reserved sentinel, and slots are keyed
-    # "<hostId>:<port>" — so a client answering to it would write straight into
-    # the controller's namespace: two different cells under one key. That is
-    # exactly how a running cell went missing from the board once already, and
-    # the id here is whatever the client's own config says, so nothing but this
-    # check stops it. Refuse the heartbeat rather than merge the two hosts.
-    # Case-insensitively on purpose, while is_controller_host() stays exact:
-    # the predicate decides behaviour, so it must never take a client whose id
-    # differs only in case FOR the controller. A fleet holding both spellings is
-    # a reading trap regardless — so refuse the near-miss at the door instead.
-    # LEGACY ids stay reserved forever: stale frontends still send them meaning
-    # "the controller", so a client under that name would be unaddressable.
-    _reserved = (CONTROLLER_HOST_ID,) + LEGACY_CONTROLLER_HOST_IDS
-    if any(host_id.casefold() == r.casefold() for r in _reserved):
-        raise AppError(f'host.id "{host_id}" is reserved for the controller — '
-                       f"give this client a different hostId", 400)
+    # Правило про id — одно на оба пути заведения клиента, в
+    # caravan/domain/client.py: там же и объяснение, чем кончается клиент под
+    # именем контроллера. Пока путь был один, правило жило комментарием здесь.
+    host_id = FleetClient.validate_id(host.get("id") or host.get("name"))
     agents = []
     for agent in payload.get("agents") or []:
         row = normalize_topology_agent(agent)
@@ -649,6 +693,16 @@ def update_topology_client(payload):
     store = topology_store()
     previous = store["clients"].get(client["id"]) or {}
     client["firstSeen"] = previous.get("firstSeen") or client["firstSeen"]
+    # Сердцебиение заменяет запись целиком, поэтому пометку «заведён руками»
+    # надо нести через него явно. Иначе клиент, которого оператор создал, а
+    # скаут потом нашёл, тихо превращался бы в найденного — и правило «отчёт не
+    # вправе переписать запись» нарушалось бы в первую же минуту его жизни.
+    if previous.get("manual"):
+        client["manual"] = True
+    # Агенты, заведённые оператором, отчёт не отменяет: он их не знает и знать
+    # не может. Всё остальное в списке по-прежнему принадлежит скауту.
+    client["agents"] = FleetClient.merge_manual_agents(client.get("agents") or [],
+                                                       previous.get("agents") or [])
     # Suppress agents that were manually deleted (tombstone list).
     deleted = store["deletedAgents"].get(client["id"]) or []
     if deleted:
@@ -728,7 +782,18 @@ def _agent_has_full_assignments(agent_id, host_entry, existing_ports):
     return True
 
 def auto_provision_agent_proxies(client):
-    """Create proxy port pairs (odd=primary, even=fallback) for agents not yet provisioned."""
+    """Give every un-provisioned agent ONE proxy port.
+
+    It used to mint a pair — an odd primary and an even fallback — and the
+    docstring went on saying so after the fallbacks were retired and the eleven
+    live ones deleted. That is the wrong thing for the next reader to believe
+    about the function whose pair invariant took the fleet down: they would look
+    for the partner route and conclude something had eaten it.
+
+    The odd/even stepping stays so primaries keep their odd ports across the
+    fleet; the even partner is simply left unused. `test_auto_provision.py` pins
+    the count — one port per pass, and the second pass a no-op.
+    """
     store = topology_store()
     proxy_config = load_agent_proxy_config()
     existing_ports = set(int(r.get("port", 0)) for r in proxy_config.get("routes", []))
@@ -805,27 +870,14 @@ def auto_provision_agent_proxies(client):
         if ag is None:
             ag = {"agentId": agent_id, "routes": []}
             existing.append(ag)
+        # Форма маршрута и правило «заменить, а не пропустить» живут в
+        # AgentAssignment.set_route — там же и объяснение аварии 2026-07-20,
+        # ради которой это правило существует.
+        assignment = AgentAssignment.from_raw(ag)
         for role in ("primary",):
-            port = ports[role]
-            entry = {
-                "role": role,
-                "proxyId": f"skynet:proxy:{port}",
-                "endpoint": f"http://{server_ip}:{port}/v1",
-            }
-            existing_route = next(
-                (r for r in ag["routes"] if r.get("role") == role), None)
-            if existing_route is None:
-                ag["routes"].append(entry)
-            else:
-                # HEAL, and the reason this branch exists at all: the gate above
-                # only mints when the assignment's proxyId names a port that is
-                # gone. Appending "if the role is missing" therefore never fired
-                # in exactly the case that minted — the stale record survived, the
-                # gate failed again on the next pass, and another port was minted.
-                # At board-polling rate that is a port every second or two, each
-                # one written to disk. This is the 2026-07-20 outage: the fix is
-                # to point the record at the port we just made, not to skip it.
-                existing_route.update(entry)
+            assignment.set_route(ProxyRoute.for_port(role, ports[role], server_ip))
+        ag.clear()
+        ag.update(assignment.to_dict())
     host_mut["assignments"] = existing
     save_admin_state()
 
@@ -840,6 +892,7 @@ def reconcile_proxy_metadata():
     assignments = store.get("assignments") or {}
     clients = store.get("clients") or {}
     port_meta = {}   # port -> {clientId, role, name}
+    contested = set()  # порты, которые называют сразу два назначения
     for host_id, entry in assignments.items():
         client_entry = clients.get(host_id) or {}
         # Prefer client (host) display name over agent name so that hosts whose
@@ -859,7 +912,29 @@ def reconcile_proxy_metadata():
                     port = int(pid.removeprefix("skynet:proxy:"))
                 except ValueError:
                     continue
-                port_meta[port] = {"clientId": host_id, "role": str(r.get("role") or "primary"), "name": name}
+                if port in port_meta:
+                    # Порт назвали ДВА назначения. Мост ключуется портом, так
+                    # что «победитель» здесь — просто тот, кто оказался позже в
+                    # обходе словаря; публиковать окно одного клиента на
+                    # трафике другого нельзя, и молча выбрать одного — тоже.
+                    # Владельца нет, значит и копии нет: порт вернётся к числу
+                    # модели, и это честный ответ вместо чужого.
+                    contested.add(port)
+                    continue
+                port_meta[port] = {
+                    "clientId": host_id, "role": str(r.get("role") or "primary"), "name": name,
+                    # Окно контекста задаётся на назначении — там его правит
+                    # оператор, — но публикует его ПРОКСИ, а он документа
+                    # контроллера не видит вовсе: он читает только свои файлы.
+                    # Поэтому число едет к нему тем же односторонним мостом,
+                    # что уже возит clientId и role. Второго источника правды не
+                    # заводится: назначение остаётся владельцем, маршрут —
+                    # копией, и снятая настройка обязана сниматься и здесь.
+                    "contextLength": r.get("contextLength"),
+                    "modelName": (str(r.get("modelName")).strip()[:120] or None)
+                                 if r.get("modelName") else None,
+                    "contextAuto": bool(r.get("contextAuto")) or None,
+                }
     if not port_meta:
         return False
     payload = read_agent_proxy_payload()
@@ -870,6 +945,26 @@ def reconcile_proxy_metadata():
         except (TypeError, ValueError):
             continue
         meta = port_meta.get(port)
+        if port in contested:
+            # Спорный порт: копию снимаем, остального не трогаем — чинить
+            # столкновение здесь нечем, а врать нечем не обязательно.
+            for key in ("contextLength", "contextAuto", "modelName"):
+                if key in route:
+                    route.pop(key)
+                    changed = True
+            continue
+        if port not in port_meta:
+            # Порт, которого не называет НИ ОДНО назначение: копия настроек
+            # осталась без владельца. Такое бывает сразу после перецепки —
+            # старый маршрут живёт в файле до ближайшей сверки — и он всё это
+            # время публиковал окно клиента, который на нём уже не сидит.
+            # Снимаем только копию; остальное на брошенном маршруте не наше
+            # дело, его убирает сверка.
+            for key in ("contextLength", "contextAuto", "modelName"):
+                if key in route:
+                    route.pop(key)
+                    changed = True
+            continue
         if not meta or not meta["name"]:
             continue
         # Only sync clientId and role — the label is now cosmetic / user-set.
@@ -878,6 +973,18 @@ def reconcile_proxy_metadata():
                 or str(route.get("role") or "") != meta["role"]):
             route["clientId"], route["role"] = meta["clientId"], meta["role"]
             changed = True
+        # Снятая настройка обязана сниматься и с копии: иначе прокси продолжал
+        # бы публиковать число, которое оператор уже убрал, — а это ровно
+        # «отсутствие, нарисованное как норма» (docs/why.md).
+        for key in ("contextLength", "contextAuto", "modelName"):
+            want = meta.get(key)
+            if want is None:
+                if key in route:
+                    route.pop(key)
+                    changed = True
+            elif route.get(key) != want:
+                route[key] = want
+                changed = True
     if changed:
         write_agent_proxy_payload(payload)
     return changed
@@ -888,8 +995,17 @@ def topology_clients():
     changed = False
     store = topology_store()
     aliases = store.setdefault("clientAliases", {})
+    agent_aliases = store.setdefault("agentAliases", {})
     for client in store["clients"].values():
         row = dict(client)
+        # Псевдоним агента применяется ЗДЕСЬ, при чтении, а не пишется в запись:
+        # отчёт скаута заменяет список агентов целиком, и правка внутри записи
+        # держалась бы до первого опроса.
+        if row.get("agents"):
+            row["agents"] = [dict(a, **({"reportedName": a.get("name"),
+                                         "name": agent_aliases[f"{row.get('id')}::{a.get('id')}"]}
+                                        if agent_aliases.get(f"{row.get('id')}::{a.get('id')}") else {}))
+                             for a in row["agents"] if isinstance(a, dict)]
         reported_name = row.get("name") or row.get("id") or ""
         alias = str(aliases.get(row.get("id")) or "").strip()
         row["reportedName"] = reported_name
@@ -949,6 +1065,32 @@ def refresh_topology_clients_from_agents():
             update_topology_client(payload)
         except Exception:
             continue
+
+def set_topology_agent_alias(host_id, agent_id, name):
+    """Как назван блок агента на доске. Псевдонимом, а не правкой записи.
+
+    Имя агента у клиента от скаута приходит из ОТЧЁТА и заменяется целиком на
+    каждом сердцебиении: правка самой записи держалась бы до первого опроса и
+    исчезала молча — ровно тот отказ, ради которого клиентские псевдонимы и
+    заведены. Поэтому имя живёт рядом, а не внутри, и переживает отчёт.
+
+    Пусто — снять: тогда снова показывается то, как агент назвал себя сам.
+    """
+    host_id = str(host_id or "").strip()[:120]
+    agent_id = str(agent_id or "").strip()[:80]
+    if not host_id or not agent_id:
+        raise AppError("hostId and agentId are required", 400)
+    alias = str(name or "").strip()[:120]
+    store = topology_store()
+    aliases = store.setdefault("agentAliases", {})
+    key = f"{host_id}::{agent_id}"
+    if alias:
+        aliases[key] = alias
+    else:
+        aliases.pop(key, None)
+    save_admin_state()
+    return {"hostId": host_id, "agentId": agent_id, "alias": alias}
+
 
 def set_topology_client_alias(host_id, name):
     host_id = str(host_id or "").strip()[:120]

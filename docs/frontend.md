@@ -121,7 +121,7 @@ both shapes.
 - `/api/agent-proxies/routers` (`saveRouters()`) deep-copies `topology.routers`, runs the mutator,
   POSTs, and applies the returned topology snapshot guarded by `if (data.topology)` — if a
   response arrives without one, the change simply lands on the next poll tick.
-- `/api/agent-proxies/config` (proxy-port form, route list editor) returns `{ok, config, monitor}`
+- `/api/agent-proxies/config` (proxy-port form) returns `{ok, config, monitor}`
   with **no** topology — callers either `await refreshTopology()` explicitly
   (`saveTopologyProxyForm()`) or rely on the next poll.
 
@@ -454,16 +454,6 @@ repair-user-service flows. Stateless.
 
 - Owns: nothing mutable.
 - Key exports: `renderService`, `renderRuntime`, `renderCpu`, `renderGpu`, `openSystemInfoModal`, `checkLlamaCpp`, `openUpdateLlamaModal`, `revertLatest`.
-
-## proxy-routes.js
-
-The flat agent-proxy route list editor (the row-based add/edit/toggle/delete UI, reading and
-saving the same `/api/agent-proxies/config` route list that the board's proxy form writes).
-
-- Owns: `editingAgentProxyRouteIndex`.
-- Key exports: `renderAgentProxyRoutes`, `addAgentProxyRoute`, `saveAgentProxyRoute`, `toggleAgentProxyRoute`, `deleteAgentProxyRoute`.
-
-**Data & charts**
 
 ## polling.js
 

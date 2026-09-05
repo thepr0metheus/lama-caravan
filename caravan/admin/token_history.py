@@ -41,6 +41,46 @@ def save_token_history():
     except Exception:
         pass
 
+def _usage_sample(item):
+    """Скорость генерации, выведенная из ИТОГОВ завершённого запроса, или None.
+
+    llama.cpp отдаёт свой блок `timings`, и вся история писалась только из него.
+    Облачный апстрим такого блока не отдаёт вовсе — поэтому у порта, который
+    целыми днями возит трафик, график был пуст, и выглядело это как «запросов не
+    было». Их было сколько угодно; не было ИЗМЕРЕНИЯ.
+
+    Вывести можно ровно одно: сколько токенов пришло и за сколько времени после
+    первого байта. Это настоящая скорость генерации, а не догадка. Скорость
+    промпта отсюда получить нельзя: время до первого байта у облака — это сеть
+    и очередь провайдера, и выдать его за обработку промпта значило бы соврать.
+    """
+    if not isinstance(item, dict) or item.get("timings"):
+        return None
+    resp = item.get("response") if isinstance(item.get("response"), dict) else {}
+    strm = item.get("stream") if isinstance(item.get("stream"), dict) else {}
+    usage = resp.get("usage") if isinstance(resp.get("usage"), dict) else {}
+    if not usage:
+        usage = strm.get("usage") if isinstance(strm.get("usage"), dict) else {}
+    if not usage:
+        return None
+    try:
+        eval_tokens = int(usage.get("completion_tokens") or usage.get("completionTokens") or 0)
+        prompt_tokens = int(usage.get("prompt_tokens") or usage.get("promptTokens") or 0)
+        total_ms = float(item.get("durationMs") or item.get("elapsedMs") or 0)
+        first_byte_ms = float(item.get("firstByteMs") or 0)
+    except (TypeError, ValueError):
+        return None
+    gen_ms = total_ms - first_byte_ms
+    if eval_tokens <= 0 or gen_ms <= 0:
+        return None
+    return {
+        "evalTokens": eval_tokens,
+        "promptTokens": prompt_tokens,
+        "genMs": int(round(gen_ms)),
+        "evalTps": round(eval_tokens / (gen_ms / 1000.0), 1),
+    }
+
+
 def record_token_history(sample):
     """Append one entry per COMPLETED proxy request, from llama.cpp's exact
     per-request `timings` carried on the proxy record, attributed to the
@@ -51,7 +91,11 @@ def record_token_history(sample):
     items = []
     for row in (agents.values() if isinstance(agents, dict) else []):
         for item in (row.get("recent") or []):
-            if isinstance(item, dict) and isinstance(item.get("timings"), dict) and item.get("timings"):
+            if not isinstance(item, dict):
+                continue
+            if isinstance(item.get("timings"), dict) and item.get("timings"):
+                items.append(item)
+            elif _usage_sample(item):
                 items.append(item)
     if not items:
         return
@@ -63,12 +107,13 @@ def record_token_history(sample):
         changed = False
         for item in items:
             tm = item.get("timings") or {}
-            eval_tokens = int(tm.get("predicted_n") or 0)
+            derived = None if tm else _usage_sample(item)
+            eval_tokens = int(tm.get("predicted_n") or 0) if tm else derived["evalTokens"]
             if eval_tokens <= 0:
                 continue
             ts = item.get("finishedAt")
             rid = str(item.get("id") or "")
-            sig = rid or f"{ts}:{eval_tokens}:{tm.get('predicted_per_second')}"
+            sig = rid or f"{ts}:{eval_tokens}:{tm.get('predicted_per_second') if tm else derived['evalTps']}"
             if sig in recent_sigs:
                 continue
             try:
@@ -88,14 +133,21 @@ def record_token_history(sample):
                 "client": item.get("client") or "",
                 "port": port,
                 "route": item.get("route") or "",
-                "promptTps": round(float(tm.get("prompt_per_second") or 0), 1),
-                "evalTps": round(float(tm.get("predicted_per_second") or 0), 1),
-                "promptTokens": int(tm.get("prompt_n") or 0),
+                # Скорость промпта у выведенной записи НЕ ставится. Время до
+                # первого байта у облака — это сеть и очередь провайдера, а не
+                # обработка промпта; назвать его «скоростью промпта» значило бы
+                # объявить измерением то, чего мы не измеряли.
+                "promptTps": round(float(tm.get("prompt_per_second") or 0), 1) if tm else 0,
+                "evalTps": round(float(tm.get("predicted_per_second") or 0), 1) if tm else derived["evalTps"],
+                "promptTokens": int(tm.get("prompt_n") or 0) if tm else derived["promptTokens"],
                 "evalTokens": eval_tokens,
-                "promptMs": int(round(float(tm.get("prompt_ms") or 0))),
-                "genMs": int(round(float(tm.get("predicted_ms") or 0))),
-                "cacheTokens": int(tm.get("cache_n") or 0),
+                "promptMs": int(round(float(tm.get("prompt_ms") or 0))) if tm else 0,
+                "genMs": int(round(float(tm.get("predicted_ms") or 0))) if tm else derived["genMs"],
+                "cacheTokens": int(tm.get("cache_n") or 0) if tm else 0,
                 "finish": finish,
+                # Чем измерено: собственными таймингами сервера или выведено из
+                # итогов запроса. Читателю графика это не одно и то же.
+                "source": "timings" if tm else "usage",
             })
             recent_sigs.add(sig)
             changed = True

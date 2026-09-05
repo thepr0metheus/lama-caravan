@@ -318,6 +318,11 @@
           <input type="checkbox" id="settingsWithSecrets" data-t="system-settings-secrets">
           <span data-i18n="settingsIncludeSecrets">Include secrets (API keys, HF token)</span>
         </label>
+        <label class="settings-secrets-row" id="settingsPassRow" hidden>
+          <span data-i18n="settingsPassphrase">Passphrase for the credentials (optional)</span>
+          <input type="password" id="settingsPassphrase" autocomplete="new-password"
+                 data-t="system-settings-passphrase">
+        </label>
         <div id="settingsBundleInfo" class="settings-bundle-info" data-t="system-settings-info" role="region" aria-labelledby="sysSettingsHead"></div>
       </div>
     </section>

@@ -12,6 +12,7 @@ from pathlib import Path
 
 from caravan.admin.config_builder import models_dir_from_config, parse_config
 from caravan.admin.state import topology_store
+from caravan.admin.state import topology as topo
 from caravan.common.errors import AppError
 
 _PART_RE = re.compile(r"^(?P<stem>.+)-\d{5}-of-(?P<n>\d{5})\.gguf$", re.I)
@@ -43,7 +44,7 @@ def _referenced_relpaths(with_owners=False):
     models_root = str(models_dir_from_config(config)).rstrip("/")
     for key in ("MODEL_FILE", "MMPROJ_FILE", "SPEC_DRAFT_MODEL_FILE"):
         add(config.get(key), "legacy")
-    for slot in topology_store().get("serverSlots", {}).values():
+    for slot in topo.slots().values():
         cfg = slot.get("config") or {}
         owner = f"{slot.get('hostId') or '?'}:{slot.get('port') or '?'}"
         add(slot.get("model"), owner)

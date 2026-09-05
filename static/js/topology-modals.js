@@ -755,7 +755,7 @@ export async function savePriorityModal() {
   topologyPriorityOrder = [];
   topologyPriorityEdits = {};
   await refreshTopology();
-  const total = routeChanges.length + (Object.keys(policyChanges).length ? 1 : 0);
+  const total = routeChanges.length;
   toast(`saved · ${total} change${total === 1 ? "" : "s"}`);
 }
 

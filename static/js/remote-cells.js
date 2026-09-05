@@ -17,6 +17,7 @@ import {
   syncToggleLabel,
 } from "./form.js";
 import { t } from "./i18n.js";
+import { saveRouters } from "./routers.js";
 import {
   applyConfigToForm,
   deleteBackup,
@@ -30,6 +31,7 @@ import { action, startMonitor } from "./polling.js";
 import { setTopology, state, topology } from "./state.js";
 import { topologyStatusPill } from "./topology-activity.js";
 import { openNodeServerDetail } from "./topology-nodes.js";
+import { scoutOwnedCounts } from "./topology-proxies.js";
 import { _topologyRenderPending, markTopologyRenderPending, refreshTopology, renderTopology, topologyInteractionActive, topologyServerPhase } from "./topology-render.js";
 import { $, api, escapeHtml, formatMemoryMiB, toast } from "./utils.js";
 
@@ -485,10 +487,151 @@ export async function cellServiceAction(hostId, port, actionName) {
   }
 }
 
+// Окно контекста одной роли одного агента. Оба поля уходят разом, потому что на
+// сервере они — одно состояние: пропущенное означает «снять», а не «не трогать».
+// «auto» словом, а не отдельной галкой: на строке маршрута места под чекбокс
+// нет, а состояний всего три, и они взаимоисключающие.
+export async function editRouteContext(hostId, agentId, role, current, auto) {
+  const answer = await appPrompt(t("dlgRouteContext"), {
+    value: auto ? "auto" : (current || ""),
+    confirmLabel: t("topologySave"),
+  });
+  if (answer === null) return;
+  const text = String(answer).trim().toLowerCase();
+  // Опечатка — это не «снять». Сервер принимает всё подряд и любое непонятное
+  // значение читает как отсутствие, поэтому «8k» или «81 92» МОЛЧА снимали
+  // настройку, а доска рапортовала успехом: оператор просил окно и получал
+  // его отмену, ничего об этом не узнав. Просим сказать яснее — и не шлём.
+  const clearing = text === "";
+  const wantsAuto = text === "auto";
+  if (!clearing && !wantsAuto && !/^[1-9]\d*$/.test(text)) {
+    toast(t("routeContextNotANumber"));
+    return;
+  }
+  const body = wantsAuto ? { hostId, agentId, role, contextAuto: true }
+    : clearing ? { hostId, agentId, role }
+    : { hostId, agentId, role, contextLength: text };
+  try {
+    await api("/api/topology/agent-route/context", { method: "POST", body });
+    refreshTopology().catch(() => {});
+  } catch (e) { toast(String(e)); }
+}
+
+// Переименовать блок агента. Псевдонимом, а не правкой записи: отчёт скаута
+// заменяет список агентов целиком, и правка внутри записи держалась бы до
+// первого опроса и исчезала молча.
+export async function renameTopologyAgent(clientId, agentId, current) {
+  const answer = await appPrompt(t("dlgRenameAgent"), {
+    value: current || "",
+    confirmLabel: t("topologySave"),
+  });
+  if (answer === null) return;
+  try {
+    await api("/api/topology/client/agent-alias", {
+      method: "POST",
+      body: { hostId: clientId, agentId, name: String(answer).trim() },
+    });
+    refreshTopology().catch(() => {});
+  } catch (e) { toast(String(e)); }
+}
+
+// Бюджет ожидания маршрута. Правится ЗДЕСЬ, на карточке клиента: раньше поле
+// жило только на канбане, а карточка показывала другое число — из конфига
+// агента, — и у клиента, заведённого руками, конфига нет, так что строки не
+// было вовсе.
+export async function editRouteWait(proxyId, current) {
+  const answer = await appPrompt(t("dlgRouteWait"), {
+    value: current || "",
+    confirmLabel: t("topologySave"),
+  });
+  if (answer === null) return;
+  const text = String(answer).trim();
+  if (text !== "" && !/^\d+$/.test(text)) { toast(t("routeWaitNotANumber")); return; }
+  const val = text === "" ? 0 : Math.max(0, Math.min(86400, parseInt(text, 10)));
+  try {
+    await saveRouters((routers) => {
+      for (const r of routers) {
+        r.graph = r.graph || { nodes: [], edges: [] };
+        r.graph.inputs = r.graph.inputs || {};
+        // Пусто — СНЯТЬ свой бюджет: тогда снова действует то, что синхронизировано
+        // из конфига клиента. Ноль как «ждать нисколько» здесь не значит ничего.
+        if (val > 0) r.graph.inputs[proxyId] = { ...(r.graph.inputs[proxyId] || {}), clientTimeoutSeconds: val };
+        else if (r.graph.inputs[proxyId]) delete r.graph.inputs[proxyId];
+      }
+    });
+    refreshTopology().catch(() => {});
+  } catch (e) { toast(String(e)); }
+}
+
+// Имя модели, под которым порт объявляет себя. Пусто — снять: тогда
+// публикуется то, что назвал апстрим. Отдельным диалогом, а не вместе с окном:
+// это разные решения, и одна форма означала бы, что правка одного стирает
+// другое.
+export async function editRouteModel(hostId, agentId, role, current) {
+  const answer = await appPrompt(t("dlgRouteModel"), {
+    value: current || "",
+    confirmLabel: t("topologySave"),
+  });
+  if (answer === null) return;
+  try {
+    await api("/api/topology/agent-route/model", {
+      method: "POST",
+      body: { hostId, agentId, role, modelName: String(answer).trim() },
+    });
+    refreshTopology().catch(() => {});
+  } catch (e) { toast(String(e)); }
+}
+
+// Завести клиента руками. Отвечать он не обязан: запись — это «существует и
+// настроен», а не «на связи». На доске он сразу появится молчащим, с
+// неизвестным возрастом, и это правда, а не недоделка.
+export async function addTopologyClient() {
+  const name = await appPrompt(t("dlgAddClient"), { confirmLabel: t("topologyClientAdd") });
+  const hostId = String(name || "").trim();
+  if (!hostId) return;
+  try {
+    await api("/api/topology/client/create", { method: "POST", body: { hostId } });
+    refreshTopology().catch(() => {});
+  } catch (e) { toast(String(e)); }
+}
+
+// Перенести записи скаута под доску. Усыновление НА МЕСТЕ: ничего не создаётся
+// и не удаляется, поэтому маршруты не пропадают ни на мгновение, а повтор
+// безвреден. Отчёт числами: «готово» не говорит, случилось ли что-нибудь.
+export async function adoptScoutClients() {
+  const { clients, agents } = scoutOwnedCounts();
+  if (!clients && !agents) return;
+  if (!(await appConfirm(t("dlgAdoptClients", { clients, agents }),
+                         { confirmLabel: t("topologyAdoptClients") }))) return;
+  try {
+    const res = await api("/api/topology/clients/adopt", { method: "POST", body: {} });
+    toast(t("topologyAdoptDone", { clients: res.clients ?? 0, agents: res.agents ?? 0 }));
+    refreshTopology().catch(() => {});
+  } catch (e) { toast(String(e)); }
+}
+
+// Завести агента у клиента руками. Прокси назначается агенту, поэтому без
+// этого хода ручной клиент был записью, которую нельзя настроить.
+export async function addTopologyAgent(clientId) {
+  const name = await appPrompt(t("dlgAddAgent"), { confirmLabel: t("topologyAgentAdd") });
+  const agentId = String(name || "").trim();
+  if (!agentId) return;
+  try {
+    await api("/api/topology/client/agent", { method: "POST", body: { hostId: clientId, agentId } });
+    refreshTopology().catch(() => {});
+  } catch (e) { toast(String(e)); }
+}
+
 export async function deleteTopologyClient(clientId) {
   const client = (topology?.clients || []).find((c) => c.id === clientId);
   const name = client?.name || clientId;
-  if (!(await appConfirm(t("dlgDeleteClient", { name }), { confirmLabel: t("deleteAction") }))) return;
+  // Подтверждение обещало, что запись вернётся со следующим сердцебиением. Для
+  // клиента, заведённого руками, это НЕПРАВДА: он не отзывается вовсе, и
+  // удаление окончательно. Обещание обратимости там, где её нет, — худшее, что
+  // может сказать подтверждение перед необратимым действием; на нём и потеряли
+  // запись, которую никто не собирался трогать.
+  const text = client?.manual ? t("dlgDeleteManualClient", { name }) : t("dlgDeleteClient", { name });
+  if (!(await appConfirm(text, { confirmLabel: t("deleteAction") }))) return;
   try {
     await api("/api/topology/client/delete", {
       method: "POST",

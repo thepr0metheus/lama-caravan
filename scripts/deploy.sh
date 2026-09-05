@@ -46,10 +46,14 @@ BRANCH=$(git rev-parse --abbrev-ref HEAD)
 # already shipped: a missing i18n key reached production this way (a stale
 # translation label renders as its raw key, in every locale at once). Cheap
 # checks, and they gate the push instead of narrating it afterwards.
-for guard in check_messages_i18n check_i18n_calls testability_names check_boot_guard check_field_homes check_runner_model_fields check_command_mirrors; do
-  script="scripts/${guard}.py"
+# Globbed, not listed. This was a hand-kept list of 25 names while 38 scripts
+# existed, so thirteen never ran before a deploy — among them test_guards_fail,
+# which is the self-test of every other guard. A list of what to check is one
+# more thing to forget, and forgetting it looks exactly like passing.
+for script in scripts/check_*.py scripts/test_*.py scripts/testability_names.py; do
   [ -f "$script" ] || continue
-  args=""; [ "$guard" = "testability_names" ] && args="--check"
+  args=""
+  case "$script" in *testability_names.py) args="--check" ;; esac
   # shellcheck disable=SC2086
   python3 "$script" $args >/dev/null 2>&1 || {
     echo "deploy: guard failed — $script" >&2
@@ -69,6 +73,28 @@ git push -q origin main || { echo "deploy: push failed" >&2; exit 1; }
 ssh "$HOST" "cd $REMOTE_PATH && git pull --ff-only -q && \
   .venv/bin/python -m py_compile app.py agent-proxies.py \$(find caravan -name '*.py')" \
   || { echo "deploy: pull or compile failed on the controller — nothing restarted" >&2; exit 1; }
+
+# A restart kills whatever the service is doing, and the longest thing it does
+# is fetch a model. One deploy cut a 22 GB download at 21.9 — the restart
+# succeeded, the download did not, and nothing said so. A .part file whose mtime
+# is inside the last two minutes is a transfer still moving; an older one is the
+# leftover of a transfer that already stopped and is nobody's loss.
+if [ "$SKIP_RESTART" != "1" ]; then
+  ACTIVE_DL="$(ssh "$HOST" "find \$HOME/llama.cpp/models -name '*.part' -newermt '-2 minutes' \
+    -printf '%f\n' 2>/dev/null | head -3" || true)"
+  if [ -n "$ACTIVE_DL" ]; then
+    echo "deploy: на контроллере идёт загрузка — рестарт её оборвёт:" >&2
+    echo "$ACTIVE_DL" | sed 's/^/  /' >&2
+    if [ "${CARAVAN_DEPLOY_FORCE:-}" = "1" ]; then
+      echo "deploy: CARAVAN_DEPLOY_FORCE=1 — продолжаю, загрузка будет прервана" >&2
+    else
+      echo "deploy: дождитесь её или задеплойте без рестарта:" >&2
+      echo "  bash scripts/deploy.sh --no-restart      # код обновится, служба останется" >&2
+      echo "  CARAVAN_DEPLOY_FORCE=1 bash scripts/deploy.sh   # оборвать сознательно" >&2
+      exit 1
+    fi
+  fi
+fi
 
 if [ "$SKIP_RESTART" = "1" ]; then
   echo "deploy: --no-restart, leaving the services alone"

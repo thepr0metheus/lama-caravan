@@ -8,6 +8,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
+from caravan.common.context_window import declared_window
 from caravan.admin.cloud import (
     CLOUD_PROVIDER_PRESETS,
     account_auth_headers,
@@ -100,7 +101,14 @@ def fetch_account_models(account_id):
             continue
         mid = m.get("id") or m.get("name") or m.get("model") or ""
         if mid:
-            models.append({"id": mid, "name": m.get("name") or mid})
+            entry = {"id": mid, "name": m.get("name") or mid}
+            # OpenRouter names it context_length on every model, Anthropic
+            # max_input_tokens; api.openai.com and Ollama report none. Kept only
+            # when the provider actually said it — see caravan/common/context_window.
+            window = declared_window(m)
+            if window is not None:
+                entry["contextLength"] = window
+            models.append(entry)
     return sorted(models, key=lambda m: m["id"].lower())
 
 def fetch_account_costs(account_id, days=30):

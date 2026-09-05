@@ -31,6 +31,7 @@ import re
 import time
 
 from caravan.admin.state import save_admin_state, topology_store
+from caravan.admin.state import topology as topo
 from caravan.common.errors import AppError
 
 
@@ -83,7 +84,7 @@ def set_host_power_schedule(body):
 
 def host_power_schedules():
     """{hostId: schedule} for the board to render. Read-only copy."""
-    return dict(topology_store().get("hostPowerSchedules") or {})
+    return dict(topo.power_schedules())
 
 
 def power_schedule_tick(now=None):

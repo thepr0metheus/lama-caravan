@@ -25,6 +25,11 @@ STATE_FILE = Path(os.environ.get("AGENT_PROXY_STATE_FILE")
 CONFIG_FILE = Path(os.environ.get("AGENT_PROXY_CONFIG_FILE")
     or _default("config/agent-proxies.json", PROJECT_ROOT / "agent-proxies.json"))
 
+# Written by the admin when an account's model list is refreshed; read here only
+# to answer "what context does this cloud model have" without a network call.
+MODEL_CATALOG_FILE = Path(os.environ.get("MODEL_CATALOG_FILE")
+    or _default("state/model-catalog.json", PROJECT_ROOT / "model-catalog.json"))
+
 CLOUD_PROVIDERS_FILE = Path(os.environ.get("CLOUD_PROVIDERS_FILE")
     or _default("config/cloud-providers.json", PROJECT_ROOT / "cloud-providers.json"))
 

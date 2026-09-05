@@ -80,7 +80,7 @@ def test_stale_assignment_heals():
 
     fc.auto_provision_agent_proxies(CLIENT)
     after_first = [r["port"] for r in routes]
-    check("first pass mints exactly one port", len(after_first) == 1, after_first)
+    check("first pass mints ONE port, not a pair", len(after_first) == 1, after_first)
 
     minted = after_first[0]
     route = store["assignments"]["client-a"]["assignments"][0]["routes"][0]
@@ -104,7 +104,7 @@ def test_fresh_agent_provisions_once():
 
     fc.auto_provision_agent_proxies(CLIENT)
     first = [r["port"] for r in routes]
-    check("fresh agent gets one port", len(first) == 1, first)
+    check("fresh agent gets one port, not a pair", len(first) == 1, first)
     check("port comes from the configured base",
           first[0] == fc.AGENT_PROXY_BASE_PORT, first)
 

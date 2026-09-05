@@ -10,6 +10,7 @@ import re
 from caravan.admin.paths import CLOUD_PROVIDERS_FILE, PROVIDER_SECRETS_FILE
 from caravan.common.errors import AppError
 from caravan.common.fsio import atomic_write_text
+from caravan.store.cloud import CachedJsonStore
 
 
 CLOUD_PROVIDER_PRESETS = {
@@ -64,59 +65,32 @@ CLOUD_PROVIDER_PRESETS = {
     },
 }
 
-_CLOUD_DATA_CACHE = {}   # (mtime_ns, size) -> parsed {"accounts", "blocks"}
+#: The two documents. Everything about caching, invalidation and the file mode
+#: lives in the store; this module is what the caravan MEANS by their contents.
+_providers = CachedJsonStore(CLOUD_PROVIDERS_FILE)
+_secrets = CachedJsonStore(PROVIDER_SECRETS_FILE)
+
+#: Kept as module names because a handful of callers and tests reach for them.
+_CLOUD_DATA_CACHE = _providers._cache
+_SECRETS_CACHE = _secrets._cache
 
 
-def _cloud_cache_put(key, data):
-    """Keep only the newest generation — the key changes on every save, so an
-    unbounded dict would grow one entry per edit for the life of the process."""
-    if key is not None:
-        _CLOUD_DATA_CACHE.clear()
-        _CLOUD_DATA_CACHE[key] = data
-    return data
-
-
-def load_cloud_data():
-    """Accounts and blocks, cached on the file's own (mtime, size).
-
-    Same fix as read_gguf_metadata_cached, and the same reason. This reads and
-    parses a JSON file, and callers treat it as free — account_credential_summary
-    calls it once per lookup, and cloud_blocks_state calls THAT once per block.
-    With 502 blocks that is ~500 re-reads and re-parses of a 99 KB file for one
-    /api/topology, ~100 MB of parsing per request; profiled at 287 ms of a 732 ms
-    build, with json.loads alone at 185 ms over 2546 calls.
-
-    Concurrency is what turned it from waste into the ceiling: every one of those
-    parses holds the GIL, so eight tabs polling every two seconds did not run
-    eight builds in parallel — they queued behind each other's parsing. That is
-    the shape an outside measurement saw as topology's time-to-first-byte rising
-    from 750 ms to 4.5 s while the bytes themselves still arrived in 30 ms.
-
-    Keyed on (mtime, size) rather than held forever, so an edit through the UI or
-    by hand is picked up on the next call.
-    """
-    data = {"accounts": [], "blocks": []}
-    if not CLOUD_PROVIDERS_FILE.exists():
-        return data
-    try:
-        st = CLOUD_PROVIDERS_FILE.stat()
-        key = (st.st_mtime_ns, st.st_size)
-        hit = _CLOUD_DATA_CACHE.get(key)
-        if hit is not None:
-            return hit
-    except OSError:
-        key = None
-    try:
-        parsed = json.loads(CLOUD_PROVIDERS_FILE.read_text(encoding="utf-8"))
-    except Exception:
-        return data
+def _parse_cloud_data(parsed):
+    """Accounts and blocks, in either the paired schema or the flat legacy one."""
+    data = {"accounts": [], "blocks": [], "migrations": []}
     if isinstance(parsed, dict) and ("accounts" in parsed or "blocks" in parsed):
+        done = parsed.get("migrations")
+        data["migrations"] = [str(m) for m in done if isinstance(m, str)] if isinstance(done, list) else []
         accounts = parsed.get("accounts") if isinstance(parsed.get("accounts"), list) else []
         blocks = parsed.get("blocks") if isinstance(parsed.get("blocks"), list) else []
+        # An entry with no id cannot be pointed at by a route or a block, so it
+        # is dropped rather than carried half-loaded into the board.
         data["accounts"] = [a for a in accounts if isinstance(a, dict) and a.get("id")]
         data["blocks"] = [b for b in blocks if isinstance(b, dict) and b.get("id")]
-        return _cloud_cache_put(key, data)
-    # legacy flat {"providers":[...]} (or bare list) → migrate to account+block pairs
+        return data
+    # legacy flat {"providers":[...]} (or bare list) → migrate to account+block
+    # pairs. The BLOCK keeps the original id: proxy routes already point at it,
+    # and re-minting it would orphan every one of them.
     legacy = parsed.get("providers") if isinstance(parsed, dict) else parsed
     if isinstance(legacy, list):
         for p in legacy:
@@ -131,48 +105,97 @@ def load_cloud_data():
                 "id": p["id"], "accountId": acct_id, "name": p.get("name") or p["id"],
                 "model": p.get("model") or "", "modelMode": p.get("modelMode") or "rewrite",
             })
-    return _cloud_cache_put(key, data)
+    return data
+
+
+def load_cloud_data():
+    """Accounts and blocks, cached on the file's own (mtime, size).
+
+    See caravan/store/cloud.py for why the cache is not an optimisation detail
+    and why its key is the file generation rather than a timer.
+    """
+    # A fresh dict per call: this one is handed to callers that sort and filter
+    # it, and a shared empty would be theirs to corrupt for everyone else.
+    got = _providers.read(_parse_cloud_data)
+    return got if got is not None else {"accounts": [], "blocks": []}
+
 
 def save_cloud_data(data):
-    payload = {"accounts": data.get("accounts", []), "blocks": data.get("blocks", [])}
-    atomic_write_text(CLOUD_PROVIDERS_FILE, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+    # `migrations` travels with the file: a one-off that leaves no trace is not
+    # a one-off, it is a job that runs at every start.
+    _providers.write({"accounts": data.get("accounts", []), "blocks": data.get("blocks", []),
+                      "migrations": sorted(set(data.get("migrations") or []))})
 
-_SECRETS_CACHE = {}   # (mtime_ns, size) -> parsed secrets
+
+#: Имя пройденной миграции в самом файле облачных данных.
+MIGRATION_CONTEXT_AUTO = "contextAuto-2026-09"
+
+
+def migrate_context_auto():
+    """Stamp `contextAuto` on blocks that were living off the silent fallback.
+
+    Until the switch existed, a block that stated no window still published
+    whatever the account's catalogue had cached — nobody chose that, which is
+    why the fallback became a decision. But turning the decision off for
+    everyone would quietly take a REAL number away from every block whose
+    provider does report one (279 of 502 on the fleet the day this shipped:
+    OpenRouter publishes genuine 131072 / 200000 / 1000000 windows).
+
+    So the previously implicit choice is written down instead of changed: a
+    block with no stated window whose catalogue knows one gets contextAuto
+    True, visible in the editor and untickable. Blocks created after this keep
+    the off default. A block that already carries the key is left exactly as
+    the operator set it.
+
+    Runs once for real, and that had to be fixed: it ran at every controller
+    start, so a block created LATER — window deliberately left empty — was
+    stamped on the next restart and began publishing a figure nobody chose.
+    That the docstring promised otherwise made it worse, not better. The fact
+    that it has run is now written down beside the data it changed.
+    """
+    from caravan.admin.model_catalog import cached_models_entry
+
+    data = load_cloud_data()
+    if MIGRATION_CONTEXT_AUTO in (data.get("migrations") or []):
+        return 0
+    windows = {}
+    changed = 0
+    for block in data.get("blocks", []):
+        if not isinstance(block, dict) or "contextAuto" in block or block.get("contextLength"):
+            continue
+        acct = block.get("accountId")
+        if acct not in windows:
+            windows[acct] = {m.get("id"): m.get("contextLength")
+                             for m in ((cached_models_entry(acct) or {}).get("models") or [])
+                             if isinstance(m, dict)}
+        if windows[acct].get(block.get("model")):
+            block["contextAuto"] = True
+            changed += 1
+    # Записывается ВСЕГДА, даже когда менять было нечего: «не нашлось, что
+    # штамповать» — это тоже пройденная миграция, иначе она бы ждала первого
+    # подходящего блока и сработала на нём через месяц.
+    data["migrations"] = sorted(set(data.get("migrations") or []) | {MIGRATION_CONTEXT_AUTO})
+    save_cloud_data(data)
+    return changed
 
 
 def load_provider_secrets():
-    """Cached on (mtime, size), same as load_cloud_data and for the same reason:
-    account_secret_entry calls this per lookup, and the block list calls that
-    once per block. Rotating a key changes the file, so the next call reparses.
-    Nothing new is held in memory that was not already read on every call."""
-    if PROVIDER_SECRETS_FILE.exists():
-        key = None
-        try:
-            st = PROVIDER_SECRETS_FILE.stat()
-            key = (st.st_mtime_ns, st.st_size)
-            hit = _SECRETS_CACHE.get(key)
-            if hit is not None:
-                return hit
-        except OSError:
-            key = None
-        try:
-            parsed = json.loads(PROVIDER_SECRETS_FILE.read_text(encoding="utf-8"))
-            if isinstance(parsed, dict):
-                if key is not None:
-                    _SECRETS_CACHE.clear()
-                    _SECRETS_CACHE[key] = parsed
-                return parsed
-        except Exception:
-            pass
-    return {}
+    """The keys, cached the same way. Rotating one changes the file, so the next
+    call reparses — a stale cache here would authenticate with a revoked key."""
+    got = _secrets.read(lambda raw: raw if isinstance(raw, dict) else {})
+    return got if isinstance(got, dict) else {}
+
 
 def save_provider_secrets(secrets):
-    atomic_write_text(PROVIDER_SECRETS_FILE, json.dumps(secrets, ensure_ascii=False, indent=2) + "\n",
-                      chmod=0o600, mkdir=True)
+    _secrets.write(secrets, chmod=0o600)
     try:
         os.chmod(PROVIDER_SECRETS_FILE, 0o600)
-    except Exception:
+    except Exception:  # noqa: BLE001
+        # Belt and braces: atomic_write_text creates the file with the mode, but
+        # an EXISTING file keeps whatever it had, and a secrets file that is
+        # world-readable is worth a second syscall to prevent.
         pass
+
 
 def account_secret_entry(account_id):
     entry = load_provider_secrets().get(str(account_id or ""))
@@ -227,8 +250,30 @@ def normalize_cloud_block(block, account_ids):
     model_mode = "passthrough" if str(block.get("modelMode") or "rewrite") == "passthrough" else "rewrite"
     # `exposed` = the user ticked this model in the router Outputs panel → it becomes a
     # routable cloud output (cb:<blockId>). Off by default; curated per provider.
-    return {"id": bid, "accountId": account_id, "name": name, "model": model,
-            "modelMode": model_mode, "exposed": bool(block.get("exposed", False))}
+    # A context window the OPERATOR states for this model. Needed because some
+    # providers publish none at all — api.openai.com answers with exactly the
+    # five fields the spec defines — and a stated number is knowledge, while a
+    # guessed one is the defect this codebase keeps returning to. Absent unless
+    # set: never 0, which a client would read as a real limit.
+    declared = block.get("contextLength")
+    try:
+        declared = int(declared) if declared not in (None, "") else None
+    except (TypeError, ValueError):
+        declared = None
+    if declared is not None and declared <= 0:
+        declared = None
+    # Whether the number the PROVIDER reports may be published instead. Off by
+    # default and stored explicitly: it used to be a silent fallback, so a
+    # block that stated nothing published the catalogue's number without
+    # anybody having chosen it — and a number nobody chose is the same trap as
+    # a guessed one (docs/why.md). The operator's own figure stays the rule;
+    # this switch is how they hand that decision to the provider on purpose.
+    out = {"id": bid, "accountId": account_id, "name": name, "model": model,
+           "modelMode": model_mode, "exposed": bool(block.get("exposed", False)),
+           "contextAuto": bool(block.get("contextAuto", False))}
+    if declared is not None:
+        out["contextLength"] = declared
+    return out
 
 def upsert_cloud_account(account):
     norm = normalize_cloud_account(account)
@@ -252,11 +297,20 @@ def delete_cloud_account(account_id):
 def upsert_cloud_block(block):
     data = load_cloud_data()
     account_ids = {a["id"] for a in data["accounts"]}
-    # Preserve a prior `exposed` choice across re-fetch unless the caller set it.
-    if isinstance(block, dict) and "exposed" not in block:
+    # Preserve a prior `exposed` choice, and a prior stated context window,
+    # across a re-fetch unless the caller set them. A caller that omits a field
+    # is not asking for it to be cleared — only the editor, which always sends
+    # both, can do that (it sends contextLength blank to remove it).
+    prev = None
+    if isinstance(block, dict) and any(k not in block for k in ("exposed", "contextLength", "contextAuto")):
         prev = next((b for b in data["blocks"] if b.get("id") == str(block.get("id") or "").strip()), None)
-        if prev is not None:
+    if prev is not None:
+        if "exposed" not in block:
             block = {**block, "exposed": bool(prev.get("exposed", False))}
+        if "contextLength" not in block and prev.get("contextLength") is not None:
+            block = {**block, "contextLength": prev.get("contextLength")}
+        if "contextAuto" not in block:
+            block = {**block, "contextAuto": bool(prev.get("contextAuto", False))}
     norm = normalize_cloud_block(block, account_ids)
     data["blocks"] = [b for b in data["blocks"] if b.get("id") != norm["id"]]
     data["blocks"].append(norm)

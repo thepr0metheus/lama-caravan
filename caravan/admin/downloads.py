@@ -92,52 +92,91 @@ def _run_download_job(job_id: str, repo: str, files: list, models_dir: str, toke
                         except OSError:
                             pass
             _write_manifest(tmp_path, repo, f)
-            offset = tmp_path.stat().st_size if tmp_path.exists() else 0
-            if offset:
-                headers["Range"] = f"bytes={offset}-"
-            req = urllib.request.Request(url, headers=headers)
-            try:
-                with urllib.request.urlopen(req, timeout=120) as resp:
-                    length = int(resp.headers.get("Content-Length") or 0)
-                    if offset and resp.status == 206:
-                        total = offset + length
-                        mode = "ab"
-                    else:
-                        # Server ignored the range (or fresh file) — full body.
-                        total = length or int(f.get("size") or 0)
-                        offset = 0
-                        mode = "wb"
-                    with _download_jobs_lock:
-                        job["file_bytes_total"] = total
-                        job["file_bytes_done"] = offset
-                        job["total_bytes_done"] += offset
-                    downloaded = offset
-                    with open(tmp_path, mode) as fh:
-                        while True:
-                            chunk = resp.read(1024 * 1024)
-                            if not chunk:
-                                break
-                            fh.write(chunk)
-                            downloaded += len(chunk)
-                            with _download_jobs_lock:
-                                job["file_bytes_done"] = downloaded
-                                job["total_bytes_done"] += len(chunk)
+            # Retry the transfer itself. HF's CDN drops long connections — twice
+            # in one afternoon on a 23 GB and a 42 GB file — and until now a drop
+            # ended the job: status "error", the .part kept, and nothing moving
+            # until a person noticed and pressed Resume. The resume machinery was
+            # already here; it simply had no caller but a human. Each attempt
+            # re-reads the .part size, so a retry continues from where the last
+            # byte landed rather than starting over.
+            with _download_jobs_lock:
+                done_before = job["total_bytes_done"]      # what earlier files added
+            for attempt in range(1, _MAX_ATTEMPTS + 1):
+                offset = tmp_path.stat().st_size if tmp_path.exists() else 0
+                headers.pop("Range", None)
+                if offset:
+                    headers["Range"] = f"bytes={offset}-"
+                req = urllib.request.Request(url, headers=headers)
+                with _download_jobs_lock:
+                    job["attempt"] = attempt
+                try:
+                    with urllib.request.urlopen(req, timeout=120) as resp:
+                        length = int(resp.headers.get("Content-Length") or 0)
+                        if offset and resp.status == 206:
+                            total = offset + length
+                            mode = "ab"
+                        else:
+                            # Server ignored the range (or fresh file) — full body.
+                            total = length or int(f.get("size") or 0)
+                            offset = 0
+                            mode = "wb"
+                        # SET, never accumulate. The counters used to add the
+                        # resume offset and then each chunk, which was right for
+                        # a single pass and wrong the moment a retry re-entered
+                        # here: the second attempt would add the same first 17 GB
+                        # again and the panel would report more downloaded than
+                        # the file has. `done_before` is what the earlier FILES
+                        # contributed; this file's share is always `downloaded`.
+                        with _download_jobs_lock:
+                            job["file_bytes_total"] = total
+                            job["file_bytes_done"] = offset
+                            job["total_bytes_done"] = done_before + offset
+                        downloaded = offset
+                        with open(tmp_path, mode) as fh:
+                            while True:
+                                chunk = resp.read(1024 * 1024)
+                                if not chunk:
+                                    break
+                                fh.write(chunk)
+                                downloaded += len(chunk)
+                                with _download_jobs_lock:
+                                    job["file_bytes_done"] = downloaded
+                                    job["total_bytes_done"] = done_before + downloaded
 
-                # Reject a silently truncated stream: HF's CDN sometimes closes the
-                # connection early, leaving a short .gguf that llama.cpp then fails
-                # to load ("tensor ... not within the file bounds").
-                if total > 0 and downloaded != total:
-                    raise IOError(
-                        f"incomplete download for {f['name']}: got {downloaded} of "
-                        f"{total} bytes ({downloaded * 100 // total}%)"
-                    )
-                os.replace(tmp_path, dest_path)
-                _drop_manifest(tmp_path)
-            except Exception:
-                # KEEP the .part AND its manifest — together they are the resume
-                # point for the next attempt, whether that attempt comes from a
-                # retry or from the interrupted-downloads list after a restart.
-                raise
+                    # Reject a silently truncated stream: HF's CDN sometimes closes the
+                    # connection early, leaving a short .gguf that llama.cpp then fails
+                    # to load ("tensor ... not within the file bounds").
+                    if total > 0 and downloaded != total:
+                        raise IOError(
+                            f"incomplete download for {f['name']}: got {downloaded} of "
+                            f"{total} bytes ({downloaded * 100 // total}%)"
+                        )
+                    os.replace(tmp_path, dest_path)
+                    _drop_manifest(tmp_path)
+                except Exception as exc:
+                    # KEEP the .part AND its manifest — together they are the
+                    # resume point for the next attempt, whether that attempt
+                    # comes from this loop or from the interrupted-downloads
+                    # list after a restart.
+                    grew = (tmp_path.stat().st_size if tmp_path.exists() else 0) > offset
+                    if attempt >= _MAX_ATTEMPTS:
+                        raise
+                    # A wall (auth, a 404, a full disk) fails the same way every
+                    # time. Retrying it hides a permanent error behind minutes of
+                    # silence, so an attempt that moved NO bytes gets one more
+                    # chance and then gives up; one that made progress gets the
+                    # full budget, because that is a dropped connection.
+                    if not grew and attempt >= 2:
+                        raise
+                    with _download_jobs_lock:
+                        job["status"] = "retrying"
+                        job["error"] = f"{type(exc).__name__}: {exc}"
+                    time.sleep(_RETRY_BACKOFF[min(attempt - 1, len(_RETRY_BACKOFF) - 1)])
+                    with _download_jobs_lock:
+                        job["status"] = "running"
+                        job["error"] = None
+                    continue
+                break
 
         with _download_jobs_lock:
             job["done"] = True
@@ -149,6 +188,13 @@ def _run_download_job(job_id: str, repo: str, files: list, models_dir: str, toke
             job["status"] = "error"
             job["error"] = str(exc)
             job["finished_at"] = time.time()
+
+# A dropped connection is normal on a 20-GB file; a wall is not. Four attempts
+# with a widening pause covers the first without turning the second into a long
+# silence.
+_MAX_ATTEMPTS = 4
+_RETRY_BACKOFF = (3, 10, 30)
+
 
 def start_hf_download(repo: str, files: list, models_dir: str, token: str) -> str:
     # Idempotence: with a shared "<name>.part" two jobs on the same file set

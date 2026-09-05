@@ -18,6 +18,7 @@ from caravan.admin.config_builder import (
     parse_config,
 )
 from caravan.admin.llama_metrics import runtime_phase
+from caravan.admin.settings_bundle import passphrase_available
 from caravan.admin.models import (list_chat_templates, list_models, list_st_artifacts,
                                   list_translate_models, list_whisper_sizes)
 from caravan.admin.monitoring import cpu_state, gpu_state, memory_state, runtime_api
@@ -177,6 +178,9 @@ def state():
         "artifacts": list_st_artifacts(config),
         "whisperOnDisk": list_whisper_sizes(config),
         "translateOnDisk": list_translate_models(config),
+        # Whether the settings file can be passphrase-locked here. Declared, not
+        # assumed: the panel must not offer a lock that fails when used.
+        "settingsPassphrase": passphrase_available(),
         "chatTemplates": list_chat_templates(config),
         "service": service,
         "runtime": runtime,

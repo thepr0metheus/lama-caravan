@@ -31,6 +31,7 @@ from urllib.parse import urlparse
 
 
 from caravan.common.errors import AppError
+from caravan.common.flags import truthy
 from caravan.common.fetch import fetch_json, fetch_text, post_json
 from caravan.common.fsio import read_text
 from caravan.common.jsonx import _INF, _json_safe, json_bytes
@@ -134,6 +135,11 @@ from caravan.admin.fleet_clients import (
     refresh_topology_clients_from_agents,
     set_topology_client_alias,
     topology_client_agent_delete,
+    adopt_scout_clients,
+    fallback_port_for,
+    topology_client_add_agent,
+    set_topology_agent_alias,
+    topology_client_create,
     topology_client_delete,
     topology_clients,
     topology_discover_add,
@@ -144,6 +150,9 @@ from caravan.admin.topology import (
     apply_topology_assignments,
     bind_agent_to_proxy,
     normalize_topology_assignment,
+    set_agent_route_context,
+    set_agent_route_model,
+    remove_agent_route,
     topology_nodes,
     topology_server,
     topology_state,
@@ -292,7 +301,8 @@ from caravan.admin.benchmarks import (
     hf_get_reference_models,
 )
 from caravan.admin.settings_bundle import (SETTINGS_BACKUP_DIR, apply_bundle,
-                                          export_bundle, preview_import)
+                                          encrypt_credentials, export_bundle,
+                                          preview_import)
 from caravan.admin.downloads import (_download_jobs, _download_jobs_lock,
                                     resume_interrupted_download,
                                     scan_interrupted_downloads, start_hf_download)
@@ -374,6 +384,20 @@ from caravan.admin.launch import (
 
 
 GET_PREFIX_ROUTES = []
+def _flag(query, name, default=False):
+    """Булев параметр строки запроса.
+
+    Один разбор на все маршруты: раньше их было четыре написания, и два
+    параметра с именем `force` понимали только литерал "1", так что
+    `?force=true` молча читался как «нет». Словарь — общий для каравана,
+    см. caravan/common/flags.py.
+    """
+    values = query.get(name) if query else None
+    if not values:
+        return bool(default)
+    return truthy(values[0])
+
+
 GET_ROUTES = {}
 POST_ROUTES = {}
 DELETE_ROUTES = {}
@@ -451,7 +475,7 @@ def _get_api_settings_export(h, parsed):
         # carrying the API keys and the HF token; without it they leave as
         # placeholders and the import puts the local ones back.
         _q = urllib.parse.parse_qs(parsed.query or "")
-        _sec = (_q.get("secrets") or ["0"])[0].strip() in ("1", "true", "yes")
+        _sec = _flag(_q, "secrets")
         _bundle = export_bundle(include_secrets=_sec)
         h.send_json({"ok": True, "bundle": _bundle})
         return
@@ -535,7 +559,7 @@ def _get_api_hf_local_check(h, parsed):
 def _get_api_hf_benchmarks(h, parsed):
         _q = urllib.parse.parse_qs(parsed.query or "")
         _repo = (_q.get("repo") or [""])[0].strip()
-        _force = (_q.get("force") or [""])[0] == "1"
+        _force = _flag(_q, "force")
         h.send_json(hf_get_benchmarks(_repo, force=_force) if _repo else {"ok": False, "error": "missing repo"})
         return
 
@@ -548,7 +572,7 @@ def _get_api_hf_benchmarks_status(h, parsed):
 @_route(GET_ROUTES, '/api/hf/reference-models')
 def _get_api_hf_reference_models(h, parsed):
         _rfq = urllib.parse.parse_qs(parsed.query or "")
-        _rf_force = (_rfq.get("force") or [""])[0] == "1"
+        _rf_force = _flag(_rfq, "force")
         h.send_json(hf_get_reference_models(force=_rf_force))
         return
 
@@ -706,7 +730,7 @@ def _get_api_token_history(h, parsed):
 @_route(GET_ROUTES, '/api/openclaw-config')
 def _get_api_openclaw_config(h, parsed):
         query = urllib.parse.parse_qs(parsed.query or "")
-        force = (query.get("refresh") or ["0"])[0] in {"1", "true", "yes"}
+        force = _flag(query, "refresh")
         client = (query.get("client") or [""])[0].strip()
         snapshot = openclaw_configs_snapshot(force=force)
         if client:
@@ -745,9 +769,9 @@ def _get_api_agent_proxy_logs(h, parsed):
             (query.get("port") or [""])[0],
             (query.get("route") or [""])[0],
             (query.get("client") or [""])[0],
-            (query.get("errors") or [""])[0] in ("1", "true", "yes"),
-            (query.get("slim") or [""])[0] in ("1", "true", "yes"),
-            (query.get("summary") or [""])[0] in ("1", "true", "yes"),
+            _flag(query, "errors"),
+            _flag(query, "slim"),
+            _flag(query, "summary"),
             (query.get("since") or [""])[0],
         ))
         return
@@ -915,6 +939,19 @@ GET_PREFIX_ROUTES = [
 ]
 
 
+@_route(POST_ROUTES, '/api/settings/export')
+def _post_api_settings_export(h, parsed, body):
+        # POST, not GET with a query parameter: a passphrase in a URL lands in
+        # logs, in history and in a referrer. Same answer as the GET form
+        # otherwise.
+        _sec = bool(body.get("secrets"))
+        _pass = str(body.get("passphrase") or "")
+        _bundle = export_bundle(include_secrets=_sec)
+        if _pass:
+            _bundle = encrypt_credentials(_bundle, _pass)
+        h.send_json({"ok": True, "bundle": _bundle})
+        return
+
 @_route(POST_ROUTES, '/api/settings/import')
 def _post_api_settings_import(h, parsed, body):
         # dryRun answers "what would this change" before anything is written —
@@ -928,7 +965,7 @@ def _post_api_settings_import(h, parsed, body):
             if body.get("dryRun"):
                 h.send_json({"ok": True, "dryRun": True, **preview_import(_bundle)})
                 return
-            _res = apply_bundle(_bundle)
+            _res = apply_bundle(_bundle, str(body.get("passphrase") or ""))
             h.send_json({"ok": True, **_res})
         except AppError as exc:
             h.send_json({"ok": False, "error": str(exc)})
@@ -1370,13 +1407,26 @@ def _post_api_topology_assignments(h, parsed, body):
 @_route(POST_ROUTES, '/api/agent-port')
 def _post_api_agent_port(h, parsed, body):
         from caravan.admin.proxies_config import mint_agent_port
+        # Роль едет с провода. Без неё новый порт садился на primary ВСЕГДА, то
+        # есть просьба «дай второй порт» молча подменяла рабочий маршрут.
+        role = str(body.get("role") or "primary").strip() or "primary"
+        port = body.get("port")
+        if not port and role == "fallback":
+            # Рядом с праймари намеренно оставлена дыра +1 — её и занимаем,
+            # иначе пара портов перестаёт читаться глазами. Занят — пусть
+            # аллокатор выберет сам, это не повод отказывать.
+            rows = ((topology_store().get("assignments") or {})
+                    .get(str(body.get("clientId") or "")) or {}).get("assignments") or []
+            row = next((r for r in rows if r.get("agentId") == body.get("agentId")), None)
+            port = fallback_port_for(row)
         route = mint_agent_port(body.get("clientId"), body.get("agentId"),
-                                body.get("label"), body.get("port"))
+                                body.get("label"), port)
         # Created FOR an agent, so bind it in the same breath — a new port the
         # operator then has to attach by hand is two steps where they asked for
         # one, and the gap between them is a port nobody uses.
         bind = bind_agent_to_proxy({"hostId": body.get("clientId"),
                                     "agentId": body.get("agentId"),
+                                    "role": role,
                                     "port": route["port"]})
         h.send_json({"ok": True, "route": route, "result": bind,
                      "topology": topology_state()})
@@ -1511,6 +1561,36 @@ def _post_api_topology_client_llama_configs_save(h, parsed, body):
 @_route(POST_ROUTES, '/api/topology/client-llama/configs/delete')
 def _post_api_topology_client_llama_configs_delete(h, parsed, body):
         h.send_json(client_llama_configs_delete(body))
+        return
+
+@_route(POST_ROUTES, '/api/topology/agent-route/context')
+def _post_api_topology_agent_route_context(h, parsed, body):
+        h.send_json(set_agent_route_context(body))
+        return
+
+@_route(POST_ROUTES, '/api/topology/client/agent-alias')
+def _post_api_topology_client_agent_alias(h, parsed, body):
+        h.send_json(set_topology_agent_alias(body.get("hostId"), body.get("agentId"), body.get("name")))
+
+@_route(POST_ROUTES, '/api/topology/client/agent')
+def _post_api_topology_client_agent(h, parsed, body):
+        h.send_json(topology_client_add_agent(body))
+
+@_route(POST_ROUTES, '/api/topology/clients/adopt')
+def _post_api_topology_clients_adopt(h, parsed, body):
+        h.send_json(adopt_scout_clients())
+
+@_route(POST_ROUTES, '/api/topology/agent-route/remove')
+def _post_api_topology_agent_route_remove(h, parsed, body):
+        h.send_json(remove_agent_route(body))
+
+@_route(POST_ROUTES, '/api/topology/agent-route/model')
+def _post_api_topology_agent_route_model(h, parsed, body):
+        h.send_json(set_agent_route_model(body))
+
+@_route(POST_ROUTES, '/api/topology/client/create')
+def _post_api_topology_client_create(h, parsed, body):
+        h.send_json(topology_client_create(body))
         return
 
 @_route(POST_ROUTES, '/api/topology/client/delete')
@@ -1936,7 +2016,25 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
             raise AppError("bad Content-Length", 400)
         raw = self.rfile.read(length) if length > 0 else b"{}"
-        return json.loads(raw.decode("utf-8"))
+        # Every POST route here reads its input with body.get(...) — 46 of the 80
+        # do it on the first line — so what reaches them has to be an object.
+        # Left to json.loads alone, `null`, `[1,2]`, `"x"`, `5` and unparseable
+        # bytes each became an AttributeError or a JSONDecodeError, which the
+        # dispatcher turned into a 500 carrying the Python message to the client.
+        # A client error announced as a server error is not just untidy: the
+        # official OpenAI SDKs retry any 5xx twice, so a request that can never
+        # succeed cost three round trips. No route wants a non-object body.
+        try:
+            parsed = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError):
+            raise AppError("request body is not valid JSON", 400)
+        if not isinstance(parsed, dict):
+            # Named in the sender's vocabulary, not the interpreter's: the caller
+            # wrote JSON and has no reason to know what NoneType is.
+            kind = {type(None): "null", bool: "boolean", int: "number",
+                    float: "number", str: "string", list: "array"}.get(type(parsed), "value")
+            raise AppError(f"request body must be a JSON object, not {kind}", 400)
+        return parsed
 
     def do_GET(self):
         try:
@@ -1983,5 +2081,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_json({"error": "Not found"}, 404)
                 return
             _fn(self, parsed)
+        except AppError as exc:
+            # GET and POST have always honoured the status an AppError carries;
+            # DELETE dropped it, so a handler raising AppError(..., 404) answered
+            # 500 with the right words. One verb behaving differently from its
+            # two neighbours is a defect waiting for the next DELETE route.
+            self._fail(exc, exc.status)
         except Exception as exc:
             self._fail(exc)

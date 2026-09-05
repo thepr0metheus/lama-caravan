@@ -33,7 +33,7 @@ SRC="${REPO_DIR}/cells"
 PREWARM=""
 if [[ "${1:-}" == "--prewarm" ]]; then PREWARM="${2:-en}"; fi
 
-if [[ ! -f "${SRC}/moonshine_server.py" || ! -f "${SRC}/run_moonshine.sh" ]]; then
+if [[ ! -f "${SRC}/cell_base.py" || ! -f "${SRC}/moonshine_server.py" || ! -f "${SRC}/run_moonshine.sh" ]]; then
   err "cell servers missing under ${SRC} — is this a full checkout?"
   exit 1
 fi
@@ -45,9 +45,12 @@ if ! python3 -c "import venv" 2>/dev/null; then
     || warn "could not install python3-venv — install it manually"
 fi
 
+# cell_base.py rides along with every server: the server imports it from its
+# own directory, so a $HOME copy without it starts and dies on ImportError.
+install -m 0644 "${SRC}/cell_base.py"      "${HOME}/cell_base.py"
 install -m 0644 "${SRC}/moonshine_server.py" "${HOME}/moonshine_server.py"
 install -m 0755 "${SRC}/run_moonshine.sh"    "${HOME}/run_moonshine.sh"
-info "installed ~/moonshine_server.py + ~/run_moonshine.sh"
+info "installed ~/moonshine_server.py + ~/cell_base.py + ~/run_moonshine.sh"
 
 # The launcher self-installs its venv on first start; --install-only does it
 # now (plus the model download with --prewarm) so a cell's first start is fast.

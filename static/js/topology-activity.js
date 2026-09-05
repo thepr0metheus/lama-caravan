@@ -1,6 +1,6 @@
 // Per-card activity/health classes and live runtime panels.
 import { drawTopologyCables, topologyProxyClass } from "./cables.js";
-import { appPrompt } from "./dialogs.js";
+import { appConfirm, appPrompt } from "./dialogs.js";
 import { drawCanvasConnectors, syncQueueNodesLive } from "./canvas.js";
 import { attachTokenChartHover, drawMetricChart, drawTopologyGpuHistory } from "./charts.js";
 import { t } from "./i18n.js";
@@ -10,7 +10,7 @@ import { setTopology, state, topology, ui } from "./state.js";
 import { topologyRouteDetail } from "./topology-dnd.js";
 import { queueThresholds } from "./topology-modals.js";
 import { topologyAssignmentsForHost, topologyProxyOwner } from "./topology-proxies.js";
-import { _lastRuntimePanelHtml, renderTopology } from "./topology-render.js";
+import { _lastRuntimePanelHtml, refreshTopology, renderTopology } from "./topology-render.js";
 import { $, api, copyText, escapeHtml, formatMemoryMiB, pill, toast } from "./utils.js";
 
 export let stickySlotAnims = {};             // group -> absolute-time anchor for that server's sticky-slot bar { port, startMs, durationMs }
@@ -22,6 +22,27 @@ export function topologyStatusPill(value) {
     : value === "stale" || value === "loading" || value === "pending" || value === "stored" || value === "warming" ? "warn"
     : value === "error" || value === "failed" ? "bad" : "";
   return pill(value || "unknown", kind);
+}
+
+// Строка живости клиента: плашка состояния и когда он отвечал в последний раз.
+//
+// «Никогда не отвечал» и «отвечал неизвестно когда» — РАЗНЫЕ вещи, и первое
+// печаталось как второе: возраст приходит null, а карточка показывала «?s ago»,
+// то есть утверждала, что ответ был, просто время неизвестно. Клиент, которого
+// оператор только что завёл, выглядел как замолчавший — отсутствие,
+// нарисованное как норма (docs/why.md). Теперь так и написано: не отвечал.
+// Только текст возраста, без плашки: его пишет не только строитель карточки,
+// но и живой патчер доски на каждом тике опроса. Пока текст собирали в двух
+// местах, починка держалась ровно один кадр — карточка говорила «не отвечал»,
+// а первый же тик возвращал «?s ago» и снова утверждал, что ответ был.
+export function clientAgeText(client) {
+  const age = client?.ageSeconds;
+  return (age === null || age === undefined) ? t("clientNeverAnswered") : `${age}s ago`;
+}
+
+export function clientLivenessLineHtml(client) {
+  return `${topologyStatusPill(client?.state)}`
+    + `<span data-live-age>${escapeHtml(clientAgeText(client))}</span>`;
 }
 
 export function topologyAgentMeta(agent) {
@@ -43,6 +64,9 @@ export function topologyAssignmentsByAgent(assignments = []) {
   });
   return rows;
 }
+
+//: Роли, которые принимает сервер. Всё остальное — подпись, а не кнопка.
+const BINDABLE_ROLES = new Set(["primary", "fallback"]);
 
 export function topologyAgentGroup(agent) {
   const runtime = String(agent.runtime || "").toLowerCase();
@@ -66,13 +90,23 @@ export function topologyAgentSortPort(agent) {
   return match ? Number(match[1]) : 0;
 }
 
+// Карточки на доске и строки канбана стоят ПО АЛФАВИТУ имён: оператор ищет
+// агента по имени, а не по номеру порта, и один порядок на обеих страницах
+// значит, что взгляд не переучивается при переходе. Порт — только запасной
+// ключ для одноимённых.
+export function topologyNameOrder(left, right) {
+  return String(left || "").localeCompare(String(right || ""), undefined, { numeric: true, sensitivity: "base" });
+}
+
 export function sortedTopologyAgents(agents) {
   return agents.slice().sort((left, right) => {
-    const leftPort = topologyAgentSortPort(left);
-    const rightPort = topologyAgentSortPort(right);
-    return (leftPort || 999999) - (rightPort || 999999)
-      || String(left.name || left.id || "").localeCompare(String(right.name || right.id || ""));
+    return topologyNameOrder(left.name || left.id || "", right.name || right.id || "")
+      || (topologyAgentSortPort(left) || 999999) - (topologyAgentSortPort(right) || 999999);
   });
+}
+
+export function sortedTopologyClients(clients) {
+  return (clients || []).slice().sort((left, right) => topologyNameOrder(left?.name || left?.id || "", right?.name || right?.id || ""));
 }
 
 export function topologyActivityClass(activity) {
@@ -808,8 +842,12 @@ export function drawRouteTokenHistory() {
     if (!samples.length) {
       meta.textContent = t("topologyTokenHistoryEmpty");
     } else {
+      // Сколько из них ВЫВЕДЕНО из итогов, а не измерено сервером. Молча
+      // смешать два разных числа в одном среднем — то же самое враньё, что
+      // рисовать пустой график там, где трафик шёл.
+      const derived = samples.filter((s) => s.source === "usage").length;
       const avg = (fn) => samples.reduce((sum, s) => sum + Number(fn(s) || 0), 0) / samples.length;
-      meta.textContent = `${samples.length} ${t("topologyTokenHistoryRuns")} · avg prompt ${formatTps(avg((s) => s.promptTps))} / gen ${formatTps(avg((s) => s.evalTps))} t/s`;
+      meta.textContent = `${derived ? t("topologyTokenHistoryDerived", { count: String(derived) }) + " · " : ""}${samples.length} ${t("topologyTokenHistoryRuns")} · avg prompt ${formatTps(avg((s) => s.promptTps))} / gen ${formatTps(avg((s) => s.evalTps))} t/s`;
     }
   }
 }
@@ -879,6 +917,10 @@ export function topologyIncidentForItem(item) {
 export function topologyIncidentCause(item, kind) {
   if (item?.cause) return item.cause;
   if (kind === "client_disconnected") return "client closed connection while proxy was still streaming";
+  // The same errno with the blame the other way round. Until the proxy learned
+  // to tell them apart, a cell that died mid-request was reported to the
+  // operator as their own agent hanging up.
+  if (kind === "upstream_disconnected") return "upstream closed the connection while the proxy was waiting";
   if (kind === "upstream_timeout") return "proxy waited too long for llama.cpp upstream";
   if (kind === "slow_first_byte") {
     return Number(item?.chunks || 0) <= 1
@@ -1251,6 +1293,142 @@ export async function refreshRouteErrBadges() {
 
 // usage: "confirmed" | "unused" | "unverified" (see topologyRouteUsage). It used
 // to be a boolean, which had no room for "the agent never told us".
+// Окно контекста ЭТОГО потребителя — на строке его маршрута, потому что задаётся
+// оно здесь же. Три состояния, и они разные: число оператора, «беру у модели» и
+// НЕ ЗАДАНО. Последнее рисуется прочерком, а не нулём и не числом модели: клиент,
+// которому окно не задавали, получает его от модели, и показать здесь модельное
+// число значило бы выдать чужое решение за своё (docs/why.md).
+// Имя, под которым порт объявляет свою модель. Клиент спрашивает /v1/models и
+// ищет там СВОЙ id; не найдя — берёт встроенное умолчание, и окно, честно
+// опубликованное под именем апстрима, до него не доходит вовсе. Прочерк — «имя
+// апстрима», а не «пусто»: это разные утверждения.
+// Бюджет ожидания этого маршрута: сколько клиент готов ждать своей очереди.
+// Настройка жила ТОЛЬКО на канбане, а карточка на главной показывала другое
+// число — из конфига агента, — и у клиента, заведённого руками, конфига нет
+// вовсе, поэтому строка не показывалась ни разу. Один факт, два места, разные
+// ответы. Здесь он и правится, а канбан теперь только показывает.
+export function routeWaitSec(route) {
+  const pid = String(route?.proxyId || "");
+  const routers = topology?.routers || [];
+  for (const r of routers) {
+    const own = Number(r?.graph?.inputs?.[pid]?.clientTimeoutSeconds || 0);
+    if (own > 0) return { sec: own, own: true };
+  }
+  const proxy = (topology?.proxies || []).find((p) => String(p.id) === pid);
+  return { sec: Number(proxy?.clientTimeoutSeconds || 0), own: false };
+}
+
+// Кто ходит в этот порт НА САМОМ ДЕЛЕ. Запись говорит, кому порт выдан, и это
+// не одно и то же: агент месяцами ходил в порт, на котором его имени не стояло,
+// и увидеть это было неоткуда. Сперва живой запрос, если он прямо сейчас есть,
+// потом сводка логов за час. Не знает никто — не показываем ничего: выдуманный
+// адрес хуже пустоты.
+// Адрес маршрута целиком — он и стоит на чипе. Номер порта отдельной строкой,
+// а полный адрес строкой ниже — это один и тот же факт, записанный дважды: та
+// нижняя строка выводилась из этого же номера и стоила по ярусу на каждый
+// маршрут. Осталось одно место, и оно же кнопка привязки.
+export function routeAddress(route, port) {
+  const endpoint = String(route?.endpoint || "").trim();
+  return endpoint || (port ? `:${port}` : "");
+}
+
+export function routeCallers(route) {
+  const port = String(route?.proxyId || "").split(":").pop();
+  if (!/^\d+$/.test(port || "")) return { top: "", count: 0 };
+  const live = topologyRowsForProxy({ port: Number(port) })
+    .map((item) => String(item?.client || "").trim()).filter(Boolean);
+  const st = (ui.routeErrHour || {})[port] || {};
+  const top = live[live.length - 1] || String(st.topClient || "");
+  const count = Math.max(Number(st.clientCount || 0), live.length ? 1 : 0);
+  return { top, count };
+}
+
+// Последний, кто шёл через ЭТОГО агента — в заголовок его блока, а не в строку
+// роли: адрес один на агента, и повторять его у каждой роли значит спрашивать
+// читателя, чем эти два адреса различаются. Различаются они ничем.
+export function agentCallerHtml(routes) {
+  for (const route of (routes || [])) {
+    const html = routeCallerHtml(route);
+    if (html) return html;
+  }
+  return "";
+}
+
+export function routeCallerHtml(route) {
+  const { top, count } = routeCallers(route);
+  if (!top) return "";
+  const more = count > 1 ? ` +${count - 1}` : "";
+  return `<span class="route-caller" data-t="route-caller"
+    title="${escapeHtml(count > 1 ? t("routeCallerManyTip", { count: String(count) })
+                                  : t("routeCallerTip"))}">← ${escapeHtml(top)}${escapeHtml(more)}</span>`;
+}
+
+export function routeWaitChipHtml(client, agent, role, route) {
+  if (!route) return "";
+  const { sec, own } = routeWaitSec(route);
+  return `<button type="button" class="route-wait-chip${own ? " set" : ""}"
+    data-route-wait="1" data-wait-host="${escapeHtml(client?.id || "")}"
+    data-wait-agent="${escapeHtml(agent?.id || "")}" data-wait-role="${escapeHtml(role)}"
+    data-wait-proxy="${escapeHtml(String(route.proxyId || ""))}"
+    data-wait-value="${escapeHtml(own ? String(sec) : "")}"
+    data-t="route-wait" title="${escapeHtml(own ? t("routeWaitOwnTip") : t("routeWaitSyncedTip"))}"
+    >${escapeHtml(sec ? t("routeWaitLabel", { sec: String(sec) }) : t("routeWaitUnset"))}</button>`;
+}
+
+export function routeModelChipHtml(client, agent, role, route) {
+  if (!route) return "";
+  const name = String(route.modelName || "").trim();
+  return `<button type="button" class="route-model-chip${name ? " set" : ""}"
+    data-route-model="1" data-model-host="${escapeHtml(client?.id || "")}"
+    data-model-agent="${escapeHtml(agent?.id || "")}" data-model-role="${escapeHtml(role)}"
+    data-model-value="${escapeHtml(name)}"
+    data-t="route-model" title="${escapeHtml(name ? t("routeModelOwnTip") : t("routeModelUnsetTip"))}"
+    >${escapeHtml(t("routeModelLabel", { value: name || "—" }))}</button>`;
+}
+
+export function routeContextChipHtml(client, agent, role, route) {
+  if (!route) return "";
+  const own = Number(route.contextLength || 0);
+  const auto = !!route.contextAuto;
+  // Настройка живёт на порту, названном ЗАПИСЬЮ, а строка на доске показывает
+  // порт из живого отчёта. Когда они разошлись, окно здесь не в силе — и
+  // молчать об этом нельзя: чип выглядел бы ровно как работающая настройка.
+  const elsewhere = !!route.settingsProxyId && (own > 0 || auto);
+  // С подписью, а не голым числом: «256000» рядом с «hemi-proxy» и «wait 1800s»
+  // не говорит, что это, — а на карточке эти три факта стоят в один ряд.
+  const label = t("routeCtxLabel", {
+    value: auto ? t("routeContextFromModel") : (own > 0 ? String(own) : "—"),
+  });
+  const title = elsewhere
+    ? t("routeContextElsewhereTip", { port: String(route.settingsProxyId).split(":").pop() })
+    : (auto ? t("routeContextFromModelTip")
+      : (own > 0 ? t("routeContextOwnTip") : t("routeContextUnsetTip")));
+  return `<button type="button" class="route-ctx-chip${auto ? " auto" : ""}${own > 0 ? " set" : ""}${elsewhere ? " elsewhere" : ""}"
+    data-route-ctx="1" data-ctx-host="${escapeHtml(client?.id || "")}"
+    data-ctx-agent="${escapeHtml(agent?.id || "")}" data-ctx-role="${escapeHtml(role)}"
+    data-ctx-value="${escapeHtml(own > 0 ? String(own) : "")}" data-ctx-auto="${auto ? "1" : ""}"
+    data-t="route-context" title="${escapeHtml(title)}">${escapeHtml(label)}</button>`;
+}
+
+// Состояние маршрута — значок с подписью, а не слово. Слова «unverified» и
+// «inactive» занимали половину строки и всё равно требовали пояснения: сами по
+// себе они не говорят, что именно не подтверждено и кем. Значок мельче, а
+// объяснение приходит по наведению, где ему и место.
+//
+// Подтверждённое состояние показывается ТОЖЕ. Пока метка была только у
+// сомнительного, «ничего не написано» означало сразу две разные вещи —
+// «проверено» и «сюда ещё не дошли руки»; теперь у каждой своё лицо.
+export function routeStateBadgeHtml(route, usage) {
+  if (!route) return "";
+  if (usage === "unused") {
+    return `<span class="route-muted-tag" data-t="route-state" title="${escapeHtml(t("taTitleMutedRoute"))}">⏸</span>`;
+  }
+  if (usage === "unverified") {
+    return `<span class="route-unverified-tag" data-t="route-state" title="${escapeHtml(t("taTitleUnverifiedRoute"))}">?</span>`;
+  }
+  return `<span class="route-confirmed-tag" data-t="route-state" title="${escapeHtml(t("taTitleConfirmedRoute"))}">✓</span>`;
+}
+
 export function topologyAgentRouteRow(client, agent, role, route, usage = "confirmed") {
   const activity = route ? topologyProxyActivity(route.proxyId || "") : null;
   const incident = activity?.incident || topologyIncidentForItem(activity?.item);
@@ -1263,8 +1441,11 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
   // Whether an operator pinned this agent's port by hand. Provisioning skips
   // such agents, so the padlock is the only place the panel says why this one
   // is not being re-derived like the rest.
-  const manualBound = ((topology?.assignments?.[client?.id]?.assignments) || [])
-    .some((a) => a.agentId === agent.id && a.manual);
+  // Замок означает «эта роль привязана руками». Пока он зависел только от
+  // агента, он висел и на роли БЕЗ порта — рядом с плюсом «привязать»,
+  // утверждая то, чего ещё нет.
+  const manualBound = !!port && ((topology?.assignments?.[client?.id]?.assignments) || [])
+    .some((a) => a.agentId === agent?.id && a.manual);
   const unverified = !!route && usage === "unverified";
   const handle = route ? `
     <span class="topology-handle output ${escapeHtml(role)} ${muted ? "muted" : ""}"
@@ -1280,14 +1461,27 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
   return `
     <div class="topology-agent-route ${escapeHtml(role)} ${route ? "" : "empty"} ${muted ? "muted" : ""} ${unverified ? "unverified" : ""} ${escapeHtml(topologyStateHealthClasses(activity))}"${detailAttrs}>
       ${handle}
-      <span class="route-role-label">${escapeHtml(role)}${port ? (role === "primary"
-        ? `<button type="button" class="route-port-chip bindable${manualBound ? " manual" : ""}"
-             data-agent-bind="1" data-bind-host="${escapeHtml(client.id || "")}"
-             data-bind-agent="${escapeHtml(agent.id || "")}" data-bind-port="${escapeHtml(String(port))}"
+      <span class="route-role-label">${routeStateBadgeHtml(route, usage)}${escapeHtml(role)}${
+        // Чип рисуется и БЕЗ порта, и у ОБЕИХ настоящих ролей: пока он был
+        // только у привязанных, назначить агенту первый порт с доски было
+        // неоткуда, а пока только у primary — второй порт неоткуда. Роли,
+        // которых сервер не принимает (legacy secondary), остаются простой
+        // подписью: кнопка, ведущая к отказу, хуже её отсутствия.
+        // Пикер знает роль по data-bind-role, иначе новый порт сядет на
+        // primary и затрёт рабочий. Пустой текущий порт для него — «ещё не
+        // выбран», а не ноль.
+        BINDABLE_ROLES.has(role)
+        ? `<button type="button" class="route-port-chip bindable${port ? "" : " unbound"}${manualBound ? " manual" : ""}"
+             data-agent-bind="1" data-bind-host="${escapeHtml(client?.id || "")}"
+             data-bind-agent="${escapeHtml(agent?.id || "")}" data-bind-port="${escapeHtml(port ? String(port) : "")}"
+             data-bind-role="${escapeHtml(role)}"
              data-t="agent-proxy-bind"
-             title="${escapeHtml(manualBound ? t("taTitleBoundManual") : t("taTitleBindProxy"))}">${escapeHtml(port)}${manualBound ? "&#128274;" : ""}</button>`
-        : `<span class="route-port-chip" title="${escapeHtml(t("taTitleProxyPort"))}">${escapeHtml(port)}</span>`) : ""}${routeErrBadgeHtml(port)}</span>
-      <code>${route ? escapeHtml(route.endpoint || "") : "-"}${muted ? ` <span class="route-muted-tag" title="${escapeHtml(t("taTitleMutedRoute"))}">${escapeHtml(t("taInactive"))}</span>` : ""}${unverified ? ` <span class="route-unverified-tag" title="${escapeHtml(t("taTitleUnverifiedRoute"))}">${escapeHtml(t("taUnverified"))}</span>` : ""}</code>
+             title="${escapeHtml(manualBound ? t("taTitleBoundManual") : t("taTitleBindProxy"))}">${escapeHtml(port ? routeAddress(route, port) : "＋")}${manualBound ? "&#128274;" : ""}</button>`
+        : (port ? `<span class="route-port-chip" title="${escapeHtml(t("taTitleProxyPort"))}">${escapeHtml(routeAddress(route, port))}</span>` : "")
+      }${routeErrBadgeHtml(port)}</span>
+      <div class="route-settings">${routeContextChipHtml(client, agent, role, route)}${
+        routeModelChipHtml(client, agent, role, route)}${
+        routeWaitChipHtml(client, agent, role, route)}</div>
       ${timeoutHtml}
       ${incident ? `<small class="topology-incident-line ${incident.kind === "failed" ? "failed" : ""}">${escapeHtml(`${incident.title}: ${incident.summary}`)}</small>` : ""}
     </div>
@@ -1304,11 +1498,30 @@ function closeBindMenu() {
   document.querySelector(".agent-bind-menu")?.remove();
 }
 
+// Порт-сосед праймари для роли fallback, если он свободен. Пара «нечётный —
+// чётный» задумана так, чтобы читаться глазами, но держалась она только на
+// МОМЕНТЕ создания порта: стоило переставить праймари, и фолбэк оставался у
+// прежнего соседа, а как его догнать — из интерфейса не следовало никак.
+export function neighbourPortForFallback(hostId, agentId) {
+  const rows = (topology?.assignments?.[hostId]?.assignments) || [];
+  const row = rows.find((r) => r?.agentId === agentId);
+  const primary = (row?.routes || []).find((r) => (r?.role || "primary") === "primary");
+  const tail = String(primary?.proxyId || "").split(":").pop();
+  if (!/^\d+$/.test(tail || "")) return 0;
+  const candidate = Number(tail) + 1;
+  const taken = (topology?.proxies || []).some((p) => Number(p.port) === candidate);
+  return taken ? 0 : candidate;
+}
+
 function openBindMenu(chip) {
   closeBindMenu();
   const hostId = chip.dataset.bindHost;
   const agentId = chip.dataset.bindAgent;
   const current = String(chip.dataset.bindPort || "");
+  // Роль обязана ехать до сервера: без неё и привязка, и новый порт садились
+  // бы на primary — то есть выбор фолбэка молча затирал бы рабочий маршрут.
+  const role = String(chip.dataset.bindRole || "primary");
+  const neighbour = role === "fallback" ? neighbourPortForFallback(hostId, agentId) : 0;
   const routes = (topology?.proxies || [])
     .filter((p) => Number(p.port) > 0)
     .sort((a, b) => Number(a.port) - Number(b.port));
@@ -1317,9 +1530,12 @@ function openBindMenu(chip) {
   menu.className = "agent-bind-menu";
   menu.setAttribute("data-t", "agent-bind-menu");
   menu.innerHTML = `
-    <div class="agent-bind-head">${escapeHtml(t("taBindHead"))} <b>${escapeHtml(agentId)}</b></div>
+    <div class="agent-bind-head">${escapeHtml(t("taBindHead"))} <b>${escapeHtml(agentId)}</b> · ${escapeHtml(role)}</div>
     <button type="button" class="agent-bind-row auto" data-bind-choice="">${escapeHtml(t("taBindAutomatic"))}</button>
+    ${current ? `<button type="button" class="agent-bind-row remove" data-bind-remove="1">${escapeHtml(t("taBindRemoveRoute"))}</button>` : ""}
     <button type="button" class="agent-bind-row make" data-bind-new="1">${escapeHtml(t("taBindNewPort"))}</button>
+    ${neighbour ? `<button type="button" class="agent-bind-row make neighbour" data-bind-new="1"
+      data-bind-neighbour="${escapeHtml(String(neighbour))}">${escapeHtml(t("taBindNeighbourPort", { port: String(neighbour) }))}</button>` : ""}
     ${routes.map((p) => `
       <button type="button" class="agent-bind-row${String(p.port) === current ? " current" : ""}"
               data-bind-choice="${escapeHtml(String(p.port))}">
@@ -1334,6 +1550,7 @@ function openBindMenu(chip) {
 
   menu.addEventListener("click", async (e) => {
     if (e.target.closest("[data-bind-new]")) {
+      const wanted = Number(e.target.closest("[data-bind-new]").dataset.bindNeighbour || 0);
       closeBindMenu();
       const label = await appPrompt(t("taBindNewPortName"),
         { placeholder: `${agentId} port` });
@@ -1341,7 +1558,8 @@ function openBindMenu(chip) {
       try {
         const res = await api("/api/agent-port", {
           method: "POST",
-          body: JSON.stringify({ clientId: hostId, agentId, label }),
+          body: JSON.stringify({ clientId: hostId, agentId, label, role,
+                                 ...(wanted ? { port: wanted } : {}) }),
         });
         if (res.topology) setTopology(res.topology);
         renderTopology();
@@ -1354,6 +1572,24 @@ function openBindMenu(chip) {
       }
       return;
     }
+    if (e.target.closest("[data-bind-remove]")) {
+      closeBindMenu();
+      // Порт продолжает слушать: он живой слушатель, в который внешний агент
+      // может ходить независимо от наших записей. Сказано прямо, а не умолчано.
+      if (!(await appConfirm(t("dlgRemoveRoute", { role, port: current })))) return;
+      try {
+        const res = await api("/api/topology/agent-route/remove", {
+          method: "POST",
+          body: JSON.stringify({ hostId, agentId, role }),
+        });
+        if (res.topology) setTopology(res.topology);
+        await refreshTopology();
+        renderTopology();
+      } catch (err) {
+        toast(`${t("taBindFailed")}: ${err.message || err}`, true);
+      }
+      return;
+    }
     const row = e.target.closest("[data-bind-choice]");
     if (!row) return;
     const port = row.dataset.bindChoice;
@@ -1361,7 +1597,7 @@ function openBindMenu(chip) {
     try {
       const res = await api("/api/topology/agent-proxy-bind", {
         method: "POST",
-        body: JSON.stringify({ hostId, agentId, port: port ? Number(port) : null }),
+        body: JSON.stringify({ hostId, agentId, role, port: port ? Number(port) : null }),
       });
       // Repaint from the response rather than waiting for the next poll: the
       // agent cards are cached between renders, so without this the padlock —

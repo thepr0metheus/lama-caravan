@@ -266,13 +266,27 @@ def load_agent_proxy_logs(date_text="", limit=200, event_filter="",
             key = str(it.get("port"))
             entry = agg.setdefault(key, {"port": it.get("port"),
                                          "route": str(r.get("route") or ""),
-                                         "total": 0, "errors": 0, "byKind": {}})
+                                         "total": 0, "errors": 0, "byKind": {},
+                                         "clients": {}})
             entry["total"] += 1
+            # Кто на самом деле ходит в этот порт. Строки и так обходятся, а
+            # ответить на «чей это порт» иначе нечем: запись говорит, кому мы
+            # его ВЫДАЛИ, и это не то же самое — hermes месяцами ходил в порт,
+            # на котором его имени не стояло.
+            caller = str(it.get("client") or "").strip()
+            if caller:
+                entry["clients"][caller] = entry["clients"].get(caller, 0) + 1
             kind = str(it.get("errorKind") or it.get("reason") or "").strip()
             if kind or it.get("error"):
                 entry["errors"] += 1
                 k = kind or "error"
                 entry["byKind"][k] = entry["byKind"].get(k, 0) + 1
+        for entry in agg.values():
+            # Самый частый и сколько их всего: один адрес — это ответ, а
+            # несколько — тоже ответ, и притом важный (порт общий).
+            ranked = sorted(entry["clients"].items(), key=lambda kv: (-kv[1], kv[0]))
+            entry["topClient"] = ranked[0][0] if ranked else ""
+            entry["clientCount"] = len(ranked)
         return {"date": date_text, "dates": dates, "summary": agg}
     rows = rows[-limit:]
     rows.reverse()

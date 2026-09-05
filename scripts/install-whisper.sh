@@ -35,7 +35,7 @@ if ! nvidia-smi -L >/dev/null 2>&1 \
   warn "No NVIDIA GPU detected — skipping whisper provisioning."
   exit 0
 fi
-if [[ ! -f "${SRC}/whisper_server.py" || ! -f "${SRC}/run_whisper.sh" ]]; then
+if [[ ! -f "${SRC}/cell_base.py" || ! -f "${SRC}/whisper_server.py" || ! -f "${SRC}/run_whisper.sh" ]]; then
   err "cell servers missing under ${SRC} — is this a full checkout?"
   exit 1
 fi
@@ -59,9 +59,12 @@ if ! "${VENV}/bin/python" -c "import faster_whisper" 2>/dev/null; then
   exit 1
 fi
 
+# cell_base.py rides along with every server: the server imports it from its
+# own directory, so a $HOME copy without it starts and dies on ImportError.
+install -m 0644 "${SRC}/cell_base.py"      "${HOME}/cell_base.py"
 install -m 0644 "${SRC}/whisper_server.py" "${HOME}/whisper_server.py"
 install -m 0755 "${SRC}/run_whisper.sh"    "${HOME}/run_whisper.sh"
-info "  installed ~/whisper_server.py + ~/run_whisper.sh"
+info "  installed ~/whisper_server.py + ~/cell_base.py + ~/run_whisper.sh"
 
 # No ufw rule here on purpose: the fleet's inference range (default 22001–22999,
 # legacy installs 8001–8099) is already open, and

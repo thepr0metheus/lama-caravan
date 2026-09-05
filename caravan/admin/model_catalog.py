@@ -188,11 +188,24 @@ def cached_model_ids(account_id):
     return ids or None
 
 
+def _cached_model(model):
+    """One catalogue row: id, name, and the context window if the provider named one.
+
+    The key is absent when it is unknown — a missing context must stay missing
+    rather than become a zero, which a client would read as a real limit.
+    """
+    row = {"id": model.get("id"), "name": model.get("name") or model.get("id")}
+    window = model.get("contextLength")
+    if window is not None:
+        row["contextLength"] = window
+    return row
+
+
 def store_models(account_id, models):
     def fn(data):
         data.setdefault("accounts", {})[str(account_id)] = {
-            "models": [{"id": m.get("id"), "name": m.get("name") or m.get("id")}
-                       for m in (models or []) if isinstance(m, dict) and m.get("id")],
+            "models": [_cached_model(m) for m in (models or [])
+                       if isinstance(m, dict) and m.get("id")],
             "fetchedAt": int(time.time()),
         }
     _mutate(fn)

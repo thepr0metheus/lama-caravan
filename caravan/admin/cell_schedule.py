@@ -16,6 +16,7 @@ import time
 
 from caravan.admin.server_cells import server_slot_key
 from caravan.admin.state import save_admin_state, topology_store
+from caravan.admin.state import topology as topo
 from caravan.common.errors import AppError
 
 
@@ -62,15 +63,14 @@ def set_cell_schedule(body):
     if not host_id or not port:
         raise AppError("hostId and port are required", 400)
     key = server_slot_key(host_id, port)
-    store = topology_store()
-    slot = store.get("serverSlots", {}).get(key)
+    slot = topo.find_slot(host_id, port)
     if not slot:
         raise AppError(f"no such cell: {key}", 404)
     sched = normalize_schedule(body.get("schedule") or {})
     slot["schedule"] = sched
     # Re-arm the edge detector so the next tick applies the current window.
     slot.pop("schedState", None)
-    store["serverSlots"][key] = slot
+    topo.put_slot(host_id, port, slot)
     save_admin_state()
     return {"ok": True, "hostId": host_id, "port": port, "schedule": sched}
 

@@ -18,24 +18,16 @@ clients need no new code path, plus GET /health.
 
 Usage: seamless_server.py <port> <model_dir> [target_lang]
 """
-import hashlib
 import io
 import json
 import os
 import sys
 import threading
 import wave
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8030
-MODEL_DIR = sys.argv[2] if len(sys.argv) > 2 else ""
-TGT_LANG = (sys.argv[3] if len(sys.argv) > 3 else "rus").lower()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cell_base import CellServer   # noqa: E402
 
-# The model has no input-length parameter: a long clip is simply attended over
-# in one go, and memory grows with it. This is the window the cell advertises
-# and enforces by chunking — the speech card on the board draws it from here,
-# so a number invented in the UI instead of measured here would be a promise
-# the cell never made.
 MAX_AUDIO_MS = int(os.environ.get("SEAMLESS_MAX_AUDIO_MS", "30000"))
 SAMPLE_RATE = 16000
 
@@ -65,28 +57,115 @@ def _model_name(directory):
             parts.pop()                 # -> .../<model>
     return parts[-1]
 
-
-def _source_stamp():
-    """Digest of THIS file, taken once at import — the only moment it is
-    guaranteed to be the source the interpreter actually loaded. A long-running
-    cell can be older than the file beside it; hashing per request would report
-    the file and hide exactly that."""
-    try:
-        with open(os.path.abspath(__file__), "rb") as fh:
-            return hashlib.sha256(fh.read()).hexdigest()[:12]
-    except Exception:  # noqa: BLE001
-        return ""
-
-
-SOURCE = _source_stamp()
 _state = {"ready": False, "error": "", "device": "", "dtype": "", "langs": []}
 _lock = threading.Lock()
 _model = None
 _processor = None
+_model_dir = ""
+_port = 0
+#: Целевой язык ячейки. Живёт модулем, потому что _resolve_lang
+#: отвечает им на пустой запрос, а вызывают её из хелпера, а не из класса.
+_tgt_lang = "rus"
 
 
-def _log(msg):
+def log(msg):
+    # Prefix kept: journalctl shows one unit per host and the cell logs
+    # interleave with everything else it started.
     print(f"[seamless] {msg}", flush=True)
+
+
+class SeamlessCell(CellServer):
+    """SeamlessM4T v2: speech in one language, TEXT in another.
+
+    `engine` is present in the ok branch because a LAN scanner that cannot read
+    it drops the cell as unidentifiable. The language list comes off the
+    checkpoint so a UI builds its options from the cell rather than from a table
+    of its own that can disagree with what is loaded.
+    """
+    default_port = 8030
+    engine = "seamless-m4t-v2"
+    kinds = ["asr"]
+    def is_health(self, path):
+        # Anything ending in /health, and the root. Not a fixed list: this cell
+        # has always answered /v1/health as well, and a caller that relies on it
+        # would meet a 404 with no way to tell it from the cell being gone.
+        return path == "/" or path.endswith("/health")
+
+    def ready_required(self, path):
+        # A POST to a path this cell does not serve is a 404 whether or not the
+        # model is up. Answering 503 "model loading" first would send the caller
+        # off to wait for a load that was never going to make that path exist.
+        return path.endswith("/transcriptions") or path.endswith("/translations")
+
+    protocol_version = "HTTP/1.1"
+    json_ensure_ascii = False
+    json_content_type = "application/json; charset=utf-8"
+
+    @property
+    def model_name(self):
+        return _model_name(self.args[0] if self.args else "")
+
+    @property
+    def target_lang(self):
+        return (self.args[1] if len(self.args) > 1 else "rus").lower()
+
+    def extra_health(self):
+        return {
+            "targetLang": self.target_lang,
+            "langs": _state.get("langs") or [],
+            "codeset": "iso639-3",
+            "acceptsIso639_1": True,
+            # Stated rather than left to be discovered: the model detects the
+            # source language itself and reports no verdict, so there is nothing
+            # for a caller to set and nothing honest to return.
+            "srcLang": "auto",
+            "device": _state["device"], "dtype": _state["dtype"],
+            "maxAudioMs": MAX_AUDIO_MS,
+        }
+
+    def load(self):
+        global _model_dir, _port, _tgt_lang
+        _model_dir = self.args[0] if self.args else ""
+        _port = self.port
+        _tgt_lang = self.target_lang
+        _load()
+        if _state.get("error"):
+            raise RuntimeError(_state["error"])
+
+    def handle(self, body, headers, path):
+        if not path.endswith("/transcriptions") and not path.endswith("/translations"):
+            return 404, {"error": "not found"}, None
+        raw = _extract_file(body, headers.get("Content-Type", ""))
+        if not raw:
+            return 400, {"error": "multipart field `file` is required"}, None
+        # Field names, in order of preference:
+        #   tgt_lang   — unambiguous, and what a caller should use
+        #   language   — OpenAI's name. In THAT protocol it means the language
+        #                being SPOKEN; here it is the language written. The
+        #                collision is real and cannot be resolved silently, so
+        #                the unambiguous name exists and this one is kept only so
+        #                clients written against the first release keep working.
+        #   src_lang   — accepted and NOT used: this model detects the source
+        #                from the audio itself. /health says so, so a caller can
+        #                see it without running an experiment.
+        requested = (_field(body, "tgt_lang") or _field(body, "target_lang")
+                     or _field(body, "language") or "")
+        try:
+            tgt = _resolve_lang(requested)
+        except LangError as exc:
+            # 400, not 500: a language this cell cannot serve is the caller's to
+            # fix, and a 500 is indistinguishable from the cell having died.
+            return 400, {
+                "error": f"unsupported language {exc.args[0]!r}",
+                "accepted": _state.get("langs") or [],
+                "codeset": "iso639-3",
+                "hint": "two-letter ISO 639-1 codes are accepted where unambiguous",
+            }, None
+        audio = _decode_audio(raw)
+        text = _translate(audio, tgt)
+        return 200, {"text": text, "language": tgt, "tgtLang": tgt,
+                     "srcLang": None,   # not knowable: see /health srcLang
+                     "durationMs": int(len(audio) / SAMPLE_RATE * 1000)}, None
 
 
 def _load():
@@ -100,15 +179,15 @@ def _load():
     try:
         import torch
         from transformers import AutoProcessor, SeamlessM4Tv2ForSpeechToText
-        if not MODEL_DIR or not os.path.isdir(MODEL_DIR):
-            raise RuntimeError(f"model dir not found: {MODEL_DIR!r}")
+        if not _model_dir or not os.path.isdir(_model_dir):
+            raise RuntimeError(f"model dir not found: {_model_dir!r}")
         use_cuda = torch.cuda.is_available()
         # bf16 on GPU: fp32 needs ~5.6 GiB for this tower alone, and this box
         # habitually has a 20 GB language model resident. CPU stays fp32 —
         # bf16 on CPU is slower, not faster, outside AMX hardware.
         dtype = torch.bfloat16 if use_cuda else torch.float32
-        _processor = AutoProcessor.from_pretrained(MODEL_DIR)
-        model = SeamlessM4Tv2ForSpeechToText.from_pretrained(MODEL_DIR, dtype=dtype)
+        _processor = AutoProcessor.from_pretrained(_model_dir)
+        model = SeamlessM4Tv2ForSpeechToText.from_pretrained(_model_dir, dtype=dtype)
         model = model.to("cuda" if use_cuda else "cpu").eval()
         _model = model
         # Which target languages this checkpoint has, from the map generate()
@@ -121,7 +200,7 @@ def _load():
             gen = getattr(model, "generation_config", None)
             codes = list(getattr(gen, "text_decoder_lang_to_code_id", None) or {})
             if not codes:                      # older configs: fall back to the file
-                with open(os.path.join(MODEL_DIR, "generation_config.json"), "rb") as fh:
+                with open(os.path.join(_model_dir, "generation_config.json"), "rb") as fh:
                     codes = list(json.load(fh).get("text_decoder_lang_to_code_id") or {})
             _state["langs"] = sorted(codes)
         except Exception:  # noqa: BLE001
@@ -129,10 +208,10 @@ def _load():
         _state["device"] = "cuda" if use_cuda else "cpu"
         _state["dtype"] = "bfloat16" if use_cuda else "float32"
         _state["ready"] = True
-        _log(f"ready on {_state['device']} ({_state['dtype']}), target={TGT_LANG}")
+        log(f"ready on {_state['device']} ({_state['dtype']}), target={_tgt_lang}")
     except Exception as exc:  # noqa: BLE001
         _state["error"] = f"{type(exc).__name__}: {exc}"
-        _log(f"load failed: {_state['error']}")
+        log(f"load failed: {_state['error']}")
 
 
 # ISO 639-1 -> 639-3, for the languages this family serves. The OpenAI API and
@@ -150,6 +229,7 @@ def _load():
 #   az -> azj  (North Azerbaijani)  fa -> pes (Western Persian)
 #   mn -> khk  (Halh Mongolian)     ms -> zsm (Standard Malay)
 #   uz -> uzn  (Northern Uzbek)     sw -> swh (Coastal Swahili)
+
 _ISO1_TO_3 = {
     "af": "afr", "am": "amh", "ar": "arb", "as": "asm", "az": "azj", "be": "bel",
     "bn": "ben", "bs": "bos", "bg": "bul", "ca": "cat", "cs": "ces", "cy": "cym",
@@ -177,7 +257,7 @@ def _resolve_lang(code):
     """Normalise a requested language to a code this checkpoint has."""
     raw = str(code or "").strip().replace("-", "_").strip("_")
     if not raw:
-        return TGT_LANG
+        return _tgt_lang
     known = _state.get("langs") or []
     # Case-insensitive, canonical spelling out. Not all codes are lower-case —
     # cmn_Hant carries a capital, and lower-casing the request made the one
@@ -192,7 +272,6 @@ def _resolve_lang(code):
     if not known:                      # config unreadable: let the model judge
         return raw
     raise LangError(raw)
-
 
 def _boundary(ctype):
     for part in (ctype or "").split(";"):
@@ -285,106 +364,5 @@ def _translate(audio, tgt_lang):
     return " ".join(out)
 
 
-class Handler(BaseHTTPRequestHandler):
-    protocol_version = "HTTP/1.1"
-
-    def log_message(self, *_a):
-        pass
-
-    def _send(self, code, payload):
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_GET(self):
-        path = (self.path or "").split("?", 1)[0].rstrip("/")
-        if not path.endswith("/health") and path not in ("", "/"):
-            self._send(404, {"error": "not found"})
-            return
-        if _state["ready"]:
-            # `engine` must be present in the ok branch: a LAN scanner that
-            # cannot read it drops the cell as unidentifiable.
-            self._send(200, {
-                "status": "ok", "engine": "seamless-m4t-v2",
-                "model": _model_name(MODEL_DIR),
-                "kinds": ["asr"], "targetLang": TGT_LANG,
-                # What this cell accepts, straight from the checkpoint, so a UI
-                # builds its language list from the cell instead of a table of
-                # its own that can disagree with what is loaded.
-                "langs": _state.get("langs") or [],
-                "codeset": "iso639-3",
-                "acceptsIso639_1": True,
-                # Stated rather than left to be discovered: the model detects the
-                # source language itself and reports no verdict, so there is
-                # nothing for a caller to set and nothing honest to return.
-                "srcLang": "auto",
-                "device": _state["device"], "dtype": _state["dtype"],
-                "maxAudioMs": MAX_AUDIO_MS, "source": SOURCE,
-            })
-        elif _state["error"]:
-            self._send(500, {"status": "error", "error": _state["error"], "source": SOURCE})
-        else:
-            self._send(503, {"status": "loading", "source": SOURCE})
-
-    def do_POST(self):
-        path = (self.path or "").split("?", 1)[0].rstrip("/")
-        if not path.endswith("/transcriptions") and not path.endswith("/translations"):
-            self._send(404, {"error": "not found"})
-            return
-        if not _state["ready"]:
-            self._send(503, {"error": _state["error"] or "loading"})
-            return
-        ln = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(ln)
-        raw = _extract_file(body, self.headers.get("Content-Type", ""))
-        if not raw:
-            self._send(400, {"error": "multipart field `file` is required"})
-            return
-        # Field names, in order of preference:
-        #   tgt_lang   — unambiguous, and what a caller should use
-        #   language   — OpenAI's name. In THAT protocol it means the language
-        #                being SPOKEN; here it is the language written. The
-        #                collision is real and cannot be resolved silently, so
-        #                the unambiguous name exists and this one is kept only so
-        #                clients written against the first release keep working.
-        #   src_lang   — accepted and NOT used: this model detects the source
-        #                from the audio itself. /health says so, so a caller can
-        #                see it without running an experiment.
-        requested = (_field(body, "tgt_lang") or _field(body, "target_lang")
-                     or _field(body, "language") or "")
-        try:
-            tgt = _resolve_lang(requested)
-        except LangError as exc:
-            # 400, not 500: a language this cell cannot serve is the caller's
-            # to fix, and a 500 is indistinguishable from the cell having died.
-            self._send(400, {
-                "error": f"unsupported language {exc.args[0]!r}",
-                "accepted": _state.get("langs") or [],
-                "codeset": "iso639-3",
-                "hint": "two-letter ISO 639-1 codes are accepted where unambiguous",
-            })
-            return
-        try:
-            audio = _decode_audio(raw)
-            text = _translate(audio, tgt)
-        except Exception as exc:  # noqa: BLE001
-            _log(f"translate error: {exc}")
-            self._send(500, {"error": f"{type(exc).__name__}: {exc}"})
-            return
-        self._send(200, {"text": text, "language": tgt, "tgtLang": tgt,
-                         "srcLang": None,   # not knowable: see /health srcLang
-                         "durationMs": int(len(audio) / SAMPLE_RATE * 1000)})
-
-
-def main():
-    threading.Thread(target=_load, daemon=True).start()
-    srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    _log(f"listening on :{PORT} (model={MODEL_DIR!r}, target={TGT_LANG})")
-    srv.serve_forever()
-
-
 if __name__ == "__main__":
-    main()
+    SeamlessCell().serve()

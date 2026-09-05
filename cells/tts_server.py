@@ -24,6 +24,11 @@ Engines (pick one per process; deps are imported lazily):
 Setup: see run_tts.sh (creates ~/tts-<engine> venv and installs the engine).
 Usage: tts_server.py [port] [engine]
 """
+# Deferred so a signature can never be evaluated at import: the macOS client
+# runs stock Python 3.9, where a PEP-604 union in a def is a TypeError that
+# stops the module loading — the cell simply never listens.
+from __future__ import annotations
+
 import hashlib
 import io
 import json
@@ -32,36 +37,64 @@ import sys
 import threading
 import wave
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8021
-ENGINE = (sys.argv[2] if len(sys.argv) > 2 else "xtts").lower()
-
-
-def _source_stamp():
-    """Digest of THIS file, taken once at import — the only moment it is
-    guaranteed to be the source the interpreter actually loaded. The controller
-    refreshes $HOME copies when a cell starts, so a long-running process can be
-    older than the file beside it; hashing per request would report the file and
-    hide precisely that. See cells/whisper_server.py for the full story."""
-    try:
-        with open(os.path.abspath(__file__), "rb") as fh:
-            return hashlib.sha256(fh.read()).hexdigest()[:12]
-    except Exception:  # noqa: BLE001
-        return ""
-
-
-SOURCE = _source_stamp()
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from cell_base import CellServer   # noqa: E402
 
 _state = {"phase": "starting", "downloaded": 0, "total": 0, "ready": False,
-          "error": "", "engine": ENGINE}
+          "error": "", "device": "", "deviceReason": ""}
 _synth = None                 # (text, lang, ref_path) -> (float32 mono, sr)
 _lock = threading.Lock()      # serialize GPU work
 
 
-def _log(msg):
+def log(msg):
     print(msg, flush=True)
 
 
-# --------------------------- engines ------------------------------------- #
+class TtsCell(CellServer):
+    """Voice cloning: text plus a reference clip in, wav out.
+
+    The engine is named in /health even when ready. A bare "ok" is
+    indistinguishable from any other healthy server, so the voice app's LAN
+    scan could not tell a ready TTS cell from a plain endpoint and dropped it.
+    """
+    default_port = 8021
+
+    @property
+    def engine(self):
+        return (self.args[0] if self.args else "xtts").lower()
+
+    #: The engine IS the model identity here: the cell is started as
+    #: `run_tts.sh $PORT <engine>` and each engine ships one voice model.
+    @property
+    def model_name(self):
+        return self.engine
+
+    @property
+    def kinds(self):
+        return [f"tts.{self.engine}"]
+
+    def extra_health(self):
+        return {"device": _state.get("device") or "",
+                "deviceReason": _state.get("deviceReason") or ""}
+
+    def load(self):
+        global _synth
+        if self.engine not in _LOADERS:
+            raise ValueError(f"unknown engine '{self.engine}' (use: {'/'.join(_LOADERS)})")
+        _synth = _LOADERS[self.engine]()
+        log(f"tts[{self.engine}] ready on :{self.port}")
+
+    def handle(self, body, headers, path):
+        text = (_field(body, "text") or "").strip()
+        lang = (_field(body, "lang") or "en").strip().lower()
+        ref = _extract_file(body, headers.get("Content-Type", ""))
+        if not text or not ref:
+            return 400, json.dumps({"error": "need text + ref wav"}).encode(), "application/json"
+        with _lock:
+            a, sr = _synth(text, lang, _ref_cache(ref))
+        return 200, _to_wav(a, sr), "audio/wav"
+
+
 def _pick_device(need_gb: float = 2.5) -> str:
     # The answer is recorded, not just logged: a cell that fell back to CPU
     # because VRAM was short looks exactly like one running on the GPU the
@@ -83,12 +116,12 @@ def _pick_device(need_gb: float = 2.5) -> str:
             if free >= need_gb * 1024 ** 3:
                 _state["device"] = "cuda"
                 return "cuda"
-            _log(f"device: only {free / 1024 ** 3:.1f} GB VRAM free "
+            log(f"device: only {free / 1024 ** 3:.1f} GB VRAM free "
                  f"(< {need_gb} GB) -> cpu")
             _state["deviceReason"] = (f"only {free / 1024 ** 3:.1f} GB VRAM free, "
                                       f"needs {need_gb} GB")
     except Exception as e:
-        _log(f"device probe failed ({e}) -> cpu")
+        log(f"device probe failed ({e}) -> cpu")
         _state["deviceReason"] = f"probe failed: {e}"
     _state["device"] = "cpu"
     return "cpu"
@@ -100,7 +133,7 @@ def _load_xtts():
     import numpy as np
     _state["phase"] = "loading"
     dev = _pick_device()
-    _log(f"xtts: loading tts_models/multilingual/multi-dataset/xtts_v2 ({dev}) …")
+    log(f"xtts: loading tts_models/multilingual/multi-dataset/xtts_v2 ({dev}) …")
     tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(dev)
     lang_map = {"zh": "zh-cn"}                   # XTTS's one odd code
 
@@ -128,7 +161,7 @@ def _load_cosyvoice():
     _state["phase"] = "loading"
     model_dir = os.path.expanduser(
         os.environ.get("COSYVOICE_MODEL", "~/CosyVoice/pretrained_models/CosyVoice2-0.5B"))
-    _log(f"cosyvoice: loading {model_dir} ({dev}) …")
+    log(f"cosyvoice: loading {model_dir} ({dev}) …")
     cv = CosyVoice2(model_dir, load_jit=False, load_trt=False, fp16=(dev == "cuda"))
 
     def synth(text, lang, ref_path):
@@ -143,7 +176,7 @@ def _load_cosyvoice():
             # and used to be the only error anyone saw. A silent except here
             # cost a debugging session on both sides of the fleet: the visible
             # error was the fallback's, the cause was discarded unlogged.
-            _log(f"cosyvoice path-API failed: {e1!r}")
+            log(f"cosyvoice path-API failed: {e1!r}")
             try:
                 # pre-2026 API took a 16 kHz tensor
                 from cosyvoice.utils.file_utils import load_wav
@@ -151,7 +184,7 @@ def _load_cosyvoice():
                 chunks = [out["tts_speech"] for out in
                           cv.inference_cross_lingual(text, prompt, stream=False)]
             except Exception as e2:
-                _log(f"cosyvoice tensor-API fallback failed too: {e2!r}")
+                log(f"cosyvoice tensor-API fallback failed too: {e2!r}")
                 raise e1
         import torch
         a = torch.cat(chunks, dim=1).squeeze(0).cpu().numpy()
@@ -162,7 +195,7 @@ def _load_cosyvoice():
 def _load_f5():
     from f5_tts.api import F5TTS                 # pip install f5-tts
     _state["phase"] = "loading"
-    _log("f5: loading F5-TTS …")
+    log("f5: loading F5-TTS …")
     f5 = F5TTS()
 
     def synth(text, lang, ref_path):
@@ -193,20 +226,8 @@ def _load_mock():
 _LOADERS = {"xtts": _load_xtts, "cosyvoice": _load_cosyvoice,
             "f5": _load_f5, "mock": _load_mock}
 
-
-def _load():
-    global _synth
-    try:
-        if ENGINE not in _LOADERS:
-            raise ValueError(f"unknown engine '{ENGINE}' (use: {'/'.join(_LOADERS)})")
-        _synth = _LOADERS[ENGINE]()
-        _state["phase"] = "ready"
-        _state["ready"] = True
-        _log(f"tts[{ENGINE}] ready on :{PORT}")
-    except Exception as exc:  # noqa: BLE001
-        _state["phase"] = "error"
-        _state["error"] = str(exc)
-        _log(f"tts[{ENGINE}]: load failed: {exc}")
+_LOADERS = {"xtts": _load_xtts, "cosyvoice": _load_cosyvoice,
+            "f5": _load_f5, "mock": _load_mock}
 
 
 # --------------------------- HTTP plumbing ------------------------------- #
@@ -269,79 +290,5 @@ def _to_wav(a, sr):
     return buf.getvalue()
 
 
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
-
-
-class H(BaseHTTPRequestHandler):
-    def log_message(self, *a):
-        pass
-
-    def _send(self, code, body, ctype="text/plain"):
-        self.send_response(code)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def do_GET(self):
-        if _state["ready"]:
-            # Advertise the engine even when ready. A bare "ok" is
-            # indistinguishable from any other healthy server, so LAN discovery
-            # (the voice app's scan) couldn't tell a ready TTS cell apart from a
-            # plain-"ok" endpoint and dropped it. The caravan board's own
-            # command-cell probe reads status=ok all the same.
-            self._send(200,
-                       json.dumps({"status": "ok", "engine": ENGINE,
-                                   "device": _state.get("device") or "",
-                                   "deviceReason": _state.get("deviceReason") or "",
-                                   "source": SOURCE}).encode(),
-                       "application/json")
-            return
-        payload = json.dumps({
-            "status": _state["phase"], "engine": ENGINE,
-            "downloadedBytes": _state["downloaded"],
-            "totalBytes": _state["total"], "error": _state["error"],
-            "source": SOURCE,
-        }).encode()
-        self._send(500 if _state["phase"] == "error" else 503,
-                   payload, "application/json")
-
-    def do_POST(self):
-        ln = int(self.headers.get("Content-Length", 0))
-        body = self.rfile.read(ln)
-        if not _state["ready"] or _synth is None:
-            self._send(503, json.dumps({"error": f"model {_state['phase']}"}).encode(),
-                       "application/json")
-            return
-        text = (_field(body, "text") or "").strip()
-        lang = (_field(body, "lang") or "en").strip().lower()
-        ref = _extract_file(body, self.headers.get("Content-Type", ""))
-        if not text or not ref:
-            self._send(400, json.dumps({"error": "need text + ref wav"}).encode(),
-                       "application/json")
-            return
-        try:
-            with _lock:
-                a, sr = _synth(text, lang, _ref_cache(ref))
-            self._send(200, _to_wav(a, sr), "audio/wav")
-        except Exception as e:  # noqa: BLE001
-            sys.stderr.write(f"synth error: {e}\n")
-            self._send(500, json.dumps({"error": str(e)}).encode(),
-                       "application/json")
-
-
-class _Serve(ThreadingHTTPServer):
-    """Accept queue deep enough for a caller that pipelines requests.
-
-    socketserver's default is 5, and a queue that shallow does not refuse — the
-    kernel drops the SYN and the caller retries at 1s, 3s, 7s, which reads as
-    this cell being slow rather than being over its listen limit. A transcription
-    client sending chunks back-to-back is exactly that shape of load.
-    """
-    request_queue_size = 64
-    daemon_threads = True
-
-
 if __name__ == "__main__":
-    threading.Thread(target=_load, daemon=True).start()
-    _Serve(("0.0.0.0", PORT), H).serve_forever()
+    TtsCell().serve()

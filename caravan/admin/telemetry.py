@@ -6,6 +6,7 @@ import threading
 import time
 import urllib.request
 
+from caravan.admin.cell_health import carry
 from caravan.common.jsonx import _INF
 from caravan.common.ttl_cache import MISS, TtlCache
 from caravan.common.procs import run
@@ -251,9 +252,12 @@ def command_cell_health(ip, port, health_path="", timeout=1.0):
         # real limit is an audio window in milliseconds, while the config it
         # inherited still carries a llama CTX_SIZE in tokens. Whitelisted, so a
         # cell cannot push arbitrary keys onto the board.
-        meta = {k: data[k] for k in ("model", "engine", "backend", "maxAudioMs",
-                                     "languages", "source")
-                if k in data}
+        # From the contract, not from a list kept here. The list kept here had
+        # drifted from what the cells actually report: it copied "languages"
+        # while they emit "langs", and it never copied "targetLang" at all, so
+        # the board's language chip fell back to config for every cell and the
+        # live value it was written to show never arrived.
+        meta = carry(data)
         if meta:
             res["meta"] = meta
         return res

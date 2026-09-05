@@ -6,6 +6,7 @@ import shutil
 
 from caravan.admin.config_builder import is_command_cell, gpu_layers_int
 from caravan.admin.runners import runner_id, uses_command_path
+from caravan.domain.runner import for_config
 from caravan.admin.fleet_clients import client_llama_start, client_llama_stop
 from caravan.admin.cell_assets import assets_for_runner, materialize_local_assets
 from caravan.admin.launch import server_cell_dir, write_server_cell_artifacts
@@ -19,6 +20,7 @@ from caravan.admin.server_cells import (
 from caravan.admin.monitoring import gpu_state
 from caravan.admin.paths import is_controller_host
 from caravan.admin.state import save_admin_state, topology_store
+from caravan.admin.state import topology as topo
 from caravan.admin.status import state
 from caravan.admin.systemd_ctl import cell_service_action, cell_service_name, cell_service_status, listening_pid, systemctl
 from caravan.common.errors import AppError
@@ -49,7 +51,7 @@ def _vllm_vram_gate(port, cfg):
     if not total or free >= want:
         return
     holders = []
-    for slot in topology_store().get("serverSlots", {}).values():
+    for slot in topo.slots().values():
         s_port = int(slot.get("port") or 0)
         if not is_controller_host(slot.get("hostId")) or s_port == port or not s_port:
             continue
@@ -78,12 +80,12 @@ def client_server_slot_add(body: dict) -> dict:
     if not port:
         raise AppError("port is required", 400)
     key = server_slot_key(host_id, port)
-    assert_server_cell_port_available(port, exclude_key=key if key in topology_store().get("serverSlots", {}) else None)
+    assert_server_cell_port_available(port, exclude_key=key if topo.has_slot(host_id, port) else None)
     slot = upsert_server_slot(host_id, port,
                               config=body.get("config") if isinstance(body.get("config"), dict) else None,
                               model=body.get("model"), label=body.get("label"))
     slot["kind"] = "serverCell"
-    topology_store()["serverSlots"][key] = slot
+    topo.put_slot(host_id, port, slot)
     save_admin_state()
     return {"ok": True, "slot": slot, "cell": slot}
 
@@ -146,7 +148,7 @@ def server_cell_save_config(body: dict) -> dict:
             pass
     if not is_controller_host(host_id):
         slot["cacheModels"] = bool(body.get("cacheModels", False))
-        topology_store()["serverSlots"][server_slot_key(host_id, port)] = slot
+        topo.put_slot(host_id, port, slot)
         save_admin_state()
     return {"ok": True, "hostId": host_id, "port": port, "state": state()}
 
@@ -159,9 +161,9 @@ def server_cell_action(body: dict) -> dict:
     if action_name not in {"start", "stop", "restart", "enable", "disable"}:
         raise AppError("action must be start, stop, restart, enable, or disable", 400)
     if is_controller_host(host_id):
-        slot = topology_store().get("serverSlots", {}).get(server_slot_key(host_id, port)) or {}
+        slot = topo.slot(host_id, port)
         cfg = slot.get("config") if isinstance(slot.get("config"), dict) else {}
-        if action_name in {"start", "restart"} and runner_id(cfg) == "vllm":
+        if action_name in {"start", "restart"} and for_config(cfg).vram_gated:
             _vllm_vram_gate(port, cfg)
         # Preflight: llama.cpp reports a taken port as a bind error buried deep
         # in its log. Say it up front, with WHO holds it — unless the holder is
@@ -182,7 +184,7 @@ def server_cell_action(body: dict) -> dict:
             artifact = write_server_cell_artifacts(host_id, port, cfg)
             if artifact:
                 slot["artifact"] = artifact
-                topology_store()["serverSlots"][server_slot_key(host_id, port)] = slot
+                topo.put_slot(host_id, port, slot)
                 save_admin_state()
         # The command names $HOME/run_<runner>.sh — put the current one there.
         # Same step a scout performs over HTTP before starting a client cell;
@@ -197,26 +199,15 @@ def server_cell_action(body: dict) -> dict:
         result = client_llama_stop({"hostId": host_id, "port": port})
         return {"ok": result.get("ok", False), "hostId": host_id, "port": port, "action": action_name, "result": result}
     if action_name in {"start", "restart"}:
-        slot = topology_store().get("serverSlots", {}).get(server_slot_key(host_id, port)) or {}
+        slot = topo.slot(host_id, port)
         cfg = slot.get("config") if isinstance(slot.get("config"), dict) else {}
         model = str(slot.get("model") or cfg.get("MODEL_FILE") or "").strip()
         if uses_command_path(cfg):
-            rid = runner_id(cfg)
-            if rid == "vllm":
-                if not str(cfg.get("VLLM_MODEL") or "").strip():
-                    raise AppError("vLLM cell has no model — configure it first", 400)
-            elif rid == "custom" and not str(cfg.get("COMMAND") or "").strip():
-                raise AppError("command cell has no command — configure it first", 400)
-            elif rid == "transcribe" and not model:
-                # Alone among the command-path runners it has NO default to fall
-                # back on — its model is a GGUF path, so an unconfigured cell has
-                # to be caught here rather than crashing inside the builder.
-                raise AppError("transcribe cell has no model — configure it first", 400)
-            elif rid == "seamless" and not model:
-                # Same shape as transcribe: its model is a downloaded directory,
-                # so there is no default to fall back on.
-                raise AppError("seamless cell has no model — configure it first", 400)
-            # whisper/moonshine need nothing: size and language both have defaults.
+            # Each runner refuses for its own reason, or does not refuse at all
+            # (whisper and moonshine have a default size and language). The chain
+            # of `elif rid ==` that used to be here had to be extended by hand
+            # for every runner, and the runner added last was the one forgotten.
+            for_config(cfg).preflight_start(cfg, model)
         elif not model:
             raise AppError("cell has no saved model — configure it first", 400)
         result = client_llama_start({

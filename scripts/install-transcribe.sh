@@ -114,13 +114,16 @@ info "installing the transcribe-cpp binding (no deps — we built the library)"
 if [ -f "${SRC}/transcribe_server.py" ]; then
   # `install` is not portable enough to rely on across the fleet (BSD install on
   # macOS takes different flags), and cp -p is all this needs.
+  # cell_base.py rides along with every server: the server imports it from its
+  # own directory, so a $HOME copy without it starts and dies on ImportError.
+  cp -f "${SRC}/cell_base.py"          "${HOME}/cell_base.py"
   cp -f "${SRC}/transcribe_server.py" "${HOME}/transcribe_server.py"
   cp -f "${SRC}/run_transcribe.sh"    "${HOME}/run_transcribe.sh"
-  chmod 0644 "${HOME}/transcribe_server.py"; chmod 0755 "${HOME}/run_transcribe.sh"
+  chmod 0644 "${HOME}/transcribe_server.py" "${HOME}/cell_base.py"; chmod 0755 "${HOME}/run_transcribe.sh"
 else
-  "$FETCH" run_transcribe.sh transcribe_server.py
+  "$FETCH" run_transcribe.sh transcribe_server.py cell_base.py
 fi
-info "installed ~/transcribe_server.py + ~/run_transcribe.sh"
+info "installed ~/transcribe_server.py + ~/cell_base.py + ~/run_transcribe.sh"
 
 cat <<EOF
 

@@ -7,12 +7,24 @@
 > and usage/spend accounting. The "why" in detail: see README → *Why LAMA
 > CARAVAN*.
 
+> **Deployment model.** A scout goes only where there is hardware to share.
+> We are moving away from the model in which every client machine runs
+> caravan-scout: the scout is the sidecar of a host whose GPU or CPU joins
+> the pool, and that host's cells are launched from the board. A machine that
+> only runs agents installs nothing — its client and agent cards (proxy ports)
+> are created by hand on the board, the controller owns them, and the agent
+> points at its port. Better support (nothing to install unless you share a
+> GPU) and expectations that match the feature. The last releases moved the
+> architecture onto this: board-made records are the source of truth, a scout
+> report cannot create, rewrite or delete them.
+
 LAMA CARAVAN is a control plane for a fleet of `llama.cpp` servers: one
-controller host runs the admin UI and the routing proxy, client
-hosts run their own llama servers behind a small route-agent, and coding
-agents (OpenClaw) consume everything through per-agent proxy ports. Cloud
-providers (OpenAI, OpenRouter, Anthropic-compatible, Ollama, ...) plug in as
-additional routable outputs.
+controller host runs the admin UI and the routing proxy, hosts that share
+hardware run their own llama servers behind a small route-agent
+(caravan-scout), and coding agents (OpenClaw, Hermes, anything speaking the
+OpenAI API) consume everything through per-agent proxy ports. Cloud providers
+(OpenAI, OpenRouter, Anthropic-compatible, Ollama, ...) plug in as additional
+routable outputs.
 
 Everything is intentionally dependency-light: two stdlib-only Python daemons,
 static HTML/CSS/JS with native ES modules, JSON files as the only IPC, and

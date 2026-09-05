@@ -34,10 +34,30 @@ export function fillVersionChipFromHealth() {
   }).catch(() => {});
 }
 
+// Body types fetch() understands as-is. Anything else it coerces with String(),
+// which is why a plain object arrives as the 15 bytes "[object Object]".
+function _isWireBody(body) {
+  if (typeof body === "string") return true;
+  for (const name of ["Blob", "FormData", "URLSearchParams", "ArrayBuffer", "ReadableStream"]) {
+    const ctor = globalThis[name];
+    if (typeof ctor === "function" && body instanceof ctor) return true;
+  }
+  return ArrayBuffer.isView(body);
+}
+
 export async function api(path, options = {}) {
+  // Serialised here, not at each call site. Three settings calls passed a plain
+  // object, so the wire body was the literal text "[object Object]", the server
+  // answered "request body is not valid JSON", and settings restore had been
+  // dead since the day it was written — silently, because the page only showed
+  // its generic failure toast. 89 callers already pass a string and are
+  // untouched; the next one to forget no longer finds out in production.
+  const body = options.body;
+  const encoded = (body === undefined || body === null || _isWireBody(body))
+    ? options : { ...options, body: JSON.stringify(body) };
   const response = await fetch(path, {
     headers: { "Content-Type": "application/json" },
-    ...options,
+    ...encoded,
   });
   const data = await response.json();
   if (!response.ok) {

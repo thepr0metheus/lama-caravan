@@ -23,56 +23,43 @@ from pathlib import Path
 
 from caravan.admin.paths import ADMIN_STATE_FILE
 from caravan.common.errors import AppError
+from caravan.store.auth import AuthStore
 
 AUTH_DB = Path(os.environ.get("LLAMA_ADMIN_AUTH_DB",
     str(ADMIN_STATE_FILE.parent / "auth.db")))
 
+#: The database, its schema and its caches. See caravan/store/auth.py for why
+#: each of the careful bits is careful; this module is the panel's vocabulary
+#: over it — one function per thing an operator or a request can do.
+store = AuthStore(AUTH_DB)
+
 SESSION_COOKIE = "caravan_session"
-SESSION_TTL = 30 * 24 * 3600          # 30 days
-PBKDF2_ITERS = 200_000
-_LOGIN_FAILS: dict = {}               # ip -> [fails, lock_until]
-_SESSION_CACHE: dict = {}             # token_hash -> (username, cached_until)
-_ENABLED_CACHE = [None, 0.0]          # [bool, cached_until]
+SESSION_TTL = store.session_ttl       # 30 days
+PBKDF2_ITERS = store.iterations
+#: Kept as module names because callers and tests reach for them directly: the
+#: settings import clears both after replacing the database under a live process.
+_LOGIN_FAILS = store.login_fails      # ip -> [fails, lock_until]
+_SESSION_CACHE = store.session_cache  # token_hash -> (info, cached_until)
+_ENABLED_CACHE = store.enabled_cache  # [bool, cached_until]
 
 
 def _db():
-    AUTH_DB.parent.mkdir(parents=True, exist_ok=True)
-    fresh = not AUTH_DB.exists()
-    conn = sqlite3.connect(str(AUTH_DB), timeout=5)
-    conn.execute("""CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,
-        salt BLOB NOT NULL, hash BLOB NOT NULL, iters INTEGER NOT NULL,
-        created_at INTEGER NOT NULL)""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS sessions (
-        token_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL,
-        created_at INTEGER NOT NULL, expires_at INTEGER NOT NULL,
-        last_seen INTEGER NOT NULL, ip TEXT, ua TEXT)""")
-    conn.execute("""CREATE TABLE IF NOT EXISTS meta (
-        key TEXT PRIMARY KEY, value TEXT NOT NULL)""")
-    cols = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
-    if "role" not in cols:
-        conn.execute("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin'")
-    if fresh:
-        try:
-            os.chmod(AUTH_DB, 0o600)
-        except OSError:
-            pass
-    return conn
+    return store.connect()
 
 
 def auth_enabled() -> bool:
-    now = time.time()
+    now = store.now()
     if _ENABLED_CACHE[0] is not None and now < _ENABLED_CACHE[1]:
         return _ENABLED_CACHE[0]
     with _db() as conn:
         enabled = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] > 0
     _ENABLED_CACHE[0] = enabled
-    _ENABLED_CACHE[1] = now + 3
+    _ENABLED_CACHE[1] = now + store.enabled_ttl
     return enabled
 
 
 def _hash_password(password: str, salt: bytes, iters: int = PBKDF2_ITERS) -> bytes:
-    return hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iters)
+    return store.hash_password(password, salt, iters)
 
 
 def create_user(username: str, password: str, role: str = "admin") -> dict:
@@ -84,7 +71,7 @@ def create_user(username: str, password: str, role: str = "admin") -> dict:
         raise AppError("username is required (max 64 chars)")
     if len(password or "") < 8:
         raise AppError("password must be at least 8 characters")
-    salt = secrets.token_bytes(16)
+    salt = store.new_salt()
     digest = _hash_password(password, salt)
     try:
         with _db() as conn:
@@ -93,7 +80,7 @@ def create_user(username: str, password: str, role: str = "admin") -> dict:
                 (username, salt, digest, PBKDF2_ITERS, int(time.time()), role))
     except sqlite3.IntegrityError:
         raise AppError(f"user {username} already exists", 409)
-    _ENABLED_CACHE[0] = None
+    store.invalidate()
     return {"username": username, "role": role}
 
 def set_role(username: str, role: str) -> None:
@@ -110,13 +97,13 @@ def set_role(username: str, role: str) -> None:
         cur = conn.execute("UPDATE users SET role=? WHERE username=?", (role, username))
         if cur.rowcount == 0:
             raise AppError(f"no such user: {username}", 404)
-    _SESSION_CACHE.clear()
+    store.invalidate()
 
 
 def set_password(username: str, password: str) -> None:
     if len(password or "") < 8:
         raise AppError("password must be at least 8 characters")
-    salt = secrets.token_bytes(16)
+    salt = store.new_salt()
     digest = _hash_password(password, salt)
     with _db() as conn:
         cur = conn.execute("UPDATE users SET salt=?, hash=?, iters=? WHERE username=?",
@@ -135,8 +122,7 @@ def delete_user(username: str) -> None:
             raise AppError("cannot delete the last user — disable auth is not supported from the UI", 400)
         conn.execute("DELETE FROM sessions WHERE user_id=?", (row[0],))
         conn.execute("DELETE FROM users WHERE id=?", (row[0],))
-    _ENABLED_CACHE[0] = None
-    _SESSION_CACHE.clear()
+    store.invalidate()
 
 
 def list_users() -> list:
@@ -146,9 +132,8 @@ def list_users() -> list:
 
 
 def verify_login(username: str, password: str, ip: str = "") -> dict:
-    now = time.time()
-    fails = _LOGIN_FAILS.get(ip or "?", [0, 0])
-    if now < fails[1]:
+    now = store.now()
+    if now < store.locked_until(ip):
         raise AppError("too many attempts — try again in a minute", 429)
     with _db() as conn:
         row = conn.execute(
@@ -156,28 +141,25 @@ def verify_login(username: str, password: str, ip: str = "") -> dict:
             (str(username or "").strip(),)).fetchone()  # role resolved per-session
     ok = False
     if row:
-        ok = hmac.compare_digest(_hash_password(password or "", row[2], row[4]), row[3])
+        ok = store.password_matches(password, row[2], row[3], row[4])
     else:
-        _hash_password(password or "", b"caravan-timing-pad")  # constant-ish time
+        store.absorb_timing(password)   # a missing user must not answer sooner
     if not ok:
-        fails[0] += 1
-        if fails[0] >= 5:
-            fails[:] = [0, now + 60]
-        _LOGIN_FAILS[ip or "?"] = fails
+        store.note_failure(ip, now)
         raise AppError("invalid username or password", 401)
-    _LOGIN_FAILS.pop(ip or "?", None)
+    store.note_success(ip)
     return {"id": row[0], "username": row[1]}
 
 
 def create_session(user_id: int, ip: str = "", ua: str = "") -> str:
-    token = secrets.token_urlsafe(32)
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    token = store.new_token()
+    token_hash = store.token_hash(token)
     now = int(time.time())
     with _db() as conn:
         conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
         conn.execute(
             "INSERT INTO sessions (token_hash, user_id, created_at, expires_at, last_seen, ip, ua) VALUES (?,?,?,?,?,?,?)",
-            (token_hash, user_id, now, now + SESSION_TTL, now, ip[:64], ua[:160]))
+            (token_hash, user_id, now, now + store.session_ttl, now, ip[:64], ua[:160]))
     return token
 
 
@@ -185,34 +167,34 @@ def validate_session(token: str) -> dict:
     """Return {'user': name, 'role': role} for a live session, or {} if invalid."""
     if not token:
         return {}
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    now = time.time()
-    cached = _SESSION_CACHE.get(token_hash)
-    if cached and now < cached[1]:
-        return cached[0]
+    token_hash = store.token_hash(token)
+    now = store.now()
+    cached = store.cached_session(token_hash, now)
+    if cached is not None:
+        return cached
     with _db() as conn:
         row = conn.execute(
             """SELECT s.last_seen, s.expires_at, u.username, u.role FROM sessions s
                JOIN users u ON u.id = s.user_id WHERE s.token_hash=?""",
             (token_hash,)).fetchone()
         if not row or row[1] < now:
-            _SESSION_CACHE.pop(token_hash, None)
+            store.forget_session(token_hash)
             return {}
         if now - row[0] > 60:
             conn.execute("UPDATE sessions SET last_seen=? WHERE token_hash=?",
                          (int(now), token_hash))
     info = {"user": row[2], "role": row[3] or "admin"}
-    _SESSION_CACHE[token_hash] = (info, now + 5)
+    store.cache_session(token_hash, info, now)
     return info
 
 
 def delete_session(token: str) -> None:
     if not token:
         return
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    token_hash = store.token_hash(token)
     with _db() as conn:
         conn.execute("DELETE FROM sessions WHERE token_hash=?", (token_hash,))
-    _SESSION_CACHE.pop(token_hash, None)
+    store.forget_session(token_hash)
 
 
 def list_sessions() -> list:
@@ -228,7 +210,7 @@ def list_sessions() -> list:
 
 def revoke_other_sessions(current_token: str) -> int:
     """Kill every session except the caller's own; returns how many died."""
-    keep = hashlib.sha256(current_token.encode()).hexdigest() if current_token else ""
+    keep = store.token_hash(current_token) if current_token else ""
     with _db() as conn:
         rows = conn.execute("SELECT token_hash FROM sessions").fetchall()
         killed = 0
@@ -236,7 +218,7 @@ def revoke_other_sessions(current_token: str) -> int:
             if th == keep:
                 continue
             conn.execute("DELETE FROM sessions WHERE token_hash=?", (th,))
-            _SESSION_CACHE.pop(th, None)
+            store.forget_session(th)
             killed += 1
     return killed
 
@@ -247,7 +229,7 @@ def revoke_session(short_id: str) -> None:
         for (th,) in rows:
             if th.startswith(short_id):
                 conn.execute("DELETE FROM sessions WHERE token_hash=?", (th,))
-                _SESSION_CACHE.pop(th, None)
+                store.forget_session(th)
                 return
     raise AppError("session not found", 404)
 
@@ -264,22 +246,21 @@ def fleet_token_ensure() -> str:
     token = fleet_token_get()
     if token:
         return token
-    token = "caravan-" + secrets.token_urlsafe(24)
+    token = store.fleet_token_value()
     with _db() as conn:
         conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('fleet_token', ?)", (token,))
     return token
 
 
 def fleet_token_regenerate() -> str:
-    token = "caravan-" + secrets.token_urlsafe(24)
+    token = store.fleet_token_value()
     with _db() as conn:
         conn.execute("INSERT OR REPLACE INTO meta (key, value) VALUES ('fleet_token', ?)", (token,))
     return token
 
 
 def fleet_token_verify(candidate: str) -> bool:
-    token = fleet_token_get()
-    return bool(token) and hmac.compare_digest(str(candidate or ""), token)
+    return store.tokens_match(candidate, fleet_token_get())
 
 
 # ── request-side helpers (used by the dispatcher) ────────────────────────────

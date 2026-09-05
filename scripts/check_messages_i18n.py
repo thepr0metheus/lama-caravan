@@ -16,6 +16,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _node import find_node, node_search_paths  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "static" / "js" / "i18n-data.js"
 
@@ -63,10 +66,30 @@ import(process.argv[1]).then(async ({ LANGS, allMessages }) => {
 
 
 def main() -> int:
-    proc = subprocess.run(
-        ["node", "--input-type=module", "-e", NODE_SNIPPET, str(DATA)],
-        capture_output=True, text=True,
-    )
+    # i18n-data.js is an ES module; reading it means running it, and that needs
+    # node. A host that CANNOT run this check must say so and stand aside: a
+    # traceback here is indistinguishable from the check having found a missing
+    # translation, which teaches the reader to ignore a red line that usually
+    # means something real.
+    #
+    # But standing aside for a reason that is not TRUE is worse than either.
+    # This comment used to say the controller has no node; it has v22.22.2,
+    # installed through nvm, reachable only from an interactive zsh — so every
+    # scripted shell saw nothing and this check quietly stood aside there.
+    # find_node looks where version managers actually put it (scripts/_node.py).
+    node = find_node()
+    if node is None:
+        print("i18n messages: SKIPPED — node не найден ни в PATH, ни у менеджеров версий: "
+              + ", ".join(node_search_paths()), file=sys.stderr)
+        return 0
+    try:
+        proc = subprocess.run(
+            [node, "--input-type=module", "-e", NODE_SNIPPET, str(DATA)],
+            capture_output=True, text=True,
+        )
+    except FileNotFoundError:
+        print(f"i18n messages: SKIPPED — {node} перестал запускаться", file=sys.stderr)
+        return 0
     if proc.returncode != 0:
         print(f"i18n-data.js failed to load: {proc.stderr.strip()}", file=sys.stderr)
         return 1

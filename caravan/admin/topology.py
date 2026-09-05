@@ -39,6 +39,7 @@ from caravan.admin.proxies_config import (
 from caravan.admin.router_dsl import normalize_agent_proxy_policy
 from caravan.admin.server_cells import server_slot_key
 from caravan.admin.state import save_admin_state, topology_store
+from caravan.admin.state import topology as topo
 from caravan.admin.systemd_ctl import active_cell_unit_ports, cell_last_error, cell_progress_note, cell_service_name, cell_service_status, cell_unit_pids, service_status, systemd_ts_epoch
 from caravan.admin.telemetry import (
     _normalize_modalities,
@@ -52,6 +53,7 @@ from caravan.admin.telemetry import (
     remote_llama_modalities,
 )
 from caravan.common.errors import AppError
+from caravan.domain.client_proxy import AgentAssignment, PROXY_ID_PREFIX, ProxyRoute
 from caravan.common.fetch import post_json
 
 
@@ -88,6 +90,42 @@ def _cell_meta(health, cfg, is_command):
     if tgt:
         meta["targetLang"] = tgt
     return meta
+
+
+def _saved_command(slot, config, on_controller):
+    """The launch line this cell is saved with — for a cell on EITHER kind of host.
+
+    A controller cell has a start.sh: a snapshot taken when the operator pressed
+    Apply. Starting a cell does not re-render it, so the file is the only honest
+    answer, and its disagreement with the fresh preview is the signal to press
+    Apply. Re-rendering here would hide exactly that.
+
+    A client cell has no start.sh on the controller — the controller BUILDS the
+    line and hands it to the scout at start (fleet_clients sends
+    effective_command(config, with_bootstrap=True), one builder for both hosts so
+    the two cannot drift). Rendering it here is therefore not a guess: it is the
+    same string the client is given.
+
+    Empty means we genuinely do not know — a controller slot that has never been
+    applied. It must never be confused with "this cell has no command": the board
+    said "not saved yet" about cells that had been serving for hours, first by
+    reading COMMAND (which only a custom cell fills) and later by asking for a
+    start.sh that a client host never has.
+    """
+    if on_controller:
+        # `or {}`, not a two-argument default: the second only fires when the key
+        # is ABSENT, and a slot carrying "artifact": null would then raise out of
+        # topology_server() — which nothing wraps, so the whole board renders
+        # blank instead of one field being empty. admin.json is hand-edited during
+        # incidents, which is exactly when that must not happen. Same rule as
+        # TopologyStore._section, and as the sibling read 450 lines below.
+        return _start_script_command(((slot or {}).get("artifact") or {}).get("startScript"))
+    try:
+        return effective_command(config or {}, with_bootstrap=True)
+    except Exception:  # noqa: BLE001
+        # A misconfigured cell cannot render a command; that is a fact about the
+        # config, not a reason to fail the whole board.
+        return ""
 
 
 def _start_script_command(path):
@@ -211,7 +249,7 @@ def topology_server(config=None):
     # server was started) — used as the "ctxMax" fallback when the route-agent
     # doesn't report n_ctx itself.
     def _slot_ctx_max(host_id, port):
-        slot = topology_store().get("serverSlots", {}).get(server_slot_key(host_id, port)) or {}
+        slot = topo.slot(host_id, port)
         cfg = slot.get("config") or {}
         if not uses_token_context(cfg):
             return None
@@ -355,6 +393,11 @@ def topology_server(config=None):
             "isController": False,
             "slotConfig": (_r_slot.get("config") or {}) if _r_slot else {},
             "commandHistory": (_r_slot.get("commandHistory") or []) if _r_slot else [],
+            # A RUNNING cell carries its saved line too. It did not, and the cell
+            # modal — which shows the command for every runner but llama — told
+            # the operator "not saved yet" about a cell that was serving traffic.
+            "savedCommand": (_saved_command(_r_slot, _r_cfg, False)
+                             if slot_is_command else ""),
             "bootEnabled": False,
         })
 
@@ -541,7 +584,7 @@ def topology_server(config=None):
             # claim the cell already runs the new line. (Only a custom cell keeps
             # its command in COMMAND, which is why reading that key told everyone
             # else "not saved yet" about cells running for hours.)
-            "savedCommand": (_start_script_command((slot.get("artifact") or {}).get("startScript"))
+            "savedCommand": (_saved_command(slot, slot_cfg, is_controller_slot)
                              if slot_is_command else ""),
             "bootEnabled": cell_boot == "enabled",
             "pid": cell_pid,
@@ -633,7 +676,7 @@ def topology_nodes(config, server_obj, clients):
     nodes = []
     # Poweroff schedules, keyed by hostId — attached to each node so the board
     # can show and edit the machine's shutdown time next to its power button.
-    _power_scheds = topology_store().get("hostPowerSchedules") or {}
+    _power_scheds = topo.power_schedules()
 
     # ── controller node ─────────────────────────────────────────────
     ctrl_gpus = [dict(g) for g in (server_obj.get("gpus") or [])]
@@ -919,36 +962,37 @@ def _llama_total_slots():
     return 0
 
 def normalize_topology_assignment(assignment):
-    if not isinstance(assignment, dict):
-        raise AppError("assignment must be an object", 400)
-    agent_id = str(assignment.get("agentId") or "").strip()
-    if not agent_id:
-        raise AppError("assignment.agentId is required", 400)
-    routes = assignment.get("routes") or []
-    if not isinstance(routes, list):
-        raise AppError("assignment.routes must be a list", 400)
-    normalized_routes = []
-    seen_roles = set()
-    for route in routes:
-        if not isinstance(route, dict):
-            raise AppError("route must be an object", 400)
-        role = str(route.get("role") or "primary").strip()
-        endpoint = str(route.get("endpoint") or "").strip()
-        proxy_id = str(route.get("proxyId") or "").strip()
-        if not endpoint:
-            raise AppError("route.endpoint is required", 400)
-        if role in seen_roles:
-            raise AppError(f"duplicate route role: {role}", 400)
-        seen_roles.add(role)
-        normalized_routes.append({"role": role, "proxyId": proxy_id, "endpoint": endpoint})
-    out = {"agentId": agent_id, "routes": normalized_routes}
-    # Carried through deliberately: the normaliser rebuilds the row from
-    # scratch, so a field it does not name is a field that silently vanishes on
-    # the next save — and an operator's "leave this one alone" quietly reverting
-    # to automatic is the worst possible failure for this particular flag.
-    if assignment.get("manual") is not None:
-        out["manual"] = bool(assignment.get("manual"))
-    return out
+    """Форма записи и её отказы живут в caravan/domain/client_proxy.py.
+
+    Здесь остаётся только вход/выход в словарях: этот путь пересобирает строку
+    с нуля, и поле, которого класс не называет, исчезает при следующем
+    сохранении. Раньше список полей был здесь, и его приходилось помнить —
+    теперь он один на всех писателей.
+    """
+    return AgentAssignment.from_raw(assignment).to_dict()
+
+def _port_holder(port, exclude=()):
+    """Кто уже занял этот порт: (hostId, agentId, role) или None.
+
+    `exclude` — сам заявитель, парой (hostId, agentId): агент не конфликтует
+    сам с собой. Своя же роль, перенос порта между СВОИМИ ролями и повторное
+    сохранение той же настройки занятостью не считаются — иначе отказом стало
+    бы обычное редактирование. Чужой агент, хоть на этом клиенте, хоть на
+    соседнем, — конфликт: сетка портов общая на весь флот.
+    """
+    want = f"{PROXY_ID_PREFIX}{int(port)}"
+    for host_id, entry in (topology_store().get("assignments") or {}).items():
+        for row in (entry.get("assignments") or []):
+            agent_id = str(row.get("agentId") or "")
+            for route in (row.get("routes") or []):
+                if str(route.get("proxyId") or "") != want:
+                    continue
+                role = str(route.get("role") or "primary")
+                if tuple(exclude) == (host_id, agent_id):
+                    continue
+                return (host_id, agent_id, role)
+    return None
+
 
 def bind_agent_to_proxy(payload):
     """Point one agent at one proxy port, by hand, and keep it there.
@@ -975,6 +1019,12 @@ def bind_agent_to_proxy(payload):
         entry = {"agentId": agent_id, "routes": []}
         rows.append(entry)
 
+    # Роль расширяет принимаемое, а не сужает: вызывающий, который её не
+    # присылает, получает прежнее поведение.
+    role = str(payload.get("role") or "primary").strip()
+    if role not in ("primary", "fallback"):
+        raise AppError(f'role must be "primary" or "fallback", got "{role}"', 400)
+
     port = payload.get("port")
     if port in (None, "", 0):
         entry.pop("manual", None)
@@ -988,14 +1038,126 @@ def bind_agent_to_proxy(payload):
             # Binding to a port with no route would leave the agent pointing at
             # a closed socket while the panel showed a tidy assignment.
             raise AppError(f"no proxy route on port {port}", 400)
-        entry["routes"] = [r for r in (entry.get("routes") or []) if r.get("role") != "primary"]
-        entry["routes"].insert(0, {
-            "role": "primary",
-            "proxyId": f"skynet:proxy:{port}",
-            "endpoint": f"http://{TOPOLOGY_SERVER_IP}:{port}/v1",
-        })
-        entry["manual"] = True
+        # Один порт — один владелец. Копия настроек уезжает на маршрут ПО
+        # ПОРТУ, поэтому два агента на одном порту не работают оба: последний
+        # записавший стирает настройку первого, молча и без следа. Проверяется
+        # весь флот, а не один клиент: сетка портов общая.
+        holder = _port_holder(port, exclude=(host_id, agent_id))
+        if holder:
+            raise AppError(f"port {port} is already bound to agent "
+                           f"{holder[1]} ({holder[2]})", 409)
+        # Четвёртый строитель формы маршрута — его в замере фазы 1 пропустил
+        # grep из-за переноса строки. Теперь и он идёт через класс: список полей
+        # один на всех писателей, иначе новое поле переживает сохранение у трёх
+        # из четырёх.
+        assignment = AgentAssignment.from_raw(entry)
+        assignment.manual = True
+        assignment.set_route(ProxyRoute.for_port(role, port, TOPOLOGY_SERVER_IP))
+        entry.clear()
+        entry.update(assignment.to_dict())
 
+    return apply_topology_assignments({"hostId": host_id, "assignments": rows})
+
+
+def set_agent_route_context(payload):
+    """Окно контекста ДЛЯ ОДНОГО потребителя — роли одного агента.
+
+    Число модели общее на всех, кто в неё маршрутизирует; здесь оператор
+    говорит, сколько разрешено ЭТОМУ клиенту, и это побеждает. Пустое значение
+    снимает своё число обратно к модельному — снять и «задать ноль» это разные
+    вещи, поэтому ноль не сохраняется никогда.
+
+    Настройка живёт в сохранённом маршруте, а живой отчёт скаута её не несёт и
+    не понесёт: слияние на доске берёт из отчёта только порт и endpoint.
+
+    ОБА поля задаются разом: форма шлёт число и галку вместе, поэтому
+    пропущенное поле означает «снять», а не «не трогать». Тот же контракт, что
+    у блока облака, и по той же причине — иначе очистить поле было бы нечем.
+    """
+    host_id = str(payload.get("hostId") or "").strip()
+    agent_id = str(payload.get("agentId") or "").strip()
+    role = str(payload.get("role") or "primary").strip()
+    if not host_id or not agent_id:
+        raise AppError("hostId and agentId are required", 400)
+    if role not in ("primary", "fallback"):
+        raise AppError(f'role must be "primary" or "fallback", got "{role}"', 400)
+
+    store = topology_store()
+    rows = [dict(a) for a in ((store.get("assignments", {}).get(host_id) or {}).get("assignments") or [])]
+    raw = next((a for a in rows if a.get("agentId") == agent_id), None)
+    if raw is None:
+        raise AppError(f"no assignment for agent {agent_id} on {host_id}", 404)
+    assignment = AgentAssignment.from_raw(raw)
+    route = assignment.route(role)
+    if route is None:
+        raise AppError(f"agent {agent_id} has no {role} route", 404)
+    route.context_length = ProxyRoute._positive_int(payload.get("contextLength"))
+    route.context_auto = bool(payload.get("contextAuto")) or None
+    raw.clear()
+    raw.update(assignment.to_dict())
+    return apply_topology_assignments({"hostId": host_id, "assignments": rows})
+
+
+def remove_agent_route(payload):
+    """Убрать роль агента: он перестаёт пользоваться этим портом.
+
+    Раньше «отвязать» означало только снять пометку «руками» — маршрут
+    оставался, порт числился занятым, и убрать заведённый по ошибке фолбэк было
+    нечем вовсе. Теперь роль исчезает из записи.
+
+    САМ ПОРТ продолжает слушать. Это не забывчивость: порт — живой слушатель, в
+    который внешний агент может ходить независимо от наших записей, и гасить
+    его из-за правки записи значило бы рвать чужой трафик по касательной. Порт
+    после этого никому не принадлежит, и канбан говорит об этом вслух.
+    """
+    host_id = str(payload.get("hostId") or "").strip()
+    agent_id = str(payload.get("agentId") or "").strip()
+    role = str(payload.get("role") or "").strip()
+    if not host_id or not agent_id or not role:
+        raise AppError("hostId, agentId and role are required", 400)
+    store = topology_store()
+    rows = [dict(a) for a in ((store.get("assignments", {}).get(host_id) or {}).get("assignments") or [])]
+    raw = next((a for a in rows if a.get("agentId") == agent_id), None)
+    if raw is None:
+        raise AppError(f"no assignment for agent {agent_id} on {host_id}", 404)
+    assignment = AgentAssignment.from_raw(raw)
+    if assignment.route(role) is None:
+        raise AppError(f"agent {agent_id} has no {role} route", 404)
+    assignment.routes = [r for r in assignment.routes if r.role != role]
+    raw.clear()
+    raw.update(assignment.to_dict())
+    return apply_topology_assignments({"hostId": host_id, "assignments": rows})
+
+
+def set_agent_route_model(payload):
+    """Имя, под которым порт объявляет свою модель, для одной роли агента.
+
+    Клиент спрашивает `/v1/models` и ищет там СВОЙ id. Не найдя — берёт
+    встроенное умолчание, и окно, честно опубликованное под именем апстрима,
+    до него не доходит вовсе. Здесь оператор говорит, каким именем порт должен
+    назваться, чтобы клиент себя узнал.
+
+    Пусто — снять: тогда публикуется то, что назвал апстрим. Отдельным вызовом,
+    а не вместе с окном: это разные решения, и класть их в одну форму значило
+    бы, что правка одного молча стирает другое.
+    """
+    host_id = str(payload.get("hostId") or "").strip()
+    agent_id = str(payload.get("agentId") or "").strip()
+    role = str(payload.get("role") or "primary").strip()
+    if not host_id or not agent_id:
+        raise AppError("hostId and agentId are required", 400)
+    store = topology_store()
+    rows = [dict(a) for a in ((store.get("assignments", {}).get(host_id) or {}).get("assignments") or [])]
+    raw = next((a for a in rows if a.get("agentId") == agent_id), None)
+    if raw is None:
+        raise AppError(f"no assignment for agent {agent_id} on {host_id}", 404)
+    assignment = AgentAssignment.from_raw(raw)
+    route = assignment.route(role)
+    if route is None:
+        raise AppError(f"agent {agent_id} has no {role} route", 404)
+    route.model_name = str(payload.get("modelName") or "").strip()[:120] or None
+    raw.clear()
+    raw.update(assignment.to_dict())
     return apply_topology_assignments({"hostId": host_id, "assignments": rows})
 
 
@@ -1033,4 +1195,14 @@ def apply_topology_assignments(payload):
         row["applyStatus"] = {"state": "stored", "detail": "client is not registered or has no agentUrl"}
     store["assignments"][host_id] = row
     save_admin_state()
+    # Копия настроек уезжает на маршрут ЗДЕСЬ, а не когда-нибудь потом. Мост
+    # звался только из обработки сердцебиения — и у клиента, заведённого
+    # руками, не срабатывал никогда: он существует и настроен, но отзываться не
+    # обязан. У живого клиента настройка доезжала с задержкой до опроса, и всё
+    # это время доска показывала одно, а порт публиковал другое.
+    try:
+        from caravan.admin.fleet_clients import reconcile_proxy_metadata
+        reconcile_proxy_metadata()
+    except Exception:
+        pass
     return row
