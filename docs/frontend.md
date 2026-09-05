@@ -213,6 +213,10 @@ idle for the rest). Pure presentation over the dialog markup.
 
 - Owns: the scene timers.
 - Key exports: `initDialogLlamas` (scene selection is internal — it keys off the confirm text).
+- Kept as functions by decision (OOP rewrite, decision 19, 2026-09-05): pixel lists and stateless
+  timelines, no caller that depends on a result, no defect history — classes would add nothing,
+  and a value snapshot would only pin the drawing's coordinates. `check_oop_contract.py` reads
+  this line as the module's reason to stay off the class rule.
 
 ## main.js
 

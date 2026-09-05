@@ -160,27 +160,27 @@ export function setActiveView(view) {
   }
 }
 
-// Найденное скаутом и ещё не заведённое — предложение завести это отсюда.
-// Оно принадлежит клиенту, чьи записи ведёт СКАУТ: у клиента, которого ведёт
-// доска, агенты заводятся кнопкой ＋ в самой карточке, и второй, чужой способ
-// рядом с ней — не помощь, а вопрос «какой из них правильный». Вынесено в
-// отдельную функцию, потому что иначе правило непинуемо: карточка собирается
-// внутри большой DOM-процедуры.
-// Молчание клиента, заведённого РУКАМИ, — не поломка: такой клиент не обязан
-// отзываться, это решение 3 в docs/clients-page.md. А доска кричала на него
-// красным «агент не отвечает» и ставила рядом кнопку удаления, так что «убрать
-// эту тревогу» и «удалить запись» выглядели одним жестом — на нём и потеряли
-// запись, которую никто не собирался трогать. Вынесено функцией, потому что
-// иначе правило непинуемо: карточка собирается внутри большой DOM-процедуры.
-// Карточка хоста у клиента, заведённого руками и ни разу не отвечавшего,
-// говорила «не знаю» ЧЕТЫРЬМЯ способами сразу: «ip n/a», плашка состояния,
-// «never answered» и заметка под ними. Четыре строки об одном и том же
-// отсутствии — и на их фоне терялось единственное, ради чего карточка нужна:
-// переименовать, добавить агента, удалить клиента.
+// What the scout found and nobody has registered yet is an offer to register
+// it from here. It belongs to a client whose records the SCOUT keeps: on a
+// client the board keeps, agents are added with the ＋ button on the card
+// itself, and a second, foreign way next to it is not help but the question
+// "which one is right". A separate function, because otherwise the rule cannot
+// be pinned: the card is built inside one large DOM procedure.
+// Silence of a client registered BY HAND is not a fault: such a client owes no
+// answer — decision 3 of the clients-page journal (private). The board used to
+// shout "agent not responding" in red at it and put a delete button right
+// there, so "dismiss this alarm" and "delete the record" looked like one
+// gesture — and that gesture lost a record nobody meant to touch. A separate
+// function for the same reason: the card is built inside one large DOM
+// procedure.
+// The host card of a hand-made client that never answered said "I don't know"
+// FOUR ways at once: "ip n/a", the state badge, "never answered" and a note
+// under them. Four lines about the same absence — and behind them the only
+// thing the card is for got lost: rename, add an agent, delete the client.
 //
-// Остаётся заголовок с этими тремя действиями и одна честная строка внизу.
-// Как только клиент отзовётся или у него появится адрес — всё вернётся: это
-// правило о молчании, а не о том, что клиент ручной.
+// What stays is the heading with those three actions and one honest line at
+// the bottom. As soon as the client answers or gets an address, everything
+// comes back: this is a rule about silence, not about the client being manual.
 export function clientHasNothingToReport(client) {
   if (clientHasScout(client)) return false;
   const age = client?.ageSeconds;
@@ -190,10 +190,10 @@ export function clientHasNothingToReport(client) {
 
 export function clientStaleBannerHtml(client, isStale) {
   if (!isStale) return "";
-  // Признак — НЕ «заведён руками», а «есть ли скаут». Усыновление поставило
-  // manual каждому клиенту флота, и хост со скаутом, который замолчал, стал
-  // получать заметку «отзываться не обязан» — про машину, которая обязана.
-  // Молчание там настоящая поломка, и тревога должна остаться.
+  // The sign is NOT "made by hand" but "has a scout". Adoption set `manual` on
+  // every client of the fleet, and a scout host that went silent started to get
+  // the "owes no answer" note — about a machine that does owe one. Silence there
+  // is a real fault, and the alarm must stay.
   if (!clientHasScout(client)) {
     return `
       <div class="client-quiet-note">

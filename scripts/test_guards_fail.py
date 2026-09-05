@@ -180,6 +180,8 @@ BREAKAGES = {
          '    "cables.js": "scripts/test_js_cables.py",\n    "canvas.js": "scripts/test_js_canvas.py",'),
         # A reason that names a snapshot which does not pin this module.
         ([], "scripts/check_oop_contract.py", '    "cables.js": "scripts/test_js_cables.py",', '    "cables.js": "scripts/test_js_charts.py",'),
+        # The recorded decision disappears from the public module reference.
+        ([], "docs/frontend.md", "- Kept as functions by decision (OOP rewrite, decision 19, 2026-09-05):", "- Was once kept as-is (OOP rewrite, decision 19, 2026-09-05):"),
     ],
     "check_cell_health_contract": (
         [], "cells/whisper_server.py",

@@ -60,7 +60,7 @@ const out = {};
 """
 
 # (id, setup, expression, expected JSON string, message). Filled from the pin
-# workflow; see docs/oop-rewrite.md, phase 7, snapshot 6.
+# workflow; see the OOP-rewrite journal (private), phase 7, snapshot 6.
 PINS = [
     # ── exec_preview ──
     ('er_explicit_trimmed',

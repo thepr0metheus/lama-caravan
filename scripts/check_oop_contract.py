@@ -24,8 +24,9 @@ Rules.
    modules: at least one `class`, and no top-level function longer than
    FACE_LINES lines (a face is a one-liner delegating to a class). The whitelist
    holds the modules left as functions, each with a REASON: a phase-7 snapshot
-   (the file exists and imports the module) or a "not building" decision in the
-   journal (naming the module). The list is a ratchet: a module that already
+   (the file exists and imports the module) or a "not building" decision in
+   docs/frontend.md (a "kept as functions" line under the module's heading). The
+   list is a ratchet: a module that already
    satisfies rule 3 must leave it, or the rule stops watching it and the list
    lies. An entry naming a missing file is an error.
 
@@ -48,9 +49,10 @@ JS_DIR = ROOT / "static" / "js"
 FACE_LINES = 3
 
 # Modules left as functions, each with its REASON: the phase-7 snapshot that pins
-# its behaviour, or the "not building" decision recorded in the journal. Reasons
-# are checked: a snapshot must exist and import the module, a decision must be in
-# docs/oop-rewrite.md with the module's name. The list is a ratchet: a module that
+# its behaviour, or the "not building" decision recorded in docs/frontend.md (the
+# public module reference; the working journal stays private). Reasons are
+# checked: a snapshot must exist and import the module, a decision line must say
+# "kept as functions" next to the module's name. The list is a ratchet: a module that
 # has become class-based (a class, functions <= FACE_LINES lines) must leave it,
 # or the list lies and rule 3 no longer sees it.
 FUNCTION_MODULES = {
@@ -60,7 +62,7 @@ FUNCTION_MODULES = {
     "command-preview.js": "scripts/test_js_command_preview.py",
     "config-locator.js": "scripts/test_js_config_locator.py",
     "constants.js": "scripts/test_js_data_modules.py",
-    "dialog-llamas.js": "docs/oop-rewrite.md: решение «не строю» №19",
+    "dialog-llamas.js": "docs/frontend.md: kept as functions by decision 19",
     "dialogs.js": "scripts/test_js_dialogs.py",
     "favorites.js": "scripts/test_js_favorites.py",
     "form.js": "scripts/test_js_form.py",
@@ -255,8 +257,11 @@ def _reason_holds(name, reason):
             return f"{doc.name} не существует"
         text = doc.read_text(encoding="utf-8")
         stem = name[:-3]
-        if stem not in text or "не строю" not in text:
-            return f"в {doc.name} нет решения «не строю» про {stem}"
+        # the decision line sits under the module's own heading and says so
+        head = text.find(f"## {name}")
+        section = text[head:text.find("\n## ", head + 1)] if head >= 0 else ""
+        if "kept as functions" not in section.lower():
+            return f"в {doc.name} под заголовком {name} нет строки «kept as functions» — решение не записано"
         return ""
     return f"причина «{reason}» — ни снимок, ни решение в журнале"
 

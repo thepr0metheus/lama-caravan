@@ -14,6 +14,11 @@
 #   scripts/sync-public.sh --dry-run    everything except the commit
 #   scripts/sync-public.sh              prepare a commit, print the push command
 #
+# The mirror receives RELEASES only: a version bump with its CHANGELOG section
+# and a tag pushed by name. Housekeeping — a script comment, a CI tweak, a
+# journal line — waits for the next release; four such commits in one day on
+# the public history were asked never to happen again (2026-09-05).
+#
 set -euo pipefail
 
 PRIV="${CARAVAN_PRIVATE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -38,7 +43,10 @@ DRY=0
 # and on GitHub it could only fail and notify. So the file ships and the runs
 # are switched off there:  gh workflow disable ci --repo <public>  (2026-09-05);
 # `gh workflow enable ci` brings them back.
-EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|scripts/refactor/|tests/golden/)'
+# docs/oop-rewrite.md and docs/clients-page.md are working journals — session
+# notes in the operator's voice, not documentation of the project. Asked to stay
+# private on 2026-09-05; the public reference for modules is docs/frontend.md.
+EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|docs/oop-rewrite\.md|docs/clients-page\.md|scripts/refactor/|tests/golden/)'
 
 # Anything matching this in the public tree stops the sync. Machine names and
 # addresses are the operator's, not the project's; "Revoice" is a private
