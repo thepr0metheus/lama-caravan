@@ -32,6 +32,12 @@ DRY=0
 # operator names by construction — a scrub would have to rewrite the very thing
 # the snapshot exists to preserve. So it stays private, and the public CI does
 # not run test_golden (it never did).
+# .github/workflows/ci.yml IS mirrored — check_ci_coverage reads it, and the
+# self-test runs that guard on the public tree too. But the workflow is this
+# fleet's own gate (guards and snapshots written against the operator's tree),
+# and on GitHub it could only fail and notify. So the file ships and the runs
+# are switched off there:  gh workflow disable ci --repo <public>  (2026-09-05);
+# `gh workflow enable ci` brings them back.
 EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|scripts/refactor/|tests/golden/)'
 
 # Anything matching this in the public tree stops the sync. Machine names and
