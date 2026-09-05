@@ -109,6 +109,18 @@ export function sortedTopologyClients(clients) {
   return (clients || []).slice().sort((left, right) => topologyNameOrder(left?.name || left?.id || "", right?.name || right?.id || ""));
 }
 
+// Lane order for cards: the live ones first, the quiet ones after, by name inside
+// each group. A card is whatever the lane draws as one block — an agent, a scout
+// host, a caption — with `live` decided by its owner (an agent: traffic within
+// twelve hours, the rule that frames a quiet card yellow; a host: its scout
+// answers). The board lane and the kanban rows both order through this, so a
+// card here is a row there. Stable: ties keep the caller's order.
+export function sortedLaneCards(cards) {
+  return (cards || []).slice().sort((left, right) =>
+    (left?.live ? 0 : 1) - (right?.live ? 0 : 1)
+    || topologyNameOrder(left?.name || "", right?.name || ""));
+}
+
 export function topologyActivityClass(activity) {
   if (!activity) return "";
   if (activity.state === "active") return "activity-active";

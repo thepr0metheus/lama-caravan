@@ -14,6 +14,7 @@ import {
   topologyAssignmentsByAgent,
   topologyGroupLabel,
   agentCallerHtml,
+  sortedLaneCards,
   sortedTopologyClients,
 } from "./topology-activity.js";
 import { refreshTopology, renderTopology,
@@ -165,7 +166,7 @@ export function clientLaneAgentCards(client, assignments) {
   const owns = clientCardIsRedundant(client, agents.length) && agents.length === 1;
   return agents.map((agent) => {
     const routes = [...(routeMap.get(agent.id) || new Map()).values()];
-    return { agentId: agent.id, html: topologyAgentCard(client, agent, routeMap, owns),
+    return { agentId: agent.id, name: agent.name || agent.id || "", html: topologyAgentCard(client, agent, routeMap, owns),
              idle: agentIsIdle(routes) };
   });
 }
@@ -208,6 +209,18 @@ export function agentIsIdle(routes, nowSec = Date.now() / 1000) {
   return agentIdleHours(routes, nowSec) >= AGENT_IDLE_HOURS;
 }
 
+// A client is live when at least one of its agents carried a successful request
+// within AGENT_IDLE_HOURS — the same measure that frames a quiet agent's card
+// yellow. It ranks the lane blocks that stand for a whole client (a caption); a
+// client with no agents, or whose agents are all quiet, is not live.
+export function clientIsLive(client, nowSec = Date.now() / 1000) {
+  const routeMap = topologyAssignmentsByAgent(topologyBoardAssignmentsForHost(client?.id));
+  return (client?.agents || []).some((agent) => {
+    const routes = [...(routeMap.get(agent.id) || new Map()).values()];
+    return !agentIsIdle(routes, nowSec);
+  });
+}
+
 // Нужна ли карточка хоста. Она существует ради того, что рассказал скаут, —
 // значит нужна ровно там, где скаут есть.
 //
@@ -236,7 +249,9 @@ export function canvasBoardClients(proxies) {
   for (const p of proxies || []) byPort.set(String(p.port), p);
   const rows = [];
   const claimed = new Set();
-  // Тот же порядок, что на главной: по алфавиту имён клиентов, внутри — агентов.
+  // Ports are claimed in name order (a port belongs to the first agent that names
+  // it); the rows are then ordered as the board's cards are — the live agents
+  // first, the quiet ones after, by name inside each group.
   for (const client of sortedTopologyClients(topology?.clients || [])) {
     for (const row of sortedTopologyAgents(topologyBoardAssignmentsForHost(client.id).map((r) => ({ ...r, name: r.agentId })))) {
       const own = [];
@@ -246,10 +261,11 @@ export function canvasBoardClients(proxies) {
         if (proxy && !claimed.has(String(proxy.id))) { own.push(proxy); claimed.add(String(proxy.id)); }
       }
       if (own.length) rows.push({ key: `${client.id}::${row.agentId}`, clientId: client.id,
-                                  agentId: row.agentId, proxies: own });
+                                  agentId: row.agentId, proxies: own,
+                                  name: row.agentId, live: !agentIsIdle(row.routes || []) });
     }
   }
-  return { rows, unclaimed: (proxies || []).filter((p) => !claimed.has(String(p.id))) };
+  return { rows: sortedLaneCards(rows), unclaimed: (proxies || []).filter((p) => !claimed.has(String(p.id))) };
 }
 
 export function topologyGroupedAgents(client, assignments) {

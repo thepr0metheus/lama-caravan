@@ -70,6 +70,7 @@ import {
   topologyStateHealthClasses,
   topologyStatusPill,
   clientAgeText,
+  sortedLaneCards,
   sortedTopologyClients,
 } from "./topology-activity.js";
 import {
@@ -111,6 +112,7 @@ import {
   clientNeedsCaption,
   clientHasScout,
   AGENT_IDLE_HOURS,
+  clientIsLive,
 } from "./topology-proxies.js";
 import { renderUsageStatsModal } from "./usage-stats.js";
 import { $, api, escapeHtml, formatMemoryMiB, markPageState, toast } from "./utils.js";
@@ -235,7 +237,12 @@ export function renderTopology() {
 
   const clients = sortedTopologyClients(topology.clients || []);
   const clientsEl = $("topologyClients");
-  if (clientsEl) clientsEl.innerHTML = clients.length ? clients.map((client) => {
+  // The lane is one flat list of cards — an agent, a scout host, a caption —
+  // ordered live-first and by name (sortedLaneCards), not client by client: a
+  // host with ten agents would otherwise keep its quiet ones among the live
+  // ones. A card still shows its client by the accent colour it carries.
+  const laneCards = [];
+  clients.forEach((client) => {
     const assignments = topologyBoardAssignmentsForHost(client.id);
     const displayName = client.name || client.id;
     const ccpu = client.cpu || {}, cram = ccpu.ram || {};
@@ -267,7 +274,8 @@ export function renderTopology() {
           title="${escapeHtml(t("topologyClientDelete"))}"
           data-client-delete="${escapeHtml(client.id)}">✕</button>
       </div>` : "";
-    return `${caption}${!hostCard ? "" : `
+    if (caption) laneCards.push({ live: clientIsLive(client), name: displayName, html: caption });
+    if (hostCard) laneCards.push({ live: !isStale, name: displayName, html: `
       <!-- data-t-id is the HOST ID, which is what cell-card ids are built from
            (client-a:8004), while the heading shows the display NAME (Alice).
            Without the id here the two cannot be joined from outside, and the
@@ -302,16 +310,17 @@ export function renderTopology() {
         <div class="topology-agents">${client.manual ? "" : topologyGroupedAgents(client, assignments)}</div>
         ${discoveryBanner}
         ${staleBanner}
-      </article>`}
-      ${clientLaneAgentCards(client, assignments).map((card) => `
+      </article>` });
+    clientLaneAgentCards(client, assignments).forEach((card) => laneCards.push({ live: !card.idle, name: card.name, html: `
       <article class="topology-card agent-card${card.idle ? " idle" : ""}" data-t="board-agent-card"
                data-t-id="${escapeHtml(client.id || "")}"
                data-client-id="${escapeHtml(client.id || "")}"
                data-agent-id="${escapeHtml(card.agentId || "")}"${card.idle ? `
                title="${escapeHtml(t("agentIdleTip", { hours: String(AGENT_IDLE_HOURS) }))}"` : ""}
-               style="${escapeHtml(topologyAccentStyle(client.id || displayName))}">${card.html}</article>`).join("")}
-    `;
-  }).join("") : `<article class="topology-card"><div class="topology-muted">${escapeHtml(t("topologyClientsWaiting"))}</div></article>`;
+               style="${escapeHtml(topologyAccentStyle(client.id || displayName))}">${card.html}</article>` }));
+  });
+  if (clientsEl) clientsEl.innerHTML = clients.length ? sortedLaneCards(laneCards).map((card) => card.html).join("")
+    : `<article class="topology-card"><div class="topology-muted">${escapeHtml(t("topologyClientsWaiting"))}</div></article>`;
 
   $("topologyProxies").innerHTML = [
     renderUsageStatsModal(),

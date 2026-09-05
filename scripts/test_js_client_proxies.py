@@ -139,6 +139,32 @@ PINS = [
      '[m.agentIsIdle([]), m.agentIsIdle(null)]',
      '[true,true]',
      "negative: агент без маршрутов трафика не возит — простаивает, и без исключения"),
+    ("client_is_live_when_one_agent_has_fresh_traffic",
+     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, lastRequestAt: 1700000100 - 3600 * 13 }, { id: "skynet:proxy:23002", port: 23002, lastRequestAt: 1700000100 - 60 }],'
+     ' clients: [{ id: "c1", manual: true, agents: [{ id: "a1" }, { id: "a2" }] }],'
+     ' assignments: { c1: { assignments: [{ agentId: "a1", routes: [{ role: "primary", proxyId: "skynet:proxy:23001" }] }, { agentId: "a2", routes: [{ role: "primary", proxyId: "skynet:proxy:23002" }] }] } } });',
+     'm.clientIsLive(st.topology.clients[0])',
+     'true',
+     "клиент живой, если ХОТЬ ОДИН его агент возил трафик за 12 часов — второй агент молчит 13 часов, а первый ходил минуту назад"),
+    ("client_is_quiet_when_all_agents_idle_or_absent",
+     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, lastRequestAt: 1700000100 - 3600 * 13 }],'
+     ' clients: [{ id: "c1", manual: true, agents: [{ id: "a1" }] }, { id: "c2", manual: true, agents: [] }, { id: "c3", manual: true, agents: [{ id: "a3" }] }],'
+     ' assignments: { c1: { assignments: [{ agentId: "a1", routes: [{ role: "primary", proxyId: "skynet:proxy:23001" }] }] } } });',
+     'st.topology.clients.map((c) => m.clientIsLive(c))',
+     '[false,false,false]',
+     "negative: все агенты простаивают, агентов нет, назначений нет — клиент тихий; тот же порог 12 ч, что у жёлтой рамки"),
+    ("kanban_rows_put_live_agents_first",
+     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, lastRequestAt: 1700000100 - 3600 * 13 }, { id: "skynet:proxy:23003", port: 23003, lastRequestAt: 1700000100 - 60 }, { id: "skynet:proxy:23005", port: 23005, lastRequestAt: 1700000100 - 120 }],'
+     ' clients: [{ id: "alpha", manual: true, agents: [{ id: "a1" }] }, { id: "host", manual: true, agents: [{ id: "argus" }, { id: "orion" }] }],'
+     ' assignments: { alpha: { assignments: [{ agentId: "a1", routes: [{ role: "primary", proxyId: "skynet:proxy:23003" }] }] }, host: { assignments: [{ agentId: "argus", routes: [{ role: "primary", proxyId: "skynet:proxy:23001" }] }, { agentId: "orion", routes: [{ role: "primary", proxyId: "skynet:proxy:23005" }] }] } } });',
+     '(r => [r.rows.map((x) => x.key), r.rows.map((x) => x.live)])(m.canvasBoardClients([{ id: "skynet:proxy:23001", port: 23001 }, { id: "skynet:proxy:23003", port: 23003 }, { id: "skynet:proxy:23005", port: 23005 }]))',
+     '[["alpha::a1","host::orion","host::argus"],[true,true,false]]',
+     "строки канбана — как карточки главной: живые агенты (a1, orion) раньше тихого argus, даже когда он из того же клиента и первый по алфавиту; внутри групп по имени"),
+    ("agent_card_carries_its_name",
+     'st.setTopology({ ...st.topology, proxies: [], clients: [{ id: "c1", manual: true, agents: [{ id: "a1", name: "Alice" }, { id: "a2" }] }] });',
+     'm.clientLaneAgentCards(st.topology.clients[0], []).map((c) => c.name)',
+     '["a2","Alice"]',
+     "карточка агента несёт имя для сортировки лейна: имя агента, иначе id"),
     ("agent_card_carries_the_idle_flag",
      'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, lastRequestAt: 1700000100 - 60 }],'
      ' clients: [{ id: "c1", manual: true, agents: [{ id: "a1" }, { id: "a2" }] }] });',
