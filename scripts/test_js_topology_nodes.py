@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
-"""Снимок static/js/topology-nodes.js — карточка ячейки на доске.
+"""Snapshot of static/js/topology-nodes.js — a cell's card on the board.
 
-nodeServerCardHtml — 491 строка чистого строителя строки и 14 из 19
-fix-коммитов модуля: ошибка на health-пути — broken, не green (02578ac);
-необъяснённый отказ говорит «reason not in the log» вместо пустоты (7897108);
-stale-чип ⇪ только по cellMeta.sourceState (0036c42); GPU-пин в ENV/COMMAND
-перекрывает «нет VRAM = CPU», пока ячейка не выделила память (f253e32);
-CPU-ячейка греется «в RAM», а не «в VRAM» (75b2195); seamless — речевая
-ячейка с чипом 🌐 (a58497e); карточка называет модель, которую ячейка
-реально крутит (61022e0); кнопка Start command-ячейки подтверждает команду,
-а не модель (961e953). Плюс малые помощники: formatUptime, firewallBadge,
-classifyLlamaError, parseLlamaBuildVersion, serverLifecycleBar, nodeGpuRowHtml.
+nodeServerCardHtml is 491 lines of pure string building, and 14 of the
+module's 19 fix commits: an error on the health path is broken, not green
+(02578ac); an unexplained failure says "reason not in the log" instead of
+nothing at all (7897108); the stale ⇪ chip goes only by cellMeta.sourceState
+(0036c42); a GPU pin in ENV/COMMAND overrides "no VRAM = CPU" while the cell
+hasn't allocated memory yet (f253e32); a CPU cell runs warm "in RAM", not "in
+VRAM" (75b2195); seamless is a speech cell with a 🌐 chip (a58497e); the card
+names the model the cell is ACTUALLY running (61022e0); a command cell's
+Start button confirms the command, not a model (961e953). Plus small
+helpers: formatUptime, firewallBadge, classifyLlamaError,
+parseLlamaBuildVersion, serverLifecycleBar, nodeGpuRowHtml.
 
-Как есть: data-node-role="undefined" у узла без role; title="undefined" у
-блока ошибки без lastError — в том самом коммите 7897108.
+As-is: data-node-role="undefined" for a node with no role; title="undefined"
+for an error block with no lastError — in that exact commit, 7897108.
 
-Пины лежат данными в PINS: (id, setup, expression, expected JSON, сообщение).
-Каждый пин исполняется в своём блоке try/catch после reset(): исключение —
-значение {"__threw": "..."}. Время заморожено (Date.now = 1700000100 с).
-Модуль грузится НАСТОЯЩИЙ вместе с remote-cells (его множества состояния
-ведут фазы карточки), charts, llama-edit, form, model-meta, memory,
-topology-activity, topology-proxies, polling; остальные соседи — заглушки.
+Pins live as data in PINS: (id, setup, expression, expected JSON, message).
+Each pin runs in its own try/catch after reset(): an exception becomes the
+value {"__threw": "..."}. Time is frozen (Date.now = 1700000100s). The module
+is loaded FOR REAL together with remote-cells (its state sets drive the
+card's phases), charts, llama-edit, form, model-meta, memory,
+topology-activity, topology-proxies, polling; the remaining neighbors are stubs.
 
-Запуск: python3 scripts/test_js_topology_nodes.py
+Run: python3 scripts/test_js_topology_nodes.py
 """
 
 import json
@@ -66,12 +67,12 @@ PINS = [
     ('card_anchor_stopped_configured_full',
      '',
      'norm(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))',
-     '"<article class=\\"node-server configured-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"topology-handle server-input \\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn ok\\" type=\\"button\\" data-t=\\"cell-start\\" data-t-id=\\"h1:22001\\" data-node-cell-launch=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-runner=\\"llama-server\\" title=\\"Start server\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart not supported for remote hosts\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn del\\" type=\\"button\\" data-t=\\"cell-delete\\" data-t-id=\\"h1:22001\\" data-node-slot-del=\\"h1:22001\\" title=\\"Remove cell\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><button class=\\"lc-node lc-port-btn done lc-done\\" type=\\"button\\" data-cell-port-reassign=\\"h1:22001\\" title=\\"Change the cell&#39;s port\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></button><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn active lc-configured\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"client\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-row1\\"> <span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span> <strong class=\\"node-model-name\\" title=\\"a.gguf\\">a</strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
+     '"<article class=\\"node-server configured-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"topology-handle server-input \\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn ok\\" type=\\"button\\" data-t=\\"cell-start\\" data-t-id=\\"h1:22001\\" data-node-cell-launch=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-runner=\\"llama-server\\" title=\\"Start server\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart not supported for remote hosts\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn del\\" type=\\"button\\" data-t=\\"cell-delete\\" data-t-id=\\"h1:22001\\" data-node-slot-del=\\"h1:22001\\" title=\\"Remove cell\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><button class=\\"lc-node lc-port-btn done lc-done\\" type=\\"button\\" data-cell-port-reassign=\\"h1:22001\\" title=\\"Change the cell&#39;s port\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></button><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn active lc-configured\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"client\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
      'positive: Якорь: полная карточка остановленной сконфигурированной ячейки (Start активен, кнопка смены порта, ⚙ configure активна)'),
     ('card_anchor_running_full',
      '',
      'norm(m.nodeServerCardHtml(node, mk({ phase: "running" })))',
-     '"<article class=\\"node-server running cpu-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"cell-beam\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-handle server-input running\\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn warn\\" type=\\"button\\" data-t=\\"cell-stop\\" data-t-id=\\"h1:22001\\" data-node-cell-stop=\\"h1\\" data-node-cell-port=\\"22001\\" title=\\"Stop server\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart not supported for remote hosts\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><span class=\\"lc-node done lc-done\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></span><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn done lc-done lc-cfg-live\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"client\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail done\\"></span><span class=\\"lc-node done lc-done\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail done\\"></span><span class=\\"lc-node active lc-running\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-row1\\"> <span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span> <strong class=\\"node-model-name\\" title=\\"a.gguf\\">a</strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
+     '"<article class=\\"node-server running cpu-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"cell-beam\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-handle server-input running\\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn warn\\" type=\\"button\\" data-t=\\"cell-stop\\" data-t-id=\\"h1:22001\\" data-node-cell-stop=\\"h1\\" data-node-cell-port=\\"22001\\" title=\\"Stop server\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart not supported for remote hosts\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><span class=\\"lc-node done lc-done\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></span><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn done lc-done lc-cfg-live\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"client\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail done\\"></span><span class=\\"lc-node done lc-done\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail done\\"></span><span class=\\"lc-node active lc-running\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
      'as-is: Якорь: полная карточка running без gpuIndexes — as-is получает класс cpu-cell и чип 🧮 CPU; uptime в lifecycle-баре не передаётся никогда'),
     ('card_cls_stopped_configured',
      'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1];',
@@ -274,10 +275,67 @@ PINS = [
      '["<div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">STOPPING…</span></div>","<button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Stopping…\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart not supported for remote hosts\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button>"]',
      'defect-history: 87f5ea7: pending action stop → строка STOPPING… и кнопка Stop со спиннером (disabled, title Stopping…)'),
     ('card_pending_remote_start_host',
-     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._pendingRemoteStarts.set("h1", { port: 22001 });',
+     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._pendingRemoteStarts.set("h1", { port: 22001, phase: "starting" });',
      '[CLS(m.nodeServerCardHtml(node, mk({ phase: "stopped" }))), ROW(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))]',
      '["node-server loading","<div class=\\"node-model-row2 model-status-line\\"><span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-text\\">starting</span></div>"]',
      'defect-history: d1256f3: _pendingRemoteStarts по хосту → stopped-ячейка клиента показывает starting'),
+    # ── what the cell DOES, beside what runs it ──
+    # ── the identity line: the name owns its own row ──
+    ('card_name_owns_its_own_row',
+     '',
+     '(h => { const n = norm(h); return [n.includes("node-model-ident"), n.includes("node-model-row1"),'
+     ' /<div class="node-model-ident"> <strong class="node-model-name"[^>]*><span>/.test(n)]; })'
+     '(m.nodeServerCardHtml(node, mk({ phase: "running" })))',
+     '[true,false,true]',
+     'positive: имя стоит в СВОЕЙ строке и первым в ней — раньше делило строку с тремя чипами и получало 38-72px, отчего 20 имён из 31 переносились на две строки'),
+    ('card_name_is_a_marquee_track',
+     '',
+     '(h => (norm(h).match(/<strong class="node-model-name"[^>]*><span>[^<]*<\\/span><\\/strong>/g) || []).length)'
+     '(m.nodeServerCardHtml(node, mk({ phase: "running" })))',
+     '1',
+     'имя завёрнуто в дорожку, по которой оно едет при наведении: без внутреннего span бежать нечему, а сам css-ход равен «ширина коробки − ширина текста», то есть ноль для короткого имени'),
+    ('card_chip_row_order_is_fixed',
+     '',
+     '(h => { const row = norm(h).match(/<span class="model-chips">(.*?)<\\/span><\\/div>/); '
+     ' return (row ? row[1] : "").match(/mbadge-(job|cmd node-runner-chip|gpu|cpu|dev|vram|vram-est|quant|size|it)/g) || []; })'
+     '(m.nodeServerCardHtml(node, mk({ phase: "stopped", model: "Qwen3-27B-it-Q4_K_M.gguf", modelSizeBytes: 17600000000 })))',
+     '["mbadge-job","mbadge-cmd node-runner-chip","mbadge-gpu","mbadge-vram","mbadge-size"]',
+     'positive: порядок ряда задан и постоянен — работа, движок, устройство, память, потом факты о файле; он и делает доску просматриваемой'),
+    ('card_job_chip_from_runner',
+     'const JOB = (h) => (norm(h).match(/data-t="cell-job-[a-z-]+"/g) || []);',
+     'JOB(m.nodeServerCardHtml(node, mk({ phase: "running" })))',
+     '["data-t=\\"cell-job-llm\\""]',
+     'positive: работа названа СЛОВОМ и до движка — раньше «LLM» выражалось тем, что про строку молчат'),
+    ('card_job_chip_tts_named_by_the_cell_itself',
+     'const JOB = (h) => (norm(h).match(/data-t="cell-job-[a-z-]+"/g) || []);',
+     'JOB(m.nodeServerCardHtml(node, mk({ phase: "running", slotConfig: { CELL_KIND: "command", COMMAND: "bash run_tts.sh" }, cellMeta: { kinds: ["tts", "tts.cosyvoice"] } })))',
+     '["data-t=\\"cell-job-tts\\""]',
+     'positive: синтезатор живёт КОМАНДНОЙ ячейкой — раннер про неё не знает, и назвать её работой может только её собственный отчёт'),
+    ('card_job_chip_embedding_is_not_chat',
+     'const JOB = (h) => (norm(h).match(/data-t="cell-job-[a-z-]+"/g) || []);',
+     'JOB(m.nodeServerCardHtml(node, mk({ phase: "running", slotConfig: { ENABLE_EMBEDDINGS: "1" } })))',
+     '["data-t=\\"cell-job-embed\\""]',
+     'positive: эмбеддинговый сервер отдаёт ВЕКТОРЫ, а не чат — раннер у него всё тот же llama-server, и по одной таблице раннеров живая Qwen3-Embedding ходила с 💬 LLM'),
+    ('card_job_chip_embeddings_off_is_chat',
+     'const JOB = (h) => (norm(h).match(/data-t="cell-job-[a-z-]+"/g) || []);',
+     'JOB(m.nodeServerCardHtml(node, mk({ phase: "running", slotConfig: { ENABLE_EMBEDDINGS: "0" } })))',
+     '["data-t=\\"cell-job-llm\\""]',
+     'negative: галка снята — обычная языковая модель; «0» это выключено, а не «поле присутствует»'),
+    ('card_job_chip_two_jobs',
+     'const JOB = (h) => (norm(h).match(/data-t="cell-job-[a-z-]+"/g) || []);',
+     'JOB(m.nodeServerCardHtml(node, mk({ phase: "running", cellMeta: { kinds: ["tts", "asr"] } })))',
+     '["data-t=\\"cell-job-asr\\"","data-t=\\"cell-job-tts\\""]',
+     'две работы — два чипа, в порядке словаря, а не в порядке отчёта'),
+    ('card_job_chip_silent_when_unknown',
+     'const JOB = (h) => (norm(h).match(/data-t="cell-job-[a-z-]+"/g) || []);',
+     'JOB(m.nodeServerCardHtml(node, mk({ phase: "running", slotConfig: { CELL_KIND: "command", COMMAND: "python srv.py" } })))',
+     '[]',
+     'negative: командная ячейка, которая про себя не сказала — чипа НЕТ; выдуманная работа хуже неназванной'),
+    ('card_pending_remote_start_timed_out',
+     'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; rc._pendingRemoteStarts.set("h1", { port: 22001, phase: "timeout" });',
+     'CLS(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))',
+     '"node-server configured-cell"',
+     'negative: истёкшая запись НЕ делает остановленную ячейку стартующей — рисуется обычная настроенная ячейка — она живёт в карте до снятия оператором, и вопрос «есть запись?» держал бы хост в «starting» вечно'),
     ('card_pending_remote_start_ignored_for_controller',
      'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1]; const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0]; rc._pendingRemoteStarts.set("h1", { port: 22001 });',
      '[CLS(m.nodeServerCardHtml(node, mk({ phase: "stopped", isController: true }))), ROW(m.nodeServerCardHtml(node, mk({ phase: "stopped", isController: true })))]',
@@ -601,7 +659,7 @@ PINS = [
     ('card_deleting_reserved_cls_row_in_empty_block_lc_no_buttons',
      'rc._deletingSlots.add("h1:22001"); const h = m.nodeServerCardHtml(node, mk({ phase: "reserved", model: "", slotConfig: {} })); const n = norm(h);',
      '[n.match(/<article class="([^"]*)"/)[1], n.match(/<div class="node-model-block node-model-block-empty">.*?<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/)?.[0] ?? null, [...n.matchAll(/class="(lc-node[^"]*)"/g)].map((x) => x[1])]',
-     '["node-server deleting reserved-cell","<div class=\\"node-model-block node-model-block-empty\\"> <div class=\\"node-model-row1\\"> <svg class=\\"model-ico\\" viewBox=\\"0 0 24 24\\" aria-hidden=\\"true\\"><rect x=\\"6\\" y=\\"6\\" width=\\"12\\" height=\\"12\\" rx=\\"2\\"/><path d=\\"M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2\\"/></svg> <strong class=\\"node-model-name\\">:22001</strong> <span class=\\"node-reserved-tag\\">Reserved cell</span> </div> <div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">Removing…</span></div>",["lc-node active lc-reserved","lc-node future lc-future","lc-node future lc-future","lc-node future lc-future"]]',
+     '["node-server deleting reserved-cell", "<div class=\\"node-model-block node-model-block-empty\\"> <div class=\\"node-model-ident\\"> <svg class=\\"model-ico\\" viewBox=\\"0 0 24 24\\" aria-hidden=\\"true\\"><rect x=\\"6\\" y=\\"6\\" width=\\"12\\" height=\\"12\\" rx=\\"2\\"/><path d=\\"M9 2v2M15 2v2M9 20v2M15 20v2M2 9h2M2 15h2M20 9h2M20 15h2\\"/></svg> <strong class=\\"node-model-name\\"><span>:22001</span></strong> <span class=\\"node-reserved-tag\\">Reserved cell</span> </div> <div class=\\"node-model-row2 model-status-line msl-stop\\"><span class=\\"topology-spinner stopping-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate msl-bar-stop\\"><span></span></span><span class=\\"msl-text\\">Removing…</span></div>", ["lc-node active lc-reserved", "lc-node future lc-future", "lc-node future lc-future", "lc-node future lc-future"]]',
      'positive: Удаление зарезервированной ячейки: класс deleting reserved-cell, строка Removing… внутри node-model-block-empty, лайфцикл теряет и port-, и cfg-кнопку'),
     ('card_reserved_not_deleting_no_row_lc_port_btn_negative',
      'const h = m.nodeServerCardHtml(node, mk({ phase: "reserved", model: "", slotConfig: {} })); const n = norm(h);',
@@ -796,7 +854,7 @@ PINS = [
     # ── card_chips ──
     ('card_name_from_s_model_not_model_file',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "models/Qwen3-8B-Q4_K_M.gguf", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "other-model.gguf" } })));',
-     'h.match(/<strong class="node-model-name" title="([^"]*)">([^<]*)<\\/strong>/).slice(1, 3)',
+     'h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)<\\/span>/).slice(1, 3)',
      '["models/Qwen3-8B-Q4_K_M.gguf","Qwen3-8B"]',
      'defect-history: 61022e0: имя на карточке берётся из s.model (label parseModelName), slotConfig.MODEL_FILE не участвует'),
     ('card_name_title_prefers_model_path',
@@ -859,6 +917,32 @@ PINS = [
      '(h.match(/<span class="mbadge mbadge-cmd node-runner-chip">([^<]*)<\\/span>/) || [])[1] ?? null',
      'null',
      'negative: неизвестный RUNNER → чипа раннера нет (runnerChipHtml вернул пустую строку)'),
+    # ── trained window: a 🎓 badge right after the model's name ──
+    ('trained_badge_after_name',
+     'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }, { id: "vllm", tokenContext: true }, { id: "seamless" }, { id: "translate" }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ ctxTrained: 131072 })));',
+     '(h.match(/<\\/strong><span class="mbadge mbadge-trained"[^>]*>🎓 ([^<]*)<\\/span>/) || [])[1] ?? null',
+     '"131k"',
+     'positive: обученное окно — бейдж 🎓 сразу после имени модели, в том же формате, что 🪟'),
+    ('trained_badge_absent',
+     'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }, { id: "vllm", tokenContext: true }, { id: "seamless" }, { id: "translate" }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({})));',
+     'h.includes("mbadge-trained")',
+     'false',
+     'negative: обученного числа нет — бейджа нет вовсе, а не прочерк'),
+    ('trained_never_the_window',
+     'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }, { id: "vllm", tokenContext: true }, { id: "seamless" }, { id: "translate" }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ ctxTrained: 131072 })));',
+     '(h.match(/<span class="mbadge mbadge-ctx"[^>]*>🪟 ([^<]*)<\\/span>/) || [])[1] ?? null',
+     'null',
+     'defect-class: обученное число НЕ становится чипом 🪟 — окно ячейки без ctxMax остаётся неизвестным'),
+    ('trained_badge_tip',
+     'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }, { id: "vllm", tokenContext: true }, { id: "seamless" }, { id: "translate" }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ ctxTrained: 131072 })));',
+     '(h.match(/mbadge-trained" title="([^"]*)"/) || [])[1] ?? null',
+     '"Trained context — the window the weights were trained with, as the running server&#39;s model card or the GGUF header reports it. Not the window this cell serves: that one is 🪟."',
+     'positive: подсказка называет это обученным окном и отсылает к 🪟 за обслуживаемым'),
+    ('trained_badge_not_on_speech',
+     'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }, { id: "vllm", tokenContext: true }, { id: "seamless" }, { id: "translate" }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ ctxTrained: 131072, slotConfig: { RUNNER: "seamless" } })));',
+     'h.includes("mbadge-trained")',
+     'false',
+     'negative: речевая ячейка не носит токенное обученное окно'),
     ('speech_seamless_stopped_no_token_window',
      'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }, { id: "vllm", tokenContext: true }, { id: "seamless" }, { id: "translate" }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ ctxMax: 4096, slotConfig: { RUNNER: "seamless", CTX_SIZE: "100000" } })));',
      '(h.match(/<span class="mbadge mbadge-ctx"[^>]*>🪟 ([^<]*)<\\/span>/) || [])[1] ?? null',
@@ -914,11 +998,102 @@ PINS = [
      '(h.match(/<span class="mbadge mbadge-ctx"[^>]*>🪟 ([^<]*)<\\/span>/) || [])[1] ?? null',
      'null',
      'as-is: КАК ЕСТЬ: при пустом state.runners дефолтный реестр llama-edit без tokenContext → llama-ячейка не токенная, CTX_SIZE-чипа нет'),
+    ('crash_chip_says_how_many',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", crash: { count: 3, at: "2026-09-06T21:52:16+0400", kind: "gpu-hang", reason: "CUDA error: the launch timed out" }, slotConfig: { CELL_KIND: "command", COMMAND: "python srv.py" } })));',
+     '[(h.match(/<span class="mbadge mbadge-crashed"[^>]*data-t="cell-crashed">([^<]*)<\\/span>/) || [])[1] ?? null, (h.match(/<span class="mbadge mbadge-crashed" title="([^"]*)"/) || [])[1] ?? null]',
+     '["💥 3×","This cell crashed 3 time(s) since it was last started by hand. Last one at 2026-09-06T21:52:16+0400: CUDA error: the launch timed out"]',
+     'positive: ячейка падала — на карточке чип 💥 3× с data-t=cell-crashed, а в подсказке время и слова самой смерти: systemd поднимает её обратно, и без этого чипа вечер с тремя падениями выглядит ровной работой'),
+    ('crash_chip_absent_when_never',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", crash: { count: 0 }, slotConfig: { CELL_KIND: "command", COMMAND: "python srv.py" } })));',
+     'h.includes("mbadge-crashed")',
+     'false',
+     'negative: не падала — чипа нет; ноль падений это не «падала ноль раз»'),
+    ('crash_chip_absent_without_the_field',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { CELL_KIND: "command", COMMAND: "python srv.py" } })));',
+     'h.includes("mbadge-crashed")',
+     'false',
+     'negative: клиентская ячейка поля не несёт вовсе (systemd контроллера про неё не знает) — и чипа не появляется'),
     ('stale_cmd_stopped',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", cellMeta: { sourceState: "stale" }, slotConfig: { CELL_KIND: "command", COMMAND: "python srv.py" } })));',
      '(h.match(/<span class="mbadge mbadge-stale-src"[^>]*data-t="cell-source-stale">([^<]*)<\\/span>/) || [])[1] ?? null',
      '"⇪ old server"',
      'defect-history: 0036c42: cellMeta.sourceState=stale на остановленной command-ячейке → чип ⇪ old server с data-t=cell-source-stale'),
+    # The model was re-issued on HF — the same ⇪, but about the WEIGHTS, and
+    # only on a llama cell: vLLM and whisper get their weights differently.
+    ('model_stale_size',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelFresh: "size" })));',
+     '(h.match(/<span class="mbadge mbadge-stale-model"[^>]*data-t="cell-model-stale">([^<]*)<\\/span>/) || [])[1] ?? null',
+     '"\u21ea model re-issued"',
+     'positive: размер разошёлся с HF → чип ⇪ на карточке ячейки'),
+    ('model_stale_date',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelFresh: "date" })));',
+     'h.includes("mbadge-stale-model")',
+     'true',
+     'и коммит новее нашего файла — тоже'),
+    # The file on disk has already been swapped, but the process is still
+    # running the old weights: it holds the INODE, not the name. Silence
+    # here would read as "already updated".
+    ('model_disk_newer',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelDiskNewer: true })));',
+     '(h.match(/<span class="mbadge mbadge-disk-newer"[^>]*data-t="cell-model-disk-newer">([^<]*)<\\/span>/) || [])[1] ?? null',
+     '"\u27f3 file updated"',
+     'positive: файл новее запуска ячейки → чип «перезапусти, когда удобно»'),
+    ('model_disk_newer_absent',
+     'const a = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelDiskNewer: false }))).includes("mbadge-disk-newer");'
+     ' const b = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf" }))).includes("mbadge-disk-newer");',
+     '[a, b]',
+     '[false,false]',
+     'negative: файл не новее — молчим; поля нет вовсе (клиентская ячейка, остановленная) — тоже молчим'),
+    ('model_disk_newer_and_hf_differs_are_two_facts',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelDiskNewer: true, modelFresh: "size" })));',
+     '[h.includes("mbadge-disk-newer"), h.includes("mbadge-stale-model")]',
+     '[true,true]',
+     '«на диске новее, чем крутится» и «на HF другой файл» — разные утверждения и два разных чипа'),
+    # Up to three files take part in a launch: the weights, mmproj, and the
+    # draft. All from HF, all get re-issued — the chip must speak about any
+    # of them AND name which one.
+    ('launch_stale_names_the_file',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelFresh: "same",'
+     ' launchFresh: [{ role: "mmproj", file: "mmproj-BF16.gguf", state: "size" }] })));'
+     ' const chip = (h.match(/data-t="cell-model-stale">([^<]*)<\\/span>/) || [])[1] ?? null;'
+     ' const tip = (h.match(/mbadge mbadge-stale-model" title="([^"]*)"/) || [])[1] ?? "";',
+     '[chip, tip.includes("mmproj-BF16.gguf"), tip.includes("mmproj")]',
+     '["\u21ea model re-issued \u00b7 mmproj",true,true]',
+     'positive: перевыпустили mmproj, а не веса — чип есть, и он НАЗЫВАЕТ файл; без этого оператор идёт искать обновление модели, которого нет'),
+    ('launch_stale_model_alone_says_nothing_extra',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf",'
+     ' launchFresh: [{ role: "model", file: "m.gguf", state: "date" }] })));',
+     '(h.match(/data-t="cell-model-stale">([^<]*)<\\/span>/) || [])[1] ?? null',
+     '"\u21ea model re-issued"',
+     'дело в весах — приписки нет: чип и так про модель, уточнять нечего'),
+    ('launch_stale_lists_every_file',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", launchFresh: ['
+     ' { role: "model", file: "m.gguf", state: "size" },'
+     ' { role: "draft", file: "mtp.gguf", state: "date" }] })));'
+     ' const tip = (h.match(/mbadge mbadge-stale-model" title="([^"]*)"/) || [])[1] ?? "";',
+     '[(h.match(/data-t="cell-model-stale">([^<]*)<\\/span>/) || [])[1] ?? null, tip.includes("m.gguf"), tip.includes("mtp.gguf")]',
+     '["\u21ea model re-issued \u00b7 draft",true,true]',
+     'разошлись двое — в подсказке оба, а в чипе назван тот, о ком без уточнения не догадаться'),
+    ('launch_stale_ignores_same_and_unknown',
+     'const a = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", launchFresh: [] }))).includes("mbadge-stale-model");'
+     ' const b = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf",'
+     ' launchFresh: [{ role: "mmproj", file: "p.gguf", state: "unknown" }] }))).includes("mbadge-stale-model");',
+     '[a, b]',
+     '[false,false]',
+     'negative: всё сошлось — молчим; «не знаем» — тоже молчим, ⇪ над непроверенным файлом и есть исходный дефект'),
+    ('launch_disk_newer_names_the_file',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelDiskNewer: false, launchDiskNewer: ["draft"] })));'
+     ' const tip = (h.match(/mbadge mbadge-disk-newer" title="([^"]*)"/) || [])[1] ?? "";',
+     '[(h.match(/data-t="cell-model-disk-newer">([^<]*)<\\/span>/) || [])[1] ?? null, tip.includes("draft")]',
+     '["\u27f3 file updated \u00b7 draft",true]',
+     'positive: подменили черновик, а не веса — «перезапусти» сказано и названо, что именно обновилось'),
+    ('model_stale_same_and_unknown_and_absent',
+     'const a = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelFresh: "same" }))).includes("mbadge-stale-model");'
+     ' const b = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelFresh: "unknown" }))).includes("mbadge-stale-model");'
+     ' const c = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf" }))).includes("mbadge-stale-model");',
+     '[a, b, c]',
+     '[false,false,false]',
+     'negative: сходится — молчим; «не знаем» — молчим (это не расхождение); поля НЕТ (не проверяли) — молчим тоже'),
     ('stale_current_none',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", cellMeta: { sourceState: "current" }, slotConfig: { CELL_KIND: "command", COMMAND: "python srv.py" } })));',
      '(h.match(/<span class="mbadge mbadge-stale-src"[^>]*data-t="cell-source-stale">([^<]*)<\\/span>/) || [])[1] ?? null',
@@ -1197,56 +1372,56 @@ PINS = [
     ('vllm_stats_running_waiting_tps',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", phase: "running", vllmStats: { requestsRunning: 2, requestsWaiting: 3, genTps: 45.678 }, slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-cmd\\" title=\\"running / queued requests\\">▶ 2 ⏳3</span><span class=\\"mbadge mbadge-bench\\">45.68 t/s</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
-     'positive: vLLM работает: ряд чипов — ▶ 2 ⏳3, 45.68 t/s, ❤ /v1/models, :port (и 🧮 CPU, т.к. VRAM не замерена)'),
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-cmd\\" title=\\"running / queued requests\\">▶ 2 ⏳3</span><span class=\\"mbadge mbadge-bench\\">45.68 t/s</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
+     'positive: vLLM работает: тот же порядок ряда, дальше свои чипы — ▶ 2 ⏳3, 45.68 t/s, ❤ /v1/models, :port (и 🧮 CPU, т.к. VRAM не замерена)'),
     ('vllm_stats_no_waiting_no_tps',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", phase: "running", vllmStats: { requestsRunning: 0, requestsWaiting: 0, genTps: null }, slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-cmd\\" title=\\"running / queued requests\\">▶ 0</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span><span class=\\"mbadge mbadge-cmd\\" title=\\"running / queued requests\\">▶ 0</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
      'negative: requestsWaiting=0 → без ⏳; genTps=null → без t/s-чипа'),
     ('vllm_no_stats_stopped_row',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B", MAX_MODEL_LEN: "32768" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">🪟 32.8k</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">⚡ vLLM</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-cmd\\">❤ /v1/models</span><span class=\\"mbadge mbadge-ctx\\">🪟 32.8k</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
      'positive: остановленный vLLM: ⚡ GPU по умолчанию, MAX_MODEL_LEN → 🪟 32.8k, без stats-чипов'),
     ('vllm_name_hf_repo_last',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "Qwen/Qwen3-8B" } })));',
-     'h.match(/<strong class="node-model-name" title="([^"]*)">([^<]*)<\\/strong>/).slice(1, 3)',
+     'h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)<\\/span>/).slice(1, 3)',
      '["Qwen/Qwen3-8B","Qwen3-8B"]',
      'positive: VLLM_MODEL как HF repo id → имя = последний сегмент, title = полный путь'),
     ('vllm_name_fmt_folder_awq',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "/models/Foo-7B/author/AWQ/" } })));',
-     '[h.match(/<strong class="node-model-name" title="([^"]*)">([^<]*)<\\/strong>/).slice(1, 3), (h.match(/<span class="mbadge mbadge-quant">([^<]*)<\\/span>/) || [])[1] ?? null]',
+     '[h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)<\\/span>/).slice(1, 3), (h.match(/<span class="mbadge mbadge-quant">([^<]*)<\\/span>/) || [])[1] ?? null]',
      '[["/models/Foo-7B/author/AWQ","Foo-7B"],"🎛 AWQ"]',
      'defect-history: 5140fce: путь <Model>/<author>/<FORMAT> из _ST_FMT → имя Model, чип 🎛 AWQ; хвостовой / срезан'),
     ('vllm_name_fmt_folder_st_not_stripped',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "/models/Foo-7B/author/ST" } })));',
-     '[h.match(/<strong class="node-model-name" title="([^"]*)">([^<]*)<\\/strong>/).slice(1, 3), h.includes("mbadge-quant")]',
+     '[h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)<\\/span>/).slice(1, 3), h.includes("mbadge-quant")]',
      '[["/models/Foo-7B/author/ST","ST"],false]',
      'defect-history: 5140fce: «ST» не в зеркале форматов — сегмент НЕ срезается, имя = ST, quant-чипа нет'),
     ('vllm_name_fmt_folder_too_short',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "author/AWQ" } })));',
-     'h.match(/<strong class="node-model-name" title="([^"]*)">([^<]*)<\\/strong>/).slice(1, 3)',
+     'h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)<\\/span>/).slice(1, 3)',
      '["author/AWQ","AWQ"]',
      'boundary: формат в конце, но сегментов <3 → правило форматной папки не срабатывает, имя = AWQ'),
     ('vllm_artifact_match_endswith',
      'st.setState({ config: {}, runners: [], artifacts: [{ path: "Foo-7B/author/AWQ", name: "Foo Seven", format: "awq-int4" }], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "/models/Foo-7B/author/AWQ" } })));',
-     '[h.match(/<strong class="node-model-name" title="([^"]*)">([^<]*)<\\/strong>/).slice(1, 3), (h.match(/<span class="mbadge mbadge-quant">([^<]*)<\\/span>/) || [])[1] ?? null]',
+     '[h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)<\\/span>/).slice(1, 3), (h.match(/<span class="mbadge mbadge-quant">([^<]*)<\\/span>/) || [])[1] ?? null]',
      '[["/models/Foo-7B/author/AWQ","Foo Seven"],"🎛 awq-int4"]',
      'positive: state.artifacts: VLLM_MODEL заканчивается на «/»+path артефакта → имя и format из артефакта побеждают разбор пути'),
     ('vllm_artifact_no_match_substring',
      'st.setState({ config: {}, runners: [], artifacts: [{ path: "Foo-7B/author/AWQ", name: "Foo Seven", format: "awq-int4" }], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm", VLLM_MODEL: "/models/xFoo-7B/author/AWQ" } })));',
-     'h.match(/<strong class="node-model-name" title="([^"]*)">([^<]*)<\\/strong>/).slice(1, 3)',
+     'h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)<\\/span>/).slice(1, 3)',
      '["/models/xFoo-7B/author/AWQ","xFoo-7B"]',
      'negative: артефакт не совпадает (нет границы «/» перед path) → разбор пути даёт xFoo-7B'),
     ('vllm_alias_fallback',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm", ALIAS: "chatty" } })));',
-     'h.match(/<strong class="node-model-name" title="([^"]*)">([^<]*)<\\/strong>/).slice(1, 3)',
+     'h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)<\\/span>/).slice(1, 3)',
      '["chatty · served as chatty","chatty"]',
      'as-is: КАК ЕСТЬ: без VLLM_MODEL имя = ALIAS, а title дублирует «chatty · served as chatty»'),
     ('vllm_bare_fallback',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { RUNNER: "vllm" } })));',
-     'h.match(/<strong class="node-model-name" title="([^"]*)">([^<]*)<\\/strong>/).slice(1, 3)',
+     'h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)<\\/span>/).slice(1, 3)',
      '["vLLM","vLLM"]',
      'negative: ни VLLM_MODEL, ни ALIAS → имя и title «vLLM»'),
     ('play_runner_custom_cmd',
@@ -1297,12 +1472,12 @@ PINS = [
     ('chips_quant_size_variant_token',
      'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ model: "gemma-3-27B-it-Q4_K_M.gguf" })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-quant\\">🎛 Q4_K_M</span><span class=\\"mbadge mbadge-size\\">⚖ 27B</span><span class=\\"mbadge mbadge-it\\">🤖 it</span>"',
-     'positive: токенная llama-ячейка: полный ряд — ⚡ GPU, 🎛 Q4_K_M, ⚖ 27B, 🤖 it (порядок device→quant→size→variant)'),
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span><span class=\\"mbadge mbadge-quant\\">🎛 Q4_K_M</span><span class=\\"mbadge mbadge-size\\">⚖ 27B</span><span class=\\"mbadge mbadge-it\\">🤖 it</span>"',
+     'positive: токенная llama-ячейка: один ряд в ПОСТОЯННОМ порядке — работа, движок, устройство, память, затем факты о файле (🎛 квант, ⚖ размер, 🤖 вариант). Две карточки одного вида читаются одинаково, иначе доску не просмотреть глазами'),
     ('chips_size_only_non_token',
      'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true }, { id: "translate" }], artifacts: [], models: [], paths: {} }); const h = norm(m.nodeServerCardHtml(node, mk({ model: "gemma-3-27B-it-Q4_K_M.gguf", slotConfig: { RUNNER: "translate" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-size\\">⚖ 27B</span>"',
+     '"<span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-translate\\">🌐 translation</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🔄 nllb</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-size\\">⚖ 27B</span>"',
      'defect-history: 61022e0: нетокенный translate с тем же именем — только ⚙ auto и ⚖ 27B; quant/variant скрыты'),
     ('chips_lang_from_cellmeta',
      'const h = norm(m.nodeServerCardHtml(node, mk({ cellMeta: { targetLang: "rus_Cyrl" }, slotConfig: { RUNNER: "translate" } })));',
@@ -1317,21 +1492,21 @@ PINS = [
     ('cmd_health_path_chip',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { CELL_KIND: "command", COMMAND: "exec python srv.py", HEALTH_PATH: "/healthz" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-cmd\\">❤ /healthz</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
-     'positive: command-ячейка с HEALTH_PATH → чип ❤ /healthz между device и :port'),
+     '"<span class=\\"mbadge mbadge-cmd node-runner-chip\\">🛠 command</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-cmd\\">❤ /healthz</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
+     'positive: command-ячейка с HEALTH_PATH → чип ❤ /healthz между устройством и :port, в том же общем порядке ряда'),
     ('cmd_no_health_path',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { CELL_KIND: "command", COMMAND: "python srv.py" } })));',
      '(h.match(/<span class="model-chips">(.*?)<\\/span><\\/div>/) || [])[1] ?? null',
-     '"<span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
+     '"<span class=\\"mbadge mbadge-cmd node-runner-chip\\">🛠 command</span><span class=\\"mbadge mbadge-dev\\" title=\\"Device resolves at start: GPU if enough free VRAM, else CPU.\\">⚙ auto</span><span class=\\"mbadge mbadge-ctx\\">:22001</span>"',
      'negative: без HEALTH_PATH — только ⚙ auto и :port'),
     ('cmd_name_strips_exec',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { CELL_KIND: "command", COMMAND: "  exec python srv.py --x" } })));',
-     'h.match(/<strong class="node-model-name" title="([^"]*)">([^<]*)<\\/strong>/).slice(1, 3)',
+     'h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)<\\/span>/).slice(1, 3)',
      '["python srv.py --x","python srv.py --x"]',
      'positive: имя command-ячейки = COMMAND без ведущего exec и пробелов'),
     ('cmd_empty_command_fallback',
      'const h = norm(m.nodeServerCardHtml(node, mk({ model: "", slotConfig: { CELL_KIND: "command", COMMAND: "" } })));',
-     'h.match(/<strong class="node-model-name" title="([^"]*)">([^<]*)<\\/strong>/).slice(1, 3)',
+     'h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)<\\/span>/).slice(1, 3)',
      '["","command cell"]',
      'negative: пустая COMMAND → имя «command cell» (i18n commandCellFallback), title пустой'),
     ('ugly_role_undefined',

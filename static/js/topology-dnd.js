@@ -36,7 +36,8 @@ import {
   topologyOutputsFolded,
 } from "./routers.js";
 import { setTopology, topology, ui } from "./state.js";
-import { loadRouteTokenHistory, proxyEffectiveWaitTimeout } from "./topology-activity.js";
+import { drawRouteTokenHistory, loadRouteModelCard, loadRouteTokenHistory,
+  proxyEffectiveWaitTimeout } from "./topology-activity.js";
 import {
   _fmtSec,
   _queuePctExampleText,
@@ -91,6 +92,35 @@ export let _schedulePainting = false;
 export let _schedulePointerUpBound = false;
 export let topologyLlamaDetailOpen = false;
 export let topologyGpuModalOpen = false;
+// Delete a proxy port from wherever its button sits (the port form, the route
+// detail). Says what leaves with it: a port is a listener AND whatever the agent
+// on the other side is configured to call, so deleting one without naming the
+// agent turns a tidy click into a silent outage on some other machine.
+async function deleteProxyPort(port) {
+  const route = (topology?.proxies || []).find((p) => Number(p.port) === port);
+  if (!port) return;
+  const bound = Object.entries(topology?.assignments || {}).flatMap(([host, row]) =>
+    (row.assignments || [])
+      .filter((a) => (a.routes || []).some((r) => String(r.proxyId).endsWith(`:${port}`)))
+      .map((a) => `${host}/${a.agentId}`));
+  const detail = [
+    `:${port} ${route?.label || ""}`,
+    bound.length ? `${t("proxyDeleteBound")}: ${bound.join(", ")}` : t("proxyDeleteUnbound"),
+  ].join("\n");
+  if (!await appConfirm(t("proxyDeleteConfirm", { port: String(port) }),
+                        { detail, danger: true })) return;
+  try {
+    const res = await api("/api/agent-proxies/route-delete", {
+      method: "POST", body: JSON.stringify({ port }),
+    });
+    if (res.topology) setTopology(res.topology);
+    ui.topologyProxyFormOpen = false;
+    ui.topologyProxyEditingId = "";
+    renderTopology();
+    toast(t("proxyDeleted", { port: String(port) }));
+  } catch (err) { toast(err.message); }
+}
+
 export let topologyRouteDetail = null;
 export function bindTopologyDragAndDrop() {
   // ── Agent openclaw config viewer ─────────────────────────────────────────
@@ -650,6 +680,24 @@ export function bindTopologyDragAndDrop() {
     topologyRouteDetail = null;
     renderTopology();
   });
+  // The route window's tabs. The first visit to the "model card" tab asks
+  // the port; after that, the answer lives in the window's record, and
+  // switching tabs doesn't lose it — asking again is done with the ⟳
+  // button, so every tab click doesn't hit a live port.
+  document.querySelectorAll("[data-route-detail-tab]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!topologyRouteDetail) return;
+      const tab = button.dataset.routeDetailTab === "model" ? "model" : "details";
+      const first = tab === "model" && !topologyRouteDetail.modelCard;
+      topologyRouteDetail.tab = tab;
+      renderTopology();
+      if (first) loadRouteModelCard();
+      else if (tab === "details") drawRouteTokenHistory();
+    });
+  });
+  document.querySelector("[data-route-model-card-refresh]")?.addEventListener("click", () => {
+    loadRouteModelCard();
+  });
   document.querySelectorAll("[data-token-range]").forEach((button) => {
     button.addEventListener("click", () => {
       if (!topologyRouteDetail) return;
@@ -669,36 +717,22 @@ export function bindTopologyDragAndDrop() {
     ui.topologyProxyEditingId = "";
     renderTopology();
   });
-  document.querySelector("[data-topology-proxy-delete]")?.addEventListener("click", async () => {
+  document.querySelector("[data-topology-proxy-delete]")?.addEventListener("click", () => {
     // The id is `skynet:proxy:<port>`, not a bare number.
-    const port = Number(String(ui.topologyProxyEditingId || "").split(":").pop() || 0);
-    const route = (topology?.proxies || []).find((p) => Number(p.port) === port);
-    if (!port) return;
-    // Say what leaves with it. A port is a listener AND whatever the agent on
-    // the other side is configured to call, so deleting one without naming the
-    // agent turns a tidy click into a silent outage on some other machine.
-    const bound = Object.entries(topology?.assignments || {}).flatMap(([host, row]) =>
-      (row.assignments || [])
-        .filter((a) => (a.routes || []).some((r) => String(r.proxyId).endsWith(`:${port}`)))
-        .map((a) => `${host}/${a.agentId}`));
-    const detail = [
-      `:${port} ${route?.label || ""}`,
-      bound.length ? `${t("proxyDeleteBound")}: ${bound.join(", ")}` : t("proxyDeleteUnbound"),
-    ].join("\n");
-    if (!await appConfirm(t("proxyDeleteConfirm", { port: String(port) }),
-                          { detail, danger: true })) return;
-    try {
-      const res = await api("/api/agent-proxies/route-delete", {
-        method: "POST", body: JSON.stringify({ port }),
-      });
-      if (res.topology) setTopology(res.topology);
-      ui.topologyProxyFormOpen = false;
-      ui.topologyProxyEditingId = "";
-      renderTopology();
-      toast(t("proxyDeleted", { port: String(port) }));
-    } catch (err) { toast(err.message); }
+    deleteProxyPort(Number(String(ui.topologyProxyEditingId || "").split(":").pop() || 0));
   });
-  // ── Router (Роутер) card → open in new tab ────────────────────────
+  // The route detail used to show statistics only: a port named by a slip was
+  // seen there and could be renamed or deleted nowhere near — only from the
+  // kanban's ✎ or the port form. Its two actions lead to those same places.
+  document.querySelectorAll("[data-route-detail-edit]").forEach((button) => button.addEventListener("click", () => {
+    topologyRouteDetail = null;
+    editTopologyProxy(button.dataset.routeDetailEdit);
+  }));
+  document.querySelectorAll("[data-route-detail-delete]").forEach((button) => button.addEventListener("click", () => {
+    topologyRouteDetail = null;
+    deleteProxyPort(Number(button.dataset.routeDetailDelete || 0));
+  }));
+  // ── Router card → open in new tab ────────────────────────
   document.querySelectorAll("[data-topology-router]").forEach((card) => {
     const open = (event) => {
       if (event.target?.closest?.(".topology-handle, .inline-tip, .tip-trigger")) return;
@@ -1033,6 +1067,13 @@ export function bindTopologyDragAndDrop() {
         clientIp,
         clientName: row.dataset.clientName || "",
         range: (topologyRouteDetail && !changedRoute) ? topologyRouteDetail.range : "all",
+        // The tab and any card already fetched are kept as long as the SAME
+        // route is open: closing the window and reopening it just to get
+        // back to what was being read isn't work the operator should have to
+        // do. A different route starts fresh: someone else's card on its tab
+        // would be a lie.
+        tab: (topologyRouteDetail && !changedRoute) ? topologyRouteDetail.tab : "details",
+        modelCard: (topologyRouteDetail && !changedRoute) ? topologyRouteDetail.modelCard : null,
       };
       renderTopology();
       loadRouteTokenHistory();

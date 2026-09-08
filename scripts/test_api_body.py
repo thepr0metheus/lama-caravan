@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Снимок: что api() кладёт на провод в качестве тела запроса.
+"""Snapshot: what api() puts on the wire as a request body.
 
-`fetch` приводит незнакомое ему тело через `String()`, поэтому обычный объект
-уходит пятнадцатью байтами `[object Object]`. Три вызова на странице системы
-делали именно это, и восстановление настроек не работало со дня написания —
-молча, потому что страница показывала общий тост об ошибке.
+`fetch` coerces a body it doesn't recognize through `String()`, so a plain
+object goes out as the fifteen bytes `[object Object]`. Three calls on the
+system page did exactly this, and settings restore had not worked since the
+day it was written — silently, because the page showed a generic error toast.
 
-Проверяется НАСТОЯЩИЙ `static/js/utils.js` в node с заглушками `document` и
-`fetch`: модуль не имеет импортов, поэтому его можно вызвать как есть.
+Exercises the REAL `static/js/utils.js` in node with stubs for `document` and
+`fetch`: the module has no imports, so it can be called as-is.
 
-Запуск: python3 scripts/test_api_body.py
+Run: python3 scripts/test_api_body.py
 """
 import json
 import subprocess
@@ -57,8 +57,8 @@ def check(cond, msg):
 
 NODE = find_node()
 if NODE is None:
-    # Причина отказа должна быть ПРАВДОЙ: контроллер флота держит node у nvm,
-    # и «на этом хосте нет node» там было неверно — см. scripts/_node.py.
+    # The failure reason has to be TRUE: the fleet's controller keeps node
+    # under nvm, and "no node on this host" was wrong there — see scripts/_node.py.
     print("api body: SKIPPED — node не найден ни в PATH, ни у менеджеров версий: "
           + ", ".join(node_search_paths()))
     sys.exit(0)

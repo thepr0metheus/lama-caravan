@@ -38,6 +38,7 @@ from caravan.admin.token_history import (
     record_token_history,
 )
 from caravan.common.errors import AppError
+from caravan.common.request_kind import is_discovery_probe
 from caravan.common.fsio import atomic_write_text
 from caravan.common.fetch import fetch_json, fetch_text
 from caravan.common.procs import run
@@ -194,7 +195,18 @@ def correlate_activity(sample):
     }
 
 def proxy_incident_for_item(item):
+    """The incident for one proxy log entry, or None.
+
+    A client's discovery probe is never an incident: `GET /v1/props`,
+    `/api/tags`, `/api/v1/models`, and other paths the server behind the port
+    doesn't have get an honest 404 — that's a normal conversation between a
+    client and a server, not a route failure. The rule is shared with the
+    proxy (caravan/common/request_kind.py), so the panel and output health
+    never disagree on what counts as a word about the model.
+    """
     if not isinstance(item, dict):
+        return None
+    if is_discovery_probe(item.get("method"), item.get("path"), item.get("status")):
         return None
     status = str(item.get("status") or "")
     label = str(item.get("label") or item.get("route") or "")
@@ -209,10 +221,14 @@ def proxy_incident_for_item(item):
             else "")
         if not error_kind and "timed out" in _err_text:
             error_kind = "upstream_timeout"
+        # The output chain is part of the reason, not decoration: "limits
+        # exhausted" blames the cloud when the local output failed first, and
+        # the operator goes off to fix the wrong thing.
+        chain = str(item.get("chain") or "").strip()
         return {
             "kind": error_kind or "failed",
             "title": f"{title_label} {'client disconnected' if error_kind == 'client_disconnected' else 'failed'}",
-            "summary": item.get("error") or f"status {status}",
+            "summary": (item.get("error") or f"status {status}") + (f" — after {chain}" if chain else ""),
             "cause": proxy_incident_cause(item, error_kind or "failed"),
         }
     if first_byte >= 30000:
@@ -276,6 +292,7 @@ def incident_log_record(item, incident):
         "status": item.get("status"),
         "error": item.get("error"),
         "errorKind": item.get("errorKind"),
+        "chain": item.get("chain"),
         "cause": incident.get("cause"),
         "startedAt": item.get("startedAt"),
         "finishedAt": item.get("finishedAt"),
@@ -300,6 +317,16 @@ def load_incident_log(limit=200):
                 continue
             row = json.loads(line)
             if row.get("kind") == "fallback_active":
+                continue
+            # A client's discovery probe is not an incident — not a new one,
+            # and not one logged earlier either. The rule is also applied on
+            # READ, because the log lives for 30 days: otherwise the panel
+            # would keep showing the same red rows for another month, and a
+            # fix would look like its own absence. Entries aren't deleted —
+            # they simply stop being called failures (the row has carried
+            # method and path from the start, so there's something to judge
+            # them by).
+            if is_discovery_probe(row.get("method"), row.get("path"), row.get("status")):
                 continue
             if row.get("time", 0) >= cutoff:
                 rows.append(row)
@@ -633,6 +660,26 @@ def rate_delta(previous, current, elapsed, keys):
         for key in keys
     }
 
+def _nvidia_failure(result):
+    """Why nvidia-smi produced no data, in its own words, or "".
+
+    nvidia-smi exits with code ZERO and prints the trouble to stdout — right
+    where a line of numbers is expected: "Failed to initialize NVML:
+    Driver/library version mismatch" after a driver update, before a reboot.
+    The `ok` check lets this through, parsing the line silently yields
+    nothing, and the board says "no GPU" — absence drawn as normal
+    (docs/why.md): the card is there, it can't be asked, and the reason is
+    known.
+    """
+    text = ((result.get("stdout") or "") + "\n" + (result.get("stderr") or "")).strip()
+    for line in text.splitlines():
+        line = line.strip()
+        # A data line is comma-separated numbers; everything else is the complaint.
+        if line and "," not in line:
+            return line[:200]
+    return (result.get("stderr") or "").strip()[:200] if not result.get("ok") else ""
+
+
 def gpu_sample():
     result = run([
         "nvidia-smi",
@@ -640,11 +687,14 @@ def gpu_sample():
         "--format=csv,noheader,nounits",
     ], timeout=3)
     if not result["ok"]:
-        return {"ok": False, "error": result["stderr"].strip()}
+        # nvidia-smi's complaint can land in EITHER of the two streams (NVML's
+        # goes to stdout), so both are read — an empty stderr here used to
+        # mean an empty reason and "no GPU" in its place.
+        return {"ok": False, "error": _nvidia_failure(result) or result["stderr"].strip()}
     line = result["stdout"].splitlines()[0] if result["stdout"].splitlines() else ""
     parts = [part.strip() for part in line.split(",")]
     if len(parts) < 6:
-        return {"ok": False, "error": "nvidia-smi returned no GPU row"}
+        return {"ok": False, "error": _nvidia_failure(result) or "nvidia-smi returned no GPU row"}
     def number(index):
         try:
             return float(parts[index])
@@ -902,7 +952,7 @@ _SLIM_ITEM_FIELDS = (
     "id", "label", "port", "state", "phase", "isCloud", "client", "method", "path",
     "status", "startedAt", "finishedAt", "durationMs", "elapsedMs", "firstByteMs",
     "error", "errorKind", "queuedMs", "upstream", "upstreamHost", "upstreamPort",
-    "upstreamType", "providerId",
+    "upstreamType", "providerId", "chain",
 )
 
 def _slim_item(item):
@@ -1052,7 +1102,7 @@ def gpu_state():
         "--format=csv,noheader,nounits",
     ], timeout=5)
     if not result["ok"]:
-        return {"ok": False, "error": result["stderr"]}
+        return {"ok": False, "gpus": [], "error": _nvidia_failure(result) or result["stderr"]}
     rows = []
     for idx, line in enumerate(result["stdout"].splitlines()):
         parts = [part.strip() for part in line.split(",")]
@@ -1081,6 +1131,11 @@ def gpu_state():
                 "memoryClockMaxMHz": parts[14],
                 "memoryBandwidthGBs": known_gpu_memory_bandwidth_gbs(parts[0]),
             })
+    if not rows:
+        # There are no cards, OR they can't be asked — different things, and
+        # the second one knows why. An empty list without a reason reads as
+        # "no GPUs at all".
+        return {"ok": False, "gpus": [], "error": _nvidia_failure(result)}
     return {"ok": True, "gpus": rows}
 
 def cpu_snapshot():
@@ -1159,7 +1214,7 @@ def _memory_state_darwin():
             key, raw = line.split(":", 1)
             pages[key.strip()] = int(raw.strip().rstrip("."))
         free_b = (pages.get("Pages free", 0) + pages.get("Pages speculative", 0)) * page
-        # покупаемая память ≈ free + inactive + purgeable
+        # reclaimable memory ≈ free + inactive + purgeable
         avail_b = free_b + (pages.get("Pages inactive", 0) + pages.get("Pages purgeable", 0)) * page
         used_b = max(0, total_b - avail_b)
         return {

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Гвард: каждый гвард и снимок из scripts/ действительно запускается — в CI и при деплое.
+"""Guard: every guard and snapshot in scripts/ actually runs — in CI and at deploy.
 
-CI перечисляет скрипты поимённо, поэтому новый файл попадает туда только руками
-— и за одну сессию про это забыли ЧЕТЫРЕ раза подряд. Тест, которого нет в
-гейте, не защищает ничего: он зелёный на машине автора и не запускается больше
-нигде, а выглядит как покрытие.
+CI lists scripts by name, so a new file only gets in there by hand — and
+across one session that got forgotten FOUR times in a row. A test that isn't
+in the gate protects nothing: it's green on its author's machine and never
+runs anywhere else, while looking like coverage.
 
-Падает тремя способами: файл на диске не назван в CI; в CI назван файл, которого
-нет на диске (переименовали, а гейт остался звать старый); и когда список того,
-что надо охранять, схлопнулся — тогда охранять нечего.
+Fails three ways: a file on disk isn't named in CI; CI names a file that
+isn't on disk (renamed, and the gate kept calling the old one); and when the
+list of what to guard has collapsed to nothing — then there's nothing to guard.
 
-Запуск: python3 scripts/check_ci_coverage.py
+Run: python3 scripts/check_ci_coverage.py
 """
 import re
 import sys
@@ -18,10 +18,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 CI = ROOT / ".github" / "workflows" / "ci.yml"
-# Запускаются не сами по себе, а изнутри другого шага.
+# Not run on their own — called from inside another step.
 EXEMPT = {
-    "test_guards_fail.py",   # сам вызывает все гварды
-    "testability_names.py",  # вызывается с --check из шага разметки
+    "test_guards_fail.py",   # calls every guard itself
+    "testability_names.py",  # called with --check from the tagging step
 }
 
 problems = []
@@ -42,17 +42,19 @@ for name in missing:
     problems.append(f"scripts/{name} есть на диске, но CI его не запускает")
 for name in stale:
     problems.append(f"CI зовёт scripts/{name}, которого на диске нет")
-# Гейт деплоя перебирает диск глобом — именно потому, что рукописный список
-# там устарел: 25 имён при 38 скриптах, тринадцать не запускались перед
-# выкаткой, включая самотест всех гвардов.
+# The deploy gate walks the disk with a glob — precisely because a
+# hand-written list there had gone stale: 25 names against 38 scripts,
+# thirteen never run before a rollout, including the self-test that runs
+# every guard.
 #
-# Первая версия этой проверки искала подстроку `for guard in check_` и легко
-# обходилась: список, записанный так, как файл уже пишет пути —
-# `for script in "scripts/check_a.py" "scripts/check_b.py"; do` — не совпадал
-# ни с чем, а глоб `scripts/check_*.py` в комментарии рядом удовлетворял второй
-# половине. Ревью показало обход, скептик воспроизвёл. Теперь РАЗБИРАЕТСЯ сам
-# цикл: слова после `in` до `; do`, и среди них обязан быть глоб по scripts/, а
-# литеральных scripts/<имя>.py быть не должно.
+# The first version of this check searched for the substring `for guard in
+# check_` and was easily defeated: a list written the way the file already
+# spells out paths — `for script in "scripts/check_a.py"
+# "scripts/check_b.py"; do` — matched nothing, while the glob
+# `scripts/check_*.py` sitting in a nearby comment satisfied the other half.
+# Review caught the workaround, a skeptic reproduced it. Now the LOOP ITSELF
+# is parsed: the words after `in` up to `; do` must include a glob over
+# scripts/, and must not include a literal scripts/<name>.py.
 DEPLOY = ROOT / "scripts" / "deploy.sh"
 if DEPLOY.exists():
     deploy_text = DEPLOY.read_text(encoding="utf-8")
@@ -63,11 +65,12 @@ if DEPLOY.exists():
         problems.append("scripts/deploy.sh: не нашёл цикла по scripts/ — гейт деплоя исчез или переписан")
     for words in gate_loops:
         toks = [t.strip("\"'") for t in words.split()]
-        # Литерал допустим только для того, что ни один глоб не покроет:
-        # testability_names.py — не test_ и не check_, и ему нужен --check.
-        # А вот литеральный test_*/check_* — это и есть рукописный список,
-        # подменяющий глоб; первая версия правила запрещала ЛЮБОЙ литерал и
-        # краснела на чистом дереве из-за этого единственного законного.
+        # A literal is allowed only for something no glob would cover:
+        # testability_names.py is neither test_ nor check_, and it needs
+        # --check. But a literal test_*/check_* IS the hand-written list
+        # standing in for the glob; the first version of the rule forbade
+        # ANY literal and turned red on a clean tree over this one
+        # legitimate exception.
         literal = [t for t in toks if re.fullmatch(r"scripts/(?:test|check)_[A-Za-z0-9_]+\.py", t)]
         globs = [t for t in toks if "*" in t and t.startswith("scripts/")]
         if literal:
@@ -77,12 +80,13 @@ if DEPLOY.exists():
         if not globs:
             problems.append("scripts/deploy.sh: цикл гейта без глоба по scripts/ — новые скрипты не подхватятся")
 
-# Имя, названное в ci.yml, засчитывалось этим гвардом ЛЮБОЕ — в том числе
-# написанное во втором `run:` того же шага. YAML не терпит двух одинаковых
-# ключей в одном отображении: шаг либо невалиден, либо исполняет ровно один из
-# них, — а гвард всё это время печатал зелёное, потому что искал подстроку.
-# Ровно тот же обход, что дважды находили у других гвардов: удовлетворяется
-# УПОМИНАНИЕМ, а не исполнением. Поэтому ключи шага теперь пересчитываются.
+# This guard used to count ANY name mentioned in ci.yml — including one
+# written into a second `run:` of the same step. YAML doesn't tolerate two
+# identical keys in one mapping: the step is either invalid, or executes
+# exactly one of them — while the guard kept printing green the whole time,
+# because it was searching for a substring. The exact same workaround found
+# twice before in other guards: satisfied by a MENTION, not by execution. So
+# a step's keys are now counted.
 step_re = re.compile(r"^(\s*)-\s+(\w[\w-]*):")
 key_re = re.compile(r"^(\s*)([A-Za-z_][\w-]*):")
 steps_with_run = 0
@@ -116,7 +120,7 @@ for line in ci_text.splitlines():
     if not k:
         continue
     indent = len(k.group(1))
-    if indent < cur_indent:          # вышли из шага — дальше уже не его ключи
+    if indent < cur_indent:          # left the step — what follows isn't its keys anymore
         _close_step()
         cur_indent = None
         cur_keys = {}
@@ -126,9 +130,10 @@ for line in ci_text.splitlines():
 if cur_indent is not None:
     _close_step()
 
-# Считаются не «шаги», а шаги С `run:` — иначе сигнал устаревания молчит там,
-# где важен: первая редакция считала любую строку вида `- слово:` за шаг, и
-# переименование ключа шага её не тревожило.
+# What's counted isn't "steps" but steps WITH `run:` — otherwise the
+# staleness signal stays silent exactly where it matters: the first version
+# counted any line shaped like `- word:` as a step, and renaming a step's key
+# never troubled it.
 if steps_with_run < 5:
     problems.append(f"в ci.yml нашлось всего {steps_with_run} шагов с `run:` — разбор шагов "
                     "сломался, дубли ключей больше не ищутся")

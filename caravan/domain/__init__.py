@@ -1,6 +1,6 @@
-"""Что караван ЗНАЕТ, отдельно от того, как он это подаёт и хранит.
+"""What the caravan KNOWS, separate from how it serves and stores it.
 
-Здесь живут сущности: раннер, ячейка, маршрут. Без HTTP, без файловой системы,
-без глобального состояния — модуль отсюда обязан импортироваться в пустом
-процессе и отвечать на вопросы о конфиге, ничего не трогая.
+The entities live here: runner, cell, route. No HTTP, no filesystem, no
+global state — a module from here must import cleanly in an empty process and
+answer questions about a config without touching anything.
 """

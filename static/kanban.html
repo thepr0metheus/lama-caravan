@@ -162,7 +162,7 @@
       #appLoader .pl-llama.pl-t-hop.pl-c { animation-delay: -4.9s, 0s; }
       @keyframes pl-hop { 0%, 20%, 100% { margin-bottom: 0; } 55% { margin-bottom: 6px; } }
       #appLoader .pl-llama.pl-t-hop.pl-gaitb::before { box-shadow: 5em 7em 0 0 #4d8f5c, 6em 7em 0 0 #4d8f5c, 7em 7em 0 0 #4d8f5c, 8em 7em 0 0 #4d8f5c, 9em 7em 0 0 #4d8f5c, 4em 8em 0 0 #4d8f5c, 5em 8em 0 0 #4d8f5c, 6em 8em 0 0 #66ab72, 7em 8em 0 0 #4d8f5c, 8em 8em 0 0 #66ab72, 9em 8em 0 0 #4d8f5c, 10em 8em 0 0 #4d8f5c, 3em 9em 0 0 #4d8f5c, 4em 9em 0 0 #4d8f5c, 5em 9em 0 0 #66ab72, 6em 9em 0 0 #4d8f5c, 7em 9em 0 0 #66ab72, 8em 9em 0 0 #4d8f5c, 9em 9em 0 0 #66ab72, 10em 9em 0 0 #4d8f5c, 11em 9em 0 0 #4d8f5c, 3em 10em 0 0 #3a6f47, 4em 10em 0 0 #3a6f47, 5em 10em 0 0 #3a6f47, 6em 10em 0 0 #3a6f47, 7em 10em 0 0 #3a6f47, 8em 10em 0 0 #3a6f47, 9em 10em 0 0 #3a6f47, 10em 10em 0 0 #3a6f47, 11em 10em 0 0 #3a6f47, 2em 10em 0 0 #9cbd72, 12em 8em 0 0 #9cbd72, 13em 8em 0 0 #22301f, 12em 9em 0 0 #9cbd72, 13em 9em 0 0 #9cbd72, 12em 10em 0 0 #9cbd72, 4em 11em 0 0 #9cbd72, 4em 12em 0 0 #9cbd72, 9em 11em 0 0 #9cbd72, 9em 12em 0 0 #9cbd72; }
-      /* клики: прыжок ламы и «египетский» выход черепашки */
+      /* clicks: a llama hops, a turtle does its "egyptian" walk */
       #appLoader .pl-llama::after { content: ""; position: absolute; left: 0; top: -13em; width: 17em; height: 15em; cursor: pointer; }
       #appLoader .pl-llama.pl-jump::before { animation: pl-jumpy .55s ease-in-out 1; }
       @keyframes pl-jumpy { 0%, 100% { transform: translateY(-12em); } 45% { transform: translateY(-17em); } }
@@ -181,15 +181,15 @@
     <script>
       (() => {
         const l = document.getElementById("appLoader");
-        // подпись — на языке сохранённого интерфейса (по умолчанию английский)
+        // caption — in the saved interface language (English by default)
         const lang = (localStorage.getItem("llamacppAdminLang") || "en").toLowerCase();
         const hints = { en: "loading…", ru: "загружается…", zh: "加载中…", es: "cargando…",
           fr: "chargement…", de: "lädt…", ja: "読み込み中…", pt: "carregando…", it: "caricamento…",
           ko: "로딩 중…", tr: "yükleniyor…", vi: "đang tải…" };
         l.querySelector(".pl-hint").textContent = hints[lang] || hints.en;
-        // случайный караван: форма груза × цвет тела × попона × цвет груза —
-        // формы задают пиксельную сетку (.pl-s1..s4), цвета миксуются переменными;
-        // с шансом 1/10 одно место в караване занимает черепашка
+        // random caravan: cargo shape × body color × blanket × cargo color —
+        // shapes come from a pixel grid (.pl-s1..s4), colors are mixed via variables;
+        // a 1/10 chance one spot in the caravan is a turtle instead
         const BODIES = ["#d9c29a", "#e8e2d4", "#a97e4f", "#b9b3a7", "#8a6f52", "#cbb188"];
         const BLANKETS = ["#43b3a4", "#d98c4a", "#9a7bd0", "#c4574e", "#4f8fd0", "#c9a83b", null];
         const CARGOS = ["#6e5137", "#8a7351", "#5d6657", "#7a4a41"];
@@ -210,11 +210,11 @@
           el.style.setProperty("--pl-cargo", pick(CARGOS));
           el.style.setProperty("--pl-rope", "#c8a06c");
         });
-        // 2-кадровая походка
+        // 2-frame walk cycle
         const gait = setInterval(() => l && l.querySelectorAll(".pl-llama").forEach(el => el.classList.toggle("pl-gaitb")), 220);
         window.__plHide = () => { if (!l || l.classList.contains("pl-done")) return; l.classList.add("pl-done");
           setTimeout(() => { clearInterval(gait); l.remove(); }, 400); };
-        // пасхалки: клик по ламе — прыжок; клик по черепашке — 2с египетской походки
+        // easter eggs: click a llama to make it hop; click a turtle for 2s of the egyptian walk
         l.querySelector(".pl-strip").addEventListener("click", (ev) => {
           const el = ev.target.closest(".pl-llama");
           if (!el) return;
@@ -230,7 +230,7 @@
           el.classList.add("pl-jump");
           el.addEventListener("animationend", () => el.classList.remove("pl-jump"), { once: true });
         });
-        setTimeout(window.__plHide, 20000);  // страховка, если инициализация зависла
+        setTimeout(window.__plHide, 20000);  // safety net in case init hangs
       })();
     </script>
   </div>

@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Снимок static/js/onboarding-tours.js — какие туры и когда.
+"""Snapshot of static/js/onboarding-tours.js — which tour, and when.
 
-Что пинится значением: выбор набора шагов по состоянию страницы (открыт
-редактор te/tr → тур редактора с его префиксом; standalone-канбан → тур
-канбана; иначе — тур доски); якоря шагов доски и редактора (это данные, и
-шаг с несуществующим якорем — это шаг, который никто не увидит); подписи
-кнопок из i18n; пикер языка в приветственном шаге зовёт setLang и
-перерисовку тура; строки туров вливаются в таблицу языка при её загрузке;
-первое открытие редактора запускает его тур через 0.9 с — если за это время
-не начали работать, и только один раз (флаг).
+What's pinned by value: picking the step set from the page's state (the
+te/tr editor open → the editor tour with its prefix; standalone kanban → the
+kanban tour; otherwise → the board tour); the board's and editor's step
+anchors (this is data, and a step with a nonexistent anchor is a step nobody
+will ever see); button captions from i18n; the language picker on the
+welcome step calls setLang and redraws the tour; tour strings get merged into
+the language table when it loads; the editor's first open starts its tour
+after 0.9s — only if nothing was touched in that window, and only once (a flag).
 
-Движок тура и i18n — заглушки с записью вызовов; `document.getElementById`
-— словарь; MutationObserver — стаб с ручным срабатыванием.
+The tour engine and i18n are stubs recording their calls; `document.getElementById`
+is a dict; MutationObserver is a stub fired by hand.
 
-Запуск: python3 scripts/test_js_onboarding_tours.py
+Run: python3 scripts/test_js_onboarding_tours.py
 """
 import json
 import os
@@ -99,8 +99,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

@@ -30,6 +30,8 @@ from struct import calcsize, unpack
 from urllib.parse import urlparse
 
 
+from caravan.admin.gpu_driver import driver_status, driver_update, set_auto_settings
+from caravan.admin.model_card import proxy_model_card
 from caravan.common.errors import AppError
 from caravan.common.flags import truthy
 from caravan.common.fetch import fetch_json, fetch_text, post_json
@@ -283,6 +285,13 @@ from caravan.admin.cloud import (
     upsert_cloud_account,
     upsert_cloud_block,
 )
+from caravan.admin.hf_verify import start_verify, verify_status
+from caravan.admin.model_staging import (
+    drop_prev, live_path_for, prev_overview, restore_prev, start_update,
+)
+from caravan.admin.model_watch import (
+    check_pass, freshness_report, set_watch_settings, watch_settings,
+)
 from caravan.admin.hf import (
     _derive_model_name,
     _hf_cache,
@@ -385,12 +394,12 @@ from caravan.admin.launch import (
 
 GET_PREFIX_ROUTES = []
 def _flag(query, name, default=False):
-    """Булев параметр строки запроса.
+    """A boolean query-string parameter.
 
-    Один разбор на все маршруты: раньше их было четыре написания, и два
-    параметра с именем `force` понимали только литерал "1", так что
-    `?force=true` молча читался как «нет». Словарь — общий для каравана,
-    см. caravan/common/flags.py.
+    One parser for every route: there used to be four separate spellings of
+    this, and two parameters both named `force` understood only the literal
+    "1", so `?force=true` was silently read as "no". The dict is shared
+    across the caravan, see caravan/common/flags.py.
     """
     values = query.get(name) if query else None
     if not values:
@@ -553,6 +562,19 @@ def _get_api_hf_local_check(h, parsed):
         _q = urllib.parse.parse_qs(parsed.query or "")
         _repo = (_q.get("repo") or [""])[0].strip()
         h.send_json(hf_local_check(_repo))
+        return
+
+@_route(GET_ROUTES, '/api/models/freshness')
+def _get_api_models_freshness(h, parsed):
+        h.send_json({"ok": True, **freshness_report(), "watch": watch_settings(),
+                     "prev": prev_overview()})
+        return
+
+@_route(GET_ROUTES, '/api/hf/verify')
+def _get_api_hf_verify(h, parsed):
+        _q = urllib.parse.parse_qs(parsed.query or "")
+        h.send_json(verify_status((_q.get("job") or [""])[0].strip(),
+                                  (_q.get("repo") or [""])[0].strip()))
         return
 
 @_route(GET_ROUTES, '/api/hf/benchmarks')
@@ -757,6 +779,17 @@ def _get_api_topology_agent_openclaw(h, parsed):
             h.send_json(result)
         except Exception as exc:
             h.send_json({"ok": False, "error": str(exc)})
+        return
+
+@_route(GET_ROUTES, '/api/gpu-driver')
+def _get_api_gpu_driver(h, parsed):
+        h.send_json(driver_status())
+        return
+
+@_route(GET_ROUTES, '/api/agent-proxy-model-card')
+def _get_api_agent_proxy_model_card(h, parsed):
+        query = urllib.parse.parse_qs(parsed.query or "")
+        h.send_json(proxy_model_card((query.get("port") or [""])[0]))
         return
 
 @_route(GET_ROUTES, '/api/agent-proxy-logs')
@@ -986,6 +1019,61 @@ def _post_api_hf_download(h, parsed, body):
         _models_dir = str(models_dir_from_config(parse_config()))
         _token = admin_state.get("hfToken") or ""
         _jid = start_hf_download(_repo, _files, _models_dir, _token)
+        h.send_json({"ok": True, "jobId": _jid})
+        return
+
+@_route(POST_ROUTES, '/api/models/freshness/check')
+def _post_api_models_freshness_check(h, parsed, body):
+        # A pressed button is a direct request: reach the network even with
+        # the checkbox off.
+        h.send_json({"ok": True, **check_pass(force=True), **freshness_report()})
+        return
+
+@_route(POST_ROUTES, '/api/models/staged/download')
+def _post_api_models_staged_download(h, parsed, body):
+        try:
+            h.send_json(start_update(str((body or {}).get("file") or "")))
+        except AppError as exc:
+            h.send_json({"ok": False, "error": str(exc)})
+        return
+
+@_route(POST_ROUTES, '/api/models/staged/revert')
+def _post_api_models_staged_revert(h, parsed, body):
+        try:
+            h.send_json(restore_prev(live_path_for(str((body or {}).get("file") or ""))))
+        except AppError as exc:
+            h.send_json({"ok": False, "error": str(exc)})
+        return
+
+@_route(POST_ROUTES, '/api/models/staged/drop-prev')
+def _post_api_models_staged_drop_prev(h, parsed, body):
+        try:
+            h.send_json(drop_prev(live_path_for(str((body or {}).get("file") or ""))))
+        except AppError as exc:
+            h.send_json({"ok": False, "error": str(exc)})
+        return
+
+@_route(POST_ROUTES, '/api/models/freshness/watch')
+def _post_api_models_freshness_watch(h, parsed, body):
+        h.send_json({"ok": True, "watch": set_watch_settings(body or {})})
+        return
+
+@_route(POST_ROUTES, '/api/hf/verify')
+def _post_api_hf_verify(h, parsed, body):
+        # Hashing a terabyte on someone else's say-so is out of the question:
+        # the file list comes from HF by repository name, not from the request body.
+        _repo = str(body.get("repo") or "").strip()
+        _listing = hf_list_files(_repo)
+        if not _listing.get("ok"):
+            h.send_json(_listing)
+            return
+        _local = hf_local_check(_repo)
+        try:
+            _jid = start_verify(_repo, _listing.get("files") or [],
+                                _local.get("localFiles") or {})
+        except AppError as exc:
+            h.send_json({"ok": False, "error": str(exc)})
+            return
         h.send_json({"ok": True, "jobId": _jid})
         return
 
@@ -1407,14 +1495,16 @@ def _post_api_topology_assignments(h, parsed, body):
 @_route(POST_ROUTES, '/api/agent-port')
 def _post_api_agent_port(h, parsed, body):
         from caravan.admin.proxies_config import mint_agent_port
-        # Роль едет с провода. Без неё новый порт садился на primary ВСЕГДА, то
-        # есть просьба «дай второй порт» молча подменяла рабочий маршрут.
+        # The role rides along on the wire. Without it a new port always
+        # landed on primary, so a request for "give me a second port" would
+        # silently replace the working route instead.
         role = str(body.get("role") or "primary").strip() or "primary"
         port = body.get("port")
         if not port and role == "fallback":
-            # Рядом с праймари намеренно оставлена дыра +1 — её и занимаем,
-            # иначе пара портов перестаёт читаться глазами. Занят — пусть
-            # аллокатор выберет сам, это не повод отказывать.
+            # A +1 gap is deliberately left next to primary — that's the one
+            # we take, or the port pair stops reading at a glance. If it's
+            # taken, let the allocator pick its own — that's not a reason to
+            # refuse.
             rows = ((topology_store().get("assignments") or {})
                     .get(str(body.get("clientId") or "")) or {}).get("assignments") or []
             row = next((r for r in rows if r.get("agentId") == body.get("agentId")), None)
@@ -1583,6 +1673,16 @@ def _post_api_topology_clients_adopt(h, parsed, body):
 @_route(POST_ROUTES, '/api/topology/agent-route/remove')
 def _post_api_topology_agent_route_remove(h, parsed, body):
         h.send_json(remove_agent_route(body))
+
+@_route(POST_ROUTES, '/api/gpu-driver/update')
+def _post_api_gpu_driver_update(h, parsed, body):
+        h.send_json(driver_update((body or {}).get("package")))
+        return
+
+@_route(POST_ROUTES, '/api/gpu-driver/auto')
+def _post_api_gpu_driver_auto(h, parsed, body):
+        h.send_json(set_auto_settings(body or {}))
+        return
 
 @_route(POST_ROUTES, '/api/topology/agent-route/model')
 def _post_api_topology_agent_route_model(h, parsed, body):

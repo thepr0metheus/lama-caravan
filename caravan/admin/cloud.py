@@ -127,7 +127,7 @@ def save_cloud_data(data):
                       "migrations": sorted(set(data.get("migrations") or []))})
 
 
-#: Имя пройденной миграции в самом файле облачных данных.
+#: Name of the completed migration, stamped into the cloud data file itself.
 MIGRATION_CONTEXT_AUTO = "contextAuto-2026-09"
 
 
@@ -171,9 +171,9 @@ def migrate_context_auto():
         if windows[acct].get(block.get("model")):
             block["contextAuto"] = True
             changed += 1
-    # Записывается ВСЕГДА, даже когда менять было нечего: «не нашлось, что
-    # штамповать» — это тоже пройденная миграция, иначе она бы ждала первого
-    # подходящего блока и сработала на нём через месяц.
+    # Stamped ALWAYS, even when there was nothing to change: "found nothing to
+    # stamp" is a completed migration too — otherwise it would keep waiting
+    # for the first matching block and fire on it a month later.
     data["migrations"] = sorted(set(data.get("migrations") or []) | {MIGRATION_CONTEXT_AUTO})
     save_cloud_data(data)
     return changed

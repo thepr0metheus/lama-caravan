@@ -1,57 +1,67 @@
-"""Назначение агента и его маршруты — класс, а не словарь из трёх ключей.
+"""An agent's assignment and its routes — a class, not a three-key dict.
 
-Форму этой записи строят три места: нормализатор в `admin/topology.py`,
-пересборка в `admin/proxy_ops.py` и провижининг в `admin/fleet_clients.py`.
-Сама по себе тройка не беда — беда в том, что нормализатор ПЕРЕСОБИРАЕТ строку
-с нуля, поэтому поле, которого он не называет, тихо исчезает при следующем
-сохранении. Это уже случилось: флаг `manual` пришлось называть отдельно, и
-рядом с ним стоит комментарий о том, что «оставь этот агент в покое», молча
-вернувшееся к автомату, — худший отказ, какой у этого флага есть.
+Three places build this record's shape: the normalizer in `admin/topology.py`,
+the rebuild in `admin/proxy_ops.py`, and provisioning in
+`admin/fleet_clients.py`. The count of three isn't the problem by itself — the
+problem is that the normalizer REBUILDS the record from scratch, so a field it
+doesn't name quietly disappears on the next save. This already happened: the
+`manual` flag had to be named separately, and right next to it sits a comment
+saying "leave this agent alone", silently reverted to automatic — the worst
+failure this flag can have.
 
-Значит «не забыть назвать поле» не должно быть тем, о чём можно забыть. Список
-полей живёт здесь, в одном месте, и все трое идут через него: добавленное поле
-переживает сохранение у всех писателей сразу или ни у кого.
+So "don't forget to name the field" must not be something that can be
+forgotten. The field list lives here, in one place, and all three go through
+it: an added field survives a save at every writer at once, or at none of
+them.
 
-Класс держит ФОРМУ и правила отказа, а не политику: кто имеет право писать и
-что побеждает при слиянии — вопросы вызывающего.
+The class holds SHAPE and refusal rules, not policy: who is allowed to write,
+and what wins in a merge, are the caller's questions.
 """
 from caravan.common.errors import AppError
 
-#: Как зовётся порт прокси внутри каравана. Неймспейс проверяется отдельным
-#: гвардом (scripts/check_proxy_id_namespace.py) — здесь только сборка.
+#: What a proxy port is called inside the caravan. The namespace is checked
+#: by its own guard (scripts/check_proxy_id_namespace.py) — only assembly here.
 PROXY_ID_PREFIX = "skynet:proxy:"
 
 
 class ProxyRoute:
-    """Одна роль одного агента: каким портом прокси он пользуется.
+    """One role of one agent: which proxy port it uses.
 
-    `role` по умолчанию "primary" — так вела себя пересборка, и снимок это
-    пинит. `proxy_id` может быть пустым: живой отчёт клиента знает свой
-    endpoint, но не знает внутреннего id, и пустая строка здесь честнее
-    отсутствия ключа.
+    `role` defaults to "primary" — that's how the rebuild used to behave, and
+    the snapshot pins it. `proxy_id` can be empty: a client's live report
+    knows its own endpoint but not the internal id, and an empty string here
+    is more honest than a missing key.
     """
 
-    __slots__ = ("role", "proxy_id", "endpoint", "context_length", "context_auto", "model_name")
+    __slots__ = ("role", "proxy_id", "endpoint", "context_length", "context_auto",
+                 "model_name", "model_name_auto")
 
     def __init__(self, role="primary", proxy_id="", endpoint="",
-                 context_length=None, context_auto=None, model_name=None):
+                 context_length=None, context_auto=None, model_name=None,
+                 model_name_auto=None):
         self.role = str(role or "primary").strip()
         self.proxy_id = str(proxy_id or "").strip()
         self.endpoint = str(endpoint or "").strip()
-        #: Окно контекста, заданное оператором ДЛЯ ЭТОГО потребителя. Побеждает
-        #: число модели: у каждого клиента свой бюджет, и модель про него не
-        #: знает. None — не задано; ноль и мусор тоже дают None, потому что
-        #: клиент прочитал бы ноль как настоящий предел.
+        #: Context window the operator set FOR THIS consumer. Wins over the
+        #: model's own number: each client has its own budget, and the model
+        #: knows nothing about it. None means unset; zero and garbage also
+        #: give None, because a client would read zero as a real limit.
         self.context_length = self._positive_int(context_length)
-        #: «Брать то, что сообщает модель». Хранится только когда включена:
-        #: выдуманное False у маршрута, которому его никто не ставил, читалось
-        #: бы как решение оператора.
+        #: "Take whatever the model reports." Stored only when turned on: a
+        #: made-up False on a route nobody ever touched would read as an
+        #: operator decision.
         self.context_auto = None if context_auto is None else bool(context_auto)
-        #: Под каким именем этот порт объявляет свою модель. Клиент ищет в
-        #: `/v1/models` СВОЙ id и, не найдя, берёт встроенное умолчание —
-        #: поэтому окно, честно опубликованное под чужим именем, до него не
-        #: доходит. Пусто — публикуется то, что назвал апстрим.
+        #: The name this port advertises its model under. A client looks up
+        #: ITS OWN id in `/v1/models` and, not finding it, falls back to its
+        #: built-in default — so a window honestly published under the wrong
+        #: name never reaches it. Empty means whatever the upstream calls
+        #: itself is published as-is.
         self.model_name = (str(model_name).strip()[:120] or None) if model_name else None
+        #: "Open the lock": advertise the model under its own name and leave
+        #: the name above unused. Stored only when turned on — a made-up
+        #: False on a route nobody ever touched would read as an operator
+        #: decision (the same rule as the window's checkbox).
+        self.model_name_auto = None if model_name_auto is None else bool(model_name_auto)
 
     @staticmethod
     def _positive_int(value):
@@ -63,9 +73,10 @@ class ProxyRoute:
 
     @classmethod
     def for_port(cls, role, port, server_ip):
-        """Маршрут на выданный порт. Единственное место, где собирается пара
-        `proxyId`/`endpoint`: раньше её писали два вызывающих, и порт в двух
-        половинах обязан быть одним и тем же — снимок это пинит."""
+        """A route to an issued port. The one place that assembles the
+        `proxyId`/`endpoint` pair: it used to be written by two callers, and
+        the port has to be the same one in both halves — the snapshot pins
+        that."""
         port = int(port)
         return cls(role=role, proxy_id=f"{PROXY_ID_PREFIX}{port}",
                    endpoint=f"http://{server_ip}:{port}/v1")
@@ -76,21 +87,22 @@ class ProxyRoute:
             raise AppError("route must be an object", 400)
         route = cls(role=raw.get("role"), proxy_id=raw.get("proxyId"), endpoint=raw.get("endpoint"),
                     context_length=raw.get("contextLength"), context_auto=raw.get("contextAuto"),
-                    model_name=raw.get("modelName"))
+                    model_name=raw.get("modelName"), model_name_auto=raw.get("modelNameAuto"))
         if not route.endpoint:
             raise AppError("route.endpoint is required", 400)
         return route
 
     @property
     def port(self):
-        """Порт из id, если он там есть. 0 — «не знаю», а не «нулевой порт»."""
+        """The port out of the id, if it's there. 0 means "unknown", not
+        "port zero"."""
         tail = self.proxy_id.rsplit(":", 1)[-1] if self.proxy_id else ""
         return int(tail) if tail.isdigit() else 0
 
     def to_dict(self):
-        # Незаданные настройки не пишутся вовсе: маршрут, которого оператор не
-        # трогал, сохраняет ровно ту трёхключевую форму, что и раньше, — значит
-        # переход не требует миграции записей.
+        # Settings that were never set aren't written at all: a route the
+        # operator never touched keeps exactly the old three-key shape it
+        # always had — so the transition needs no record migration.
         out = {"role": self.role, "proxyId": self.proxy_id, "endpoint": self.endpoint}
         if self.context_length is not None:
             out["contextLength"] = self.context_length
@@ -98,15 +110,17 @@ class ProxyRoute:
             out["contextAuto"] = self.context_auto
         if self.model_name:
             out["modelName"] = self.model_name
+        if self.model_name_auto is not None:
+            out["modelNameAuto"] = self.model_name_auto
         return out
 
 
 class AgentAssignment:
-    """Куда ходит один агент — и что оператор решил про него руками.
+    """Where one agent goes — and what the operator decided about it by hand.
 
-    `manual` означает «провижининг сюда не лезет». Флаг хранится только когда
-    он задан: выдуманное False у записи, которой его никто не ставил, читалось
-    бы как решение оператора.
+    `manual` means "provisioning stays out of this". The flag is stored only
+    when it's set: a made-up False on a record nobody ever touched would read
+    as an operator decision.
     """
 
     __slots__ = ("agent_id", "routes", "manual")
@@ -136,18 +150,19 @@ class AgentAssignment:
 
     @classmethod
     def rewired(cls, agent_id, previous_raw, route):
-        """Строка, пересобранная по ЖИВОМУ отчёту клиента.
+        """A record rebuilt from a client's LIVE report.
 
-        Отчёт знает одно: каким портом агент пользуется сейчас. Он не знает,
-        что оператор про этот маршрут решил, — и не вправе это стирать.
-        Сверка прокси собирала строку с нуля из отчёта, поэтому окно контекста
-        и флаг «руками» исчезали у КАЖДОГО онлайн-агента, даже когда порт не
-        менялся; предпросмотр при этом показывал перецепку «с порта X на порт
-        X» и молчал о снятых настройках.
+        The report knows one thing: which port the agent uses right now. It
+        doesn't know what the operator decided about this route — and has no
+        right to erase that. The proxy reconcile used to build the record
+        from the report alone, so the context window and the "manual" flag
+        disappeared for EVERY online agent, even when the port hadn't
+        changed; the preview meanwhile showed a rewire "from port X to port
+        X" and said nothing about the settings it was dropping.
 
-        Живость берётся из `route`, настройки — из прежней записи той же роли.
-        Строка остаётся с одним маршрутом: пары fallback сняты с вооружения, и
-        воскрешать их пересборкой нельзя.
+        Liveness comes from `route`; settings come from the previous record
+        of the same role. The record keeps a single route: fallback pairs
+        have been retired, and a rebuild must not resurrect them.
         """
         prev = previous_raw if isinstance(previous_raw, dict) else {}
         prev_routes = prev.get("routes")
@@ -161,27 +176,29 @@ class AgentAssignment:
                 route.context_auto = bool(same_role.get("contextAuto"))
             if route.model_name is None and same_role.get("modelName"):
                 route.model_name = str(same_role.get("modelName")).strip()[:120] or None
+            if route.model_name_auto is None and same_role.get("modelNameAuto") is not None:
+                route.model_name_auto = bool(same_role.get("modelNameAuto"))
         return cls(agent_id, [route], manual=prev.get("manual"))
 
     def route(self, role):
         return next((r for r in self.routes if r.role == role), None)
 
     def set_route(self, route):
-        """Ставит маршрут на его роль: заменяет существующий, иначе добавляет.
+        """Sets the route for its role: replaces an existing one, else adds it.
 
-        Замена, а не пропуск — это и есть починка 2026-07-20: провижининг
-        выдавал новый порт, когда старый исчезал, и добавлял его «если роли
-        нет», что в этом случае никогда не было правдой. Запись оставалась
-        стоять на мёртвом порту, ворота срабатывали снова, и порт минтился на
-        каждом опросе доски.
+        Replacement, not a skip — this is the 2026-07-20 fix: provisioning
+        issued a new port when the old one vanished, and added it "if the
+        role doesn't exist yet", which in that case was never true. The
+        record kept standing on the dead port, the gate fired again, and a
+        new port got minted on every board poll.
         """
         existing = self.route(route.role)
         if existing is None:
             self.routes.append(route)
         else:
-            # Переставляется ЖИВОСТЬ — куда агент ходит. Настройки, заданные
-            # оператором на этой роли, переезд порта не отменяет: то же
-            # разделение, что и при слиянии на доске.
+            # What moves is LIVENESS — where the agent is reached. Settings
+            # the operator set on this role are not cancelled by a port move:
+            # the same split as the board's merge.
             existing.role, existing.proxy_id, existing.endpoint = route.role, route.proxy_id, route.endpoint
             if route.context_length is not None:
                 existing.context_length = route.context_length
@@ -189,6 +206,8 @@ class AgentAssignment:
                 existing.context_auto = route.context_auto
             if route.model_name is not None:
                 existing.model_name = route.model_name
+            if route.model_name_auto is not None:
+                existing.model_name_auto = route.model_name_auto
         return route
 
     def to_dict(self):

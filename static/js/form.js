@@ -41,12 +41,13 @@ import {
   offloadSplit,
   vramFitForPfx,
 } from "./memory.js";
+import { jobsForArtifact } from "./model-jobs.js";
 import { _modelBenchKey, fetchPickerBenchBatch, serverBenchCache } from "./model-meta.js";
 import { saveConfig } from "./polling.js";
 import { _trCachedModels, _trClientCpu } from "./remote-cells.js";
 import { state, topology } from "./state.js";
 import { renderRuntime } from "./system-panels.js";
-import { $, api, escapeHtml, formatBool, inferSpecType, toast } from "./utils.js";
+import { $, api, escapeHtml, formatBool, formatCtxTokens, inferSpecType, toast } from "./utils.js";
 
 export function syncToggleLabel(input) {
   const span = input?.closest(".check-row")?.querySelector("span");
@@ -110,16 +111,64 @@ export function syncConfigTabs(pfx) {
 // itself (and repairs the placeholder while at it), because an editor opened
 // on an EXISTING cell never fires the model-change autofill that used to be
 // the placeholder's only writer.
+// The window the selected model's weights were trained with, for the CTX_SIZE
+// field: the GGUF header of the file the catalogue knows, else the figure the
+// editor stashed from a RUNNING cell's model card (a loaded model need not
+// have its file in this host's catalogue), else the placeholder an earlier
+// pass wrote. Zero when nothing knows.
+export function ctxNativeFor(pfx) {
+  const ctxEl = $(pfx + "CTX_SIZE");
+  const modelVal = $(pfx + "MODEL_FILE")?.value || "";
+  return Number(modelsByPath().get(modelVal)?.ggufMeta?.contextLength || 0)
+    || Number(ctxEl?.dataset?.trained || 0)
+    || Number(ctxEl?.placeholder || 0);
+}
+
+// What the 🎓 button beside CTX_SIZE shows: the trained window as a label, and
+// whether the field already holds exactly that number.
+export function ctxNativeButtonState(native, value) {
+  const n = Number(native || 0);
+  if (!(n > 0)) return { hidden: true, label: "", title: "", active: false };
+  return {
+    hidden: false,
+    label: `🎓 ${formatCtxTokens(n)}`,
+    title: t("ctxNativeBtnTitle", { value: String(n) }),
+    active: Number(value || 0) === n,
+  };
+}
+
+function syncCtxNativeButton(field, native, value) {
+  const btn = field?.querySelector?.("[data-ctx-native]");
+  if (!btn) return;
+  const stt = ctxNativeButtonState(native, value);
+  btn.hidden = stt.hidden;
+  btn.textContent = stt.label;
+  btn.title = stt.title;
+  btn.dataset.value = stt.hidden ? "" : String(native);
+  btn.classList.toggle("active", stt.active);
+}
+
+// One press puts the trained window into CTX_SIZE and fires the same input
+// event the halve/double buttons do, so the YaRN chip, the memory estimate
+// and the command preview all re-read. Returns the number written, 0 if none.
+export function applyCtxNative(pfx) {
+  const ctxEl = $(pfx + "CTX_SIZE");
+  const native = ctxNativeFor(pfx);
+  if (!ctxEl || !(native > 0)) return 0;
+  ctxEl.value = String(native);
+  if (typeof ctxEl.dispatchEvent === "function") ctxEl.dispatchEvent(new Event("input", { bubbles: true }));
+  return native;
+}
+
 export function updateCtxYarnHint(pfx) {
   const ctxEl = $(pfx + "CTX_SIZE");
   const field = ctxEl?.closest(".field");
   const hint = field?.querySelector(".ctx-yarn-hint");
   const chip = field?.querySelector(".yarn-chip");
   if (!ctxEl || !hint) return;
-  const modelVal = $(pfx + "MODEL_FILE")?.value || "";
-  const native = Number(modelsByPath().get(modelVal)?.ggufMeta?.contextLength || 0)
-    || Number(ctxEl.placeholder || 0);
+  const native = ctxNativeFor(pfx);
   if (native > 0) ctxEl.placeholder = String(native);
+  syncCtxNativeButton(field, native, ctxEl.value);
   const val = Number(ctxEl.value || 0);
   const manual = !!($(pfx + "ROPE_SCALING")?.value || "").trim();
   const above = native > 0 && val > native;
@@ -207,6 +256,36 @@ export function badge(text, kind) {
 // `testId` stamps data-t on badges a test needs to find. Most badges describe a
 // model and are asserted through the card that holds them; the ones that report
 // a FAULT are the ones worth locating directly — see docs/testability.md.
+//: Emoji per job. The WORD does the telling — these only make the chip findable
+//: while scanning, which is why `speech-translate` wears both marks: it is the
+//: compound job, and 🌐 alone would read as plain text translation.
+const JOB_MARKS = { llm: "💬", embed: "🧬", asr: "🎧", tts: "🔊", translate: "🌐",
+                    "speech-translate": "🎧🌐" };
+const JOB_LABELS = { llm: "jobLlm", embed: "jobEmbed", asr: "jobAsr", tts: "jobTts",
+                     translate: "jobTranslate", "speech-translate": "jobSpeechTranslate" };
+//: Test hooks spelled out rather than composed, so `grep data-t` still finds
+//: every one of them — the contract in docs/testability.md is only worth what a
+//: reader can locate in the source.
+const JOB_HOOKS = { llm: "model-job-llm", embed: "model-job-embed", asr: "model-job-asr", tts: "model-job-tts",
+                    translate: "model-job-translate",
+                    "speech-translate": "model-job-speech-translate" };
+
+// What the model DOES, said in words at the head of its row.
+//
+// The icons to its right name the ENGINE — a different question, and one the
+// row already answered. Reading the job out of them required knowing that
+// moonshine recognizes speech and that NLLB translates, and the commonest row
+// answered nothing at all: an LLM was whatever carried no speech badge. A job
+// this list cannot name draws NO chip rather than a guessed one.
+export function jobChips(jobs) {
+  return (jobs || []).map((job) => {
+    const key = JOB_LABELS[job];
+    if (!key) return "";
+    return `<span class="mbadge mbadge-job" data-t="${JOB_HOOKS[job]}">${
+      JOB_MARKS[job] || ""} ${escapeHtml(t(key))}</span>`;
+  }).join("");
+}
+
 export function mbadge(type, text, title, testId) {
   return `<span class="mbadge mbadge-${type}"${title ? ` title="${escapeHtml(title)}"` : ""}${
     testId ? ` data-t="${escapeHtml(testId)}"` : ""}>${text}</span>`;
@@ -476,6 +555,14 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
       // stamped by the caller: this renderer has no idea which form it serves.
       if (item.wrongRunner) el.classList.add("mc-dim");
       let badges = "";
+      // Diverged from Hugging Face — said HERE, on the file's own row. A
+      // cell's card names the role ("⇪ · mmproj"), but which file exactly,
+      // and by how much, is only visible where the files are listed one by
+      // one. The icon rides onto the selected row too: it's assembled from
+      // this same markup.
+      if (item.fresh === "size" || item.fresh === "date") {
+        badges += mbadge("stale-model", "⇪", t("cellModelStaleTip"), "model-file-stale");
+      }
       if (item.kind === "st") badges += mbadge("st", item.stFormat || "safetensors", "safetensors");
       if (item.cached) badges += mbadge("cached", t("cachedOnHost"));
       if (item.missing) {
@@ -493,9 +580,15 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
         if (item.aaScore != null) badges += mbadge("bench", `🧠 ${item.aaScore}`);
       }
       const dateStr = mcFormatMtime(item.mtime);
+      // The job goes FIRST, before the engine: "what is this" is read before
+      // "what starts it". A row we cannot classify (a file that is not on disk,
+      // so nothing read its metadata) gets no chip — the same rule the engine
+      // icons already follow, for the same reason.
+      const jobHtml = item.missing ? ""
+        : jobChips(jobsForArtifact(item.kind, item.sttVariant, item.stArch, item.detectedFamily));
       el.innerHTML = `
         <div class="mc-item-main">
-          ${runnerIcons}<span class="mc-item-name">${escapeHtml(fname)}</span>
+          ${jobHtml}${runnerIcons}<span class="mc-item-name">${escapeHtml(fname)}</span>
           ${item.sizeLabel ? `<span class="mc-item-size">${escapeHtml(item.sizeLabel)}</span>` : item.sizeGb ? `<span class="mc-item-size">${item.sizeGb} GB</span>` : ""}
           ${badges}
           ${dateStr ? `<span class="mc-item-date" title="${t("addedOnDisk")}">${dateStr}</span>` : ""}
@@ -1147,6 +1240,7 @@ export function renderField(field, pfx = "") {
           <input id="${fid}" name="${field}" value="${escapeHtml(state.config[field] || "")}">
           <button class="batch-scale-btn" type="button" data-scale="0.5">÷2</button>
           <button class="batch-scale-btn" type="button" data-scale="2">×2</button>
+          <button class="batch-scale-btn ctx-native-btn" type="button" data-ctx-native="1" data-t="cell-ctx-native" hidden>🎓</button>
         </div>
         <button type="button" class="yarn-chip" id="${fid}-yarn-chip" data-t="cell-yarn-chip" hidden></button>
       </div>
@@ -1160,13 +1254,16 @@ export function renderField(field, pfx = "") {
     // other number an operator walks up and down by powers of two, and it is
     // the one where the next step may cross the model's native window and
     // engage YaRN, so the chip has to re-read after every press.
-    div.querySelectorAll(".batch-scale-btn").forEach((btn) => {
+    div.querySelectorAll(".batch-scale-btn[data-scale]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const v = Math.max(1, Math.round(Number(input.value || 0) * Number(btn.dataset.scale)));
         input.value = v;
         input.dispatchEvent(new Event("input", { bubbles: true }));
       });
     });
+    // 🎓 — the trained window in one press (see applyCtxNative). Shown only
+    // while something knows the number; the label IS the number.
+    div.querySelector("[data-ctx-native]").addEventListener("click", () => applyCtxNative(pfx));
   } else {
     // Fields with a closed value set get a datalist: every legal value becomes
     // discoverable without taking away free text, so a value llama.cpp adds

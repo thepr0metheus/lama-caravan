@@ -416,6 +416,58 @@
   border-top: none;
 }
 
+/* Port actions in the route detail's head: quiet pills beside the ×, in the
+   icon-action's palette — no link underline, no filled block. The danger one
+   is outlined in the warning colour and stays quiet until hovered. */
+.topology-detail-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  min-height: 0;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--field) 84%, transparent);
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.topology-detail-action:hover,
+.topology-detail-action:focus {
+  border-color: color-mix(in srgb, var(--accent) 68%, var(--line));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--field));
+  outline: none;
+}
+
+/* Selector carries the tag: the generic `button.danger` (a filled block with
+   light text) would otherwise win over the class pair and paint a pink slab. */
+button.topology-detail-action.danger {
+  background: transparent;
+  color: color-mix(in srgb, var(--bad) 80%, var(--muted));
+  border-color: color-mix(in srgb, var(--bad) 40%, var(--line));
+  box-shadow: none;
+}
+
+button.topology-detail-action.danger:hover,
+button.topology-detail-action.danger:focus {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 70%, var(--line));
+  background: color-mix(in srgb, var(--bad) 12%, var(--field));
+}
+
+.topology-detail-modal .topology-policy-head-actions {
+  margin-left: auto;
+  gap: 6px;
+}
+
 .topology-detail-lines {
   display: grid;
   gap: 6px;
@@ -670,6 +722,22 @@
    llama.cpp binary banner it is the small sibling of, not red: nothing is
    broken, something is behind */
 .mbadge-stale-src { background: color-mix(in srgb, #f59e0b 14%, transparent); color: #fcd34d; border-color: color-mix(in srgb, #f59e0b 38%, transparent); }
+/* What the model DOES, at the head of its row — a neutral slate chip, on
+   purpose. Every other badge here is an ACCENT: it earns its colour by being
+   the exception worth spotting (⇪ stale, ⚠ missing, 📷 vision). The job is on
+   every row, so colouring it would drown the exceptions it sits beside; it
+   carries its weight by position and by being the only chip left of the name. */
+.mbadge-job {
+  background: color-mix(in srgb, var(--muted,#888) 14%, transparent);
+  color: var(--fg,#e5e7eb);
+  border-color: color-mix(in srgb, var(--muted,#888) 34%, transparent);
+  letter-spacing: 0;
+  margin-right: 6px;
+  flex: 0 0 auto;
+}
+/* Two jobs on one row (moonshine both recognizes and speaks) must not push the
+   name off; the pair stays tight and the second chip keeps its own edge. */
+.mbadge-job + .mbadge-job { margin-left: -2px; }
 /* picker rows for artifacts not on disk yet (whisper sizes that download on first start) */
 .mc-item.mc-dim { opacity: .45; }
 /* runner icons left of the model name in the picker: 🦙 native, ⚡ vLLM (dimmed = experimental) */
@@ -1037,6 +1105,16 @@
 /* The read failed — visible but muted. It is a gap in what we know, not an
    incident, so it must not compete with the error card below it. */
 .sub-usage-panel.sub-usage-failed { opacity: .75; }
+/* The verdict above the bars: red when the provider has blocked the plan,
+   amber when its counter says 0% but requests still pass. Loud on purpose —
+   this is the one line that says whether the next request will be served. */
+.sub-usage-banner { border-radius: 8px; padding: 8px 10px; font-size: 12px; font-weight: 600; line-height: 1.35; }
+.sub-usage-banner.blocked { background: color-mix(in srgb, #ef4444 16%, var(--field));
+  border: 1px solid color-mix(in srgb, #ef4444 55%, transparent); color: #fca5a5; }
+.sub-usage-banner.warn { background: color-mix(in srgb, #f59e0b 14%, var(--field));
+  border: 1px solid color-mix(in srgb, #f59e0b 50%, transparent); color: #fcd34d; }
+.sub-usage-banner-keeps { font-weight: 500; margin-top: 3px; color: var(--text); }
+.sub-usage-banner-own { font-weight: 400; margin-top: 3px; color: var(--muted); font-size: 11px; }
 
 .sub-usage-head {
   display: flex;
@@ -2164,3 +2242,36 @@
    things on screen, not one blank field. */
 .cloud-ctx-reported { display: flex; align-items: baseline; gap: 8px; font-size: 12px; }
 .cloud-ctx-reported b { font-variant-numeric: tabular-nums; }
+
+/* ── Route window: two tabs ───────────────────────────────────────────────
+   The first is what the port has already done, the second is what it's
+   currently telling a client about itself. Tabs, not a second window: it's
+   the same port, and switching between its two sides shouldn't cost closing it. */
+.topology-detail-tabs { display: flex; gap: 6px; margin: 2px 0 10px; border-bottom: 1px solid var(--line); }
+.topology-detail-tabs > .detail-tab {
+  font: inherit; font-size: 12px; line-height: 1.6; padding: 4px 12px; min-height: 0;
+  border: 1px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0;
+  background: transparent; color: var(--muted); cursor: pointer; margin-bottom: -1px;
+}
+.topology-detail-tabs > .detail-tab:hover { color: var(--accent); }
+.topology-detail-tabs > .detail-tab.active {
+  color: var(--fg); border-color: var(--line); background: var(--panel);
+}
+
+.topology-model-card { font-size: 12px; }
+.topology-model-card .mc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.topology-model-card .mc-url { font-size: 11px; color: var(--accent); word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; }
+.topology-model-card .mc-url:hover { text-decoration: underline; }
+.topology-model-card .mc-entry { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-bottom: 8px; }
+.topology-model-card .mc-row { display: flex; gap: 10px; padding: 2px 0; align-items: baseline; }
+.topology-model-card .mc-key { color: var(--muted); min-width: 190px; }
+.topology-model-card .mc-val { color: var(--fg); font-variant-numeric: tabular-nums; word-break: break-all; }
+.topology-model-card .mc-names { color: var(--muted); font-size: 11px; margin-left: 6px; }
+.topology-model-card .mc-failed { color: var(--bad, #e5534b); margin-bottom: 8px; }
+.topology-model-card .mc-raw { margin-top: 6px; }
+.topology-model-card .mc-raw > summary { color: var(--muted); cursor: pointer; font-size: 11px; }
+.topology-model-card .mc-raw > pre {
+  max-height: 260px; overflow: auto; background: var(--panel-2, #0d1117); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px; font-size: 11px; white-space: pre-wrap; word-break: break-all;
+}

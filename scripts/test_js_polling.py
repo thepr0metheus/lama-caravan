@@ -1,27 +1,30 @@
 #!/usr/bin/env python3
-"""Снимок static/js/polling.js — опрос состояния и мониторов.
+"""Snapshot of static/js/polling.js — polling for state and monitors.
 
-Что пинится значением. Форматы (tok/s с порогами, компактные токены контекста),
-задержка живого опроса (5 с при running, иначе 1.5 с), интервал монитора
-(1..30 с из инпута/localStorage). refreshLiveState — из /api/state берутся
-ТОЛЬКО живые поля (сервис, рантайм, cpu/gpu, память, диагностика, логи, git,
-время), конфиг формы не затирается; сторож «в полёте»; отказ — тост.
-saveConfig и action — что уходит на провод и какой тост. refreshMonitor —
-URL по источнику nvidia-smi (удалённый хост через client-monitor), html или
-текст с меткой времени, при отказе прежний снимок сохраняется с пометкой.
-Слияние серии монитора: полный ответ заменяет, частичный (`partial`) —
-дописывает и режет по retention сервера, инциденты — по своему, более
-длинному; после первого ответа опрос идёт с `?since=`; сторож «в полёте»
-и таймаут запроса (без него один зависший запрос убивал цикл до перезагрузки
-страницы). renderGpuUsers — строки прокси из коррелированной активности
-(активные, иначе до 8 недавних), клиенты, слоты, «по клиентам», недавние,
-строки скорости/контекста/тайминга/кэша, пустое состояние. Retention —
-зажим 60..3600 и POST. Подпись клиента — ввод, POST, обновление.
+What's pinned by value. Formats (tok/s with thresholds, compact context
+tokens), the live-poll delay (5s while running, else 1.5s), the monitor
+interval (1..30s from the input/localStorage). refreshLiveState — ONLY the
+live fields are taken from /api/state (service, runtime, cpu/gpu, memory,
+diagnostics, logs, git, time), the form's config is left untouched; an
+"in-flight" guard; a failure shows a toast. saveConfig and action — what goes
+out on the wire and which toast appears. refreshMonitor — the URL by
+nvidia-smi's source (a remote host through client-monitor), html or text
+with a timestamp, on failure the previous snapshot is kept with a mark.
+Merging a monitor series: a full response replaces it, a partial one
+(`partial`) appends and trims by the server's retention, incidents use their
+own, longer one; after the first response, polling continues with `?since=`;
+an "in-flight" guard and a request timeout (without it, one stuck request
+used to kill the cycle until the page reloaded). renderGpuUsers — proxy rows
+from correlated activity (active ones, else up to 8 recent), clients, slots,
+"by clients", recent ones, speed/context/timing/cache rows, the empty state.
+Retention — clamped to 60..3600 and a POST. A client's caption — input, POST,
+refresh.
 
-DOM — словарь `globalThis.__fields`; таймеры — рекордеры; соседи с состоянием
-(`activeView`, `topologyPointerDrag`, `_nvidiaSmiSource`) — через __stubValues.
+The DOM is the `globalThis.__fields` dict; timers are recorders; stateful
+neighbors (`activeView`, `topologyPointerDrag`, `_nvidiaSmiSource`) go through
+__stubValues.
 
-Запуск: python3 scripts/test_js_polling.py
+Run: python3 scripts/test_js_polling.py
 """
 import json
 import os
@@ -152,8 +155,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

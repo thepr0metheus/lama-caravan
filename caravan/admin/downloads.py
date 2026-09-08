@@ -49,6 +49,36 @@ def _write_manifest(tmp_path: Path, repo: str, f: dict) -> None:
         pass  # a missing manifest degrades to "interrupted, not resumable"
 
 
+def _read_manifest(tmp_path: Path) -> dict:
+    try:
+        return json.loads(_manifest_path(tmp_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _drop_stale_partial(tmp_path: Path, repo: str, f: dict) -> None:
+    """Discard a partial download left over from another file or another build.
+
+    The repository, the path inside it, and the expected size must all match.
+    No manifest also means discard: whose leftover it is becomes unknown, and
+    "probably the same one" costs a whole model here.
+    """
+    if not tmp_path.exists():
+        return
+    saved = _read_manifest(tmp_path)
+    same = (saved.get("repo") == repo
+            and saved.get("path") == (f.get("path") or "")
+            and int(saved.get("size") or 0) == int(f.get("size") or 0)
+            and int(saved.get("size") or 0) > 0)
+    if same:
+        return
+    try:
+        tmp_path.unlink()
+    except OSError:
+        pass
+    _drop_manifest(tmp_path)
+
+
 def _drop_manifest(tmp_path: Path) -> None:
     try:
         _manifest_path(tmp_path).unlink()
@@ -63,6 +93,7 @@ def _run_download_job(job_id: str, repo: str, files: list, models_dir: str, toke
             with _download_jobs_lock:
                 job["current_idx"] = i
                 job["current_file"] = f["name"]
+                job["current_path"] = _dest_path(f)
                 job["file_bytes_done"] = 0
                 job["file_bytes_total"] = f.get("size", 0)
 
@@ -91,6 +122,14 @@ def _run_download_job(job_id: str, repo: str, files: list, models_dir: str, toke
                             stray.unlink()
                         except OSError:
                             pass
+            # A partial download from a DIFFERENT build is not a resume point.
+            # A range request would glue a new tail onto an old head, and the
+            # completeness check below compares only the byte COUNT and would
+            # let such a splice through. The file then lands on top of the
+            # working one, so the cost of getting this wrong is seventeen
+            # silently corrupted gigabytes. Checked against the manifest
+            # BEFORE overwriting it.
+            _drop_stale_partial(tmp_path, repo, f)
             _write_manifest(tmp_path, repo, f)
             # Retry the transfer itself. HF's CDN drops long connections — twice
             # in one afternoon on a 23 GB and a 42 GB file — and until now a drop
@@ -196,14 +235,29 @@ _MAX_ATTEMPTS = 4
 _RETRY_BACKOFF = (3, 10, 30)
 
 
+def _dest_path(f: dict) -> str:
+    """Where this file lands, relative to the models directory.
+
+    The DESTINATION is what identifies a download, not the file name: the same
+    name lives in a repository twice (two quantisations), and those are two
+    different files with two different ".part" streams. Keyed by name, the
+    second request handed back the first one's job and the second copy was
+    never fetched — with the page reporting success.
+    """
+    dest_dir = str(f.get("destDir") or "").strip("/")
+    name = str(f.get("name") or "")
+    return f"{dest_dir}/{name}" if dest_dir else name
+
+
 def start_hf_download(repo: str, files: list, models_dir: str, token: str) -> str:
     # Idempotence: with a shared "<name>.part" two jobs on the same file set
     # would interleave — if one is already running, hand back its id instead.
     names = sorted(str(f.get("name") or "") for f in files)
+    paths = sorted(_dest_path(f) for f in files)
     with _download_jobs_lock:
         for jid, job in _download_jobs.items():
             if (not job.get("done") and job.get("repo") == repo
-                    and sorted(job.get("fileNames") or []) == names):
+                    and sorted(job.get("filePaths") or []) == paths):
                 return jid
     job_id = secrets_mod.token_hex(8)
     with _download_jobs_lock:
@@ -213,9 +267,13 @@ def start_hf_download(repo: str, files: list, models_dir: str, token: str) -> st
             "created_at": time.time(), "finished_at": None,
             "total_files": len(files),
             "fileNames": names,
+            # Exactly where each one lands. The page draws progress on a
+            # file's row, and two rows can share one name — matching by name
+            # would pick the wrong one.
+            "filePaths": paths,
             "total_bytes": sum(f.get("size", 0) for f in files),
             "total_bytes_done": 0,
-            "current_idx": 0, "current_file": "",
+            "current_idx": 0, "current_file": "", "current_path": "",
             "file_bytes_done": 0, "file_bytes_total": 0,
         }
     threading.Thread(target=_run_download_job,
@@ -224,14 +282,19 @@ def start_hf_download(repo: str, files: list, models_dir: str, token: str) -> st
     return job_id
 
 
-def _live_part_names() -> set:
-    """Files a running job is actively writing — not orphans, however they look."""
+def _live_part_paths() -> set:
+    """Files a running job is actively writing — not orphans, however they look.
+
+    By destination, not by name: a job writing `b/m.gguf` says nothing about a
+    partial at `a/m.gguf`, and by name it would claim it — hiding a genuinely
+    interrupted download behind someone else's progress.
+    """
     with _download_jobs_lock:
-        names = set()
+        paths = set()
         for job in _download_jobs.values():
             if not job.get("done"):
-                names.update(job.get("fileNames") or [])
-        return names
+                paths.update(job.get("filePaths") or [])
+        return paths
 
 
 def scan_interrupted_downloads(models_dir: str) -> list:
@@ -247,7 +310,7 @@ def scan_interrupted_downloads(models_dir: str) -> list:
         return list(_part_scan_cache["rows"])
 
     root = Path(models_dir)
-    live = _live_part_names()
+    live = _live_part_paths()
     rows = []
     try:
         partials = sorted(root.rglob("*.part"))
@@ -255,7 +318,15 @@ def scan_interrupted_downloads(models_dir: str) -> list:
         partials = []
     for tmp_path in partials:
         name = tmp_path.name[:-len(".part")]
-        if name in live:
+        try:
+            rel = tmp_path.parent.relative_to(root)
+        except ValueError:
+            rel = Path(".")
+        # Path(".") is the root itself, not a directory literally named ".":
+        # the dot can't just be trimmed off the string — a directory is
+        # allowed to start with one.
+        owner = name if rel == Path(".") else f"{rel.as_posix()}/{name}"
+        if owner in live:
             continue
         try:
             done_bytes = tmp_path.stat().st_size
@@ -282,10 +353,12 @@ def scan_interrupted_downloads(models_dir: str) -> list:
             "finished_at": None,
             "total_files": 1,
             "fileNames": [name],
+            "filePaths": [f"{dest_dir}/{name}" if dest_dir else name],
             "total_bytes": int(meta.get("size") or 0),
             "total_bytes_done": done_bytes,
             "current_idx": 0,
             "current_file": name,
+            "current_path": f"{dest_dir}/{name}" if dest_dir else name,
             "file_bytes_done": done_bytes,
             "file_bytes_total": int(meta.get("size") or 0),
             # Without a manifest the repo and in-repo path are unrecoverable

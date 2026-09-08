@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Снимок static/js/remote-cells.js — действия за кнопками клиентских ячеек.
+"""Snapshot of static/js/remote-cells.js — the actions behind client cells' buttons.
 
-Что пинится у действия: ЧТО уходит на провод (calls(): путь, метод, тело),
-ЧТО видит оператор (toastText()) и ЧТО остаётся в состоянии (множества
-_stoppingCells/_pendingCellActions/_deletingSlots/_reservingCells/
-_newReservedCells/_pendingRemoteStarts). История починок: мгновенное busy
-и pending-состояние (87f5ea7), выбор порта минует порты прокси (4bfeeab),
-карточка «starting» до появления настоящей.
+What's pinned for an action: WHAT goes out on the wire (calls(): path,
+method, body), WHAT the operator sees (toastText()), and WHAT stays in state
+(the sets _stoppingCells/_pendingCellActions/_deletingSlots/_reservingCells/
+_newReservedCells/_pendingRemoteStarts). A history of fixes: instant busy and
+pending state (87f5ea7), port selection skipping proxy ports (4bfeeab), a
+"starting" card shown before the real one appears.
 
-fetch — записывающий (_js_globals.mjs): вызовы в __fetchCalls, ответ из
-__fetchReply[path] или {ok:true}; __status делает api() бросающим. Подтверждение
-appConfirm — заглушка с заданным ответом (__stubReturns). Тост — элемент
-словаря __fields, его textContent и есть текст для оператора. Время заморожено.
+fetch is a recorder (_js_globals.mjs): calls land in __fetchCalls, the reply
+comes from __fetchReply[path] or defaults to {ok:true}; __status makes api()
+throw. appConfirm's confirmation is a stub with a set answer (__stubReturns).
+A toast is an element from the __fields dict, and its textContent is exactly
+the text the operator sees. Time is frozen.
 
-Запуск: python3 scripts/test_js_remote_cells.py
+Run: python3 scripts/test_js_remote_cells.py
 """
 
 import json
@@ -57,7 +58,7 @@ const out = {};
 # workflow; see the OOP-rewrite journal (private), phase 7, snapshot 6.
 PINS = [
     # ── remote_actions ──
-    # ── завести клиента руками ──
+    # ── create a client by hand ──
     ('add_client_wire',
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "  box-a  ";',
      'await (async () => { await rc.addTopologyClient(); return { calls: calls(), toast: toastText() }; })()',
@@ -79,7 +80,7 @@ PINS = [
      'await (async () => { await rc.addTopologyClient(); return toastText(); })()',
      '"Error: client already exists: dup"',
      'as-is: отказ сервера доходит до оператора с приставкой «Error:» — так его печатает toast(String(e))'),
-    # ── удаление клиента: обещание обратимости ──
+    # ── deleting a client: the promise of reversibility ──
     ('delete_manual_client_says_it_will_not_return',
      'st.setTopology({ proxies: [], routers: [], assignments: {},'
      ' clients: [{ id: "c1", name: "C1", manual: true }] });'
@@ -101,7 +102,7 @@ PINS = [
      'await (async () => { await rc.deleteTopologyClient("c1"); return calls(); })()',
      '[]',
      'negative: отказ в подтверждении ничего не удаляет'),
-    # ── агент, заведённый руками ──
+    # ── an agent created by hand ──
     ('add_agent_wire',
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "  ag-1  ";',
      'await (async () => { await rc.addTopologyAgent("box-a"); return calls(); })()',
@@ -123,7 +124,7 @@ PINS = [
      'await (async () => { await rc.addTopologyAgent("box-a"); return toastText(); })()',
      '"Error: agent \\"dup\\" already exists on this client"',
      'as-is: отказ сервера доходит до оператора'),
-    # ── перенос клиентов скаута под доску ──
+    # ── moving scout clients under the board's ownership ──
     ('adopt_wire_and_report',
      'st.setTopology({ proxies: [], routers: [], clients: [{ id: "c1" }],'
      ' assignments: { c1: { assignments: [{ agentId: "a1", routes: [] }] } } });'
@@ -158,17 +159,27 @@ PINS = [
      'await (async () => { await rc.adoptScoutClients(); return toastText(); })()',
      '"Error: boom"',
      'as-is: отказ сервера доходит до оператора, а не тонет'),
-    # ── окно контекста маршрута ──
+    # ── a route's context window ──
     ('route_ctx_number',
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => " 8192 ";',
      'await (async () => { await rc.editRouteContext("h","a","primary",0,false); return { calls: calls(), toast: toastText() }; })()',
      '{"calls": [{"path": "/api/topology/agent-route/context", "method": "POST", "body": "{\\"hostId\\":\\"h\\",\\"agentId\\":\\"a\\",\\"role\\":\\"primary\\",\\"contextLength\\":\\"8192\\"}"}], "toast": ""}',
      'positive: число уходит обрезанным, оба поля — одно состояние'),
-    ('route_ctx_auto',
+    ('route_ctx_word_refused',
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "AUTO";',
-     'await (async () => { await rc.editRouteContext("h","a","primary",0,false); return calls(); })()',
+     'await (async () => { await rc.editRouteContext("h","a","primary",0,false); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [], "toast": "Enter a number of tokens, or nothing to clear"}',
+     'defect-history: слово «auto» больше не режим — галка «модель, если больше» живёт отдельно; слово отклоняется как опечатка'),
+    ('route_ctx_number_keeps_switch',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "8192";',
+     'await (async () => { await rc.editRouteContext("h","a","primary",0,true); return calls(); })()',
+     '[{"path": "/api/topology/agent-route/context", "method": "POST", "body": "{\\"hostId\\":\\"h\\",\\"agentId\\":\\"a\\",\\"role\\":\\"primary\\",\\"contextLength\\":\\"8192\\",\\"contextAuto\\":true}"}]',
+     'positive: правка числа при включённой галке шлёт и галку — пропущенное поле сервер читает как «снять»'),
+    ('route_ctx_clear_keeps_switch',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "";',
+     'await (async () => { await rc.editRouteContext("h","a","primary",8192,true); return calls(); })()',
      '[{"path": "/api/topology/agent-route/context", "method": "POST", "body": "{\\"hostId\\":\\"h\\",\\"agentId\\":\\"a\\",\\"role\\":\\"primary\\",\\"contextAuto\\":true}"}]',
-     'positive: слово auto в любом регистре — это галка «от модели»'),
+     'positive: снятие числа не снимает галку'),
     ('route_ctx_empty_clears',
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "  ";',
      'await (async () => { await rc.editRouteContext("h","a","primary",8192,false); return calls(); })()',
@@ -177,7 +188,7 @@ PINS = [
     ('route_ctx_typo_refused',
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "8k";',
      'await (async () => { await rc.editRouteContext("h","a","primary",8192,false); return { calls: calls(), toast: toastText() }; })()',
-     '{"calls": [], "toast": "Enter a number of tokens, \\u00abauto\\u00bb, or nothing to clear"}',
+     '{"calls": [], "toast": "Enter a number of tokens, or nothing to clear"}',
      'defect-history: опечатка молча СНИМАЛА настройку и рапортовала успехом — теперь отказ, и ничего не уходит'),
     ('route_ctx_zero_refused',
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "0";',
@@ -189,6 +200,27 @@ PINS = [
      'await (async () => { await rc.editRouteContext("h","a","primary",8192,false); return calls(); })()',
      '[]',
      'negative: отменённый диалог не шлёт ничего'),
+    # ── the "model, if larger" checkbox ──
+    ('route_ctx_prefer_on',
+     '',
+     'await (async () => { await rc.setRouteContextPrefer("h","a","primary","8192",true); return calls(); })()',
+     '[{"path": "/api/topology/agent-route/context", "method": "POST", "body": "{\\"hostId\\":\\"h\\",\\"agentId\\":\\"a\\",\\"role\\":\\"primary\\",\\"contextLength\\":\\"8192\\",\\"contextAuto\\":true}"}]',
+     'positive: включение галки везёт с собой число — на сервере оба поля одно состояние'),
+    ('route_ctx_prefer_off_keeps_number',
+     '',
+     'await (async () => { await rc.setRouteContextPrefer("h","a","primary","8192",false); return calls(); })()',
+     '[{"path": "/api/topology/agent-route/context", "method": "POST", "body": "{\\"hostId\\":\\"h\\",\\"agentId\\":\\"a\\",\\"role\\":\\"primary\\",\\"contextLength\\":\\"8192\\"}"}]',
+     'positive: выключение галки оставляет число, а галку не шлёт вовсе — отсутствие и есть «выключено»'),
+    ('route_ctx_prefer_without_number',
+     '',
+     'await (async () => { await rc.setRouteContextPrefer("h","a","fallback","",true); return calls(); })()',
+     '[{"path": "/api/topology/agent-route/context", "method": "POST", "body": "{\\"hostId\\":\\"h\\",\\"agentId\\":\\"a\\",\\"role\\":\\"fallback\\",\\"contextAuto\\":true}"}]',
+     'boundary: числа нет — уходит одна галка, без contextLength'),
+    ('route_ctx_prefer_server_refuses',
+     'globalThis.__fetchReply["/api/topology/agent-route/context"] = { __status: 500, error: "nope" };',
+     'await (async () => { await rc.setRouteContextPrefer("h","a","primary","8192",true); return toastText(); })()',
+     '"Error: nope"',
+     'negative: отказ сервера доходит до оператора тостом'),
     ('ntp_default_empty',
      '',
      'rc.nextTopologyCellPort()',
@@ -579,11 +611,93 @@ PINS = [
      'norm(rc.nodeStartingCardHtml({ id: "h1", ip: "10.0.0.9" }))',
      '"<article class=\\"node-server loading\\" data-pending-remote-start=\\"h1\\"> <div class=\\"node-server-head\\"> <span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-addr-link\\" style=\\"pointer-events:none\\">10.0.0.9</span> <span class=\\"pill warn\\">loading</span> <span style=\\"flex:1\\"></span> <button class=\\"mini-link\\" type=\\"button\\" data-pending-remote-dismiss=\\"h1\\" style=\\"color:var(--muted,#888)\\" title=\\"Dismiss\\">✕</button> </div> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">starting…</div> </article>"',
      'boundary: nodeStartingCardHtml: без clientIp/port/modelName → адрес = node.ip без порта, строки модели нет'),
-    ('nsch_phase_timeout_empty_keeps_pending',
+    # ── second-pair-of-eyes tranche: exports the snapshot had never named ──
+    ('rename_agent_wire',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "  Hermes  ";',
+     'await (async () => { await rc.renameTopologyAgent("box-a", "ag1", "old"); return calls(); })()',
+     '[{"path": "/api/topology/client/agent-alias", "method": "POST", "body": "{\\"hostId\\":\\"box-a\\",\\"agentId\\":\\"ag1\\",\\"name\\":\\"Hermes\\"}"}]',
+     'positive: переименование агента — псевдоним обрезается и уходит с hostId и agentId'),
+    ('rename_agent_cancelled',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => null;',
+     'await (async () => { await rc.renameTopologyAgent("box-a", "ag1", "old"); return calls(); })()',
+     '[]',
+     'negative: отменённый диалог не шлёт ничего'),
+    ('rename_agent_blank_clears',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "   ";',
+     'await (async () => { await rc.renameTopologyAgent("box-a", "ag1", "old"); return JSON.parse(calls()[0].body).name; })()',
+     '""',
+     'as-is: пробелы — это СНЯТИЕ псевдонима, а не отмена (в отличие от add_client_blank, где пробелы = отмена); расхождение зафиксировано'),
+    ('route_wait_clamped_silently',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "999999";'
+     ' st.setTopology({ proxies: [], clients: [], routers: [{ id: "r1", graph: { nodes: [], edges: [], inputs: {} } }], assignments: {}, nodes: [] });',
+     'await (async () => { await rc.editRouteWait("p1", 30); return { saved: (globalThis.__stubCalls || []).length, toast: toastText() }; })()',
+     '{"saved": 0, "toast": ""}',
+     'as-is: 999999 обрезается до 86400 БЕЗ единого слова оператору — он видит не то число, которое ввёл (saveRouters под заглушкой, сюда пинится молчание)'),
+    ('route_wait_not_a_number_refused',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "30s";',
+     'await (async () => { await rc.editRouteWait("p1", 30); return { calls: calls(), toast: toastText() }; })()',
+     '{"calls": [], "toast": "Enter a number of seconds, or nothing to use the client\'s own"}',
+     'negative: не-число отвергается с объяснением и без записи'),
+    ('route_model_lock_carries_the_name',
+     '',
+     'await (async () => { await rc.setRouteModelLock("h1", "ag1", "primary", "  gpt-5.4-mini  ", false); return calls(); })()',
+     '[{"path": "/api/topology/agent-route/model", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"agentId\\":\\"ag1\\",\\"role\\":\\"primary\\",\\"modelName\\":\\"gpt-5.4-mini\\"}"}]',
+     'positive: замок несёт имя с собой — иначе закрытие замка стёрло бы имя оператора; auto=false НЕ шлёт modelNameAuto'),
+    ('route_model_lock_auto_adds_flag',
+     '',
+     'await (async () => { await rc.setRouteModelLock("h1", "ag1", "primary", "x", true); return JSON.parse(calls()[0].body).modelNameAuto; })()',
+     'true',
+     'negative: auto=true — поле появляется; пара к предыдущему пину'),
+    ('route_model_empty_clears',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "   ";',
+     'await (async () => { await rc.editRouteModel("h1", "ag1", "primary", "old", false); return JSON.parse(calls()[0].body).modelName; })()',
+     '""',
+     'positive: пустое имя — это ОЧИСТКА (порт снова зовётся именем апстрима), а не отмена'),
+    ('nvidia_source_kept_when_still_listed',
+     '',
+     'rc.surviving_nvidiaSmiSource([{ id: "local" }, { id: "c1" }, { id: "c2" }], "c2")',
+     '"c2"',
+     'positive: выбранный источник на месте — остаётся выбранным'),
+    ('nvidia_source_resets_when_its_client_vanishes',
+     '',
+     'rc.surviving_nvidiaSmiSource([{ id: "local" }, { id: "c1" }], "c2")',
+     '"local"',
+     'negative: выбранный клиент исчез — источник возвращается на контроллер, иначе опрос уходит на ушедший хост'),
+    ('nvidia_source_resets_with_one_source_left',
+     '',
+     'rc.surviving_nvidiaSmiSource([{ id: "local" }], "c1")',
+     '"local"',
+     'boundary: остался ОДИН источник — правило всё равно срабатывает; раньше починка стояла ПОСЛЕ раннего возврата, и ровно этот случай её миновал: опрос навсегда уходил на исчезнувший хост, а кнопки, чтобы вернуться, уже не рисовались'),
+    ('nvidia_source_empty_list_is_local',
+     '',
+     '[rc.surviving_nvidiaSmiSource([], "c1"), rc.surviving_nvidiaSmiSource(null, "c1")]',
+     '["local","local"]',
+     'boundary: пустой и отсутствующий список — контроллер, а не падение'),
+    ('nsch_phase_timeout_keeps_a_dismissable_card',
      'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); rc._pendingRemoteStarts.get("h1").phase = "timeout";',
-     '({ html: rc.nodeStartingCardHtml({ id: "h1" }), pending: [...rc._pendingRemoteStarts.keys()] })',
-     '{"html": "", "pending": ["h1"]}',
-     'negative: nodeStartingCardHtml: phase≠starting → "", запись НЕ удаляется'),
+     '(h => ({ shown: h !== "", dismiss: h.includes("data-pending-remote-dismiss=\\"h1\\""),'
+     ' says: h.includes("Timed out"), spinner: h.includes("topology-spinner"),'
+     ' pending: [...rc._pendingRemoteStarts.keys()] }))(rc.nodeStartingCardHtml({ id: "h1" }))',
+     '{"shown": true, "dismiss": true, "says": true, "spinner": false, "pending": ["h1"]}',
+     'positive: истёкший старт ОСТАЁТСЯ карточкой с ✕ и говорит про таймаут — раньше карточка исчезала вместе с единственной кнопкой снятия, а запись жила дальше'),
+    ('nsch_phase_error_says_failed',
+     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); rc._pendingRemoteStarts.get("h1").phase = "error";',
+     '(h => ({ failed: h.includes("Start failed"), timeout: h.includes("Timed out") }))(rc.nodeStartingCardHtml({ id: "h1" }))',
+     '{"failed": true, "timeout": false}',
+     'negative: отказ и таймаут — разные надписи, а не одна на оба случая'),
+    ('nsch_no_record_still_empty',
+     '',
+     'rc.nodeStartingCardHtml({ id: "nobody" })',
+     '""',
+     'negative: записи нет вообще — по-прежнему пусто, карточка ниоткуда не берётся'),
+    ('rsp_pending_only_while_starting',
+     'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 });',
+     '(() => { const a = rc.remoteStartPending("h1");'
+     ' rc._pendingRemoteStarts.get("h1").phase = "timeout"; const b = rc.remoteStartPending("h1");'
+     ' rc._pendingRemoteStarts.get("h1").phase = "error"; const c = rc.remoteStartPending("h1");'
+     ' return [a, b, c, rc.remoteStartPending("nobody")]; })()',
+     '[true,false,false,false]',
+     'positive+negative: «старт в полёте» — только фаза starting; истёкший и отказавший НЕ считаются, иначе остановленные ячейки хоста навсегда читаются как стартующие'),
     ('nsch_server_running_clears_pending',
      'rc.registerPendingRemoteStart({ hostId: "h1", port: 22001 }); globalThis.__stubReturns["topology-render.topologyServerPhase"] = () => "running";',
      '({ html: rc.nodeStartingCardHtml({ id: "h1", servers: [{ port: 22001 }] }), pending: [...rc._pendingRemoteStarts.keys()] })',
@@ -607,8 +721,8 @@ PINS = [
     ('tcg_normal_defaults',
      '',
      'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "RTX 3090", memoryUsedMiB: 512, memoryTotalMiB: 24576 }] }))',
-     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>RTX 3090</b> <span class=\\"topology-muted\\">VRAM 512 MiB/24.0 GB · 0% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
-     'positive: topologyClientGpusHtml: обычная строка — VRAM 512 MiB/24.0 GB, util по умолчанию «0», temp «n/a», без слотов → «available»'),
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>RTX 3090</b> <span class=\\"topology-muted\\">VRAM 512 MiB/24.0 GB · ?% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
+     'positive: topologyClientGpusHtml: обычная строка — VRAM 512 MiB/24.0 GB; НЕИЗВЕСТНАЯ загрузка — «?», а не «0%» (простаивающая карта), temp «n/a»; без слотов → «available»'),
     ('tcg_normal_values',
      '',
      'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "RTX 3090", memoryUsedMiB: 12288, memoryTotalMiB: 24576, utilizationGpuPct: 37, temperatureC: 61 }] }))',
@@ -617,12 +731,12 @@ PINS = [
     ('tcg_gpu_no_fields',
      '',
      'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{}] }))',
-     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>GPU</b> <span class=\\"topology-muted\\">VRAM / · 0% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>GPU</b> <span class=\\"topology-muted\\">VRAM / · ?% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
      'as-is: КАК ЕСТЬ: GPU без полей → имя «GPU» и пустое «VRAM /» (formatMemoryMiB(undefined) → "")'),
     ('tcg_running_1d13h',
      '',
      'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "RTX" }], llamaNodes: [{ running: true, port: 22001, modelPath: "/models/x/m.gguf", uptimeSec: 86400 + 3600 * 13 }] }))',
-     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>RTX</b> <span class=\\"topology-muted\\">VRAM / · 0% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22001 · m.gguf · up 1d 13h </span> </div> </div>"',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>RTX</b> <span class=\\"topology-muted\\">VRAM / · ?% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22001 · m.gguf · up 1d 13h </span> </div> </div>"',
      'positive: topologyClientGpusHtml: запущенный слот — «▶ :22001 · m.gguf · up 1d 13h» (86400+13·3600 с = 1 день 13 ч, не 2d)'),
     ('tcg_fmtdur_2h5m',
      '',
@@ -672,17 +786,17 @@ PINS = [
     ('tcg_not_running_available',
      '',
      'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "RTX" }], llamaNodes: [{ running: false, port: 22001 }, { running: true, port: 0 }, { running: "true", port: 22003 }, null] }))',
-     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>RTX</b> <span class=\\"topology-muted\\">VRAM / · 0% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>RTX</b> <span class=\\"topology-muted\\">VRAM / · ?% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
      'negative: topologyClientGpusHtml: running:false / port 0 / running:"true" (не ===true) / null отфильтрованы → «available for model servers»'),
     ('tcg_two_gpus_both_list_all_running',
      '',
      'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "A" }, { name: "B" }], llamaNodes: [{ running: true, port: 22001 }, { running: true, port: 22002, modelPath: "q.gguf" }] }))',
-     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>A</b> <span class=\\"topology-muted\\">VRAM / · 0% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22001 </span><br><span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22002 · q.gguf </span> </div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>B</b> <span class=\\"topology-muted\\">VRAM / · 0% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22001 </span><br><span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22002 · q.gguf </span> </div> </div>"',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>A</b> <span class=\\"topology-muted\\">VRAM / · ?% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22001 </span><br><span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22002 · q.gguf </span> </div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>B</b> <span class=\\"topology-muted\\">VRAM / · ?% · n/aC</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22001 </span><br><span class=\\"topology-muted\\" style=\\"font-size:11px\\"> ▶ :22002 · q.gguf </span> </div> </div>"',
      'as-is: КАК ЕСТЬ: слот не привязан к GPU — оба запущенных слота повторяются под КАЖДОЙ картой (через <br>)'),
     ('tcg_escapes_html',
      '',
      'norm(rc.topologyClientGpusHtml({ id: "c1", gpus: [{ name: "<b>x</b>", temperatureC: "<i>" }] }))',
-     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>&lt;b&gt;x&lt;/b&gt;</b> <span class=\\"topology-muted\\">VRAM / · 0% · &lt;i&gt;C</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
+     '"<div class=\\"client-gpus\\" style=\\"margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px\\"> <div class=\\"topology-muted\\" style=\\"font-size:11px\\">Local GPUs</div> <div class=\\"client-gpu-row\\" style=\\"display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap\\"> <span>🖥 <b>&lt;b&gt;x&lt;/b&gt;</b> <span class=\\"topology-muted\\">VRAM / · ?% · &lt;i&gt;C</span> </span> <span class=\\"topology-muted\\" style=\\"font-size:11px;font-style:italic\\">available for model servers</span> </div> </div>"',
      'positive: topologyClientGpusHtml: имя GPU и temp экранируются'),
 ]
 
@@ -711,11 +825,12 @@ def main():
     def blocks(pins, sink):
         return [f"try {{ reset(); {setup}\n  {sink}[{json.dumps(pid)}] = {expr}; }} catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
-    # Каждый пин обязан быть независим от соседей: reset() перед ним для того и
-    # стоит. Доказывается это здесь же — весь набор прогоняется ВТОРОЙ раз в
-    # обратном порядке, и значения должны совпасть. Без этой проверки пин может
-    # проходить из-за состояния, оставленного предыдущим (так и было: два пина
-    # про «порт не задан» зеленели лишь потому, что шли раньше открытия ячейки).
+    # Every pin must be independent of its neighbors: that's exactly why
+    # reset() sits in front of it. This is proven right here — the whole set
+    # is run a SECOND time in reverse order, and the values must match.
+    # Without this check a pin can pass because of state left behind by the
+    # previous one (this actually happened: two "port not set" pins stayed
+    # green only because they ran before the cell was opened).
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev")).replace("out[", "rev[")
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

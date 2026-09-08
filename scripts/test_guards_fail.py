@@ -58,9 +58,15 @@ def _missing_tool(output):
 # The breakage is chosen to be the failure the guard is FOR, not any old syntax
 # error: anything can be broken by deleting a brace.
 BREAKAGES = {
-    "check_messages_i18n": (
-        [], "static/js/i18n/ru.js",
-        '  grpSampling:', '  grpSamplingRENAMED:'),
+    "check_messages_i18n": [
+        ([], "static/js/i18n/ru.js",
+         '  grpSampling:', '  grpSamplingRENAMED:'),
+        # A Russian value left standing in another language's table — neither the
+        # en-copy nor the english-phrase check sees it, which is how
+        # `computeAuto: "авто"` sat in the Chinese one.
+        ([], "static/js/i18n/zh.js",
+         'computeAuto: "\u81ea\u52a8",', 'computeAuto: "\u0430\u0432\u0442\u043e",'),
+    ],
     "check_i18n_calls": (
         [], "static/js/system-page.js",
         'function bindSettingsBundle() {',
@@ -85,8 +91,8 @@ BREAKAGES = {
     "check_command_mirrors": (
         [], "static/js/llama-edit.js",
         'llama-model-cache}/translate"', 'llama-model-cache}/NOWHERE"'),
-    # Поле, едущее через пересборки, должно быть названо в каждой: убираем
-    # имя на одной границе — гвард обязан назвать ИМЕННО её.
+    # A field riding through rebuilds must be named in every one: drop the
+    # name at one boundary — the guard must name EXACTLY that one.
     "check_static_modules": [
         # The exact defect that shipped: an import list with a doubled comma.
         # `node --check` passes this file; the board dies at parse.
@@ -119,8 +125,9 @@ BREAKAGES = {
          "                [ProxyRoute.for_port(\"primary\", port, server_ip)]).to_dict())"),
     ],
     "check_proxy_id_namespace": (
-        # Сборка id переехала в caravan/domain/client_proxy.py: три места
-        # строили одну форму, и одно из них роняло неназванные поля.
+        # Building the id moved to caravan/domain/client_proxy.py: three
+        # places used to build the same shape, and one of them dropped
+        # unnamed fields.
         [], "caravan/domain/client_proxy.py",
         'PROXY_ID_PREFIX = "skynet:proxy:"', 'PROXY_ID_PREFIX = "controller:proxy:"'),
     "check_cell_card_keys": (
@@ -183,6 +190,11 @@ BREAKAGES = {
         # The recorded decision disappears from the public module reference.
         ([], "docs/frontend.md", "- Kept as functions by decision (OOP rewrite, decision 19, 2026-09-05):", "- Was once kept as-is (OOP rewrite, decision 19, 2026-09-05):"),
     ],
+    # The vocabulary itself: a cell that names its job in a word nobody else
+    # uses is findable only by whoever already knows its engine.
+    "check_cell_kinds": (
+        [], "cells/whisper_server.py",
+        'kinds = ["asr", "stt.whisper"]', 'kinds = ["stt.whisper"]'),
     "check_cell_health_contract": (
         [], "cells/whisper_server.py",
         '    engine = "faster-whisper"\n', ''),

@@ -1,21 +1,25 @@
 #!/usr/bin/env python3
-"""Гвард: опасное число не читается нигде, кроме словаря окна контекста.
+"""Guard: a dangerous number is read nowhere except the context-window dict.
 
-`n_ctx_train` — контекст, которым модель ОБУЧЕНА, а не тот, что обслуживает
-запущенный сервер. На чат-ячейке флота это 131072 против реальных 60160: вдвое
-больше правды, и в ту сторону, которая заставляет клиента послать больше, чем
-сервер примет. Один раз он уже был рядом с правильным числом в одном словаре
-`meta`, и отличить их можно только зная, какое из них какое.
+`n_ctx_train` is the context the model was TRAINED on, not the one the
+running server actually serves. On a chat cell in the fleet that's 131072
+against a real 60160: more than double the truth, and in the direction that
+makes a client send more than the server will accept. It has sat right next
+to the correct number in one `meta` dict before, and the only way to tell
+them apart is knowing which is which.
 
-Поэтому имя разрешено только в `caravan/common/context_window.py` (где оно
-названо, чтобы быть исключённым), в фикстурах снимка и в документации. Гвард
-смотрит в AST, а не в текст: комментарий, объясняющий разницу, — это знание,
-которое надо хранить, а не нарушение.
+So the name is allowed only in `caravan/common/context_window.py` (where it's
+named specifically to be excluded, and from where the sole function
+`trained_window` hands it out under its OWN name — a cell's card shows the
+trained window next to the model's name as a fact about the weights, not as
+a window), in snapshot fixtures, and in documentation. The guard looks at the
+AST, not the text: a comment explaining the difference is knowledge worth
+keeping, not a violation.
 
-Падает двумя способами: когда имя появляется в коде на стороне, и когда сам
-словарь перестаёт что-либо объявлять — тогда охранять уже нечего.
+Fails two ways: when the name shows up in code elsewhere, and when the dict
+itself stops declaring anything — then there's nothing left to guard.
 
-Запуск: python3 scripts/check_context_window.py
+Run: python3 scripts/check_context_window.py
 """
 import ast
 import re
@@ -25,10 +29,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 VOCAB = ROOT / "caravan" / "common" / "context_window.py"
 FORBIDDEN = "n_ctx_train"
-# Фикстуры снимка обязаны содержать обученный контекст — иначе они не смогут
-# доказать, что он НЕ публикуется.
+# Snapshot fixtures must contain the trained context — otherwise they
+# couldn't prove it's NOT being published.
 ALLOWED = {VOCAB, ROOT / "scripts" / "check_context_window.py",
-           ROOT / "scripts" / "test_proxy_models.py"}
+           ROOT / "scripts" / "test_proxy_models.py",
+           ROOT / "scripts" / "test_context_window.py",
+           ROOT / "scripts" / "test_route_windows.py",
+           ROOT / "scripts" / "test_model_card.py"}
 SKIP_DIRS = {"node_modules", ".git", "__pycache__", "var", "logs", "tests"}
 
 problems = []
@@ -47,7 +54,7 @@ def _walk(suffix):
         yield path
 
 
-# ── 1. имя не читается в коде ────────────────────────────────────────────────
+# ── 1. the name isn't read anywhere in code ────────────────────────────────
 for path in _walk(".py"):
     scanned += 1
     try:
@@ -73,7 +80,7 @@ for path in _walk(".js"):
         if FORBIDDEN in line:
             problems.append(f"{path.relative_to(ROOT)}:{i}: читает `{FORBIDDEN}`")
 
-# ── 2. словарю есть что охранять ─────────────────────────────────────────────
+# ── 2. the dict still has something to guard ────────────────────────────────
 guarded = 0
 if scanned < 50:
     problems.append(f"просмотрено всего {scanned} файлов — гвард смотрит не туда, а не «всё чисто»")
@@ -90,7 +97,7 @@ else:
             guarded += len(value)
     if FORBIDDEN not in (scope.get("FORBIDDEN_KEYS") or ()):
         problems.append(f"context_window.FORBIDDEN_KEYS больше не называет `{FORBIDDEN}`")
-    for fn in ("served_window", "declared_window"):
+    for fn in ("served_window", "declared_window", "trained_window"):
         if not callable(scope.get(fn)):
             problems.append(f"context_window.{fn} пропала — читатели остались без единого источника")
 

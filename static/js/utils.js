@@ -198,3 +198,12 @@ export function inferSpecType(specPath) {
   // draft-mtp aborts outright on a model with no MTP head.
   return hit ? hit[1] : "draft-simple";
 }
+
+// Compact token count: 32768 -> "32.8k", 262144 -> "262k", 1500 -> "1.5k".
+export function formatCtxTokens(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return "—";
+  if (n < 1000) return String(Math.round(n));
+  const k = n / 1000;
+  return (k >= 100 ? Math.round(k) : Number(k.toFixed(1))) + "k";
+}

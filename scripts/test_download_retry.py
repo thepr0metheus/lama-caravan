@@ -121,6 +121,107 @@ def main():
     check("the failure says what happened", "permanently broken" in (job.get("error") or ""),
           str(job.get("error")))
 
+    # 4. A partial download from a DIFFERENT build is not a resume point.
+    #    Auto-update places the file ON TOP OF the working one, and a range
+    #    request would glue a new tail onto an old head; the completeness
+    #    check compares only the byte count and would let that splice through.
+    import json as _json
+    part_dir = _TMP / "models" / "m"
+    for p in part_dir.glob("*"):
+        p.unlink()
+    part = part_dir / "m.gguf.part"
+    part.write_bytes(b"OLD" * 100)
+    (part_dir / "m.gguf.part.json").write_text(_json.dumps({
+        "repo": "acme/model", "path": "m.gguf", "name": "m.gguf",
+        "destDir": "m", "size": len(BODY) + 12345,      # different size = a different build
+    }))
+    job, calls = run([(99999, "ok")])
+    check("a partial from a DIFFERENT build is discarded, not resumed",
+          calls == [0], f"resumed from {calls}")
+    check("and the file that lands is the new one, whole",
+          (part_dir / "m.gguf").read_bytes() == BODY)
+
+    # 5. A partial of the SAME build is a legitimate resume point — leave it alone.
+    for p in part_dir.glob("*"):
+        p.unlink()
+    part.write_bytes(BODY[:400])
+    (part_dir / "m.gguf.part.json").write_text(_json.dumps({
+        "repo": "acme/model", "path": "m.gguf", "name": "m.gguf",
+        "destDir": "m", "size": len(BODY),
+    }))
+    job, calls = run([(99999, "ok")])
+    check("a partial of the SAME build is still resumed", calls == [400], str(calls))
+
+    # 6. No manifest — whose leftover it is stays unknown. "Probably the
+    #    same one" costs a whole model here, so we start from scratch.
+    for p in part_dir.glob("*"):
+        p.unlink()
+    part.write_bytes(b"?" * 700)
+    job, calls = run([(99999, "ok")])
+    check("a partial with no manifest is discarded", calls == [0], str(calls))
+
+    # 7. Two copies of one name in different directories are TWO different
+    #    files. The "already downloading this" check used to compare repo +
+    #    NAMES, so a second button press would hand back someone else's job,
+    #    and the second file would stay stale while the UI showed green. The
+    #    destination directory is part of a file's identity.
+    with dl._download_jobs_lock:
+        dl._download_jobs["already"] = {
+            "status": "running", "done": False, "error": None,
+            "repo": "acme/model", "fileNames": ["m.gguf"],
+            "filePaths": ["a/m.gguf"],
+        }
+    same = dl.start_hf_download("acme/model", [
+        {"name": "m.gguf", "path": "m.gguf", "destDir": "a", "size": len(BODY)}],
+        str(_TMP / "models"), "")
+    check("the SAME file twice hands back the running job — one .part, one writer",
+          same == "already", f"got {same}")
+    other = dl.start_hf_download("acme/model", [
+        {"name": "m.gguf", "path": "m.gguf", "destDir": "b", "size": len(BODY)}],
+        str(_TMP / "models"), "")
+    check("the same NAME in another directory is another file, and gets its own job",
+          other != "already", f"got {other}")
+    with dl._download_jobs_lock:
+        for jid in ("already", other):
+            dl._download_jobs.pop(jid, None)
+
+    # 8. A job must name WHERE it's writing to: the page draws progress on a
+    #    file's row, and two rows can share one name.
+    with dl._download_jobs_lock:
+        dl._download_jobs.clear()
+    for p_ in (_TMP / "models" / "m").glob("*"):
+        p_.unlink()
+    job, _calls = run([(99999, "ok")])
+    check("a job names the destination of each file, not just its name",
+          job.get("filePaths") == ["m/m.gguf"], f"got {job.get('filePaths')!r}")
+    check("and which one it is on right now",
+          job.get("current_path") == "m/m.gguf", f"got {job.get('current_path')!r}")
+
+    # 9. Whose .part this is. A live job "claims" a file so its partial
+    #    doesn't look abandoned — but claims it BY PATH. By name, a job
+    #    writing b/m.gguf would claim someone else's leftover in a/, and a
+    #    genuinely interrupted download would vanish from the list.
+    with dl._download_jobs_lock:
+        dl._download_jobs.clear()
+        dl._download_jobs["live"] = {"done": False, "repo": "acme/model",
+                                     "fileNames": ["m.gguf"], "filePaths": ["b/m.gguf"]}
+    import json as _json2
+    for sub in ("a", "b"):
+        d = _TMP / "models" / sub
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "m.gguf.part").write_bytes(b"?" * 100)
+        (d / "m.gguf.part.json").write_text(_json2.dumps({
+            "repo": "acme/model", "path": "m.gguf", "name": "m.gguf",
+            "destDir": sub, "size": len(BODY)}))
+    dl._part_scan_cache.update({"at": 0, "dir": "", "rows": []})
+    seen = sorted(r["filePaths"][0] for r in dl.scan_interrupted_downloads(str(_TMP / "models")))
+    check("a partial the live job is NOT writing is still reported as interrupted",
+          "a/m.gguf" in seen, f"got {seen}")
+    check("and the one it IS writing is not called an orphan",
+          "b/m.gguf" not in seen, f"got {seen}")
+    with dl._download_jobs_lock:
+        dl._download_jobs.clear()
+
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     return 1 if FAIL else 0
 

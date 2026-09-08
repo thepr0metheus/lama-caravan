@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
-"""Снимок static/js/llama-edit.js — редактор ячейки: что она запустит.
+"""Snapshot of static/js/llama-edit.js — the cell editor: what it will launch.
 
-18 починок в истории модуля, четыре из них — в DOM-свободном
-_buildCommandExecPreview: превью показывает команду, которую Apply запишет
-(2062ee8, ed5d4d3), знает moonshine и seamless (395664a, 6858617), говорит,
-что реально запустится (f28e409). Пинятся ЗНАЧЕНИЯ: восемь веток раннеров
-превью с умолчаниями и правилами путей, разбор ENV (запятая и перевод строки,
-комментарии, невалидные ключи), effectiveRunnerId по старшинству, сборка
-команды vLLM, artifactKind по метаданным модели, таблица compute capability,
-устройство из ENV/COMMAND и его запись обратно, реестр раннеров, метки бэкапов.
+18 fixes in this module's history, four of them in the DOM-free
+_buildCommandExecPreview: the preview shows the command Apply will actually
+write (2062ee8, ed5d4d3), knows about moonshine and seamless (395664a,
+6858617), states what will actually launch (f28e409). VALUES are pinned:
+eight runner branches of the preview with their defaults and path rules,
+parsing ENV (commas and newlines, comments, invalid keys), effectiveRunnerId
+by priority, building the vLLM command, artifactKind from a model's metadata,
+the compute-capability table, a device read from ENV/COMMAND and written back
+to it, the runner registry, backup labels.
 
-Форма — словарь globalThis.__fields (F({...})); поля с префиксом "te-"/"tr-".
-Пины лежат данными в PINS; каждый — в своём try/catch после reset(). Время
-заморожено. Модуль грузится НАСТОЯЩИЙ (_js_harness.mjs).
+The form is the globalThis.__fields dict (F({...})); fields carry the
+"te-"/"tr-" prefix. Pins live as data in PINS; each runs in its own
+try/catch after reset(). Time is frozen. The module is loaded FOR REAL
+(_js_harness.mjs).
 
-Запуск: python3 scripts/test_js_llama_edit.py
+Run: python3 scripts/test_js_llama_edit.py
 """
 
 import json
@@ -306,8 +308,8 @@ PINS = [
     ('exec_translate_langs_ws_empty',
      'F({ "te-RUNNER": { value: "translate" }, "te-PORT": { value: "22005" }, "te-TRANSLATE_SRC_LANG": { value: "  " }, "te-TRANSLATE_TGT_LANG": { value: "  " } });',
      'le._buildCommandExecPreview("te-").split("\\n")[2]',
-     '"exec env HUGGINGFACE_HUB_CACHE=\\"${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/translate\\" bash $HOME/run_translate.sh \\"$PORT\\" facebook/nllb-200-distilled-600M  "',
-     'as-is: НЕКРАСИВО: пробельные языки НЕ падают в дефолт (|| до trim) — команда заканчивается двумя пробелами без языков'),
+     '"exec env HUGGINGFACE_HUB_CACHE=\\"${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/translate\\" bash $HOME/run_translate.sh \\"$PORT\\" facebook/nllb-200-distilled-600M eng_Latn rus_Cyrl"',
+     'negative: пробельные языки падают в дефолт — trim ДО ||, как у модели и у всех прочих раннеров'),
     ('exec_translate_tr',
      'F({ "tr-RUNNER": { value: "translate" }, "tr-PORT": { value: "22011" } });',
      'le._buildCommandExecPreview("tr-")',
@@ -376,8 +378,8 @@ PINS = [
     ('exec_custom_only_exec_word',
      'F({ "te-CELL_KIND": { value: "command" }, "te-PORT": { value: "22005" }, "te-COMMAND": { value: "exec" } });',
      'le._buildCommandExecPreview("te-").split("\\n")[1]',
-     '"exec exec"',
-     'as-is: НЕКРАСИВО: COMMAND=«exec» без пробела после не снимается (регексп требует \\s+) → «exec exec»'),
+     '"exec …"',
+     'positive: COMMAND=«exec» — это не команда: срез берёт и голое слово, а не только «exec »'),
     ('exec_custom_empty_command',
      'F({ "te-CELL_KIND": { value: "command" }, "te-PORT": { value: "22005" }, "te-COMMAND": { value: "   " } });',
      'le._buildCommandExecPreview("te-")',
@@ -411,8 +413,8 @@ PINS = [
     ('exec_custom_env_value_trim_quote',
      'F({ "te-CELL_KIND": { value: "command" }, "te-PORT": { value: "22005" }, "te-ENV": { value: "A=  hello world  \\nB=x=y=z\\nC=\\"quoted\\"\\nD=" } });',
      'le._buildCommandExecPreview("te-")',
-     '"export PORT=22005\\nexport A=\\"hello world\\"\\nexport B=\\"x=y=z\\"\\nexport C=\\"\\"quoted\\"\\"\\nexport D=\\"\\"\\nexec …"',
-     'as-is: значения ENV обрезаются и берутся в кавычки; НЕКРАСИВО: уже закавыченное значение даёт ""quoted"" без экранирования; split по первому «=»; пустое значение → ""'),
+     '"export PORT=22005\\nexport A=\\"hello world\\"\\nexport B=\\"x=y=z\\"\\nexport C=\\"\\\\\\"quoted\\\\\\"\\"\\nexport D=\\"\\"\\nexec …"',
+     'значения ENV обрезаются и берутся в кавычки; кавычка внутри экранируется РОВНО как в command_cell_env_exports (launch.py); split по первому «=»; пустое значение → ""'),
     ('exec_custom_workdir_absent',
      'F({ "te-CELL_KIND": { value: "command" }, "te-PORT": { value: "22005" }, "te-COMMAND": { value: "x" }, "te-WORKDIR": { value: "  " } });',
      'le._buildCommandExecPreview("te-")',
@@ -421,13 +423,13 @@ PINS = [
     ('exec_default_llama_server_falls_to_custom',
      'F({ "te-PORT": { value: "22005" } });',
      'le._buildCommandExecPreview("te-")',
-     '"export PORT=22005\\nexec …"',
-     'as-is: НЕКРАСИВО: runner llama-server не имеет ветки — проваливается в custom и печатает «exec …» (вызывающий код не зовёт превью для llama-server)'),
+     '"export PORT=22005\\n# llama-server: the controller renders this command, not this preview"',
+     'positive: llama-server не выдаёт себя за custom — сказано, что команду рисует контроллер, а не «exec …»'),
     ('exec_unknown_runner_falls_to_custom',
      'F({ "te-RUNNER": { value: "sherpa" }, "te-PORT": { value: "22005" }, "te-COMMAND": { value: "run.sh" } });',
      'le._buildCommandExecPreview("te-")',
-     '"export PORT=22005\\nexec run.sh"',
-     'as-is: НЕКРАСИВО: неизвестный runner молча трактуется как custom'),
+     '"export PORT=22005\\n# unknown runner \\"sherpa\\" — this caravan does not know how it starts"',
+     'positive: неизвестный runner НАЗВАН неизвестным, а не молча отрисован как custom (как UnknownRunner на сервере)'),
     ('exec_custom_tr',
      'F({ "tr-CELL_KIND": { value: "command" }, "tr-PORT": { value: "22011" }, "tr-COMMAND": { value: "exec bash go.sh" }, "tr-ENV": { value: "X=1" }, "tr-WORKDIR": { value: "/w" } });',
      'le._buildCommandExecPreview("tr-")',
@@ -436,8 +438,8 @@ PINS = [
     ('exec_custom_prefix_isolation',
      'F({ "tr-CELL_KIND": { value: "command" }, "tr-PORT": { value: "22011" }, "tr-COMMAND": { value: "bash go.sh" }, "te-PORT": { value: "22005" } });',
      'le._buildCommandExecPreview("te-")',
-     '"export PORT=22005\\nexec …"',
-     'negative: поля tr-COMMAND/tr-PORT не видны превью te-'),
+     '"export PORT=22005\\n# llama-server: the controller renders this command, not this preview"',
+     'negative: поля tr-COMMAND/tr-PORT не видны превью te- — своя ветка te-, ни следа чужой команды'),
     ('exec_port_tr_from_open_cell',
      'try { rc.openLlamaRemoteEdit("h1", "gpu0", [], 22031); } catch (e) {} F({ "tr-RUNNER": { value: "vllm" } });',
      '(() => { const r = le._buildCommandExecPreview("tr-").split("\\n")[0]; try { rc.openLlamaRemoteEdit("h1", "gpu0", [], ""); } catch (e) {} return r; })()',
@@ -476,13 +478,13 @@ PINS = [
     ('er_kind_command_ws_llama',
      'F({ "te-CELL_KIND": { value: " command " } });',
      'le.effectiveRunnerId("te-")',
-     '"llama-server"',
-     'as-is: как есть: CELL_KIND сравнивается без trim — " command " даёт llama-server, а не custom'),
+     '"custom"',
+     'positive: CELL_KIND тримится — " command " даёт custom, как и на сервере'),
     ('er_kind_command_case_llama',
      'F({ "te-CELL_KIND": { value: "Command" } });',
      'le.effectiveRunnerId("te-")',
-     '"llama-server"',
-     'as-is: как есть: CELL_KIND регистрозависим — "Command" даёт llama-server'),
+     '"custom"',
+     'positive: CELL_KIND не зависит от регистра — «Command» даёт custom, как и на сервере'),
     ('er_kind_command_exact_custom',
      'F({ "te-CELL_KIND": { value: "command" } });',
      'le.effectiveRunnerId("te-")',
@@ -546,8 +548,8 @@ PINS = [
     ('exec_whisper_te_not_tr',
      'F({ "te-RUNNER": { value: "whisper" }, "te-PORT": { value: "22006" } });',
      'le._buildCommandExecPreview("tr-")',
-     '"export PORT=PORT\\nexec …"',
-     'negative: whisper-поля с префиксом te- не видны tr-превью — оно падает в custom с литералом PORT'),
+     '"export PORT=PORT\\n# llama-server: the controller renders this command, not this preview"',
+     'negative: whisper-поля с префиксом te- не видны tr-превью — llama-ветка с литералом PORT'),
     ('exec_translate_tr_comment_line',
      'F({ "tr-RUNNER": { value: "translate" }, "tr-PORT": { value: "22006" } });',
      'le._buildCommandExecPreview("tr-").split("\\n")[1]',
@@ -586,13 +588,13 @@ PINS = [
     ('exec_translate_src_ws_double_space',
      'F({ "te-RUNNER": { value: "translate" }, "te-PORT": { value: "22005" }, "te-TRANSLATE_SRC_LANG": { value: " " } });',
      'le._buildCommandExecPreview("te-").split("\\n")[2]',
-     '"exec env HUGGINGFACE_HUB_CACHE=\\"${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/translate\\" bash $HOME/run_translate.sh \\"$PORT\\" facebook/nllb-200-distilled-600M  rus_Cyrl"',
-     'as-is: как есть: пробельный SRC_LANG тримится в пусто без дефолта — двойной пробел посреди команды'),
+     '"exec env HUGGINGFACE_HUB_CACHE=\\"${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/translate\\" bash $HOME/run_translate.sh \\"$PORT\\" facebook/nllb-200-distilled-600M eng_Latn rus_Cyrl"',
+     'negative: пробельный SRC_LANG → дефолт eng_Latn, а не дыра посреди команды'),
     ('exec_translate_tgt_ws_trailing_space',
      'F({ "te-RUNNER": { value: "translate" }, "te-PORT": { value: "22005" }, "te-TRANSLATE_TGT_LANG": { value: " " } });',
      'le._buildCommandExecPreview("te-").split("\\n")[2]',
-     '"exec env HUGGINGFACE_HUB_CACHE=\\"${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/translate\\" bash $HOME/run_translate.sh \\"$PORT\\" facebook/nllb-200-distilled-600M eng_Latn "',
-     'as-is: как есть: пробельный TGT_LANG → команда заканчивается висячим пробелом, дефолт rus_Cyrl не срабатывает'),
+     '"exec env HUGGINGFACE_HUB_CACHE=\\"${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/translate\\" bash $HOME/run_translate.sh \\"$PORT\\" facebook/nllb-200-distilled-600M eng_Latn rus_Cyrl"',
+     'negative: пробельный TGT_LANG → дефолт rus_Cyrl, а не висячий пробел в хвосте'),
     ('exec_translate_src_trimmed',
      'F({ "te-RUNNER": { value: "translate" }, "te-PORT": { value: "22005" }, "te-TRANSLATE_SRC_LANG": { value: " deu_Latn " } });',
      'le._buildCommandExecPreview("te-").split("\\n")[2]',
@@ -651,8 +653,8 @@ PINS = [
     ('exec_runner_case_sensitive_whisper',
      'F({ "te-RUNNER": { value: "Whisper" }, "te-PORT": { value: "22005" } });',
      'le._buildCommandExecPreview("te-")',
-     '"export PORT=22005\\nexec …"',
-     'as-is: как есть: RUNNER регистрозависим — "Whisper" проваливается через все ветки в custom'),
+     '"export PORT=22005\\n# model downloads on first start into <models root>/whisper\\nexec env HUGGINGFACE_HUB_CACHE=\\"${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/whisper\\" bash $HOME/run_whisper.sh \\"$PORT\\" large-v3"',
+     'positive: RUNNER не зависит от регистра — «Whisper» идёт в свою ветку, как и на сервере (runner_id приводит к нижнему)'),
     ('exec_runner_lowercase_whisper',
      'F({ "te-RUNNER": { value: "whisper" }, "te-PORT": { value: "22005" } });',
      'le._buildCommandExecPreview("te-")',
@@ -661,8 +663,8 @@ PINS = [
     ('exec_runner_case_sensitive_vllm',
      'F({ "te-RUNNER": { value: "VLLM" }, "te-PORT": { value: "22005" } });',
      'le._buildCommandExecPreview("te-")',
-     '"export PORT=22005\\nexec …"',
-     'as-is: как есть: "VLLM" тоже не распознаётся — custom-ветка с exec …'),
+     '"export PORT=22005\\n# first start on a host provisions ~/vllm-venv (several minutes)\\nexec $HOME/vllm-venv/bin/vllm serve … --host 0.0.0.0 --port \\"$PORT\\""',
+     'positive: «VLLM» тоже узнаётся — тот же нижний регистр, что у сервера'),
     # ── artifacts_devices ──
     ('ak_moonshine',
      '',
@@ -1476,11 +1478,12 @@ def main():
     def blocks(pins, sink):
         return [f"try {{ reset(); {setup}\n  {sink}[{json.dumps(pid)}] = {expr}; }} catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
-    # Каждый пин обязан быть независим от соседей: reset() перед ним для того и
-    # стоит. Доказывается это здесь же — весь набор прогоняется ВТОРОЙ раз в
-    # обратном порядке, и значения должны совпасть. Без этой проверки пин может
-    # проходить из-за состояния, оставленного предыдущим (так и было: два пина
-    # про «порт не задан» зеленели лишь потому, что шли раньше открытия ячейки).
+    # Every pin must be independent of its neighbors: that's exactly why
+    # reset() sits in front of it. This is proven right here — the whole set
+    # is run a SECOND time in reverse order, and the values must match.
+    # Without this check a pin can pass because of state left behind by the
+    # previous one (this actually happened: two "port not set" pins stayed
+    # green only because they ran before the cell was opened).
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev")).replace("out[", "rev[")
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

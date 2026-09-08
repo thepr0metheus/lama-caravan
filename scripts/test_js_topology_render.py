@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Снимок static/js/topology-render.js — от чего доска перерисовывается.
+"""Snapshot of static/js/topology-render.js — what makes the board redraw.
 
-Доска решает перерисоваться по ОТПЕЧАТКУ структуры: пока он не изменился,
-идёт дешёвая правка на месте. Значит всё, чего в отпечатке нет, на доске не
-появляется до перезагрузки страницы — и выглядит это как «не сохранилось».
+The board decides to redraw based on a structural FINGERPRINT: as long as it
+hasn't changed, a cheap in-place edit runs instead. That means anything
+missing from the fingerprint doesn't appear on the board until the page
+reloads — and looks exactly like "didn't save".
 
-Так и вышло: агент, заведённый руками, ложился в запись и не показывался,
-пока страницу не перезагрузишь. Отпечаток считал НАЗНАЧЕНИЯ клиента и не
-считал агентов. По той же причине не обновлялся чип окна контекста.
+That's exactly what happened: an agent created by hand landed in the record
+and didn't show up until the page was reloaded. The fingerprint counted a
+client's ASSIGNMENTS and didn't count its agents. The context-window chip
+failed to update for the same reason.
 
-Этот модуль до сих пор не грузил НИ ОДИН снимок — он заглушён во всех
-харнессах. Поэтому же в нём проехал в прод синтаксис, который node --check не
-ловит. Теперь он загружается по-настоящему.
+This module had never been loaded by a single snapshot until now — it's
+stubbed out in every harness. That's also how syntax that `node --check`
+doesn't catch shipped to production inside it. Now it's loaded for real.
 
-Запуск: python3 scripts/test_js_topology_render.py
+Run: python3 scripts/test_js_topology_render.py
 """
 import json
 import os
@@ -71,6 +73,25 @@ PINS = [
      'm.topologyStructureFingerprint() !== globalThis.__fp2',
      'true',
      "boundary: галка «от модели» — тоже изменение, которое обязано доехать до глаз"),
+    ("fingerprint_sees_a_changed_name",
+     'st.setTopology({ ...st.topology, clients: [CLIENT({ agents: [{ id: "a1" }] })],'
+     ' assignments: ROW([{ role: "primary", proxyId: "skynet:proxy:23001", endpoint: "e" }]) });'
+     ' globalThis.__fpN = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, assignments: ROW([{ role: "primary", proxyId: "skynet:proxy:23001",'
+     ' endpoint: "e", modelName: "main-model" }]) });',
+     'm.topologyStructureFingerprint() !== globalThis.__fpN',
+     'true',
+     "defect-history: имя, под которым порт объявляет модель, в отпечатке не стояло — сохранённое имя доска показывала только после перезагрузки"),
+    ("fingerprint_sees_the_lock",
+     'st.setTopology({ ...st.topology, clients: [CLIENT({ agents: [{ id: "a1" }] })],'
+     ' assignments: ROW([{ role: "primary", proxyId: "skynet:proxy:23001", endpoint: "e",'
+     ' modelName: "main-model" }]) });'
+     ' globalThis.__fpL = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, assignments: ROW([{ role: "primary", proxyId: "skynet:proxy:23001",'
+     ' endpoint: "e", modelName: "main-model", modelNameAuto: true }]) });',
+     'm.topologyStructureFingerprint() !== globalThis.__fpL',
+     'true',
+     "boundary: замок у имени — то же самое изменение записи, и оно обязано доехать до глаз без перезагрузки"),
     ("fingerprint_steady_when_nothing_changed",
      'st.setTopology({ ...st.topology, clients: [CLIENT({ agents: [{ id: "a1" }] })],'
      ' assignments: ROW([{ role: "primary", proxyId: "skynet:proxy:23001", endpoint: "e",'
@@ -210,8 +231,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

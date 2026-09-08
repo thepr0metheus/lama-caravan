@@ -89,6 +89,67 @@
       background: color-mix(in srgb, #4fc38a 18%, transparent); color: #6fd6a4;
       max-width: 220px; overflow: hidden; text-overflow: ellipsis;
     }
+    /* Freshness: ⇪ means a different file sits under this name on HF; "?"
+       means there's nothing to compare against. A match gets NO mark at all:
+       a checkmark over every matching file would turn the page into a forest
+       of checkmarks, when its job is to show what needs attention. Empty
+       space here means "no questions". */
+    .mdl-fresh {
+      font-size: 11px; font-weight: 700; line-height: 1; cursor: help;
+    }
+    .mdl-fresh.newer { color: #ffb74d; }
+    .mdl-fresh.unknown { color: #90a4ae; }
+    /* Buttons on a file's row. "Update" is dim: it's a suggestion, not a
+       call to action — the decision to replace the weights is the
+       operator's. */
+    .mdl-mini {
+      font-size: 10px; padding: 1px 7px; border-radius: 4px; cursor: pointer;
+      border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+      background: transparent; color: var(--muted); white-space: nowrap;
+    }
+    .mdl-mini:hover:not(:disabled) { color: var(--text); }
+    .mdl-mini:disabled { opacity: 0.55; cursor: default; }
+    .mdl-mini.apply { color: #ffb74d; border-color: color-mix(in srgb, #ffb74d 45%, transparent); }
+    .mdl-mini.prev { color: #90a4ae; }
+    /* The progress bar lives ON THE FILE'S ROW, not as a single one for the
+       whole page: several downloads can run at once, and one shared
+       indicator would erase them into each other. Width is this file's
+       share, text is its own bytes. */
+    .mdl-dl {
+      position: relative; display: inline-flex; align-items: center;
+      min-width: 132px; height: 16px; padding: 0 7px; border-radius: 4px;
+      font-size: 10px; white-space: nowrap; overflow: hidden;
+      border: 1px solid color-mix(in srgb, #4fc3f7 40%, transparent);
+      background: color-mix(in srgb, #4fc3f7 8%, transparent);
+    }
+    .mdl-dl-bar {
+      position: absolute; inset: 0 auto 0 0; width: 0;
+      background: color-mix(in srgb, #4fc3f7 26%, transparent);
+      transition: width 0.4s linear;
+    }
+    .mdl-dl-text { position: relative; color: var(--text); }
+    /* Interrupted is NOT running. Frozen percentages in the same colors
+       would read as a slow download, so the color and the word are both
+       different. */
+    .mdl-dl.stalled {
+      border-color: color-mix(in srgb, #ef5350 45%, transparent);
+      background: color-mix(in srgb, #ef5350 10%, transparent);
+    }
+    .mdl-dl.stalled .mdl-dl-bar { background: color-mix(in srgb, #ef5350 24%, transparent); }
+    .mdl-freshness-row {
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+      padding: 6px 0 2px; font-size: 12px;
+    }
+    .mdl-fresh-auto { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+    .mdl-fresh-at {
+      background: transparent; color: var(--text); font-size: 12px;
+      border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+      border-radius: 4px; padding: 1px 5px;
+    }
+    .mdl-fresh-at:disabled { opacity: 0.45; }
+    /* The timestamp is required: a report without one reads as "just
+       checked", and yesterday's "everything matches" looks like today's. */
+    .mdl-fresh-stamp { margin-left: auto; color: var(--muted); }
     .mdl-file input[type=checkbox] { accent-color: var(--accent); }
     .mdl-foot { display: flex; align-items: center; gap: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
     .mdl-foot .picked { color: var(--muted); font-size: 12px; margin-right: auto; }
@@ -202,6 +263,37 @@
                data-i18n-aria="a11yModelsDirectory" aria-label="Models directory" data-t="models-path-input">
         <button class="mini-link" type="button" id="mdlPathSave" data-i18n="save" data-t="models-path-save">Save</button>
         <button class="mini-link" type="button" id="mdlPathCancel" data-i18n="cancel" data-t="models-path-cancel">Cancel</button>
+      </div>
+      <div class="mdl-freshness-row">
+        <button class="mini-link" type="button" id="mdlFreshCheck"
+                data-i18n="mdlFreshCheck" data-t="models-fresh-check">Check Hugging Face</button>
+        <label class="mdl-fresh-auto" data-i18n-tip="mdlFreshAutoTip"
+               title="Compares what is on disk with Hugging Face at the time below. Looking alone downloads nothing.">
+          <input type="checkbox" id="mdlFreshAuto" data-t="models-fresh-auto">
+          <span data-i18n="mdlFreshAutoLabel">Look once a day</span>
+        </label>
+        <!-- The time of day sits RIGHT NEXT TO the checkbox it qualifies.
+             "Once a day" with no answer to "at what time exactly" is half a
+             setting, and the operator goes looking for the other half where
+             it doesn't exist. -->
+        <label class="mdl-fresh-auto">
+          <span data-i18n="mdlFreshAtLabel">at</span>
+          <input type="time" id="mdlFreshAt" class="mdl-fresh-at" data-t="models-fresh-at"
+                 data-i18n-tip="mdlFreshAtTip" title="Local time of the daily check">
+        </label>
+        <!-- The label must name the ACTION: the first checkbox used to
+             promise "never downloads" while the one next to it downloaded —
+             the row contradicted itself in front of the operator. -->
+        <label class="mdl-fresh-auto" data-i18n-tip="mdlFreshGetTip"
+               title="The new build is written over the working file.">
+          <input type="checkbox" id="mdlFreshGet" data-t="models-fresh-get">
+          <span data-i18n="mdlFreshGetLabel">…and download the new build over the old file</span>
+        </label>
+        <label class="mdl-fresh-auto">
+          <input type="checkbox" id="mdlFreshKeep" data-t="models-fresh-keep">
+          <span data-i18n="mdlFreshKeepLabel">Keep the previous build (costs its size on disk)</span>
+        </label>
+        <span class="mdl-fresh-stamp" id="mdlFreshStamp" data-t="models-fresh-stamp"></span>
       </div>
       <div class="mdl-tree" id="mdlTree" data-t="models-tree" role="region" data-i18n-aria="a11yModelsTree" aria-label="Model files"><p class="muted">…</p></div>
       <div class="mdl-foot">

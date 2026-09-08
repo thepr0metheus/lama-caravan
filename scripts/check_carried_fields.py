@@ -1,30 +1,33 @@
 #!/usr/bin/env python3
-"""Поле, которое едет через несколько пересборок, обязано быть НАЗВАНО в каждой.
+"""A field that rides through several rebuilds must be NAMED in every one of them.
 
-Настройка клиентской прокси-ячейки проделывает путь от документа контроллера до
-ответа прокси, и на этом пути её четырежды ПЕРЕСОБИРАЮТ: класс формы записи,
-нормализатор на записи маршрута, нормализатор на чтении маршрута и мост, что
-возит копию от назначения к маршруту. Каждая пересборка строит словарь с нуля,
-поэтому поле, которого она не называет, исчезает — молча, без ошибки, и
-замечается через слой или два, когда клиент получает не то, что задал оператор.
+A client proxy cell's setting travels from the controller's document to the
+proxy's response, and along the way it gets REBUILT four times: the record's
+form class, the normalizer on writing a route, the normalizer on reading a
+route, and the bridge that carries a copy from an assignment to a route. Each
+rebuild constructs a dict from scratch, so a field it doesn't name
+disappears — silently, with no error — and gets noticed a layer or two later,
+when a client gets something other than what the operator set.
 
-За одну работу это случилось ЧЕТЫРЕ раза подряд. Первые три нашлись красным
-пином, четвёртый — только потому, что предыдущие три научили искать. Список
-полей и список границ лежат здесь, и гвард требует, чтобы каждое поле было
-названо на каждой границе.
+This happened FOUR times in a row during a single piece of work. The first
+three were caught by a red pin, the fourth only because the first three had
+taught the search. The field list and the boundary list live here, and the
+guard requires every field to be named at every boundary.
 
-Здесь стояло «пятого не будет». Пятый был — и этот гвард его не увидел: сверка
-прокси собирала строку назначения ЗАНОВО по живому отчёту клиента, а рукописный
-список границ про неё не знал и печатал зелёное. Рукописный список устаревает
-молча — это уже было доказано на списке скриптов в CI. Поэтому ниже добавлено
-правило, которое ловит не перечисленное место, а САМУ ФОРМУ дефекта: сборку
-назначения с нуля там, где рядом лежит сохранённая запись.
+This used to say "there won't be a fifth". There was a fifth — and this guard
+missed it: the proxy reconcile built the assignment record AGAIN from a
+client's live report, and the hand-written boundary list knew nothing about
+it and printed green. A hand-written list goes stale silently — this was
+already proven on the list of scripts in CI. So a rule was added below that
+catches not a listed location but the SHAPE of the defect itself: building an
+assignment from scratch where a saved record sits right next to it.
 
-Гвард падает ДВУМЯ способами. На дефекте: поле названо не везде. И когда
-перестаёт что-либо находить: граница исчезла, переехала или переименована —
-тогда он не молчит, а говорит, что проверять стало нечего.
+The guard fails TWO ways. On the defect itself: a field isn't named
+everywhere. And when it stops finding anything to check: a boundary
+disappeared, moved, or was renamed — then it doesn't stay silent, it says
+there's nothing left to check.
 
-Запуск: python3 scripts/check_carried_fields.py
+Run: python3 scripts/check_carried_fields.py
 """
 import ast
 import sys
@@ -32,12 +35,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-#: Поля, которые обязаны пережить весь путь. Добавляешь такое поле — впиши сюда,
-#: и гвард сразу скажет, на какой границе ты его забыл назвать.
-CARRIED_FIELDS = ("contextLength", "contextAuto", "modelName")
+#: Fields that must survive the whole path. Add such a field — write it in
+#: here, and the guard will immediately say at which boundary you forgot to
+#: name it.
+CARRIED_FIELDS = ("contextLength", "contextAuto", "modelName", "modelNameAuto")
 
-#: Границы пересборки: файл → функция, которая собирает запись заново.
-#: Функция названа не для красоты — по ней проверяется, что граница на месте.
+#: Rebuild boundaries: file → the function that constructs the record again.
+#: The function isn't named for style — it's what the check verifies the
+#: boundary against.
 REBUILD_BOUNDARIES = {
     "caravan/domain/client_proxy.py": "to_dict",
     "caravan/admin/router_dsl.py": "normalize_agent_proxy_route",
@@ -45,20 +50,24 @@ REBUILD_BOUNDARIES = {
     "caravan/admin/fleet_clients.py": "reconcile_proxy_metadata",
 }
 
-#: Ниже этого числа границ проверка бессмысленна: значит список отстал от кода.
+#: Below this many boundaries the check is meaningless: it means the list has
+#: fallen behind the code.
 MIN_BOUNDARIES = 4
 
 
 def _emitted_keys(source, func_name):
-    """Имена, которые функция КЛАДЁТ в собираемую запись, или None если её нет.
+    """Names the function PUTS into the record it's building, or None if it
+    doesn't exist.
 
-    Считаются два написания, и только они: ключ словарного литерала
-    (``{"поле": ...}``) и цель присваивания по ключу (``out["поле"] = ...``).
-    Всё остальное упоминание полем не является, и это не педантизм — обе
-    предыдущие редакции этого гварда зеленели на сломанном дереве: первая
-    удовлетворялась словом в КОММЕНТАРИИ, вторая — ЧТЕНИЕМ поля из входа
-    (``route.get("поле")``), которое остаётся на месте, даже когда запись
-    переименовали. Проверять надо то, что кладут, а не то, что рядом написано.
+    Two spellings count, and only these: a dict literal's key
+    (``{"field": ...}``) and the target of a keyed assignment
+    (``out["field"] = ...``). Any other mention doesn't count as naming a
+    field, and this isn't pedantry — both previous versions of this guard
+    stayed green on a broken tree: the first was satisfied by the word
+    appearing in a COMMENT, the second by READING the field from the input
+    (``route.get("field")``), which stays in place even after the record has
+    been renamed. What must be checked is what gets put in, not what's
+    written nearby.
     """
     try:
         tree = ast.parse(source)
@@ -82,21 +91,22 @@ def _emitted_keys(source, func_name):
     return keys
 
 
-#: Где живут классы формы записи: внутри них собирать запись с нуля — работа,
-#: снаружи — дефект.
+#: Where the record-form classes live: constructing a record from scratch
+#: inside them is their job, outside them it's a defect.
 DOMAIN_DIR = "caravan/domain/"
 
-#: Конструкторы, которые ПЕРЕНОСЯТ уже сохранённое. Всё остальное собирает
-#: назначение с нуля и роняет то, чего не назвали.
+#: Constructors that CARRY OVER what's already saved. Everything else builds
+#: an assignment from scratch and drops whatever wasn't named.
 CARRYING_CONSTRUCTORS = ("from_raw", "rewired")
 
 
 def _bare_assignment_builds():
-    """Места вне домена, где `AgentAssignment(...)` зовут напрямую.
+    """Places outside the domain where `AgentAssignment(...)` is called directly.
 
-    Пятая граница выглядела именно так: `AgentAssignment(aid, [route])` рядом с
-    `existing[aid]`, из которого ничего не взяли. Классу передали только то, что
-    знает живой отчёт, — и всё, что знал оператор, исчезло.
+    The fifth boundary looked exactly like this: `AgentAssignment(aid,
+    [route])` right next to `existing[aid]`, from which nothing was taken.
+    The class was handed only what the live report knows — and everything
+    the operator had set was gone.
     """
     hits, call_sites = [], 0
     for path in sorted(ROOT.glob("caravan/**/*.py")):
@@ -104,10 +114,10 @@ def _bare_assignment_builds():
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except SyntaxError as exc:
-            # Непрочитанный файл — это НЕ «в нём ничего нет». Первая редакция
-            # правила молча пропускала такой файл, и мутант, сломавший разбор,
-            # оставил гвард зелёным: ровно то самое отсутствие, нарисованное
-            # нормой, ради которого весь этот гвард и написан.
+            # A file that fails to parse is NOT "nothing to see here". The
+            # first version of this rule silently skipped such a file, and a
+            # mutant that broke parsing left the guard green: exactly the
+            # absence-drawn-as-normal case this whole guard exists to catch.
             hits.append(f"{rel}: не разбирается ({exc.msg}, строка {exc.lineno}) — "
                         f"проверить сборку назначения в нём нечем")
             continue

@@ -1,26 +1,29 @@
 #!/usr/bin/env python3
-"""Снимок static/js/canvas.js — основа фазы 8 (перевод канбана в классы).
+"""Snapshot of static/js/canvas.js — the baseline for Phase 8 (turning the kanban into classes).
 
-Пинится поведение ДО переписывания, значениями: помощники (группа агента,
-primary-порт пары, ключ и имя клиента с квалификацией хостом, форматы истории,
-короткое имя gguf, обход рёбер к узлу расписания), сборка узлов `canvasNodes`
-(входы, узлы правил каждого вида с их портами, блок серверов, слот
-embeddings), операции над графом через `saveRouters` (узел расписания
-рождается с двумя выходами, один выход у in:-порта — замена, inc: раскрывается
-в порты клиента, роли очереди/onError держат указатели на рёбра и чистятся,
-перецепка наследует schedPortId, лечение принимает первое свободное ребро как
-main и сходится), очередь сохранений сетки (один запрос в полёте, последняя
-сетка догоняет), панель конфига узла, геометрия (точка мира по цепочке
-offsetParent, якоря, кривая, коннекторы с `data-t-id="from->to"` и классами
-ролей, кабель во время протяжки), перетаскивание (узел → позиция и запись
-через saveRouters для rule:, иначе localStorage; пан; connect/rewire →
-ребро на цели), раздвижка наложений, биндер (одна привязка на поколение
-мира, палитра один раз, зум к курсору 0.35–2.2, зажимы полей очереди).
+The behaviour is pinned BEFORE the rewrite, by value: helpers (an agent's
+group, a pair's primary port, a client's key and name qualified by host,
+history formats, gguf's short name, walking edges to a schedule node),
+building `canvasNodes` (inputs, rule nodes of every kind with their ports,
+the server block, the embeddings slot), graph operations through
+`saveRouters` (a schedule node is born with two outputs, one output on an
+in:-port is a replacement, inc: expands into a client's ports, queue/onError
+roles hold edge pointers and get cleaned up, a rewire inherits schedPortId,
+healing accepts the first free edge as main and converges), the grid-save
+queue (one request in flight, the latest grid catches up), the node config
+panel, geometry (a world point via the offsetParent chain, anchors, the
+curve, connectors with `data-t-id="from->to"` and role classes, the cable
+while dragging), dragging (a node → position, and a save through saveRouters
+for rule:, otherwise localStorage; panning; connect/rewire → an edge onto the
+target), spreading out overlaps, the binder (one binding per world
+generation, the palette built once, zoom to cursor 0.35–2.2, queue field
+clamps).
 
-DOM — словарь селекторов и модели элементов с offsetParent-цепочкой;
-соседи — заглушки с записью; saveRouters применяет мутатор к копии.
+The DOM is a selector dict and element models with an offsetParent chain;
+neighbors are stubs recording their calls; saveRouters applies the mutator to
+a copy.
 
-Запуск: python3 scripts/test_js_canvas.py
+Run: python3 scripts/test_js_canvas.py
 """
 import json
 import os
@@ -114,7 +117,7 @@ const out = {};
 """
 
 PINS = [
-    # ── помощники ──
+    # ── helpers ──
     ("agent_group_and_primary_port", '', '[m._cvAgentGroup({ label: "hermes primary" }), m._cvAgentGroup({ label: "hermes  Fallback" }), m._cvAgentGroup({}), m._cvPrimaryPort({ port: 23002 }), m._cvPrimaryPort({ port: 23001 }), m._cvPrimaryPort({ port: "0" }), m._cvPrimaryPort({})]', '["hermes","hermes","",23001,23001,0,0]',
      "имя группы — подпись без суффикса роли; primary пары — нечётный порт (чётный → порт−1)"),
     ("client_key_and_name", '', '[m.canvasClientKey(PROXIES()[1]), m.canvasClientKey(PROXIES()[3]), m.canvasClientName(PROXIES()[0]), m.canvasClientName(PROXIES()[1]), m.canvasClientName(PROXIES()[2]), m.canvasClientName(PROXIES()[3])]', '["box-a::23001","::8021","hermes","hermes","crane","promie"]',
@@ -162,7 +165,7 @@ PINS = [
     ("outputs_block_uses_servers_renderer", '', '(() => { const o = node("outputs:block"); return [o.cls, o.html.includes("SERVERS"), o.html.includes("cv-servers-body")]; })()', '["cv-servers-block",true,true]', "блок серверов рисует renderServersBlockHtml внутри своей обёртки"),
     ("render_canvas_modal", '', '(() => { m.cvSetViewport({ "rule:q1": { x: 5, y: 6 } }, { tx: 1, ty: 2, scale: 1.5 }); const h = m.renderTopologyCanvasModal(); m.cvSetViewport({}, { tx: 24, ty: 24, scale: 1 }); st.ui.topologyCanvasRouterId = ""; const none = m.renderTopologyCanvasModal(); return [h.includes("translate(1px, 2px) scale(1.5)"), h.includes(\'data-cv-node="rule:q1" style="left:5px;top:6px"\'), h.includes(\'data-cv-node="inputs:block" style="left:20px;top:20px"\'), (h.match(/class="cv-node /g) || []).length, none]; })()',
      '[true,true,true,9,""]', "модал канбана: трансформ мира из вьюпорта, сохранённая позиция побеждает fixed, все узлы; без открытого роутера — пусто"),
-    # ── операции над графом ──
+    # ── graph operations ──
     ("add_rule_node_schedule_gets_two_outputs", 'globalThis.__q["[data-cv-viewport]"] = mkEl({ clientWidth: 800, clientHeight: 600 });', 'await (async () => { m.addRuleNode("schedule"); m.addRuleNode("queue"); await settle(); const s = saved(); const sn = s[0].graph.nodes.at(-1), qn = s[1].graph.nodes.at(-1); return [sn.type, sn.config.outputs.length, sn.config.grid.length, sn.x, sn.y, qn.type, qn.config, qn.id.startsWith("n")]; })()',
      '["schedule",2,7,376,276,"queue",{},true]', "новый узел в центре вьюпорта (с учётом пана 24); расписание рождается с двумя выходами и пустой сеткой, очередь — с пустым конфигом"),
     ("delete_rule_node_confirms_and_drops_edges", '', 'await (async () => { globalThis.__stubReturns["dialogs.appConfirm"] = async () => false; await m.deleteRuleNode("q1"); const refused = saved().length; globalThis.__stubReturns["dialogs.appConfirm"] = async () => true; await m.deleteRuleNode("q1"); await settle(); const g = lastSaved().graph; return [refused, g.nodes.some((n) => n.id === "q1"), g.edges.filter((e) => e.from === "rule:q1" || e.to === "rule:q1").length, g.edges.length]; })()',
@@ -186,9 +189,46 @@ PINS = [
      '[0,"C",1,["A","C"]]', "очередь сохранений сетки: пока запрос в полёте, копится ТОЛЬКО последняя сетка и уходит следом — промежуточная B не пишется"),
     ("save_node_config_and_panel", '', 'await (async () => { m.saveNodeConfig("w1", (c) => { c.weights = [{ edge: "e5", pct: 60 }]; }); await settle(); st.ui.topologyRouterNodeCfgId = "w1"; const w = m.renderRouterNodeConfig(st.topology.routers[0]); st.ui.topologyRouterNodeCfgId = "f1"; const f = m.renderRouterNodeConfig(st.topology.routers[0]); st.ui.topologyRouterNodeCfgId = "q1"; const q = m.renderRouterNodeConfig(st.topology.routers[0]); st.ui.topologyRouterNodeCfgId = "zzz"; const none = m.renderRouterNodeConfig(st.topology.routers[0]); return [lastSaved().graph.nodes.find((n) => n.id === "w1").config.weights[0].pct, w.includes("data-cfg-weight") && w.includes(\'value="70"\'), (f.match(/data-cfg-ord-id=/g) || []).length, q.includes(\'data-cfg-q="spillPct"\'), none]; })()',
      '[60,true,0,true,""]', "конфиг узла сохраняется патчем; панель: веса по рёбрам, порядок failover (без рёбер — пусто), поля очереди; неизвестный узел — пусто"),
-    # ── геометрия и коннекторы ──
+    # ── geometry and connectors ──
     ("world_point_sums_offsets", '', '(() => { const world = mkEl({ classList: (() => { const c = cls(); c.add("cv-world"); return c; })() }); const nodeEl = mkEl({ offsetLeft: 100, offsetTop: 50, offsetWidth: 200, offsetHeight: 80, offsetParent: world }); const port = mkEl({ offsetLeft: 190, offsetTop: 30, offsetWidth: 16, offsetHeight: 16, offsetParent: nodeEl }); return [m._cvWorldPoint(port, "right"), m._cvWorldPoint(port, "center"), m._cvWorldPoint(nodeEl, "left")]; })()',
      '[{"x":306,"y":88},{"x":298,"y":88},{"x":100,"y":90}]', "точка мира суммирует смещения до cv-world: правый край, центр, левый край"),
+    # ── the backup node: output health and the ▶ for the next request come from proxy state, not a recomputation ──
+    ("onerror_rows_default", '', '(() => { const h = node("rule:oe1").html; const rows = h.split(/class="cv-q-dest/).slice(1); const cls = (r) => (r.match(/cv-oe-state (\\w+)/) || [])[1]; const tip = (r) => (r.match(/cv-oe-state \\w+" title="([^"]*)"/) || [])[1]; return [rows.length, /cv-oe-next" title="the next request goes here">▶/.test(rows[0]), /cv-oe-next off/.test(rows[1]), cls(rows[0]), tip(rows[0]), cls(rows[1]), /data-cv-oe-live="oe1"/.test(h)]; })()',
+     '[2,true,true,"unknown","not checked yet","unknown",true]',
+     "без отчёта прокси: ▶ у main (это и есть правило прокси, когда он ничего не знает), оба выхода «ещё не проверялись», живая область помечена id узла"),
+    ("onerror_rows_from_monitor", 'st.ui.latestSystemMonitor = { latest: { agentProxies: { outputHealth: { "srv:22001": { state: "error", status: 429, kind: "http 429", message: "quota gone", ageSec: 120, fresh: true, retryInSec: 180 }, "cb:terra": { state: "ok", ageSec: 5, fresh: true, retryInSec: 295 } }, onErrorNext: { oe1: { next: "backup", reason: "main is down: http 429" } } } } };', '(() => { const h = node("rule:oe1").html; const rows = h.split(/class="cv-q-dest/).slice(1); const cls = (r) => (r.match(/cv-oe-state (\\w+)/) || [])[1]; const tip = (r) => (r.match(/cv-oe-state \\w+" title="([^"]*)"/) || [])[1]; return [/cv-oe-next off/.test(rows[0]), /cv-oe-next" title="the next request goes here">▶/.test(rows[1]), cls(rows[0]), tip(rows[0]), cls(rows[1]), tip(rows[1])]; })()',
+     '[true,true,"error","down (http 429: quota gone) — 2m ago; re-checked in 3m","ok","alive — checked 5s ago"]',
+     "из отчёта: main мёртв (429, квота) — ▶ уходит на backup, точка красная с причиной, возрастом и сроком перепроверки; backup жив — зелёная с возрастом"),
+    ("onerror_rows_stale", 'st.ui.latestSystemMonitor = { latest: { agentProxies: { outputHealth: { "srv:22001": { state: "error", status: 429, kind: "http 429", message: "quota gone", ageSec: 420, fresh: false, retryInSec: 0 } }, onErrorNext: { oe1: { next: "main", reason: "" } } } } };', '(() => { const h = node("rule:oe1").html; const rows = h.split(/class="cv-q-dest/).slice(1); const cls = (r) => (r.match(/cv-oe-state (\\w+)/) || [])[1]; const tip = (r) => (r.match(/cv-oe-state \\w+" title="([^"]*)"/) || [])[1]; return [/cv-oe-next" title/.test(rows[0]), cls(rows[0]), tip(rows[0])]; })()',
+     '[true,"stale","last verdict: http 429: quota gone, 7m ago — re-checked on the next request"]',
+     "истёкший вердикт: ▶ снова у main, точка янтарная — «последний вердикт … перепроверится на следующем запросе», а не мёртвый"),
+    ("onerror_sync_live", 'const oeEl = mkEl({ getAttribute: () => "oe1", innerHTML: "" }); globalThis.__qa["[data-cv-oe-live]"] = [oeEl]; st.ui.latestSystemMonitor = { latest: { agentProxies: { outputHealth: { "srv:22001": { state: "error", status: 429, kind: "http 429", message: "quota gone", ageSec: 120, fresh: true, retryInSec: 180 }, "cb:terra": { state: "ok", ageSec: 5, fresh: true, retryInSec: 295 } }, onErrorNext: { oe1: { next: "backup", reason: "main is down: http 429" } } } } }; m.syncQueueNodesLive();', '(() => { const rows = oeEl.innerHTML.split(/class="cv-q-dest/).slice(1); return [rows.length, /cv-oe-next off/.test(rows[0]), /▶/.test(rows[1])]; })()',
+     '[2,true,true]',
+     "тик монитора перепатчивает только живую область узла: ▶ переехал на backup без полной перерисовки"),
+    ("onerror_chained_exit", 'st.ui.latestSystemMonitor = { latest: { agentProxies: { outputHealth: { "srv:22010": { state: "ok", checkedAt: 1699999993, ageSec: 7, fresh: true, retryInSec: 293 }, "srv:22001": { state: "error", status: 429, kind: "http 429", message: "quota", ageSec: 10, fresh: true, retryInSec: 290 } }, onErrorNext: { oe1: { next: "main", reason: "", main: "srv:22010", mainChain: ["q1"], mainName: "Muse :22010" } } } } };',
+     '(() => { const h = node("rule:oe1").html; const rows = h.split(/class="cv-q-dest/).slice(1); const cls = (r) => (r.match(/cv-oe-state (\\w+)/) || [])[1]; const label = (r) => (r.match(/cv-q-dt" title="([^"]*)"/) || [])[1]; return [cls(rows[0]), label(rows[0]), /cv-oe-cd/.test(rows[0])]; })()',
+     '["ok","qwen → Muse :22010",true]',
+     "выход в узел: здоровье и отсчёт берутся у КОНЕЧНОГО выхода, названного прокси (srv:22010 — жив), а подпись говорит через что: «… → Muse :22010»; вердикт выхода, куда ведёт само ребро (429), к этой строке отношения не имеет"),
+    ("onerror_chain_named_by_the_board", 'st.ui.latestSystemMonitor = { latest: { agentProxies: { outputHealth: { "srv:22003": { state: "ok", checkedAt: 1699999993, ageSec: 7, fresh: true, retryInSec: 293 } }, onErrorNext: { oe1: { next: "main", reason: "", main: "srv:22003", mainChain: ["q1"], mainName: "srv:22003" } } } } };',
+     '(() => { const rows = node("rule:oe1").html.split(/class="cv-q-dest/).slice(1); return (rows[0].match(/cv-q-dt" title="([^"]*)"/) || [])[1]; })()',
+     '"qwen → embed"',
+     "выход, который доска знает, называется её же словами («embed», как на канате), а не голым id из отчёта: одна модель — одно имя на экране"),
+    ("onerror_chain_unnamed", 'st.ui.latestSystemMonitor = { latest: { agentProxies: { outputHealth: { "srv:22001": { state: "ok", ageSec: 7, fresh: true, retryInSec: 293 } }, onErrorNext: { oe1: { next: "main", reason: "", main: null, mainChain: ["rr1"], mainName: null } } } } };',
+     '(() => { const h = node("rule:oe1").html; const rows = h.split(/class="cv-q-dest/).slice(1); const cls = (r) => (r.match(/cv-oe-state (\\w+)/) || [])[1]; const label = (r) => (r.match(/cv-q-dt" title="([^"]*)"/) || [])[1]; return [cls(rows[0]), label(rows[0])]; })()',
+     '["ok","qwen"]',
+     "negative: конец цепочки не назван (её решает round-robin) — стрелки в подписи нет, догадка тут хуже молчания; здоровье берётся у того, куда ведёт само ребро — для прямого выхода это он и есть"),
+    ("onerror_ago", '', '[m.OnErrorNode.ago(5), m.OnErrorNode.ago(59), m.OnErrorNode.ago(60), m.OnErrorNode.ago(150), m.OnErrorNode.ago(3600), m.OnErrorNode.ago(-3), m.OnErrorNode.ago("x")]',
+     '["5s","59s","1m","3m","1h","0s","0s"]',
+     "возраст: секунды до минуты, минуты до часа, часы; мусор и минус — 0s"),
+    ("onerror_countdown", 'st.ui.latestSystemMonitor = { latest: { agentProxies: { outputHealth: { "srv:22001": { state: "error", status: 429, kind: "http 429", message: "quota", checkedAt: 1700000000, ageSec: 100, fresh: true, retryInSec: 200 }, "cb:terra": { state: "ok", checkedAt: 1699999600, ageSec: 500, fresh: false, retryInSec: 0 } }, onErrorNext: { oe1: { next: "main", reason: "" } } } } }; globalThis.__timers.length = 0;', '(() => { const h = node("rule:oe1").html; const rows = h.split(/class="cv-q-dest/).slice(1); const cd = (r) => (r.match(/cv-oe-cd" data-cv-oe-deadline="(\\d+)"[^>]*>([^<]*)</) || []).slice(1, 3); return [cd(rows[0]), cd(rows[1]), globalThis.__timers.includes("interval:1000")]; })()',
+     '[["1700000300","3:20"],["1700000100","0:00"],true]',
+     "отсчёт: дедлайн = checkedAt + возраст + срок перепроверки; свежий вердикт — «3:20», истёкший — «0:00»; тикер раз в секунду зарегистрирован при отрисовке"),
+    ("onerror_countdown_unknown", '', '(() => { const h = node("rule:oe1").html; return [h.includes("cv-oe-cd"), m.OnErrorNode.countdownText(0), m.OnErrorNode.countdownText(1700000100 - 5), m.OnErrorNode.countdownText(1700000100 + 61), m.OnErrorNode.countdownText(1700000100 + 3600)]; })()',
+     '[false,"","0:00","1:01","60:00"]',
+     "без вердикта отсчёта нет; текст: пусто без дедлайна, «0:00» в прошлом, минуты без ограничения часом"),
+    ("onerror_countdown_tick", 'const cdEl = mkEl({ textContent: "", dataset: { cvOeDeadline: "1700000300" } }); globalThis.__qa["[data-cv-oe-deadline]"] = [cdEl]; m.OnErrorNode.tick();', 'cdEl.textContent',
+     '"3:20"',
+     "тик патчит только текст отсчёта — строки узла не перестраиваются"),
     ("draw_connectors_groups_and_roles", '', '(() => { const world = mkEl({ classList: (() => { const c = cls(); c.add("cv-world"); return c; })() }); const el = (x, y, w = 100, h = 40) => mkEl({ offsetLeft: x, offsetTop: y, offsetWidth: w, offsetHeight: h, offsetParent: world }); const q = el(300, 100), s = el(300, 400), w1 = el(300, 700), oe = el(300, 900), rt = el(300, 1000), rs = el(300, 1100), f1 = el(300, 800); const admitPort = mkEl({ offsetLeft: 90, offsetTop: 10, offsetWidth: 10, offsetHeight: 10, offsetParent: q }); q.q = { \'.cv-port.out[data-cv-qrole="admit"]\': admitPort }; const outA = el(700, 20, 10, 10), outB = el(700, 60, 10, 10), outC = el(700, 100, 10, 10); const inDot = el(200, 30, 10, 10); world.q = { \'[data-cv-node="rule:q1"]\': q, \'[data-cv-node="rule:s1"]\': s, \'[data-cv-node="rule:w1"]\': w1, \'[data-cv-node="rule:oe1"]\': oe, \'[data-cv-node="rule:rt1"]\': rt, \'[data-cv-node="rule:rs1"]\': rs, \'[data-cv-node="rule:f1"]\': f1, \'[data-cv-out-port="out:srv:22001"]\': outA, \'[data-cv-out-port="out:cb:terra"]\': outB, \'[data-cv-out-port="out:srv:22003"]\': outC, \'.cv-port.out[data-cv-ref="in:skynet:proxy:23001"]\': inDot }; const svg = mkEl({ classList: cls() }); globalThis.__q["[data-cv-world]"] = world; globalThis.__q["[data-cv-svg]"] = svg; m.drawCanvasConnectors(); const h = svg.innerHTML; return [(h.match(/class="cv-edge-grp"/g) || []).length, h.includes(\'data-t-id="in:skynet:proxy:23001-&gt;rule:q1"\'), h.includes("cv-cable cv-cable-admit"), h.includes("cv-cable cv-cable-spill"), h.includes("cv-cable cv-cable-main") && h.includes("cv-cable cv-cable-rescue"), h.includes("M 400 120 C"), (h.match(/data-cv-edge-del=/g) || []).length]; })()',
      '[11,true,true,true,true,true,11]', "коннекторы: группа на ребро с data-t-id from->to, классы ролей очереди и onError, admit выходит из ролевого порта, ✕ на каждом"),
     ("draw_connectors_without_router_clears", 'st.ui.topologyCanvasRouterId = "router:zzz";', '(() => { const svg = mkEl({ innerHTML: "OLD" }); globalThis.__q["[data-cv-world]"] = mkEl(); globalThis.__q["[data-cv-svg]"] = svg; m.drawCanvasConnectors(); return svg.innerHTML; })()', '""', "negative: роутер не найден — холст очищен"),
@@ -230,8 +270,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

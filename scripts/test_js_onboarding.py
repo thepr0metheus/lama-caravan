@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
-"""Снимок static/js/onboarding.js — движок тура без зависимостей.
+"""Snapshot of static/js/onboarding.js — the tour engine, with no dependencies.
 
-Что пинится значением. `createTour`: живые шаги — только те, чей якорь виден
-(скрытый предок, нулевой размер, visibility:hidden — шаг выпадает; шаг с
-`center` остаётся всегда); карточка — заголовок, тело, счётчик «n/N», «Назад»
-скрыт на первом шаге, «Далее» превращается в «Готово» на последнем; `go` за
-край не уводит, за последний шаг — стоп с `finished=true`; Escape — стоп с
-`finished=false`; стрелки листают; второй тур останавливает первый (не
-стопка); `rebuildStep` после смены языка пересобирает шаги на месте; без
-живых шагов тур не стартует. `autoStartOnce`: уже виденный ключ — ничего;
-первое реальное действие ДО готовности отменяет тур и ЗАПИСЫВАЕТ флаг
-(сюрприз на следующем визите — та же ошибка); готовность — запуск после
-паузы, если за паузу не кликнули; таймаут — тихий выход. `initTourButtons`:
-клик по [data-ob-tour] снимает пульс и зовёт onClick; декоратор ставит
-подписи и пульс, пока кнопкой не пользовались; без кнопки в разметке
-через 4 с появляется плавающая.
+What's pinned by value. `createTour`: live steps are only the ones whose
+anchor is visible (a hidden ancestor, zero size, visibility:hidden — the step
+is dropped; a step with `center` always stays); the card — title, body, an
+"n/N" counter, "Back" hidden on the first step, "Next" turning into "Done" on
+the last; `go` never runs past the edges, past the last step it stops with
+`finished=true`; Escape stops with `finished=false`; the arrow keys page
+through; a second tour stops the first one (not a stack); `rebuildStep`
+rebuilds the steps in place after a language change; a tour with no live
+steps never starts. `autoStartOnce`: an already-seen key does nothing; the
+first real action taken BEFORE readiness cancels the tour and STILL RECORDS
+the flag (a surprise on the next visit would be the same bug); readiness
+starts the tour after a pause, if nothing was clicked during that pause; a
+timeout exits quietly. `initTourButtons`: clicking [data-ob-tour] clears the
+pulse and calls onClick; the decorator adds the caption and the pulse for as
+long as the button goes unused; with no button in the markup, a floating one
+appears after 4s.
 
-DOM — минимальные элементы с classList/style/listeners; таймеры — очередь с
-ручным продвижением (`tick`), чтобы не ждать секунды.
+The DOM is minimal elements with classList/style/listeners; timers are a
+queue advanced by hand (`tick`), so nothing waits on a real second.
 
-Запуск: python3 scripts/test_js_onboarding.py
+Run: python3 scripts/test_js_onboarding.py
 """
 import json
 import os
@@ -123,8 +125,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

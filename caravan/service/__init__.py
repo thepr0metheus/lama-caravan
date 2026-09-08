@@ -1,5 +1,7 @@
-"""Операции каравана: что он ДЕЛАЕТ, отдельно от того, где хранит и как отдаёт.
+"""The caravan's operations: what it DOES, separate from where it stores and
+how it serves.
 
-Сюда переезжают cell_ops, fleet_clients, downloads, settings, health. Слой знает
-про домен и хранилища и ничего не знает про HTTP-транспорт панели.
+cell_ops, fleet_clients, downloads, settings, and health move here. This
+layer knows about the domain and the stores, and nothing about the admin
+panel's HTTP transport.
 """

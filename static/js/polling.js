@@ -48,14 +48,9 @@ export function formatTps(value) {
   return number.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
 }
 
-// Compact token count: 32768 -> "32k", 12000 -> "12k", 1500 -> "1.5k".
-export function formatCtxTokens(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 0) return "—";
-  if (n < 1000) return String(Math.round(n));
-  const k = n / 1000;
-  return (k >= 100 ? Math.round(k) : Number(k.toFixed(1))) + "k";
-}
+// formatCtxTokens lives in utils.js now (the config form needs it and
+// polling.js imports the form); re-exported so its readers keep this import.
+export { formatCtxTokens } from "./utils.js";
 
 export function liveRefreshDelay() {
   const phase = state.runtime?.status?.phase;

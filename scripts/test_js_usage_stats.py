@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
-"""Снимок static/js/usage-stats.js — числа стоимости и токенов, которые читает оператор.
+"""Snapshot of static/js/usage-stats.js — the cost and token figures the operator reads.
 
-Модалка использования собирает HTML из объекта статистики; значения в нём —
-деньги и токены — и есть то, за чем оператор туда ходит. Пинятся ЗНАЧЕНИЯ:
-округление денег, сохранность цифр в токенах, суммы prompt+completion,
-предел мини-списка в три строки, экранирование имён моделей, приоритет
-несохранённой правки ставки над сохранённой.
+The usage modal assembles HTML from a stats object; the values in it — money
+and tokens — are exactly what the operator goes there for. VALUES are
+pinned: rounding money, keeping token figures exact, prompt+completion sums,
+the mini-list's three-row cap, escaping model names, an unsaved rate edit
+taking priority over the saved one.
 
-Модуль грузится в node НАСТОЯЩИЙ (scripts/_js_harness.mjs); i18n настоящий.
+The module is loaded into node FOR REAL (scripts/_js_harness.mjs); i18n is real too.
 
-Запуск: python3 scripts/test_js_usage_stats.py
+Run: python3 scripts/test_js_usage_stats.py
 """
 import json
 import subprocess
@@ -57,6 +57,17 @@ out.detail_edit = m.usageStatsLocalDetail(S);
 out.reset_bad = m.formatSubUsageReset("nonsense");
 out.reset_today = m.formatSubUsageReset(new Date(Date.now() + 60000).toISOString());
 out.reset_far = m.formatSubUsageReset("2031-03-15T10:20:00Z");
+// The banner above the bars.
+const LIM = (weekly, extra = []) => [{ label: "5h limit", name: "", remainingPct: 99, resetsAt: "2031-03-15T10:20:00Z" }, { label: "Weekly limit", name: "", remainingPct: weekly, resetsAt: "2031-03-15T10:20:00Z" }, ...extra];
+out.banner_blocked = m.subscriptionBannerHtml({ ok: true, limits: LIM(0), credits: null, limitReached: true, creditsInfo: { hasCredits: false }, upsell: { title: "You’re out", description: "Use your banked reset", ctas: ["Reset usage"] } });
+out.banner_credits = m.subscriptionBannerHtml({ ok: true, limits: LIM(0), credits: 395, limitReached: true, creditsInfo: { hasCredits: true }, upsell: null });
+out.banner_reserve = m.subscriptionBannerHtml({ ok: true, limits: LIM(0, [{ label: "gpt-reserve · Weekly limit", name: "gpt-reserve", remainingPct: 80, resetsAt: "" }]), credits: null, limitReached: true, creditsInfo: { hasCredits: false }, upsell: null });
+out.banner_warn = m.subscriptionBannerHtml({ ok: true, limits: LIM(0), credits: null, limitReached: false, creditsInfo: { hasCredits: false }, upsell: null });
+out.banner_none = m.subscriptionBannerHtml({ ok: true, limits: LIM(40), credits: null, limitReached: false, creditsInfo: {}, upsell: null });
+out.banner_notok = m.subscriptionBannerHtml({ ok: false });
+m.subscriptionUsageCache.set("acc", { data: { ok: true, limits: LIM(0), credits: null, limitReached: true, creditsInfo: { hasCredits: false }, upsell: null }, fetchedAt: 1 });
+const panel = m.subscriptionUsageHtml("acc");
+out.banner_order = [panel.indexOf("sub-usage-banner"), panel.indexOf("sub-usage-row")];
 console.log(JSON.stringify(out));
 """
 
@@ -117,6 +128,21 @@ check(got["reset_today"].startswith("resets ") and not any(mo in got["reset_toda
       f"сегодня — только время, без даты ({got['reset_today']!r})")
 check(got["reset_far"].startswith("resets ") and "Mar" in got["reset_far"] and "15" in got["reset_far"],
       f"другой день — с датой ({got['reset_far']!r})")
+
+print("баннер над шкалами:")
+b = got["banner_blocked"]
+check(b.startswith('<div class="sub-usage-banner blocked" data-t="sub-usage-banner">⛔ Plan limit reached — OpenAI refuses requests (429) until Mar 15'),
+      f"план заблокирован: красный баннер с моментом сброса (получено {b[:110]!r})")
+check("No credits and no reserve — only a backup exit can answer until then" in b, "ни кредитов, ни резерва — сказано прямо")
+check("You’re out — Use your banked reset" in b and "Reset usage" not in b,
+      "слова OpenAI процитированы (заголовок и описание), кнопки — нет")
+check("Requests continue on credits: $395" in got["banner_credits"], "кредиты есть — сказано, на что идут запросы")
+check("Requests continue on gpt-reserve · Weekly limit: 80% left" in got["banner_reserve"],
+      "резерв есть — назван вместе с остатком")
+check(got["banner_warn"].startswith('<div class="sub-usage-banner warn" data-t="sub-usage-banner">⚠ Weekly limit: 0% left by OpenAI'),
+      f"счётчик 0%, но не заблокировано — янтарное предупреждение (получено {got['banner_warn'][:90]!r})")
+check(got["banner_none"] == "" and got["banner_notok"] == "", "всё в порядке или чтение не удалось — баннера нет")
+check(0 <= got["banner_order"][0] < got["banner_order"][1], f"в панели баннер стоит ВЫШЕ шкал (получено {got['banner_order']})")
 
 print()
 if _fail:

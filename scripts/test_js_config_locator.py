@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
-"""Снимок static/js/config-locator.js — найти настройку среди одиннадцати вкладок.
+"""Snapshot of static/js/config-locator.js — finding a setting among eleven tabs.
 
-Контракт: индекс поиска — это поля СЕРВЕРА (state.fields), сужённые до тех, у
-которых в этом редакторе есть живой инпут (id = pfx + FIELD); вкладка поля
-берётся из тех же таблиц, что рисуют вкладки (`fieldLocations`, первое
-попадание побеждает). Ранжирование: точное имя > начало имени > точный флаг >
-флаг содержит > имя содержит > подсказка содержит; не больше 12 хитов; при
-пустом результате — подсказка; верхний хит сразу подсвечивает свою вкладку.
-Навигация: стрелки двигают курсор и подсветку, Enter выбирает (переключение
-вкладки + подсветка поля + фокус в инпут), Escape закрывает и гасит подсветку.
-Наведение на токен превью команды подсвечивает вкладку, не переключая её;
-клик — переключает и показывает поле; локатор биндится один раз.
+The contract: the search index is the SERVER's fields (state.fields), narrowed
+to the ones that have a live input in this editor (id = pfx + FIELD); a
+field's tab comes from the same tables that draw the tabs (`fieldLocations`,
+first match wins). Ranking: exact name > name starts with > exact flag > flag
+contains > name contains > tooltip contains; capped at 12 hits; an empty
+result shows a hint; the top hit immediately highlights its tab. Navigation:
+the arrow keys move the cursor and the highlight, Enter selects (switches the
+tab + highlights the field + focuses the input), Escape closes and clears the
+highlight. Hovering a token in the command preview highlights its tab without
+switching to it; clicking switches and reveals the field; the locator is
+bound once.
 
-DOM — дерево элементов mkEl с querySelector/querySelectorAll по селекторам,
-которые модуль использует; document.querySelectorAll обходит корни в
-`globalThis.__roots`. setTimeout — рекордер (вспышка поля через 1.6 с не
-ждётся). constants.js — настоящий (таблицы вкладок).
+The DOM is a tree of mkEl elements with querySelector/querySelectorAll for the
+selectors this module uses; document.querySelectorAll walks the roots in
+`globalThis.__roots`. setTimeout is a recorder (a field's 1.6s flash isn't
+waited on). constants.js is real (the tab tables).
 
-Запуск: python3 scripts/test_js_config_locator.py
+Run: python3 scripts/test_js_config_locator.py
 """
 import json
 import os
@@ -149,8 +150,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

@@ -9,6 +9,8 @@ import { setState, state, ui } from "./state.js";
 import {
   bindModelGc,
   checkLlamaCpp,
+  loadDriverPanel,
+  openDriverUpdateModal,
   openRepairUserServiceModal,
   openUpdateLlamaModal,
   refreshSecurity,
@@ -16,6 +18,7 @@ import {
   renderKnownProblems,
   renderLlamaCpp,
   renderProjectGitBranch,
+  saveDriverAuto,
 } from "./system-panels.js";
 import { $, api, escapeHtml, markPageState, toast } from "./utils.js";
 
@@ -35,6 +38,9 @@ function activateTab(name, pushHash = true) {
   document.querySelectorAll(".sys-panel").forEach((p) => {
     p.classList.toggle("active", p.dataset.panel === name);
   });
+  // The driver panel asks apt, which takes a second — so it loads when its tab
+  // is opened, not on every page load.
+  if (name === "driver") loadDriverPanel().catch(() => {});
   if (pushHash) history.replaceState(null, "", `#${name}`);
 }
 
@@ -301,6 +307,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   bindModelGc();
   $("checkLlamaBtn")?.addEventListener("click", () => { checkLlamaCpp().catch((err) => console.warn(err)); });
   $("updateLlamaBtn")?.addEventListener("click", openUpdateLlamaModal);
+  // GPU driver: the panel loads on demand (apt-cache costs a second) and the
+  // checkboxes save themselves — a settings pair with a Save button is a pair
+  // people forget to save.
+  $("driverCheckBtn")?.addEventListener("click", () => { loadDriverPanel().catch((err) => toast(err.message)); });
+  $("driverUpdateBtn")?.addEventListener("click", openDriverUpdateModal);
+  $("driverAutoCheck")?.addEventListener("change", saveDriverAuto);
+  $("driverAutoInstall")?.addEventListener("change", saveDriverAuto);
   $("repairUserServiceBtn")?.addEventListener("click", openRepairUserServiceModal);
   bindUserChip();
   bindSettingsBundle();

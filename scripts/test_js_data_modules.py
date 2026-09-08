@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Снимок трёх модулей данных: i18n-data.js, constants.js, state.js.
+"""Snapshot of three data modules: i18n-data.js, constants.js, state.js.
 
-i18n-data: 20 языков, английский первым и статически; `loadLanguage` —
-неизвестный/пустой код и отказ импорта → «en» (страница не остаётся без
-строк), известный — таблица грузится один раз и код возвращается,
-аугментеры (строки туров) запускаются для уже загруженных таблиц и для
-каждой поздней. constants: каждая группа из таблицы вкладок существует
-(посылка `check_field_homes`), поля оценки памяти — числовые, включённые
-по умолчанию переключатели — подмножество необязательных, выбор значений
-только у известных полей, `dirtyOptionalToggles` — общий Set. state:
-`state`/`topology` меняются только сеттерами и видны импортёрам; форма `ui`
-по умолчанию; запись свойств `ui` без сеттеров.
+i18n-data: 20 languages, English first and static; `loadLanguage` — an
+unknown/empty code and an import failure both fall back to "en" (the page
+never ends up with no strings at all), a known one loads the table once and
+returns the code, augmenters (tour strings) run for already-loaded tables
+and for every later one. constants: every group from the tabs table exists
+(the premise `check_field_homes` relies on), memory-estimate fields are
+numeric, toggles on by default are a subset of the optional ones, value
+picking only happens for known fields, `dirtyOptionalToggles` is a shared
+Set. state: `state`/`topology` only change through their setters and are
+visible to importers; `ui`'s default shape; writing `ui` properties with no
+setters.
 
-Запуск: python3 scripts/test_js_data_modules.py
+Run: python3 scripts/test_js_data_modules.py
 """
 import json
 import os
@@ -90,8 +91,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

@@ -1,24 +1,28 @@
 #!/usr/bin/env python3
-"""Гвард: полный ответ прокси собирает ОДИН помощник, а не каждое место заново.
+"""Guard: a full proxy response is assembled by ONE helper, not rebuilt at
+every call site.
 
-Ответ с телом обязан нести три заголовка: тип, длину и `Connection: close`.
-Последний — не украшение. Обработчик говорит по HTTP/1.1, поэтому клиент,
-попросивший keep-alive (а так делает по умолчанию каждый современный SDK),
-получит постоянное соединение, если не сказать иначе. Успешный путь закрывает
-его явно, но исключение перепрыгивает через это место, и одна из рукописных
-копий блока заголовок потеряла: поток слушателя парковался в readline() без
-таймаута ровно на столько, сколько клиент держал сокет.
+A response with a body must carry three headers: type, length, and
+`Connection: close`. The last one isn't decoration. The handler speaks
+HTTP/1.1, so a client that asked for keep-alive (which every modern SDK does
+by default) will get a persistent connection unless told otherwise. The
+success path closes it explicitly, but an exception jumps right over that
+spot, and one of the hand-written copies of the header block was missing it:
+the listener thread parked in readline() with no timeout for exactly as long
+as the client held the socket open.
 
-Копий было шесть по пять строк, и дефект — одна строка, отсутствующая в одной
-из них. Шесть сведены к одному помощнику; два места остались своими законно —
-ретрансляция заголовков апстрима и отдача переведённого тела, — поэтому правило
-не «всё через помощника», а «объявил длину — объяви и закрытие».
+There were six copies of five lines each, and the defect was one line missing
+from one of them. The six were reduced to a single helper; two places
+legitimately stayed their own — relaying the upstream's own headers, and
+handing off a translated body — so the rule isn't "everything through the
+helper" but "declared a length, then declare the close too".
 
-Падает четырьмя способами: длина без закрытия; закрытие ГЛУБЖЕ длины, то есть
-под условием, до которого можно не дойти; помощник перестал ставить один из трёх
-заголовков; мест с длиной осталось меньше двух — значит гвард смотрит не туда.
+Fails four ways: a length with no close; a close NESTED DEEPER than the
+length, meaning behind a condition that might never be reached; the helper
+stopped setting one of the three headers; fewer than two places declare a
+length — meaning the guard is looking in the wrong place.
 
-Запуск: python3 scripts/check_proxy_response_paths.py
+Run: python3 scripts/check_proxy_response_paths.py
 """
 import ast
 import sys
@@ -39,13 +43,14 @@ functions = [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)]
 
 
 def _depths(tree):
-    """Глубина вложенности каждого вызова заголовка внутри своей функции.
+    """Nesting depth of every header call, within its own function.
 
-    Наличия в тексте недостаточно. Первая версия гварда считала блок ответа
-    закрытым, если между send_response и end_headers ГДЕ-ТО встретилось нужное
-    имя, — и пропускала `if False: send_header("Connection", ...)`, то есть
-    заголовок, до которого исполнение не доходит. Проверено руками: гвард
-    говорил OK, а снимок в тот же момент краснел пятью проверками.
+    Being present in the text isn't enough. The first version of the guard
+    considered a response block closed if the right name showed up SOMEWHERE
+    between send_response and end_headers — and let through `if False:
+    send_header("Connection", ...)`, meaning a header execution never
+    reaches. Verified by hand: the guard said OK while the snapshot turned
+    red on five checks at that exact moment.
     """
     depth = {}
 
@@ -67,7 +72,7 @@ DEPTHS = {}
 
 
 def _calls(tree):
-    """Все вызовы send_response / send_header / end_headers по порядку строк."""
+    """Every call to send_response / send_header / end_headers, in line order."""
     DEPTHS.update(_depths(tree))
     found = []
     for node in ast.walk(tree):
@@ -82,12 +87,12 @@ def _calls(tree):
 
 
 def _response_blocks(tree):
-    """Один блок = от send_response до ближайшего end_headers.
+    """One block = from send_response to the nearest end_headers.
 
-    Группировка по СТРОКАМ, а не по функции: первая версия гварда спрашивала
-    «ставит ли эта функция оба заголовка где-нибудь», и proxy() проходила
-    проверку с одним потерянным Connection, потому что в другом своём ответе
-    он был. Дефект был в детекции, не в правиле.
+    Grouped by LINES, not by function: the first version of the guard asked
+    "does this function set both headers somewhere", and proxy() passed the
+    check with one Connection header missing, because it had one in its
+    OTHER response. The defect was in the detection, not the rule.
     """
     blocks, current = [], None
     for lineno, kind, name in _calls(tree):
@@ -106,12 +111,13 @@ def _response_blocks(tree):
     return blocks
 
 
-# Настоящий инвариант — не «всё через помощника». Два места объявляют длину
-# законно и по-своему: одно ретранслирует заголовки самого апстрима (их нельзя
-# подменять на свои), другое отдаёт переведённое тело в уже открытый поток.
-# Первая версия этого гварда требовала помощника везде и краснела на обоих —
-# это была ошибка ПРАВИЛА, а не кода. Правило звучит так: объявил длину —
-# объяви и закрытие соединения.
+# The real invariant isn't "everything through the helper". Two places
+# legitimately declare a length their own way: one relays the upstream's own
+# headers (which must not be swapped for ours), the other hands off a
+# translated body into a stream that's already open. The first version of
+# this guard required the helper everywhere and turned red on both — that
+# was a bug in the RULE, not the code. The rule reads: declared a length,
+# then declare the connection close too.
 blocks = _response_blocks(tree)
 length_sites = 0
 for block in blocks:
@@ -123,9 +129,10 @@ for block in blocks:
             f"handler.py:{block['line']}: ответ объявляет Content-Length без Connection — "
             "клиент с keep-alive удержит поток слушателя в readline() без таймаута")
         continue
-    # Наличие мало: закрытие должно быть НЕ ГЛУБЖЕ длины. Длина под условием
-    # законна — ретрансляция ставит её только при наличии тела ошибки, а
-    # Connection там безусловен. Обратное — заголовок, до которого не доходят.
+    # Presence alone isn't enough: the close must be NO DEEPER than the
+    # length. A conditional length is legitimate — the relay only sets it
+    # when there's an error body, while Connection there is unconditional.
+    # The reverse is a header that execution never reaches.
     len_depth = min(block["at"].get("content-length") or [0])
     conn_depth = min(block["at"].get("connection") or [0])
     if conn_depth > len_depth:

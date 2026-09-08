@@ -5,6 +5,7 @@ from http.server import ThreadingHTTPServer
 
 from caravan.admin.cell_schedule import start_scheduler_thread
 from caravan.admin.monitoring import monitor_sampler_loop
+from caravan.admin.gpu_driver import start_watch_thread as start_driver_watch
 from caravan.admin.openclaw import (
     _queue_thresholds_refresh_loop,
     compute_queue_thresholds,
@@ -97,8 +98,13 @@ def main():
     threading.Thread(target=lambda: (sync_wait_timeouts_from_openclaw(), compute_queue_thresholds()), daemon=True).start()
     # Background refresh every 6 hours
     threading.Thread(target=_queue_thresholds_refresh_loop, daemon=True).start()
-
-    # Per-cell start/stop schedule windows (see caravan/admin/cell_schedule.py).
+    # Driver watch: stays silent while both checkboxes are off (see gpu_driver.py).
+    start_driver_watch()
+    # Schedules: cell start/stop windows, the planned host shutdown, and the
+    # daily model check — ONE tick per minute drives all three. The model
+    # check used to have its own thread, sleeping a full day from service
+    # start; across deploys it never once lived to the end of that sleep (see
+    # model_watch.model_watch_tick).
     start_scheduler_thread()
 
     server = _Server((HOST, PORT), Handler)

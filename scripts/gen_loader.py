@@ -27,10 +27,10 @@ def px(x, y, c):
 
 
 def llama(frame, cargo=None):
-    """Один кадр одной формы. Цвета — CSS-переменные, их миксует скрипт страницы.
+    """One frame of one shape. Colors are CSS variables, mixed by the page's script.
     cargo: None | 'packs' | 'boxes' | 'rug'."""
     P = []
-    # уши, голова, глаз, морда
+    # ears, head, eye, muzzle
     P += [px(11, 0, BODY), px(13, 0, BODY)]
     for x in range(11, 15):
         P.append(px(x, 1, BODY))
@@ -38,20 +38,20 @@ def llama(frame, cargo=None):
         P.append(px(x, 2, BODY))
     P.append(px(15, 2, DARK))
     P[P.index(px(13, 1, BODY))] = px(13, 1, EYE)
-    # шея
+    # neck
     for y in range(3, 6):
         P += [px(10, y, BODY), px(11, y, BODY)]
-    # тело
+    # body
     for y in range(6, 10):
         for x in range(2, 12):
             P.append(px(x, y, BODY))
-    # хвост
+    # tail
     P += [px(1, 6, BODY), px(1, 7, BODY)]
-    # попона (при «без попоны» скрипт ставит --pl-blanket = --pl-body)
+    # blanket (for "no blanket" the page script sets --pl-blanket = --pl-body)
     for y in range(6, 9):
         for x in range(4, 9):
             P[P.index(px(x, y, BODY))] = px(x, y, BLANKET)
-    # груз
+    # cargo
     if cargo == "boxes":
         for x in range(4, 9):
             for y in (4, 5):
@@ -70,7 +70,7 @@ def llama(frame, cargo=None):
         for y in range(7, 10):
             P.append(px(2, y, CARGO))
         P.append(px(2, 7, ROPE))
-    # ноги: 2 кадра походки
+    # legs: 2 walk-cycle frames
     if frame == 0:
         legs = [(3, 10), (3, 11), (3, 12), (10, 10), (10, 11), (10, 12), (5, 10), (5, 11), (8, 10), (8, 11)]
         hooves = [(3, 12), (10, 12)]
@@ -91,10 +91,10 @@ def llama(frame, cargo=None):
     return ", ".join(P)
 
 
-# 4 формы груза × 2 кадра; цвета миксуются переменными → сотни комбинаций
+# 4 cargo shapes × 2 frames; colors are mixed via variables → hundreds of combinations
 SHAPES = [None, "boxes", "rug", "packs"]
 
-# Пасхалка: зелёная черепашка (см. скрипт страницы — шанс 1/10 занять место ламы).
+# Easter egg: a green turtle (see the page script — 1/10 chance to take a llama's spot).
 T_SHELL = "#4d8f5c"
 T_PATTERN = "#66ab72"
 T_RIM = "#3a6f47"
@@ -103,28 +103,28 @@ T_EYE = "#22301f"
 
 
 def turtle(frame):
-    """Один кадр черепашки: тот же грид, что у лам, ноги на земле (y=12),
-    рост втрое ниже ламы. Цвета фиксированные — черепахи зелёные."""
+    """One turtle frame: the same grid as the llamas, feet on the ground
+    (y=12), a third of a llama's height. Fixed colors — turtles are green."""
     P = []
-    # купол панциря
+    # shell dome
     for x in range(5, 10):
         P.append(px(x, 7, T_SHELL))
     for x in range(4, 11):
         P.append(px(x, 8, T_SHELL))
     for x in range(3, 12):
         P.append(px(x, 9, T_SHELL))
-    # узор
+    # pattern
     for x, y in [(6, 8), (8, 8), (5, 9), (7, 9), (9, 9)]:
         P[P.index(px(x, y, T_SHELL))] = px(x, y, T_PATTERN)
-    # ободок понизу
+    # bottom rim
     for x in range(3, 12):
         P.append(px(x, 10, T_RIM))
-    # хвостик
+    # little tail
     P.append(px(2, 10, T_SKIN))
-    # голова (глаз спереди сверху)
+    # head (eye at the front top)
     P += [px(12, 8, T_SKIN), px(13, 8, T_SKIN), px(12, 9, T_SKIN), px(13, 9, T_SKIN), px(12, 10, T_SKIN)]
     P[P.index(px(13, 8, T_SKIN))] = px(13, 8, T_EYE)
-    # лапы: 2 кадра
+    # legs: 2 frames
     legs = [(4, 11), (4, 12), (9, 11), (9, 12)] if frame == 0 else [(5, 11), (5, 12), (10, 11), (10, 12)]
     for x, y in legs:
         P.append(px(x, y, T_SKIN))
@@ -141,9 +141,9 @@ variant_css += (
     f"      #appLoader .pl-t::before {{ box-shadow: {turtle(0)}; }}\n"
     f"      #appLoader .pl-t.pl-gaitb::before {{ box-shadow: {turtle(1)}; }}\n"
 )
-# Каждая вторая черепашка передвигается прыжками: подменяем походку на pl-hop
-# (шаг ног при этом фиксируем кадром 0 — лапки поджаты в полёте), сохраняя
-# фазовые задержки каравана для слотов b/c.
+# Every other turtle moves by hopping: the walk cycle is swapped for pl-hop
+# (the leg frame is pinned to frame 0 while hopping — feet tucked up mid-air),
+# keeping the caravan's phase delays for slots b/c.
 variant_css += (
     "      #appLoader .pl-llama.pl-t-hop { animation: pl-walk 7s linear infinite, pl-hop .6s ease-in-out infinite; }\n"
     "      #appLoader .pl-llama.pl-t-hop.pl-b { animation-delay: -2.4s, 0s; }\n"
@@ -184,15 +184,15 @@ LOADER = f'''  <div id="appLoader" aria-hidden="true">
     <script>
       (() => {{
         const l = document.getElementById("appLoader");
-        // подпись — на языке сохранённого интерфейса (по умолчанию английский)
+        // caption — in the saved interface language (English by default)
         const lang = (localStorage.getItem("llamacppAdminLang") || "en").toLowerCase();
         const hints = {{ en: "loading…", ru: "загружается…", zh: "加载中…", es: "cargando…",
           fr: "chargement…", de: "lädt…", ja: "読み込み中…", pt: "carregando…", it: "caricamento…",
           ko: "로딩 중…", tr: "yükleniyor…", vi: "đang tải…" }};
         l.querySelector(".pl-hint").textContent = hints[lang] || hints.en;
-        // случайный караван: форма груза × цвет тела × попона × цвет груза —
-        // формы задают пиксельную сетку (.pl-s1..s{len(SHAPES)}), цвета миксуются переменными;
-        // с шансом 1/10 одно место в караване занимает черепашка
+        // random caravan: cargo shape × body color × blanket × cargo color —
+        // shapes come from a pixel grid (.pl-s1..s{len(SHAPES)}), colors are mixed via variables;
+        // a 1/10 chance one spot in the caravan is a turtle instead
         const BODIES = ["#d9c29a", "#e8e2d4", "#a97e4f", "#b9b3a7", "#8a6f52", "#cbb188"];
         const BLANKETS = ["#43b3a4", "#d98c4a", "#9a7bd0", "#c4574e", "#4f8fd0", "#c9a83b", null];
         const CARGOS = ["#6e5137", "#8a7351", "#5d6657", "#7a4a41"];
@@ -213,11 +213,11 @@ LOADER = f'''  <div id="appLoader" aria-hidden="true">
           el.style.setProperty("--pl-cargo", pick(CARGOS));
           el.style.setProperty("--pl-rope", "#c8a06c");
         }});
-        // 2-кадровая походка
+        // 2-frame walk cycle
         const gait = setInterval(() => l && l.querySelectorAll(".pl-llama").forEach(el => el.classList.toggle("pl-gaitb")), 220);
         window.__plHide = () => {{ if (!l || l.classList.contains("pl-done")) return; l.classList.add("pl-done");
           setTimeout(() => {{ clearInterval(gait); l.remove(); }}, 400); }};
-        setTimeout(window.__plHide, 20000);  // страховка, если инициализация зависла
+        setTimeout(window.__plHide, 20000);  // safety net in case init hangs
       }})();
     </script>
   </div>
@@ -230,7 +230,7 @@ for page in ("static/index.html", "static/kanban.html", "static/hf.html"):
     if BLOCK_RE.search(s):
         s = BLOCK_RE.sub(LOADER, s, count=1)
     else:
-        # первая установка на страницу: сразу после <body>
+        # first install onto the page: right after <body>
         assert "<body>\n" in s, f"{page}: <body> not found"
         s = s.replace("<body>\n", "<body>\n" + LOADER, 1)
     p.write_text(s, encoding="utf-8")

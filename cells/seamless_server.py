@@ -63,8 +63,8 @@ _model = None
 _processor = None
 _model_dir = ""
 _port = 0
-#: Целевой язык ячейки. Живёт модулем, потому что _resolve_lang
-#: отвечает им на пустой запрос, а вызывают её из хелпера, а не из класса.
+#: The cell's target language. Kept at module level because _resolve_lang
+#: answers with it on an empty request, and is called from a helper, not a class.
 _tgt_lang = "rus"
 
 
@@ -84,7 +84,12 @@ class SeamlessCell(CellServer):
     """
     default_port = 8030
     engine = "seamless-m4t-v2"
-    kinds = ["asr"]
+    # NOT "asr". This cell returns the TARGET language only and never
+    # produces a transcript of the source (see the module docstring), so a
+    # consumer that picked it up as a recognizer would receive a translation
+    # labelled as a transcription. It serves /v1/audio/transcriptions for
+    # client compatibility, which is a matter of URL shape, not of job.
+    kinds = ["speech-translate"]
     def is_health(self, path):
         # Anything ending in /health, and the root. Not a fixed list: this cell
         # has always answered /v1/health as well, and a caller that relies on it

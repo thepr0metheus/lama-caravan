@@ -1,21 +1,21 @@
-"""Поиск node — там, где он на самом деле лежит.
+"""Finding node — where it actually lives.
 
-Голого `node` недостаточно. На контроллере флота node установлен через nvm и
-попадает в PATH только из интерактивного zsh, поэтому любая скриптовая сессия —
-в том числе та, в которой идёт деплой или хук — не видит ничего, и вызывающий
-честно печатает SKIPPED. Замер: там работает v22.22.2 по пути
-~/.nvm/versions/node/<версия>/bin/node, тогда как `command -v node` в bash не
-находит ничего, и `bash -lc` тоже, потому что nvm грузится из ~/.zshrc.
+A bare `node` isn't enough. On the fleet's controller, node is installed
+through nvm and only reaches PATH from an interactive zsh, so any scripted
+session — including one running a deploy or a hook — sees nothing, and the
+caller honestly prints SKIPPED. Measured once: v22.22.2 works there at
+~/.nvm/versions/node/<version>/bin/node, while `command -v node` in bash
+finds nothing, and neither does `bash -lc`, because nvm loads from ~/.zshrc.
 
-Проверка, которая стоит в стороне по НЕВЕРНОЙ причине, читается ровно как
-пройденная. Поэтому смотрим ещё и туда, куда ставят менеджеры версий, а если
-не нашли — говорим, где искали.
+A check that stands aside for the WRONG reason reads exactly like one that
+passed. So this also looks where version managers install things, and if it
+still finds nothing, it says where it looked.
 """
 import os
 import shutil
 from pathlib import Path
 
-# Менеджеры версий, которые кладут node мимо системного PATH.
+# Version managers that put node somewhere other than the system PATH.
 _VERSION_MANAGER_GLOBS = (
     ".nvm/versions/node/*/bin/node",
     ".fnm/node-versions/*/installation/bin/node",
@@ -26,7 +26,7 @@ _VERSION_MANAGER_GLOBS = (
 
 
 def node_search_paths():
-    """Куда мы смотрим — в порядке предпочтения. Для сообщения об отказе."""
+    """Where we look, in order of preference. For the failure message."""
     places = ["PATH"]
     home = Path.home()
     places += [str(home / g) for g in _VERSION_MANAGER_GLOBS]
@@ -34,13 +34,13 @@ def node_search_paths():
 
 
 def find_node():
-    """Путь к пригодному node, или None."""
+    """Path to a usable node, or None."""
     on_path = shutil.which("node")
     if on_path:
         return on_path
     home = Path.home()
     for pattern in _VERSION_MANAGER_GLOBS:
-        # Самая свежая версия первой: сортировка по имени каталога версии.
+        # Newest version first: sorted by the version directory's name.
         found = sorted(home.glob(pattern), key=lambda p: p.parts, reverse=True)
         for candidate in found:
             if os.access(candidate, os.X_OK):

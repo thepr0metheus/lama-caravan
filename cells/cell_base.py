@@ -20,7 +20,13 @@ What a subclass must say:
 
     engine        which engine is inside — a LAN scan picks cells by this
     model_name    what it loaded, as the cell itself names it
-    kinds         what it can do: ["stt.whisper"], ["tts.xtts"], …
+    kinds         what it can do. At least one BARE job word from
+                  asr | tts | translate | speech-translate | llm, optionally
+                  with a dotted refinement naming the engine
+                  (["asr", "stt.whisper"], ["tts.xtts"]). The bare word is
+                  what a consumer choosing by job matches on; without it a
+                  cell is discoverable only by those who already know its
+                  engine. scripts/check_cell_kinds.py holds the vocabulary.
     load()        fetch and load; raise to fail, set phase for progress
     handle(...)   do the work; return (code, body_bytes, content_type)
 

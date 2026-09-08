@@ -5,7 +5,7 @@ import re
 from caravan.common.errors import AppError
 
 
-# ── Router (Роутер) — Stage 1 ──────────────────────────────────────────
+# ── Router — Stage 1 ────────────────────────────────────────────────────
 # The single shared router every proxy feeds into by default. Users may split
 # traffic into more routers later; this one always exists.
 DEFAULT_ROUTER_ID = "router:default"
@@ -380,20 +380,24 @@ def normalize_agent_proxy_route(route):
         # Client wait timeout (seconds) — synced from OpenClaw config by admin.
         # Used as base for percentage-based queue thresholds.
         "clientTimeoutSeconds": max(0, int(route.get("clientTimeoutSeconds") or 0)),
-        # Окно контекста ЭТОГО потребителя — копия настройки с клиентской
-        # прокси-ячейки (её возит reconcile_proxy_metadata). Нормализатор
-        # пересобирает маршрут, поэтому поле надо НАЗВАТЬ здесь: за эту работу
-        # это четвёртая граница пересборки, и предыдущие три роняли поле молча.
-        # Пишется только заданное: ноль клиент прочитал бы как настоящий предел.
+        # Context window for THIS consumer — a copy of the setting on the
+        # client's proxy cell (carried over by reconcile_proxy_metadata). The
+        # normalizer rebuilds the route, so the field has to be NAMED here:
+        # this is the fourth rebuild boundary for this feature, and the
+        # previous three dropped the field silently. Written only when set:
+        # a client would read zero as a real limit.
         **({"contextLength": int(route["contextLength"])}
            if str(route.get("contextLength") or "").strip().lstrip("-").isdigit()
            and int(route["contextLength"]) > 0 else {}),
         **({"contextAuto": True} if route.get("contextAuto") else {}),
-        # Имя, под которым порт объявляет свою модель. Клиент ищет в /v1/models
-        # СВОЙ id и, не найдя, берёт встроенное умолчание — окно, объявленное
-        # под чужим именем, до него не доходит. Пусто — имя апстрима.
+        # The name this port advertises its model under. A client looks up
+        # ITS OWN id in /v1/models and, not finding it, falls back to its
+        # built-in default — a window advertised under the wrong name never
+        # reaches it. Empty means the upstream's own name.
         **({"modelName": str(route["modelName"]).strip()[:120]}
            if str(route.get("modelName") or "").strip() else {}),
+        # Open lock: the name above is recorded, but the model's own name wins.
+        **({"modelNameAuto": True} if route.get("modelNameAuto") else {}),
         # Cloud fallback provider block id — set when the user activates the ↑☁ ability.
         # Non-empty = ability ACTIVE (queued request forwards to this cloud provider).
         "cloudFallbackProviderId": str(route.get("cloudFallbackProviderId") or "").strip(),
@@ -409,8 +413,8 @@ def normalize_agent_proxy_route(route):
            for k in ("cloudFallbackPct", "priorityPreemptPct", "queueAbortPct")
            if route.get(k) is not None},
         # ── Router redesign (Stage 1) ──────────────────────────────────────
-        # A proxy port is now a thin entry point that feeds a router
-        # (Роутер). The router owns the routing decision (which upstream
+        # A proxy port is now a thin entry point that feeds a router.
+        # The router owns the routing decision (which upstream
         # server, by schedule/source). `routerId` binds this proxy to one.
         # `role`/`clientId` make the proxy↔client/primary-fallback relationship
         # explicit instead of being inferred from the label suffix.

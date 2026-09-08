@@ -1,29 +1,31 @@
 #!/usr/bin/env python3
-"""Снимок static/js/form.js — форма ячейки как её читает контроллер.
+"""Snapshot of static/js/form.js — the cell form the way the controller reads it.
 
-readConfigForm — единственное место, где 116 полей формы превращаются в
-конфиг, который уходит на /api/config и дальше в командную строку сервера.
-Ошибка здесь тихая: лишний пробел в порту, "0" вместо "" у необязательного
-тумблера, модель прошлого раннера, уехавшая в слот vLLM. Пинятся ЗНАЧЕНИЯ:
+readConfigForm is the single place where 135 form fields turn into the
+config that goes out to /api/config and, from there, into the server's
+command line. A bug here is silent: a stray space in the port, "0" instead
+of "" on an optional toggle, a previous runner's model stranded in the vLLM
+slot. VALUES are pinned:
 
-- порт и числа обрезаются, чекбокс становится "1"/"0", отсутствующее поле — "";
-- необязательный тумблер ТРЁХЗНАЧЕН: не трогали и в конфиге пусто → "" (даже
-  при включённом чекбоксе), иначе — состояние чекбокса;
-- RUNNER по умолчанию llama-server, для command-ячейки — custom, явный RUNNER
-  побеждает; префикс формы ("tr-") читает свои поля, а не главные;
-- vllm/whisper/moonshine/command сбрасывают MODEL_FILE/MMPROJ/DRAFT, а
-  seamless/transcribe СОХРАНЯЮТ — как есть;
-- LLAMA_MODELS_DIR: поле → state.paths.modelsDir, хвостовые слеши срезаны;
-- badge НЕ экранирует текст, mbadge экранирует title и data-t, но не текст —
-  как есть (все вызывающие подставляют свои строки, не пользовательские);
-- mcFormatMtime зависит от локали Node — снимок гоняется под en_US/UTC.
+- port and numbers are trimmed, a checkbox becomes "1"/"0", a missing field
+  becomes "";
+- an optional toggle is THREE-VALUED: untouched with an empty config →
+  "" (even with the checkbox on), otherwise the checkbox's own state;
+- RUNNER defaults to llama-server, to custom for a command cell, an explicit
+  RUNNER wins; a form prefix ("tr-") reads its own fields, not the main ones;
+- vllm/whisper/moonshine/command clear MODEL_FILE/MMPROJ/DRAFT, while
+  seamless/transcribe KEEP them — as-is;
+- LLAMA_MODELS_DIR: field → state.paths.modelsDir, trailing slashes trimmed;
+- badge does NOT escape its text, mbadge escapes title and data-t but not the
+  text — as-is (every caller passes its own strings, never user input);
+- mcFormatMtime depends on Node's locale — the snapshot runs under en_US/UTC.
 
-DOM подменяется словарём полей (globalThis.__fields в _js_globals.mjs):
-getElementById(id) отдаёт запись словаря или null, как браузер для
-отсутствующего элемента. Модуль грузится НАСТОЯЩИЙ (_js_harness.mjs), вместе
-с настоящими constants/i18n/utils/state/memory/command-preview.
+The DOM is replaced by a field dict (globalThis.__fields in _js_globals.mjs):
+getElementById(id) returns the dict's entry or null, the same as a browser
+would for a missing element. The module is loaded FOR REAL (_js_harness.mjs),
+together with the real constants/i18n/utils/state/memory/command-preview.
 
-Запуск: python3 scripts/test_js_form.py
+Run: python3 scripts/test_js_form.py
 """
 import json
 import os
@@ -83,7 +85,10 @@ const out = {
          labelText: m.modelOptionLabel({ path: "p", sizeGb: 1 }),
          rec: [m.familyRecChipHtml("ENABLE_FLASH_ATTN", "1"), m.familyRecChipHtml("ENABLE_FLASH_ATTN", "0"),
                m.familyRecChipHtml("CTX_SIZE", " "), m.familyRecChipHtml("CTX_SIZE", "8<1")],
-         mtime: [m.mcFormatMtime(0), m.mcFormatMtime(-5), m.mcFormatMtime("x"), m.mcFormatMtime(1700000000), m.mcFormatMtime("1700000000")] },
+         mtime: [m.mcFormatMtime(0), m.mcFormatMtime(-5), m.mcFormatMtime("x"), m.mcFormatMtime(1700000000), m.mcFormatMtime("1700000000")],
+         jobs: { llm: m.jobChips(["llm"]), two: m.jobChips(["asr", "tts"]),
+                 none: m.jobChips([]), unknown: m.jobChips(["sorcery"]),
+                 compound: m.jobChips(["speech-translate"]) } },
   gemma: { none: m.selectedGemma4Mmproj() },
 };
 globalThis.__fields = { "tr-PORT": { value: "9" }, PORT: { value: "1" } };
@@ -97,6 +102,24 @@ st.setState({ ...st.state, chatTemplates: [{ name: "OpenClaw Qwen", path: "/t/oq
 out.oc.withTpl = m.openClawQwenTemplatePath(); out.oc.exists1 = m.openClawQwenTemplateExists();
 globalThis.__fields = { MODEL_FILE: { value: "a.gguf" } }; out.gemma.sel = m.selectedGemma4Mmproj();
 out.byPath = [...m.modelsByPath().keys()];
+// 🎓 beside CTX_SIZE — the trained window in one press.
+st.setState({ ...st.state, models: [{ path: "a.gguf", ggufMeta: { contextLength: 262144 } }] });
+globalThis.__fields = { "te-MODEL_FILE": { value: "a.gguf" }, "te-CTX_SIZE": { value: "", placeholder: "", dataset: {} } };
+out.ctxNative = { gguf: m.ctxNativeFor("te-") };
+globalThis.__fields = { "te-MODEL_FILE": { value: "a.gguf" }, "te-CTX_SIZE": { value: "", placeholder: "4096", dataset: { trained: "131072" } } };
+out.ctxNative.ggufWins = m.ctxNativeFor("te-");
+globalThis.__fields = { "te-MODEL_FILE": { value: "elsewhere.gguf" }, "te-CTX_SIZE": { value: "", placeholder: "4096", dataset: { trained: "131072" } } };
+out.ctxNative.running = m.ctxNativeFor("te-");
+globalThis.__fields = { "te-MODEL_FILE": { value: "" }, "te-CTX_SIZE": { value: "", placeholder: "4096", dataset: {} } };
+out.ctxNative.placeholder = m.ctxNativeFor("te-");
+globalThis.__fields = { "te-CTX_SIZE": { value: "", placeholder: "", dataset: {} } };
+out.ctxNative.unknown = m.ctxNativeFor("te-");
+out.ctxNative.state = [m.ctxNativeButtonState(262144, ""), m.ctxNativeButtonState(262144, "262144"),
+                       m.ctxNativeButtonState(0, "5"), m.ctxNativeButtonState(32768, "32768").label];
+globalThis.__fields = { "te-MODEL_FILE": { value: "a.gguf" }, "te-CTX_SIZE": { value: "100000", placeholder: "", dataset: {} } };
+out.ctxNative.apply = [m.applyCtxNative("te-"), globalThis.__fields["te-CTX_SIZE"].value];
+globalThis.__fields = { "te-CTX_SIZE": { value: "100000", placeholder: "", dataset: {} } };
+out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-CTX_SIZE"].value];
 console.log(JSON.stringify(out));
 """
 
@@ -111,7 +134,7 @@ probe_path.write_text(PROBE)
 try:
     env = {**os.environ, "JS_ROOT": str(ROOT / "static" / "js"),
            "JS_STUBS": "favorites,config-locator,llama-edit,polling,remote-cells,system-panels,cloud,topology-render,charts,dialogs",
-           # mcFormatMtime — toLocaleDateString: значение зависит от локали и зоны Node.
+           # mcFormatMtime — toLocaleDateString: the value depends on Node's locale and timezone.
            "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8", "TZ": "UTC"}
     run = subprocess.run(
         [node, "--import", f"data:text/javascript,import {{ register }} from 'node:module'; register('{harness.as_uri()}');",
@@ -125,11 +148,11 @@ if run.returncode != 0:
 got = json.loads(run.stdout.strip().splitlines()[-1])
 
 print("модуль:")
-check(got["exports"] == 44, "form.js экспортирует 44 функции (пересчитай при изменении охвата)")
+check(got["exports"] == 48, "form.js экспортирует 48 функций (пересчитай при изменении охвата)")
 
 print("readConfigForm — поля:")
 rc = got["rc"]
-check(rc["llama"]["n"] == 116 and rc["empty"]["n"] == 116, "конфиг всегда из 116 ключей, даже с пустой формы")
+check(rc["llama"]["n"] == 135 and rc["empty"]["n"] == 135, "конфиг всегда из 135 ключей, даже с пустой формы")
 check(rc["llama"]["PORT"] == "22001", "порт обрезан от пробелов")
 check(rc["llama"]["FA"] == "1" and rc["empty"]["FA"] == "0", "чекбокс → \"1\"; отсутствующий чекбокс → \"0\"")
 check(rc["llama"]["THREADS"] == "", "отсутствующее числовое поле → \"\", не undefined")
@@ -180,6 +203,16 @@ check(fmt["badgeNoKind"] == '<span class="badge ">x</span>', "badge без kind 
 check(fmt["mbadge"] == '<span class="mbadge mbadge-fault" title="a&quot;&lt;b" data-t="id&lt;1">T</span>',
       "mbadge экранирует title и data-t")
 check(fmt["mbadgePlain"] == '<span class="mbadge mbadge-ok">T</span>', "mbadge без title/testId — без атрибутов")
+jobs = fmt["jobs"]
+check(jobs["llm"] == '<span class="mbadge mbadge-job" data-t="model-job-llm">\U0001f4ac LLM</span>',
+      "positive: у обычной модели работа СКАЗАНА словом — раньше «LLM» выражалось тем, что про строку молчат")
+check(jobs["two"] == ('<span class="mbadge mbadge-job" data-t="model-job-asr">\U0001f3a7 speech \u2192 text</span>'
+                      '<span class="mbadge mbadge-job" data-t="model-job-tts">\U0001f50a text \u2192 speech</span>'),
+      f"две работы — два чипа, в порядке словаря (got {jobs['two']})")
+check(jobs["compound"] == '<span class="mbadge mbadge-job" data-t="model-job-speech-translate">\U0001f3a7\U0001f310 speech \u2192 translation</span>',
+      "составная работа несёт ОБА значка: 🌐 в одиночку читался бы как обычный перевод текста")
+check(jobs["none"] == "" and jobs["unknown"] == "",
+      "negative: работы нет или она неизвестна — чипа НЕТ, а не выдуманный «LLM»")
 check(fmt["label"] == "p.gguf (4.1 GB) - 👁 Vision likely / 📷 Proj ✓", "modelOptionLabel: vision + projector")
 check(fmt["labelText"] == "p (1 GB) - Text", "modelOptionLabel: текстовая модель без проектора")
 check(fmt["rec"][0].endswith('<span class="insight-family-val">on</span></span>') and ' set"' in fmt["rec"][0],
@@ -193,6 +226,23 @@ check(fmt["mtime"][3] == "Nov 14, 2023" and fmt["mtime"][4] == "Nov 14, 2023", "
 print("mcFilterList:")
 check(got["filter"]["q"] == [False, True, True], "фильтр регистронезависим; элемент без data-search прячется")
 check(got["filter"]["blank"] == [False, False, False], "пустой запрос показывает всё")
+
+print("🎓 у CTX_SIZE — обученное окно одним нажатием:")
+cn = got["ctxNative"]
+check(cn["gguf"] == 262144, "заголовок GGUF выбранного файла — обученное окно (модель ещё не загружена)")
+check(cn["ggufWins"] == 262144, "заголовок файла главнее стэша с карточки и плейсхолдера")
+check(cn["running"] == 131072, "файла нет в каталоге — число с карточки запущенной ячейки, спрятанное редактором на поле")
+check(cn["placeholder"] == 4096, "as-is: плейсхолдер прошлого прохода — последний источник")
+check(cn["unknown"] == 0, "никто не знает — ноль, кнопки не будет")
+title = ("Set CTX_SIZE to the trained window — 262144 tokens, what the weights were trained with. "
+         "Going above it needs YaRN; going below saves KV memory.")
+check(cn["state"][0] == {"hidden": False, "label": "🎓 262k", "title": title, "active": False},
+      "подпись кнопки — само число, подсказка называет его обученным")
+check(cn["state"][1]["active"] is True, "active, когда поле уже держит ровно это число")
+check(cn["state"][2] == {"hidden": True, "label": "", "title": "", "active": False}, "без числа кнопка спрятана")
+check(cn["state"][3] == "🎓 32.8k", "формат тот же, что у 🪟 на карточке")
+check(cn["apply"] == [262144, "262144"], "нажатие пишет обученное окно в поле и возвращает его")
+check(cn["applyNothing"] == [0, "100000"], "без числа поле не трогается")
 
 print()
 if _fail:

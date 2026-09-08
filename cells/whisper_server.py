@@ -25,7 +25,10 @@ from cell_base import CellServer   # noqa: E402
 class WhisperCell(CellServer):
     default_port = 8000
     engine = "faster-whisper"
-    kinds = ["stt.whisper"]
+    # "asr" is the job, "stt.whisper" the engine behind it. Both, because a
+    # consumer choosing by job must not have to know engines, and one that
+    # already matches on "stt.whisper" keeps working.
+    kinds = ["asr", "stt.whisper"]
 
     @property
     def model_name(self):

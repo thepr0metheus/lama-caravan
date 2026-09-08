@@ -260,6 +260,24 @@ def detect_family(rel):
             family = family + d.group(1)
     return family
 
+def _freshness_by_path():
+    """{path from the models dir: state} from the watcher's latest report.
+
+    Empty if the watcher has never run: a missing entry means "not checked",
+    and the reader must tell that apart from "matches".
+    """
+    try:
+        from caravan.admin.model_watch import freshness_report
+        repos = freshness_report().get("repos") or {}
+    except Exception:  # noqa: BLE001
+        return {}
+    out = {}
+    for repo in repos.values():
+        for key, row in (repo.get("files") or {}).items():
+            out[key] = str(row.get("state") or "")
+    return out
+
+
 def list_models(config=None):
     """Scan models directory — flat layout where all files for one quant share a dir:
       {model}/{author}/{quant}/model.gguf
@@ -270,6 +288,10 @@ def list_models(config=None):
     models_dir = models_dir_from_config(config or parse_config())
     if not models_dir.exists():
         return rows
+    # Freshness for each file — from the same report the models page reads.
+    # Gathered ONCE per list: the config panel opens often, and a directory
+    # can hold close to a hundred rows.
+    fresh_by_path = _freshness_by_path()
     ggufs = []
     for path in sorted(models_dir.rglob("*.gguf")):
         if not path.is_file():
@@ -383,6 +405,8 @@ def list_models(config=None):
             "size": size,
             "sizeGb": round(size / (1024 ** 3), 2),
             "mtime": mtime,
+            # "" means not checked: the panel must tell that apart from "matches".
+            "fresh": fresh_by_path.get(rel, ""),
             "capability": capability,
             "compatibleMmprojs": compatible,
             "suggestedMmproj": compatible[0] if compatible else "",
@@ -406,6 +430,10 @@ def list_models(config=None):
             "size": size,
             "sizeGb": round(size / (1024 ** 3), 2),
             "mtime": mtime,
+            # mmproj and the draft are re-issued together with the model, and
+            # a companion that stays silent about its own freshness is only
+            # half an answer about the launch.
+            "fresh": fresh_by_path.get(rel, ""),
         }
         # A speculative sidecar's header carries the draft depth worth asking for
         # (<arch>.block_size). Companion rows used to ship without ggufMeta at

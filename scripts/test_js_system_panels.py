@@ -1,28 +1,30 @@
 #!/usr/bin/env python3
-"""Снимок static/js/system-panels.js — панели страницы System.
+"""Snapshot of static/js/system-panels.js — the panels on the System page.
 
-Что пинится значением. Сводки из state: сервис (фаза, PID, командная строка
-через formatCmdline, «нет запущенной команды»), рантайм (модель с запасными
-путями, контекст, vision, спекулятивный режим, RAM-строка или её ошибка,
-tok/s «сейчас / prev» через tokenSpeedState), CPU/GPU (данные или текст
-ошибки). Контроллер: чипы сервисов good/warn, ячейки, git с warn при грязных
-файлах, python, диск с warn ниже 50 GB или с ошибкой, модели; в контейнере
-кнопка починки user-сервиса убирается. llama.cpp: «upstream новее» решается по
-КОММИТУ, когда обе стороны известны, и по номеру сборки — только как запасной
-путь; «not checked». Список архивных сборок и панель vLLM (текущая версия
-отдельно, история без неё). Безопасность: auth выключен → форма первого
-аккаунта; включён → пользователи с ролями, сессии (не больше пяти, +N),
-токен флота. Известные проблемы: легаси-проверки сворачиваются в details,
-подсказка-как-чинить только когда есть red/amber. Модалы через общий confirm:
-поля from/to и путь, `ui.pendingConfirm` делает POST; опрос обновления
-llama.cpp — running → через 2 с, done rc=0 → тост и перечитывание, rc≠0 → тост
-ошибки. Сборщик мусора моделей: список неиспользуемых по размеру вниз,
-«ничего лишнего», удаление только выбранных и только после подтверждения.
+What's pinned by value. Summaries from state: the service (phase, PID, the
+command line via formatCmdline, "no command running"), runtime (the model
+with fallback paths, context, vision, speculative mode, the RAM line or its
+error, "now / prev" tok/s via tokenSpeedState), CPU/GPU (data or an error
+text). Controller: good/warn service chips, cells, git with a warn on dirty
+files, python, disk with a warn below 50 GB or with an error, models; inside
+a container the user-service repair button is removed. llama.cpp: "upstream
+is newer" is decided by COMMIT when both sides are known, and by build number
+only as a fallback; "not checked". The archived-builds list and the vLLM
+panel (the current version kept separate, history without it). Security:
+auth off → the first-account form; on → users with roles, sessions (capped
+at five, +N), the fleet token. Known issues: legacy checks collapse into
+details, a how-to-fix hint appears only when there's a red/amber. Modals
+through the shared confirm: from/to fields and a path, `ui.pendingConfirm`
+does the POST; polling an llama.cpp update — running → again after 2s, done
+rc=0 → a toast and a re-read, rc≠0 → an error toast. The model garbage
+collector: the unused list sorted largest-first, "nothing to clean up",
+deletion only of what's selected and only after confirmation.
 
-DOM — словарь `globalThis.__fields` (элементы с innerHTML/textContent/hidden/
-classList/слушателями и разбором innerHTML в кнопки с data-атрибутами).
+The DOM is the `globalThis.__fields` dict (elements with
+innerHTML/textContent/hidden/classList/listeners, and innerHTML parsed into
+buttons carrying data attributes).
 
-Запуск: python3 scripts/test_js_system_panels.py
+Run: python3 scripts/test_js_system_panels.py
 """
 import json
 import os
@@ -55,7 +57,8 @@ const mkEl = (tag = "div") => { const e = { tag, textContent: "", hidden: false,
   querySelectorAll(sel) { const mm = sel.match(/^\[data-([a-z-]+)\]$/); if (!mm) throw new Error("selector not modelled: " + sel); const key = mm[1]; return this.children.filter((c) => key in c.attrs); }, querySelector() { return null; } };
   Object.defineProperty(e, "innerHTML", { get() { return this._html || ""; }, set(v) { this._html = v; this.children = []; for (const idm of v.matchAll(/ id="([A-Za-z0-9_-]+)"/g)) { if (!globalThis.__fields[idm[1]]) globalThis.__fields[idm[1]] = mkEl(); } for (const h of v.matchAll(/data-([a-z-]+)="([^"]*)"/g)) { const b = mkEl("button"); b.attrs = { [h[1]]: h[2] }; b.getAttribute = (k) => (k === "data-" + h[1] ? h[2] : null); b.dataset = { [h[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase())]: h[2] }; this.children.push(b); } } });
   e.attrs = {}; return e; };
-const IDS = ["serviceSummary", "cmdline", "runtimeSummary", "cpuSummary", "gpuSummary", "openclawLinksSummary", "controllerInfo", "repairUserServiceBtn", "llamaCppSummary", "llamaUpdateLog", "llamaBuildsList", "vllmSummary", "projectGitBranch", "knownProblems", "securityInfo", "authLogoutBtn", "confirmTitle", "confirmText", "confirmMeta", "confirmPath", "confirmDelete", "confirmOverlay", "modelGcOverlay", "modelGcList", "modelGcSummary", "modelGcSelected", "modelGcDelete", "toast"];
+const IDS = ["serviceSummary", "cmdline", "runtimeSummary", "cpuSummary", "gpuSummary", "openclawLinksSummary", "controllerInfo", "repairUserServiceBtn", "llamaCppSummary", "llamaUpdateLog", "llamaBuildsList", "vllmSummary", "projectGitBranch", "knownProblems", "securityInfo", "authLogoutBtn", "confirmTitle", "confirmText", "confirmMeta", "confirmPath", "confirmDelete", "confirmOverlay", "modelGcOverlay", "modelGcList", "modelGcSummary", "modelGcSelected", "modelGcDelete", "toast",
+  "driverSummary", "driverUpdateBtn", "driverAutoCheck", "driverAutoInstall", "driverUpdateLog"];
 globalThis.__checked = []; document.querySelectorAll = (sel) => (sel === "[data-gc-file]:checked" ? globalThis.__checked : []);
 const F = () => globalThis.__fields;
 const html = (id) => F()[id].innerHTML;
@@ -72,7 +75,7 @@ const out = {};
 """
 
 PINS = [
-    # ── сводки ──
+    # ── summaries ──
     ("service_summary", 'st.setState({ ...st.state, service: { ActiveState: "active", SubState: "running", MainPID: 4242, ExecMainStartTimestamp: "Fri 10:00", cmdline: "llama-server --port 22001 --ctx-size 8192" }, runtime: { status: { phase: "ready", kind: "good", detail: "slots 4" } } });',
      '(() => { m.renderService(); return [html("serviceSummary").includes("<b>4242</b>"), html("serviceSummary").includes("running"), html("serviceSummary").includes("slots 4"), html("serviceSummary").includes("llamacpp-current.service"), F().cmdline.textContent.includes("--port 22001")]; })()',
      '[true,true,true,true,true]', "сервис: PID, подсостояние, деталь фазы, имя юнита, командная строка"),
@@ -95,7 +98,7 @@ PINS = [
      '(() => { m.renderOpenClawLinks(); const h = html("openclawLinksSummary"); return [h.includes(">connected<") && h.includes("<b>a</b>"), h.includes(">error<") && h.includes("refused"), h.includes(">configured<") && h.includes("<b>c</b>"), h.includes("Last model: gpt")]; })()',
      '[true,true,true,true]', "менеджеры openclaw: connected/error по результату, configured без него, подсказка модели"),
     ("openclaw_links_none", '', '(() => { m.renderOpenClawLinks(); return html("openclawLinksSummary").includes("not configured"); })()', 'true', "negative: без целей — «not configured»"),
-    # ── контроллер ──
+    # ── controller ──
     ("controller_info_chips", '', '(() => { m.renderControllerInfo({ services: [{ unit: "caravan.service", ok: true, active: "active", sub: "running", pid: "77" }, { unit: "proxies.service", ok: false }], cells: { running: 3, total: 5 }, projectGit: { branch: "main", head: "abc1234", dirtyCount: 2 }, python: "3.12", disk: { path: "/models", totalGb: 900, freeGb: 20 }, models: { count: 12, totalGb: 340 } }); const h = html("controllerInfo"); return [h.includes("llama-chip good\\"><span>caravan.service</span><strong>active / running · PID 77"), h.includes("llama-chip warn\\"><span>proxies.service</span><strong>n/a"), h.includes("<strong>3 / 5</strong>"), h.includes("llama-chip warn\\"><span>app git</span><strong>main @ abc1234"), h.includes("<strong>3.12</strong>"), h.includes("llama-chip warn\\"><span>models disk</span><strong>20 GB free / 900 GB"), h.includes("<strong>12 · 340 GB</strong>"), F().repairUserServiceBtn.removed]; })()',
      '[true,true,true,true,true,true,true,null]', "чипы контроллера: сервис good с PID и warn без данных, ячейки, git warn при грязных файлах, python, диск warn ниже 50 GB, модели; кнопка починки на месте"),
     ("controller_info_container_and_disk_error", '', '(() => { m.renderControllerInfo({ container: true, projectGit: {}, disk: { path: "/models", error: "not mounted" } }); const h = html("controllerInfo"); return [F().repairUserServiceBtn.removed, h.includes("llama-chip warn\\"><span>models disk</span><strong>/models: not mounted"), h.includes("llama-chip good\\"><span>app git</span><strong>n/a</strong>"), h.includes("server cells")]; })()',
@@ -116,6 +119,44 @@ PINS = [
      '[2,true,true,true,2,true]', "архив сборок: строка на сборку с версией и размером, кнопка Restore привязана"),
     ("llama_builds_empty_and_error", '', 'await (async () => { globalThis.__fetchReply["/api/llamacpp/builds"] = { builds: [] }; await m.loadLlamaBuilds(); const a = html("llamaBuildsList").includes("No archived builds yet"); globalThis.__fetchReply["/api/llamacpp/builds"] = { __status: 500, error: "boom" }; await m.loadLlamaBuilds(); return [a, F().llamaBuildsList.textContent]; })()',
      '[true,"boom"]', "negative: пустой архив — подсказка; отказ — текст ошибки"),
+    ("driver_panel_two_versions",
+     'globalThis.__fetchReply["/api/gpu-driver"] = { running: "595.84", installed: { package: "nvidia-driver-595-open", version: "595.84-0ubuntu0.24.04.1" }, newest: { package: "nvidia-driver-610-open", version: "610.43.02-0ubuntu0.24.04.1" }, updateAvailable: true, rebootRequired: false, auto: { check: false, install: false } };',
+     'await (async () => { await m.loadDriverPanel(); const h = html("driverSummary"); return [h.includes("<strong>595.84</strong>"), h.includes("running now"), h.includes("nvidia-driver-610-open"), !F().driverUpdateBtn.disabled]; })()',
+     '[true,true,true,true]',
+     'positive: работающая и установленная версии показаны ОТДЕЛЬНО, рядом доступная, кнопка обновления живая'),
+    ("driver_panel_running_unreadable",
+     'globalThis.__fetchReply["/api/gpu-driver"] = { running: "", runningError: "Failed to initialize NVML: Driver/library version mismatch", installed: { package: "nvidia-driver-610-open", version: "610.43.02" }, newest: { package: "nvidia-driver-610-open", version: "610.43.02" }, updateAvailable: false, rebootRequired: true, auto: {} };',
+     'await (async () => { await m.loadDriverPanel(); const h = html("driverSummary"); return [h.includes("Driver/library version mismatch"), h.includes("llama-chip warn")]; })()',
+     '[true,true]',
+     'positive: сразу после установки номера нет — показывается причина, а не прочерк: прочерк читался бы как «драйвера нет»'),
+    ("driver_panel_reboot_pending",
+     'globalThis.__fetchReply["/api/gpu-driver"] = { running: "595.84", installed: { package: "nvidia-driver-610-open", version: "610.43.02" }, newest: { package: "nvidia-driver-610-open", version: "610.43.02" }, updateAvailable: false, rebootForDriver: true, rebootPending: false, rebootRequired: true, auto: { check: true, install: false, lastCheckAt: 1700000000 } };',
+     'await (async () => { await m.loadDriverPanel(); const h = html("driverSummary"); return [h.includes("needed to switch the kernel module"), h.includes("asked for by the OS"), F().driverUpdateBtn.disabled, F().driverAutoCheck.checked, F().driverAutoInstall.checked]; })()',
+     '[true,false,true,true,false]',
+     'positive: поставлено, но работает старое — сказано про перезагрузку ДРАЙВЕРА и только про неё; ставить больше нечего, кнопка выключена; галки показывают сохранённое состояние'),
+    # Live check on 2026-09-07: the versions already matched, and the badge
+    # still insisted the kernel had yet to switch to the new driver. The
+    # reason belonged to someone else — the OS's own marker.
+    ("driver_panel_reboot_os_only",
+     'globalThis.__fetchReply["/api/gpu-driver"] = { running: "610.43.02", installed: { package: "nvidia-driver-610-open", version: "610.43.02-0ubuntu0.24.04.1" }, newest: { package: "nvidia-driver-610-open", version: "610.43.02-0ubuntu0.24.04.1" }, updateAvailable: false, rebootForDriver: false, rebootPending: true, rebootPendingPackages: ["linux-image-7.0.0-31-generic", "linux-base"], rebootRequired: true, auto: {} };',
+     'await (async () => { await m.loadDriverPanel(); const h = html("driverSummary"); return [h.includes("needed to switch the kernel module"), h.includes("system reboot"), h.includes("asked for by the OS, not by the driver: linux-image-7.0.0-31-generic, linux-base")]; })()',
+     '[false,true,true]',
+     'negative: версии совпали — про переключение ядра НЕ говорим; повод ОС назван отдельной плашкой и с составом'),
+    ("driver_panel_reboot_os_without_packages",
+     'globalThis.__fetchReply["/api/gpu-driver"] = { running: "610.43.02", installed: { package: "nvidia-driver-610-open", version: "610.43.02" }, newest: null, updateAvailable: false, rebootForDriver: false, rebootPending: true, rebootPendingPackages: [], rebootRequired: true, auto: {} };',
+     'await (async () => { await m.loadDriverPanel(); const h = html("driverSummary"); return [h.includes("asked for by the OS, not by the driver"), h.includes("asked for by the OS, not by the driver:")]; })()',
+     '[true,false]',
+     'состав неизвестен — причина названа, двоеточия с пустым списком нет'),
+    ("driver_panel_reboot_both_causes",
+     'globalThis.__fetchReply["/api/gpu-driver"] = { running: "595.84", installed: { package: "nvidia-driver-610-open", version: "610.43.02" }, newest: null, updateAvailable: false, rebootForDriver: true, rebootPending: true, rebootPendingPackages: ["linux-base"], rebootRequired: true, auto: {} };',
+     'await (async () => { await m.loadDriverPanel(); const h = html("driverSummary"); return [(h.match(/llama-chip warn/g) || []).length, h.includes("needed to switch the kernel module"), h.includes("linux-base")]; })()',
+     '[2,true,true]',
+     'обе причины разом — две плашки, а не одна на двоих'),
+    ("driver_panel_reboot_none",
+     'globalThis.__fetchReply["/api/gpu-driver"] = { running: "610.43.02", installed: { package: "nvidia-driver-610-open", version: "610.43.02" }, newest: null, updateAvailable: false, rebootForDriver: false, rebootPending: false, rebootRequired: false, auto: {} };',
+     'await (async () => { await m.loadDriverPanel(); const h = html("driverSummary"); return [h.includes("reboot"), h.includes("system reboot")]; })()',
+     '[false,false]',
+     'negative: ни одной причины — ни одной плашки про перезагрузку'),
     ("vllm_panel_installed", 'globalThis.__fetchReply["/api/vllm"] = { installed: true, version: "0.24.0", venv: "/opt/vllm", history: [{ version: "0.24.0" }, { version: "0.23.1", seenAt: 1700000000 }] };',
      'await (async () => { await m.loadVllmPanel(); const h = html("vllmSummary"); return [(h.match(/llama-build-row/g) || []).length, h.includes("vllm 0.24.0"), h.includes("/opt/vllm"), h.includes(">Update to latest<"), h.includes(\'data-vllm-update="0.23.1"\'), h.includes(\'data-vllm-update="0.24.0"\')]; })()',
      '[2,true,true,true,true,false]', "vLLM: текущая версия отдельной строкой с «Update to latest», история без текущей, у прошлых — Restore"),
@@ -124,7 +165,7 @@ PINS = [
      'await (async () => { await m.loadVllmPanel(); F().vllmSummary.children[1].listeners.click[0](); const a = [F().confirmPath.textContent, F().confirmDelete.textContent, F().confirmMeta.innerHTML.includes("<strong>vllm 0.24.0</strong>"), F().confirmMeta.innerHTML.includes("<strong>vllm 0.23.1</strong>"), F().confirmOverlay.hidden]; await st.ui.pendingConfirm(); await settle(); return [...a, calls().slice(1).map((c) => [c.path, c.body]), F().llamaUpdateLog.textContent, polls()]; })()',
      '["pip install vllm==0.23.1","Restore",true,true,false,[["/api/vllm/update",{"version":"0.23.1"}],["/api/llamacpp/update-status",null]],"pip…",[2000]]',
      "откат vLLM: модал с командой pip и from/to; подтверждение — POST версии и опрос статуса, running → следующий опрос через 2 с"),
-    # ── модалы llama.cpp ──
+    # ── llama.cpp modals ──
     ("restore_build_modal", 'st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc)\\nextra" } }); globalThis.__fetchReply["/api/llamacpp/update-status"] = { done: true, rc: 1, error: "build failed" };',
      'await (async () => { m.openRestoreBuildModal("b2", { version: "version: 9900 (def)" }); const a = [F().confirmTitle.textContent, F().confirmMeta.innerHTML.includes("<strong>b9947 (abc)</strong>"), F().confirmMeta.innerHTML.includes("<strong>b9900 (def)</strong>"), F().confirmPath.textContent, F().confirmOverlay.hidden]; await st.ui.pendingConfirm(); await settle(); return [...a, calls().map((c) => [c.path, c.body]), toastText(), polls()]; })()',
      '["Restore an archived build?",true,true,"b2",false,[["/api/llamacpp/restore",{"id":"b2"}],["/api/llamacpp/update-status",null]],"build failed",[]]',
@@ -142,7 +183,7 @@ PINS = [
      'await (async () => { globalThis.__stubReturns["dialogs.appConfirm"] = async () => false; await m.revertLatest(); const a = calls().length; globalThis.__stubReturns["dialogs.appConfirm"] = async () => true; await m.revertLatest(); return [a, calls()[0].path, calls()[0].body, st.state.appVersion, toastText()]; })()',
      '[0,"/api/revert",{"restart":true},"9","Reverted latest backup and restarted."]', "откат бэкапа: без подтверждения — ничего; с ним — POST restart, состояние, тост"),
     ("check_llamacpp", 'globalThis.__fetchReply["/api/llamacpp"] = { version: "version: 1" };', 'await (async () => { await m.checkLlamaCpp(); return [st.state.llamaCpp.version, toastText(), F().llamaUpdateLog.textContent]; })()', '["version: 1","Reloaded.","version: 1"]', "проверка версии: GET, состояние, панель перерисована, тост"),
-    # ── git-бейдж и известные проблемы ──
+    # ── git badge and known issues ──
     ("project_git_branch", '', '(() => { st.setState({ ...st.state, appVersion: "1.3.200", projectGit: { branch: "main", head: "abc", dirtyCount: 2 } }); m.renderProjectGitBranch(); const a = [F().projectGitBranch.textContent, F().projectGitBranch.title, F().projectGitBranch.classList.has("dirty")]; st.setState({ ...st.state, appVersion: "", projectGit: { ok: false, error: "no git" } }); m.renderProjectGitBranch(); return [...a, F().projectGitBranch.textContent, F().projectGitBranch.title, F().projectGitBranch.classList.has("dirty")]; })()',
      '["v1.3.200 · git: main +2","Project branch main @ abc, 2 dirty files",true,"git: n/a","Project git branch unavailable: no git",false]', "бейдж git: версия, ветка, счётчик грязных с классом; недоступен — причина в подсказке"),
     ("known_problems_healthy_collapses_legacy", 'st.setState({ ...st.state, diagnostics: { summary: "S", fix: "F", checks: [{ kind: "good", title: "proxy", detail: "ok" }, { kind: "bad", title: "Legacy unit", detail: "inactive" }] } });',
@@ -151,13 +192,13 @@ PINS = [
     ("known_problems_unhealthy_shows_advice", 'st.setState({ ...st.state, diagnostics: { legacyActive: true, summary: "S", fix: "F", checks: [{ kind: "warn", title: "proxy", detail: "slow" }] } });',
      '(() => { m.renderKnownProblems(); const h = html("knownProblems"); return [h.includes("<p>S</p><p>F</p>"), h.includes("<details"), h.includes("problem-item")]; })()',
      '[true,false,true]', "есть amber: подсказка показана; легаси активен — статья без сворачивания"),
-    # ── безопасность ──
+    # ── security ──
     ("security_auth_off_setup_form", '', '(() => { m.renderSecurity({ enabled: false }); const h = html("securityInfo"); return [F().authLogoutBtn.hidden, h.includes("Accounts are off"), h.includes(\'id="authSetupForm"\'), h.includes(\'autocomplete="new-password"\')]; })()',
      '[true,true,true,true]', "auth выключен: форма первого аккаунта, кнопка выхода спрятана, пароль без автозаполнения менеджером"),
     ("security_auth_on_users_and_sessions", '', '(() => { m.renderSecurity({ enabled: true, user: "admin", users: [{ username: "admin", role: "admin" }, { username: "bob", role: "viewer" }], sessions: Array.from({ length: 7 }, (_, i) => ({ id: "s" + i, username: "admin", ip: "10.0.0." + i, lastSeen: 1700000000 })) }); const h = html("securityInfo"); return [F().authLogoutBtn.hidden, h.includes("sign-in required · admin"), h.includes(\'data-auth-role="admin:viewer"\'), h.includes(\'data-auth-role="bob:admin"\'), (h.match(/data-auth-revoke=/g) || []).length, h.includes("<p class=\\"muted\\">+2</p>"), h.includes(\'data-auth-del="bob"\')]; })()',
      '[false,true,true,true,5,true,true]', "auth включён: статус с именем, переключение роли в противоположную, сессии не больше пяти и +N, удаление пользователя"),
     ("security_null", '', '(() => { m.renderSecurity(null); return html("securityInfo"); })()', '""', "negative: без данных — ничего"),
-    # ── сборщик мусора моделей ──
+    # ── model garbage collector ──
     ("gc_modal_lists_unused_by_size", 'globalThis.__fetchReply["/api/models/unused"] = { path: "/models", unusedCount: 2, unusedGb: 3.5, files: [{ path: "/models/a.gguf", sizeBytes: 100, sizeGb: 0.1, ageDays: 3, referenced: false }, { path: "/models/big.gguf", sizeBytes: 900, sizeGb: 0.9, ageDays: 30, referenced: false }, { path: "/models/used.gguf", sizeBytes: 999, referenced: true }] };',
      'await (async () => { await m.openModelGcModal(); const h = html("modelGcList"); return [F().modelGcOverlay.hidden, F().modelGcSummary.textContent, h.indexOf("big.gguf") < h.indexOf("a.gguf"), h.includes("used.gguf"), (h.match(/data-gc-file=/g) || []).length]; })()',
      '[false,"/models — 2 unused files, 3.5 GB reclaimable",true,false,2]', "сборщик: только неиспользуемые, крупные первыми, сводка по пути"),
@@ -192,8 +233,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

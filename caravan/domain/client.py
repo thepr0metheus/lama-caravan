@@ -1,42 +1,44 @@
-"""Клиент флота: запись о том, что он ЕСТЬ, отдельно от того, отвечает ли он.
+"""A fleet client: the record that it EXISTS, separate from whether it answers.
 
-Клиент появлялся только из сердцебиения скаута, поэтому «существует» и
-«отвечает» были одним и тем же фактом. Теперь клиента заводит оператор, и эти
-два факта расходятся: запись есть и настроена, а отчёта может не быть никогда.
-Класс держит ровно первую половину — форму записи и правило про её id. Живость
-(`state`, `ageSeconds`) вычисляется по `lastSeen` там же, где и раньше, и
-ручная запись честно читается как «молчит», а не как «работает».
+A client used to appear only from the scout's heartbeat, so "exists" and
+"answers" were the same fact. Now an operator can create one by hand, and the
+two facts split apart: the record exists and is configured, and a report may
+never arrive. This class holds exactly the first half — the record's shape
+and the rule for its id. Liveness (`state`, `ageSeconds`) is still computed
+from `lastSeen` the same way it always was, so a manual record honestly reads
+as "silent", not "running".
 
-Правило про id жило внутри разбора сердцебиения одним комментарием на
-пятнадцать строк. Как только заводить клиента стало можно двумя путями, оно
-обязано было переехать в одно место: иначе второй путь пропускает то, что
-первый отвергает, — а последствие описано в самом правиле.
+The id rule used to live inside heartbeat parsing as a single fifteen-line
+comment. Once a client could be created two different ways, it had to move to
+one place: otherwise the second path lets through what the first one rejects
+— and the consequence is spelled out in the rule itself.
 """
 from caravan.admin.paths import CONTROLLER_HOST_ID, LEGACY_CONTROLLER_HOST_IDS
 from caravan.common.errors import AppError
 
 
 class FleetClient:
-    """Одна запись о клиенте. Класс — про форму и правила, не про хранение."""
+    """One client record. The class is about shape and rules, not storage."""
 
-    #: Имена, которые клиент носить не может ни при каких условиях.
+    #: Names a client can never carry, under any circumstances.
     RESERVED_IDS = (CONTROLLER_HOST_ID,) + tuple(LEGACY_CONTROLLER_HOST_IDS)
 
     @classmethod
     def validate_id(cls, host_id):
-        """Id клиента или отказ.
+        """The client's id, or a refusal.
 
-        Id контроллера — зарезервированный сентинел, а слоты адресуются строкой
-        "<hostId>:<port>": клиент под этим именем писал бы прямо в пространство
-        контроллера, и две разные ячейки оказались бы под одним ключом. Так уже
-        пропадала работающая ячейка с доски. Id приходит из чужого конфига или
-        из формы, и ничего, кроме этой проверки, между ними не стоит.
+        The controller's id is a reserved sentinel, and slots are addressed
+        as the string "<hostId>:<port>": a client under that name would write
+        straight into the controller's own namespace, and two different cells
+        would land under one key. A running cell has already vanished from the
+        board that way. The id arrives from someone else's config or from a
+        form, and nothing but this check stands between them.
 
-        Сравнение регистронезависимое НАМЕРЕННО: флот, где живут два написания
-        одного имени, — ловушка для читающего в любом случае, поэтому близкий
-        промах отвергается на входе. ЛЕГАСИ-имена зарезервированы навсегда:
-        устаревший фронт всё ещё присылает их, имея в виду контроллер, и клиент
-        под таким именем был бы неадресуем.
+        The comparison is case-insensitive ON PURPOSE: a fleet where two
+        spellings of the same name both live is a trap for the reader either
+        way, so a near-miss is rejected at the door. The LEGACY names are
+        reserved forever: an outdated frontend still sends them meaning the
+        controller, and a client under that name would be unaddressable.
         """
         host_id = str(host_id or "").strip()[:120]
         if not host_id:
@@ -48,12 +50,13 @@ class FleetClient:
 
     @classmethod
     def add_agent(cls, row, agent_id, name=""):
-        """Добавить агента в запись руками. Отказ, если такой уже есть.
+        """Add an agent to the record by hand. Refuses if one already exists.
 
-        Пометка `manual` — не украшение: отчёт скаута заменяет список агентов
-        ЦЕЛИКОМ, и без неё добавленный руками агент исчезал бы у клиента,
-        который однажды отозвался. Пометка — единственное, по чему слияние
-        отличает «этого завёл оператор» от «этого больше не видно».
+        The `manual` mark is not decoration: the scout's report replaces the
+        agent list WHOLESALE, and without it a hand-added agent would vanish
+        the moment its client ever reported in. The mark is the only thing
+        the merge uses to tell "the operator created this" from "this is no
+        longer seen".
         """
         agent_id = str(agent_id or "").strip()[:80]
         if not agent_id:
@@ -68,11 +71,11 @@ class FleetClient:
 
     @classmethod
     def merge_manual_agents(cls, reported, previous):
-        """Список агентов после отчёта: что рассказал скаут плюс ручные.
+        """The agent list after a report: what the scout said, plus manual ones.
 
-        Живость по-прежнему принадлежит скауту — агент, о котором он молчит,
-        уходит, как и раньше. Кроме тех, кого завёл оператор: их существование
-        отчёт не подтверждает и не опровергает.
+        Liveness still belongs to the scout — an agent it stays silent about
+        drops off, same as always. Except the ones the operator created:
+        their existence is neither confirmed nor denied by the report.
         """
         seen = {str(a.get("id") or "") for a in reported if isinstance(a, dict)}
         kept = [a for a in (previous or [])
@@ -82,18 +85,20 @@ class FleetClient:
 
     @classmethod
     def adopt(cls, row):
-        """Пометить СУЩЕСТВУЮЩУЮ запись ручной. True, если что-то изменилось.
+        """Mark an EXISTING record manual. True if anything changed.
 
-        Усыновление на месте, а не «создать новое и удалить старое»: реестр
-        живой, его маршруты возят трафик, и в промежутке между созданием и
-        удалением они существовали бы дважды или ни разу. Здесь меняется ровно
-        один факт — кто хозяин записи, — а всё остальное в ней не наше дело:
-        ни живость, ни имя, ни агенты. Поэтому же повтор безвреден.
+        Adoption happens in place, not "create new and delete old": the
+        registry is live, its routes carry traffic, and in the gap between
+        create and delete they would exist twice or not at all. Exactly one
+        fact changes here — who owns the record — and everything else about
+        it is none of our business: not liveness, not the name, not the
+        agents. Which is also why a repeat call is harmless.
         """
         if not isinstance(row, dict) or row.get("manual"):
             return False
-        # Сентинел контроллера — не клиент скаута: усыновлять нечего, а пометка
-        # сделала бы вид, что оператор про него что-то решил.
+        # The controller's sentinel is not a scout client: there is nothing to
+        # adopt, and marking it would pretend the operator decided something
+        # about it.
         if any(str(row.get("id") or "").casefold() == r.casefold() for r in cls.RESERVED_IDS):
             return False
         row["manual"] = True
@@ -101,12 +106,12 @@ class FleetClient:
 
     @classmethod
     def manual(cls, host_id, name="", ip="", agent_url=""):
-        """Запись о клиенте, заведённом руками.
+        """A record for a client created by hand.
 
-        `lastSeen` НЕ ставится: он означает «отвечал вот тогда», и выдуманное
-        значение сделало бы молчащего клиента похожим на живого — ровно то, что
-        этой работой и разводится. Пустой `agents` — тоже факт, а не заглушка:
-        агентов ему добавляют отдельно.
+        `lastSeen` is NOT set: it means "answered at this moment", and a made-up
+        value would make a silent client look alive — exactly what this work
+        is meant to keep apart. An empty `agents` is a fact too, not a
+        placeholder: agents get added to it separately.
         """
         row = {
             "id": cls.validate_id(host_id),

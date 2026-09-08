@@ -1,6 +1,7 @@
 """Topology assembly: the /api/topology tree (clients, servers, GPUs, proxies,
 routers) built from heartbeats, probes, systemd and the proxy state files."""
 import glob
+import json
 import os
 import pathlib
 import re
@@ -28,7 +29,7 @@ from caravan.admin.monitoring import (
     runtime_api,
 )
 from caravan.admin.openclaw import openclaw_configs_snapshot
-from caravan.admin.paths import CONTROLLER_HOST_ID, IS_CONTAINER, SERVICE_NAME, TOPOLOGY_SERVER_IP, is_controller_host, AGENT_PROXY_BASE_PORT, SERVER_CELL_BASE_PORT, SERVER_CELL_UPPER_PORT
+from caravan.admin.paths import AGENT_PROXY_STATE_FILE, CONTROLLER_HOST_ID, IS_CONTAINER, SERVICE_NAME, TOPOLOGY_SERVER_IP, is_controller_host, AGENT_PROXY_BASE_PORT, SERVER_CELL_BASE_PORT, SERVER_CELL_UPPER_PORT
 from caravan.admin.proxies_config import (
     load_agent_proxy_config,
     read_agent_proxy_payload,
@@ -40,7 +41,7 @@ from caravan.admin.router_dsl import normalize_agent_proxy_policy
 from caravan.admin.server_cells import server_slot_key
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.admin.state import topology as topo
-from caravan.admin.systemd_ctl import active_cell_unit_ports, cell_last_error, cell_progress_note, cell_service_name, cell_service_status, cell_unit_pids, service_status, systemd_ts_epoch
+from caravan.admin.systemd_ctl import active_cell_unit_ports, cell_crash_note, cell_last_error, cell_progress_note, cell_service_name, cell_service_status, cell_unit_pids, service_status, systemd_ts_epoch
 from caravan.admin.telemetry import (
     _normalize_modalities,
     _record_cpu_history,
@@ -53,8 +54,11 @@ from caravan.admin.telemetry import (
     remote_llama_modalities,
 )
 from caravan.common.errors import AppError
+from caravan.common.context_window import block_window, effective_window, route_window_inputs, served_window, trained_window
 from caravan.domain.client_proxy import AgentAssignment, PROXY_ID_PREFIX, ProxyRoute
-from caravan.common.fetch import post_json
+from caravan.common.fetch import fetch_json, post_json
+from caravan.proxy.graph import PLAIN_REQUEST_CTX, apply_router
+from caravan.proxy.output_health import output_health
 
 
 _SLOT_MODEL_SIZE_CACHE = {}  # model path → (bytes, checked_at)
@@ -181,12 +185,180 @@ def _slot_model_size_bytes(model_path, models_dir):
     return size
 
 
+# A running cell's model card, by port: fetched once a minute at most.
+_MODEL_CARD_CACHE = {}
+MODEL_CARD_TTL_SECONDS = 60
+
+
+def _model_disk_newer(model_path, cell_status):
+    """The model file on disk is newer than the moment the cell was launched.
+
+    Two measured times are compared: the file's mtime and the unit's
+    ExecMainStartTimestamp. No "probably": if the file was swapped after
+    launch, the process is still running the old weights — it holds the
+    INODE, not the name.
+    """
+    started = systemd_ts_epoch((cell_status or {}).get("ExecMainStartTimestamp"))
+    if not started:
+        return False
+    try:
+        from caravan.admin.config_builder import models_dir_from_config, parse_config
+        path = pathlib.Path(str(model_path or ""))
+        if not path.is_absolute():
+            path = pathlib.Path(models_dir_from_config(parse_config())) / path
+        return int(path.stat().st_mtime) > int(started)
+    except OSError:
+        return False
+
+
+#: Files a llama.cpp cell takes from the models directory at launch, and each
+#: one's role on the card. All three come from Hugging Face and all three get
+#: re-issued: mmproj and the draft alongside the model, under the same
+#: commit. Watching freshness only on MODEL_FILE means asking about one file
+#: out of three and printing the answer as if it were about the whole launch.
+LAUNCH_FILE_FIELDS = (("MODEL_FILE", "model"),
+                      ("MMPROJ_FILE", "mmproj"),
+                      ("SPEC_DRAFT_MODEL_FILE", "draft"))
+
+
+def _launch_files(config, model_path):
+    """[(role, path)] for every file involved in the launch. Empty ones skipped."""
+    out = []
+    seen = set()
+    config = config or {}
+    for field, role in LAUNCH_FILE_FIELDS:
+        ref = str((config.get(field) if field != "MODEL_FILE" else
+                   (config.get(field) or model_path)) or "").strip()
+        if not ref or ref in seen:
+            continue
+        seen.add(ref)
+        out.append((role, ref))
+    return out
+
+
+def _launch_fresh(config, model_path):
+    """Freshness of EVERY launch file: [{"role", "file", "state"}].
+
+    Only what's diverged or unchecked is in the list — "matches" is never
+    drawn on the card at all: a ✓ over an unchecked file was the original
+    defect.
+    """
+    rows = []
+    for role, ref in _launch_files(config, model_path):
+        state = _model_fresh_state(ref)
+        if state in ("size", "date", "unknown"):
+            rows.append({"role": role, "file": ref.rsplit("/", 1)[-1], "state": state})
+    return rows
+
+
+def _launch_disk_newer(config, model_path, cell_status):
+    """Which launch files on disk are newer than the cell's start time: [role…].
+
+    A cell holds ALL three files through mmap, so a swap of any one of them
+    only reaches it on restart — and the mark is needed for any of them, not
+    just the weights.
+    """
+    return [role for role, ref in _launch_files(config, model_path)
+            if _model_disk_newer(ref, cell_status)]
+
+
+def _model_fresh_state(model_path):
+    """The model file's state from the watcher's latest report — or "".
+
+    The key is the PATH relative to the models directory, exactly as in the
+    report. It used to be the name, on the claimed assumption that this was
+    safe: "same-named files sit in different branches". A 2026-09-07
+    measurement showed the opposite — one name sits in ONE repository twice,
+    in two quants, and by name a cell's card got the verdict of the copy it
+    hadn't loaded.
+
+    An empty string means "not checked", and the card must tell that apart
+    from "matches": a ✓ over an unchecked file is that exact defect. A path
+    absent from the report also means "not checked": a stranger's answer here
+    is worse than silence.
+    """
+    ref = str(model_path or "").strip()
+    if not ref:
+        return ""
+    try:
+        from caravan.admin.model_watch import freshness_report
+        repos = freshness_report().get("repos") or {}
+    except Exception:
+        return ""
+    if os.path.isabs(ref):
+        # A cell config's path can be absolute too. The report stores it
+        # relative to the models directory — bring both to the same shape.
+        try:
+            from caravan.admin.config_builder import models_dir_from_config, parse_config
+            ref = str(pathlib.Path(ref).relative_to(models_dir_from_config(parse_config())))
+        except (ValueError, OSError):
+            return ""
+    for repo in repos.values():
+        row = (repo.get("files") or {}).get(ref)
+        if row:
+            return str(row.get("state") or "")
+    return ""
+
+
+def _cell_model_card_windows(port, now=None):
+    """(served, trained) as a running cell's own model card states them, cached a minute.
+
+    llama.cpp puts both on /v1/models (meta.n_ctx and the trained number);
+    vLLM states max_model_len and no trained number. The card of a running
+    instance does not change, so one small local GET per cell per minute is
+    the whole cost. A cell that does not answer yields (None, None) and is
+    asked again a minute later: absence is not a size.
+    """
+    now = time.time() if now is None else now
+    key = int(port or 0)
+    hit = _MODEL_CARD_CACHE.get(key)
+    if hit and now - hit[0] < MODEL_CARD_TTL_SECONDS:
+        return hit[1]
+    try:
+        card = fetch_json(f"http://127.0.0.1:{key}/v1/models", timeout=2)
+        entry = next((e for e in ((card or {}).get("data") or []) if isinstance(e, dict)), None)
+        found = (served_window(entry), trained_window(entry))
+    except Exception:
+        found = (None, None)
+    _MODEL_CARD_CACHE[key] = (now, found)
+    return found
+
+
+def _gguf_trained_window(model_path, config):
+    """The trained window from a GGUF header on THIS host, or None.
+
+    A parked cell has no model card, but its file carries the same number the
+    card would state. A path that is not a file here — every client cell's —
+    is no file: the number is not guessed from the name.
+    """
+    text = str(model_path or "").strip()
+    if not text.lower().endswith(".gguf"):
+        return None
+    path = pathlib.Path(text).expanduser()
+    if not path.is_absolute():
+        path = pathlib.Path(models_dir_from_config(config)) / text
+    try:
+        if not path.is_file():
+            return None
+        from caravan.admin.models import extract_runtime_meta, read_gguf_metadata_cached
+        return _positive_int((extract_runtime_meta(read_gguf_metadata_cached(path)) or {}).get("contextLength"))
+    except Exception:
+        return None
+
+
 def topology_server(config=None):
     config = config or parse_config()
     service = service_status()
     runtime = runtime_api(config)
     runtime["status"] = runtime_phase(service, runtime)
-    raw_gpus = gpu_state().get("gpus", [])
+    gpu_read = gpu_state()
+    raw_gpus = gpu_read.get("gpus", [])
+    # Why there are no cards in the list. "No cards" and "can't ask" look the
+    # same on the board until the reason arrives: after a driver update,
+    # before a reboot, nvidia-smi answers "Driver/library version mismatch",
+    # and the node used to write "no GPU" about a card that's sitting right
+    # there and working.
+    gpu_error = "" if raw_gpus else str(gpu_read.get("error") or "")[:200]
     gpus = []
     for index, gpu in enumerate(raw_gpus):
         row = dict(gpu)
@@ -204,10 +376,23 @@ def topology_server(config=None):
     # the KV cache (usage ratio × n_ctx) — drops to ~0 when all slots idle.
     ctrl_props = runtime.get("props") if isinstance(runtime, dict) else {}
     ctrl_gen = (ctrl_props or {}).get("default_generation_settings") or {}
+    # The SERVED window is kept apart from that fallback: CTX_SIZE is the total
+    # across slots, which no single request may use, and a route that
+    # advertises it tells the client to send more than the cell accepts
+    # (caravan/common/context_window.py). None while /props is silent.
     try:
-        ctrl_ctx_max = int(ctrl_gen.get("n_ctx") or (ctrl_props or {}).get("n_ctx") or config.get("CTX_SIZE") or 0)
+        ctrl_ctx_served = int(ctrl_gen.get("n_ctx") or (ctrl_props or {}).get("n_ctx") or 0) or None
+    except (TypeError, ValueError):
+        ctrl_ctx_served = None
+    try:
+        ctrl_ctx_max = int(ctrl_ctx_served or config.get("CTX_SIZE") or 0)
     except (TypeError, ValueError):
         ctrl_ctx_max = 0
+    # What the weights were trained with, from the same model card — shown
+    # beside the model's name, never advertised (caravan/common/context_window.py).
+    ctrl_models = runtime.get("models") if isinstance(runtime, dict) else {}
+    ctrl_ctx_trained = trained_window(next((e for e in ((ctrl_models or {}).get("data") or [])
+                                            if isinstance(e, dict)), None))
     ctrl_ctx_used = None
     if ctrl_metrics.get("ok") and ctrl_ctx_max:
         try:
@@ -240,6 +425,8 @@ def topology_server(config=None):
             "promptTps": ctrl_metrics.get("promptTokensPerSecond") if ctrl_metrics.get("ok") else None,
             "genTps": ctrl_metrics.get("predictedTokensPerSecond") if ctrl_metrics.get("ok") else None,
             "ctxMax": ctrl_ctx_max or None,
+            "ctxServed": ctrl_ctx_served,
+            "ctxTrained": ctrl_ctx_trained,
             "ctxUsed": ctrl_ctx_used,
             # Authoritative input modalities from the controller's own /props.
             "modalities": _normalize_modalities((ctrl_props or {}).get("modalities")),
@@ -381,6 +568,12 @@ def topology_server(config=None):
             "genTps": ln.get("genTps"),
             "schedule": (_r_slot or {}).get("schedule") or None,
             "ctxMax": ln.get("ctxMax") or _slot_ctx_max(client.get("id"), remote_port),
+            # As the cell's host agent reported it, never the configured
+            # CTX_SIZE: the route's advertised window is built from this.
+            "ctxServed": _positive_int(ln.get("ctxMax")),
+            # A scout that reports the trained number wins; a file on this host
+            # (rare for a client cell) is the fallback; nothing is guessed.
+            "ctxTrained": _positive_int(ln.get("ctxTrained")) or _gguf_trained_window(model_path, config),
             "ctxUsed": ln.get("ctxUsed"),
             "modalities": remote_mods,
             "firewall": ln.get("firewall"),
@@ -436,6 +629,7 @@ def topology_server(config=None):
             slot_is_command and effective_command(slot_cfg).strip())) else "reserved"
         service_name = SERVICE_NAME if is_controller_slot else ""
         cell_status = {}
+        cell_crash = None
         cell_pid = None
         cell_boot = ""
         cell_metrics = {}
@@ -445,6 +639,11 @@ def topology_server(config=None):
         if is_controller_slot:
             cell_status = cell_service_status(port)
             service_name = cell_status.get("service") or cell_service_name(port)
+            # Whether it has crashed since it was last started by hand.
+            # systemd brings the cell back up, and a minute later it's
+            # "running" again — without this mark, an evening with three
+            # crashes looked like smooth operation on the board (2026-09-06).
+            cell_crash = cell_crash_note(port, cell_status.get("NRestarts"))
             cell_boot = cell_status.get("UnitFileState") or ""
             try:
                 cell_pid = int(cell_status.get("MainPID") or 0) or None
@@ -529,6 +728,10 @@ def topology_server(config=None):
                 slot_mods = remote_llama_modalities(probe_ip, port)
         controller_name = os.environ.get("LLAMA_TOPOLOGY_SERVER_NAME", CONTROLLER_HOST_ID)
         controller_ip = TOPOLOGY_SERVER_IP
+        _card_served, _card_trained = (
+            _cell_model_card_windows(port)
+            if is_controller_slot and slot_phase == "running" and not slot_is_command
+            else (None, None))
         llama_servers.append({
             "id": f"slot:{host_id}:{port}",
             "name": str((controller_name if is_controller_slot else client.get("name")) or host_id),
@@ -538,6 +741,29 @@ def topology_server(config=None):
             "cellLabel": cell_artifact_label(slot.get("config") or {}),
             "cellMeta": _cell_meta(_ch, slot.get("config") or {}, slot_is_command),
             "modelPath": model_path,
+            # What the model watcher last said about THIS file. Empty means
+            # not checked: the card then stays silent, instead of showing a ✓.
+            # ONLY for controller-slot cells: the report is built from ITS
+            # models directory, while a client cell's weights sit on its own
+            # host. The first cut compared by filename alone — and hung a
+            # chip on a client cell, reporting on a file it had never seen
+            # (found by a live check).
+            "modelFresh": _model_fresh_state(model_path) if is_controller_slot else "",
+            # About EVERY launch file, not just the weights: mmproj and the
+            # draft also come from HF and also get re-issued. The first cut
+            # asked about one file out of three, yet answered as if for the
+            # whole launch.
+            "launchFresh": (_launch_fresh(slot.get("config") or {}, model_path)
+                            if is_controller_slot else []),
+            # The file on disk is newer than what the cell loaded. A fact, not
+            # a guess: the file's mtime against the unit's start time. Swapping
+            # the file doesn't touch a running cell (it holds the inode
+            # through mmap), and without this mark "already updated" would
+            # look like "already running the update".
+            "modelDiskNewer": (_model_disk_newer(model_path, cell_status)
+                               if is_controller_slot and slot_phase == "running" else False),
+            "launchDiskNewer": (_launch_disk_newer(slot.get("config") or {}, model_path, cell_status)
+                                if is_controller_slot and slot_phase == "running" else []),
             "mmproj": str(((slot.get("config") or {}).get("MMPROJ_FILE")) or ""),
             "specDraft": str(((slot.get("config") or {}).get("SPEC_DRAFT_MODEL_FILE")) or ""),
             "specType": str(((slot.get("config") or {}).get("SPEC_TYPE")) or ""),
@@ -563,7 +789,13 @@ def topology_server(config=None):
             "phase": slot_phase,
             "downloadedBytes": _cdl,
             "totalBytes": _ctot,
-            "ctxMax": _slot_ctx_max(host_id, port),
+            # A running llama or vLLM cell on this host states its windows on
+            # its own model card; the served one is the truth over CTX_SIZE
+            # (the configured total across slots). A parked one keeps only the
+            # trained number, in its GGUF header.
+            "ctxMax": _card_served or _slot_ctx_max(host_id, port),
+            "ctxServed": _card_served,
+            "ctxTrained": _card_trained or _gguf_trained_window(model_path, config),
             # ≈VRAM hint for a parked cell: weights-on-disk size (context/KV
             # overhead not included). Live phases get the real figure from GPU
             # process memory instead.
@@ -592,6 +824,11 @@ def topology_server(config=None):
             # GPU binder must see it or the cell lands in the CPU section.
             "pids": sorted(cell_unit_pids(port)) if (is_controller_slot and slot_phase == "running") else [],
             "lastError": cell_status.get("error") if slot_phase == "error" else "",
+            # Crashes since the last manual start: {count, at, kind, reason}.
+            # Empty means it hasn't crashed; None for client cells, which the
+            # controller's systemd knows nothing about (the scout doesn't
+            # report this yet).
+            "crash": cell_crash,
             "firewall": firewall_port_access(port) if is_controller_slot else None,
             "reachable": None,
         })
@@ -603,6 +840,7 @@ def topology_server(config=None):
         "service": service,
         "runtime": runtime,
         "gpus": gpus,
+        "gpuError": gpu_error,
         "llamaServers": llama_servers,
     }
 
@@ -744,6 +982,10 @@ def topology_nodes(config, server_obj, clients):
         # the board hides the reserve/start controls and points at scouts.
         "containerized": IS_CONTAINER,
         "online": True,
+        # Why the card list is empty — the node carries this along with the
+        # list itself: "no cards" and "can't ask a card" render identically
+        # until the reason reaches the UI.
+        "gpuError": server_obj.get("gpuError") or "",
         "platform": "linux",
         "cpu": ctrl_cpu,
         "gpus": ctrl_gpus,
@@ -834,6 +1076,149 @@ def _compute_orphaned_agents(clients, store):
             })
     return orphaned
 
+def _positive_int(value):
+    """A size, or None: zero, rubbish and booleans are absences, not sizes."""
+    if isinstance(value, bool) or value is None:
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number > 0 else None
+
+
+def _served_windows_by_address(server_obj):
+    """(host, port) → the window each running cell serves, keyed as a router output names it.
+
+    Only the SERVED number, as the cell itself reported it: the configured
+    CTX_SIZE that the board's `ctxMax` falls back to is the total across slots,
+    which no single request may use (caravan/common/context_window.py). A
+    controller cell answers under every name an output may use for this host.
+    """
+    found = {}
+    # `llamaServers` is topology_server()'s key — `servers` is a per-node list
+    # in topology_nodes(). Read off the wrong one, this map was silently empty
+    # and every route to a cell showed no model window at all.
+    for row in (server_obj or {}).get("llamaServers") or []:
+        if not isinstance(row, dict):
+            continue
+        port = _positive_int(row.get("port"))
+        window = _positive_int(row.get("ctxServed"))
+        if port is None or window is None:
+            continue
+        hosts = {str(row.get("clientIp") or "").strip()} - {""}
+        if not hosts or row.get("isController"):
+            hosts |= {"127.0.0.1", "localhost", str(TOPOLOGY_SERVER_IP or "")} - {""}
+        for host in hosts:
+            found[(host, port)] = window
+    return found
+
+
+def _block_window_resolver(cloud_blocks):
+    """block id → (window, block): the figure a cloud block stands for, by the block's own rule.
+
+    The catalogue is consulted only for a block whose switch is on — the same
+    condition under which the proxy reads it (caravan/proxy/cloud_auth.py), so
+    the board and the port derive the block's number from the same sources.
+    """
+    blocks = {str(b.get("id")): b for b in (cloud_blocks or []) if isinstance(b, dict)}
+    catalogues = {}
+
+    def reported(block):
+        account_id = str(block.get("accountId") or "")
+        if account_id not in catalogues:
+            try:
+                from caravan.admin.model_catalog import cached_models_entry
+                models = (cached_models_entry(account_id) or {}).get("models") or []
+            except Exception:
+                models = []
+            catalogues[account_id] = {m.get("id"): m.get("contextLength")
+                                      for m in models if isinstance(m, dict)}
+        return catalogues[account_id].get(block.get("model"))
+
+    def resolve(block_id):
+        block = blocks.get(str(block_id or ""))
+        if block is None:
+            return None, None
+        prefer = bool(block.get("contextAuto"))
+        return block_window(block.get("contextLength"), reported(block) if prefer else None, prefer), block
+
+    return resolve
+
+
+def _route_window_facts(route, proxy_config, served, resolve_block):
+    """What the output a plain request reaches serves: (window, source).
+
+    The same resolution GET /v1/models goes through — apply_router with
+    PLAIN_REQUEST_CTX — so the board names the output the proxy answers from.
+    `source` says where the number comes from, or why there is none: a dash
+    with no reason would be absence rendered as normality (docs/why.md).
+    """
+    try:
+        resolved = apply_router(dict(route), proxy_config, ctx=dict(PLAIN_REQUEST_CTX))
+    except Exception as exc:
+        return None, {"kind": "error", "reason": str(exc)[:120]}
+    upstream_type = str(resolved.get("upstreamType") or "llama")
+    if resolved.get("unrouted") and upstream_type != "cloud":
+        return None, {"kind": "unrouted", "reason": str(resolved.get("unrouted"))}
+    if upstream_type == "cloud":
+        block_id = str(resolved.get("providerId") or "")
+        if not block_id:
+            # An account passthrough pins no model, so no single window exists.
+            return None, {"kind": "account", "account": str(resolved.get("cloudAccountId") or "")}
+        window, block = resolve_block(block_id)
+        if block is None:
+            return None, {"kind": "unrouted", "reason": "block missing"}
+        return window, {"kind": "block", "name": str(block.get("name") or block.get("model") or ""),
+                        "model": str(block.get("model") or "")}
+    host = str(resolved.get("upstreamHost") or "127.0.0.1")
+    port = _positive_int(resolved.get("upstreamPort")) or 0
+    return served.get((host, port)), {"kind": "cell", "host": host, "port": port}
+
+
+def _proxy_output_health():
+    """The proxy's verdicts as its state file last wrote them, or nothing."""
+    try:
+        payload = json.loads(AGENT_PROXY_STATE_FILE.read_text(encoding="utf-8"))
+        rows = payload.get("outputHealth") if isinstance(payload, dict) else None
+        return rows if isinstance(rows, dict) else {}
+    except Exception:
+        return {}
+
+
+def annotate_route_windows(proxies, proxy_config, server_obj, cloud_blocks):
+    """Three windows on every proxy row: the model's, the operator's, the advertised one.
+
+    `modelWindow` is what the output a plain request reaches serves, with
+    `modelWindowSource` naming it; `effectiveWindow` is
+    effective_window(limit, modelWindow, switch) — the figure the port publishes
+    in /v1/models, which the proxy computes from the same inputs with the same
+    rule. The limit and the switch are already on the row (`contextLength`,
+    `contextAuto`), copied there from the assignment by reconcile_proxy_metadata.
+    """
+    served = _served_windows_by_address(server_obj)
+    resolve_block = _block_window_resolver(cloud_blocks)
+    # The proxy's verdicts first: a backup node whose main is known dead sends
+    # the next request down its backup exit, and the window the port really
+    # advertises is that exit's — the board must resolve the same way.
+    try:
+        output_health.load_snapshot(_proxy_output_health())
+    except Exception:
+        pass
+    for proxy in proxies:
+        if not isinstance(proxy, dict):
+            continue
+        window, source = _route_window_facts(proxy, proxy_config, served, resolve_block)
+        limit, prefer = route_window_inputs(proxy)
+        proxy["modelWindow"] = window
+        proxy["modelWindowSource"] = source
+        # A port that reaches no output answers /v1/models with 503, not with a
+        # list: it advertises nothing, whatever limit is written on it.
+        proxy["effectiveWindow"] = (None if source.get("kind") in ("unrouted", "error")
+                                    else effective_window(limit, window, prefer))
+    return proxies
+
+
 def topology_state(refresh_clients=True):
     if refresh_clients:
         refresh_topology_clients_from_agents()
@@ -896,6 +1281,12 @@ def topology_state(refresh_clients=True):
     # the board — degrade to plain state on any failure.
     cloud_accounts = cloud_accounts_state()
     cloud_blocks = cloud_blocks_state()
+    # The three context windows of every route (model / limit / advertised):
+    # a board fact, never a reason for the board to sink.
+    try:
+        annotate_route_windows(proxies, proxy_config, server_obj, cloud_blocks)
+    except Exception:
+        pass
     try:
         from caravan.admin.cloud_api import annotate_cloud_topology
         cloud_api_health = annotate_cloud_topology(cloud_accounts, cloud_blocks)
@@ -917,7 +1308,7 @@ def topology_state(refresh_clients=True):
         # copies are what went stale when the controller moved off 8090.
         "cellPortRange": {"from": SERVER_CELL_BASE_PORT, "to": SERVER_CELL_UPPER_PORT,
                           "proxyBase": AGENT_PROXY_BASE_PORT},
-        # Routers (Роутеры) — the routing layer between proxies and servers.
+        # Routers — the routing layer between proxies and servers.
         # inputs already derived from routes by normalize_routers.
         "routers": proxy_config.get("routers") or [],
         "proxyPolicy": policy,
@@ -962,23 +1353,24 @@ def _llama_total_slots():
     return 0
 
 def normalize_topology_assignment(assignment):
-    """Форма записи и её отказы живут в caravan/domain/client_proxy.py.
+    """The record's shape and its refusals live in caravan/domain/client_proxy.py.
 
-    Здесь остаётся только вход/выход в словарях: этот путь пересобирает строку
-    с нуля, и поле, которого класс не называет, исчезает при следующем
-    сохранении. Раньше список полей был здесь, и его приходилось помнить —
-    теперь он один на всех писателей.
+    All that's left here is dict in / dict out: this path rebuilds the record
+    from scratch, and a field the class doesn't name disappears on the next
+    save. The field list used to live here, and had to be remembered — now
+    it's one list, shared by every writer.
     """
     return AgentAssignment.from_raw(assignment).to_dict()
 
 def _port_holder(port, exclude=()):
-    """Кто уже занял этот порт: (hostId, agentId, role) или None.
+    """Who already holds this port: (hostId, agentId, role), or None.
 
-    `exclude` — сам заявитель, парой (hostId, agentId): агент не конфликтует
-    сам с собой. Своя же роль, перенос порта между СВОИМИ ролями и повторное
-    сохранение той же настройки занятостью не считаются — иначе отказом стало
-    бы обычное редактирование. Чужой агент, хоть на этом клиенте, хоть на
-    соседнем, — конфликт: сетка портов общая на весь флот.
+    `exclude` is the claimant itself, as a (hostId, agentId) pair: an agent
+    doesn't conflict with itself. Its own role, moving the port between its
+    OWN roles, and re-saving the same setting don't count as a conflict —
+    otherwise ordinary editing would fail. A different agent, whether on this
+    client or a neighboring one, is a conflict: the port grid is shared
+    across the whole fleet.
     """
     want = f"{PROXY_ID_PREFIX}{int(port)}"
     for host_id, entry in (topology_store().get("assignments") or {}).items():
@@ -1019,8 +1411,8 @@ def bind_agent_to_proxy(payload):
         entry = {"agentId": agent_id, "routes": []}
         rows.append(entry)
 
-    # Роль расширяет принимаемое, а не сужает: вызывающий, который её не
-    # присылает, получает прежнее поведение.
+    # The role widens what's accepted, not narrows it: a caller that never
+    # sends it gets the old behaviour.
     role = str(payload.get("role") or "primary").strip()
     if role not in ("primary", "fallback"):
         raise AppError(f'role must be "primary" or "fallback", got "{role}"', 400)
@@ -1038,18 +1430,18 @@ def bind_agent_to_proxy(payload):
             # Binding to a port with no route would leave the agent pointing at
             # a closed socket while the panel showed a tidy assignment.
             raise AppError(f"no proxy route on port {port}", 400)
-        # Один порт — один владелец. Копия настроек уезжает на маршрут ПО
-        # ПОРТУ, поэтому два агента на одном порту не работают оба: последний
-        # записавший стирает настройку первого, молча и без следа. Проверяется
-        # весь флот, а не один клиент: сетка портов общая.
+        # One port, one owner. The settings copy rides the route BY PORT, so
+        # two agents on the same port can't both work: whichever wrote last
+        # erases the other's settings, silently and without a trace. The
+        # whole fleet is checked, not just one client: the port grid is shared.
         holder = _port_holder(port, exclude=(host_id, agent_id))
         if holder:
             raise AppError(f"port {port} is already bound to agent "
                            f"{holder[1]} ({holder[2]})", 409)
-        # Четвёртый строитель формы маршрута — его в замере фазы 1 пропустил
-        # grep из-за переноса строки. Теперь и он идёт через класс: список полей
-        # один на всех писателей, иначе новое поле переживает сохранение у трёх
-        # из четырёх.
+        # The fourth place that builds a route record — missed by grep during
+        # the phase 1 audit because of a line wrap. Now it goes through the
+        # class too: one field list for every writer, otherwise a new field
+        # survives a save at three writers out of four.
         assignment = AgentAssignment.from_raw(entry)
         assignment.manual = True
         assignment.set_route(ProxyRoute.for_port(role, port, TOPOLOGY_SERVER_IP))
@@ -1060,19 +1452,21 @@ def bind_agent_to_proxy(payload):
 
 
 def set_agent_route_context(payload):
-    """Окно контекста ДЛЯ ОДНОГО потребителя — роли одного агента.
+    """The context window FOR ONE consumer — one agent's role.
 
-    Число модели общее на всех, кто в неё маршрутизирует; здесь оператор
-    говорит, сколько разрешено ЭТОМУ клиенту, и это побеждает. Пустое значение
-    снимает своё число обратно к модельному — снять и «задать ноль» это разные
-    вещи, поэтому ноль не сохраняется никогда.
+    The model's own number is shared by everyone routing to it; here the
+    operator states how much is allowed for THIS client, and that wins. An
+    empty value clears it back to the model's number — clearing and "set to
+    zero" are different things, so zero is never saved.
 
-    Настройка живёт в сохранённом маршруте, а живой отчёт скаута её не несёт и
-    не понесёт: слияние на доске берёт из отчёта только порт и endpoint.
+    The setting lives on the saved route, and the scout's live report doesn't
+    carry it and never will: the board's merge takes only the port and
+    endpoint from the report.
 
-    ОБА поля задаются разом: форма шлёт число и галку вместе, поэтому
-    пропущенное поле означает «снять», а не «не трогать». Тот же контракт, что
-    у блока облака, и по той же причине — иначе очистить поле было бы нечем.
+    BOTH fields are set together: the form sends the number and the checkbox
+    as one, so a missing field means "clear", not "leave alone". Same
+    contract as the cloud block, for the same reason — otherwise there'd be
+    no way to clear the field.
     """
     host_id = str(payload.get("hostId") or "").strip()
     agent_id = str(payload.get("agentId") or "").strip()
@@ -1099,16 +1493,18 @@ def set_agent_route_context(payload):
 
 
 def remove_agent_route(payload):
-    """Убрать роль агента: он перестаёт пользоваться этим портом.
+    """Remove an agent's role: it stops using this port.
 
-    Раньше «отвязать» означало только снять пометку «руками» — маршрут
-    оставался, порт числился занятым, и убрать заведённый по ошибке фолбэк было
-    нечем вовсе. Теперь роль исчезает из записи.
+    "Unbind" used to mean only clearing the "manual" mark — the route stayed,
+    the port still counted as taken, and there was no way at all to remove a
+    fallback created by mistake. Now the role disappears from the record
+    entirely.
 
-    САМ ПОРТ продолжает слушать. Это не забывчивость: порт — живой слушатель, в
-    который внешний агент может ходить независимо от наших записей, и гасить
-    его из-за правки записи значило бы рвать чужой трафик по касательной. Порт
-    после этого никому не принадлежит, и канбан говорит об этом вслух.
+    THE PORT ITSELF keeps listening. That's not an oversight: the port is a
+    live listener that an outside agent may reach independently of our
+    records, and killing it over a record edit would tear into someone
+    else's traffic as a side effect. It belongs to nobody after this, and the
+    kanban says so out loud.
     """
     host_id = str(payload.get("hostId") or "").strip()
     agent_id = str(payload.get("agentId") or "").strip()
@@ -1130,16 +1526,23 @@ def remove_agent_route(payload):
 
 
 def set_agent_route_model(payload):
-    """Имя, под которым порт объявляет свою модель, для одной роли агента.
+    """The name a port advertises its model under, for one agent role.
 
-    Клиент спрашивает `/v1/models` и ищет там СВОЙ id. Не найдя — берёт
-    встроенное умолчание, и окно, честно опубликованное под именем апстрима,
-    до него не доходит вовсе. Здесь оператор говорит, каким именем порт должен
-    назваться, чтобы клиент себя узнал.
+    A client asks `/v1/models` and looks up ITS OWN id there. Not finding it,
+    it falls back to its built-in default, and a window honestly published
+    under the upstream's name never reaches it at all. Here the operator
+    states what name the port should call itself so the client recognizes it.
 
-    Пусто — снять: тогда публикуется то, что назвал апстрим. Отдельным вызовом,
-    а не вместе с окном: это разные решения, и класть их в одну форму значило
-    бы, что правка одного молча стирает другое.
+    Empty clears it: then whatever the upstream calls itself is published. A
+    separate call, not bundled with the window: these are different
+    decisions, and putting them in one form would mean editing one silently
+    erases the other.
+
+    NAME AND LOCK are set together — it's one decision about how the port is
+    named, and an open lock must leave the name sitting there: closing it
+    again must not require retyping the name, or there'd be nothing to close
+    it back to. So both fields are sent together, and a missing one means
+    "clear", same as the window.
     """
     host_id = str(payload.get("hostId") or "").strip()
     agent_id = str(payload.get("agentId") or "").strip()
@@ -1156,6 +1559,7 @@ def set_agent_route_model(payload):
     if route is None:
         raise AppError(f"agent {agent_id} has no {role} route", 404)
     route.model_name = str(payload.get("modelName") or "").strip()[:120] or None
+    route.model_name_auto = bool(payload.get("modelNameAuto")) or None
     raw.clear()
     raw.update(assignment.to_dict())
     return apply_topology_assignments({"hostId": host_id, "assignments": rows})
@@ -1195,11 +1599,12 @@ def apply_topology_assignments(payload):
         row["applyStatus"] = {"state": "stored", "detail": "client is not registered or has no agentUrl"}
     store["assignments"][host_id] = row
     save_admin_state()
-    # Копия настроек уезжает на маршрут ЗДЕСЬ, а не когда-нибудь потом. Мост
-    # звался только из обработки сердцебиения — и у клиента, заведённого
-    # руками, не срабатывал никогда: он существует и настроен, но отзываться не
-    # обязан. У живого клиента настройка доезжала с задержкой до опроса, и всё
-    # это время доска показывала одно, а порт публиковал другое.
+    # The settings copy rides the route HERE, not at some later point. The
+    # bridge used to be called only from heartbeat handling — and for a
+    # client created by hand it never fired at all: it exists and is
+    # configured, but isn't required to ever report in. For a live client the
+    # setting used to arrive with a delay, on the next poll, and the whole
+    # time the board showed one thing while the port published another.
     try:
         from caravan.admin.fleet_clients import reconcile_proxy_metadata
         reconcile_proxy_metadata()

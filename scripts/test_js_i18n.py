@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
-"""Снимок static/js/i18n.js — перевод и применение языка/темы к странице.
+"""Snapshot of static/js/i18n.js — translation and applying language/theme to the page.
 
-Что пинится значением. `t` — ключ на текущем языке, иначе английский, иначе
-сам ключ; подстановки через replaceAll (плейсхолдер может встречаться дважды).
-`fieldHelp` — по языку, потом английский, потом пусто. `applyLanguage` —
-каждое семейство атрибутов: data-i18n (текст), placeholder, title+aria,
-только aria, подсказки полей IN PLACE (без пересборки инпутов — иначе
-пропали бы несохранённые правки), затем событие `caravan:langchange` для
-составных текстов и перерисовка выпадашки. `setLang` — неизвестный или тот
-же код ничего не делает; иначе таблица языка загружается, код сохраняется,
-страница перекрашивается, зовётся хук страницы. Выпадашка: открытие/закрытие,
-выбор, клик вне, Escape, отсутствие элементов. Тема — атрибут корня и
-активная кнопка.
+What's pinned by value. `t` — the key in the current language, else English,
+else the key itself; substitutions via replaceAll (a placeholder can appear
+twice). `fieldHelp` — by language, then English, then empty. `applyLanguage`
+— every family of attributes: data-i18n (text), placeholder, title+aria,
+aria-only, field tooltips IN PLACE (without rebuilding inputs — that would
+lose unsaved edits), then the `caravan:langchange` event for composite text
+and redrawing the dropdown. `setLang` — an unknown code or the same one does
+nothing; otherwise the language table loads, the code is saved, the page
+repaints, the page's own hook is called. The dropdown: open/close, picking,
+clicking outside, Escape, missing elements. Theme — the root's attribute and
+the active button.
 
-Настоящий модуль, настоящий i18n-data (таблицы языков грузятся динамически).
-DOM — словарь по id и по селектору.
+The real module, real i18n-data (language tables load dynamically). The DOM
+is a dict, by id and by selector.
 
-Запуск: python3 scripts/test_js_i18n.py
+Run: python3 scripts/test_js_i18n.py
 """
 import json
 import os
@@ -98,8 +98,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

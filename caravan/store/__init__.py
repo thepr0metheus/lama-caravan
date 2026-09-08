@@ -1,5 +1,6 @@
-"""Где караван ДЕРЖИТ то, что переживает перезапуск.
+"""Where the caravan KEEPS what survives a restart.
 
-Ровно один слой отвечает за чтение с диска, запись на диск и умолчания. Всё
-остальное спрашивает у store и не знает ни про путь к файлу, ни про формат.
+Exactly one layer is responsible for reading from disk, writing to disk, and
+defaults. Everything else asks the store and knows neither the file path nor
+the format.
 """

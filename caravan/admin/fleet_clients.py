@@ -302,13 +302,14 @@ def client_llama_stop(body: dict) -> dict:
     return {"ok": result.get("ok", False), "hostId": host_id, "result": result}
 
 def fallback_port_for(assignment) -> int | None:
-    """Порт-сосед праймари для роли fallback, или None.
+    """The port next to primary, for a fallback role — or None.
 
-    Рядом с каждым выданным праймари намеренно оставлена дыра +1 — фоссилия
-    снятых с вооружения пар. Именно её и надо занимать, когда оператор заводит
-    фолбэк руками: иначе второй порт агента уезжает в конец диапазона, и пара
-    перестаёт читаться глазами. None — «соседа нет», а не «ноль»: без праймари
-    сосед не определён, а занятый чужим агентом сосед не предлагается.
+    A +1 gap is deliberately left next to every issued primary — a fossil of
+    retired pairs. That's exactly the one to occupy when an operator adds a
+    fallback by hand: otherwise an agent's second port drifts to the end of
+    the range, and the pair stops reading at a glance. None means "there is
+    no neighbor", not "zero": without a primary, no neighbor is defined, and
+    a neighbor already taken by another agent is never offered.
     """
     routes = (assignment or {}).get("routes") if isinstance(assignment, dict) else None
     primary = next((r for r in (routes or [])
@@ -329,11 +330,11 @@ def fallback_port_for(assignment) -> int | None:
 
 
 def topology_client_add_agent(body: dict) -> dict:
-    """Завести агента у клиента руками.
+    """Add an agent to a client by hand.
 
-    Без этого ручной клиент был записью, которую нельзя настроить: прокси
-    назначается АГЕНТУ, а завести агента было нечем — в карточке жили только
-    «переименовать» и «удалить».
+    Without this a manual client was a record that couldn't be configured: a
+    proxy is assigned to an AGENT, and there was no way to create one — the
+    card only offered "rename" and "delete".
     """
     host_id = str(body.get("hostId") or "").strip()
     store = topology_store()
@@ -346,15 +347,16 @@ def topology_client_add_agent(body: dict) -> dict:
 
 
 def adopt_scout_clients() -> dict:
-    """Сделать доску хозяином записей, которые завёл caravan-scout.
+    """Make the board the owner of records that caravan-scout created.
 
-    Ничего не создаётся и не удаляется: у каждой записи меняется единственный
-    факт — кто хозяин. После этого провижининг в неё не лезет, а скаут остаётся
-    источником сведений о живости, каким и был. Операция идемпотентна: второй
-    вызов ничего не находит, потому что нечего находить.
+    Nothing is created or deleted: exactly one fact changes on each record —
+    who owns it. After that, provisioning leaves it alone, and the scout
+    stays the source of liveness info, same as before. The operation is
+    idempotent: a second call finds nothing, because there's nothing left to
+    find.
 
-    Отчёт — числами, а не «готово»: оператору надо увидеть, что именно
-    произошло, особенно когда не произошло ничего.
+    Reported as numbers, not "done": the operator needs to see exactly what
+    happened, especially when nothing happened at all.
     """
     store = topology_store()
     clients = store.get("clients") or {}
@@ -369,8 +371,9 @@ def adopt_scout_clients() -> dict:
         for index, raw in enumerate(rows if isinstance(rows, list) else []):
             if not isinstance(raw, dict) or raw.get("manual"):
                 continue
-            # Через переносящий конструктор, а не сборкой с нуля: строка несёт
-            # настройки оператора, и усыновление — не повод их пересобрать.
+            # Through the carrying constructor, not built from scratch: the
+            # record carries the operator's settings, and adoption is no
+            # reason to rebuild them.
             assignment = AgentAssignment.from_raw(raw)
             assignment.manual = True
             rows[index] = assignment.to_dict()
@@ -384,17 +387,17 @@ def adopt_scout_clients() -> dict:
 
 
 def topology_client_create(body: dict) -> dict:
-    """Завести клиента руками. Он обычный — просто ещё ни разу не отвечал.
+    """Create a client by hand. It's an ordinary one — it just hasn't answered yet.
 
-    `lastSeen` не ставится, поэтому запись честно читается как молчащая
-    (`state: "stale"`, возраст неизвестен), а не как живая.
+    `lastSeen` isn't set, so the record honestly reads as silent
+    (`state: "stale"`, age unknown), not as alive.
 
-    Вместе с клиентом заводится его первый агент — с тем же именем. Раньше
-    список агентов оставался пустым «как факт», и оператор получал не
-    карточку, а строку-заголовок с ＋ и ✕: чтобы назначить порт, надо было
-    догадаться нажать ＋ и второй раз ввести то же имя. Карточка с пустыми
-    primary/fallback — и есть то, что просят, создавая клиента; агент,
-    которого не хотели, снимается одним ✕.
+    Its first agent is created along with the client, under the same name.
+    This used to leave the agent list empty "as a fact", and the operator got
+    not a card but a header row with a ＋ and a ✕: assigning a port meant
+    guessing to press ＋ and typing the same name a second time. A card with
+    empty primary/fallback slots is what creating a client is actually asking
+    for; an agent nobody wanted is removed with a single ✕.
     """
     store = topology_store()
     row = FleetClient.manual(body.get("hostId") or body.get("id"),
@@ -580,9 +583,10 @@ def normalize_client_gpus(raw):
 
 def topology_client_from_heartbeat(payload):
     host = payload.get("host") if isinstance(payload.get("host"), dict) else {}
-    # Правило про id — одно на оба пути заведения клиента, в
-    # caravan/domain/client.py: там же и объяснение, чем кончается клиент под
-    # именем контроллера. Пока путь был один, правило жило комментарием здесь.
+    # The id rule is one rule for both ways of creating a client, in
+    # caravan/domain/client.py — the explanation of what happens to a client
+    # under the controller's name lives there too. While there was only one
+    # path, the rule lived here as a comment.
     host_id = FleetClient.validate_id(host.get("id") or host.get("name"))
     agents = []
     for agent in payload.get("agents") or []:
@@ -693,14 +697,16 @@ def update_topology_client(payload):
     store = topology_store()
     previous = store["clients"].get(client["id"]) or {}
     client["firstSeen"] = previous.get("firstSeen") or client["firstSeen"]
-    # Сердцебиение заменяет запись целиком, поэтому пометку «заведён руками»
-    # надо нести через него явно. Иначе клиент, которого оператор создал, а
-    # скаут потом нашёл, тихо превращался бы в найденного — и правило «отчёт не
-    # вправе переписать запись» нарушалось бы в первую же минуту его жизни.
+    # A heartbeat replaces the record wholesale, so the "created by hand" mark
+    # has to be carried through it explicitly. Otherwise a client the operator
+    # created, which the scout later found, would silently turn into a found
+    # one — breaking the "a report may not overwrite a record" rule within
+    # the first minute of that record's life.
     if previous.get("manual"):
         client["manual"] = True
-    # Агенты, заведённые оператором, отчёт не отменяет: он их не знает и знать
-    # не может. Всё остальное в списке по-прежнему принадлежит скауту.
+    # A report never cancels agents the operator created by hand: it doesn't
+    # know about them and can't. Everything else in the list still belongs to
+    # the scout.
     client["agents"] = FleetClient.merge_manual_agents(client.get("agents") or [],
                                                        previous.get("agents") or [])
     # Suppress agents that were manually deleted (tombstone list).
@@ -870,9 +876,9 @@ def auto_provision_agent_proxies(client):
         if ag is None:
             ag = {"agentId": agent_id, "routes": []}
             existing.append(ag)
-        # Форма маршрута и правило «заменить, а не пропустить» живут в
-        # AgentAssignment.set_route — там же и объяснение аварии 2026-07-20,
-        # ради которой это правило существует.
+        # The route's shape and the "replace, don't skip" rule live in
+        # AgentAssignment.set_route — the explanation of the 2026-07-20
+        # incident this rule exists for lives there too.
         assignment = AgentAssignment.from_raw(ag)
         for role in ("primary",):
             assignment.set_route(ProxyRoute.for_port(role, ports[role], server_ip))
@@ -892,7 +898,7 @@ def reconcile_proxy_metadata():
     assignments = store.get("assignments") or {}
     clients = store.get("clients") or {}
     port_meta = {}   # port -> {clientId, role, name}
-    contested = set()  # порты, которые называют сразу два назначения
+    contested = set()  # ports two assignments both claim at once
     for host_id, entry in assignments.items():
         client_entry = clients.get(host_id) or {}
         # Prefer client (host) display name over agent name so that hosts whose
@@ -913,26 +919,29 @@ def reconcile_proxy_metadata():
                 except ValueError:
                     continue
                 if port in port_meta:
-                    # Порт назвали ДВА назначения. Мост ключуется портом, так
-                    # что «победитель» здесь — просто тот, кто оказался позже в
-                    # обходе словаря; публиковать окно одного клиента на
-                    # трафике другого нельзя, и молча выбрать одного — тоже.
-                    # Владельца нет, значит и копии нет: порт вернётся к числу
-                    # модели, и это честный ответ вместо чужого.
+                    # TWO assignments claimed this port. The bridge is keyed
+                    # by port, so the "winner" here is simply whichever one
+                    # came later in the dict's iteration order; publishing
+                    # one client's window on another's traffic is out, and
+                    # silently picking one is too. No owner means no copy
+                    # either: the port falls back to the model's own number,
+                    # which is an honest answer instead of someone else's.
                     contested.add(port)
                     continue
                 port_meta[port] = {
                     "clientId": host_id, "role": str(r.get("role") or "primary"), "name": name,
-                    # Окно контекста задаётся на назначении — там его правит
-                    # оператор, — но публикует его ПРОКСИ, а он документа
-                    # контроллера не видит вовсе: он читает только свои файлы.
-                    # Поэтому число едет к нему тем же односторонним мостом,
-                    # что уже возит clientId и role. Второго источника правды не
-                    # заводится: назначение остаётся владельцем, маршрут —
-                    # копией, и снятая настройка обязана сниматься и здесь.
+                    # The context window is set on the assignment — that's
+                    # where the operator edits it — but it's the PROXY that
+                    # publishes it, and the proxy never sees the controller's
+                    # document at all: it only reads its own files. So the
+                    # number rides the same one-way bridge that already
+                    # carries clientId and role. No second source of truth is
+                    # created: the assignment stays the owner, the route is
+                    # the copy, and a cleared setting must be cleared here too.
                     "contextLength": r.get("contextLength"),
                     "modelName": (str(r.get("modelName")).strip()[:120] or None)
                                  if r.get("modelName") else None,
+                    "modelNameAuto": bool(r.get("modelNameAuto")) or None,
                     "contextAuto": bool(r.get("contextAuto")) or None,
                 }
     if not port_meta:
@@ -946,21 +955,22 @@ def reconcile_proxy_metadata():
             continue
         meta = port_meta.get(port)
         if port in contested:
-            # Спорный порт: копию снимаем, остального не трогаем — чинить
-            # столкновение здесь нечем, а врать нечем не обязательно.
-            for key in ("contextLength", "contextAuto", "modelName"):
+            # A contested port: clear the copy, leave everything else alone —
+            # there is nothing here to fix the collision with, and there's no
+            # need to keep lying either.
+            for key in ("contextLength", "contextAuto", "modelName", "modelNameAuto"):
                 if key in route:
                     route.pop(key)
                     changed = True
             continue
         if port not in port_meta:
-            # Порт, которого не называет НИ ОДНО назначение: копия настроек
-            # осталась без владельца. Такое бывает сразу после перецепки —
-            # старый маршрут живёт в файле до ближайшей сверки — и он всё это
-            # время публиковал окно клиента, который на нём уже не сидит.
-            # Снимаем только копию; остальное на брошенном маршруте не наше
-            # дело, его убирает сверка.
-            for key in ("contextLength", "contextAuto", "modelName"):
+            # A port NO assignment claims: its settings copy is left without
+            # an owner. This happens right after a rewire — the old route
+            # lives on in the file until the next reconcile — and the whole
+            # time it kept publishing the window of a client that no longer
+            # sits on it. Only the copy is cleared; everything else on an
+            # abandoned route isn't our business, reconcile removes it.
+            for key in ("contextLength", "contextAuto", "modelName", "modelNameAuto"):
                 if key in route:
                     route.pop(key)
                     changed = True
@@ -973,10 +983,10 @@ def reconcile_proxy_metadata():
                 or str(route.get("role") or "") != meta["role"]):
             route["clientId"], route["role"] = meta["clientId"], meta["role"]
             changed = True
-        # Снятая настройка обязана сниматься и с копии: иначе прокси продолжал
-        # бы публиковать число, которое оператор уже убрал, — а это ровно
-        # «отсутствие, нарисованное как норма» (docs/why.md).
-        for key in ("contextLength", "contextAuto", "modelName"):
+        # A cleared setting must be cleared on the copy too: otherwise the
+        # proxy would keep publishing a number the operator already removed
+        # — exactly "absence drawn as normal" (docs/why.md).
+        for key in ("contextLength", "contextAuto", "modelName", "modelNameAuto"):
             want = meta.get(key)
             if want is None:
                 if key in route:
@@ -998,9 +1008,9 @@ def topology_clients():
     agent_aliases = store.setdefault("agentAliases", {})
     for client in store["clients"].values():
         row = dict(client)
-        # Псевдоним агента применяется ЗДЕСЬ, при чтении, а не пишется в запись:
-        # отчёт скаута заменяет список агентов целиком, и правка внутри записи
-        # держалась бы до первого опроса.
+        # An agent alias is applied HERE, on read, and never written into the
+        # record: the scout's report replaces the agent list wholesale, and
+        # an edit inside the record would only last until the next poll.
         if row.get("agents"):
             row["agents"] = [dict(a, **({"reportedName": a.get("name"),
                                          "name": agent_aliases[f"{row.get('id')}::{a.get('id')}"]}
@@ -1067,14 +1077,15 @@ def refresh_topology_clients_from_agents():
             continue
 
 def set_topology_agent_alias(host_id, agent_id, name):
-    """Как назван блок агента на доске. Псевдонимом, а не правкой записи.
+    """What an agent's block is named on the board. An alias, not a record edit.
 
-    Имя агента у клиента от скаута приходит из ОТЧЁТА и заменяется целиком на
-    каждом сердцебиении: правка самой записи держалась бы до первого опроса и
-    исчезала молча — ровно тот отказ, ради которого клиентские псевдонимы и
-    заведены. Поэтому имя живёт рядом, а не внутри, и переживает отчёт.
+    A client's agent name arrives from the scout's REPORT and is replaced
+    wholesale on every heartbeat: editing the record itself would only last
+    until the next poll and vanish silently — exactly the failure client
+    aliases exist to avoid. So the name lives alongside the record, not
+    inside it, and survives the report.
 
-    Пусто — снять: тогда снова показывается то, как агент назвал себя сам.
+    Empty clears it: the agent's own self-reported name is shown again.
     """
     host_id = str(host_id or "").strip()[:120]
     agent_id = str(agent_id or "").strip()[:80]

@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Каждый модуль static/js обязан РАЗБИРАТЬСЯ как ES-модуль.
+"""Every module in static/js must PARSE as an ES module.
 
-Правка списка импортов оставила `имя,,` — и доска умерла на разборе: страница
-показывала загрузочных лам вечно. Уехало в прод и нашлось только тем, что кто-то
-открыл доску.
+An edit to an import list left `name,,` behind — and the board died on
+parsing: the page showed its loading llamas forever. It shipped to
+production and was only found because someone happened to open the board.
 
-Почему не поймали. `node --check` этот файл ПРОПУСКАЕТ: он разбирает не как
-модуль, поэтому ошибка в списке импортов проходит насквозь. А снимки, грузящие
-настоящие модули, заглушают topology-render — значит ни один пин его не читал.
-Проверка, которая молча не проверяет, хуже отсутствующей: на неё полагаются.
+Why it wasn't caught. `node --check` SKIPS this file: it doesn't parse it as
+a module, so an error in the import list sails right through. And the
+snapshots that load the real modules stub out topology-render — meaning no
+pin ever read it. A check that silently doesn't check anything is worse than
+no check at all: people rely on it.
 
-Падает ДВУМЯ способами: модуль не разбирается; и когда разбирать стало нечего —
-файлов не нашлось или node недоступен, о чём говорится вслух, а не пропускается.
+Fails TWO ways: a module fails to parse; and when there's nothing left to
+parse — no files found, or node unavailable, which is stated out loud rather
+than skipped over.
 
-Запуск: python3 scripts/check_static_modules.py
+Run: python3 scripts/check_static_modules.py
 """
 import json
 import os
@@ -40,8 +42,8 @@ def main():
               f"проверка смотрит не туда")
         return 1
 
-    # Один процесс на всё: node разбирает каждый файл как модуль, НЕ выполняя
-    # его и не разрешая импорты — нас интересует ровно синтаксис.
+    # One process for everything: node parses each file as a module, WITHOUT
+    # executing it and without resolving imports — only the syntax matters here.
     script = """
 const { readFileSync } = require("node:fs");
 const vm = require("node:vm");
@@ -52,9 +54,10 @@ for (const file of JSON.parse(process.env.CARAVAN_JS_FILES)) {
 }
 process.stdout.write(JSON.stringify(bad));
 """
-    # Список файлов идёт через окружение, а не аргументом: при `node -e` argv
-    # сдвигается, и первая редакция читала undefined — то есть «проверила»
-    # ноль файлов и упала бы с невнятицей вместо ответа.
+    # The file list travels through the environment, not as an argument:
+    # with `node -e`, argv shifts, and the first version read undefined —
+    # meaning it "checked" zero files and would have failed with confusion
+    # instead of an answer.
     env = dict(os.environ, CARAVAN_JS_FILES=json.dumps([str(p) for p in files]))
     proc = subprocess.run([node, "--experimental-vm-modules", "-e", script],
                           capture_output=True, text=True, env=env)

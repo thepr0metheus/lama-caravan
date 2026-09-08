@@ -191,6 +191,73 @@ def cell_progress_note(port, lines=25, ttl=8):
     return note
 
 
+# How a cell CRASHED, if it crashed. The driver's and llama.cpp's own words,
+# by which "the card hung" is told apart from "the model didn't fit"; the
+# first match wins.
+_CELL_CRASH_PATTERNS = (
+    ("gpu-hang", ("the launch timed out", "unspecified launch failure", "gpu is probably locked",
+                  "xid")),
+    ("gpu-oom", ("out of memory", "cudamalloc", "erroroutofdevicememory")),
+    ("assert", ("ggml_assert", "ggml_abort", "assertion")),
+    ("killed", ("killed", "out of memory: killed process", "oom-killer")),
+)
+_cell_crash_cache = {}
+
+
+def cell_crash_note(port, restarts=0, ttl=60):
+    """Whether a cell has crashed, how many times, and with what words — or None.
+
+    systemd brings a crashed cell back up, and a minute later it's "running"
+    again: nothing on the board is left to show for it, even when the model
+    died three times in an evening (the 2026-09-06 production case: Xid 8,
+    CUDA error: the launch timed out). The fresh-build watcher
+    (`llama_crash_suspect`) doesn't catch this — it only looks near a fresh
+    binary and requires three crashes in 15 minutes.
+
+    The count comes from systemd (NRestarts — restarts since the last MANUAL
+    start, zero right after a manual restart, which is honest: "since you
+    last touched it"). The reason comes from the journal, and only when there
+    were crashes: the journal isn't read on every poll.
+    """
+    try:
+        restarts = int(restarts or 0)
+    except (TypeError, ValueError):
+        restarts = 0
+    if restarts <= 0:
+        return None
+    now = time.time()
+    cached = _cell_crash_cache.get(port)
+    if cached and now - cached[0] < ttl and (cached[1] or {}).get("count") == restarts:
+        return cached[1]
+    res = run(["journalctl", "--user", "-u", cell_service_name(port), "--since", "-24h",
+               "--no-pager", "-o", "short-iso"], timeout=8, env=user_systemd_env())
+    lines = [l for l in (res.get("stdout") or "").splitlines() if l.strip()]
+    at, reason, kind = "", "", "crash"
+    for index in range(len(lines) - 1, -1, -1):
+        low = lines[index].lower()
+        if "main process exited" not in low:
+            continue
+        at = lines[index].split(" ", 1)[0]
+        # The words for the death itself are searched ABOVE the systemd line:
+        # that line only says "code=dumped, status=6/ABRT", which isn't a
+        # reason yet.
+        for back in range(index, max(-1, index - 40), -1):
+            text = lines[back]
+            low_back = text.lower()
+            for name, needles in _CELL_CRASH_PATTERNS:
+                if any(n in low_back for n in needles):
+                    kind, reason = name, text.split("]: ", 1)[-1].strip()
+                    break
+            if reason:
+                break
+        if not reason:
+            reason = lines[index].split("]: ", 1)[-1].strip()
+        break
+    note = {"count": restarts, "at": at, "kind": kind, "reason": reason[:300]}
+    _cell_crash_cache[port] = (now, note)
+    return note
+
+
 def cell_last_error(port, lines=60, ttl=10):
     """Tail the cell unit's journal and classify why it won't start.
 

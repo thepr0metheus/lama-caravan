@@ -422,17 +422,53 @@ export function subscriptionUsageHtml(accountId) {
     ? `<div class="sub-usage-credits"><span>${t("usCredits")}</span><strong>${credits}</strong></div>` : "";
   const isLoading = cached?.loading;
   const refreshBtn = `<button class="sub-usage-refresh icon-action compact${isLoading ? " spinning" : ""}" type="button" data-usage-refresh="${escapeHtml(accountId)}" title="${escapeHtml(t("usTitleRefreshLimits"))}" aria-label="${escapeHtml(t("usTitleRefreshLimits"))}" ${isLoading ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button>`;
-  return `<div class="sub-usage-panel"><div class="sub-usage-head">${refreshBtn}</div>${rows}${creditsHtml}</div>`;
+  return `<div class="sub-usage-panel">${subscriptionBannerHtml(cached.data)}<div class="sub-usage-head">${refreshBtn}</div>${rows}${creditsHtml}</div>`;
 }
 
-export function formatSubUsageReset(resetsAt) {
+// The moment itself, without the "resets" word: the banner says "until {moment}".
+export function formatSubUsageMoment(resetsAt) {
   try {
     const d = new Date(resetsAt);
     if (isNaN(d)) return resetsAt;
     const now = new Date();
     const sameDay = d.toDateString() === now.toDateString();
-    if (sameDay) return `resets ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
-    return `resets ${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
+    if (sameDay) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   } catch { return resetsAt; }
+}
+
+export function formatSubUsageReset(resetsAt) {
+  const moment = formatSubUsageMoment(resetsAt);
+  return moment === resetsAt && isNaN(new Date(resetsAt)) ? resetsAt : `resets ${moment}`;
+}
+
+// What keeps requests going — or nothing — said ABOVE the bars. A weekly bar
+// at 0% beside a day of successful requests explained nothing: OpenAI's
+// counter and its enforcement are two facts. `limitReached` is the provider's
+// own verdict; credits and a reserve allowance (its "gpt-reserve" window) are
+// the two things that carry requests past it; OpenAI's banner is quoted as it
+// came, because it names the way out (a banked reset, a paid reset).
+export function subscriptionBannerHtml(data) {
+  if (!data || !data.ok) return "";
+  const limits = data.limits || [];
+  const exhausted = limits.filter((l) => Number(l.remainingPct ?? 100) <= 0 && !/reserve|base-model/i.test(String(l.name || "")));
+  const reserve = limits.find((l) => /reserve|base-model/i.test(String(l.name || "")) && Number(l.remainingPct ?? 0) > 0);
+  const ci = data.creditsInfo || {};
+  const reset = exhausted[0]?.resetsAt ? formatSubUsageMoment(exhausted[0].resetsAt) : "";
+  if (data.limitReached) {
+    let keeps;
+    if (ci.hasCredits) keeps = t("usBannerOnCredits", { balance: `$${data.credits ?? "?"}` });
+    else if (reserve) keeps = t("usBannerOnReserve", { label: reserve.label, pct: String(reserve.remainingPct) });
+    else keeps = t("usBannerNothingLeft");
+    const own = data.upsell?.title || data.upsell?.description
+      ? `<div class="sub-usage-banner-own">${escapeHtml([data.upsell.title, data.upsell.description].filter(Boolean).join(" — "))}</div>`
+      : "";
+    return `<div class="sub-usage-banner blocked" data-t="sub-usage-banner">⛔ ${escapeHtml(t("usBannerLimitReached", { reset }))}`
+      + `<div class="sub-usage-banner-keeps">${escapeHtml(keeps)}</div>${own}</div>`;
+  }
+  if (exhausted.length) {
+    return `<div class="sub-usage-banner warn" data-t="sub-usage-banner">⚠ ${escapeHtml(t("usBannerCounterFull", { label: exhausted[0].label }))}</div>`;
+  }
+  return "";
 }
 

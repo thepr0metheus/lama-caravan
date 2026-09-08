@@ -352,6 +352,21 @@ select.cv-pin { width: 100%; }
 .cv-q-dot.admit { background: #2fa84f; }
 .cv-q-dot.spill { background: #d9a441; }
 .cv-q-dl { color: var(--muted); width: 54px; flex: none; }
+/* Backup node exits: ▶ marks the exit the next request takes — the proxy's own
+   verdict, never re-derived here; the dot after the target is the exit's
+   health: green alive, red down, amber a verdict older than five minutes,
+   grey not checked yet. */
+.cv-oe-next { width: 10px; flex: none; font-size: 9px; line-height: 1; color: var(--accent); }
+.cv-oe-next.off { visibility: hidden; }
+.cv-oe-state { width: 7px; height: 7px; border-radius: 50%; flex: none; margin-left: auto;
+  background: #6b7280; }
+.cv-oe-state.ok { background: #2fa84f; }
+.cv-oe-state.error { background: #d9534f; box-shadow: 0 0 0 2px color-mix(in srgb, #d9534f 35%, transparent); }
+.cv-oe-state.stale { background: transparent; border: 1.5px solid #d9a441; }
+/* Countdown to the exit's next check, right after its dot: the verdict's
+   remaining life, ticking every second on the board. */
+.cv-oe-cd { font-size: 9px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 26px;
+  text-align: right; flex: none; }
 .cv-q-dt { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
 .cv-q-dest.unset .cv-q-dt { color: var(--muted); font-style: italic; }
 .cv-q-at { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
@@ -685,8 +700,9 @@ select.cv-pin { width: 100%; }
   padding: 0 5px;
   margin-left: 2px;
 }
-/* Прежний вид метки «неактивен» снят: теперь это знак, а не рамка со словом
-   (правило ниже). Оставлять оба — значит спорить с самим собой через файл. */
+/* The old "inactive" label look was dropped: it's now an icon, not a
+   bordered word (rule below). Keeping both would mean arguing with itself
+   across the file. */
 
 /* Error-spike badge (≥3 failed requests in the last hour on this proxy port) */
 .route-err-badge {
@@ -714,9 +730,9 @@ select.cv-pin { width: 100%; }
 .topology-cable.unverified:not(.activity-active):not(.activity-recent):not(.activity-queued) {
   opacity: .16;
 }
-/* Состояние маршрута — один знак, объяснение по наведению. Словами это занимало
-   полстроки и всё равно требовало пояснения. Три знака различаются цветом, а не
-   только формой: ✓ приглушённый, ? заметный, ⏸ совсем тихий. */
+/* A route's state — a single icon, explained on hover. In words this used to
+   take up half a row and still needed explaining. The three icons differ by
+   color, not just shape: ✓ muted, ? noticeable, ⏸ completely quiet. */
 .route-confirmed-tag,
 .route-unverified-tag,
 .route-muted-tag {
@@ -1339,30 +1355,35 @@ select.cv-pin { width: 100%; }
    on top (the form was reachable but invisible on the kanban page). */
 [data-topology-proxy-overlay] { z-index: 80; }
 
-/* Окно контекста на строке маршрута. Три состояния различимы глазом: заданное
-   оператором, взятое у модели и НЕ заданное — последнее приглушено и показано
-   прочерком, потому что «не задано» и «ноль» это разные вещи. */
-/* Чип окна стоит в одном ряду с чипом порта и обязан читаться как его пара, а
-   не как отдельная кнопка: тот же размер, те же цифры, та же форма. */
-/* Вход, заведённый в маршрутизацию, но ничей на главной. Не прячется и не
-   притворяется клиентом: назван отдельно, чтобы расхождение было видно. */
+/* The context window on a route's row. Three states are visually distinct:
+   set by the operator, taken from the model, and NOT SET — the last one is
+   muted and shown as a dash, because "not set" and "zero" are different
+   things. */
+/* The window chip sits on the same row as the port chip and must read as its
+   pair, not as a separate button: same size, same digits, same shape. */
+/* An input wired into routing but claimed by nobody on the main page. It
+   neither hides nor pretends to be a client: it's named separately, so the
+   mismatch is visible. */
 .cv-inputs-client.unclaimed { opacity: .75; }
 .cv-inputs-client.unclaimed .cv-in-name { color: var(--warn, #e0af68); font-weight: 600; }
 
-/* Имя модели стоит рядом с окном и портом: три факта об одном маршруте
-   читаются одной строкой, а не тремя разными формами. */
-/* Клиент на канбане — одна строка: имя, порты, справочный бюджет ожидания.
-   Пока бюджет был полем ввода, каждая строка занимала три; список из тринадцати
-   клиентов не помещался на экран, а править его всё равно надо на карточке. */
+/* The model name sits next to the window and the port: three facts about one
+   route read as a single line, not three different forms. */
+/* A client on the kanban is one row: name, ports, a reference wait budget.
+   While the budget was an input field, each row took up three; a list of
+   thirteen clients didn't fit on screen, and it still has to be edited on
+   the card anyway. */
 .cv-inputs-client { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .cv-inputs-client .cv-in-name { flex: 0 0 auto; }
 .cv-inputs-client .cv-in-row { display: inline-flex; align-items: center; gap: 4px; }
-/* Fallback на СВОЕЙ строке. Обе строки в одной линии давали точкам-портам один
-   и тот же top: точка фолбэка ложилась ровно на точку primary, и второй выход
-   было не схватить — на канбане клиент с фолбэком выглядел как с одним портом. */
+/* Fallback on ITS OWN row. Both rows on one line gave the port dots the same
+   top offset: the fallback's dot landed right on primary's, and the second
+   output couldn't be grabbed — on the kanban a client with a fallback looked
+   like it had only one port. */
 .cv-inputs-client .cv-in-row.fallback { flex-basis: 100%; padding-left: 2px; }
-/* Компактно: зазор между линиями 2px; бюджет ожидания прижат к правому краю
-   первой линии; «↳ follows» стоит сразу за портом фолбэка, а не у дальнего края. */
+/* Compact: a 2px gap between rows; the wait budget hugs the right edge of
+   the first row; "↳ follows" sits right after the fallback's port, not at
+   the far edge. */
 .cv-inputs-client { gap: 2px 8px; }
 .cv-inputs-client .cv-in-wait { margin-top: 0; margin-left: auto; padding-right: 10px; }
 .cv-inputs-client .cv-in-follow { margin-left: 2px; padding-right: 0; }
@@ -1370,7 +1391,7 @@ select.cv-pin { width: 100%; }
   white-space: nowrap; }
 .cv-in-wait.own { color: var(--fg-dim, #999); }
 
-/* Бюджет ожидания на карточке клиента — тот же ряд, что порт, окно и модель. */
+/* The wait budget on a client's card — the same row as port, window, and model. */
 .route-wait-chip { font: inherit; font-size: 10px; line-height: 1.6; padding: 0 6px;
   border: 1px dashed var(--border, #333); border-radius: 4px; background: transparent;
   color: var(--muted, #888); cursor: pointer; font-variant-numeric: tabular-nums;
@@ -1384,54 +1405,131 @@ select.cv-pin { width: 100%; }
   text-overflow: ellipsis; white-space: nowrap; }
 .route-model-chip.set { border-style: solid; color: var(--fg, #ddd); border-color: var(--fg-dim, #555); }
 .route-model-chip:hover { border-color: var(--accent, #7aa2f7); color: var(--accent, #7aa2f7); }
+/* The name's state is shown by the CHIP itself, both sides at once. A closed
+   lock means the value is PINNED: a solid border and a light fill, like a
+   filled-in, confirmed field. Open means dashed, muted text, and a
+   strikethrough: the dashed, pale look for an unset name already means
+   "nothing is set", and the strikethrough adds a second claim on top —
+   "set, but not in effect". A port with an open lock advertises exactly the
+   same thing as with no name at all. */
+.route-model-chip.set { background: color-mix(in srgb, var(--fg, #ddd) 7%, transparent); }
+.route-model-chip.open { color: var(--muted, #888); border-style: dashed; background: transparent;
+  text-decoration: line-through; text-decoration-thickness: 1px; }
+/* The lock itself — next to the name, the same height, no border: it's a
+   toggle for the name's state, not a second chip. */
+.route-model-lock { font: inherit; font-size: 10px; line-height: 1.6; padding: 0 2px;
+  border: 0; border-radius: 4px; background: transparent; cursor: pointer;
+  color: var(--muted, #888); opacity: .85; }
+.route-model-lock:hover { opacity: 1; }
 
 .route-ctx-chip { font: inherit; font-size: 10px; line-height: 1.6; padding: 0 6px;
   border: 1px solid var(--border, #333); border-radius: 4px; background: transparent;
   color: var(--muted, #888); cursor: pointer; font-variant-numeric: tabular-nums; }
 
 .route-ctx-chip.set { color: var(--fg, #ddd); border-color: var(--fg-dim, #555); }
-.route-ctx-chip.auto { color: var(--accent, #7aa2f7); border-color: var(--accent, #7aa2f7); }
-/* Настройка сохранена на другом порту — здесь она не в силе. Чип не прячется:
-   значение существует, и оператору нужно увидеть ГДЕ, а не потерять его. */
-/* Блок агента — самостоятельная карточка лейна, а не строка внутри карточки
-   хоста: у каждого свой порт, своё окно и свои кабели. Отступа слева нет: он
-   задумывался как связь с хостом, а читался как сбитый край — в колонке из
-   карточек одной ширины любое смещение выглядит ошибкой вёрстки, а не смыслом. */
+/* The route's three windows on a line of their own — what the client gets
+   (👤), the operator's limit (📏), what the model serves (🪟, the same glyph
+   the cell card uses for its window) — and, inside the model's pill behind a
+   hairline, the switch (🔼) that lets that figure win above the limit. Glyphs
+   instead of words so that the three pills fit one row; the tooltips carry the
+   words. The read-only figures have a dashed frame, so that only the limit
+   looks pressable; a known figure gets a solid frame like every other set
+   chip, and the advertised one is the accent: it is the number the client
+   will act on. Selectors are deliberately three deep: the global `button`
+   sets a 34px finger-target min-height, `.topology-agent
+   span:not(.topology-port-dot)` sets 12px, and the form's
+   `input[type="checkbox"]` is 22px — each of them won over a one-class rule
+   and drew this line at three different sizes. */
+.topology-agent-route > .route-ctx-line { display: flex; flex-wrap: wrap; align-items: center;
+  gap: 3px 4px; min-width: 0; margin-top: 1px; }
+/* The wait budget sits at the right end of its row, apart from the name the
+   port announces: one is a setting of the model, the other of the queue. */
+.route-settings > .route-wait-chip { margin-left: auto; }
+.topology-agent-route > .route-ctx-line > .route-ctx-chip,
+.topology-agent-route > .route-ctx-line > .route-ctx-model-pill {
+  display: inline-flex; align-items: center; font: inherit; font-size: 10px; line-height: 1.6;
+  min-height: 0; padding: 1px 6px; border: 1px dashed var(--border, #333); border-radius: 4px;
+  background: transparent; color: var(--muted, #888); font-variant-numeric: tabular-nums;
+  white-space: nowrap; letter-spacing: 0; text-transform: none; }
+.topology-agent-route > .route-ctx-line > .route-ctx-chip { border-style: solid; cursor: pointer; }
+/* The accent goes to whichever of the two numbers is CURRENTLY in force —
+   that's the one the port advertises. There used to be a third badge as the
+   accent, repeating one of these two; now there's no repetition, and the
+   same information is still visible. When they match, both are highlighted:
+   there's no dispute between them at that moment. */
+.topology-agent-route > .route-ctx-line > .route-ctx-chip.in-force,
+.topology-agent-route > .route-ctx-line > .route-ctx-model-pill.in-force {
+  border-style: solid; color: var(--accent, #7aa2f7); border-color: var(--accent, #7aa2f7);
+  background: color-mix(in srgb, var(--accent, #7aa2f7) 12%, transparent); }
+.topology-agent-route > .route-ctx-line > .route-ctx-model-pill.in-force > .route-ctx-model {
+  color: var(--accent, #7aa2f7); }
+.topology-agent-route > .route-ctx-line > .route-ctx-model-pill.set { border-style: solid;
+  color: var(--fg-dim, #999); border-color: var(--fg-dim, #555); }
+.topology-agent-route > .route-ctx-line > .route-ctx-chip.set { color: var(--fg, #ddd);
+  border-color: var(--fg-dim, #555); }
+.topology-agent-route > .route-ctx-line > .route-ctx-chip:hover { border-color: var(--accent, #7aa2f7);
+  color: var(--accent, #7aa2f7); }
+.topology-agent-route > .route-ctx-line > .route-ctx-model-pill > .route-ctx-model {
+  font: inherit; font-size: 10px; color: inherit; }
+.topology-agent-route > .route-ctx-line > .route-ctx-model-pill > .route-ctx-prefer {
+  display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding-left: 6px;
+  border-left: 1px dashed var(--border, #333); color: var(--muted, #888); cursor: pointer;
+  font: inherit; font-size: 10px; letter-spacing: 0; text-transform: none; }
+.topology-agent-route > .route-ctx-line > .route-ctx-model-pill.set > .route-ctx-prefer {
+  border-left-style: solid; border-left-color: var(--fg-dim, #555); }
+.topology-agent-route > .route-ctx-line > .route-ctx-model-pill.on > .route-ctx-prefer {
+  color: var(--fg, #ddd); }
+.topology-agent-route > .route-ctx-line > .route-ctx-model-pill > .route-ctx-prefer:hover {
+  color: var(--accent, #7aa2f7); }
+.topology-agent-route > .route-ctx-line > .route-ctx-model-pill > .route-ctx-prefer > input[type="checkbox"] {
+  width: 10px; height: 10px; min-height: 0; margin: 0; padding: 0; flex: 0 0 auto;
+  accent-color: var(--accent, #7aa2f7); }
+/* A setting saved on a different port — not in force here. The chip doesn't
+   hide: the value exists, and the operator needs to see WHERE, not lose
+   track of it. */
+/* An agent's block is its own lane card, not a row inside the host's card:
+   each one has its own port, window, and cables. There's no left indent: it
+   was meant to read as a tie to the host, but read as a misaligned edge
+   instead — in a column of equal-width cards, any offset looks like a
+   layout bug, not meaning. */
 .topology-card.agent-card { padding: 8px 10px; }
-/* Через прокси агента давно не шёл трафик — жёлтая рамка. Жёлтая, не красная:
-   это не поломка, а наблюдение «тобой не пользуются», и оператор сам решает,
-   что с этим делать. */
+/* No traffic has passed through this agent's proxy for a while — a yellow
+   border. Yellow, not red: this isn't a malfunction, it's the observation
+   "nobody is using you", and the operator decides for themselves what to do
+   about it. */
 .topology-card.agent-card.idle { border-color: color-mix(in srgb, var(--warn, #e0af68) 70%, var(--line)); }
-/* Роль — подпись над маршрутом, а порт в ней главный: он и есть то, чем
-   маршрут опознаётся. */
-/* На чипе теперь стоит адрес целиком, поэтому он длинный: моноширинный, чтобы
-   читался как адрес, и с переносом, чтобы не вылезал за карточку. */
+/* The role is a caption above the route, and the port within it is what
+   matters most: it's what actually identifies the route. */
+/* The chip now carries the full address, so it's long: monospace so it
+   reads as an address, and wrapping so it doesn't spill past the card. */
 .topology-agent-route > .route-role-label > .route-port-chip {
   font-size: 10px; padding: 1px 6px; letter-spacing: 0; text-transform: none;
   border-radius: 5px; font-family: var(--mono, ui-monospace, monospace);
   max-width: 100%; overflow-wrap: anywhere; text-align: left; white-space: normal;
 }
 .topology-agent-route > .route-role-label { flex-wrap: wrap; min-width: 0; }
-/* Адрес звонившего переносится вместе со всем: он длиннее чипа и, пока стоял
-   nowrap в нерастягиваемой строке, уезжал за край карточки. */
+/* The caller's address wraps along with everything else: it's longer than
+   the chip, and while it had nowrap on a non-stretching row, it ran off the
+   edge of the card. */
 .topology-agent .route-caller { white-space: normal; overflow-wrap: anywhere; }
 .topology-agent-route.fallback { border-left-style: dotted; }
 .topology-agent-route + .topology-agent-route { margin-top: 3px; border-top: 0; }
-/* Три чипа настроек — один типографский голос: тот же кегль, те же цифры, то
-   же скругление. Пока каждый жил своей строкой стилей, они читались как три
-   разные кнопки, а это три значения одного маршрута.
-   min-height обязателен: глобальное правило button задаёт 34px как ЦЕЛЬ ДЛЯ
-   ПАЛЬЦА, и оно раздувало каждый чип втрое против его же шрифта — вот откуда
-   бралась вся рыхлость карточки, а вовсе не из отступов. */
-/* Кто ходит в порт — рядом с ролью, мелко и приглушённо: это наблюдение, а не
-   настройка, и трогать его нельзя. */
-/* Удаление в заголовке — спокойная кнопка, краснеет только под курсором:
-   постоянно красная рядом с записью читается как «здесь ошибка». */
+/* Three settings chips — one typographic voice: same size, same digits, same
+   rounding. While each one lived in its own block of styles, they read as
+   three different buttons, when they're three values of one route.
+   min-height is required: the global button rule sets 34px as a TOUCH
+   TARGET, and it was inflating every chip to three times its own font size —
+   that's where the card's whole bloated look came from, not the padding. */
+/* Who calls the port — next to the role, small and muted: this is an
+   observation, not a setting, and must not be touched as one. */
+/* Deletion in the header — a calm button that turns red only under the
+   cursor: permanently red next to a record reads as "there's an error here". */
 .client-rename-btn.danger { opacity: .45; }
 .client-rename-btn.danger:hover { opacity: 1; color: var(--bad, #f7768e); }
 
-/* В заголовке блока агента адрес стоит между именем и родом: это наблюдение
-   («кто сюда ходит»), а не настройка, поэтому мельче и приглушённее обоих. */
+/* In an agent block's header, the address sits between the name and the
+   kind: it's an observation ("who calls this"), not a setting, so it's
+   smaller and more muted than both. */
 .agent-title-line > .route-caller { margin-left: 4px; }
 .topology-agent .route-caller,
 .route-caller { font-size: 9px; color: var(--muted); opacity: .8; margin-left: 6px;
@@ -1439,17 +1537,18 @@ select.cv-pin { width: 100%; }
 
 .route-settings > .route-ctx-chip,
 .route-settings > .route-model-chip,
+.route-settings > .route-model-lock,
 .route-settings > .route-wait-chip,
 .topology-agent-route .route-port-chip,
 .topology-agent .client-rename-btn {
   min-height: 0;
 }
-/* Наведение — одно на все три чипа маршрута: они одна группа, и вести себя
-   должны одинаково.
-   У чипа окна его не было ВИДНО: правило :hover задавало ровно те же цвета,
-   что и класс .set, да ещё стояло в файле ВЫШЕ него — при равной специфичности
-   побеждает последнее. То есть у заданного окна наведение не меняло ничего, и
-   чип выглядел неживым рядом с двумя живыми соседями. */
+/* One hover rule for all three route chips: they're one group, and should
+   behave alike.
+   On the window chip it wasn't VISIBLE: the :hover rule set exactly the same
+   colors as the .set class, and it also sat ABOVE it in the file — at equal
+   specificity, the last one wins. So hovering over a set window changed
+   nothing, and the chip looked dead next to its two live neighbors. */
 .route-settings > .route-ctx-chip:hover,
 .route-settings > .route-model-chip:hover,
 .route-settings > .route-wait-chip:hover {
@@ -1462,6 +1561,11 @@ select.cv-pin { width: 100%; }
   font-size: 10px; line-height: 1.6; padding: 1px 6px; border-radius: 5px;
   font-variant-numeric: tabular-nums; letter-spacing: .01em;
 }
+/* The lock has its own spacing: it reads as a continuation of the name, not
+   as a neighboring chip, so it hugs it on the left and is set apart from
+   what follows on the right. */
+.route-settings > .route-model-lock { font-size: 10px; line-height: 1.6;
+  padding: 1px 2px; margin-left: -2px; }
 .topology-agent-route .route-port-chip { padding: 1px 7px; }
 .topology-agent .client-rename-btn { padding: 0 3px; line-height: 1.2; }
 .topology-card.agent-card .topology-agent { border: 0; background: transparent; padding: 0; }

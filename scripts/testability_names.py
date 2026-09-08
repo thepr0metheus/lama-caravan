@@ -49,8 +49,16 @@ COMPOSED = {
     "cell-remote-offload-slider": "memory.js: tSlider by prefix",
     # static/js/topology-nodes.js — passed to mbadge() as its testId argument
     "cell-source-stale": "topology-nodes.js: mbadge(..., 'cell-source-stale')",
+    "cell-crashed": "topology-nodes.js: mbadge(..., 'cell-crashed')",
+    "cell-model-stale": "topology-nodes.js: mbadge(..., 'cell-model-stale')",
+    "cell-model-disk-newer": "topology-nodes.js: mbadge(..., 'cell-model-disk-newer')",
+    # static/js/form.js — ⇪ on a file's row in the model picker: the card
+    # names the file's ROLE, and which file exactly has diverged is only
+    # visible here.
+    "model-file-stale": "form.js: mbadge(..., 'model-file-stale') on the picker row",
     # static/hf.js — set through dataset.t on a constructed element
     "hf-result": "hf.js: buildRepoRow sets div.dataset.t",
+    "hf-verify": "hf.js: the sha256 verify button in the repo header",
     # static/js/form.js — one per config tab, set on the constructed button
     "cell-config-tab": "form.js: renderFields sets data-t on each tab button",
     "agent-proxy-bind": "topology-activity.js: the clickable primary port chip",
@@ -63,6 +71,21 @@ COMPOSED = {
     "cell-remote-translate-tgt": "index.html: NLLB target language (remote form)",
     "cell-edit-seamless-lang": "index.html: seamless target-language select (edit form)",
     "cell-remote-seamless-lang": "index.html: seamless target-language select (remote form)",
+    # What the model DOES — one per job, on the picker row and on the cell card.
+    # The suffix is the job id from caravan/common/model_jobs.py, so the two
+    # surfaces are found by the same five names.
+    "model-job-llm": "form.js: jobChips() on the picker row",
+    "model-job-asr": "form.js: jobChips() on the picker row",
+    "model-job-embed": "form.js: jobChips() on the picker row",
+    "model-job-tts": "form.js: jobChips() on the picker row",
+    "model-job-translate": "form.js: jobChips() on the picker row",
+    "model-job-speech-translate": "form.js: jobChips() on the picker row",
+    "cell-job-llm": "topology-nodes.js: jobChipsHtml() on the cell card",
+    "cell-job-asr": "topology-nodes.js: jobChipsHtml() on the cell card",
+    "cell-job-embed": "topology-nodes.js: jobChipsHtml() on the cell card",
+    "cell-job-tts": "topology-nodes.js: jobChipsHtml() on the cell card",
+    "cell-job-translate": "topology-nodes.js: jobChipsHtml() on the cell card",
+    "cell-job-speech-translate": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-config-search": "config-locator.js: the settings search input above the tabs",
     "cell-config-search-results": "config-locator.js: the search suggestion list",
 }

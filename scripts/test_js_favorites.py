@@ -1,23 +1,22 @@
 #!/usr/bin/env python3
-"""Снимок static/js/favorites.js — избранные поля формы запуска.
+"""Snapshot of static/js/favorites.js — favorite fields on the launch form.
 
-Контракт: набор избранного глобален и живёт в state.favFields, каждое
-изменение уходит на /api/config-favorites; канонические инпуты остаются в
-своих вкладках, а вкладка избранного показывает ЗЕРКАЛА, которые пробрасывают
-правку в канонический инпут его же событием (input/change) — так вся
-существующая проводка (подписи переключателей, превью команды, dirty)
-срабатывает без изменений. Пинится значением: включение/выключение звезды и
-что уходит на провод, звёзды канонических полей обновляются, а звёзды в
-панели избранного не трогаются; зеркало без канонического поля — только
-подпись; зеркало-чекбокс и текстовое зеркало пробрасывают события; панель
-строится только для существующих полей и без EXTRA_ARGS; перестановка
-перетаскиванием до/после и её граничные случаи; синхронизация значений при
-открытии вкладки.
+The contract: the favorites set is global and lives in state.favFields, every
+change goes out to /api/config-favorites; canonical inputs stay on their own
+tabs, and the favorites tab shows MIRRORS that forward an edit to the
+canonical input through that input's own event (input/change) — so all of
+the existing wiring (toggle labels, the command preview, dirty state) fires
+unchanged. What's pinned by value: turning the star on/off and what goes out
+on the wire, canonical fields' stars get updated while stars in the favorites
+panel are left alone; a mirror with no canonical field is label-only; a
+checkbox mirror and a text mirror both forward events; the panel is built
+only for fields that exist, and never for EXTRA_ARGS; drag reordering
+before/after and its edge cases; values syncing when the tab is opened.
 
-DOM — словарь `globalThis.__fields` и элементы mkEl с querySelector по
-простым селекторам, classList, dispatchEvent-журналом.
+The DOM is the `globalThis.__fields` dict and mkEl elements with querySelector
+by simple selectors, classList, a dispatchEvent log.
 
-Запуск: python3 scripts/test_js_favorites.py
+Run: python3 scripts/test_js_favorites.py
 """
 import json
 import os
@@ -137,8 +136,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

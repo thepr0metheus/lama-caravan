@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
-"""Снимок static/js/charts.js — то, что графики СЧИТАЮТ, а не рисуют.
+"""Snapshot of static/js/charts.js — what the charts COMPUTE, not what they draw.
 
-Модуль на 1154 строки — canvas-рендеры, и рисование в снимок не берётся. Берётся
-всё, что даёт значение: классификация активности маршрута по сэмплу
-(failed > client_disconnected > preempting > degraded > active > slow > recent >
-queued — приоритет состояний, и никакое нижнее не затирает верхнее), фильтр по
-узлу (запрос засчитывается узлу, который его ОБСЛУЖИЛ, облако не зажигает GPU),
-подписи маршрутов узла (прямые и через граф роутера), список инцидентов
-(сохранённые — с отсечкой 24 ч и без fallback; иначе — из сэмплов с дедупом),
-рендер панели инцидентов через словарный DOM, бакеты по ширине холста,
-спарклайн, скорости токенов с их запасными путями, форматы.
+The module is 1154 lines of canvas rendering, and the drawing itself isn't
+covered by the snapshot. What is covered is everything that produces a
+value: classifying a route's activity from a sample (failed >
+client_disconnected > preempting > degraded > active > slow > recent >
+queued — a state priority order, where nothing lower overrides something
+higher), filtering by node (a request counts toward the node that actually
+SERVED it, the cloud never lights up a GPU), a node's route captions (direct
+ones and ones through the router graph), the incident list (saved ones —
+with a 24h cutoff and no fallback; otherwise derived from samples with
+dedup), rendering the incident panel through a dict-based DOM, buckets by
+canvas width, the sparkline, token speeds with their fallback paths, formats.
 
-Модуль настоящий; `topology-activity` (классификация инцидентов) и
-`topology-proxies` тоже; `polling.formatTps` — заглушка через __stubReturns.
+The module is real; so are `topology-activity` (incident classification) and
+`topology-proxies`; `polling.formatTps` is stubbed via __stubReturns.
 
-Запуск: python3 scripts/test_js_charts.py
+Run: python3 scripts/test_js_charts.py
 """
 import json
 import os
@@ -62,7 +64,7 @@ const out = {};
 """
 
 PINS = [
-    # ── форматы ──
+    # ── formats ──
     ("format_rate", '', '[m.formatRate(0), m.formatRate(999), m.formatRate(1536), m.formatRate(3 * 1024 ** 2), m.formatRate(2 * 1024 ** 3), m.formatRate(NaN), m.formatRate("x")]',
      '["0 B/s","999 B/s","1.5 KB/s","3.00 MB/s","2.00 GB/s","0 B/s","0 B/s"]', "байты в секунду с порогами; мусор — 0 B/s"),
     ("fmt_ms", '', '[m._fmtMs(0), m._fmtMs(999), m._fmtMs(1000), m._fmtMs(1550), m._fmtMs(undefined)]', '["0ms","999ms","1.0s","1.6s","0ms"]', "миллисекунды до секунды, потом секунды с десятой"),
@@ -84,15 +86,36 @@ PINS = [
     ("route_buckets_wide", '', '(() => { const r = m._routeBuckets([1, 2, 3], { offsetWidth: 320 }); return [r.buckets.length, r.barW > 100]; })()', '[3,true]', "широкий холст: бакет на сэмпл"),
     ("mini_sparkline", '', '[m.miniSparklineSvg([0, 5, 10], "red", 10).includes(\'points="0.0,14.0 36.0,7.0 72.0,0.0"\'), m.miniSparklineSvg([5], "red"), m.miniSparklineSvg(["x", "y"], "red")]', '[true,"",""]',
      "спарклайн: точки по ширине 72 и высоте 14; меньше двух чисел — пусто"),
-    # ── узлы ──
+    # ── nodes ──
     ("endpoint_set_controller_adds_loopback", '', '[...m.nodeEndpointSet(NODES()[0])].sort()', '["10.0.0.1:22001","10.0.0.1:22002","127.0.0.1:22001","127.0.0.1:22002"]',
      "контроллер: каждый порт и по IP, и по 127.0.0.1"),
     ("endpoint_set_client_and_empty", '', '[[...m.nodeEndpointSet(NODES()[1])], [...m.nodeEndpointSet(NODES()[2])], [...m.nodeEndpointSet(null)]]', '[["10.0.0.5:22011"],[],[]]', "клиент: только свой IP; без серверов — пусто; null — пусто"),
     ("activity_filter", '', '[m.nodeActivityFilter("box-a").isController, [...m.nodeActivityFilter("box-a").endpoints], m.nodeActivityFilter("controller").isController, m.nodeActivityFilter("ghost")]',
      '[false,["10.0.0.5:22011"],true,null]', "фильтр узла: концы и флаг контроллера; неизвестный узел — null"),
     ("node_route_labels_direct_and_via_graph", '', '[m.nodeRouteLabels("box-a"), m.nodeRouteLabels("controller"), m.nodeRouteLabels("box-b"), m.nodeRouteLabels("ghost")]',
-     '[["scout","graphy"],["hermes"],[],[]]', "подписи: прямой upstream и через выход роутера; облако и пустая подпись не считаются; узел без ячеек — пусто"),
-    # ── активность маршрута по сэмплу ──
+     '[["graphy","scout"],["hermes"],[],[]]', "подписи: прямой upstream и через выход роутера; облако и пустая подпись не считаются; узел без ячеек — пусто; без трафика все тихие — по имени (порядок лейна), а не по порядку конфига"),
+    ("ordered_route_labels_live_first_then_name", 'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:1", port: 1, label: "zeta", lastRequestAt: Date.now() / 1000 - 60 }, { id: "skynet:proxy:2", port: 2, label: "alpha", lastRequestAt: Date.now() / 1000 - 3600 * 13 }, { id: "skynet:proxy:3", port: 3, label: "Mid", lastRequestAt: Date.now() / 1000 - 3600 }, { id: "skynet:proxy:4", port: 4, label: "" }, { id: "skynet:proxy:5", port: 5, label: "alpha" }, { id: "skynet:proxy:6", port: 6, label: "beta" }] });',
+     'm.orderedRouteLabels(st.topology.proxies)', '["Mid","zeta","alpha","beta"]',
+     "строки трафика — как карточки клиентов: живые (запрос за 12 ч: Mid, zeta) первыми по имени без учёта регистра, тихие (alpha 13 ч, beta никогда) после; пустая подпись без строки, одноимённые — одна строка"),
+    ("ordered_route_labels_follow_the_client_cards", 'st.setTopology({ ...TOPO(), proxies: [{ id: "skynet:proxy:23001", port: 23001, label: "skynet Hemi proxy", lastRequestAt: Date.now() / 1000 - 60 },{ id: "skynet:proxy:23002", port: 23002, label: "fallback hemi" },{ id: "skynet:proxy:23117", port: 23117, label: "Cerberus primary" },{ id: "skynet:proxy:8083", port: 8083, label: "promie-ui" }], clients: [{ id: "hermes", name: "hermes", manual: true, agents: [{ id: "hermes" }] },{ id: "Cerberus", name: "Cerberus", agents: [{ id: "Cerberus" }] }], assignments: { hermes: { assignments: [{ agentId: "hermes", routes: [{ role: "primary", proxyId: "skynet:proxy:23001", endpoint: "e" },{ role: "fallback", proxyId: "skynet:proxy:23002", endpoint: "e" }] }] }, Cerberus: { assignments: [{ agentId: "Cerberus", routes: [{ role: "primary", proxyId: "skynet:proxy:23117", endpoint: "e" }] }] } } });',
+     'm.orderedRouteLabels(st.topology.proxies)',
+     '["skynet Hemi proxy","fallback hemi","Cerberus primary","promie-ui"]',
+     "порядок строк трафика — порядок КАРТОЧЕК клиентов, а не подписей маршрутов: живой агент (hermes) первым со своими портами в порядке ролей (primary, потом fallback), затем тихий Cerberus, а порт, которого не называет ни одна карточка, — последним"),
+    ("ordered_route_labels_quiet_go_by_agent_name", 'st.setTopology({ ...TOPO(), proxies: [{ id: "skynet:proxy:23001", port: 23001, label: "skynet Hemi proxy" },{ id: "skynet:proxy:23002", port: 23002, label: "fallback hemi" },{ id: "skynet:proxy:23117", port: 23117, label: "Cerberus primary" },{ id: "skynet:proxy:8083", port: 8083, label: "promie-ui" }], clients: [{ id: "hermes", name: "hermes", manual: true, agents: [{ id: "hermes" }] },{ id: "Cerberus", name: "Cerberus", agents: [{ id: "Cerberus" }] }], assignments: { hermes: { assignments: [{ agentId: "hermes", routes: [{ role: "primary", proxyId: "skynet:proxy:23001", endpoint: "e" },{ role: "fallback", proxyId: "skynet:proxy:23002", endpoint: "e" }] }] }, Cerberus: { assignments: [{ agentId: "Cerberus", routes: [{ role: "primary", proxyId: "skynet:proxy:23117", endpoint: "e" }] }] } } });',
+     'm.orderedRouteLabels(st.topology.proxies)',
+     '["Cerberus primary","skynet Hemi proxy","fallback hemi","promie-ui"]',
+     "boundary: без трафика обе карточки тихие и идут по имени АГЕНТА (Cerberus раньше hermes) — если бы сортировали по подписи маршрута, «skynet Hemi proxy» ушла бы под букву s, и лейн с полосой разошлись бы"),
+    ("ordered_route_labels_use_the_shown_agent_name", 'st.setTopology({ ...TOPO(), proxies: ['
+     '{ id: "skynet:proxy:23101", port: 23101, label: "port of aaa" },'
+     '{ id: "skynet:proxy:23102", port: 23102, label: "port of zzz" }], '
+     'clients: [{ id: "h1", name: "h1", agents: [{ id: "aaa", name: "zeta" }, { id: "zzz", name: "beta" }] }], '
+     'assignments: { h1: { assignments: ['
+     '{ agentId: "aaa", routes: [{ role: "primary", proxyId: "skynet:proxy:23101", endpoint: "e" }] },'
+     '{ agentId: "zzz", routes: [{ role: "primary", proxyId: "skynet:proxy:23102", endpoint: "e" }] }] } } });',
+     'm.orderedRouteLabels(st.topology.proxies)',
+     '["port of zzz","port of aaa"]',
+     "порядок берёт ПОКАЗАННОЕ имя агента, а не его id: агент zzz подписан «beta» и идёт раньше агента aaa, подписанного «zeta» — по id вышло бы наоборот, и лейн с полосой снова разошлись бы, теперь на псевдонимах"),
+    # ── route activity from a sample ──
     ("activity_priority", '', '["failed","client_disconnected","preempting","degraded","active","cloud_active","slow","recent","cloud_recent","queued","",null].map(m.topologyRouteActivityPriority)',
      '[8,7,6,5,4,4,3,2,2,1,0,0]', "приоритет состояний сверху вниз; неизвестное — 0"),
     ("activity_set_keeps_higher", '', '(() => { const mp = new Map(); m.topologyRouteActivitySet(mp, "r", "queued"); m.topologyRouteActivitySet(mp, "r", "failed"); m.topologyRouteActivitySet(mp, "r", "active"); m.topologyRouteActivitySet(mp, "", "active"); return [mp.get("r"), mp.size]; })()',
@@ -113,7 +136,7 @@ PINS = [
      "цвета состояний; неизвестное — серый"),
     ("state_labels_and_legend", '', '(() => { const it = (await_ => 0); const h = m.buildRouteActivityLegendHtml(); return [m.ROUTE_ACTIVITY_STATE_LABELS.active, (h.match(/ral-item/g) || []).length, h.includes("error / timeout"), Object.keys(m.CHART_EXPAND_CONFIGS)]; })()',
      '["ratActive",10,true,["gpu","tokens","vram","power"]]', "подписи состояний — ключи i18n; легенда из десяти; четыре расширяемых графика"),
-    # ── инциденты ──
+    # ── incidents ──
     ("incidents_persisted_filtered_and_capped", 'st.ui.latestSystemMonitor = { incidents: [{ kind: "fallback_active", time: 1700000090 }, { kind: "failed", time: 1700000090, title: "hermes failed" }, { kind: "slow", time: 1700000000 - 90000 }, ...Array.from({ length: 9 }, (_, i) => ({ kind: "failed", time: 1700000080 - i, error: "boom" }))] };',
      '(() => { const it = m.topologyIncidentItems([]); return [it.length, it[0].incident.title, it[0].incident.cause, it.some((x) => x.kind === "fallback_active"), it.some((x) => x.kind === "slow")]; })()',
      '[8,"hermes failed","proxy/upstream error",false,false]', "сохранённые инциденты: fallback и старше 24 ч отброшены, не больше восьми, причина по виду подставляется"),
@@ -126,7 +149,7 @@ PINS = [
     ("incidents_render_empty", '', '(() => { m.renderTopologyIncidents([]); const f = globalThis.__fields; return [f.topologyIncidentsMeta.textContent, f.topologyIncidents.innerHTML.includes("No slow or failed proxy incidents")]; })()',
      '["clear",true]', "negative: без инцидентов — «clear» и подсказка"),
     ("incidents_render_no_panel", 'delete globalThis.__fields.topologyIncidents;', '(() => { m.renderTopologyIncidents([]); return globalThis.__fields.topologyIncidentsMeta.textContent; })()', '""', "negative: панели нет — ничего не трогается, без исключения"),
-    # ── телеметрия узла ──
+    # ── node telemetry ──
     ("node_telemetry_nothing", '', 'm.nodeTelemetryRowsHtml({ id: "box-b" })', '""', "negative: ни GPU, ни сервера, ни маршрутов — пусто"),
     ("node_telemetry_blocks", '', '(h => [(h.match(/class="gpu-metric"/g) || []).length, h.includes(\'data-open-chart="node:box-a:tokens"\'), h.includes(\'data-node-route-canvas="box-a"\'), h.includes("GPU history")])(m.nodeTelemetryRowsHtml({ id: "box-a", gpus: [{}], servers: [{ port: 22011 }] }))',
      '[4,true,true,true]', "GPU + сервер + маршруты: четыре метрики и блок активности маршрутов"),
@@ -161,8 +184,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

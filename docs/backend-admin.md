@@ -87,7 +87,7 @@ Key functions: `auth_enabled`, `create_user`/`set_password`/`delete_user`/`list_
 
 ## `config_builder.py`
 
-The launch-config contract. `CONFIG_FIELDS` (~90 keys, including the command-cell keys
+The launch-config contract. `CONFIG_FIELDS` (~135 keys, including the command-cell keys
 `CELL_KIND`/`COMMAND`/`HEALTH_PATH`/`ENV`/`WORKDIR`) and the `# BEGIN/END LLAMA CONFIG` marker lines
 are a contract with `scripts/start-server.sh` — never rename them here alone. `build_llama_args` is
 the **single config→CLI source of truth**: the local start-server.sh, server cells (same generator),

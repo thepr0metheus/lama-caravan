@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Снимок static/js/command-preview.js — команда запуска, которую оператор копирует.
+"""Snapshot of static/js/command-preview.js — the launch command the operator copies.
 
-Три чистые функции: разбиение команды на токены, раскладка по строкам
-«--флаг значение», и LCS-подсветка того, что в предпросмотре НЕ изменилось.
-Пинятся ЗНАЧЕНИЯ, включая некрасивое как есть: разбиение не знает кавычек, и
-`--alias "my model"` разлетается на три токена — так это и копируется сегодня.
+Three pure functions: splitting a command into tokens, laying it out as
+"--flag value" lines, and LCS-highlighting what the preview did NOT change.
+VALUES are pinned, including the ugly parts as-is: the splitter doesn't know
+about quotes, and `--alias "my model"` flies apart into three tokens — which
+is exactly what gets copied today.
 
-Модуль грузится в node НАСТОЯЩИЙ (scripts/_js_harness.mjs).
+The module is loaded into node FOR REAL (scripts/_js_harness.mjs).
 
-Запуск: python3 scripts/test_js_command_preview.py
+Run: python3 scripts/test_js_command_preview.py
 """
 import json
 import subprocess
@@ -78,14 +79,14 @@ print("splitCommand:")
 sp = got["split"]
 check(sp["empty"] == [] and sp["nul"] == [], "пусто и null → пустой список, не ['']")
 check(sp["ws"] == ["llama-server", "--port", "22001", "--ctx-size", "4096"], f"любые пробелы и переводы строк — разделители (получено {sp['ws']})")
-# ЗАФИКСИРОВАНО КАК ЕСТЬ: кавычки не распознаются.
+# PINNED AS-IS: quotes are not recognized.
 check(sp["quoted"] == ["llama-server", "--alias", '"my', 'model"'], f"кавычки НЕ распознаются — значение с пробелом рвётся (получено {sp['quoted']})")
 
 print("formatCmdline:")
 fm = got["fmt"]
 check(fm["pairs"] == "llama-server\n--model a.gguf\n--port 22001\n--flash-attn\n--ctx-size 4096",
       f"«--флаг значение» на одной строке, флаг без значения — один (получено {fm['pairs']!r})")
-# ЗАФИКСИРОВАНО КАК ЕСТЬ: отрицательное значение считается следующим флагом.
+# PINNED AS-IS: a negative value is treated as the next flag.
 check(fm["negative"] == "x\n--temp\n-1\n--port 5", f"отрицательное значение отрывается от флага (получено {fm['negative']!r})")
 check(fm["positional"] == "python3\nrun.py\n--n 3", f"позиционные — по одному на строку (получено {fm['positional']!r})")
 check(fm["empty"] == "", "пустая команда → пустая строка")

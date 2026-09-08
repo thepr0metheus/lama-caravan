@@ -133,6 +133,7 @@ def start_scheduler_thread():
     # stays free of the host-power layer above it; a failure in one never stops
     # the other.
     from caravan.admin.host_power_schedule import power_schedule_tick
+    from caravan.admin.model_watch import model_watch_tick
 
     def loop():
         time.sleep(20)  # let the board settle after a deploy
@@ -145,6 +146,10 @@ def start_scheduler_thread():
                 power_schedule_tick()
             except Exception as exc:
                 print(f"[host-power-schedule] tick error: {exc}")
+            try:
+                model_watch_tick()
+            except Exception as exc:
+                print(f"[model-watch] tick error: {exc}")
             time.sleep(60)
     thread = threading.Thread(target=loop, daemon=True)
     thread.start()

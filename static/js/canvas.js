@@ -275,11 +275,15 @@ export class RuleNode {
   // out-port (drag a cable from it). Unwired ports pulse so you know they must be
   // connected. portAttr names the port for the edge plumbing — data-cv-qrole for a
   // role cable, data-cv-sched-port for a tagged one.
-  destRow({ cls, name, label, wired, portAttr, hint }) {
+  // `lead` goes before the role dot, `extra` after the target label: the backup
+  // node puts its ▶ and its health dot there; queue rows pass neither.
+  destRow({ cls, name, label, wired, portAttr, hint, lead = "", extra = "" }) {
     return `<div class="cv-q-dest ${cls}${wired ? "" : " unset"}">`
+      + lead
       + `<span class="cv-q-dot ${cls}"></span>`
       + `<span class="cv-q-dl">${name}</span>`
       + `<span class="cv-q-dt" title="${escapeHtml(label)}">${escapeHtml(label)}</span>`
+      + extra
       + `<span class="cv-port out${wired ? "" : " unset"}" data-cv-port="out" ${portAttr} title="${escapeHtml(hint)}"></span>`
       + `</div>`;
   }
@@ -780,18 +784,164 @@ export class QueueNode extends RuleNode {
 // backup only when the MAIN upstream failed (connect error / HTTP >= 400) before a
 // single response byte reached the client — redundancy, not load management.
 // Reuses the queue card's dest-row classes: admit = main styling, spill = backup.
+//
+// The rows are live: the proxy remembers each exit's verdict (alive, or down with
+// the status that said so, for five minutes) and says which exit the NEXT request
+// takes — both arrive in its state file (outputHealth / onErrorNext) and are drawn
+// as they are. ▶ marks the next exit; the dot after the target is the exit's health.
+// The board never re-derives the rule, so it can never disagree with the proxy.
 export class OnErrorNode extends RuleNode {
   get cls() { return "cv-rule-queue cv-rule-onerr"; }
   get ownPorts() { return true; }
   cfgControl() { return helpTip("cvTipOnErrorNode"); }
   body() {
+    return `<span class="cv-sub">${escapeHtml(t("cvOnErrSub"))}</span>`
+      + `<div class="cv-oe-live" data-cv-oe-live="${escapeHtml(this.id)}">${this.liveHtml()}</div>`;
+  }
+  liveHtml() {
     const cfg = this.config;
     const edges = this.outEdges;
     const rescueEdge = edges.find((e) => e.id === cfg.rescueEdge);
     const mainEdge = edges.find((e) => e.id === cfg.mainEdge) || edges.find((e) => e.id !== cfg.rescueEdge);
-    return `<span class="cv-sub">${escapeHtml(t("cvOnErrSub"))}</span>`
-      + this.destRow({ cls: "admit", name: "main", label: this.targetLabel(mainEdge), wired: !!mainEdge, portAttr: 'data-cv-qrole="main"', hint: t("cvDragToMain") })
-      + this.destRow({ cls: "spill", name: "backup", label: this.targetLabel(rescueEdge), wired: !!rescueEdge, portAttr: 'data-cv-qrole="rescue"', hint: t("cvDragToRescue") });
+    const live = OnErrorNode.live(this.id, mainEdge, rescueEdge);
+    live.mainVia = this.viaName(live.nx, "main");
+    live.backupVia = this.viaName(live.nx, "backup");
+    OnErrorNode.ensureTicker();
+    return this.destRow({ cls: "admit", name: "main", wired: !!mainEdge,
+                          label: OnErrorNode.exitLabel(this.targetLabel(mainEdge), live.mainVia),
+                          portAttr: 'data-cv-qrole="main"', hint: t("cvDragToMain"),
+                          lead: OnErrorNode.nextHtml(live.next === "main"),
+                          extra: OnErrorNode.stateHtml(live.main) + OnErrorNode.countdownHtml(live.main) })
+      + this.destRow({ cls: "spill", name: "backup", wired: !!rescueEdge,
+                       label: OnErrorNode.exitLabel(this.targetLabel(rescueEdge), live.backupVia),
+                       portAttr: 'data-cv-qrole="rescue"', hint: t("cvDragToRescue"),
+                       lead: OnErrorNode.nextHtml(live.next === "backup"),
+                       extra: OnErrorNode.stateHtml(live.backup) + OnErrorNode.countdownHtml(live.backup) });
+  }
+  // When this exit's verdict expires — checkedAt plus the TTL, which the
+  // snapshot carries as age + time-to-retry — the idle probe asks it again
+  // (within its 30 s pass) and the next request may take it again. A real
+  // request refreshes the verdict on its own, so an exit in use counts down
+  // from the full TTL after every answer.
+  static deadlineOf(row) {
+    if (!row || !(Number(row.checkedAt) > 0)) return 0;
+    return Number(row.checkedAt) + Number(row.ageSec || 0) + Number(row.retryInSec || 0);
+  }
+  static countdownText(deadline) {
+    if (!(deadline > 0)) return "";
+    const left = Math.round(deadline - Date.now() / 1000);
+    if (left <= 0) return "0:00";
+    return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}`;
+  }
+  static countdownHtml(row) {
+    const deadline = OnErrorNode.deadlineOf(row);
+    if (!deadline) return "";
+    return `<span class="cv-oe-cd" data-cv-oe-deadline="${deadline}" title="${escapeHtml(t("cvOeCountdownTip"))}">${OnErrorNode.countdownText(deadline)}</span>`;
+  }
+  // One ticker for every countdown on the canvas; the text is patched in
+  // place, the rows are not rebuilt (that is syncLive's job, on the monitor tick).
+  static ensureTicker() {
+    if (OnErrorNode._ticker) return;
+    OnErrorNode._ticker = setInterval(() => OnErrorNode.tick(), 1000);
+  }
+  static tick() {
+    document.querySelectorAll("[data-cv-oe-deadline]").forEach((el) => {
+      const text = OnErrorNode.countdownText(Number(el.dataset.cvOeDeadline));
+      if (el.textContent !== text) el.textContent = text;
+    });
+  }
+  static outputIdOf(edge) {
+    const to = String(edge?.to || "");
+    return to.startsWith("out:") ? to.slice(4) : "";
+  }
+  // What the proxy last said: verdicts per output id and the next exit per node.
+  // Without a report the next exit is main — that IS the proxy's rule when it
+  // knows nothing, so the default is the truth, not a guess.
+  //
+  // An exit may lead into ANOTHER node (on production the main exit goes into a
+  // queue), and then the model is at the end of that chain. Which output that
+  // is, the proxy resolves — it is the same walk a request makes — and the
+  // board reads the answer from the report instead of walking the graph a
+  // second time and risking a different one. The edge's own target is the
+  // fallback for a report that has not arrived yet.
+  static live(nid, mainEdge, rescueEdge) {
+    const ap = ui.latestSystemMonitor?.latest?.agentProxies || {};
+    const health = ap.outputHealth || {};
+    const nx = (ap.onErrorNext || {})[nid] || null;
+    const idOf = (side, edge) => (nx && nx[side]) || OnErrorNode.outputIdOf(edge);
+    return {
+      next: nx?.next === "backup" ? "backup" : "main",
+      main: health[idOf("main", mainEdge)] || null,
+      backup: health[idOf("backup", rescueEdge)] || null,
+      nx,
+    };
+  }
+  // The model at the end of a chained exit, when the chain has one and the
+  // proxy could name it. Empty for a direct exit (the row already names it) and
+  // for a chain nobody can predict — a guess there would be worse than silence.
+  //
+  // The WORDING is the board's own: an output is named here exactly as it is
+  // named where a cable ends on it, so one model does not read as two things on
+  // one screen. The proxy's name is the fallback for an output this board does
+  // not have in its router record.
+  viaName(nx, side) {
+    const chain = (nx && nx[`${side}Chain`]) || [];
+    const id = (nx && nx[side]) || "";
+    if (!chain.length || !id) return "";
+    const out = ((this.router || {}).outputs || []).find((o) => o && o.id === id);
+    return out ? topologyRouterOutputLabel(out) : String((nx && nx[`${side}Name`]) || id);
+  }
+  static exitLabel(label, via) {
+    return via ? `${label} → ${via}` : label;
+  }
+  static ago(sec) {
+    const n = Math.max(0, Math.round(Number(sec) || 0));
+    if (n < 60) return `${n}s`;
+    if (n < 3600) return `${Math.round(n / 60)}m`;
+    return `${Math.round(n / 3600)}h`;
+  }
+  static stateHtml(row) {
+    let cls = "unknown";
+    let tip = t("cvOeUnknown");
+    if (row && (row.state === "ok" || row.state === "error")) {
+      const reason = row.state === "ok" ? "ok" : [row.kind, row.message].filter(Boolean).join(": ");
+      const ago = OnErrorNode.ago(row.ageSec);
+      if (!row.fresh) {
+        cls = "stale";
+        tip = t("cvOeStale", { reason, ago });
+      } else if (row.state === "ok") {
+        cls = "ok";
+        tip = t("cvOeAlive", { ago });
+      } else {
+        cls = "error";
+        tip = t("cvOeDead", { reason, ago, retry: OnErrorNode.ago(row.retryInSec) });
+      }
+    }
+    return `<span class="cv-oe-state ${cls}" title="${escapeHtml(tip)}"></span>`;
+  }
+  static nextHtml(isNext) {
+    return isNext
+      ? `<span class="cv-oe-next" title="${escapeHtml(t("cvOeNextTip"))}">▶</span>`
+      : `<span class="cv-oe-next off"></span>`;
+  }
+  // Re-patch every backup node's rows on the monitor tick — same contract as
+  // QueueNode.syncLive: only the inner live region, so cables and ports stay put.
+  static syncLive() {
+    if (!topology) return;
+    const liveEls = document.querySelectorAll("[data-cv-oe-live]");
+    if (!liveEls.length) return;
+    const byId = {};
+    (topology.routers || []).forEach((r) => {
+      ((r.graph && r.graph.nodes) || []).forEach((nd) => {
+        if (nd.type === "onError") byId[nd.id] = { router: r, node: nd };
+      });
+    });
+    liveEls.forEach((el) => {
+      const ent = byId[el.getAttribute("data-cv-oe-live")];
+      if (!ent) return;
+      const html = new OnErrorNode(ent.node, ent.router).liveHtml();
+      if (el.innerHTML !== html) el.innerHTML = html;
+    });
   }
 }
 
@@ -2304,7 +2454,7 @@ export function _fetchQueueHist(nodeId) { History.fetch(_cvQueueHistData, nodeId
 export function _fetchSchedHist(nodeId) { History.fetch(_cvSchedHistData, nodeId); }
 export function _portDisplayName(port, opts) { return InputsBlock.portName(port, opts); }
 export function cvNodeTypeLabel(type) { return RuleNode.typeLabel(type); }
-export function syncQueueNodesLive() { QueueNode.syncLive(); }
+export function syncQueueNodesLive() { QueueNode.syncLive(); OnErrorNode.syncLive(); }
 export function _cvSchedInputPorts(router, schedNodeId) { return ScheduleNode.inputPorts(router, schedNodeId); }
 export function _cvSchedColor(outputs, outId) { return ScheduleNode.color(outputs, outId); }
 export function _cvSchedMakeGrid(cfg) { return ScheduleNode.makeGrid(cfg); }

@@ -24,17 +24,18 @@ export function topologyStatusPill(value) {
   return pill(value || "unknown", kind);
 }
 
-// Строка живости клиента: плашка состояния и когда он отвечал в последний раз.
+// A client's liveness line: a status pill and when it last answered.
 //
-// «Никогда не отвечал» и «отвечал неизвестно когда» — РАЗНЫЕ вещи, и первое
-// печаталось как второе: возраст приходит null, а карточка показывала «?s ago»,
-// то есть утверждала, что ответ был, просто время неизвестно. Клиент, которого
-// оператор только что завёл, выглядел как замолчавший — отсутствие,
-// нарисованное как норма (docs/why.md). Теперь так и написано: не отвечал.
-// Только текст возраста, без плашки: его пишет не только строитель карточки,
-// но и живой патчер доски на каждом тике опроса. Пока текст собирали в двух
-// местах, починка держалась ровно один кадр — карточка говорила «не отвечал»,
-// а первый же тик возвращал «?s ago» и снова утверждал, что ответ был.
+// "Never answered" and "answered at an unknown time" are DIFFERENT things,
+// and the first used to print as the second: age arrives as null, and the
+// card showed "?s ago" — claiming an answer had happened, just at an unknown
+// time. A client the operator had just created looked like one that had gone
+// silent — absence drawn as normal (docs/why.md). Now it says so plainly:
+// never answered. Only the age TEXT, without the pill: it's written not just
+// by the card builder but also by the board's live patcher on every poll
+// tick. As long as the text was assembled in two places, the fix held for
+// exactly one frame — the card would say "never answered", and the very next
+// tick brought back "?s ago" and claimed an answer again.
 export function clientAgeText(client) {
   const age = client?.ageSeconds;
   return (age === null || age === undefined) ? t("clientNeverAnswered") : `${age}s ago`;
@@ -65,7 +66,7 @@ export function topologyAssignmentsByAgent(assignments = []) {
   return rows;
 }
 
-//: Роли, которые принимает сервер. Всё остальное — подпись, а не кнопка.
+//: Roles the server accepts. Everything else is a label, not a button.
 const BINDABLE_ROLES = new Set(["primary", "fallback"]);
 
 export function topologyAgentGroup(agent) {
@@ -90,10 +91,10 @@ export function topologyAgentSortPort(agent) {
   return match ? Number(match[1]) : 0;
 }
 
-// Карточки на доске и строки канбана стоят ПО АЛФАВИТУ имён: оператор ищет
-// агента по имени, а не по номеру порта, и один порядок на обеих страницах
-// значит, что взгляд не переучивается при переходе. Порт — только запасной
-// ключ для одноимённых.
+// Board cards and kanban rows stand in ALPHABETICAL order by name: the
+// operator looks for an agent by name, not by port number, and one order
+// across both pages means the eye doesn't have to relearn anything when
+// switching between them. Port is only a tiebreaker for same-named agents.
 export function topologyNameOrder(left, right) {
   return String(left || "").localeCompare(String(right || ""), undefined, { numeric: true, sensitivity: "base" });
 }
@@ -753,6 +754,8 @@ export function topologyRouteDetailHtml() {
   const llamaCtx = ui.latestSystemMonitor?.latest?.llamaActivity?.context || {};
   const totalSlots = Number(ui.latestSystemMonitor?.latest?.llamaActivity?.totalSlots || 0);
   const priorityLevel = Math.max(0, Number(proxy?.priority || 0));
+  // The window's tab: "details" by default — what was always here before.
+  const tab = topologyRouteDetail.tab === "model" ? "model" : "details";
   const lines = [
     activity?.label ? `state: ${activity.label}${activity.detail ? ` - ${activity.detail}` : ""}` : "",
     incident ? `incident: ${incident.title} - ${incident.summary}` : "",
@@ -777,15 +780,134 @@ export function topologyRouteDetailHtml() {
       <div class="topology-policy-modal topology-detail-modal" role="dialog" aria-modal="true" aria-label="Route details">
         <div class="topology-card-head">
           <strong>${escapeHtml(proxy?.label || item.label || item.route || "Route details")}</strong>
-          <button class="icon-action compact" type="button" data-topology-route-detail-close aria-label="Close route details" title="Close">×</button>
+          <span class="topology-policy-head-actions">
+            ${proxy ? `<button class="topology-detail-action" type="button" data-route-detail-edit="${escapeHtml(proxy.id)}" data-t="route-detail-edit"
+              title="${escapeHtml(t("cvPortEditTitle"))}">✎ ${escapeHtml(t("routeDetailEditPort"))}</button>
+            <button class="topology-detail-action danger" type="button" data-route-detail-delete="${escapeHtml(String(proxy.port))}" data-t="route-detail-delete"
+              title="${escapeHtml(t("proxyDeleteTip"))}">✕ ${escapeHtml(t("routeDetailDeletePort"))}</button>` : ""}
+            <button class="icon-action compact" type="button" data-topology-route-detail-close aria-label="Close route details" title="Close">×</button>
+          </span>
         </div>
+        ${routeDetailTabsHtml(tab)}
+        <div data-route-detail-body>${tab === "model" ? routeModelCardHtml() : `
         <div class="topology-detail-lines">
           ${lines.length ? lines.map((line) => `<div>${escapeHtml(line)}</div>`).join("") : `<div class="muted">No request details yet.</div>`}
         </div>
-        ${topologyRouteTokenHistoryHtml()}
+        ${topologyRouteTokenHistoryHtml()}`}</div>
       </div>
     </div>
   `;
+}
+
+// Two tabs of one window: what the port has ALREADY done (last request,
+// speeds), and what the port is telling a client about itself RIGHT NOW. The
+// second used to be discoverable only over ssh, knowing the route key — and
+// that's exactly where a client gets the model name and window size it then
+// lives by.
+export function routeDetailTabsHtml(tab) {
+  const tabs = [["details", t("routeDetailTabDetails")], ["model", t("routeDetailTabModel")]];
+  return `<div class="topology-detail-tabs" role="tablist">`
+    + tabs.map(([key, label]) => `<button type="button" class="detail-tab${tab === key ? " active" : ""}"
+        role="tab" aria-selected="${tab === key ? "true" : "false"}"
+        data-route-detail-tab="${escapeHtml(key)}" data-t="route-detail-tab" data-t-id="${escapeHtml(key)}"
+        >${escapeHtml(label)}</button>`).join("")
+    + `</div>`;
+}
+
+// One breakdown row: label on the left, value on the right. An empty value
+// produces no row at all — a "—" next to "trained window" would read as "the
+// model doesn't report one", when it simply wasn't asked.
+function cardRow(label, value, extra = "") {
+  if (value === null || value === undefined || value === "") return "";
+  return `<div class="mc-row"><span class="mc-key">${escapeHtml(label)}</span>`
+    + `<span class="mc-val">${escapeHtml(String(value))}${extra}</span></div>`;
+}
+
+export function routeModelCardHtml() {
+  const detail = topologyRouteDetail || {};
+  const port = detail.port;
+  if (!port) return `<div class="topology-detail-lines"><div class="muted">${escapeHtml(t("routeModelCardEmpty"))}</div></div>`;
+  const card = detail.modelCard;
+  // The address names whoever actually reaches it: in the controller's own
+  // answer it's assembled from the fleet's address, not the page's. Before
+  // the first poll, the same address the browser itself sees is shown —
+  // that's exactly the address a client on the network would use.
+  const url = card?.data?.url
+    || `${globalThis.location?.protocol || "http:"}//${globalThis.location?.hostname || "127.0.0.1"}:${port}/v1/models`;
+  // A link, not just a label: the address is stated so it can be visited. A
+  // keyed port will give the browser a 401 — the tooltip says so, because
+  // the key stays on the controller and never reaches the page.
+  const urlTip = t("routeModelCardHint") + (card?.data?.keyed ? ` · ${t("routeModelCardKeyed")}` : "");
+  const head = `<div class="mc-head">
+      <a class="mc-url" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"
+        title="${escapeHtml(urlTip)}">GET ${escapeHtml(url)}</a>
+      <button type="button" class="topology-detail-action" data-route-model-card-refresh="1"
+        title="${escapeHtml(t("routeModelCardRefresh"))}">⟳</button>
+    </div>`;
+  if (!card || card.state === "loading") {
+    return `<div class="topology-model-card">${head}<div class="muted">${escapeHtml(t("routeModelCardLoading"))}</div></div>`;
+  }
+  const data = card.data || {};
+  const status = cardRow(t("routeModelCardStatus"), `${data.status || "—"} · ${data.tookMs ?? "?"} ms`);
+  if (card.state === "error" || !data.ok) {
+    const reason = card.error || data.error || `HTTP ${data.status || "?"}`;
+    return `<div class="topology-model-card">${head}
+      <div class="mc-failed">${escapeHtml(t("routeModelCardFailed", { error: String(reason) }))}</div>
+      ${status}${rawBlock(data.raw)}</div>`;
+  }
+  const entries = data.entries || [];
+  if (!entries.length) {
+    return `<div class="topology-model-card">${head}
+      <div class="mc-failed">${escapeHtml(t("routeModelCardEmpty"))}</div>${status}${rawBlock(data.raw)}</div>`;
+  }
+  const body = entries.map((e) => `<div class="mc-entry">`
+    + cardRow(t("routeModelCardId"), e.id)
+    + cardRow(t("routeModelCardWindow"), e.window ?? "",
+              e.windows && Object.keys(e.windows).length
+                ? `<span class="mc-names">${escapeHtml(t("routeModelCardNames", { names: Object.keys(e.windows).join(", ") }))}</span>` : "")
+    + cardRow(t("routeModelCardServed"), e.servedWindow ?? "")
+    + cardRow(t("routeModelCardTrained"), e.trainedWindow ?? "")
+    + cardRow(t("routeModelCardOwner"), e.ownedBy)
+    + cardRow(t("routeModelCardAliases"), (e.aliases || []).join(", "))
+    + `</div>`).join("");
+  return `<div class="topology-model-card">${head}${body}${status}${rawBlock(data.raw)}</div>`;
+}
+
+function rawBlock(raw) {
+  if (!raw) return "";
+  return `<details class="mc-raw"><summary>${escapeHtml(t("routeModelCardRaw"))}</summary><pre>${escapeHtml(String(raw))}</pre></details>`;
+}
+
+// The CONTROLLER does the asking: a live port has a route key, and handing
+// it to the page for one check would mean handing it to everyone who opens
+// that page.
+export async function loadRouteModelCard() {
+  const detail = topologyRouteDetail;
+  if (!detail?.port) return;
+  const port = detail.port;
+  detail.modelCard = { state: "loading" };
+  renderTopologyRouteDetailTab();
+  try {
+    const data = await api(`/api/agent-proxy-model-card?port=${encodeURIComponent(port)}`);
+    if (topologyRouteDetail?.port === port) {
+      topologyRouteDetail.modelCard = { state: data?.ok ? "ok" : "error", data };
+      renderTopologyRouteDetailTab();
+    }
+  } catch (err) {
+    if (topologyRouteDetail?.port === port) {
+      topologyRouteDetail.modelCard = { state: "error", data: {}, error: String(err) };
+      renderTopologyRouteDetailTab();
+    }
+  }
+}
+
+// Redraw ONLY the tab's body: a full renderTopology would collapse an open
+// <details> holding the raw response and steal focus away from the button
+// that was just pressed.
+export function renderTopologyRouteDetailTab() {
+  const host = document.querySelector("[data-route-detail-body]");
+  if (!host || topologyRouteDetail?.tab !== "model") return;
+  host.innerHTML = routeModelCardHtml();
 }
 
 export function topologyRouteTokenHistoryHtml() {
@@ -854,9 +976,10 @@ export function drawRouteTokenHistory() {
     if (!samples.length) {
       meta.textContent = t("topologyTokenHistoryEmpty");
     } else {
-      // Сколько из них ВЫВЕДЕНО из итогов, а не измерено сервером. Молча
-      // смешать два разных числа в одном среднем — то же самое враньё, что
-      // рисовать пустой график там, где трафик шёл.
+      // How many of these were DERIVED from totals rather than measured by
+      // the server. Silently blending two different kinds of number into one
+      // average is the same lie as drawing an empty chart where traffic
+      // actually flowed.
       const derived = samples.filter((s) => s.source === "usage").length;
       const avg = (fn) => samples.reduce((sum, s) => sum + Number(fn(s) || 0), 0) / samples.length;
       meta.textContent = `${derived ? t("topologyTokenHistoryDerived", { count: String(derived) }) + " · " : ""}${samples.length} ${t("topologyTokenHistoryRuns")} · avg prompt ${formatTps(avg((s) => s.promptTps))} / gen ${formatTps(avg((s) => s.evalTps))} t/s`;
@@ -885,8 +1008,40 @@ export function correlatedTelemetryLines(item) {
   return lines;
 }
 
+// Paths whose answer is a word about the MODEL, and statuses meaning "I have
+// no such path". The same two lists as the proxy's and the controller's
+// (caravan/common/request_kind.py): the panel must judge the same answers by
+// the same words, or the board and the log drift apart in front of the operator.
+const INFERENCE_PATH_SUFFIXES = [
+  "/chat/completions", "/completions", "/embeddings", "/responses", "/messages",
+  "/rerank", "/audio/transcriptions", "/audio/translations", "/audio/speech",
+  "/infill", "/tokenize", "/detokenize", "/generate", "/predict",
+];
+const ABSENT_PATH_STATUSES = new Set([404, 405, 415, 501]);
+
+export function isInferenceRequest(method, path) {
+  if (String(method || "").toUpperCase() !== "POST") return false;
+  const clean = String(path || "").split("?")[0].replace(/\/+$/, "");
+  return INFERENCE_PATH_SUFFIXES.some((suffix) => clean.endsWith(suffix));
+}
+
+// A client's discovery probe: it asks for paths the server behind the port
+// doesn't have (/v1/props, /api/tags, /api/v1/models) and gets an honest
+// 404. This is never an incident — in one production day, such answers
+// produced 31 red rows out of 46, while every real request through the same
+// port got a 200. A record that doesn't say WHICH path was asked doesn't
+// count as a probe: "I don't know what was asked" isn't the same as "I know
+// it was nothing", and the silent half of that pair would hide real failures.
+export function isDiscoveryProbe(method, path, status) {
+  if (!String(path || "").trim()) return false;
+  const code = Number(status);
+  if (!Number.isFinite(code)) return false;
+  return ABSENT_PATH_STATUSES.has(code) && !isInferenceRequest(method, path);
+}
+
 export function topologyIncidentForItem(item) {
   if (!item) return null;
+  if (isDiscoveryProbe(item.method, item.path, item.status)) return null;
   const status = String(item.status || "");
   const firstByte = Number(item.firstByteMs || 0);
   const duration = Number(item.durationMs || item.elapsedMs || 0);
@@ -900,10 +1055,13 @@ export function topologyIncidentForItem(item) {
     const errorKind = item.errorKind
       || (/client disconnected|broken pipe|connection reset/i.test(errText) ? "client_disconnected"
         : /timed out|timeout/i.test(errText) ? "upstream_timeout" : "failed");
+    // The output chain is part of the reason: without it "limits exhausted"
+    // blames the cloud when the local output failed first.
+    const chain = String(item.chain || "").trim();
     return {
       kind: errorKind,
       title: `${label || "route"} ${errorKind === "client_disconnected" ? "client disconnected" : "failed"}`,
-      summary: item.error || `status ${status}`,
+      summary: (item.error || `status ${status}`) + (chain ? ` — after ${chain}` : ""),
       cause: topologyIncidentCause(item, errorKind),
     };
   }
@@ -1305,20 +1463,23 @@ export async function refreshRouteErrBadges() {
 
 // usage: "confirmed" | "unused" | "unverified" (see topologyRouteUsage). It used
 // to be a boolean, which had no room for "the agent never told us".
-// Окно контекста ЭТОГО потребителя — на строке его маршрута, потому что задаётся
-// оно здесь же. Три состояния, и они разные: число оператора, «беру у модели» и
-// НЕ ЗАДАНО. Последнее рисуется прочерком, а не нулём и не числом модели: клиент,
-// которому окно не задавали, получает его от модели, и показать здесь модельное
-// число значило бы выдать чужое решение за своё (docs/why.md).
-// Имя, под которым порт объявляет свою модель. Клиент спрашивает /v1/models и
-// ищет там СВОЙ id; не найдя — берёт встроенное умолчание, и окно, честно
-// опубликованное под именем апстрима, до него не доходит вовсе. Прочерк — «имя
-// апстрима», а не «пусто»: это разные утверждения.
-// Бюджет ожидания этого маршрута: сколько клиент готов ждать своей очереди.
-// Настройка жила ТОЛЬКО на канбане, а карточка на главной показывала другое
-// число — из конфига агента, — и у клиента, заведённого руками, конфига нет
-// вовсе, поэтому строка не показывалась ни разу. Один факт, два места, разные
-// ответы. Здесь он и правится, а канбан теперь только показывает.
+// The context window for THIS consumer — on its route's row, because that's
+// where it's set. Three states, and they're different: the operator's own
+// number, "take it from the model", and NOT SET. The last one is drawn as a
+// dash, not as zero and not as the model's number: a client with no window
+// set for it gets one from the model, and showing the model's number here
+// would pass off someone else's decision as this route's own (docs/why.md).
+// The name a port advertises its model under. A client asks /v1/models and
+// looks up ITS OWN id there; not finding it, it falls back to its built-in
+// default, and a window honestly published under the upstream's name never
+// reaches it at all. A dash means "the upstream's name", not "empty" — those
+// are different claims.
+// This route's wait budget: how long a client is willing to wait its turn in
+// the queue. The setting used to live ONLY on the kanban, while the card on
+// the main page showed a different number — from the agent's config — and a
+// client created by hand has no config at all, so the row never showed up
+// once. One fact, two places, different answers. It's edited here now, and
+// the kanban only displays it.
 export function routeWaitSec(route) {
   const pid = String(route?.proxyId || "");
   const routers = topology?.routers || [];
@@ -1330,15 +1491,16 @@ export function routeWaitSec(route) {
   return { sec: Number(proxy?.clientTimeoutSeconds || 0), own: false };
 }
 
-// Кто ходит в этот порт НА САМОМ ДЕЛЕ. Запись говорит, кому порт выдан, и это
-// не одно и то же: агент месяцами ходил в порт, на котором его имени не стояло,
-// и увидеть это было неоткуда. Сперва живой запрос, если он прямо сейчас есть,
-// потом сводка логов за час. Не знает никто — не показываем ничего: выдуманный
-// адрес хуже пустоты.
-// Адрес маршрута целиком — он и стоит на чипе. Номер порта отдельной строкой,
-// а полный адрес строкой ниже — это один и тот же факт, записанный дважды: та
-// нижняя строка выводилась из этого же номера и стоила по ярусу на каждый
-// маршрут. Осталось одно место, и оно же кнопка привязки.
+// Who ACTUALLY calls this port. The record says who the port was issued to,
+// and that's not the same thing: an agent called a port for months that
+// didn't carry its name, with no way to see it. First a live request, if
+// there is one right now, then an hour's log summary. Nobody knows — show
+// nothing: a made-up address is worse than an empty one.
+// The route's full address — it's what sits on the chip. A port number on
+// its own line, and the full address on the line below, used to be the same
+// fact written down twice: that lower line was derived from this same
+// number and cost a whole tier on every route. Now there's one place for
+// it, and it doubles as the binding button.
 export function routeAddress(route, port) {
   const endpoint = String(route?.endpoint || "").trim();
   return endpoint || (port ? `:${port}` : "");
@@ -1355,9 +1517,9 @@ export function routeCallers(route) {
   return { top, count };
 }
 
-// Последний, кто шёл через ЭТОГО агента — в заголовок его блока, а не в строку
-// роли: адрес один на агента, и повторять его у каждой роли значит спрашивать
-// читателя, чем эти два адреса различаются. Различаются они ничем.
+// The last caller through THIS agent — in its block's header, not on a role
+// row: the address is one per agent, and repeating it on every role would
+// make the reader ask how the two addresses differ. They don't.
 export function agentCallerHtml(routes) {
   for (const route of (routes || [])) {
     const html = routeCallerHtml(route);
@@ -1390,46 +1552,124 @@ export function routeWaitChipHtml(client, agent, role, route) {
 export function routeModelChipHtml(client, agent, role, route) {
   if (!route) return "";
   const name = String(route.modelName || "").trim();
-  return `<button type="button" class="route-model-chip${name ? " set" : ""}"
-    data-route-model="1" data-model-host="${escapeHtml(client?.id || "")}"
-    data-model-agent="${escapeHtml(agent?.id || "")}" data-model-role="${escapeHtml(role)}"
-    data-model-value="${escapeHtml(name)}"
-    data-t="route-model" title="${escapeHtml(name ? t("routeModelOwnTip") : t("routeModelUnsetTip"))}"
-    >${escapeHtml(t("routeModelLabel", { value: name || "—" }))}</button>`;
+  const open = !!route.modelNameAuto;
+  const address = `data-model-host="${escapeHtml(client?.id || "")}"`
+    + ` data-model-agent="${escapeHtml(agent?.id || "")}" data-model-role="${escapeHtml(role)}"`
+    + ` data-model-value="${escapeHtml(name)}"${open ? ' data-model-auto="1"' : ""}`;
+  const chipTip = name ? (open ? t("routeModelOpenTip") : t("routeModelOwnTip")) : t("routeModelUnsetTip");
+  return `<button type="button" class="route-model-chip${name && !open ? " set" : ""}${open ? " open" : ""}"
+    data-route-model="1" ${address}
+    data-t="route-model" title="${escapeHtml(chipTip)}"
+    >${escapeHtml(t("routeModelLabel", { value: name || "—" }))}</button>`
+    + routeModelLockHtml(name, open, address);
 }
 
-export function routeContextChipHtml(client, agent, role, route) {
+// The lock next to the name: closed means the port advertises the model
+// under the operator's name; open means under whatever name it calls itself
+// (the upstream on a llama output, the block's model on a cloud one). The
+// name STAYS in the record while the lock is open: closing it again must not
+// require retyping it, or there'd be nothing to close it back to — clearing
+// and forgetting are different things.
+//
+// With no name, there is no lock at all. A closed lock over an empty name
+// would claim a name is pinned, and an open one would change nothing
+// whatsoever: both sides give the model's own name in that case anyway. A
+// button that does nothing reads as broken — and teaches people to stop
+// trusting buttons in general.
+export function routeModelLockHtml(name, open, address) {
+  if (!name) return "";
+  return `<button type="button" class="route-model-lock${open ? " open" : ""}"
+    data-route-model-lock="1" ${address}
+    data-t="route-model-lock" data-t-state="${open ? "open" : "closed"}"
+    title="${escapeHtml(open ? t("routeModelUnlockedTip") : t("routeModelLockedTip"))}"
+    >${escapeHtml(open ? t("routeModelUnlocked") : t("routeModelLocked"))}</button>`;
+}
+
+// What the model behind a route serves, as words: the tooltip of the model's
+// figure names its source — a cell address, a cloud block — or says why there
+// is no figure. A dash without a reason would be absence rendered as normality
+// (docs/why.md): "the model reports nothing" and "the port reaches no model"
+// look the same and mean different things.
+export function routeModelWindowTip(source, model) {
+  const kind = String(source?.kind || "");
+  if (kind === "cell") {
+    const address = `${source.host || ""}:${source.port || ""}`;
+    return model > 0 ? t("routeCtxModelCellTip", { address }) : t("routeCtxModelSilentTip", { address });
+  }
+  if (kind === "block") {
+    const name = String(source.name || "");
+    return model > 0 ? t("routeCtxModelBlockTip", { name }) : t("routeCtxModelBlockNoneTip", { name });
+  }
+  if (kind === "account") return t("routeCtxAccountTip");
+  if (kind === "unrouted" || kind === "error") {
+    return t("routeCtxUnroutedTip", { reason: String(source.reason || kind) });
+  }
+  return t("routeCtxModelUnknownTip");
+}
+
+// The three windows of one route on a line of their own: what the port
+// advertises to the client, the operator's limit, what the model serves — and,
+// inside the model's own pill, the switch that lets that figure win above the
+// limit: it sits beside the number it promotes. Glyphs instead of words
+// (👤 📏 🪟 🔼, the window glyph shared with the cell card), so that the
+// three pills fit one row of the card; the tooltips carry the words. The first two
+// facts about the model come from the proxy's topology row, where the
+// controller computed them by the same rule the proxy applies to /v1/models
+// (caravan/common/context_window.py); the board never re-derives the figure,
+// so the operator and the client cannot read two different numbers for one
+// port. The limit and the switch are the assignment's own fields.
+//
+// The setting lives on the port the RECORD names, while the row shows the
+// port from the live report. When they diverge the limit is not in force here,
+// and that cannot go unsaid: the chip would look exactly like a working one.
+export function routeContextLineHtml(client, agent, role, route) {
   if (!route) return "";
   const own = Number(route.contextLength || 0);
-  const auto = !!route.contextAuto;
-  // Настройка живёт на порту, названном ЗАПИСЬЮ, а строка на доске показывает
-  // порт из живого отчёта. Когда они разошлись, окно здесь не в силе — и
-  // молчать об этом нельзя: чип выглядел бы ровно как работающая настройка.
-  const elsewhere = !!route.settingsProxyId && (own > 0 || auto);
-  // С подписью, а не голым числом: «256000» рядом с «hemi-proxy» и «wait 1800s»
-  // не говорит, что это, — а на карточке эти три факта стоят в один ряд.
-  const label = t("routeCtxLabel", {
-    value: auto ? t("routeContextFromModel") : (own > 0 ? String(own) : "—"),
-  });
-  const title = elsewhere
+  const prefer = !!route.contextAuto;
+  const proxy = (topology?.proxies || []).find((p) => p && p.id === route.proxyId) || null;
+  const model = Number(proxy?.modelWindow || 0);
+  const gives = Number(proxy?.effectiveWindow || 0);
+  const elsewhere = !!route.settingsProxyId && (own > 0 || prefer);
+  const address = `data-ctx-host="${escapeHtml(client?.id || "")}" data-ctx-agent="${escapeHtml(agent?.id || "")}"`
+    + ` data-ctx-role="${escapeHtml(role)}" data-ctx-value="${escapeHtml(own > 0 ? String(own) : "")}"`
+    + ` data-ctx-prefer="${prefer ? "1" : ""}"`;
+  const limitTip = elsewhere
     ? t("routeContextElsewhereTip", { port: String(route.settingsProxyId).split(":").pop() })
-    : (auto ? t("routeContextFromModelTip")
-      : (own > 0 ? t("routeContextOwnTip") : t("routeContextUnsetTip")));
-  return `<button type="button" class="route-ctx-chip${auto ? " auto" : ""}${own > 0 ? " set" : ""}${elsewhere ? " elsewhere" : ""}"
-    data-route-ctx="1" data-ctx-host="${escapeHtml(client?.id || "")}"
-    data-ctx-agent="${escapeHtml(agent?.id || "")}" data-ctx-role="${escapeHtml(role)}"
-    data-ctx-value="${escapeHtml(own > 0 ? String(own) : "")}" data-ctx-auto="${auto ? "1" : ""}"
-    data-t="route-context" title="${escapeHtml(title)}">${escapeHtml(label)}</button>`;
+    : (own > 0 ? t("routeContextOwnTip") : t("routeContextUnsetTip"));
+  // Which of the two numbers is CURRENTLY in force isn't computed by the
+  // board: it checks them against what the controller has already published
+  // (`effectiveWindow`, computed by the same rule the proxy applies). There's
+  // no longer a third badge with this number: it duplicated one of the two
+  // neighbors, and the reader went looking for a difference that never
+  // existed. When they match, both are highlighted: the port advertises the
+  // number they agree on, and highlighting only one would name a winner
+  // where there's no dispute.
+  const limitInForce = own > 0 && gives > 0 && gives === own;
+  const modelInForce = model > 0 && gives > 0 && gives === model;
+  const inForceTip = ` · ${t("routeCtxInForce")}`;
+  return `<div class="route-ctx-line" data-t="route-context-line">
+    <button type="button" class="route-ctx-chip${own > 0 ? " set" : ""}${elsewhere ? " elsewhere" : ""}${limitInForce ? " in-force" : ""}"
+      data-route-ctx="1" ${address} data-t="route-context" title="${escapeHtml(limitTip + (limitInForce ? inForceTip : ""))}"
+      >${escapeHtml(t("routeCtxLimit", { value: own > 0 ? String(own) : "—" }))}</button>
+    <span class="route-ctx-model-pill${model > 0 ? " set" : ""}${prefer ? " on" : ""}${modelInForce ? " in-force" : ""}"
+      ><span class="route-ctx-model" data-t="route-context-model"
+        title="${escapeHtml(routeModelWindowTip(proxy?.modelWindowSource, model) + (modelInForce ? inForceTip : ""))}"
+        >${escapeHtml(t("routeCtxModel", { value: model > 0 ? String(model) : "—" }))}</span
+      ><label class="route-ctx-prefer" data-route-ctx-prefer-label="1" title="${escapeHtml(t("routeCtxPreferTip"))}"
+        ><input type="checkbox" data-route-ctx-prefer="1" ${address}${prefer ? " checked" : ""}
+        data-t="route-context-prefer">${escapeHtml(t("routeCtxPrefer"))}</label></span>
+  </div>`;
 }
 
-// Состояние маршрута — значок с подписью, а не слово. Слова «unverified» и
-// «inactive» занимали половину строки и всё равно требовали пояснения: сами по
-// себе они не говорят, что именно не подтверждено и кем. Значок мельче, а
-// объяснение приходит по наведению, где ему и место.
+// A route's state — an icon with a tooltip, not a word. The words
+// "unverified" and "inactive" took up half a row and still needed
+// explaining: on their own they don't say what exactly is unverified or by
+// whom. The icon is smaller, and the explanation arrives on hover, where it
+// belongs.
 //
-// Подтверждённое состояние показывается ТОЖЕ. Пока метка была только у
-// сомнительного, «ничего не написано» означало сразу две разные вещи —
-// «проверено» и «сюда ещё не дошли руки»; теперь у каждой своё лицо.
+// A confirmed state is shown TOO. As long as the label existed only for the
+// doubtful case, "nothing written" meant two different things at once —
+// "checked" and "hasn't been looked at yet"; now each one has its own face.
 export function routeStateBadgeHtml(route, usage) {
   if (!route) return "";
   if (usage === "unused") {
@@ -1453,9 +1693,9 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
   // Whether an operator pinned this agent's port by hand. Provisioning skips
   // such agents, so the padlock is the only place the panel says why this one
   // is not being re-derived like the rest.
-  // Замок означает «эта роль привязана руками». Пока он зависел только от
-  // агента, он висел и на роли БЕЗ порта — рядом с плюсом «привязать»,
-  // утверждая то, чего ещё нет.
+  // The padlock means "this role is bound by hand". While it depended only
+  // on the agent, it also hung on a role WITHOUT a port — right next to the
+  // "bind" plus, claiming something that didn't exist yet.
   const manualBound = !!port && ((topology?.assignments?.[client?.id]?.assignments) || [])
     .some((a) => a.agentId === agent?.id && a.manual);
   const unverified = !!route && usage === "unverified";
@@ -1474,14 +1714,15 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
     <div class="topology-agent-route ${escapeHtml(role)} ${route ? "" : "empty"} ${muted ? "muted" : ""} ${unverified ? "unverified" : ""} ${escapeHtml(topologyStateHealthClasses(activity))}"${detailAttrs}>
       ${handle}
       <span class="route-role-label">${routeStateBadgeHtml(route, usage)}${escapeHtml(role)}${
-        // Чип рисуется и БЕЗ порта, и у ОБЕИХ настоящих ролей: пока он был
-        // только у привязанных, назначить агенту первый порт с доски было
-        // неоткуда, а пока только у primary — второй порт неоткуда. Роли,
-        // которых сервер не принимает (legacy secondary), остаются простой
-        // подписью: кнопка, ведущая к отказу, хуже её отсутствия.
-        // Пикер знает роль по data-bind-role, иначе новый порт сядет на
-        // primary и затрёт рабочий. Пустой текущий порт для него — «ещё не
-        // выбран», а не ноль.
+        // The chip is drawn WITHOUT a port too, and on BOTH real roles: while
+        // it existed only for bound ones, there was no way at all to assign
+        // an agent its first port from the board, and while it existed only
+        // for primary, there was no way to get a second port. Roles the
+        // server doesn't accept (legacy secondary) stay a plain label: a
+        // button that leads to a refusal is worse than no button.
+        // The picker knows the role via data-bind-role, or a new port would
+        // land on primary and overwrite the working one. An empty current
+        // port means "not chosen yet" to it, not zero.
         BINDABLE_ROLES.has(role)
         ? `<button type="button" class="route-port-chip bindable${port ? "" : " unbound"}${manualBound ? " manual" : ""}"
              data-agent-bind="1" data-bind-host="${escapeHtml(client?.id || "")}"
@@ -1491,9 +1732,9 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
              title="${escapeHtml(manualBound ? t("taTitleBoundManual") : t("taTitleBindProxy"))}">${escapeHtml(port ? routeAddress(route, port) : "＋")}${manualBound ? "&#128274;" : ""}</button>`
         : (port ? `<span class="route-port-chip" title="${escapeHtml(t("taTitleProxyPort"))}">${escapeHtml(routeAddress(route, port))}</span>` : "")
       }${routeErrBadgeHtml(port)}</span>
-      <div class="route-settings">${routeContextChipHtml(client, agent, role, route)}${
-        routeModelChipHtml(client, agent, role, route)}${
+      <div class="route-settings">${routeModelChipHtml(client, agent, role, route)}${
         routeWaitChipHtml(client, agent, role, route)}</div>
+      ${routeContextLineHtml(client, agent, role, route)}
       ${timeoutHtml}
       ${incident ? `<small class="topology-incident-line ${incident.kind === "failed" ? "failed" : ""}">${escapeHtml(`${incident.title}: ${incident.summary}`)}</small>` : ""}
     </div>
@@ -1510,10 +1751,10 @@ function closeBindMenu() {
   document.querySelector(".agent-bind-menu")?.remove();
 }
 
-// Порт-сосед праймари для роли fallback, если он свободен. Пара «нечётный —
-// чётный» задумана так, чтобы читаться глазами, но держалась она только на
-// МОМЕНТЕ создания порта: стоило переставить праймари, и фолбэк оставался у
-// прежнего соседа, а как его догнать — из интерфейса не следовало никак.
+// The port next to primary, for a fallback role, if it's free. The
+// "odd-even" pair was designed to read at a glance, but that only held at
+// the MOMENT the port was created: move primary once, and fallback stayed at
+// the old neighbor, with no way from the UI to tell how to catch up to it.
 export function neighbourPortForFallback(hostId, agentId) {
   const rows = (topology?.assignments?.[hostId]?.assignments) || [];
   const row = rows.find((r) => r?.agentId === agentId);
@@ -1530,8 +1771,9 @@ function openBindMenu(chip) {
   const hostId = chip.dataset.bindHost;
   const agentId = chip.dataset.bindAgent;
   const current = String(chip.dataset.bindPort || "");
-  // Роль обязана ехать до сервера: без неё и привязка, и новый порт садились
-  // бы на primary — то есть выбор фолбэка молча затирал бы рабочий маршрут.
+  // The role must travel all the way to the server: without it, both a bind
+  // and a new port would land on primary — meaning a choice of fallback
+  // would silently overwrite the working route.
   const role = String(chip.dataset.bindRole || "primary");
   const neighbour = role === "fallback" ? neighbourPortForFallback(hostId, agentId) : 0;
   const routes = (topology?.proxies || [])
@@ -1586,8 +1828,8 @@ function openBindMenu(chip) {
     }
     if (e.target.closest("[data-bind-remove]")) {
       closeBindMenu();
-      // Порт продолжает слушать: он живой слушатель, в который внешний агент
-      // может ходить независимо от наших записей. Сказано прямо, а не умолчано.
+      // The port keeps listening: it's a live listener an outside agent can
+      // reach independently of our records. Said plainly, not left unsaid.
       if (!(await appConfirm(t("dlgRemoveRoute", { role, port: current })))) return;
       try {
         const res = await api("/api/topology/agent-route/remove", {

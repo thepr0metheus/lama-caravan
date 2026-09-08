@@ -508,6 +508,139 @@ export async function loadLlamaBuilds() {
   });
 }
 
+// ── GPU driver: two versions, one button, and a watchdog that stays quiet ────
+// The card shows RUNNING and INSTALLED separately on purpose: after an install
+// they differ until the machine reboots, and one number would say "updated"
+// where the truth is "will be updated". The reboot itself stays the operator's
+// — it drops every cell on the host.
+export async function loadDriverPanel() {
+  const el = $("driverSummary");
+  if (!el) return;
+  let info;
+  try {
+    info = await api("/api/gpu-driver");
+  } catch (err) {
+    el.textContent = err.message;
+    return;
+  }
+  _driverInfo = info;
+  const installed = info.installed || null;
+  const newest = info.newest || null;
+  const chip = (label, value, kind = "") =>
+    `<div class="llama-chip ${kind}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+  el.innerHTML = [
+    // An empty number with a reason is the "installed, kernel still old"
+    // state, and the reason is shown instead of a dash: a dash would read as
+    // "no driver".
+    chip(t("driverRunning"), info.running || info.runningError || "n/a", info.running ? "good" : "warn"),
+    chip(t("driverInstalled"), installed ? `${installed.package} ${installed.version}` : "n/a"),
+    chip(t("driverNewest"), newest ? `${newest.package} ${newest.version}` : "n/a",
+         info.updateAvailable ? "warn" : "good"),
+    // Two reasons, two badges. They used to be indistinguishable: on a host
+    // where the running and installed versions already matched, the single
+    // badge still insisted the kernel had yet to switch to the new driver.
+    info.rebootForDriver ? chip(t("driverReboot"), t("driverRebootValue"), "warn") : "",
+    info.rebootPending
+      ? chip(t("driverRebootOs"),
+             (info.rebootPendingPackages || []).length
+               // The package list comes from the OS itself; it's what
+               // explains that the reboot isn't about us.
+               ? `${t("driverRebootOsValue")}: ${(info.rebootPendingPackages || []).join(", ")}`
+               : t("driverRebootOsValue"),
+             "warn")
+      : "",
+    info.auto?.lastCheckAt
+      ? chip(t("driverLastCheck"), new Date(info.auto.lastCheckAt * 1000).toLocaleString()) : "",
+  ].filter(Boolean).join("");
+  const btn = $("driverUpdateBtn");
+  if (btn) {
+    btn.disabled = !info.updateAvailable;
+    btn.title = info.updateAvailable && newest
+      ? t("driverUpdateTip", { package: newest.package, version: newest.version })
+      : t("driverUpToDateTip");
+  }
+  const check = $("driverAutoCheck"), install = $("driverAutoInstall");
+  if (check) check.checked = !!info.auto?.check;
+  if (install) install.checked = !!info.auto?.install;
+}
+
+let _driverInfo = null;
+
+export async function saveDriverAuto() {
+  const body = { check: !!$("driverAutoCheck")?.checked, install: !!$("driverAutoInstall")?.checked };
+  try {
+    await api("/api/gpu-driver/auto", { method: "POST", body });
+    await loadDriverPanel();
+  } catch (err) { toast(err.message); }
+}
+
+// The install itself is confirmed: it replaces the kernel module the cards are
+// running on, and the machine keeps the old one until a reboot.
+export function openDriverUpdateModal() {
+  const newest = _driverInfo?.newest;
+  if (!newest) return;
+  $("confirmTitle").textContent = t("driverUpdateTitle");
+  $("confirmText").textContent = t("driverUpdateText", { package: newest.package, version: newest.version });
+  $("confirmMeta").hidden = false;
+  $("confirmMeta").innerHTML = [
+    [t("driverRunning"), _driverInfo.running || "?"],
+    [t("driverInstalled"), _driverInfo.installed
+      ? `${_driverInfo.installed.package} ${_driverInfo.installed.version}` : "n/a"],
+    [t("driverNewest"), `${newest.package} ${newest.version}`],
+  ].map(([label, value]) => `
+    <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>
+  `).join("");
+  // What happens between installing and rebooting is said BEFORE the
+  // install: new libraries will meet the old kernel module, and starting a
+  // cell won't be possible until the machine reboots. Learning this
+  // afterward means learning it at the moment a cell has already failed to
+  // come up.
+  $("confirmText").textContent += " " + t("driverUpdateWarn");
+  $("confirmPath").textContent = `apt-get install -y ${newest.package}`;
+  $("confirmDelete").textContent = t("driverUpdate");
+  $("confirmDelete").classList.add("danger");
+  ui.pendingConfirm = async () => {
+    closeConfirmModal();
+    const log = $("driverUpdateLog");
+    if (log) log.textContent = t("driverUpdateStarting");
+    try {
+      await api("/api/gpu-driver/update", { method: "POST", body: { package: newest.package } });
+      pollDriverUpdate();
+    } catch (err) {
+      if (log) log.textContent = err.message;
+      toast(err.message);
+    }
+  };
+  $("confirmOverlay").hidden = false;
+}
+
+let _driverPollTimer = 0;
+export async function pollDriverUpdate() {
+  clearTimeout(_driverPollTimer);
+  let job;
+  try {
+    job = await api("/api/llamacpp/update-status");   // one shared job, one log
+  } catch (err) {
+    toast(err.message);
+    return;
+  }
+  const el = $("driverUpdateLog");
+  if (el) {
+    el.textContent = (job.lines || []).join("\n") || "...";
+    el.scrollTop = el.scrollHeight;
+  }
+  if (job.running) {
+    _driverPollTimer = setTimeout(pollDriverUpdate, 2000);
+    return;
+  }
+  if (job.done && job.rc === 0) {
+    toast(t("driverUpdateDone"));
+    loadDriverPanel();
+  } else if (job.done) {
+    toast(job.error || `driver update failed (rc=${job.rc})`);
+  }
+}
+
 // ── vLLM runner: pip-versioned, so PyPI is the archive — we list the small
 //    version history and install any pin via the same shared job/log. ────────
 export async function loadVllmPanel() {

@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
-"""Снимок static/js/system-page.js — страница /system.
+"""Snapshot of static/js/system-page.js — the /system page.
 
-Вход страницы без экспортов: снимок перехватывает DOMContentLoaded при
-импорте и вызывает его сам. Что пинится значением: список вкладок читается ИЗ
-РАЗМЕТКИ (рукописный список однажды делал новую вкладку «мёртвой кнопкой»),
-неизвестная вкладка → первая, deep-link через hash и обратно, клик по кнопке
-вкладки; плитки сводки (версия, git с warn при грязных, ячейки good при
-запущенных, диск warn ниже 50 GB, модели, python) и подвал; refreshAll — два
-запроса, отказ controller-info пишет причину в панель и `data-t-state=error`,
-успех — ready; файл настроек: экспорт без пароля — GET с флагом, с
-паролем-фразой — POST телом (URL попадает в логи и историю), ответ становится
-скачиванием `caravan-settings-<штамп>.json`, панель перечисляет файлы с
-размерами, предупреждает об учётных данных и говорит, чего в файле НЕТ; импорт
-— сначала сухой прогон, подтверждение с перечнем замен, пароль-фраза
-запрашивается только при «locked», результат с пропущенными; переключатель
-«с секретами» показывает строку пароля только когда хост умеет шифровать.
+The page's entry point has no exports: the snapshot intercepts
+DOMContentLoaded at import time and fires it itself. What's pinned by value:
+the tab list is read FROM THE MARKUP (a hand-written list once turned a new
+tab into a "dead button"), an unknown tab falls back to the first one,
+deep-linking via hash and back, clicking a tab button; the summary tiles
+(version, git with a warn on dirty, cells good when running, disk warn below
+50 GB, models, python) and the footer; refreshAll — two requests, a failed
+controller-info writes the reason into the panel and sets
+`data-t-state=error`, success sets ready; the settings file: export with no
+password is a GET with a flag, with a passphrase it's a POST body (the URL
+would otherwise land in logs and history), the response becomes a download
+of `caravan-settings-<stamp>.json`, the panel lists files with their sizes,
+warns about credentials, and states what the file does NOT contain; import —
+a dry run first, a confirmation listing the replacements, the passphrase is
+asked for only on "locked", a result with what was skipped; the "with
+secrets" toggle shows the password field only when the host can encrypt.
 
-DOM — словарь `globalThis.__fields`, `document.querySelectorAll` по классам
-вкладок/панелей, `history.replaceState` и `URL.createObjectURL` — стабы.
+The DOM is the `globalThis.__fields` dict, `document.querySelectorAll` by tab/panel
+classes, `history.replaceState` and `URL.createObjectURL` are stubs.
 
-Запуск: python3 scripts/test_js_system_page.py
+Run: python3 scripts/test_js_system_page.py
 """
 import json
 import os
@@ -151,8 +153,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

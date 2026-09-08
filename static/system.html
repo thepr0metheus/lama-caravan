@@ -251,6 +251,9 @@
       <button class="sys-tab" data-tab="llama" role="tab" aria-selected="false" data-t="system-tab-llama">
         <span class="sys-tab-ico" aria-hidden="true">🦙</span><span class="sys-tab-label">llama.cpp</span>
       </button>
+      <button class="sys-tab" data-tab="driver" role="tab" aria-selected="false" data-t="system-tab-driver">
+        <span class="sys-tab-ico" aria-hidden="true">🎮</span><span class="sys-tab-label" data-i18n="driverSection">GPU driver</span>
+      </button>
       <button class="sys-tab" data-tab="security" role="tab" aria-selected="false" data-t="system-tab-security">
         <span class="sys-tab-ico" aria-hidden="true">🛡️</span><span class="sys-tab-label" data-i18n="securitySection">Security</span>
       </button>
@@ -289,6 +292,28 @@
         <h3 class="llama-builds-title" id="sysVllmHead" data-i18n="vllmRunnerTitle">vLLM runner</h3>
         <div id="vllmSummary" class="llama-builds-list" data-t="system-vllm-list" role="region" aria-labelledby="sysVllmHead"></div>
         <pre id="llamaUpdateLog" class="llama-update-log" data-t="system-llama-update-log"></pre>
+      </div>
+    </section>
+
+    <section class="sys-panel" data-panel="driver">
+      <div class="panel llama-panel">
+        <div class="section-title">
+          <h2 class="title-with-tip"><span id="sysDriverHead" data-i18n="driverSection">GPU driver</span></h2>
+          <div class="button-row">
+            <span class="button-with-tip"><button id="driverCheckBtn" type="button" data-i18n="driverCheck" data-t="system-driver-check">Check</button></span>
+            <span class="button-with-tip"><button id="driverUpdateBtn" type="button" class="danger" data-i18n="driverUpdate" data-t="system-driver-update">Update driver</button></span>
+          </div>
+        </div>
+        <div id="driverSummary" class="llama-summary" data-t="system-driver-summary" role="region" aria-labelledby="sysDriverHead"></div>
+        <label class="settings-secrets-row">
+          <input type="checkbox" id="driverAutoCheck" data-t="system-driver-auto-check">
+          <span data-i18n="driverAutoCheck">Check for a newer driver on a schedule</span>
+        </label>
+        <label class="settings-secrets-row">
+          <input type="checkbox" id="driverAutoInstall" data-t="system-driver-auto-install">
+          <span data-i18n="driverAutoInstall">…and install it automatically (a reboot is still yours to press)</span>
+        </label>
+        <pre id="driverUpdateLog" class="llama-update-log" data-t="system-driver-log"></pre>
       </div>
     </section>
 

@@ -120,7 +120,12 @@ P_OWN_LLAMA = free_port()
 P_OWN_CLOUD = free_port()
 P_NAMED = free_port()
 P_NAMED_CLOUD = free_port()
+P_NAMED_OPEN = free_port()        # name written, lock open: the model's own id wins
+P_NAMED_CLOUD_OPEN = free_port()
 P_OWN_AUTO = free_port()
+P_OWN_BELOW = free_port()      # limit below the served window
+P_OWN_PREFER = free_port()     # limit below, switch on: the served window wins
+P_PREFER_NOMODEL = free_port() # switch on, but the block reports no window
 
 
 def _route(port, **extra):
@@ -144,13 +149,22 @@ CONFIG = {
         _route(P_CLOUD_DECLARED, upstreamType="cloud", providerId="blk:declared"),
         _route(P_CLOUD_CACHED, upstreamType="cloud", providerId="blk:cached"),
         _route(P_CLOUD_AUTO, upstreamType="cloud", providerId="blk:auto"),
-        # Число, заданное оператором ДЛЯ ЭТОГО порта: копия настройки с
-        # клиентской прокси-ячейки, которую сюда возит reconcile_proxy_metadata.
+        # The number the operator set FOR THIS port: a copy of the setting on
+        # the client's proxy cell, carried here by reconcile_proxy_metadata.
         _route(P_OWN_LLAMA, contextLength=32768),
         _route(P_OWN_CLOUD, upstreamType="cloud", providerId="blk:declared", contextLength=32768),
         _route(P_NAMED, contextLength=32768, modelName="main-model"),
         _route(P_NAMED_CLOUD, upstreamType="cloud", providerId="blk:declared", modelName="main-model"),
+        # The same route with an OPEN lock: the operator's name stays in the
+        # record, but the port advertises the model under its own name.
+        _route(P_NAMED_OPEN, contextLength=32768, modelName="main-model", modelNameAuto=True),
+        _route(P_NAMED_CLOUD_OPEN, upstreamType="cloud", providerId="blk:declared",
+               modelName="main-model", modelNameAuto=True),
         _route(P_OWN_AUTO, upstreamType="cloud", providerId="blk:declared",
+               contextLength=32768, contextAuto=True),
+        _route(P_OWN_BELOW, contextLength=2048),
+        _route(P_OWN_PREFER, contextLength=2048, contextAuto=True),
+        _route(P_PREFER_NOMODEL, upstreamType="cloud", providerId="blk:cached",
                contextLength=32768, contextAuto=True),
     ],
     "routers": [{
@@ -483,47 +497,89 @@ def test_health_on_cloud():
           f"llama route: /health still goes to the upstream (got {status})")
 
 
-# ── 11. окно контекста, заданное для ОДНОГО потребителя ──────────────────────
-# Число модели — одно на всех, кто в неё маршрутизирует. Здесь оператор говорит,
-# сколько разрешено этому клиенту, и это побеждает; галка «брать от модели» —
-# отказ от своего числа в пользу модельного.
+# ── 11. context window set for a SINGLE consumer ────────────────────────────
+# The model's own number is shared by everyone routing to it. Here the
+# operator states how much is allowed for this client, and the port
+# publishes the SMALLER of the two numbers — the larger one would make the
+# client send more than the server will accept. The "model, if larger"
+# checkbox hands the model's number over its own; while there's no model
+# number, the limit stays in force.
 def test_own_context_window():
     print("окно контекста этого потребителя:")
     status, body = get_models(P_OWN_LLAMA)
     e = (body.get("data") or [{}])[0]
-    check(status == 200 and e.get("context_length") == 32768 and e.get("max_model_len") == 32768,
-          f"llama-маршрут: число оператора побеждает то, что отдал апстрим (got {e.get('context_length')})")
-    check((e.get("meta") or {}).get("n_ctx") != 32768,
+    check(status == 200 and e.get("context_length") == 4096 and e.get("max_model_len") == 4096,
+          f"llama-маршрут: предел 32768 выше обслуживаемых 4096 — публикуется меньшее (got {e.get('context_length')})")
+    check((e.get("meta") or {}).get("n_ctx") == 4096,
           "вложенный meta.n_ctx НЕ переписан — там факт о запущенном сервере")
+
+    status, body = get_models(P_OWN_BELOW)
+    e = (body.get("data") or [{}])[0]
+    check(e.get("context_length") == 2048 and e.get("max_model_len") == 2048,
+          f"предел 2048 ниже обслуживаемых 4096 — публикуется предел, под обоими именами (got {e.get('context_length')})")
+
+    status, body = get_models(P_OWN_PREFER)
+    e = (body.get("data") or [{}])[0]
+    check(e.get("context_length") == 4096 and e.get("max_model_len") == 4096,
+          f"галка «модель, если больше»: обслуживаемые 4096 поверх предела 2048 (got {e.get('context_length')})")
 
     status, body = get_models(P_OWN_CLOUD)
     e = (body.get("data") or [{}])[0]
     check(e.get("context_length") == 32768 and e.get("max_model_len") == 32768,
-          f"облачный маршрут: число оператора побеждает число блока 200000 (got {e.get('context_length')})")
+          f"облачный маршрут: предел 32768 ниже числа блока 200000 — публикуется предел (got {e.get('context_length')})")
 
     status, body = get_models(P_OWN_AUTO)
     e = (body.get("data") or [{}])[0]
     check(e.get("context_length") == 200000,
-          f"галка «от модели» — ОТКАЗ от своего числа, публикуется модельное (got {e.get('context_length')})")
+          f"галка на облачном маршруте: число блока 200000 поверх предела 32768 (got {e.get('context_length')})")
 
-    # Имя, под которым порт объявляет модель. Клиент ищет в ответе СВОЙ id и,
-    # не найдя, берёт встроенное умолчание — тогда честно опубликованное окно
-    # до него не доходит вовсе.
+    status, body = get_models(P_PREFER_NOMODEL)
+    e = (body.get("data") or [{}])[0]
+    check(e.get("context_length") == 32768 and e.get("max_model_len") == 32768,
+          f"галка при блоке без числа: предел остаётся — снимать его нечем (got {e.get('context_length')})")
+
+    # The name the port advertises the model under. A client looks up ITS OWN
+    # id in the response and, not finding it, falls back to its built-in
+    # default — a window honestly published never reaches it at all then.
     status, body = get_models(P_NAMED)
     e = (body.get("data") or [{}])[0]
     check(e.get("id") == "main-model",
           f"llama-порт объявляет модель именем оператора (got {e.get('id')!r})")
-    check(e.get("context_length") == 32768,
-          f"и окно при этом остаётся своим (got {e.get('context_length')})")
+    check(e.get("context_length") == 4096,
+          f"и окно при этом — по тому же правилу, меньшее из 32768 и 4096 (got {e.get('context_length')})")
+    # AS-IS: llama.cpp returns TWO lists of the same model — OpenAI's `data`
+    # and the Ollama-compatible `models`. Only the first used to be renamed.
+    ollama = (body.get("models") or [{}])[0]
+    check(ollama.get("name") == "main-model" and ollama.get("model") == "main-model",
+          f"positive: и в Ollama-списке — имя оператора: закрытый замок держит имя для ВСЕХ "
+          f"читателей, а не только для тех, кто читает `data` "
+          f"(got name={ollama.get('name')!r} model={ollama.get('model')!r})")
+    check(ollama.get("format") == "gguf",
+          "остальные поля Ollama-записи не тронуты — переименование, а не подмена записи")
+    check((body.get("data") or [{}])[0].get("aliases") == ["tiny"],
+          "прежние псевдонимы на месте: замок меняет, КАК порт себя называет, "
+          "а не то, на что он отзывается")
+    # The upstream is free to return several models. We have no right to pick
+    # on the client's behalf which one is "the" model — so we touch NOTHING,
+    # in either list.
+    two = json.dumps({
+        "models": [{"name": "a.gguf", "model": "a.gguf"}, {"name": "b.gguf", "model": "b.gguf"}],
+        "data": [{"id": "a.gguf"}, {"id": "b.gguf"}],
+    }).encode("utf-8")
+    kept = json.loads(_rename_models(two, "main-model").decode("utf-8"))
+    check([m["name"] for m in kept["models"]] == ["a.gguf", "b.gguf"]
+          and [d["id"] for d in kept["data"]] == ["a.gguf", "b.gguf"],
+          f"negative: моделей несколько — не переименовываем ни одной, "
+          f"угадывать «ту самую» за клиента нельзя (got {kept})")
     status, one = _req(P_NAMED_CLOUD, "GET", "/v1/models/main-model")
     check(status == 200 and one.get("id") == "main-model",
           f"облачный retrieve-model отвечает на объявленное имя (got {status} {one.get('id')!r})")
     status, body = get_models(P_NAMED_CLOUD)
     check((body.get("data") or [{}])[0].get("id") == "main-model",
           "и список объявляет то же имя — один порт, один ответ")
-    # Переименовывается ЕДИНСТВЕННАЯ запись. Список из нескольких моделей
-    # остаётся как есть: выбирать за клиента, какая из них «та самая», порт не
-    # вправе, а переименовать первую попавшуюся — соврать про остальные.
+    # A SINGLE entry gets renamed. A list of several models stays as-is: the
+    # port has no right to pick on the client's behalf which one is "the"
+    # model, and renaming whichever one comes first would lie about the rest.
     import json as _json
     two = _json.dumps({"object": "list", "data": [{"id": "a"}, {"id": "b"}]}).encode()
     check(_json.loads(_rename_models(two, "main-model"))["data"] == [{"id": "a"}, {"id": "b"}],
@@ -538,26 +594,50 @@ def test_own_context_window():
                                      "main-model"))["data"] == [],
           "пустой список остаётся пустым — имени неоткуда взяться")
 
-    # ОТРИЦАТЕЛЬНЫЙ: имя не задано — публикуется то, что назвал апстрим.
+    # Open lock: the operator's name is recorded, but the model's own name is
+    # in force. A client configured for one model per port will find it as
+    # the sole entry; a client looking for ITS OWN id will see the real name.
+    status, body = get_models(P_NAMED_OPEN)
+    e = (body.get("data") or [{}])[0]
+    check(e.get("id") == "/models/tiny-test.gguf",
+          f"открытый замок на llama-порту: объявляется имя апстрима (got {e.get('id')!r})")
+    check(e.get("context_length") == 4096,
+          f"и окно считается по прежнему правилу — замок про имя, не про окно (got {e.get('context_length')})")
+    o = (body.get("models") or [{}])[0]
+    check(o.get("name") == "tiny-test.gguf" and o.get("model") == "tiny-test.gguf",
+          f"negative: открытый замок не трогает и Ollama-список — оба списка меняются ВМЕСТЕ "
+          f"или не меняются вовсе (got name={o.get('name')!r})")
+    status, body = get_models(P_NAMED_CLOUD_OPEN)
+    check((body.get("data") or [{}])[0].get("id") == "declared-model",
+          f"открытый замок на облачном порту: объявляется модель блока "
+          f"(got {(body.get('data') or [{}])[0].get('id')!r})")
+    status, one = _req(P_NAMED_CLOUD_OPEN, "GET", "/v1/models/declared-model")
+    check(status == 200 and one.get("id") == "declared-model",
+          f"и retrieve-model отвечает на то же имя (got {status} {one.get('id')!r})")
+    status, _one = _req(P_NAMED_CLOUD_OPEN, "GET", "/v1/models/main-model")
+    check(status == 404,
+          f"а на имя оператора при открытом замке — 404: порт его больше не подаёт (got {status})")
+
+    # NEGATIVE: no name set — whatever the upstream called itself is published.
     status, body = get_models(P_OPEN)
     check((body.get("data") or [{}])[0].get("id") == "/models/tiny-test.gguf",
           "без своего имени порт публикует имя апстрима, как и было")
 
-    # Один порт — один ответ. Список моделей и retrieve-model обязаны сходиться:
-    # клиент спрашивает то один, то другой, и разойтись им негде — это была бы
-    # ровно та ложь, ради которой окно и заводили.
+    # One port, one answer. The model list and retrieve-model must agree: a
+    # client asks one or the other, and there's no room for them to diverge —
+    # that would be exactly the lie this window feature was built to prevent.
     status, one = _req(P_OWN_CLOUD, "GET", "/v1/models/declared-model")
     check(status == 200 and one.get("context_length") == 32768 and one.get("max_model_len") == 32768,
           f"retrieve-model отдаёт число ОПЕРАТОРА, как и список (got {status} {one.get('context_length')})")
     status, one = _req(P_OWN_AUTO, "GET", "/v1/models/declared-model")
     check(one.get("context_length") == 200000,
           f"галка «от модели»: retrieve-model отдаёт модельное, как и список (got {one.get('context_length')})")
-    # Отрицательный: без своего числа retrieve-model не выдумывает окна.
+    # Negative: with no number of its own, retrieve-model doesn't invent a window.
     status, one = _req(P_CLOUD, "GET", "/v1/models/test-cloud-model")
     check([k for k in CONTEXT_KEYS if k in one] == [],
           f"без своего и без модельного retrieve-model не публикует окна (got {one})")
 
-    # Отрицательные: без своего числа порт публикует ровно то, что и раньше.
+    # Negative: with no number of its own, the port publishes exactly what it did before.
     status, body = get_models(P_CLOUD_DECLARED)
     e = (body.get("data") or [{}])[0]
     check(e.get("context_length") == 200000, "без своего числа — число модели, как и было")

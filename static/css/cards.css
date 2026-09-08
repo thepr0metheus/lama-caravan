@@ -625,9 +625,10 @@ button.llama-edit-head:hover .llama-edit-pencil {
   min-width: 0;
 }
 
-/* Заголовок блока агента ломался: `strong` и `span` были блочными, поэтому имя,
-   карандаш и подпись становились в три строки, а точка живости уезжала под имя.
-   Имя и кнопки — одна строка, подпись — вторая. */
+/* An agent block's header used to break: `strong` and `span` were block-level,
+   so the name, pencil, and caption fell onto three lines, and the liveness
+   dot drifted below the name. Name and buttons on one line, caption on the
+   second. */
 .topology-agent strong { display: inline; }
 .topology-agent span { display: block; }
 .topology-agent-summary > div {
@@ -635,10 +636,11 @@ button.llama-edit-head:hover .llama-edit-pencil {
   gap: 1px;
   min-width: 0;
 }
-/* Заголовок переносится, а не сжимается. Пока он был одной нерастяжимой
-   строкой, имя ужималось до «Open…», адрес звонившего рвался посреди числа, а
-   род агента и кнопки толкались за остаток. Имя не сжимается вовсе — это
-   главное слово карточки; остальное уходит на вторую строку, когда не влезло. */
+/* The header wraps rather than shrinks. While it was one non-stretching
+   line, the name got truncated to "Open…", the caller's address broke in
+   the middle of a number, and the agent's kind and the buttons fought over
+   what was left. The name never shrinks at all — it's the card's main
+   word; everything else moves to a second line when it doesn't fit. */
 .topology-agent-summary .agent-title-line {
   display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 6px; min-width: 0;
 }
@@ -647,7 +649,8 @@ button.llama-edit-head:hover .llama-edit-pencil {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .topology-agent-summary .agent-title-line > .route-caller { flex: 0 0 auto; }
-/* Род агента прижат вправо в той же строке: два слова не стоят отдельного ряда. */
+/* An agent's kind is pushed right on the same line: two words don't need a
+   row of their own. */
 .topology-agent-summary .agent-title-line > .agent-kind {
   display: inline; margin-left: auto; flex: 0 1 auto;
   font-size: 10px; letter-spacing: .03em; color: var(--muted);
@@ -673,11 +676,12 @@ button.llama-edit-head:hover .llama-edit-pencil {
   flex: 0 0 auto;
 }
 
-/* Клиент, заведённый руками, молчит по праву: это заметка, а не тревога — без
-   красного и без кнопки удаления рядом. Красная плашка с «Delete» под записью,
-   которая ничего не нарушила, читалась как «убери эту ошибку», и запись теряли. */
-/* Заголовок клиента без скаута — строка, а не карточка: рассказывать о хосте
-   нечего, а назвать группу и дать три действия нужно. */
+/* A client created by hand is silent by right: that's a note, not an alarm —
+   no red, and no delete button next to it. A red banner with "Delete" under
+   a record that hasn't done anything wrong read as "remove this error", and
+   records got lost that way. */
+/* A scout-less client's header is a row, not a card: there's nothing left to
+   report about the host, but the group still needs a name and its three actions. */
 .client-caption {
   display: flex; align-items: center; gap: 6px;
   padding: 2px 2px 4px; font-size: 12px; color: var(--muted);
@@ -697,19 +701,19 @@ button.llama-edit-head:hover .llama-edit-pencil {
   border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
 }
 
-/* Строка маршрута: сверху — что это (роль, порт, окно), снизу — куда (адрес).
-   Раньше колонок было две, а элементов три, поэтому чип окна вываливался на
-   собственную строку отдельной большой пилюлей: число висело в стороне от
-   маршрута, к которому относится. Теперь первая строка читается как подпись
-   «роль · порт · окно», а адрес идёт под ней — он длинный, и место ему нужно
-   всё. */
-/* Строка маршрута — три яруса, сверху вниз по убыванию важности:
-   1. чем он опознаётся: роль и порт;
-   2. куда ведёт: адрес, мелко и приглушённо;
-   3. что о нём объявлено: окно, имя модели, бюджет ожидания.
-   Раньше все шесть элементов стояли в один ряд фиксированного грида: чипы
-   вылезали за карточку, а число окна висело в стороне от маршрута, к которому
-   относится. Ярусы дают порядок чтения и, главное, переносятся. */
+/* A route's row: on top, what it is (role, port, window); below, where it
+   goes (the address). There used to be two columns and three elements, so
+   the window chip spilled onto its own row as a big separate pill: the
+   number hung apart from the route it belonged to. Now the first line reads
+   as a single caption "role · port · window", and the address sits below
+   it — it's long, and it needs all the room it can get. */
+/* A route's row — three tiers, top to bottom in decreasing importance:
+   1. what identifies it: role and port;
+   2. where it goes: the address, small and muted;
+   3. what's advertised about it: window, model name, wait budget.
+   All six elements used to sit in a single fixed-grid row: chips spilled
+   past the card, and the window's number hung apart from the route it
+   belonged to. Tiers give a reading order and, above all, they wrap. */
 .topology-agent-route {
   position: relative;
   display: flex;
@@ -724,35 +728,39 @@ button.llama-edit-head:hover .llama-edit-pencil {
   border-radius: 7px;
   background: color-mix(in srgb, var(--line) 12%, transparent);
 }
-/* Два яруса вместо трёх: сверху — чем маршрут опознаётся и что о нём объявлено,
-   снизу — адрес. Ярус с адресом был отдельным ради строки, которая целиком
-   выводится из номера порта, и стоил по двадцать пикселей на каждый маршрут. */
+/* Two tiers instead of three: on top, what identifies the route and what's
+   advertised about it; below, the address. The address had its own tier for
+   the sake of a line that's derived entirely from the port number, and it
+   cost twenty pixels on every single route. */
 .topology-agent-route > .route-role-label { order: 1; flex: 1 1 100%; min-width: 0; }
-/* Значок состояния теперь ВНУТРИ строки роли, слева от слова: как отдельный
-   элемент строки маршрута он уезжал на собственный ярус — метка роли занимает
-   всю ширину, — и «✓» повисал над словом PRIMARY, а «?» под словом FALLBACK.
-   Значок относится к роли, значит и стоять должен при ней. */
+/* The state icon is now INSIDE the role's line, to the left of the word: as
+   a separate element of the route's row it used to drift to its own tier —
+   the role's label spans the full width — and a "✓" hung above the word
+   PRIMARY while a "?" hung below the word FALLBACK. The icon belongs to the
+   role, so it should sit with it. */
 .topology-agent-route > .route-settings { order: 3; flex: 1 1 100%; }
-.topology-agent-route > code { order: 4; flex: 1 1 100%; }
-/* Селектор нарочно длиннее нужного: правило `.topology-agent span:not(.dot)`
-   задаёт 12px и по специфичности (0-2-1) бьёт короткое `.topology-agent-route >
-   .route-role-label` (0-2-0). Роль и адрес звонившего рисовались 12-м кеглем
-   вместо 9-го — та же история, что с min-height у кнопок: старое широкое
-   правило молча перебивает новое узкое. */
+.topology-agent-route > .route-ctx-line { order: 4; flex: 1 1 100%; }
+.topology-agent-route > code { order: 5; flex: 1 1 100%; }
+/* The selector is deliberately longer than it needs to be: the rule
+   `.topology-agent span:not(.dot)` sets 12px and, by specificity (0-2-1),
+   beats the shorter `.topology-agent-route > .route-role-label` (0-2-0). The
+   role and the caller's address were rendered at 12px instead of 9px — the
+   same story as the button min-height: an old, broad rule silently
+   overrides a new, narrow one. */
 .topology-agent .topology-agent-route > .route-role-label {
   display: flex; align-items: center; gap: 5px;
   font-size: 9px; text-transform: uppercase; letter-spacing: .06em;
   color: var(--muted);
 }
-/* Отдельной строки с адресом больше нет: адрес стоит на самом чипе. Правило
-   оставлено на случай, если <code> вернётся в строку маршрута. */
+/* There's no separate address row anymore: the address sits on the chip
+   itself. The rule is kept in case <code> returns to the route's row. */
 .topology-agent-route > code {
   font-size: 8.5px; color: var(--muted); overflow-wrap: anywhere;
   line-height: 1.2; opacity: .55;
 }
-/* Объявленное о маршруте — своя строка, которая ПЕРЕНОСИТСЯ. Пока чипы были
-   ячейками грида, четвёртый уезжал за край карточки и его просто не было
-   видно. */
+/* What's advertised about a route — its own row, which WRAPS. While the
+   chips were grid cells, a fourth one ran off the edge of the card and
+   simply wasn't visible. */
 .route-settings { display: flex; flex-wrap: wrap; gap: 3px 4px; min-width: 0; margin-top: 1px; }
 .route-settings > button { max-width: 100%; }
 
@@ -1450,6 +1458,11 @@ input[type="checkbox"] {
 }
 .batch-scale-btn:last-child { border-radius: 0 6px 6px 0; }
 .batch-scale-btn:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 12%, var(--field)); }
+/* 🎓 beside CTX_SIZE: the trained window as a button — the label is the
+   number, one press writes it into the field. Accent while the field holds
+   exactly that number, so the operator sees "this is the trained size". */
+.ctx-native-btn { font-variant-numeric: tabular-nums; font-weight: 500; }
+.ctx-native-btn.active { color: var(--accent); border-color: var(--accent); }
 
 .port-combo {
   position: relative;

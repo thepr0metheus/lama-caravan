@@ -1,31 +1,32 @@
 #!/usr/bin/env python3
-"""Снимок static/js/main.js — вход доски и standalone-канбана.
+"""Snapshot of static/js/main.js — the board's and the standalone kanban's entry point.
 
-Модуль — один обработчик DOMContentLoaded с двумя ветками. Снимок
-перехватывает его при импорте и вызывает сам; соседи — заглушки с записью
-вызовов, поэтому пинится ПОРЯДОК загрузки и ЧТО привязано, а не то, что
-делают соседи. Доска: язык до первого рендера, тема, онбординг, хук смены
-языка = renderAll, чип пользователя (GET /api/auth/me — чип только при
-включённом входе), кнопки заголовка и модалов, слушатели формы (пересчёт
-памяти только для полей из memoryEstimateFields), документные клавиши:
-Escape закрывает confirm → удалённый редактор → редактор ячейки в этом
-приоритете и снимает перетаскивание, Ctrl/⌘+Enter сохраняет открытый
-редактор; pointermove чистит drag-over и ведёт живой кабель, pointerup над
-входом роутера перецепляет прокси; resize/scroll перерисовывают кабели
-через rAF только на виде доски; клик-делегат (облако, закрытие редактора,
-сохранение с подтверждением для ячейки, подложка); focusout сбрасывает
-отложенный рендер через 60 мс; лоадер прячется, когда доска заполнена
-или через 15 с; отказ loadState — лоадер спрятан, состояние error, тост;
-после загрузки — статистика/цены/ошибки маршрутов и их интервалы.
-Канбан: свой хук языка (renderTopology), роутер из ?id= или default,
-не найден — сообщение и error, найден — ui-идентификаторы, вьюпорт из
-сохранённых позиций, монитор доски, ready.
+The module is a single DOMContentLoaded handler with two branches. The
+snapshot intercepts it at import time and fires it itself; neighbors are
+stubs recording their calls, so what's pinned is loading ORDER and WHAT gets
+bound, not what the neighbors do. The board: language before the first
+render, theme, onboarding, the language-change hook = renderAll, the user
+chip (GET /api/auth/me — the chip appears only with sign-in enabled), header
+and modal buttons, form listeners (memory recomputed only for fields in
+memoryEstimateFields), document-level keys: Escape closes confirm → the
+remote editor → the cell editor, in that priority, and cancels dragging,
+Ctrl/⌘+Enter saves an open editor; pointermove clears drag-over and drives
+the live cable, pointerup over a router input rewires the proxy;
+resize/scroll redraw cables through rAF only on the board view; the click
+delegate (cloud, closing the editor, save with confirmation for a cell, the
+backdrop); focusout resets the delayed render after 60ms; the loader hides
+once the board is populated, or after 15s; a loadState failure hides the
+loader, sets the error state, shows a toast; after loading — stats/pricing/
+route errors and their intervals. The kanban: its own language hook
+(renderTopology), a router from ?id= or the default, not found → a message
+and error, found → ui identifiers, a viewport from saved positions, the
+board monitor, ready.
 
-DOM — автосоздаваемые элементы по id (в index.html они есть все; список
-намеренно отсутствующих задаётся), словари селекторов, очередь таймеров с
-ручным продвижением, rAF синхронный.
+The DOM is auto-created elements by id (index.html has all of them; the
+deliberately-missing ones are listed), selector dicts, a timer queue advanced
+by hand, rAF is synchronous.
 
-Запуск: python3 scripts/test_js_main.py
+Run: python3 scripts/test_js_main.py
 """
 import json
 import os
@@ -175,8 +176,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

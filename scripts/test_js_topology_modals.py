@@ -1,25 +1,27 @@
 #!/usr/bin/env python3
-"""Снимок static/js/topology-modals.js — модалы доски и их пути записи.
+"""Snapshot of static/js/topology-modals.js — the board's modals and their write paths.
 
-Что здесь ценно пинить значением. Сетка расписания: правила → [7][24] → правила
-(первое правило побеждает, окно через полночь, склейка соседних часов и дней с
-одинаковым окном). Приоритеты: уровень по индексу, оттенок по уровню, порядок в
-модале (по приоритету, потом по порту), запись только ИЗМЕНИВШИХСЯ уровней и
-обнуление снятых. Очередь: проценты из правок поверх политики, per-proxy
-переопределения (null = сброс), таймлайны с «(default)» без таймаута. Детали
-клиента и агента: без менеджера / не достучались / ok, роли провайдеров из
-ссылок primary/fallback. Логи: сводка строки и разбор деталей.
+What's worth pinning by value here. The schedule grid: rules → [7][24] →
+rules (the first rule wins, a window crossing midnight, merging adjacent
+hours and days that share a window). Priorities: a level from its index, a
+shade from its level, ordering in the modal (by priority, then by port),
+writing only the CHANGED levels and zeroing out cleared ones. Queue:
+percentages from edits layered over policy, per-proxy overrides (null =
+reset), timelines with "(default)" for no timeout. Client and agent details:
+no manager / unreachable / ok, provider roles from primary/fallback
+references. Logs: a row summary and parsed details.
 
-`savePriorityModal` когда-то после записи обращался к `policyChanges`, которого
-в этой функции нет, — ReferenceError после уже прошедшей записи; снимок сначала
-запинил это как есть, следующий коммит починил и переписал пин.
+`savePriorityModal` once reached for `policyChanges` after saving, which
+doesn't exist in that function — a ReferenceError after the save had already
+gone through; the snapshot pinned this as-is first, and the next commit
+fixed it and rewrote the pin.
 
-Модуль настоящий (scripts/_js_harness.mjs). Флаги открытых модалов живут в
-`topology-dnd` (заглушка) — задаются через globalThis.__stubValues ДО импорта;
-константы дней недели из `canvas` — так же, чтобы `indexOf` был на массиве, а
-не на функции-заглушке.
+The module is real (scripts/_js_harness.mjs). The open-modal flags live in
+`topology-dnd` (a stub) — set via globalThis.__stubValues BEFORE import; the
+weekday constants come from `canvas` the same way, so `indexOf` runs on an
+array, not on a stub function.
 
-Запуск: python3 scripts/test_js_topology_modals.py
+Run: python3 scripts/test_js_topology_modals.py
 """
 import json
 import os
@@ -74,12 +76,12 @@ const out = {};
 """
 
 PINS = [
-    # ── чистые помощники ──
+    # ── pure helpers ──
     ("hue_by_level", '', '[m.priorityHueForLevel(1), m.priorityHueForLevel(10), m.priorityHueForLevel(0), m.priorityHueForLevel("x"), m.priorityHueForLevel(11)]', '[220,22,220,220,22]',
      "оттенок: 1 → 220, 10 → 22; мусор и выход за края — зажаты"),
     ("level_by_index", '', '[m.priorityLevelForIndex(0), m.priorityLevelForIndex(9), m.priorityLevelForIndex(12)]', '[10,1,1]', "уровень: первый в списке — 10, десятый — 1, дальше — 1"),
     ("fmt_sec", '', '[m._fmtSec(0), m._fmtSec(59), m._fmtSec(60), m._fmtSec(90), m._fmtSec(undefined)]', '["0s","59s","1m","1m 30s","0s"]', "секунды: 0s / 59s / 1m / 1m 30s; пусто — 0s"),
-    # ── расписание: правила → сетка ──
+    # ── schedule: rules → grid ──
     ("rules_to_grid_window", '',
      '(g => [g[0][8], g[0][9], g[0][17], g[0][18], g[1][9], g[2][9]])(m.scheduleRulesToGrid(ROUTER()))',
      '["","cb:terra","cb:terra","","cb:terra",""]', "окно 09:00–17:59 по пн/вт: часы 9..17 закрашены, 8 и 18 — нет, среда пуста"),
@@ -96,7 +98,7 @@ PINS = [
      '(g => g.flat().filter(Boolean).length)(m.scheduleRulesToGrid({ rules: { schedule: [{ days: ["mon"], from: "xx", to: "12:59", output: "a" }, { days: ["someday"], from: "09:00", to: "12:59", output: "b" }] } }))',
      '0', "negative: нечисловой час и неизвестный день — правило пропущено без исключения"),
     ("rules_to_grid_null_router", '', 'm.scheduleRulesToGrid(null).flat().filter(Boolean).length', '0', "negative: без роутера — пустая сетка"),
-    # ── расписание: сетка → правила ──
+    # ── schedule: grid → rules ──
     ("grid_to_rules_merges_hours_and_days", '',
      'm.scheduleGridToRules(G([[0, 9, 17, "a"], [1, 9, 17, "a"], [2, 0, 23, "b"]]))',
      '[{"days":["mon","tue"],"from":"09:00","to":"17:59","output":"a"},{"days":["wed"],"from":"00:00","to":"23:59","output":"b"}]',
@@ -109,12 +111,12 @@ PINS = [
     ("schedule_round_trip", '',
      '(r => m.scheduleGridToRules(m.scheduleRulesToGrid({ rules: { schedule: r } })))([{ days: ["mon", "tue"], from: "09:00", to: "17:59", output: "cb:terra" }])',
      '[{"days":["mon","tue"],"from":"09:00","to":"17:59","output":"cb:terra"}]', "правила → сетка → правила: каноническое правило возвращается тем же"),
-    # ── расписание: модал ──
+    # ── schedule: the modal ──
     ("schedule_modal_cells_and_palette", '',
      '(h => [(h.match(/data-sched-cell="1"/g) || []).length, (h.match(/sched-cell painted/g) || []).length, (h.match(/data-sched-paint="/g) || []).length, (h.match(/sched-cell painted"[^>]*background:#123456/g) || []).length])(m.renderTopologyScheduleModal())',
      '[168,18,3,18]', "7×24 клеток; закрашены 2 дня × 9 часов; палитра = выходы + ластик; цвет из canvas на каждой закрашенной"),
     ("schedule_modal_router_missing", 'st.setTopology(TOPO({ routers: [] }));', 'm.renderTopologyScheduleModal()', '""', "negative: роутер модала не найден — пустая строка"),
-    # ── детали клиента ──
+    # ── client details ──
     ("client_detail_closed", '', 'm.renderTopologyClientDetail()', '""', "negative: детали не открыты — пусто"),
     ("client_detail_no_manager", 'm.openClientDetail("box-a", "Hermes");',
      '(h => [h.includes("OpenClaw config — Box A · Hermes"), h.includes("No OpenClaw config manager registered for <code>box-a</code>")])(m.renderTopologyClientDetail())',
@@ -130,7 +132,7 @@ PINS = [
      'await (async () => { await m.refreshClientDetail(); return [calls()[0].path, st.topology.openclawConfigs["box-a"].data.gateway.port, m.topologyClientDetailLoading]; })()',
      '["/api/openclaw-config?client=box-a&refresh=1",1,false]', "обновление: GET с refresh=1, ответ ложится в topology, флаг загрузки снят"),
     ("refresh_client_detail_closed_is_noop", '', 'await (async () => { await m.refreshClientDetail(); return calls().length; })()', '0', "negative: детали закрыты — запроса нет"),
-    # ── конфиг агента ──
+    # ── agent config ──
     ("agent_config_closed", '', 'm.renderTopologyAgentConfigModal()', '""', "negative: режим пуст — пусто"),
     ("agent_config_ports_mode_roles", 'globalThis.__fetchReply["/api/topology/agent-openclaw?client=box-a&agent=hermes"] = { ok: true, path: "/home/x/.openclaw/openclaw.json", data: { agents: { defaults: { model: { primary: "hemi/gpt", fallbacks: ["spare/mini"] } } }, models: { providers: { hemi: { baseUrl: "http://ctl:23001/v1" }, spare: { baseUrl: "http://ctl:23002/v1" }, other: { baseUrl: "http://x" } } } } };',
      'await (async () => { await m.openAgentConfigModal("box-a", "hermes", "ports"); const h = m.renderTopologyAgentConfigModal(); return [h.includes("Hermes — .openclaw/openclaw.json"), h.includes("<strong>hemi</strong>\\n          <span class=\\"proxy-role-label\\">primary</span>"), h.includes("<strong>spare</strong>\\n          <span class=\\"proxy-role-label\\">fallback</span>"), h.includes("<strong>other</strong>\\n          \\n"), m.topologyAgentConfigLoading]; })()',
@@ -138,7 +140,7 @@ PINS = [
     ("agent_config_raw_mode_and_error", 'globalThis.__fetchReply["/api/topology/agent-openclaw?client=box-a&agent=hermes"] = { __status: 502, error: "scout down" };',
      'await (async () => { await m.openAgentConfigModal("box-a", "hermes", "raw"); return [m.renderTopologyAgentConfigModal().includes("topology-incident-line failed\\">scout down"), m.topologyAgentConfigResult.ok]; })()',
      '[true,false]', "negative: отказ скаута — строка ошибки, результат ok:false"),
-    # ── очередь и приоритеты: рендер ──
+    # ── queue and priorities: rendering ──
     ("queue_modal_closed", '', 'm.renderTopologyQueuePriorityModal()', '""', "negative: модал очереди закрыт — пусто"),
     ("queue_modal_policy_and_edits", 'm.openQueuePriorityModal(); m.topologyQueuePriorityEdits.cloudFallbackPct = 30;',
      '(h => [h.includes("qp-handle-pct\\">30%"), h.includes("qp-handle-pct\\">50%"), h.includes("qp-handle-pct\\">85%"), h.includes("hermes · wait_timeout=1800s → ↑☁ 540s · 👑 900s · ✕ 1530s")])(m.renderTopologyQueuePriorityModal())',
@@ -161,7 +163,7 @@ PINS = [
      '[2,true,true,true]', "строки: уровень 10 первому (тёплый оттенок 22), 9 второму (44), endpoint :port → upstream"),
     ("priority_modal_empty", 'st.setTopology(TOPO({ proxies: [{ id: "x", port: 1, label: "x" }] })); m.openPriorityModal("");',
      'm.renderTopologyPriorityModal().includes("No priority routes. Close and click 👑 on a proxy to add one.")', 'true', "negative: без приоритетных прокси — подсказка"),
-    # ── очередь: запись ──
+    # ── queue: writing ──
     ("save_queue_nothing_changed_closes", 'm.openQueuePriorityModal();',
      'await (async () => { await m.saveQueuePriorityModal(); return [calls().length, m.topologyQueuePriorityModalOpen, toastText()]; })()', '[0,false,""]', "negative: без правок — закрыть, ни запроса, ни тоста"),
     ("save_queue_global_policy_merged", 'm.openQueuePriorityModal(); m.topologyQueuePriorityEdits.cloudFallbackPct = 30; m.topologyQueuePriorityEdits.preemptEnabled = false;',
@@ -172,7 +174,7 @@ PINS = [
      'await (async () => { await m.saveQueuePriorityModal(); const c = calls(); return [c.map((x) => x.path), c[0].body]; })()',
      '[["/api/agent-proxies/route-policy","/api/queue-thresholds/recalc"],{"port":23005,"queueAbortPct":70,"cloudFallbackPct":null}]',
      "per-proxy: только известные ключи, null уходит как сброс, пустая правка не шлётся; порт — числом"),
-    # ── приоритеты: запись ──
+    # ── priorities: writing ──
     ("save_priority_no_change_closes", 'st.setTopology(TOPO({ proxies: [{ id: "ctl:proxy:23003", port: 23003, priority: 10 }, { id: "ctl:proxy:23001", port: 23001, priority: 9 }] })); m.openPriorityModal("");',
      'await (async () => { await m.savePriorityModal(); return [calls().length, m.topologyPriorityModalOpen]; })()', '[0,false]', "negative: порядок не менялся — ни запроса"),
     ("save_priority_writes_changed_levels_and_toasts", 'm.openPriorityModal(""); m.topologyPriorityOrder.reverse();',
@@ -182,7 +184,7 @@ PINS = [
     ("save_priority_removed_gets_zero", 'm.openPriorityModal(""); m.topologyPriorityOrder.pop();',
      'await (async () => { try { await m.savePriorityModal(); } catch (e) {} return calls().map((x) => x.body); })()',
      '[{"port":23001,"priority":0},{"port":23003,"priority":10}]', "снятый с приоритета получает 0, оставшийся — новый уровень"),
-    # ── прочие пути записи ──
+    # ── other write paths ──
     ("route_policy_patch_known_proxy", '', 'await (async () => { await m.setTopologyProxyRoutePolicy("ctl:proxy:23005", { priority: 4 }); return [calls()[0].path, calls()[0].body, toastText()]; })()',
      '["/api/agent-proxies/route-policy",{"port":23005,"priority":4},"proxy policy updated"]', "патч политики маршрута: порт из прокси плюс патч"),
     ("route_policy_unknown_proxy_noop", '', 'await (async () => { await m.setTopologyProxyRoutePolicy("ctl:proxy:29999", { priority: 4 }); await m.stopTopologyProxy("ctl:proxy:29999"); return calls().length; })()', '0', "negative: неизвестный прокси — ни запроса"),
@@ -193,7 +195,7 @@ PINS = [
     ("alias_empty_resets_cancel_sends_nothing", 'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "   ";',
      'await (async () => { await m.editTopologyClientAlias("box-a", "Box A"); const a = [calls()[0].body.name, toastText()]; globalThis.__stubReturns["dialogs.appPrompt"] = async () => null; await m.editTopologyClientAlias("box-a", "Box A"); return [...a, calls().length]; })()',
      '["","client name reset",1]', "пустое имя — сброс; отмена — ни запроса"),
-    # ── логи ──
+    # ── logs ──
     ("log_summary", '', 'm.topologyLogSummary({ timeIso: "10:00", event: "proxy", item: { route: "hermes", port: 23001, status: 502, error: "upstream down" } })', '"10:00 · proxy · hermes · :23001 · status 502 · upstream down"', "сводка строки лога — поля через «·», пустые пропущены"),
     ("log_summary_empty", '', 'm.topologyLogSummary({})', '""', "negative: пустая строка лога — пусто"),
     ("log_detail_sections", '', '(h => [h.includes("Upstream error body"), h.includes("&quot;code&quot;: 400"), h.includes("model: gpt-5.6"), h.includes("<td>1234 ms</td>"), h.includes("waited: 800 m"), h.includes("Raw JSON"), h.includes("log-detail-value")])(m.renderTopologyLogDetail({ upstreamErrorBody: "{\\"code\\":400}", cloudMeta: { model: "gpt-5.6", toolCount: 2 }, item: { status: 400, error: "bad", durationMs: 1234, queue: { queuedMs: 800 } } }))',
@@ -238,8 +240,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

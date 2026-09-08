@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
-"""Живой патчер доски не пересказывает то, что уже говорит строитель карточки.
+"""The board's live patcher must not retell what the card builder already says.
 
-Доска рисуется дважды: строитель собирает карточку клиента, а патчер на каждом
-тике опроса переписывает в ней живые куски, не трогая остального. Пока один и
-тот же факт собирают оба, они расходятся — и расходятся молча.
+The board is drawn twice: the builder assembles a client's card, and the
+patcher rewrites its live pieces on every poll tick, without touching the
+rest. As long as both of them compute the same fact, they drift apart — and
+they drift silently.
 
-Так и вышло с возрастом ответа. Строитель научили говорить «не отвечал» тому,
-кто НИКОГДА не отвечал (раньше он печатал «?s ago», то есть утверждал, что
-ответ был, просто время неизвестно). Патчер остался со своим шаблоном — и
-починка держалась ровно один кадр: первый же тик возвращал «?s ago». Снимки
-этого не видели, потому что пины стоят на строителе, а патчер в них не
-загружается.
+That's exactly what happened with response age. The builder was taught to
+say "never answered" to a client that NEVER answered (it used to print "?s
+ago", claiming an answer had happened, just at an unknown time). The patcher
+kept its own template — and the fix held for exactly one frame: the very
+next tick brought back "?s ago". Snapshots never saw it, because the pins sit
+on the builder, and the patcher isn't loaded by them.
 
-Гвард падает ДВУМЯ способами: когда факт снова собирают где-то ещё, и когда
-единственный источник перестаёт его собирать — тогда охранять нечего.
+The guard fails TWO ways: when a fact gets computed somewhere else again, and
+when the sole source stops computing it — then there's nothing left to guard.
 
-Запуск: python3 scripts/check_board_live_patch.py
+Run: python3 scripts/check_board_live_patch.py
 """
 import re
 import sys
@@ -23,8 +24,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-#: Факт → (как он выглядит в коде, единственный файл-источник, имя функции).
-#: Ищется ШАБЛОН СБОРКИ, а не слова: чтение того же факта никому не запрещено.
+#: Fact → (what it looks like in code, its sole source file, the function's name).
+#: The COMPUTATION PATTERN is searched for, not words: reading the same fact
+#: elsewhere is not forbidden.
 SHARED_FACTS = {
     "возраст ответа клиента": (
         re.compile(r"`\$\{[^`]*\}s ago`"),
@@ -33,7 +35,7 @@ SHARED_FACTS = {
     ),
 }
 
-#: Файлы, которые рисуют доску: и строитель, и патчер, и всё между ними.
+#: Files that draw the board: the builder, the patcher, and everything in between.
 BOARD_FILES = ("static/js/topology-render.js", "static/js/topology-activity.js",
                "static/js/topology-proxies.js", "static/js/remote-cells.js")
 

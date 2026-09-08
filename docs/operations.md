@@ -323,8 +323,8 @@ seconds, up to ~20 s on huge prompts).
 
 ### Инструменты переписывания
 
-`scripts/capture_golden.py` снимает поведение (34 эталона, 105 флагов,
-116/116 полей конфига), `scripts/test_golden.py` сверяет с ним — он первый в
+`scripts/capture_golden.py` снимает поведение (34 эталона, 120 флагов,
+135/135 полей конфига), `scripts/test_golden.py` сверяет с ним — он первый в
 `deploy.sh` и главный тест на всё переписывание.
 
 `scripts/diff_behaviour.py` гоняет старую и новую реализацию рядом на тех же

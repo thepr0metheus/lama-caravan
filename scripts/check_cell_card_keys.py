@@ -30,15 +30,27 @@ SOURCE = ROOT / "caravan/admin/topology.py"
 #: oversight. Anything outside this list is a drift.
 DECLARED = {
     # Only a live process has these — they are measured from something running.
-    "ctxUsed": "живое: занятый контекст меряется у работающего процесса",
-    "modelReady": "живое: отвечает ли движок именно сейчас",
-    "uptimeSec": "живое: сколько процесс уже работает",
+    "ctxUsed": "live: the context in use is measured from the running process",
+    "modelReady": "live: whether the engine is answering right now",
+    "uptimeSec": "live: how long the process has been running",
     # Only a stored slot has these — they are read from the record, and a live
     # cell's card is built before the slot is consulted.
-    "artifact": "слот: пусковые файлы записаны при Apply, у живой ветки их нет под рукой",
-    "modelSizeBytes": "слот: размер файла модели с диска",
-    "pids": "слот: список процессов юнита",
-    "vllmStats": "слот: статистика vLLM из его собственного эндпоинта",
+    "artifact": "slot: launch files are recorded at Apply — the live branch has none on hand",
+    "modelSizeBytes": "slot: the model file's size, from disk",
+    "pids": "slot: the unit's process list",
+    "crash": "slot: cell crashes come from the controller's systemd — the live "
+             "branch (client cells and the scout's report) has no such source",
+    "vllmStats": "slot: vLLM statistics from its own endpoint",
+    "modelDiskNewer": "slot: a file's mtime against the unit's start time — both "
+                       "numbers exist only for a controller cell; a client "
+                       "cell's file sits on its own host",
+    "modelFresh": "slot: the model watcher's report — about files in the "
+                  "CONTROLLER's directory; a client cell's weights sit on its "
+                  "own host, and there's nothing here to check them against",
+    "launchFresh": "slot: the same, for ALL launch files (model, mmproj, "
+                   "draft) — and for the same reason, only for a controller cell",
+    "launchDiskNewer": "slot: each launch file's mtime against the unit's "
+                       "start time — both numbers exist only for a controller cell",
 }
 
 

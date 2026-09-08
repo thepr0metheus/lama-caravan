@@ -12,7 +12,8 @@ import uuid as _uuid
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlsplit
 
-from caravan.common.context_window import served_window
+from caravan.common.request_kind import is_inference_request
+from caravan.common.context_window import served_window, effective_window, route_window_inputs
 from caravan.proxy.cloud_auth import (
     CLOUD_PROVIDER_AUTH,
     load_cloud_account,
@@ -21,8 +22,9 @@ from caravan.proxy.cloud_auth import (
     load_provider_secret,
 )
 from caravan.proxy.config import current_config, live_route_for_port
-from caravan.proxy.graph import apply_router, apply_router_spill
+from caravan.proxy.graph import PLAIN_REQUEST_CTX, apply_router, apply_router_spill
 from caravan.proxy.events import write_proxy_event
+from caravan.proxy.output_health import output_health
 from caravan.proxy.paths import BODY_CAPTURE_LIMIT, DEFAULT_POLICY, HOP_HEADERS, STREAM_DONE_MARKER
 from caravan.proxy.queue_admission import (
     ProxyClientDisconnected,
@@ -61,6 +63,30 @@ from caravan.proxy.translate import (
 )
 
 
+# Only an inference request earns a health verdict from an HTTP status and a
+# replay on the backup exit: a client's discovery probe — GET /api/v1/models,
+# /v1/internal/model/info, "/" — draws a 404 from llama.cpp for a path it never
+# had, which is no word about the model, yet it once marked a healthy cell dead
+# and sent the probe to a cloud block that answered 405 (2026-09-06). A connect
+# failure stays a verdict for any request: a refused socket is the exit's own
+# fact. The rule itself lives in caravan/common/request_kind.py — the
+# controller's incident panel judges the same answers by the same words.
+
+
+def _rescue_chain_text(trail, skipped):
+    """The exits a request passed before the one answering now, as one line.
+
+    Replayed exits come from the rescue trail with their status and words;
+    exits skipped on a fresh dead verdict come first, since they were never
+    asked. Empty when the request went straight to its answer.
+    """
+    parts = [f"{dead}: skipped, known dead" for dead in (skipped or [])]
+    for hop in (trail or []):
+        parts.append(f"{hop.get('from')}: {hop.get('status')}"
+                     + (f" {hop.get('reason')}" if hop.get("reason") else ""))
+    return "; ".join(parts)
+
+
 def _upstream_failure_summary(status, body):
     """(human reason, short kind) for an upstream that answered with an error.
 
@@ -94,16 +120,23 @@ def _upstream_failure_summary(status, body):
     return reason, kind[:60]
 
 
-def _with_context_window(body):
-    """Copy the served context window to the top level of each model entry.
+def _publish_context_window(body, route):
+    """Publish each entry's context window under the two widely-read names.
 
     The clients that read a context window disagree on the name as much as the
     servers do — Continue reads `max_model_len`, LibreChat reads
     `context_length`, and llama.cpp's own `meta.n_ctx` is read by none of the
-    nine surveyed — so the number is published under both widely-read names,
-    beside the nested one rather than instead of it. Nothing is invented: an
-    entry whose server reported no size keeps no size, because a guessed context
-    is worse than an absent one (docs/why.md).
+    nine surveyed — so the figure is published under both, beside the nested
+    one rather than instead of it: the nested value is a fact about the running
+    server and is never rewritten.
+
+    The figure is `effective_window(limit, served)`: the operator's limit for
+    this port against what the server itself reported for the entry, the
+    smaller of the two unless the operator chose the model's own. An entry with
+    neither keeps no size, because a guessed context is worse than an absent one
+    (docs/why.md). Without a limit an upstream's own top-level value is left
+    alone — this republishes what the server said, it does not correct it; with
+    a limit the operator's decision is the answer and both names carry it.
 
     Returns the re-serialised body, or the original bytes untouched when it is
     not a model list this can safely read.
@@ -114,17 +147,18 @@ def _with_context_window(body):
         return body
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
         return body
+    limit, prefer_model = route_window_inputs(route)
     touched = False
     for entry in payload["data"]:
         if not isinstance(entry, dict):
             continue
-        window = served_window(entry)
+        window = effective_window(limit, served_window(entry), prefer_model)
         if window is None:
             continue
         for name in ("context_length", "max_model_len"):
-            # An upstream that already answers under this name keeps its own
-            # value: this republishes what the server said, it does not correct it.
-            if name not in entry:
+            if limit is None and name in entry:
+                continue
+            if entry.get(name) != window:
                 entry[name] = window
                 touched = True
     if not touched:
@@ -148,44 +182,49 @@ CLOUD_ABSENT_PATHS = frozenset({
 })
 
 
-def _override_context_window(body, window):
-    """Проставить окно оператора поверх того, что отдал апстрим.
-
-    Под обоими именами, которые читают клиенты, — теми же, что и
-    `_with_context_window`: назвать одно и промолчать о втором значит отдать
-    половине клиентов число, а половине ничего. Вложенное `meta.n_ctx` не
-    трогается: там ФАКТ о запущенном сервере, а не решение оператора.
-    """
-    try:
-        payload = json.loads(body)
-        rows = payload.get("data")
-        if not isinstance(rows, list):
-            return body
-        for row in rows:
-            if isinstance(row, dict):
-                row["context_length"] = row["max_model_len"] = window
-        return json.dumps(payload).encode("utf-8")
-    except Exception:
-        return body
-
-
 def _route_model_name(route):
-    """Имя, под которым ЭТОТ порт объявляет свою модель, или "".
+    """The name THIS port advertises its model under, or "".
 
-    Клиент спрашивает `/v1/models` и ищет там СВОЙ id. Не найдя — берёт
-    встроенное умолчание (у одного это 256k), и окно, честно опубликованное
-    под именем апстрима, до него не доходит вовсе. Имя задаётся оператором на
-    маршруте и приезжает сюда той же копией, что и окно.
+    A client asks `/v1/models` and looks up ITS OWN id there. Not finding it,
+    it falls back to its built-in default (256k for one of them), and a
+    window honestly published under the upstream's name never reaches it at
+    all. The name is set by the operator on the route and arrives here as the
+    same copy as the window.
+
+    The open lock (`modelNameAuto`) lifts the operator's name without erasing
+    it: the port advertises the model under whatever name it calls itself —
+    the upstream's on a llama output, the block's model on a cloud one. The
+    operator asked specifically to lift it, not to forget it: closing the
+    lock again needs no retyping the name.
     """
+    if (route or {}).get("modelNameAuto"):
+        return ""
     return str((route or {}).get("modelName") or "").strip()
 
 
-def _rename_models(body, name):
-    """Переименовать модели в ответе `/v1/models` под объявленное имя.
+#: The fields where llama.cpp names the model in the Ollama-compatible
+#: `models` list. Both are the same name, and both must be renamed.
+_OLLAMA_NAME_FIELDS = ("name", "model")
 
-    Переименовывается ЕДИНСТВЕННАЯ запись: порт объявляет одну модель, и если
-    апстрим вернул список, выбирать за клиента, какая из них «та самая», мы не
-    вправе — тогда ответ остаётся как есть.
+
+def _rename_models(body, name):
+    """Rename the models in a `/v1/models` response to the advertised name.
+
+    Renames a SINGLE entry: a port advertises one model, and if the upstream
+    returned a list, we have no right to pick on the client's behalf which
+    one is "the" model — the response is then left as-is.
+
+    There are TWO lists in the response: OpenAI's `data` and the
+    Ollama-compatible `models`, and they name the same model twice. Only the
+    first used to be renamed, so a closed lock held the name for only half
+    of its readers: a client polling the port the Ollama way (LAN scanners do
+    this) saw the model's filename instead. Found live on 2026-09-07 at
+    :23001 — the card showed `hemi-proxy` with the lock closed, while
+    `models[0].name` reported `qwen3.8-27b-q4`.
+
+    The old name isn't lost: llama.cpp puts it in `aliases`, and a request
+    against it keeps working. The lock changes HOW the port calls itself, not
+    what it answers to.
     """
     if not name:
         return body
@@ -193,35 +232,23 @@ def _rename_models(body, name):
         payload = json.loads(body.decode("utf-8"))
     except Exception:
         return body
-    data = payload.get("data") if isinstance(payload, dict) else None
-    if not isinstance(data, list) or len(data) != 1 or not isinstance(data[0], dict):
+    if not isinstance(payload, dict):
         return body
-    if data[0].get("id") == name:
+    changed = False
+    data = payload.get("data")
+    if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict):
+        if data[0].get("id") != name:
+            data[0]["id"] = name
+            changed = True
+    models = payload.get("models")
+    if isinstance(models, list) and len(models) == 1 and isinstance(models[0], dict):
+        for field in _OLLAMA_NAME_FIELDS:
+            if field in models[0] and models[0][field] != name:
+                models[0][field] = name
+                changed = True
+    if not changed:
         return body
-    data[0]["id"] = name
     return json.dumps(payload).encode("utf-8")
-
-
-def _route_context_window(route):
-    """Окно контекста, заданное оператором ДЛЯ ЭТОГО порта, или None.
-
-    Число модели — одно на всех, кто в неё маршрутизирует; здесь живёт то,
-    сколько разрешено этому потребителю, и оно побеждает. Задаётся оно на
-    клиентской прокси-ячейке (назначение в документе контроллера), а сюда
-    приезжает копией на маршруте: процесс прокси документа контроллера не
-    видит — он читает только свои файлы (см. reconcile_proxy_metadata).
-
-    Включённая галка «брать от модели» означает ОТКАЗ от своего числа, поэтому
-    возвращается None и в дело идёт модельное. Ноль и мусор — тоже None: клиент
-    прочитал бы ноль как настоящий предел.
-    """
-    if (route or {}).get("contextAuto"):
-        return None
-    try:
-        window = int(route.get("contextLength") or 0)
-    except (TypeError, ValueError):
-        return None
-    return window if window > 0 else None
 
 
 def _cloud_model_entry(route):
@@ -237,23 +264,19 @@ def _cloud_model_entry(route):
         "created": int(time.time()),
         "owned_by": (provider.get("type") if provider else None) or "cloud",
     }
-    # Stated by the operator on the model block, or last reported by the
-    # account's own catalogue. Omitted when neither knows: several providers
-    # publish no window at all, and a guessed one is worse than none
-    # (docs/why.md).
-    window = (provider or {}).get("contextLength")
-    if isinstance(window, int) and window > 0:
-        entry["context_length"] = window
-        entry["max_model_len"] = window
-    # THIS port's own figure wins over the block's, and it is applied here
-    # rather than at the caller — the promise above ("shared, so the two can
-    # never disagree") held only for the id and the owner: /v1/models applied
-    # the operator's window afterwards and retrieve-model did not, so one port
-    # answered 32768 to a list and 200000 to a lookup of the same model.
-    own = _route_context_window(route)
-    if own is not None:
-        entry["context_length"] = entry["max_model_len"] = own
-    # Имя оператора побеждает имя блока: клиент ищет в ответе СВОЙ id.
+    # The window the block stands for — stated by the operator on the model
+    # block, or the provider's reported figure when they chose that (both
+    # resolved by load_cloud_provider) — against THIS port's own limit, by the
+    # same rule the llama path applies. Omitted when neither knows: several
+    # providers publish no window at all, and a guessed one is worse than none
+    # (docs/why.md). Applied here rather than at the caller so that /v1/models
+    # and retrieve-model can never disagree: they once answered 32768 to a list
+    # and 200000 to a lookup of the same model.
+    limit, prefer_model = route_window_inputs(route)
+    window = effective_window(limit, (provider or {}).get("contextLength"), prefer_model)
+    if window is not None:
+        entry["context_length"] = entry["max_model_len"] = window
+    # The operator's name wins over the block's: a client looks for ITS id.
     name = _route_model_name(route)
     if name:
         entry["id"] = name
@@ -623,6 +646,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
             _rescue_refs = list(route.get("rescueRefs") or [])
             _rescue_hops = 0
             _rescue_trail = []
+            # A discovery probe is answered by the exit it reached, as it came:
+            # no replay elsewhere, no verdict from its status (see
+            # caravan/common/request_kind.py).
+            _inference_request = is_inference_request(self.command, parsed.path)
+            if not _inference_request:
+                _rescue_refs = []
             while True:
                 _conn_exc = None
                 upstream = None
@@ -841,6 +870,16 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 write_proxy_event("upstream_response", route_label=route["label"], request_id=request_id, status=status, contentType=content_type,
                                   upstreamErrorBody=upstream_error_body if upstream_error_body else None,
                                   cloudMeta=cloud_meta or None)
+                # What this answer says about the OUTPUT itself — a verdict the
+                # backup node reads before the next request and the board
+                # draws (output_health.py). A request-specific 4xx counts as
+                # alive: the output answered.
+                if _conn_exc is not None:
+                    output_health.note_error(route.get("routedOutputId"), kind="connect",
+                                             message=str(_conn_exc)[:200])
+                elif _inference_request:
+                    output_health.note_status(route.get("routedOutputId"), status,
+                                              message=(upstream_error_body or "")[:200])
                 # ── onError rescue: replay the request down the backup exit ──
                 if (status >= 400 and _rescue_refs and _rescue_hops < 3
                         and bytes_out == 0 and chunks == 0 and not _client_gone[0]):
@@ -864,7 +903,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             "from": str(route.get("routedOutputId")
                                         or f"{route.get('upstreamHost')}:{route.get('upstreamPort')}"),
                             "status": int(status),
+                            # The words of the exit that failed, short: the
+                            # client's error names the chain (see below).
+                            "reason": _upstream_failure_summary(status, upstream_error_body)[0][:120],
                         })
+                        # The skip that started this chain belongs to the
+                        # whole request, not to the leg that made it.
+                        _newr["deadSkipped"] = list(route.get("deadSkipped") or []) + list(_newr.get("deadSkipped") or [])
                         route = _newr
                         route["label"] = route.get("label") or self.agent_name
                         route_is_cloud = str(route.get("upstreamType") or "llama") == "cloud"
@@ -1028,6 +1073,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         if key.lower() not in HOP_HEADERS:
                             self.send_header(key, value)
                     self.send_header("Connection", "close")
+                    # The body is the answering exit's own; the exits before
+                    # it — skipped or replayed on — travel in a header, so a
+                    # relayed error never hides the chain that led to it.
+                    _chain = _rescue_chain_text(_rescue_trail, route.get("deadSkipped"))
+                    if _chain:
+                        self.send_header("X-Agent-Proxy-Chain", _chain[:900])
                     if upstream_error_raw:
                         # Already read the error body for logging — send it with correct length
                         self.send_header("Content-Length", str(len(upstream_error_raw)))
@@ -1141,6 +1192,16 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 error_kind = "client_disconnected"
             else:
                 error = str(exc)
+                # A failed replay must not hide what it was replaying for. The
+                # client saw "[Errno 111] Connection refused" and never learned
+                # that main had answered 429 first, nor which exit refused
+                # (an agent's own log, 2026-09-06). Name the chain: the exit
+                # that failed now, then every exit before it — replayed on, or
+                # skipped on a fresh dead verdict.
+                _chain = _rescue_chain_text(locals().get("_rescue_trail"), route.get("deadSkipped"))
+                if _chain and not headers_sent:
+                    _here = str(route.get("routedOutputId") or f"{route.get('upstreamHost')}:{route.get('upstreamPort')}")
+                    error = f"{_here}: {error} — after {_chain}"
                 # client_present=True is earned here, not assumed. Every write to
                 # the client goes through _client_write, which flags a failed
                 # write as the client leaving before re-raising; the heartbeat
@@ -1229,6 +1290,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
             # this agent suddenly answer through the cloud".
             if _rescue_trail:
                 result["rescued"] = {"hops": len(_rescue_trail), "trail": _rescue_trail}
+            # Likewise a main exit skipped on a fresh dead verdict: the record
+            # says the request went down the backup at once, and why.
+            if route.get("deadSkipped"):
+                result["skippedDead"] = list(route.get("deadSkipped"))
             result["providerId"] = str(route.get("providerId") or "")
             result["cloudAccountId"] = str(route.get("cloudAccountId") or "")
             result["model"] = str((req_summary or {}).get("model") or "")
@@ -1248,6 +1313,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
             # exceptions above, so filling them here takes nothing away.
             if status >= 400 and not error and not error_kind:
                 error, error_kind = _upstream_failure_summary(status, upstream_error_body)
+            # The exits this answer came AFTER. On the exception path the chain
+            # is already inside the error text; a RELAYED error carried it only
+            # in a response header, so the journal — and every panel reading it
+            # — showed the last word and not the story. A local cell refusing
+            # with 502 and the cloud then answering 429 was recorded as "usage
+            # limit reached", which names the wrong culprit (2026-09-06).
+            _chain = _rescue_chain_text(_rescue_trail, route.get("deadSkipped"))
+            if _chain:
+                result["chain"] = _chain[:900]
             finish_active(str(route["port"]), request_id, result)
             write_proxy_event("finished", route_label=route["label"], request_id=request_id, item=result, status=status, error=error, errorKind=error_kind)
 
@@ -1308,8 +1382,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         # a GET carries no model, no token count and is neither audio nor
         # embeddings, so the graph answers with the output a plain chat request
         # would reach.
-        route = apply_router(route, current_config(),
-                             ctx={"model": "", "maxTokens": None, "audio": False, "embeddings": False})
+        route = apply_router(route, current_config(), ctx=dict(PLAIN_REQUEST_CTX))
         upstream_type = str(route.get("upstreamType") or "llama")
         if route.get("unrouted") and upstream_type != "cloud":
             reason = route["unrouted"]
@@ -1338,10 +1411,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "type": "upstream_unavailable"}}).encode("utf-8"))
             return
         if status == 200:
-            body = _with_context_window(body)
-            own = _route_context_window(route)
-            if own is not None:
-                body = _override_context_window(body, own)
+            body = _publish_context_window(body, route)
             body = _rename_models(body, _route_model_name(route))
         self._send_bytes(status, body, ctype)
 

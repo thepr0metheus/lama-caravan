@@ -1,24 +1,27 @@
 #!/usr/bin/env python3
-"""Снимок static/js/routers.js — путь ЗАПИСИ графа маршрутизации и карточки выходов.
+"""Snapshot of static/js/routers.js — the WRITE path for the routing graph and output cards.
 
-`saveRouters` — единственная дверь, через которую доска меняет роутеры: ребро на
-канбане, бюджет ожидания клиента, узел-правило — всё уходит через неё. До этого
-снимка у неё не было ни одного теста, а её обещание нетривиально: мутатор
-получает КОПИЮ, состояние меняется только ответом сервера, и отказ сервера не
-оставляет доску в состоянии «сохраняется» навсегда. Пинится по трём следам —
-что ушло на провод, что стало с состоянием, что осталось после отказа.
+`saveRouters` is the only door through which the board changes routers: a
+cable on the kanban, a client's wait budget, a rule node — all of it goes
+through this one function. Before this snapshot it had not had a single
+test, and its promise is non-trivial: the mutator gets a COPY, state only
+changes from the server's response, and a server failure doesn't leave the
+board stuck in "saving" forever. Pinned across three trails — what went out
+on the wire, what happened to the state, what's left after a failure.
 
-Рядом — то, что читает граф для отрисовки: подпись выхода (облачный — по
-аккаунту, локальный — красивым именем модели с сервера), живость выхода
-(совпадение по upstream host:port, у облака — по providerId, потому что все
-облачные выходы делят один host:port), компактная карточка роутера и панель
-выходов с единственной радиокнопкой «default».
+Alongside that: what reads the graph for drawing — an output's caption
+(cloud ones by account, local ones by the model's nice name from the
+server), an output's liveness (matched by upstream host:port, for the cloud
+by providerId, because every cloud output shares one host:port), the
+router's compact card, and the output panel with its single "default" radio
+button.
 
-Модуль грузится НАСТОЯЩИЙ (scripts/_js_harness.mjs), как и его соседи
-state/i18n/form/utils/model-meta/topology-activity/topology-proxies; заглушены
-только DOM-тяжёлые: canvas, topology-dnd, topology-render, charts, dialogs.
+The module is loaded FOR REAL (scripts/_js_harness.mjs), as are its
+neighbors state/i18n/form/utils/model-meta/topology-activity/topology-proxies;
+only the DOM-heavy ones are stubbed: canvas, topology-dnd, topology-render,
+charts, dialogs.
 
-Запуск: python3 scripts/test_js_routers.py
+Run: python3 scripts/test_js_routers.py
 """
 import json
 import os
@@ -78,7 +81,7 @@ PINS = [
      'm.routerById([ROUTER()], "router:nope") === undefined',
      'true',
      "negative: неизвестный id — undefined, а не пустой объект, который выглядел бы как роутер"),
-    # ── подпись выхода ──
+    # ── an output's caption ──
     ("output_label_cloud_by_account_name",
      'st.setTopology({ ...st.topology, ...CLOUD() });',
      'm.topologyRouterOutputLabel({ upstreamType: "cloud", accountId: "openai-subscription" })',
@@ -109,7 +112,7 @@ PINS = [
      'm.topologyRouterOutputLabel({ upstreamHost: "10.0.0.5", upstreamPort: 22009 })',
      '"10.0.0.5:22009"',
      "negative: ни сервера, ни label — host:port, чтобы выход всё равно можно было опознать"),
-    # ── живость выхода ──
+    # ── an output's liveness ──
     ("output_activity_local_active_by_upstream",
      'st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", upstream: "127.0.0.1:22001", upstreamType: "llama" }] });',
      'm.topologyOutputActivity({ upstreamHost: "127.0.0.1", upstreamPort: 22001 }).state',
@@ -145,7 +148,7 @@ PINS = [
      'm.topologyOutputActivity({ upstreamHost: "127.0.0.1", upstreamPort: 22001 })',
      '{"state":"idle","title":""}',
      "negative: монитора нет — idle без исключения"),
-    # ── живость роутера ──
+    # ── a router's liveness ──
     ("router_activity_from_its_inputs",
      'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, label: "p" }] });'
      ' st.ui.latestSystemMonitor = MON({ active: [{ phase: "running", port: 23001 }] });',
@@ -158,7 +161,7 @@ PINS = [
      '[m.topologyRouterActivity({ inputs: [] }).state, m.topologyRouterActivity({ inputs: ["skynet:proxy:29999"] }).state, m.topologyRouterActivity(null).state]',
      '["idle","idle","idle"]',
      "negative: без входов, с неизвестным входом, без роутера — idle, без исключения"),
-    # ── saveRouters: три следа ──
+    # ── saveRouters: three trails ──
     ("save_posts_the_mutated_copy",
      'st.setTopology({ ...st.topology, routers: [ROUTER()] });'
      ' globalThis.__fetchReply["/api/agent-proxies/routers"] = { ok: true };',
@@ -194,7 +197,7 @@ PINS = [
      '(() => { m._setRoutersSaving(true); m._setRoutersSaving(true); const two = m._routersSaving; m._setRoutersSaving(false); const one = m._routersSaving; m._setRoutersSaving(false); m._setRoutersSaving(false); return [two, one, m._routersSaving]; })()',
      '[2,1,0]',
      "boundary: две записи подряд считаются, а лишнее снятие не уводит счётчик в минус"),
-    # ── карточка роутера ──
+    # ── the router's card ──
     ("card_counts_inputs_and_outputs",
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER({ inputs: ["a", "b", "c"] })] });',
      '(h => [h.includes("in 3 · out 2"), h.includes("router-output-row is-default"), h.includes("☁ gpt-5.6-terra"), h.includes(">default</span>")])(m.renderTopologyRouterCard(st.topology.routers[0]))',
@@ -215,7 +218,7 @@ PINS = [
      'm.renderTopologyRouterCard(st.topology.routers[0]).includes("3 rule(s)")',
      'true',
      "positive: правила посчитаны по обоим спискам"),
-    # ── панель выходов ──
+    # ── the output panel ──
     ("panel_one_radio_per_output_default_checked",
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()] });',
      '(h => [(h.match(/class="router-out-radio"/g) || []).length, (h.match(/data-router-set-default="router:default"[^>]*>/g) || []).length, /data-router-set-default="router:default" data-router-out="cb:terra"[^>]*checked|checked data-router-set-default="router:default" data-router-out="cb:terra"/.test(h) || /is-default[^>]*data-router-out-row="cb:terra"/.test(h)])(m.renderRouterOutputsPanel(st.topology.routers[0]))',
@@ -231,7 +234,7 @@ PINS = [
      '(h => [h.includes("router-cfg-muted"), (h.match(/router-out-radio/g) || []).length])(m.renderRouterOutputsPanel(st.topology.routers[0]))',
      '[true,0]',
      "negative: ни серверов, ни облака — приглушённые подписи и ни одной радиокнопки"),
-    # ── перецепка прокси ──
+    # ── rewiring a proxy ──
     ("rebind_posts_route_policy",
      'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23001", port: 23001, routerId: "router:default" }] });'
      ' globalThis.__fetchReply["/api/agent-proxies/route-policy"] = { ok: true };',
@@ -269,8 +272,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

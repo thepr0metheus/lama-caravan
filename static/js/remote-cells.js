@@ -58,7 +58,11 @@ export function topologyClientGpusHtml(client) {
     }
     const used = formatMemoryMiB(gpu.memoryUsedMiB);
     const total = formatMemoryMiB(gpu.memoryTotalMiB);
-    const util = gpu.utilizationGpuPct ?? "0";
+    // Unknown is "?", not "0": a card whose utilisation the scout could not read
+    // used to render as 0% — an idle card — while the temperature right beside it
+    // admitted it did not know. Both siblings (topology-render, topology-nodes)
+    // already say "?".
+    const util = gpu.utilizationGpuPct ?? "?";
     const temp = gpu.temperatureC ?? "n/a";
 
     let actionHtml;
@@ -487,39 +491,54 @@ export async function cellServiceAction(hostId, port, actionName) {
   }
 }
 
-// Окно контекста одной роли одного агента. Оба поля уходят разом, потому что на
-// сервере они — одно состояние: пропущенное означает «снять», а не «не трогать».
-// «auto» словом, а не отдельной галкой: на строке маршрута места под чекбокс
-// нет, а состояний всего три, и они взаимоисключающие.
-export async function editRouteContext(hostId, agentId, role, current, auto) {
+// The operator's context limit for one role of one agent. Both fields travel
+// together because on the server they are one state: a missing field means
+// "clear", not "leave as is" — so the switch is re-sent with the number here,
+// and the number with the switch in setRouteContextPrefer.
+export async function editRouteContext(hostId, agentId, role, current, prefer) {
   const answer = await appPrompt(t("dlgRouteContext"), {
-    value: auto ? "auto" : (current || ""),
+    value: current || "",
     confirmLabel: t("topologySave"),
   });
   if (answer === null) return;
-  const text = String(answer).trim().toLowerCase();
-  // Опечатка — это не «снять». Сервер принимает всё подряд и любое непонятное
-  // значение читает как отсутствие, поэтому «8k» или «81 92» МОЛЧА снимали
-  // настройку, а доска рапортовала успехом: оператор просил окно и получал
-  // его отмену, ничего об этом не узнав. Просим сказать яснее — и не шлём.
+  const text = String(answer).trim();
+  // A typo is not "clear". The server accepts anything and reads any value it
+  // cannot parse as absence, so "8k" or "81 92" SILENTLY dropped the limit
+  // while the board reported success: the operator asked for a window and got
+  // its removal without hearing of it. Ask to say it plainly — and send nothing.
   const clearing = text === "";
-  const wantsAuto = text === "auto";
-  if (!clearing && !wantsAuto && !/^[1-9]\d*$/.test(text)) {
+  if (!clearing && !/^[1-9]\d*$/.test(text)) {
     toast(t("routeContextNotANumber"));
     return;
   }
-  const body = wantsAuto ? { hostId, agentId, role, contextAuto: true }
-    : clearing ? { hostId, agentId, role }
-    : { hostId, agentId, role, contextLength: text };
+  await saveRouteContext({
+    hostId, agentId, role,
+    ...(clearing ? {} : { contextLength: text }),
+    ...(prefer ? { contextAuto: true } : {}),
+  });
+}
+
+// The "model if larger" switch of one role. The limit stays what it is: it is
+// re-sent because a missing field would clear it (see editRouteContext).
+export async function setRouteContextPrefer(hostId, agentId, role, current, prefer) {
+  const value = String(current || "").trim();
+  await saveRouteContext({
+    hostId, agentId, role,
+    ...(value ? { contextLength: value } : {}),
+    ...(prefer ? { contextAuto: true } : {}),
+  });
+}
+
+async function saveRouteContext(body) {
   try {
     await api("/api/topology/agent-route/context", { method: "POST", body });
     refreshTopology().catch(() => {});
   } catch (e) { toast(String(e)); }
 }
 
-// Переименовать блок агента. Псевдонимом, а не правкой записи: отчёт скаута
-// заменяет список агентов целиком, и правка внутри записи держалась бы до
-// первого опроса и исчезала молча.
+// Rename an agent's block. Via an alias, not by editing the record: the
+// scout's report replaces the agent list wholesale, and an edit inside the
+// record would only last until the next poll and vanish silently.
 export async function renameTopologyAgent(clientId, agentId, current) {
   const answer = await appPrompt(t("dlgRenameAgent"), {
     value: current || "",
@@ -535,10 +554,10 @@ export async function renameTopologyAgent(clientId, agentId, current) {
   } catch (e) { toast(String(e)); }
 }
 
-// Бюджет ожидания маршрута. Правится ЗДЕСЬ, на карточке клиента: раньше поле
-// жило только на канбане, а карточка показывала другое число — из конфига
-// агента, — и у клиента, заведённого руками, конфига нет, так что строки не
-// было вовсе.
+// A route's wait budget. Edited HERE, on the client's card: the field used
+// to live only on the kanban, while the card showed a different number —
+// from the agent's config — and a client created by hand has no config, so
+// the row didn't exist at all.
 export async function editRouteWait(proxyId, current) {
   const answer = await appPrompt(t("dlgRouteWait"), {
     value: current || "",
@@ -553,8 +572,9 @@ export async function editRouteWait(proxyId, current) {
       for (const r of routers) {
         r.graph = r.graph || { nodes: [], edges: [] };
         r.graph.inputs = r.graph.inputs || {};
-        // Пусто — СНЯТЬ свой бюджет: тогда снова действует то, что синхронизировано
-        // из конфига клиента. Ноль как «ждать нисколько» здесь не значит ничего.
+        // Empty means CLEAR its own budget: then whatever's synced from the
+        // client's config takes over again. Zero doesn't mean "wait for
+        // nothing" here.
         if (val > 0) r.graph.inputs[proxyId] = { ...(r.graph.inputs[proxyId] || {}), clientTimeoutSeconds: val };
         else if (r.graph.inputs[proxyId]) delete r.graph.inputs[proxyId];
       }
@@ -563,28 +583,41 @@ export async function editRouteWait(proxyId, current) {
   } catch (e) { toast(String(e)); }
 }
 
-// Имя модели, под которым порт объявляет себя. Пусто — снять: тогда
-// публикуется то, что назвал апстрим. Отдельным диалогом, а не вместе с окном:
-// это разные решения, и одна форма означала бы, что правка одного стирает
-// другое.
-export async function editRouteModel(hostId, agentId, role, current) {
+// The model name a port advertises itself under. Empty clears it: then
+// whatever the upstream calls itself is published. A separate dialog, not
+// bundled with the window: these are different decisions, and one form
+// would mean editing one erases the other.
+export async function editRouteModel(hostId, agentId, role, current, auto) {
   const answer = await appPrompt(t("dlgRouteModel"), {
     value: current || "",
     confirmLabel: t("topologySave"),
   });
   if (answer === null) return;
+  await saveRouteModel({ hostId, agentId, role, modelName: String(answer).trim(), auto });
+}
+
+// Open/close the lock on the name. The name travels together with the
+// lock's state: the server accepts both fields at once (a missing one =
+// "clear"), and the lock must leave the name sitting there — otherwise
+// closing it again would need the name retyped.
+export async function setRouteModelLock(hostId, agentId, role, current, auto) {
+  await saveRouteModel({ hostId, agentId, role, modelName: String(current || "").trim(), auto });
+}
+
+async function saveRouteModel({ hostId, agentId, role, modelName, auto }) {
   try {
     await api("/api/topology/agent-route/model", {
       method: "POST",
-      body: { hostId, agentId, role, modelName: String(answer).trim() },
+      body: { hostId, agentId, role, modelName, ...(auto ? { modelNameAuto: true } : {}) },
     });
     refreshTopology().catch(() => {});
   } catch (e) { toast(String(e)); }
 }
 
-// Завести клиента руками. Отвечать он не обязан: запись — это «существует и
-// настроен», а не «на связи». На доске он сразу появится молчащим, с
-// неизвестным возрастом, и это правда, а не недоделка.
+// Create a client by hand. It's under no obligation to answer: the record
+// means "exists and is configured", not "is reachable". It appears on the
+// board right away as silent, with an unknown age, and that's the truth, not
+// an unfinished state.
 export async function addTopologyClient() {
   const name = await appPrompt(t("dlgAddClient"), { confirmLabel: t("topologyClientAdd") });
   const hostId = String(name || "").trim();
@@ -595,9 +628,10 @@ export async function addTopologyClient() {
   } catch (e) { toast(String(e)); }
 }
 
-// Перенести записи скаута под доску. Усыновление НА МЕСТЕ: ничего не создаётся
-// и не удаляется, поэтому маршруты не пропадают ни на мгновение, а повтор
-// безвреден. Отчёт числами: «готово» не говорит, случилось ли что-нибудь.
+// Move the scout's records under the board's ownership. Adoption happens IN
+// PLACE: nothing is created or deleted, so routes never disappear even for a
+// moment, and a repeat call is harmless. Reported as numbers: "done" doesn't
+// say whether anything actually happened.
 export async function adoptScoutClients() {
   const { clients, agents } = scoutOwnedCounts();
   if (!clients && !agents) return;
@@ -610,8 +644,8 @@ export async function adoptScoutClients() {
   } catch (e) { toast(String(e)); }
 }
 
-// Завести агента у клиента руками. Прокси назначается агенту, поэтому без
-// этого хода ручной клиент был записью, которую нельзя настроить.
+// Create an agent for a client by hand. A proxy is assigned to an agent, so
+// without this move a manual client was a record that couldn't be configured.
 export async function addTopologyAgent(clientId) {
   const name = await appPrompt(t("dlgAddAgent"), { confirmLabel: t("topologyAgentAdd") });
   const agentId = String(name || "").trim();
@@ -625,11 +659,12 @@ export async function addTopologyAgent(clientId) {
 export async function deleteTopologyClient(clientId) {
   const client = (topology?.clients || []).find((c) => c.id === clientId);
   const name = client?.name || clientId;
-  // Подтверждение обещало, что запись вернётся со следующим сердцебиением. Для
-  // клиента, заведённого руками, это НЕПРАВДА: он не отзывается вовсе, и
-  // удаление окончательно. Обещание обратимости там, где её нет, — худшее, что
-  // может сказать подтверждение перед необратимым действием; на нём и потеряли
-  // запись, которую никто не собирался трогать.
+  // The confirmation used to promise the record would come back on the next
+  // heartbeat. For a client created by hand this is NOT TRUE: it never
+  // reports in at all, and the deletion is final. Promising reversibility
+  // where none exists is the worst thing a confirmation can say before an
+  // irreversible action; that's exactly how a record nobody meant to touch
+  // got lost.
   const text = client?.manual ? t("dlgDeleteManualClient", { name }) : t("dlgDeleteClient", { name });
   if (!(await appConfirm(text, { confirmLabel: t("deleteAction") }))) return;
   try {
@@ -851,23 +886,42 @@ export function bindServerSlotControls(root) {
 // failure (e.g. graph_reserve OOM) no longer looks like the GUI ignored you.
 export function nodeStartingCardHtml(node) {
   const p = _pendingRemoteStarts.get(String(node.id));
-  if (!p || p.phase !== "starting") return "";
+  if (!p) return "";
   if ((node.servers || []).some((s) => topologyServerPhase(s) !== "stopped")) {
     clearPendingRemoteStart(node.id);  // real card now drives the state
     return "";
   }
+  // A record that ended badly KEEPS its card. This used to return "" for any
+  // phase but "starting", so the moment the watch wrote "timeout" the card
+  // vanished — and it is the only place the ✕ lives, so the record could no
+  // longer be dismissed. It stayed in `_pendingRemoteStarts`, whose `.has()`
+  // goes on forcing every stopped cell of that host to read "starting": a start
+  // that failed, drawn as work still in progress, with nothing left to press.
+  // The two strings below were translated into all twenty languages when this
+  // card was designed and had never once been reached.
+  const failed = p.phase === "timeout" || p.phase === "error";
+  const host = node.name || node.id;
+  const note = failed
+    ? t(p.phase === "timeout" ? "topologyRemoteStartTimeout" : "topologyRemoteStartFailed", { host })
+    : t("topologyRemoteStarting") + "…";
   return `
-    <article class="node-server loading" data-pending-remote-start="${escapeHtml(String(node.id))}">
+    <article class="node-server ${failed ? "error" : "loading"}" data-pending-remote-start="${escapeHtml(String(node.id))}">
       <div class="node-server-head">
-        <span class="topology-spinner" aria-hidden="true"></span>
+        ${failed ? "" : `<span class="topology-spinner" aria-hidden="true"></span>`}
         <span class="topology-addr-link" style="pointer-events:none">${escapeHtml(p.clientIp || node.ip || "")}${p.port ? ":" + escapeHtml(String(p.port)) : ""}</span>
-        ${topologyStatusPill("loading")}
+        ${topologyStatusPill(failed ? "error" : "loading")}
         <span style="flex:1"></span>
         <button class="mini-link" type="button" data-pending-remote-dismiss="${escapeHtml(String(node.id))}" style="color:var(--muted,#888)" title="${escapeHtml(t("topologyRemoteStartDismiss"))}">✕</button>
       </div>
       ${p.modelName ? `<div class="topology-muted" style="font-size:12px;padding:2px 0">${escapeHtml(p.modelName)}</div>` : ""}
-      <div class="topology-muted" style="font-size:11px">${escapeHtml(t("topologyRemoteStarting"))}…</div>
+      <div class="topology-muted" style="font-size:11px">${escapeHtml(note)}</div>
     </article>`;
+}
+
+//: Whether a host has a start still genuinely in flight — as opposed to a
+//: record that ended in timeout or error and is only waiting to be dismissed.
+export function remoteStartPending(hostId) {
+  return (_pendingRemoteStarts.get(String(hostId)) || {}).phase === "starting";
 }
 
 export async function submitLlamaStop(hostId) {
@@ -894,6 +948,14 @@ export async function submitLlamaStop(hostId) {
 // ── nvidia-smi source selector (drawer panel) ────────────────────────────────
 export let _nvidiaSmiSource = "local"; // "local" = the controller, or a client hostId
 
+//: Which source survives a topology change: the chosen one if it is still
+//: listed, otherwise the controller. A rule rather than a line inside the
+//: renderer, because the renderer returns early when only one source is left
+//: and the repair used to sit past that return.
+export function surviving_nvidiaSmiSource(sources, current) {
+  return (sources || []).some((s) => s.id === current) ? current : "local";
+}
+
 export function renderNvidiaSmiSourceButtons() {
   const container = $("nvidiaSmiSources");
   if (!container) return;
@@ -913,11 +975,15 @@ export function renderNvidiaSmiSourceButtons() {
     });
   }
 
+  // Repair the selection BEFORE the early return below. This used to come
+  // after it, so when the selected client was the one that vanished (leaving
+  // only the controller) the buttons were erased while _nvidiaSmiSource still
+  // named the departed host, and polling.js went on asking
+  // /api/topology/client-monitor for it — with no control left to switch back.
+  _nvidiaSmiSource = surviving_nvidiaSmiSource(sources, _nvidiaSmiSource);
+
   // Only show buttons when there's more than one source
   if (sources.length <= 1) { container.innerHTML = ""; return; }
-
-  // Ensure selected source still exists
-  if (!sources.find((s) => s.id === _nvidiaSmiSource)) _nvidiaSmiSource = "local";
 
   container.innerHTML = sources.map((s) => {
     const active = _nvidiaSmiSource === s.id;
@@ -1001,7 +1067,7 @@ function _schedQueueSave() {
 export function renderSchedulePanel(pfx, hostId, cellPort, schedule) {
   const panel = $(`${pfx}-schedulePanel`);
   if (!panel) return;
-  // Панель имеет смысл только для сохранённой ячейки (slot существует).
+  // The panel only makes sense for a saved cell (the slot exists).
   panel.hidden = !cellPort;
   if (!cellPort) return;
   _schedCtx = { pfx, hostId, port: parseInt(cellPort, 10) };
@@ -1021,7 +1087,8 @@ export function renderSchedulePanel(pfx, hostId, cellPort, schedule) {
     $(`${pfx}-schedDays`).addEventListener("click", (ev) => {
       const b = ev.target.closest("[data-day]");
       if (!b) return;
-      // Первый клик по "неявным всем дням" фиксирует явный выбор одного дня.
+      // The first click on the "implicitly every day" state locks in an
+      // explicit choice of one day.
       const implicit = $(`${pfx}-schedDays`).querySelector(".implicit");
       if (implicit) {
         document.querySelectorAll(`#${pfx}-schedDays [data-day]`).forEach((x) => x.classList.remove("on", "implicit"));
@@ -1099,7 +1166,7 @@ export function openHostPowerScheduleModal(hostId, sched) {
   overlay.querySelector("#hpsAt").focus();
 }
 
-// Слот из текущей топологии для (hostId, port) — источник schedule.
+// The slot from the current topology for (hostId, port) — schedule's source.
 export function findSlotEntry(hostId, port) {
   return ((topology?.server || {}).llamaServers || [])
     .find((sv) => String(sv.port) === String(port) &&
@@ -1156,7 +1223,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
   _trCachedModels = new Set(); // reset until the async fetch arrives
   renderModelSelects("tr-");
 
-  // Б: clean-slate defaults — only carry the params that make sense cross-host.
+  // B: clean-slate defaults — only carry the params that make sense cross-host.
   // Optional toggles (KV_OFFLOAD, MMAP, FIT, CACHE_PROMPT, ENABLE_SLOTS…) are
   // intentionally omitted so defaultOnOptionalToggles alone governs them,
   // avoiding silent carry-over of the controller-specific flags to a different GPU.
@@ -1185,7 +1252,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
     LLAMA_MODELS_DIR:     "",
   };
 
-  // п.4: for an existing cell, the authoritative config is the slotConfig the
+  // 4: for an existing cell, the authoritative config is the slotConfig the
   // controller persisted for this host:port — overlay it so the form shows what
   // the cell was actually configured with, not the cross-host defaults above.
   // This is the single source of truth (serverSlots on the controller); we no
@@ -1223,7 +1290,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
   renderChatTemplateHint("tr-");
   refreshFavoritesPanel("tr-");  // reflect the latest global favorites order/set
 
-  // п.5: fetch cached model list from remote host asynchronously
+  // 5: fetch cached model list from remote host asynchronously
   const cacheListEl = $("tr-cacheList");
   if (cacheListEl) cacheListEl.innerHTML = `<span class="topology-muted" style="font-size:11px">${t("cacheListing")}</span>`;
   api(`/api/topology/client-llama/list-cache?hostId=${encodeURIComponent(hostId)}`)
@@ -1316,7 +1383,7 @@ export async function submitRemoteLlamaStart() {
     if (!(config.VLLM_MODEL || "").trim()) { toast(t("selectModel")); return; }
   } else if (!isCommandPath && !modelPath) { toast(t("selectModel")); return; }
 
-  // Cell mode: save config without starting (same as controller "Применить")
+  // Cell mode: save config without starting (same as controller "Apply")
   if (_trCellPort) {
     const btn = $("llamaRemoteEditStart");
     const orig = btn.textContent;

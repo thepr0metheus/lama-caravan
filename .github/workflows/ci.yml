@@ -62,6 +62,7 @@ jobs:
           python3 scripts/check_cell_python_floor.py
           python3 scripts/check_cell_self_capture.py
           python3 scripts/check_cell_card_keys.py
+          python3 scripts/check_cell_kinds.py
           python3 scripts/check_proxy_id_namespace.py
           python3 scripts/check_carried_fields.py
           python3 scripts/check_board_live_patch.py
@@ -79,6 +80,21 @@ jobs:
           python3 scripts/test_cloud_context.py
           python3 scripts/test_request_body.py
           python3 scripts/check_context_window.py
+          python3 scripts/test_context_window.py
+          python3 scripts/test_route_windows.py
+          python3 scripts/test_output_health.py
+          python3 scripts/test_subscription_usage.py
+          python3 scripts/test_incidents.py
+          python3 scripts/test_model_card.py
+          python3 scripts/test_cell_crash.py
+          python3 scripts/test_gpu_driver.py
+          python3 scripts/test_config_block.py
+          python3 scripts/test_llama_flags.py
+          python3 scripts/test_model_freshness.py
+          python3 scripts/test_model_jobs.py
+          python3 scripts/test_hf_verify.py
+          python3 scripts/test_model_watch.py
+          python3 scripts/test_model_staging.py
           python3 scripts/test_proxy_forward.py
           python3 scripts/test_api_body.py
           python3 scripts/test_js_model_meta.py

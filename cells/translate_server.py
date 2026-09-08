@@ -34,8 +34,8 @@ _lock = threading.Lock()
 _model = None
 _tokenizer = None
 _model_id = "facebook/nllb-200-distilled-600M"
-#: Умолчания ячейки для языков. Живут модулем, потому что _resolve_lang —
-#: свободная функция: ей нужен запасной вариант, а не экземпляр.
+#: The cell's default languages. Kept at module level because _resolve_lang
+#: is a free function: it needs a fallback value, not an instance.
 _src_lang = "eng_Latn"
 _tgt_lang = "rus_Cyrl"
 

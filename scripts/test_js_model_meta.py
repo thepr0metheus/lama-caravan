@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Снимок static/js/model-meta.js — первый снимок фронта.
+"""Snapshot of static/js/model-meta.js — the frontend's first snapshot.
 
-Фаза 7 начинается здесь потому, что из `parseModelName` собираются чипы модели
-на доске, и именно эта семья давала «отсутствие, нарисованное как норма»:
-NLLB-ячейка, выглядевшая как gemma. Пинятся ЗНАЧЕНИЯ на НАСТОЯЩИХ именах файлов
-флота, а не на выдуманных.
+Phase 7 starts here because `parseModelName` is what assembles a model's
+chips on the board, and this exact family produced "absence drawn as
+normal": an NLLB cell that looked like a gemma. VALUES are pinned against
+REAL fleet filenames, not made-up ones.
 
-Модуль грузится в node НАСТОЯЩИЙ (scripts/_js_harness.mjs): четыре соседа, что
-тянут DOM и всё приложение, подменены заглушками с теми же именами экспортов.
+The module is loaded into node FOR REAL (scripts/_js_harness.mjs): the four
+neighbors that pull in the DOM and the whole app are replaced with stubs
+carrying the same export names.
 
-Запуск: python3 scripts/test_js_model_meta.py
+Run: python3 scripts/test_js_model_meta.py
 """
 import json
 import subprocess
@@ -64,7 +65,7 @@ out.ctx.noLimit = m.topologyCtxInfo();
 console.log(JSON.stringify(out));
 """
 
-# Настоящие имена файлов флота. Значения — то, что доска ДОЛЖНА из них прочесть.
+# Real fleet filenames. The values are what the board MUST read from them.
 NAMES = {
     "/x/models/gemma-4-12B-it-Q8_0.gguf":
         {"file": "gemma-4-12B-it-Q8_0", "label": "gemma-4-12B-it", "quant": "Q8_0", "size": "12B", "variant": "it"},
@@ -74,12 +75,12 @@ NAMES = {
         {"file": "Qwen3-Embedding-0.6B-f16", "label": "Qwen3-Embedding-0.6B", "quant": "f16", "size": "0.6B", "variant": ""},
     "gigaam-v3-e2e-rnnt-Q8_0.gguf":
         {"file": "gigaam-v3-e2e-rnnt-Q8_0", "label": "gigaam-v3-e2e-rnnt", "quant": "Q8_0", "size": "", "variant": ""},
-    # Два имени из golden с хитрой формой: MoE-суффикс A3B и точка в версии.
+    # Two names from golden with a tricky shape: the MoE suffix A3B and a dot in the version.
     "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf":
         {"file": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M", "label": "Qwen3-Coder-30B-A3B-Instruct", "quant": "Q4_K_M", "size": "30B", "variant": "instruct"},
     "Qwen3.6-35B-A3B-UD-Q5_K_XL.gguf":
         {"file": "Qwen3.6-35B-A3B-UD-Q5_K_XL", "label": "Qwen3.6-35B-A3B-UD", "quant": "Q5_K_XL", "size": "35B", "variant": ""},
-    # ЗАФИКСИРОВАНО КАК ЕСТЬ: хвостовая точка в метке — срезаются `-_ `, но не `.`.
+    # PINNED AS-IS: a trailing dot in the label — `-_ ` get trimmed, but not `.`.
     "Mixtral-8x7B-Instruct-v0.1.Q5_K_M.gguf":
         {"file": "Mixtral-8x7B-Instruct-v0.1.Q5_K_M", "label": "Mixtral-8x7B-Instruct-v0.1.", "quant": "Q5_K_M", "size": "8x7B", "variant": "instruct"},
 }

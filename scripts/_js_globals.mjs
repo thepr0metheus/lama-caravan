@@ -34,5 +34,20 @@ globalThis.sessionStorage = globalThis.localStorage;
 if (!globalThis.navigator?.language) {
   try { Object.defineProperty(globalThis, "navigator", { value: { language: "en", languages: ["en"] }, configurable: true }); } catch (e) {}
 }
+// Таймер страницы не должен продлевать жизнь СНИМКУ. Опрос, который в браузере
+// правильно тикает, пока идёт загрузка, в node держал бы процесс вечно: снимок
+// висел бы вместо того, чтобы упасть или пройти. unref() оставляет таймерам всю
+// их работу, но лишает права одним своим существованием не давать выйти.
+const _realSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = (fn, ms, ...rest) => {
+  const handle = _realSetTimeout(fn, ms, ...rest);
+  if (handle && typeof handle.unref === "function") handle.unref();
+  return handle;
+};
+globalThis.setInterval = ((real) => (fn, ms, ...rest) => {
+  const handle = real(fn, ms, ...rest);
+  if (handle && typeof handle.unref === "function") handle.unref();
+  return handle;
+})(globalThis.setInterval);
 globalThis.requestAnimationFrame = (fn) => setTimeout(fn, 0);
 globalThis.matchMedia = () => ({ matches: false, addEventListener: noop, removeEventListener: noop });

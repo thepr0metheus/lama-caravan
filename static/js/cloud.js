@@ -513,28 +513,36 @@ export function cloudModalIsSubscription() {
   return (acct?.accountType || "") === "openai-subscription" || String(acct?.baseUrl || "").includes("chatgpt.com");
 }
 
-export async function fetchCloudSubscriptionModels(accountId) {
+async function _fetchModelsInto(accountId, path) {
+  // One body for both lists: they were two copies of the same eight lines, and
+  // the same defect sat in both.
   if (!accountId || topologyCloudModelCache.has(accountId)) return;
-  topologyCloudModelCache.set(accountId, []); // mark as in-flight to avoid duplicate requests
+  // The empty array is the in-flight marker — it is what makes concurrent
+  // callers ask only once.
+  topologyCloudModelCache.set(accountId, []);
   try {
-    const res = await api(`/api/cloud-accounts/subscription-models?id=${encodeURIComponent(accountId)}`);
+    const res = await api(`${path}?id=${encodeURIComponent(accountId)}`);
     if (res.ok && Array.isArray(res.models)) {
       topologyCloudModelCache.set(accountId, res.models);
       renderTopology();
+      return;
     }
-  } catch (_) { /* silent */ }
+  } catch (_) { /* the reason belongs to whoever showed the request; here we
+                   only decide whether this counts as an answer */ }
+  // A refusal is not an answer and must not be remembered as one. The marker
+  // used to stay behind, `has()` then refused every retry until the page was
+  // reloaded, and an empty list reads on the board exactly like "this account
+  // has no models" — absence drawn as a fact. Forgetting it lets the next
+  // caller ask again.
+  topologyCloudModelCache.delete(accountId);
+}
+
+export async function fetchCloudSubscriptionModels(accountId) {
+  return _fetchModelsInto(accountId, "/api/cloud-accounts/subscription-models");
 }
 
 export async function fetchCloudAccountModels(accountId) {
-  if (!accountId || topologyCloudModelCache.has(accountId)) return;
-  topologyCloudModelCache.set(accountId, []); // mark as in-flight
-  try {
-    const res = await api(`/api/cloud-accounts/models?id=${encodeURIComponent(accountId)}`);
-    if (res.ok && Array.isArray(res.models)) {
-      topologyCloudModelCache.set(accountId, res.models);
-      renderTopology();
-    }
-  } catch (_) { /* silent */ }
+  return _fetchModelsInto(accountId, "/api/cloud-accounts/models");
 }
 
 export function prefetchAllSubscriptionModels() {

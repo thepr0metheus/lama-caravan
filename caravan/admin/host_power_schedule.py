@@ -27,23 +27,12 @@ manual button is, because it acts NOW). Enabling a schedule is a considered act
 with an off-by-default checkbox and a plain warning in the UI; a daily one the
 operator can see and disable on the board any morning.
 """
-import re
 import time
 
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.admin.state import topology as topo
+from caravan.common.daytime import hhmm as _hhmm
 from caravan.common.errors import AppError
-
-
-def _hhmm(value, default="03:00"):
-    raw = str(value if value not in (None, "") else default).strip()
-    match = re.match(r"^(\d{1,2}):(\d{2})$", raw)
-    if not match:
-        raise AppError(f"time must look like HH:MM, got: {raw}")
-    hour, minute = int(match.group(1)), int(match.group(2))
-    if hour > 23 or minute > 59:
-        raise AppError(f"time out of range: {raw}")
-    return f"{hour:02d}:{minute:02d}"
 
 
 def normalize_power_schedule(payload):

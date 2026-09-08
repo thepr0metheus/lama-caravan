@@ -22,6 +22,10 @@ export const numericFields = [
   "POOLING", "EMBD_NORMALIZE",
   "LOAD_MODE", "N_CPU_MOE", "MTMD_BATCH_MAX_TOKENS", "CTX_CHECKPOINTS",
   "LOG_VERBOSITY", "CORS_ORIGINS", "TOOLS_RUNTIME", "API_KEY_FILE",
+  "CHECKPOINT_MIN_STEP", "SLOT_PROMPT_SIMILARITY", "SLOT_SAVE_PATH",
+  "SSE_PING_INTERVAL", "PRIO", "YARN_ORIG_CTX", "YARN_EXT_FACTOR",
+  "YARN_ATTN_FACTOR", "YARN_BETA_FAST", "YARN_BETA_SLOW",
+  "SPEC_DRAFT_P_SPLIT", "CORS_METHODS", "CORS_HEADERS",
   "EXTRA_ARGS"
 ];
 export const toggleFields = [
@@ -31,21 +35,22 @@ export const toggleFields = [
   "SKIP_CHAT_PARSING", "ENABLE_TOOLS", "ENABLE_AGENT", "ENABLE_MCP_PROXY",
   "ENABLE_EMBEDDINGS",
   "CONTEXT_SHIFT", "KV_UNIFIED", "REASONING_PRESERVE", "CACHE_IDLE_SLOTS", "MMPROJ_AUTO",
-  "SWA_FULL", "ENABLE_RERANK", "CORS_CREDENTIALS"
+  "SWA_FULL", "ENABLE_RERANK", "CORS_CREDENTIALS",
+  "CPU_MOE", "CPU_MOE_DRAFT", "OP_OFFLOAD", "REPACK", "WARMUP", "CHECK_TENSORS"
 ];
 export const advancedGroups = [
   { titleKey: "grpEndpoint", fields: ["HOST", "PORT", "ALIAS", "API_PREFIX"] },
   { titleKey: "grpRuntime", fields: ["CTX_SIZE", "N_GPU_LAYERS", "PARALLEL", "ENABLE_JINJA", "ENABLE_WEBUI"] },
   { titleKey: "grpBatching", fields: ["THREADS", "THREADS_BATCH", "BATCH_SIZE", "UBATCH_SIZE", "ENABLE_CONT_BATCHING", "ENABLE_FLASH_ATTN"] },
-  { titleKey: "grpThroughput", fields: ["THREADS_HTTP", "TIMEOUT", "SLEEP_IDLE_SECONDS"] },
-  { titleKey: "grpCpu", fields: ["CPU_RANGE", "CPU_STRICT", "POLL", "NUMA"] },
-  { titleKey: "advancedSpeculative", fields: ["SPEC_TYPE", "SPEC_DRAFT_N_GPU_LAYERS", "SPEC_DRAFT_N_MAX", "SPEC_DRAFT_N_MIN", "SPEC_DRAFT_P_MIN", "SPEC_DRAFT_CACHE_TYPE_K", "SPEC_DRAFT_CACHE_TYPE_V"] },
-  { titleKey: "grpKvCache", fields: ["CACHE_TYPE_K", "CACHE_TYPE_V", "KV_OFFLOAD", "KV_UNIFIED", "CTX_CHECKPOINTS", "SWA_FULL"] },
-  { titleKey: "advancedCache", fields: ["CACHE_PROMPT", "CACHE_REUSE", "CACHE_RAM", "CACHE_IDLE_SLOTS"] },
-  { titleKey: "advancedLoading", fields: ["LOAD_MODE", "MMAP", "ENABLE_MLOCK"] },
-  { titleKey: "grpDevices", fields: ["DEVICE", "MAIN_GPU", "SPLIT_MODE", "TENSOR_SPLIT", "N_CPU_MOE"] },
+  { titleKey: "grpThroughput", fields: ["THREADS_HTTP", "TIMEOUT", "SLEEP_IDLE_SECONDS", "SSE_PING_INTERVAL"] },
+  { titleKey: "grpCpu", fields: ["CPU_RANGE", "CPU_STRICT", "POLL", "NUMA", "PRIO"] },
+  { titleKey: "advancedSpeculative", fields: ["SPEC_TYPE", "SPEC_DRAFT_N_GPU_LAYERS", "SPEC_DRAFT_N_MAX", "SPEC_DRAFT_N_MIN", "SPEC_DRAFT_P_MIN", "SPEC_DRAFT_P_SPLIT", "SPEC_DRAFT_CACHE_TYPE_K", "SPEC_DRAFT_CACHE_TYPE_V", "CPU_MOE_DRAFT"] },
+  { titleKey: "grpKvCache", fields: ["CACHE_TYPE_K", "CACHE_TYPE_V", "KV_OFFLOAD", "KV_UNIFIED", "CTX_CHECKPOINTS", "CHECKPOINT_MIN_STEP", "SWA_FULL"] },
+  { titleKey: "advancedCache", fields: ["CACHE_PROMPT", "CACHE_REUSE", "CACHE_RAM", "CACHE_IDLE_SLOTS", "SLOT_PROMPT_SIMILARITY", "SLOT_SAVE_PATH"] },
+  { titleKey: "advancedLoading", fields: ["LOAD_MODE", "MMAP", "ENABLE_MLOCK", "REPACK", "WARMUP", "CHECK_TENSORS"] },
+  { titleKey: "grpDevices", fields: ["DEVICE", "MAIN_GPU", "SPLIT_MODE", "TENSOR_SPLIT", "N_CPU_MOE", "CPU_MOE", "OP_OFFLOAD"] },
   { titleKey: "grpAutofit", fields: ["FIT", "FIT_TARGET", "FIT_CTX"] },
-  { titleKey: "advancedRope", fields: ["ROPE_SCALING", "ROPE_SCALE", "ROPE_FREQ_BASE", "ROPE_FREQ_SCALE"] },
+  { titleKey: "advancedRope", fields: ["ROPE_SCALING", "ROPE_SCALE", "ROPE_FREQ_BASE", "ROPE_FREQ_SCALE", "YARN_ORIG_CTX", "YARN_EXT_FACTOR", "YARN_ATTN_FACTOR", "YARN_BETA_FAST", "YARN_BETA_SLOW"] },
   { titleKey: "grpGeneration", fields: ["N_PREDICT", "KEEP", "CONTEXT_SHIFT"] },
   { titleKey: "grpChatTemplate", fields: ["CHAT_TEMPLATE", "CHAT_TEMPLATE_KWARGS", "SKIP_CHAT_PARSING"] },
   // Sampling DEFAULTS. A request that sends its own temperature still wins —
@@ -56,7 +61,7 @@ export const advancedGroups = [
   { titleKey: "advancedVision", fields: ["IMAGE_MIN_TOKENS", "IMAGE_MAX_TOKENS", "MTMD_BATCH_MAX_TOKENS", "MMPROJ_AUTO"] },
   { titleKey: "advancedEmbeddings", fields: ["ENABLE_EMBEDDINGS", "ENABLE_RERANK", "POOLING", "EMBD_NORMALIZE"] },
   { titleKey: "advancedNetwork", fields: ["API_KEY", "API_KEY_FILE", "SSL_CERT_FILE", "SSL_KEY_FILE"] },
-  { titleKey: "advancedCors", fields: ["CORS_ORIGINS", "CORS_CREDENTIALS"] },
+  { titleKey: "advancedCors", fields: ["CORS_ORIGINS", "CORS_METHODS", "CORS_HEADERS", "CORS_CREDENTIALS"] },
   { titleKey: "advancedTools", fields: ["ENABLE_TOOLS", "ENABLE_AGENT", "ENABLE_MCP_PROXY", "TOOLS_RUNTIME"] },
   { titleKey: "grpDiagnostics", fields: ["ENABLE_METRICS", "ENABLE_PROPS", "ENABLE_SLOTS", "LOG_VERBOSITY"] },
 ];
@@ -76,8 +81,11 @@ export const advancedTabDefs = [
 ];
 // EXTRA_ARGS (manual raw-flags escape hatch) is rendered separately on the
 // default Params tab for visibility — see renderFields().
-export const optionalToggleFields = ["CPU_STRICT", "KV_OFFLOAD", "MMAP", "FIT", "CACHE_PROMPT", "ENABLE_PROPS", "ENABLE_SLOTS", "SKIP_CHAT_PARSING", "ENABLE_THINKING"];
-export const defaultOnOptionalToggles = ["KV_OFFLOAD", "MMAP", "FIT", "CACHE_PROMPT", "ENABLE_SLOTS", "ENABLE_THINKING"];
+// Toggles that stay UNSTATED until the operator touches them: the binary
+// already has a default, and writing our own would turn a default into a
+// decision nobody made.
+export const optionalToggleFields = ["CPU_STRICT", "KV_OFFLOAD", "MMAP", "FIT", "CACHE_PROMPT", "ENABLE_PROPS", "ENABLE_SLOTS", "SKIP_CHAT_PARSING", "ENABLE_THINKING", "OP_OFFLOAD", "REPACK", "WARMUP"];
+export const defaultOnOptionalToggles = ["KV_OFFLOAD", "MMAP", "FIT", "CACHE_PROMPT", "ENABLE_SLOTS", "ENABLE_THINKING", "OP_OFFLOAD", "REPACK", "WARMUP"];
 // Closed value sets rendered as a <datalist> beside the plain input: they stay
 // free text (an unknown future value must remain typeable) while every legal
 // value is discoverable. SPEC_TYPE is the field the whole speculative-decoding
@@ -87,6 +95,8 @@ export const fieldChoices = {
     "draft-dspark", "ngram-simple", "ngram-map-k", "ngram-map-k4v", "ngram-mod", "ngram-cache"],
   LOAD_MODE: ["none", "mmap", "mlock", "mmap+mlock", "dio"],
   N_GPU_LAYERS: ["auto", "all", "0"],
+  // The five levels --prio names, spelled the way llama-server prints them.
+  PRIO: ["-1", "0", "1", "2", "3"],
 };
 
 export const modelFields = ["LLAMA_MODELS_DIR", "MODEL_FILE", "MMPROJ_FILE", "CHAT_TEMPLATE_FILE"];

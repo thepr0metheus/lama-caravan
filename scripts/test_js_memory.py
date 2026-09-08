@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Снимок static/js/memory.js — «влезет ли модель», число, которому оператор верит.
+"""Snapshot of static/js/memory.js — "will the model fit", the number the operator trusts.
 
-Оценщик памяти рисует на карточке ячейки пилюлю OK / Near limit / Over VRAM.
-Ошибка здесь — тот самый класс «отсутствие, нарисованное как норма»: карта,
-уже занятая другой моделью, не должна выглядеть свободной. Пинятся ЗНАЧЕНИЯ:
-сравнение со СВОБОДНОЙ памятью, а не с общей; границы запаса ровно ±1 ГБ;
-суммирование двух карт; «n/a» вместо нуля; байты на элемент кеша по типу
-кванта; таблица «CPU/GPU/auto» по раннеру.
+The memory estimator draws the OK / Near limit / Over VRAM pill on a cell's
+card. A bug here is that exact class of defect, "absence drawn as normal": a
+card already occupied by another model must not look free. VALUES are
+pinned: comparison against FREE memory, not total; the margin boundaries at
+exactly ±1 GB; summing two cards; "n/a" instead of zero; bytes per cache
+element by quant type; the "CPU/GPU/auto" table per runner.
 
-Модуль грузится в node НАСТОЯЩИЙ (scripts/_js_harness.mjs); i18n настоящий.
+The module is loaded into node FOR REAL (scripts/_js_harness.mjs); i18n is real too.
 
-Запуск: python3 scripts/test_js_memory.py
+Run: python3 scripts/test_js_memory.py
 """
 import json
 import subprocess

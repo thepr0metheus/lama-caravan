@@ -284,15 +284,15 @@ The built-in HuggingFace GGUF browser:
 ## Tested versions
 
 The exact versions the development fleet runs — re-verified and updated here
-whenever a component is upgraded (last verified: **2026-08-11**):
+whenever a component is upgraded (last verified: **2026-09-07**):
 
 | Component | Verified version |
 |---|---|
 | llama.cpp | release `b10357` (commit `689e227db`, built 2026-08-11), CUDA build — updated through the GUI Update-build button; verified live with Muse Glimmer 30B (vision+video modalities detected, ~70 t/s decode on the RTX 5090). The Linux client still runs `b9947` until its own ⇪ chip is pressed |
 | CUDA toolkit | 12.6 |
-| NVIDIA driver | 595.71 (controller), 580.159 (client) |
+| NVIDIA driver | 610.43.02 open kernel module (controller, updated 2026-09-07 through the GUI), 580.159 (client). Under Secure Boot the driver metapackage is not enough: the Canonical-signed `linux-modules-nvidia-610-open-generic-hwe-24.04` must come with it, and the DKMS build for the running kernel has to go — `updates/dkms/` outranks `kernel/` in the module search path |
 | GPUs | RTX 5090 (Blackwell `sm_120`), RTX 3090 (`sm_86`) |
-| OS | Ubuntu 24.04.4 LTS (controller + Linux client), macOS 26.5 (Mac client) |
+| OS | Ubuntu 24.04.4 LTS (controller, kernel 7.0.0-31 + Linux client), macOS 26.5 (Mac client) |
 | Python | 3.12.3 (controller, Linux client); the macOS scout runs on stock 3.9.6 |
 | systemd | 255 (Ubuntu 24.04) |
 | Docker (container mode) | 29.1 |

@@ -1,27 +1,31 @@
 #!/usr/bin/env python3
-"""Снимок static/js/cloud.js — облачные аккаунты, блоки моделей, мосты; пути записи.
+"""Snapshot of static/js/cloud.js — cloud accounts, model blocks, bridges; the write paths.
 
-Модуль — вторая по объёму дверь записи после роутеров: шесть путей
-(`saveCloudAccount`, `saveCloudBlock`, `deleteCloudBlock`, `deleteCloudAccount`,
-`startCloudOauthLogin`, `pollCloudOauth`), и каждый до этого снимка жил без
-теста. Что здесь важно пинить ЗНАЧЕНИЕМ: id аккаунта и блока выводятся из имени
-слагом с досчётом суффикса; окно контекста уходит на провод и пустым тоже —
-пусто значит «не задано», не ноль (ловушка, к которой этот код возвращался);
-смена модели существующего блока и второй блок той же модели требуют
-подтверждения; отказ ключа останавливает цепочку до автосоздания блоков.
+By volume, this module is the second-largest write door after the routers:
+six paths (`saveCloudAccount`, `saveCloudBlock`, `deleteCloudBlock`,
+`deleteCloudAccount`, `startCloudOauthLogin`, `pollCloudOauth`), and every one
+of them had lived without a test before this snapshot. What's worth pinning
+by VALUE here: an account's and a block's ids are derived from the name as a
+slug, with a counted suffix; the context window goes out on the wire even
+when empty — empty means "not set", not zero (a trap this code had fallen
+into before); changing an existing block's model, and a second block for the
+same model, both require confirmation; a key failure stops the chain before
+blocks get auto-created.
 
-Рендер лейны: блоки отсортированы от дорогих к дешёвым, модель вне списка
-провайдера помечена, мосты (kind=service) стоят на карточке своего блока, мост
-без блока попадает в полосу сирот (иначе он слушал бы порт невидимым и
-неудаляемым), мемоизация по ключу не перерисовывает лейну без изменений.
+Rendering the lane: blocks are sorted from expensive to cheap, a model
+outside the provider's list is flagged, bridges (kind=service) sit on their
+own block's card, a bridge with no block lands in the orphan strip (otherwise
+it would sit listening on a port, invisible and undeletable), memoization by
+key skips redrawing the lane when nothing changed.
 
-Модуль грузится НАСТОЯЩИЙ (scripts/_js_harness.mjs). `usage-stats` тоже
-настоящий: он экспортирует Map-кэши, а заглушка харнесса делает из любого
-экспорта функцию — `.get` на функции был бы артефактом харнесса, не поведением.
-Заглушены DOM-тяжёлые соседи: polling, remote-cells (`nextTopologyCellPort`
-через __stubReturns), topology-render, dialogs (`appConfirm`), canvas и прочие.
+The module is loaded FOR REAL (scripts/_js_harness.mjs). `usage-stats` is
+real too: it exports Map caches, and the harness's stub turns any export into
+a function — `.get` on a function would be a harness artifact, not real
+behaviour. DOM-heavy neighbors are stubbed: polling, remote-cells
+(`nextTopologyCellPort` via __stubReturns), topology-render, dialogs
+(`appConfirm`), canvas, and others.
 
-Запуск: python3 scripts/test_js_cloud.py
+Run: python3 scripts/test_js_cloud.py
 """
 import json
 import os
@@ -103,7 +107,7 @@ const out = {};
 """
 
 PINS = [
-    # ── id из имени ──
+    # ── id from the name ──
     ("slug_from_display_name", '', 'm.topologyCloudSlug("OpenAI (ChatGPT Plus)")', '"openai-chatgpt-plus"',
      "слаг: строчные, всё лишнее — в дефис, края обрезаны"),
     ("slug_empty_is_acct", '', '[m.topologyCloudSlug(""), m.topologyCloudSlug("!!!")]', '["acct","acct"]',
@@ -113,7 +117,7 @@ PINS = [
      "занятый id получает суффикс -2, -3…; свободный остаётся как есть"),
     ("preset_by_type", '', '[m.topologyCloudPresetByType("openai")?.name, m.topologyCloudPresetByType("nope")]', '["OpenAI",null]',
      "пресет по типу; неизвестный тип — null, не {}"),
-    # ── модал аккаунта: открытие ──
+    # ── account modal: opening ──
     ("select_type_fills_form_from_preset", '',
      '(() => { m.selectCloudProviderType("openai-subscription"); const f = st.ui.topologyCloudForm; return [f.isNew, f.name, f.baseUrl, f.authMode, f.oauthConfig.clientId, st.ui.topologyCloudModalOpen, st.ui.topologyCloudPickerOpen]; })()',
      '[true,"ChatGPT Plus","https://chatgpt.com/backend-api","oauth","cid",true,false]',
@@ -135,7 +139,7 @@ PINS = [
     ("is_subscription_by_account_type_or_url", '',
      '(() => { const r = []; m.openCloudAccountModal("openai-subscription"); r.push(m.cloudModalIsSubscription()); m.openCloudAccountModal("ollama"); r.push(m.cloudModalIsSubscription()); m.closeCloudProviderModal(); r.push(m.cloudModalIsSubscription()); return r; })()',
      '[true,false,false]', "подписка узнаётся по accountType/chatgpt.com; без формы — false"),
-    # ── модал блока ──
+    # ── block modal ──
     ("open_block_modal_edit_carries_settings", '',
      '(() => { m.openCloudBlockModal("gpt-5-6-terra", null); const f = m.topologyCloudBlockForm; return [f.isNew, f.blockId, f.accountId, f.model, f.origModel, f.modelMode, f.contextLength, f.contextAuto, m.topologyCloudBlockModalOpen]; })()',
      '[false,"gpt-5-6-terra","openai-subscription","gpt-5.6-terra","gpt-5.6-terra","rewrite","158000",false,true]',
@@ -151,15 +155,26 @@ PINS = [
      'globalThis.__fetchReply["/api/cloud-accounts/models?id=ollama"] = { ok: true, models: [{ id: "deepseek-v4-flash" }, { id: "qwen3" }] };',
      'await (async () => { await m.fetchCloudAccountModels("ollama"); await m.fetchCloudAccountModels("ollama"); return [calls().length, m.topologyCloudModelCache.get("ollama").map((x) => x.id)]; })()',
      '[1,["deepseek-v4-flash","qwen3"]]', "второй вызов не ходит в сеть — кэш на страницу"),
-    ("fetch_models_failure_leaves_inflight_marker",
+    ("fetch_models_failure_forgets_marker",
      'globalThis.__fetchReply["/api/cloud-accounts/models?id=ollama"] = { __status: 500, error: "boom" };',
      'await (async () => { await m.fetchCloudAccountModels("ollama"); await m.fetchCloudAccountModels("ollama"); return [calls().length, m.topologyCloudModelCache.get("ollama")]; })()',
-     '[1,[]]', "as-is: после отказа остаётся маркер «в полёте» и повтора не будет до перезагрузки страницы"),
+     '[2,null]', "отказ не запоминается как ответ: маркер снят, следующий вызов идёт в сеть заново"),
+    ("fetch_models_retry_after_failure_succeeds",
+     '',
+     'await (async () => { const k = "/api/cloud-accounts/models?id=ollama";'
+     ' globalThis.__fetchReply[k] = { __status: 500, error: "boom" }; await m.fetchCloudAccountModels("ollama");'
+     ' globalThis.__fetchReply[k] = { ok: true, models: [{ id: "qwen3" }] }; await m.fetchCloudAccountModels("ollama");'
+     ' return [calls().length, (m.topologyCloudModelCache.get("ollama") || []).map((x) => x.id)]; })()',
+     '[2,["qwen3"]]', "positive: попытка после отказа приносит список — пустая выдача не осталась на его месте"),
+    ("fetch_subscription_failure_forgets_marker",
+     'globalThis.__fetchReply["/api/cloud-accounts/subscription-models?id=openai-subscription"] = { __status: 500, error: "boom" };',
+     'await (async () => { await m.fetchCloudSubscriptionModels("openai-subscription"); await m.fetchCloudSubscriptionModels("openai-subscription"); return [calls().length, m.topologyCloudModelCache.get("openai-subscription")]; })()',
+     '[2,null]', "подписочный список — тот же ответ на отказ: у обоих одно тело, разъехаться нечему"),
     ("prefetch_all_by_kind", '',
      'await (async () => { m.prefetchAllSubscriptionModels(); await Promise.resolve(); return calls().map((c) => c.path).sort(); })()',
      '["/api/cloud-accounts/models?id=ollama","/api/cloud-accounts/subscription-models?id=openai-subscription"]',
      "префетч: подписка — всегда, API-аккаунт — только с учётными данными, bare — нет"),
-    # ── пикер и модалы: HTML ──
+    # ── picker and modals: HTML ──
     ("picker_closed_is_empty", '', 'm.renderTopologyCloudPicker()', '""', "negative: закрытый пикер — пустая строка"),
     ("picker_tiles_per_preset",
      'st.ui.topologyCloudPickerOpen = true;',
@@ -192,7 +207,7 @@ PINS = [
      'm.openCloudBlockModal(null, "bare");',
      '(h => [h.includes("Add model block"), h.includes(\'<input type="text" data-block-field="model"\'), h.includes("data-block-field-expose"), h.includes("data-cloud-delete-block")])(m.renderTopologyCloudBlockModal())',
      '[true,true,true,false]', "новый блок без списка моделей: текстовое поле, галка expose, удаления нет"),
-    # ── лейна провайдеров ──
+    # ── providers lane ──
     ("lane_without_accounts",
      'st.setTopology(TOPO({ cloudAccounts: [], cloudProviders: [] }));',
      '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [h.includes("no cloud providers — click + to add one"), h.includes("data-topo-add-cloud"), (h.match(/cloud-account-card/g) || []).length]; })()',
@@ -274,7 +289,7 @@ PINS = [
      'openBlock(null, "openai-subscription"); globalThis.__q = { \'[data-block-field="model"]\': { value: "gpt-5.6-luna" }, "[data-block-field-expose]": { checked: true } };',
      'await (async () => { await m.saveCloudBlock(); return [calls()[0].body.block.id, calls()[0].body.block.exposed]; })()',
      '["gpt-5-6-luna-2",true]', "подтверждённый дубль получает id с суффиксом"),
-    # ── удаления ──
+    # ── deletions ──
     ("delete_block_posts_and_closes",
      'openBlock("gpt-5-6-luna", null);',
      'await (async () => { await m.deleteCloudBlock(); const c = calls(); return [c[0].path, c[0].body, m.topologyCloudBlockModalOpen, m.topologyCloudBlockForm]; })()',
@@ -342,8 +357,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

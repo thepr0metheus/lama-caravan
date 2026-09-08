@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Снимок истории скорости токенов — что попадает в график, а что нет.
+"""Snapshot of the token-speed history — what makes it onto the chart, and what doesn't.
 
-История писалась ТОЛЬКО из блока `timings`, который отдаёт llama.cpp. Облачный
-апстрим такого блока не отдаёт вовсе, поэтому у порта, который целыми днями
-возит трафик, график был пуст — и выглядело это как «запросов не было». Запросов
-было сколько угодно; не было ИЗМЕРЕНИЯ. Ровно тот класс дефектов, что в
-docs/why.md: отсутствие, нарисованное как норма.
+The history used to be written ONLY from the `timings` block llama.cpp
+provides. A cloud upstream never sends that block at all, so a port carrying
+traffic all day had an empty chart — which looked like "there were no
+requests". There were plenty of requests; there was no MEASUREMENT. Exactly
+the class of defect in docs/why.md: absence drawn as normal.
 
-Теперь у завершённого облачного запроса выводится скорость генерации: сколько
-токенов пришло и за сколько времени ПОСЛЕ первого байта. Скорость промпта не
-выводится и здесь пинится её отсутствие: время до первого байта у облака — это
-сеть и очередь провайдера, и выдать его за обработку промпта значило бы объявить
-измерением то, чего мы не измеряли. Каждая запись помечена источником.
+A completed cloud request now has a generation speed derived for it: how many
+tokens arrived, and over how much time AFTER the first byte. Prompt speed is
+not derived, and its absence is pinned here: the time to first byte on a
+cloud call is network and the provider's queue, and passing it off as prompt
+processing would claim a measurement that was never taken. Each entry is
+marked with its source.
 
-Запуск: python3 scripts/test_token_history.py
+Run: python3 scripts/test_token_history.py
 """
 import sys
 from pathlib import Path
@@ -46,7 +47,7 @@ def test_derived_sample():
                            "stream": {"usage": {"completion_tokens": 40}}})
     check(s2 and s2["evalTps"] == 20.0, f"usage из потокового ответа считается так же (got {s2})")
 
-    # ОТРИЦАТЕЛЬНЫЕ: где выводить нечего — там None, а не выдуманное число.
+    # NEGATIVE: where there's nothing to derive, the answer is None, not a made-up number.
     check(th._usage_sample({"timings": {"predicted_n": 5},
                             "response": {"usage": {"completion_tokens": 9}}}) is None,
           "у запроса со своими таймингами есть измерение — выводить не надо")
@@ -101,10 +102,10 @@ def test_records_both_kinds():
           f"запись llama.cpp по-прежнему берёт ОБЕ скорости из своих таймингов (got {llama})")
     check(llama["cacheTokens"] == 10, "и кэш, который знает только сервер")
 
-    # ОТРИЦАТЕЛЬНЫЙ: повтор того же запроса не удваивает историю.
+    # NEGATIVE: repeating the same request doesn't duplicate the history.
     th.record_token_history(sample)
     check(len(th._token_history) == 2, f"повторный опрос не дублирует записи (got {len(th._token_history)})")
-    # ОТРИЦАТЕЛЬНЫЙ: незавершённый облачный запрос в историю не идёт.
+    # NEGATIVE: an unfinished cloud request doesn't go into the history.
     th.record_token_history({"agentProxies": {"agents": {"23001": {"recent": [
         {"id": "cloud-2", "port": 23001, "durationMs": 0, "firstByteMs": 0,
          "response": {"usage": {"completion_tokens": 7}}}]}}}})

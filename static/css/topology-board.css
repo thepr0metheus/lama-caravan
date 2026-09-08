@@ -67,9 +67,10 @@
   gap: 8px;
 }
 
-/* В лейне клиентов кнопка «завести клиента» — во всю ширину, как карточки под
-   ней: квадрат 34px в углу читался как служебная иконка, а это главное действие
-   лейна. Когда рядом появляется кнопка переноса, обе делят ширину поровну. */
+/* In the clients lane, the "create client" button spans the full width, like
+   the cards below it: a 34px square in the corner read as a utility icon,
+   when it's the lane's main action. When the adopt button appears next to
+   it, the two split the width evenly. */
 .topology-board > .topology-column:first-of-type .topology-head-actions {
   display: flex;
   width: 100%;
@@ -749,7 +750,7 @@ details.topology-server-stats-card > .topology-processes-details {
 .proxy-detail-modal .topology-proxy-main { margin-top: 4px; }
 .topology-policy-head-actions { display: inline-flex; align-items: center; gap: 4px; }
 
-/* ── Router (Роутер) routing layer ────────────────────────────────── */
+/* ── Router routing layer ────────────────────────────────────────── */
 .proxy-router-lane {
   display: flex;
   align-items: flex-start;

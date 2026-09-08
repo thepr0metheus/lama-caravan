@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""Снимок static/js/cables.js — кабели доски: геометрия, классы и отчёт о пропавших.
+"""Snapshot of static/js/cables.js — the board's cables: geometry, classes, and a report of the missing.
 
-Главное здесь — `drawTopologyCables` и его `cableDrops`: кабель, у которого нет
-якоря или привязки, раньше молча исчезал в filter(Boolean), и доска выглядела
-«нормально минус одна кривая» — так месяц прятался пропавший кабель агента
-(v1.3.92, класс дефектов «absence rendered as normality»). Теперь каждый
-пропуск называет кабель и причину, с дедупом предупреждений. Это пинится
-значением: какие кабели нарисованы, с какими классами (primary/fallback,
-priority, unverified с подсказкой, idle/active), и ЧТО записано о тех, что
-нарисовать нельзя.
+The centerpiece here is `drawTopologyCables` and its `cableDrops`: a cable
+with no anchor or binding used to vanish silently into filter(Boolean), and
+the board looked "normal minus one curve" — that's how a missing agent cable
+stayed hidden for a month (v1.3.92, the "absence rendered as normality"
+defect class). Now every drop names the cable and the reason, with warnings
+deduplicated. What's pinned by value: which cables get drawn, with which
+classes (primary/fallback, priority, unverified with a tooltip, idle/active),
+and WHAT gets recorded about the ones that can't be drawn.
 
-Рядом — чистая геометрия (кривая Безье с минимальным плечом 48), точки якорей
-относительно доски, классы состояния/прокси/маршрута, детерминированный акцент
-по ключу, статус применения с приоритетом «назначение > клиент > stored».
+Alongside that: pure geometry (a Bezier curve with a 48 minimum arm), anchor
+points relative to the board, state/proxy/route classes, a deterministic
+accent by key, apply status with the priority "assignment > client > stored".
 
-DOM — словарь селекторов `globalThis.__q` (querySelector по точной строке) и
-`globalThis.__fields` для svg; CSS.escape — тождество. Модуль настоящий, как и
-routers/topology-activity/topology-proxies; `topology-dnd.topologyPointerDrag`
-задаётся через __stubValues до импорта.
+The DOM is the `globalThis.__q` selector dict (querySelector by exact string)
+and `globalThis.__fields` for svg; CSS.escape is the identity function. The
+module is real, as are routers/topology-activity/topology-proxies;
+`topology-dnd.topologyPointerDrag` is set via __stubValues before import.
 
-Запуск: python3 scripts/test_js_cables.py
+Run: python3 scripts/test_js_cables.py
 """
 import json
 import os
@@ -90,7 +90,7 @@ const out = {};
 """
 
 PINS = [
-    # ── геометрия ──
+    # ── geometry ──
     ("cable_path_bezier", '', 'm.topologyCablePath({ x: 0, y: 0 }, { x: 200, y: 100 })', '"M 0 0 C 96 0, 104 100, 200 100"', "кривая: плечо 48% расстояния по x"),
     ("cable_path_min_arm", '', 'm.topologyCablePath({ x: 0, y: 0 }, { x: 20, y: 50 })', '"M 0 0 C 48 0, -28 50, 20 50"', "boundary: близкие точки — плечо не короче 48"),
     ("svg_path_and_title", '', '[m.topologySvgPath({ x: 1, y: 2 }, { x: 3, y: 4 }, "c x", "a<b"), m.topologySvgPath(null, { x: 1, y: 1 }, "c"), m.topologySvgPath({ x: 1, y: 1 }, undefined, "c")]',
@@ -101,7 +101,7 @@ PINS = [
      '[{"x":100,"y":110},{"x":140,"y":110},{"x":120,"y":110}]', "точка якоря относительно доски: левый край, правый край, центр; y — середина"),
     ("point_for_board_offset_and_missing", '', '(() => { globalThis.__q[SEL.board] = R(10, 20, 500, 500); const a = m.topologyPointFor(R(100, 100, 40, 20), "left"); delete globalThis.__q[SEL.board]; return [a, m.topologyPointFor(R(1, 1), "left"), m.topologyPointFor(null)]; })()',
      '[{"x":90,"y":90},null,null]', "смещение доски вычитается; без доски или элемента — null"),
-    # ── классы ──
+    # ── classes ──
     ("status_class", '', '["error", "failed", "stale", "pending", "applied", "", undefined].map(m.topologyCableStatusClass)', '["status-error","status-error","status-warn","status-warn","status-ok","status-ok","status-ok"]',
      "статус кабеля: ошибка / предупреждение / ок по умолчанию"),
     ("proxy_and_route_class", '', '[m.topologyProxyClass("ctl:proxy:23001"), m.topologyProxyClass(""), m.topologyRouteClass("box a", "hermes", undefined)]', '["proxy-ctl-proxy-23001","proxy-","route-box-a-hermes-"]',
@@ -165,8 +165,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

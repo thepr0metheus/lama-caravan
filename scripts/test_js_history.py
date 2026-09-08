@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
-"""Снимок static/js/history.js — модал истории запросов.
+"""Snapshot of static/js/history.js — the request history modal.
 
-Что пинится значением: фильтры (подстрока клиента по маршруту и адресу; via
-llama/cloud и «спасённые» — не тип апстрима, а свойство пути: хотя бы один
-провалившийся выход; статус ok/error), строки таблицы (длительность ms/s/m,
-токены p+c с подсказкой, TPS только при completion>0 и длительности >100 мс,
-класс статуса, класс строки с ошибкой, модель обрезается на 24 символах, бэйдж
-спасения с трейлом выходов), пустые состояния, загрузка (запрос с limit и
-event=finished, дата в запросе, ошибка — в обёртку), кэш событий по дате,
-список событий, полная карточка деталей с Raw JSON всегда раскрытым, модал
-создаётся один раз и переиспользуется.
+What's pinned by value: filters (a client substring against the route and
+address; via llama/cloud and "rescued" — not the upstream's type but a
+property of the path: at least one output that failed; status ok/error),
+table rows (duration ms/s/m, p+c tokens with a tooltip, TPS only when
+completion>0 and duration >100ms, the status class, the error row class, a
+model truncated at 24 characters, a rescue badge with the output trail),
+empty states, loading (a request with limit and event=finished, the date in
+the request, an error into the wrapper), an event cache by date, the event
+list, the full detail card with Raw JSON always expanded, the modal is
+created once and reused.
 
-DOM — словарь `globalThis.__fields`; `document.createElement` здесь создаёт
-элементы, которые регистрируются в словаре по id (модуль строит модал сам и
-потом находит его через $(id)); слушатели записываются и вызываются из пинов.
-`Date.now` заморожен — «N s ago» детерминирован; локальное время не пинится.
+The DOM is the `globalThis.__fields` dict; `document.createElement` here
+creates elements that get registered in the dict by id (the module builds the
+modal itself and then finds it through $(id)); listeners are recorded and
+invoked from the pins. `Date.now` is frozen — "N s ago" is deterministic;
+local time isn't pinned.
 
-Запуск: python3 scripts/test_js_history.py
+Run: python3 scripts/test_js_history.py
 """
 import json
 import os
@@ -141,8 +143,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

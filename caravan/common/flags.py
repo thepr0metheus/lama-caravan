@@ -1,24 +1,24 @@
-"""Что считается «да» — один ответ на весь караван.
+"""What counts as "yes" — one answer for the whole caravan.
 
-Флаг приходит с трёх сторон и означает одно и то же: из строки запроса
-(`?force=true`), из конфига ячейки (`OFFLOAD_MMPROJ=on`) и из тела запроса.
-Каждая сторона разбирала его сама, и словари разошлись: в конфиге принимались
-`1/true/yes/on`, в строке запроса — `1/true/yes`, а два параметра с именем
-`force` понимали только литерал `"1"`.
+The flag arrives from three directions and is meant to say the same thing:
+the query string (`?force=true`), a cell config (`OFFLOAD_MMPROJ=on`), and a
+request body. Each side parsed it its own way, and the vocabularies drifted:
+the config accepted `1/true/yes/on`, the query string `1/true/yes`, and two
+parameters both named `force` understood only the literal `"1"`.
 
-Расхождение молчаливое, и в этом всё дело. `?force=true` читался как «нет»:
-вызывающий просил свежие данные, получал 200 и кеш, и никто нигде не говорил,
-что флаг выброшен. Браузер всегда шлёт `=1` и потому не страдал — страдал
-человек, который ведёт диагностику руками, а это документированный способ
-пользоваться этим API.
+The drift was silent, and that is the whole problem. `?force=true` read as
+"no": the caller asked for fresh data, got a 200 and a cached answer, and
+nothing anywhere said the flag had been dropped. A browser always sends `=1`
+and so never suffered — the one who suffered was a person driving diagnostics
+by hand, which is a documented way to use this API.
 """
 
 
 def truthy(value) -> bool:
-    """`1`, `true`, `yes`, `on` — с любым регистром и лишними пробелами.
+    """`1`, `true`, `yes`, `on` — any case, with stray whitespace trimmed.
 
-    Всё остальное, включая пустую строку и отсутствие значения, — нет. Список
-    намеренно закрытый: «принимать что угодно непустое» превратило бы `?force=0`
-    в согласие.
+    Everything else, including an empty string and a missing value, is no.
+    The list is deliberately closed: "accept anything non-empty" would turn
+    `?force=0` into consent.
     """
     return str(value).strip().lower() in ("1", "true", "yes", "on")

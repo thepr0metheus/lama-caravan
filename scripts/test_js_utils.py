@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
-"""Снимок static/js/utils.js — базовые помощники без состояния и без i18n.
+"""Snapshot of static/js/utils.js — the basic stateless, i18n-free helpers.
 
-Что пинится значением. `escapeHtml` — все пять символов и не-строки. `api` —
-тело-объект сериализуется (три вызова настроек однажды слали «[object Object]»
-и восстановление было мёртвым с рождения), строка и Blob идут как есть,
-заголовок JSON, отказ бросает `data.error` или statusText, 401 вне /api/auth/
-и не на /login уводит на /login, а на путях авторизации и на самой странице
-входа — нет. `toast` — текст, класс, таймер 3.2 с. `copyText` — буфер обмена,
-иначе textarea+execCommand с честным false. Форматы памяти и булевых.
-`positionTooltip` — зажим по краям окна и перенос под триггер. `markPageState`
-— один флаг на body: state, детали не длиннее 200, aria-busy только при
-loading. `inferSpecType` — тип черновика по ПЕРВОМУ токену имени файла.
-`fillVersionChipFromHealth` — версия из /health только там, где ещё не
-написана ветка git.
+What's pinned by value. `escapeHtml` — all five characters, and non-strings.
+`api` — an object body gets serialized (three settings calls once sent
+"[object Object]" and restore had been dead on arrival), a string and a Blob
+go through as-is, the JSON header, a failure throws `data.error` or
+statusText, a 401 outside /api/auth/ and not on /login redirects to /login,
+but not on auth paths or on the sign-in page itself. `toast` — text, class, a
+3.2s timer. `copyText` — the clipboard, otherwise textarea+execCommand with
+an honest false. Memory and boolean formats. `positionTooltip` — clamped to
+the window's edges and repositioned under the trigger. `markPageState` — a
+single flag on body: state, details capped at 200 characters, aria-busy only
+while loading. `inferSpecType` — a draft's type from the FIRST token of the
+filename. `fillVersionChipFromHealth` — the version from /health, only where
+a git branch hasn't already been written.
 
-DOM — словарь `globalThis.__fields` и минимальные стабы body/clipboard.
+The DOM is the `globalThis.__fields` dict, plus minimal body/clipboard stubs.
 
-Запуск: python3 scripts/test_js_utils.py
+Run: python3 scripts/test_js_utils.py
 """
 import json
 import os
@@ -112,8 +113,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

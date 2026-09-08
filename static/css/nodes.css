@@ -185,11 +185,40 @@
 .ghost-slots { opacity: .5; }
 .ghost-slots .slot-chip.idle { min-width: 100%; }
 .node-model-block:hover { border-color: color-mix(in srgb, var(--accent,#6ea8fe) 45%, transparent); background: color-mix(in srgb, var(--accent,#6ea8fe) 7%, transparent); }
-/* Row 1: icon + name */
-.node-model-row1 { display:flex; align-items:center; gap:7px; min-width:0; }
-.node-model-name { font-size:12px; font-weight:500; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; word-break:break-word; }
+/* Identity line: the name owns the whole row.
+   It used to share row 1 with the job, engine and memory chips and was left
+   38-72px on a 31-card board — 20 of those 31 names wrapped into two ragged
+   lines, and two cards of the same model could be different heights. The name
+   is what the operator scans for; everything that DESCRIBES it now sits in the
+   ordered chip row beneath. What can move is the text; what must not move is
+   the number pinned to the right. */
+.node-model-ident { display:flex; align-items:center; gap:6px; min-width:0; }
+.node-model-ident > .mbadge, .node-model-ident > .model-ico { flex:0 0 auto; }
+.node-model-name {
+  flex:1 1 0%; min-width:0;
+  font-size:12px; font-weight:600; line-height:17px;
+  overflow:hidden;
+  /* the marquee measures its travel against THIS box */
+  container-type:inline-size;
+}
+.node-model-name > span { display:inline-block; white-space:nowrap; }
+/* Running text ONLY on hover, and only when the text really does not fit.
+   The travel is `container - text`: for a name that fits that is zero or
+   positive, so min() pins it at 0 and a fitting name never twitches. Thirty-one
+   cards animating at once would be unreadable and would spend frames saying
+   nothing; on hover exactly one card moves, and only while the pointer is on
+   it. Nothing animates at rest, so the board costs the same as before. */
+@media (prefers-reduced-motion: no-preference) {
+  .node-model-block:hover .node-model-name > span {
+    animation: node-model-marquee 6s ease-in-out infinite alternate;
+  }
+}
+@keyframes node-model-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(min(0px, calc(100cqi - 100%))); }
+}
 .node-model-block .model-ico { flex-shrink:0; opacity:.65; width:13px; height:13px; }
-/* Row 2: chips, left-aligned (override model-chips default margin-left:auto) */
+/* Chip row, left-aligned (override model-chips default margin-left:auto) */
 .node-model-row2 { display:flex; align-items:center; padding-left:2px; }
 .node-model-row2 .model-chips { flex-wrap:wrap; margin-left:0; }
 

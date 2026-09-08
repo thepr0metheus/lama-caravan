@@ -8,6 +8,8 @@ import time
 from caravan.proxy.config import current_config
 from caravan.proxy.capacity import slot_totals_snapshot
 from caravan.proxy.graph import apply_router
+from caravan.proxy.output_health import output_health
+from caravan.proxy.output_probe import onerror_next_map
 from caravan.proxy.paths import DEFAULT_POLICY, STATE_FILE
 from caravan.proxy.runtime import (
     admitted_requests,
@@ -72,6 +74,10 @@ def write_state():
         "time": int(time.time()),
         "stickySlots": sticky_slot_snapshot(),
         "slotTotals": slot_totals_snapshot(),
+        # Every exit's verdict and each backup node's next exit: the board
+        # draws these as they are, never re-deriving the rule.
+        "outputHealth": output_health.snapshot(),
+        "onErrorNext": onerror_next_map(cfg),
     }
     body = json.dumps(payload, ensure_ascii=False, indent=2)
     # Atomic + concurrency-safe: many threads call write_state (per request + the slot-probe

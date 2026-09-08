@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
-"""Снимок записи о клиенте и его прокси — до переноса управления на страницу.
+"""Snapshot of a client's record and its proxy — before management moves onto the page.
 
-Сегодня клиент появляется ТОЛЬКО из сердцебиения скаута, а его прокси —
-только из провижининга. Страница ничего не создаёт. Снимок пинит это как
-есть, чтобы переход было с чем сверить: что записывает провижининг, чего он
-не записывает никогда, что переживает молчание клиента и что исчезает только
-по явному удалению.
+Today a client appears ONLY from the scout's heartbeat, and its proxy only
+from provisioning. The page creates nothing. The snapshot pins this as-is, so
+the transition has something to check against: what provisioning writes,
+what it never writes, what survives a client going silent, and what
+disappears only through explicit deletion.
 
-Пинится ЗНАЧЕНИЕ. Отдельно пинится ОТСУТСТВИЕ того, что появится потом:
-роли fallback провижининг не заводит, окна контекста в записи нет, завести
-клиента без сердцебиения нечем. Это не придирки — это те самые места, куда
-придёт новый код, и снимок обязан покраснеть, когда они изменятся.
+The VALUE is pinned. The ABSENCE of what will appear later is pinned
+separately: provisioning never creates fallback roles, there's no context
+window in the record, there's no way to create a client without a heartbeat.
+These aren't nitpicks — they are exactly the spots the new code will land
+on, and the snapshot must turn red once they change.
 
-Запуск: python3 scripts/test_client_records.py
+Run: python3 scripts/test_client_records.py
 """
 import json
 import sys
@@ -101,13 +102,13 @@ def test_silence_never_deletes():
     store, routes = harness()
     fc.auto_provision_agent_proxies(CLIENT)
     before = store["assignments"]["client-a"]["assignments"][0]["routes"][0]["proxyId"]
-    # Сердцебиение, в котором агента больше нет вовсе.
+    # A heartbeat where the agent no longer exists at all.
     fc.auto_provision_agent_proxies({**CLIENT, "agents": []})
     ag = store["assignments"]["client-a"]["assignments"]
     check(len(ag) == 1 and ag[0]["agentId"] == "agent-a",
           "агент, которого скаут перестал называть, остаётся в записи")
     check(ag[0]["routes"][0]["proxyId"] == before, "и его порт не меняется")
-    # Второй проход по живому отчёту — тоже без движения.
+    # A second pass over a live report — still no movement.
     fc.auto_provision_agent_proxies(CLIENT)
     check(store["assignments"]["client-a"]["assignments"][0]["routes"][0]["proxyId"] == before,
           "повторный проход по тому же отчёту ничего не переписывает")
@@ -126,7 +127,7 @@ def test_manual_flag_is_respected():
     check(routes == [], "ручной агент не порождает портов")
     check(ag["routes"][0]["proxyId"] == "skynet:proxy:9999", "порт оператора сохранён, даже мёртвый")
     check(ag.get("manual") is True, "флаг переживает проходы")
-    # Ровно то же без флага — провижининг перепишет.
+    # Exactly the same, without the flag — provisioning will rewrite it.
     store2, routes2 = harness(assignments={"client-a": {"agentUrl": "", "assignments": [
         {"agentId": "agent-a", "routes": [
             {"role": "primary", "proxyId": "skynet:proxy:9999", "endpoint": "http://10.0.0.1:9999/v1"}]},
@@ -199,7 +200,7 @@ def test_normalizer_rebuilds_the_row():
           "включая явное False")
     check("manual" not in norm({"agentId": "a", "routes": []}),
           "отсутствующий флаг не выдумывается")
-    # Роль по умолчанию и обязательные поля — тоже часть формы записи.
+    # The default role and required fields are also part of the record's shape.
     dflt = norm({"agentId": "a", "routes": [{"endpoint": "http://h:1/v1"}]})
     check(dflt["routes"][0]["role"] == "primary" and dflt["routes"][0]["proxyId"] == "",
           "без роли — primary; без proxyId — пустая строка, а не отсутствие ключа")
@@ -215,7 +216,7 @@ def test_normalizer_rebuilds_the_row():
 
 
 def _topology_harness(store, routes):
-    """Тот же приём для caravan.admin.topology: коллабораторы — модульные."""
+    """The same trick for caravan.admin.topology: collaborators are module-level."""
     import caravan.admin.topology as T
     T.topology_store = lambda: store
     T.load_agent_proxy_config = lambda: {"routes": [{"port": p} for p in routes]}
@@ -244,7 +245,7 @@ def test_manual_client_is_an_ordinary_client():
           "имя обрезается; поля, которых не дали, не выдумываются")
     check((named.get("agents") or [{}])[0].get("name") == "Кухня" and named["agents"][0].get("id") == "box-b",
           "первый агент носит показанное имя клиента, а id — id клиента")
-    # И тот же список, каким его видит доска: существует, но молчит.
+    # And the same list, the way the board sees it: it exists, but is silent.
     fc.client_aliases = lambda: {}
     rows = {r["id"]: r for r in fc.topology_clients()}
     check(rows["box-a"]["state"] == "stale" and rows["box-a"]["ageSeconds"] is None,
@@ -281,9 +282,10 @@ def test_heartbeat_keeps_the_manual_mark():
     print("отчёт скаута не переписывает пометку:")
     store, _routes = harness()
     fc.topology_client_create({"hostId": "box-a"})
-    # Провижининг и сверка метаданных сюда не относятся — глушим их НА ВРЕМЯ и
-    # возвращаем: подмена, пережившая свой тест, делает следующий зависимым от
-    # порядка, и один такой уже сломался именно так.
+    # Provisioning and the metadata reconcile have nothing to do with this —
+    # they're stubbed out TEMPORARILY and then restored: a stub that outlives
+    # its own test makes the next one dependent on run order, and one just
+    # like it has already broken exactly that way.
     _prov, _rec = fc.auto_provision_agent_proxies, fc.reconcile_proxy_metadata
     fc.auto_provision_agent_proxies = lambda *a, **kw: None
     fc.reconcile_proxy_metadata = lambda *a, **kw: None
@@ -301,7 +303,7 @@ def test_heartbeat_keeps_the_manual_mark():
     live = {r["id"]: r for r in fc.topology_clients()}
     check(live["box-a"]["state"] == "online",
           "отозвавшись, он становится живым — существование и живость разные вещи")
-    # Обратный случай: найденный скаутом клиент ручным не становится.
+    # The reverse case: a client the scout found doesn't become manual.
     check("manual" not in plain, "клиент, которого никто не заводил, не помечается ручным")
 
 
@@ -318,7 +320,7 @@ def test_bind_writes_the_role_it_was_given():
     check(row.get("manual") is True, "привязка руками ставит manual")
     check(all(r["endpoint"].endswith("/v1") for r in row["routes"]),
           "endpoint собран классом, а не переписан на месте")
-    # Повторная привязка той же роли ЗАМЕНЯЕТ, а не добавляет вторую.
+    # Binding the same role again REPLACES it, rather than adding a second one.
     T.bind_agent_to_proxy({"hostId": "h", "agentId": "a", "port": 23002, "role": "primary"})
     row = store["assignments"]["h"]["assignments"][0]
     check(len(row["routes"]) == 2 and row["routes"][0]["proxyId"] == "skynet:proxy:23002",
@@ -335,7 +337,7 @@ def test_bind_writes_the_role_it_was_given():
         check(False, "порт без маршрута должен быть отвергнут")
     except Exception as exc:
         check("no proxy route" in str(exc), f"порт без маршрута — внятный отказ (got {exc!r})")
-    # Без порта — возврат к автомату.
+    # With no port — reverts to automatic.
     T.bind_agent_to_proxy({"hostId": "h", "agentId": "a"})
     check("manual" not in store["assignments"]["h"]["assignments"][0],
           "привязка без порта снимает manual — агент возвращается к автомату")
@@ -399,7 +401,7 @@ def test_agent_added_by_hand():
     check(agents[0].get("name") == "Один", f"имя обрезано (got {agents[0].get('name')!r})")
     check(row.get("id") == "ag-1", f"ответ называет заведённого агента (got {row!r})")
 
-    # ОТРИЦАТЕЛЬНЫЕ: пустой id и дубль — отказы, а не тихие пустышки.
+    # NEGATIVE: an empty id and a duplicate are refusals, not silent no-ops.
     for bad in ("", "   "):
         try:
             fc.topology_client_add_agent({"hostId": "box-a", "agentId": bad})
@@ -418,7 +420,7 @@ def test_agent_added_by_hand():
         check(getattr(exc, "status", None) == 404, f"неизвестный клиент — 404 (got {exc!r})")
     check(len(store["clients"]["box-a"]["agents"]) == 1, "ни один отказ ничего не записал")
 
-    # И главное: отчёт скаута его не стирает.
+    # And the main point: the scout's report doesn't erase it.
     fc.client_aliases = lambda: {}
     fc.update_topology_client({"host": {"id": "box-a", "name": "A"},
                                "agents": [{"id": "reported", "name": "R"}]})
@@ -427,20 +429,21 @@ def test_agent_added_by_hand():
           f"ручной агент пережил отчёт, а не был заменён им (got {ids})")
     check(next(a for a in store["clients"]["box-a"]["agents"] if a["id"] == "ag-1")["manual"] is True,
           "и остался помеченным")
-    # ОТРИЦАТЕЛЬНЫЙ: агент, о котором отчёт молчит и который НЕ ручной, исчезает
-    # как и прежде — живость по-прежнему принадлежит скауту.
+    # NEGATIVE: an agent the report stays silent about, and which is NOT
+    # manual, still disappears as before — liveness still belongs to the scout.
     fc.update_topology_client({"host": {"id": "box-a", "name": "A"}, "agents": []})
     ids = sorted(a["id"] for a in store["clients"]["box-a"]["agents"])
     check(ids == ["ag-1"], f"неручной агент по-прежнему уходит вместе с отчётом (got {ids})")
 
 
 def test_adopting_the_scouts_clients():
-    """Усыновление на месте: доска становится хозяином записи скаута.
+    """Adoption in place: the board becomes the owner of a scout's record.
 
-    Ничего не создаётся и не удаляется — иначе на живом реестре возникает окно,
-    где работающие маршруты существуют дважды или ни разу. Меняется ровно один
-    факт: кто хозяин. Всё остальное в записи обязано остаться байт в байт, а
-    настройки маршрутов — тем более: усыновление не повод их пересобрать.
+    Nothing is created or deleted — otherwise a live registry gets a window
+    where working routes exist twice or not at all. Exactly one fact
+    changes: who owns it. Everything else in the record must stay
+    byte-for-byte, and route settings especially so: adoption is no reason
+    to rebuild them.
     """
     print("усыновление клиентов скаута:")
     store = {
@@ -482,14 +485,14 @@ def test_adopting_the_scouts_clients():
           and len(store["assignments"]["box-a"]["assignments"]) == 1,
           "ничего не создано и не удалено")
 
-    # ОТРИЦАТЕЛЬНЫЕ: уже ручное не считается и не трогается; повтор безвреден.
+    # NEGATIVE: what's already manual isn't counted or touched; a repeat call is harmless.
     check(fc.adopt_scout_clients() == {"clients": 0, "agents": 0},
           "повторное усыновление не находит ничего — операция идемпотентна")
     check(store["clients"]["box-b"].get("manual") is True
           and store["assignments"]["box-b"]["assignments"][0].get("manual") is True,
           "уже ручные остались как были")
 
-    # Контроллер — не клиент скаута: его усыновлять нечего и незачем.
+    # The controller is not a scout client: there's nothing to adopt and no reason to.
     store2 = {"clients": {"controller": {"id": "controller", "name": "C", "agents": []}},
               "assignments": {}}
     fc.topology_store = lambda: store2
@@ -500,12 +503,13 @@ def test_adopting_the_scouts_clients():
 
 
 def test_new_port_for_a_fallback_is_the_neighbour():
-    """Новый порт для фолбэка — сосед праймари, и садится он на СВОЮ роль.
+    """A fallback's new port is primary's neighbor, and it lands on ITS OWN role.
 
-    Эндпоинт «сделать порт» привязывал его без роли, то есть всегда на primary:
-    оператор просил второй порт агенту, а получал подмену рабочего. И номер
-    брался «следующий свободный», хотя рядом с каждым праймари намеренно
-    оставлена дыра +1 — та самая, что осталась от снятых с вооружения пар.
+    The "mint a port" endpoint used to bind it with no role, meaning always
+    onto primary: the operator asked for a second port for the agent, and
+    got the working one overwritten instead. And the number it picked was
+    "next free", even though a +1 gap is deliberately left next to every
+    primary — the very one left over from retired pairs.
     """
     print("новый порт для фолбэка:")
     import caravan.admin.proxies_config as pc
@@ -518,7 +522,7 @@ def test_new_port_for_a_fallback_is_the_neighbour():
     check(port == 23002, f"сосед праймари — 23002 (got {port!r})")
     check(port % 2 == 0, "и он чётный: нечётные заняты праймари")
 
-    # ОТРИЦАТЕЛЬНЫЕ: без праймари соседа нет; занятый сосед не предлагается.
+    # NEGATIVE: with no primary there's no neighbor; a taken neighbor is never offered.
     check(fc.fallback_port_for({"agentId": "b", "routes": []}) is None,
           "нет праймари — соседа не существует, а не «ноль»")
     T.bind_agent_to_proxy({"hostId": "h", "agentId": "b", "port": 23002, "role": "primary"})
@@ -527,7 +531,7 @@ def test_new_port_for_a_fallback_is_the_neighbour():
 
 
 def test_route_can_be_removed():
-    """Роль можно убрать. Порт при этом продолжает слушать."""
+    """A role can be removed. The port keeps listening while it happens."""
     print("удаление роли маршрута:")
     store = {"assignments": {"h": {"agentUrl": "", "assignments": [
         {"agentId": "a", "manual": True, "routes": [
@@ -545,12 +549,12 @@ def test_route_can_be_removed():
     check(row()["routes"][0].get("contextLength") == 8192,
           "и настройки уцелевшей роли не тронуты")
     check(row().get("manual") is True, "флаг «руками» на месте")
-    # Порт после этого свободен — его можно отдать другому агенту.
+    # The port is now free — it can be given to another agent.
     T.bind_agent_to_proxy({"hostId": "h", "agentId": "b", "port": 23002, "role": "primary"})
     check(any(r["proxyId"] == "skynet:proxy:23002"
               for r in store["assignments"]["h"]["assignments"][1]["routes"]),
           "освободившийся порт достаётся другому агенту — вот чего не хватало «отвязке»")
-    # ОТРИЦАТЕЛЬНЫЕ: несуществующая роль и неизвестный агент — отказы.
+    # NEGATIVE: a nonexistent role and an unknown agent are both refusals.
     for payload, code in (({"hostId": "h", "agentId": "a", "role": "fallback"}, 404),
                           ({"hostId": "h", "agentId": "nobody", "role": "primary"}, 404),
                           ({"hostId": "h", "agentId": "a"}, 400)):
@@ -560,7 +564,7 @@ def test_route_can_be_removed():
         except Exception as exc:
             check(getattr(exc, "status", None) == code, f"{payload.get('role') or 'без роли'} — {code} (got {exc!r})")
     check([r["role"] for r in row()["routes"]] == ["primary"], "ни один отказ ничего не удалил")
-    # Убрать последнюю роль можно: агент остаётся без маршрутов, а не исчезает.
+    # Removing the last role is allowed: the agent ends up with no routes, not gone.
     T.remove_agent_route({"hostId": "h", "agentId": "a", "role": "primary"})
     check(row()["routes"] == [] and row()["agentId"] == "a",
           f"агент без маршрутов остаётся записью (got {row()!r})")
@@ -589,14 +593,14 @@ def test_agent_alias_survives_the_report():
     check(store["clients"]["box-a"]["agents"][0]["name"] == "ag-1",
           "сама ЗАПИСЬ не тронута — иначе отчёт её перезапишет")
 
-    # Отчёт скаута приходит и НЕ отменяет псевдоним.
+    # A scout report arrives and does NOT cancel the alias.
     fc.update_topology_client({"host": {"id": "box-a", "name": "A"},
                                "agents": [{"id": "ag-1", "name": "ag-1"}]})
     rows = {r["id"]: r for r in fc.topology_clients()}
     check(rows["box-a"]["agents"][0]["name"] == "Кухонный",
           "псевдоним пережил отчёт")
 
-    # Пусто — снять: снова показывается имя, которым агент зовёт себя сам.
+    # Empty clears it: the name the agent calls itself is shown again.
     fc.set_topology_agent_alias("box-a", "ag-1", "   ")
     rows = {r["id"]: r for r in fc.topology_clients()}
     check(rows["box-a"]["agents"][0]["name"] == "ag-1", "пусто снимает псевдоним")
@@ -611,7 +615,7 @@ def test_agent_alias_survives_the_report():
 
 
 def test_model_name_is_per_role():
-    """Имя, под которым порт объявляет модель, — на РОЛИ одного агента."""
+    """The name a port advertises its model under — on a SINGLE agent's role."""
     print("имя модели на маршруте:")
     store = {"assignments": {"h": {"agentUrl": "", "assignments": [
         {"agentId": "a", "routes": [
@@ -626,10 +630,10 @@ def test_model_name_is_per_role():
                              "modelName": "  main-model  "})
     check(routes()[0].get("modelName") == "main-model", f"имя записано обрезанным (got {routes()[0]!r})")
     check("modelName" not in routes()[1], "соседняя роль не тронута")
-    # Снятие: пусто — публикуется имя апстрима, ключ ИСЧЕЗАЕТ.
+    # Clearing: empty means the upstream's name is published, the key VANISHES.
     T.set_agent_route_model({"hostId": "h", "agentId": "a", "role": "primary", "modelName": "   "})
     check("modelName" not in routes()[0], f"пусто СНИМАЕТ имя, а не пишет пустую строку (got {routes()[0]!r})")
-    # Окно и имя не мешают друг другу.
+    # The window and the name don't interfere with each other.
     T.set_agent_route_context({"hostId": "h", "agentId": "a", "role": "primary", "contextLength": 8192})
     T.set_agent_route_model({"hostId": "h", "agentId": "a", "role": "primary", "modelName": "main-model"})
     check(routes()[0].get("contextLength") == 8192 and routes()[0].get("modelName") == "main-model",
@@ -637,7 +641,22 @@ def test_model_name_is_per_role():
     T.set_agent_route_context({"hostId": "h", "agentId": "a", "role": "primary", "contextLength": 4096})
     check(routes()[0].get("modelName") == "main-model",
           "правка окна имя не трогает")
-    # Отказы — отказы.
+    # The lock. Opening it leaves the name sitting there — otherwise closing
+    # it again would only be possible by retyping the name; the model's own
+    # name is what's in force meanwhile.
+    T.set_agent_route_model({"hostId": "h", "agentId": "a", "role": "primary",
+                             "modelName": "main-model", "modelNameAuto": True})
+    check(routes()[0].get("modelNameAuto") is True and routes()[0].get("modelName") == "main-model",
+          f"открытый замок записан, имя лежит рядом (got {routes()[0]!r})")
+    check("modelNameAuto" not in routes()[1], "соседняя роль не тронута и замком")
+    T.set_agent_route_model({"hostId": "h", "agentId": "a", "role": "primary", "modelName": "main-model"})
+    check("modelNameAuto" not in routes()[0],
+          f"закрыть замок — ключ ИСЧЕЗАЕТ, а не пишется False (got {routes()[0]!r})")
+    # NEGATIVE: nobody ever set a lock — so there isn't one.
+    T.set_agent_route_model({"hostId": "h", "agentId": "a", "role": "fallback", "modelName": "other"})
+    check("modelNameAuto" not in routes()[1],
+          f"замок, которого не ставили, не выдумывается (got {routes()[1]!r})")
+    # Refusals are refusals.
     try:
         T.set_agent_route_model({"hostId": "h", "agentId": "a", "role": "fallback2", "modelName": "x"})
         check(False, "роль без маршрута — отказ")
@@ -645,13 +664,46 @@ def test_model_name_is_per_role():
         check(getattr(exc, "status", None) == 404, f"роль без маршрута — 404 (got {exc!r})")
 
 
-def test_bind_refuses_a_port_someone_else_holds():
-    """Один порт — один владелец.
+def test_set_route_names_every_setting():
+    """Setting a role's route carries over EVERY setting the incoming route has.
 
-    Копия настроек уезжает на маршрут по ПОРТУ, поэтому два агента на одном
-    порту — это не «оба работают», а «последний записавший стёр настройку
-    первого», молча и без следа. Привязка проверяла лишь то, что порт вообще
-    существует.
+    `set_route` swaps liveness in place and copies the settings that the
+    incoming route names. A field it doesn't name silently fails to make the
+    trip — the same shape of defect as the four rebuild boundaries, just
+    inside a class this time. Checked by value: both what's set and what isn't.
+    """
+    print("set_route переносит настройки:")
+    from caravan.domain.client_proxy import AgentAssignment, ProxyRoute
+    a = AgentAssignment.from_raw({"agentId": "a", "routes": [
+        {"role": "primary", "proxyId": "skynet:proxy:23001", "endpoint": "http://x:23001/v1",
+         "contextLength": 8192, "modelName": "old-name"}]})
+    incoming = ProxyRoute(role="primary", proxy_id="skynet:proxy:23002", endpoint="http://x:23002/v1",
+                          context_length=4096, context_auto=True,
+                          model_name="new-name", model_name_auto=True)
+    a.set_route(incoming)
+    got = a.to_dict()["routes"][0]
+    check(got.get("proxyId") == "skynet:proxy:23002" and got.get("modelName") == "new-name"
+          and got.get("modelNameAuto") is True and got.get("contextLength") == 4096
+          and got.get("contextAuto") is True,
+          f"названные во входящем настройки переезжают все до одной (got {got!r})")
+    # NEGATIVE: an incoming route with no settings erases nothing — it only carries liveness.
+    b = AgentAssignment.from_raw({"agentId": "a", "routes": [
+        {"role": "primary", "proxyId": "skynet:proxy:23001", "endpoint": "http://x:23001/v1",
+         "contextLength": 8192, "modelName": "old-name", "modelNameAuto": True}]})
+    b.set_route(ProxyRoute.for_port("primary", 23002, "10.0.0.1"))
+    got = b.to_dict()["routes"][0]
+    check(got.get("modelName") == "old-name" and got.get("modelNameAuto") is True
+          and got.get("contextLength") == 8192,
+          f"перенос порта настроек не отменяет (got {got!r})")
+
+
+def test_bind_refuses_a_port_someone_else_holds():
+    """One port, one owner.
+
+    The settings copy rides the route BY PORT, so two agents on one port
+    isn't "both work" — it's "whichever wrote last erased the first one's
+    settings", silently and without a trace. Binding used to check only
+    that the port existed at all.
     """
     print("занятость порта при ручной привязке:")
     store = {"assignments": {}, "clients": {}}
@@ -670,18 +722,18 @@ def test_bind_refuses_a_port_someone_else_holds():
     check(json.dumps(store["assignments"], sort_keys=True) == before,
           "отказ ничего не записал — запись владельца не тронута")
 
-    # Отрицательные: свой же порт и своя же роль — не занятость.
+    # Negative: an agent's own port and own role are not a conflict.
     T.bind_agent_to_proxy({"hostId": "h1", "agentId": "a1", "port": 23001, "role": "primary"})
     check(store["assignments"]["h1"]["assignments"][0]["routes"][0]["proxyId"] == "skynet:proxy:23001",
           "повторная привязка того же агента на тот же порт — не отказ")
     T.bind_agent_to_proxy({"hostId": "h1", "agentId": "a2", "port": 23002, "role": "primary"})
     check(len(store["assignments"]["h1"]["assignments"]) == 2,
           "свободный порт другому агенту выдаётся как прежде")
-    # as-is: «отвязать» — это вернуть агента автомату, а НЕ освободить порт.
-    # Маршрут остаётся на месте, поэтому порт остаётся занятым, и попытка
-    # отдать его соседу по-прежнему отказ. Пин фиксирует это как есть: если
-    # освобождение когда-нибудь появится, пин обязан покраснеть и потребовать
-    # решения, а не тихо разойтись со смыслом слова.
+    # as-is: "unbind" means returning the agent to automatic, NOT freeing the
+    # port. The route stays in place, so the port stays taken, and trying to
+    # give it to a neighbor is still a refusal. The pin fixes this as-is: if
+    # freeing it up is ever added, the pin must turn red and force a
+    # decision, rather than silently drift away from what the word means.
     T.bind_agent_to_proxy({"hostId": "h1", "agentId": "a1"})
     check("manual" not in store["assignments"]["h1"]["assignments"][0],
           "снятие привязки убирает manual — агент вернулся автомату")
@@ -729,19 +781,21 @@ def test_saving_the_window_reaches_the_port_without_a_heartbeat():
 
 
 def test_bridge_carries_the_window_to_the_route():
-    """Мост от назначения к копии на маршруте.
+    """The bridge from an assignment to its copy on the route.
 
-    Прокси-процесс документа контроллера не видит — он читает только свои
-    файлы, — поэтому число едет к нему копией. Этот мост можно было удалить
-    целиком, и не краснело НИЧЕГО: гвард видел имена полей в соседнем словаре
-    той же функции и считал их названными. Проверено руками на выпотрошенном
-    дереве. Теперь мост пинится значением.
+    The proxy process never sees the controller's document — it only reads
+    its own files — so the number travels to it as a copy. This bridge
+    could have been deleted entirely and NOTHING would have turned red: the
+    guard saw field names sitting in a neighboring dict of the same function
+    and counted them as named. Verified by hand on a gutted tree. Now the
+    bridge is pinned by value.
     """
     print("мост «назначение → маршрут»:")
     def _bridge_harness(assignments, routes, clients):
-        # Мост читает read_agent_proxy_payload, а не load_agent_proxy_config:
-        # первая редакция этих пинов подменила не ту функцию и покраснела на
-        # ЦЕЛОМ дереве. Неожиданный красный — сперва подозревай проверку.
+        # The bridge reads read_agent_proxy_payload, not
+        # load_agent_proxy_config: the first version of these pins stubbed
+        # the wrong function and turned the WHOLE tree red. An unexpected red
+        # — suspect the check itself first.
         store, live = harness(assignments=assignments, routes=routes, clients=clients)
         fc.read_agent_proxy_payload = lambda: {"routes": live}
         return store, live
@@ -751,7 +805,7 @@ def test_bridge_carries_the_window_to_the_route():
             {"role": "primary", "proxyId": "skynet:proxy:23001",
              "endpoint": "http://10.0.0.1:23001/v1"}, **kw)]}]}}
 
-    # (а) Оператор задал окно — копия его получает.
+    # (a) The operator set a window — the copy gets it.
     store, routes = _bridge_harness(ASG(contextLength=8192),
                                     [{"port": 23001, "label": "old", "clientId": "client-a"}],
                                     {"client-a": {"id": "client-a", "name": "A", "agents": []}})
@@ -759,7 +813,7 @@ def test_bridge_carries_the_window_to_the_route():
     check(changed is True and routes[0].get("contextLength") == 8192,
           f"заданное окно доезжает до маршрута (changed={changed}, got {routes[0].get('contextLength')!r})")
 
-    # (б) Оператор СНЯЛ настройку — копия обязана её потерять, а не сохранить.
+    # (b) The operator CLEARED the setting — the copy must lose it too, not keep it.
     store, routes = _bridge_harness(ASG(),
                                     [{"port": 23001, "label": "l", "clientId": "client-a",
                                       "contextLength": 8192}],
@@ -768,7 +822,7 @@ def test_bridge_carries_the_window_to_the_route():
     check(changed is True and "contextLength" not in routes[0],
           f"снятая настройка снимается и с копии (got {routes[0]!r})")
 
-    # (в) Галка «от модели» едет тем же мостом.
+    # (c) The "from the model" checkbox rides the same bridge.
     store, routes = _bridge_harness(ASG(contextAuto=True),
                                     [{"port": 23001, "label": "l", "clientId": "client-a"}],
                                     {"client-a": {"id": "client-a", "name": "A", "agents": []}})
@@ -776,14 +830,30 @@ def test_bridge_carries_the_window_to_the_route():
     check(routes[0].get("contextAuto") is True,
           f"включённая галка доезжает (got {routes[0].get('contextAuto')!r})")
 
-    # (в1) Имя модели едет тем же мостом: без него порт объявляет имя апстрима,
-    # клиент своего id не находит и берёт встроенное умолчание.
+    # (c1) The model name rides the same bridge: without it the port
+    # advertises the upstream's name, a client can't find its own id, and
+    # falls back to its built-in default.
     store, routes = _bridge_harness(ASG(modelName="main-model"),
                                     [{"port": 23001, "label": "l", "clientId": "client-a"}],
                                     {"client-a": {"id": "client-a", "name": "A", "agents": []}})
     fc.reconcile_proxy_metadata()
     check(routes[0].get("modelName") == "main-model",
           f"заданное имя доезжает до маршрута (got {routes[0].get('modelName')!r})")
+    # (c2) The lock rides the same bridge: the proxy reads it from ITS OWN
+    # file and never sees the controller's document at all.
+    store, routes = _bridge_harness(ASG(modelName="main-model", modelNameAuto=True),
+                                    [{"port": 23001, "label": "l", "clientId": "client-a"}],
+                                    {"client-a": {"id": "client-a", "name": "A", "agents": []}})
+    fc.reconcile_proxy_metadata()
+    check(routes[0].get("modelNameAuto") is True and routes[0].get("modelName") == "main-model",
+          f"открытый замок доезжает вместе с именем (got {routes[0]!r})")
+    store, routes = _bridge_harness(ASG(modelName="main-model"),
+                                    [{"port": 23001, "label": "l", "clientId": "client-a",
+                                      "modelNameAuto": True}],
+                                    {"client-a": {"id": "client-a", "name": "A", "agents": []}})
+    fc.reconcile_proxy_metadata()
+    check("modelNameAuto" not in routes[0],
+          f"закрытый назад замок снимается и с копии (got {routes[0]!r})")
     store, routes = _bridge_harness(ASG(),
                                     [{"port": 23001, "label": "l", "clientId": "client-a",
                                       "modelName": "main-model"}],
@@ -792,10 +862,10 @@ def test_bridge_carries_the_window_to_the_route():
     check("modelName" not in routes[0],
           f"снятое имя снимается и с копии (got {routes[0]!r})")
 
-    # (в2) Агента перецепили на другой порт. Старый маршрут остаётся жить в
-    # файле прокси до ближайшей сверки — и продолжал публиковать окно клиента,
-    # который на нём больше не сидит. Владельца у копии нет, значит и копии
-    # быть не должно.
+    # (c2) An agent got rewired onto a different port. The old route stays
+    # alive in the proxy file until the next reconcile — and kept publishing
+    # the window of a client that no longer sits on it. The copy has no
+    # owner, so there shouldn't be a copy either.
     store, routes = _bridge_harness(
         {"client-a": {"assignments": [
             {"agentId": "agent-a", "routes": [{"role": "primary",
@@ -816,11 +886,12 @@ def test_bridge_carries_the_window_to_the_route():
     check(new_route.get("contextLength") == 4096,
           f"а новый порт получил настройку (got {new_route.get('contextLength')!r})")
 
-    # (в3) Один порт назвали ДВА назначения. Ручная привязка это теперь
-    # отвергает, а отчёт скаута — нет: агенты рассказывают, что у них в
-    # конфигах. Мост ключуется портом, поэтому «победитель» тут произволен, и
-    # публиковать окно одного клиента на трафике другого — ложь. Владельца
-    # нет, значит копии нет: порт вернётся к числу модели, а это честно.
+    # (c3) TWO assignments claimed one port. Manual binding rejects this now,
+    # but a scout's report doesn't: agents just report what's in their own
+    # configs. The bridge is keyed by port, so the "winner" here is
+    # arbitrary, and publishing one client's window on another's traffic
+    # would be a lie. No owner means no copy: the port falls back to the
+    # model's own number, which is honest.
     store, routes = _bridge_harness(
         {"client-a": {"assignments": [
             {"agentId": "agent-a", "routes": [{"role": "primary",
@@ -842,8 +913,8 @@ def test_bridge_carries_the_window_to_the_route():
     check(routes[0].get("clientId") == "client-a",
           f"и владельца себе не выдумывает — прежнее поле остаётся (got {routes[0]!r})")
 
-    # (г) ОТРИЦАТЕЛЬНЫЙ: ничего не задано — на маршруте ничего и не появляется,
-    # и сам мост не объявляет, что что-то поменял.
+    # (d) NEGATIVE: nothing is set — nothing appears on the route either,
+    # and the bridge itself reports no change.
     store, routes = _bridge_harness(ASG(),
                                     [{"port": 23001, "label": "A primary", "clientId": "client-a",
                                       "role": "primary"}],
@@ -855,15 +926,16 @@ def test_bridge_carries_the_window_to_the_route():
 
 
 def test_reconcile_carries_what_the_operator_set():
-    """Пятая граница пересборки: сверка прокси с живым отчётом.
+    """The fifth rebuild boundary: reconciling proxies with a live report.
 
-    Живой отчёт скаута знает, КУДА агент ходит. Он не знает, что оператор про
-    этот маршрут решил, и не вправе это стирать. До этих пинов сверка собирала
-    строку с нуля из отчёта — и окно контекста вместе с флагом «руками» тихо
-    исчезало у КАЖДОГО онлайн-агента, даже когда порт не менялся.
+    The scout's live report knows WHERE an agent is reached. It doesn't know
+    what the operator decided about that route, and has no right to erase
+    it. Before these pins, the reconcile built the record from scratch out of
+    the report — and the context window, along with the "manual" flag,
+    silently vanished for EVERY online agent, even when the port hadn't changed.
     """
     print("сверка прокси с живым отчётом:")
-    # (а) Порт тот же — переписывать нечего, но строка всё равно пересобиралась.
+    # (a) Same port — nothing to rewrite, yet the record still got rebuilt.
     store = _reconcile_fixture(live_port=23001, saved_port=23001)
     po = _ops_harness(store, [{"port": 23001, "clientId": "client-a", "role": "primary"}])
     po.reconcile_agent_proxies(dry_run=False)
@@ -876,7 +948,7 @@ def test_reconcile_carries_what_the_operator_set():
     check(row.get("manual") is True,
           f"тот же порт: флаг «руками» уцелел (got {row.get('manual')!r})")
 
-    # (б) Порт РАЗЪЕХАЛСЯ — живость переезжает, настройки едут следом.
+    # (b) The port MOVED — liveness moves, settings follow along.
     store = _reconcile_fixture(live_port=23002, saved_port=23001)
     po = _ops_harness(store, [{"port": 23001, "clientId": "client-a", "role": "primary"},
                               {"port": 23002, "clientId": "client-a", "role": "primary"}])
@@ -892,7 +964,7 @@ def test_reconcile_carries_what_the_operator_set():
     check(row.get("manual") is True,
           f"переезд: флаг «руками» переехал (got {row.get('manual')!r})")
 
-    # (в) ОТРИЦАТЕЛЬНЫЙ: чего оператор не задавал, то и не появляется.
+    # (c) NEGATIVE: what the operator never set doesn't appear either.
     store = _reconcile_fixture(live_port=23002, saved_port=23001,
                                context=None, auto=None, manual=None)
     po = _ops_harness(store, [{"port": 23001}, {"port": 23002}])
@@ -928,7 +1000,7 @@ def test_route_context_is_per_consumer():
           "галка, которую не ставили, не выдумывается — иначе читалась бы как решение")
     check(sorted(routes()[1].keys()) == ["endpoint", "proxyId", "role"],
           "соседняя роль не тронута — настройка живёт на РОЛИ, а не на агенте")
-    # Форма шлёт оба поля разом, поэтому пропущенное — это «снять».
+    # The form sends both fields together, so a missing one means "clear".
     T.set_agent_route_context({"hostId": "h", "agentId": "a", "role": "primary", "contextAuto": True})
     check(routes()[0].get("contextAuto") is True and "contextLength" not in routes()[0],
           "галка включена, число снято — оба поля задаются вместе")
@@ -950,14 +1022,14 @@ def test_route_context_is_per_consumer():
             check(False, f"{why} должен быть отказом")
         except Exception as exc:
             check(getattr(exc, "status", None) == code, f"{why} — отказ {code} (got {exc!r})")
-    # Роль без маршрута — тоже отказ, а не тихо созданный маршрут в никуда.
+    # A role with no route is also a refusal, not a route silently created into nowhere.
     store["assignments"]["h"]["assignments"].append({"agentId": "b", "routes": []})
     try:
         T.set_agent_route_context({"hostId": "h", "agentId": "b", "role": "primary", "contextLength": 8})
         check(False, "роль без маршрута должна быть отказом")
     except Exception as exc:
         check(getattr(exc, "status", None) == 404, f"роль без маршрута — 404 (got {exc!r})")
-    # И то, ради чего поле названо в классе: перенос порта не отменяет настройку.
+    # And the whole reason the field is named in the class: moving the port doesn't cancel the setting.
     T.set_agent_route_context({"hostId": "h", "agentId": "a", "role": "primary", "contextLength": 4096})
     T.bind_agent_to_proxy({"hostId": "h", "agentId": "a", "port": 23002, "role": "primary"})
     check(routes()[0].get("contextLength") == 4096 and routes()[0]["proxyId"] == "skynet:proxy:23002",
@@ -970,6 +1042,7 @@ for fn in (test_provisioned_record_shape, test_route_can_be_removed,
            test_agent_added_by_hand,
            test_adopting_the_scouts_clients,
            test_bind_refuses_a_port_someone_else_holds,
+           test_set_route_names_every_setting,
            test_saving_the_window_reaches_the_port_without_a_heartbeat,
            test_bridge_carries_the_window_to_the_route,
            test_reconcile_carries_what_the_operator_set,

@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""Характеризующий снимок ФАЗЫ 6: что отвечает POST через прокси-порт.
+"""Characterization snapshot for PHASE 6: what a POST through a proxy port answers.
 
-Пинит ЗНАЧЕНИЕ каждого исхода, до которого запрос доходит без очереди: режимы
-paused и drain, порт без роутера, ключ API (нет/неверный/верный), обычная
-пересылка к живому апстриму, пересылка его 4xx и 5xx вместе с телом, и апстрим,
-который не слушает.
+Pins the VALUE of every outcome a request reaches without going through the
+queue: paused and drain modes, a port with no router, an API key
+(none/wrong/right), an ordinary forward to a live upstream, forwarding its
+4xx and 5xx along with the body, and an upstream that isn't listening.
 
-Зачем именно до переписывания: `ProxyHandler.proxy` — это 879 строк из 1170 в
-файле, семь уровней вложенности и двадцать веток `except`, из которых пятнадцать
-голые `except Exception`, а десять из них — `pass`. Десять мест, где любая беда
-исчезает без следа: разбирать такой метод, не пришпилив исходы, нельзя.
+Why this specifically, before the rewrite: `ProxyHandler.proxy` is 879 lines
+out of 1170 in the file, seven levels of nesting, and twenty `except`
+branches, fifteen of them bare `except Exception`, ten of those just `pass`.
+Ten places where any trouble vanishes without a trace: a method like that
+cannot be taken apart without pinning its outcomes first.
 
-Сервер настоящий: ProxyHandler на свободном порту с одноразовым конфигом.
+The server is real: a ProxyHandler on a free port with a one-shot config.
 
-Запуск: python3 scripts/test_proxy_forward.py
+Run: python3 scripts/test_proxy_forward.py
 """
 import base64
 import http.client
@@ -37,7 +38,10 @@ os.environ["MODEL_CATALOG_FILE"] = str(TMP / "model-catalog.json")
 os.environ["PROVIDER_SECRETS_FILE"] = str(TMP / "provider-secrets.json")
 sys.path.insert(0, str(ROOT))
 
+from caravan.common.request_kind import is_inference_request as _is_inference_request  # noqa: E402
 from caravan.proxy.handler import ProxyHandler  # noqa: E402
+from caravan.proxy.output_health import output_health  # noqa: E402
+from caravan.proxy.state import write_state  # noqa: E402
 
 _fail = []
 
@@ -56,11 +60,11 @@ def free_port():
     return port
 
 
-# ── поддельный апстрим ───────────────────────────────────────────────────────
-# Отвечает по пути: /ok обычным JSON, /bad400 и /bad503 — ошибкой с телом,
-# чтобы проверить, что статус И причина доходят до клиента как есть.
+# ── fake upstream ─────────────────────────────────────────────────────────
+# Answers by path: /ok with ordinary JSON, /bad400 and /bad503 with an error
+# and a body, to check that both the status AND the reason reach the client as-is.
 seen = []
-# Три события и терминатор — минимальный поток, который клиент считает полным.
+# Three events and a terminator — the minimal stream a client considers complete.
 SSE_CHUNKS = [
     b'data: {"choices":[{"delta":{"content":"he"}}]}\n\n',
     b'data: {"choices":[{"delta":{"content":"llo"}}]}\n\n',
@@ -79,8 +83,8 @@ class _Upstream(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if length else b""
         seen.append((self.path, raw))
         if self.path.endswith("stream"):
-            # Апстрим объявляет text/event-stream — по этому заголовку прокси и
-            # решает, что ответ потоковый (handler.py:641).
+            # The upstream declares text/event-stream — the proxy decides the
+            # response is streamed based on exactly this header (handler.py:641).
             self.send_response(200)
             self.send_header("Content-Type", "text/event-stream")
             self.send_header("Cache-Control", "no-cache")
@@ -138,6 +142,7 @@ class _BigSlowCell(BaseHTTPRequestHandler):
 FAILING = free_port()
 BACKUP = free_port()
 failing_hits = []
+failing_gets = []
 backup_hits = []
 
 
@@ -148,6 +153,16 @@ class _FailingCell(BaseHTTPRequestHandler):
 
     def log_message(self, *args):
         pass
+
+    def do_GET(self):
+        # llama.cpp's answer to a path it never had — a client's discovery probe.
+        failing_gets.append(self.path)
+        payload = b'{"error":{"message":"File Not Found","type":"not_found_error","code":404}}'
+        self.send_response(404)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -255,7 +270,7 @@ def _make_slow_cell(slot_count):
 
 LOADING = free_port()
 OTHER503 = free_port()
-# Сколько раз ячейка ответит "Loading model" прежде чем подняться.
+# How many times the cell answers "Loading model" before it's up.
 loading_left = [1]
 loading_hits = []
 
@@ -305,15 +320,14 @@ class _Other503(BaseHTTPRequestHandler):
 
 
 SUB = free_port()
-# Токен подписки: chatgpt-account-id прокси достаёт из ПРЕТЕНЗИИ внутри JWT,
-# а не из конфигурации, — поэтому в фикстуре настоящий (невалидно подписанный)
-# токен с этой претензией.
+# The subscription token: the proxy pulls chatgpt-account-id from a CLAIM
+# inside the JWT, not from config — so the fixture carries a real (invalidly
+# signed) token that has this claim.
 _SUB_CLAIM = base64.urlsafe_b64encode(json.dumps(
     {"https://api.openai.com/auth": {"chatgpt_account_id": "acct-test-123"}}
 ).encode()).decode().rstrip("=")
 SUB_TOKEN = "hdr." + _SUB_CLAIM + ".sig"
-# События Responses-API в том порядке, в котором их ждёт
-# _iter_responses_as_completions_sse.
+# Responses-API events in the order _iter_responses_as_completions_sse expects them.
 SUB_EVENTS = [
     b'data: {"type":"response.output_text.delta","delta":"he"}\n\n',
     b'data: {"type":"response.output_text.delta","delta":"llo"}\n\n',
@@ -329,7 +343,7 @@ sub_seen = []
 
 
 class _Subscription(BaseHTTPRequestHandler):
-    """Отвечает так, как отвечает codex-эндпоинт подписки: потоком Responses-API."""
+    """Answers the way the subscription codex endpoint does: as a Responses-API stream."""
 
     protocol_version = "HTTP/1.1"
 
@@ -350,7 +364,7 @@ class _Subscription(BaseHTTPRequestHandler):
 
 
 ANTHRO = free_port()
-# События Anthropic в том порядке, в котором их ждёт _iter_anthropic_as_completions_sse.
+# Anthropic events in the order _iter_anthropic_as_completions_sse expects them.
 ANTHRO_EVENTS = [
     b'event: content_block_start\ndata: {"type":"content_block_start","index":0,'
     b'"content_block":{"type":"text","text":""}}\n\n',
@@ -383,8 +397,8 @@ class _Anthropic(BaseHTTPRequestHandler):
             asked = {}
         text = json.dumps(asked.get("messages") or "")
         if "LOADING503" in text:
-            # Облако, отвечающее теми же словами, что и грузящаяся ячейка.
-            # Ретраить ТАКОЕ нельзя: у провайдера 503 значит другое.
+            # A cloud answering with the same words as a loading cell. THIS
+            # must not be retried: a 503 from a provider means something else.
             payload = b'{"error":{"type":"overloaded_error","message":"Loading model"}}'
             self.send_response(503)
             self.send_header("Content-Type", "application/json")
@@ -393,7 +407,7 @@ class _Anthropic(BaseHTTPRequestHandler):
             self.wfile.write(payload)
             return
         if not asked.get("stream"):
-            # Не-потоковый ответ Anthropic — одним документом.
+            # A non-streaming Anthropic response — a single document.
             payload = json.dumps({"id": "msg_1", "type": "message", "role": "assistant",
                                   "model": "claude-test-model",
                                   "content": [{"type": "text", "text": "hello"}],
@@ -420,7 +434,7 @@ RUDE = free_port()
 
 
 def _rude_upstream():
-    """Принимает соединение и молча закрывает — так ведёт себя умирающая ячейка."""
+    """Accepts a connection and closes it silently — how a dying cell behaves."""
     srv = socket.socket()
     srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind(("127.0.0.1", RUDE))
@@ -434,6 +448,7 @@ def _rude_upstream():
 (P_OK, P_DEAD, P_PAUSED, P_DRAIN, P_UNROUTED, P_KEYED, P_RUDE, P_ANTHRO, P_SUB,
  P_LOAD, P_OTHER503, P_Q1A, P_Q1B, P_Q2A, P_Q2B, P_KA_A, P_KA_B,
  P_RESCUE, P_NORESCUE, P_VANISH, P_VANISH2) = (free_port() for _ in range(21))
+P_RESCUE_DEAD = free_port()
 
 
 def _route(port, **extra):
@@ -449,13 +464,14 @@ CONFIG = {
         _route(P_DRAIN, mode="drain"), _route(P_UNROUTED, routerId=""),
         _route(P_KEYED, apiKey="s3cret"), _route(P_RUDE),
         _route(P_ANTHRO, upstreamType="cloud", providerId="blk:anthro"),
-        # Маршрут в АККАУНТ, не в блок: только этот путь несёт accountType,
-        # по которому и опознаётся подписка (у блока такого поля нет).
+        # A route into an ACCOUNT, not a block: only this path carries
+        # accountType, which is what identifies the subscription (a block
+        # has no such field).
         _route(P_SUB),
         _route(P_LOAD), _route(P_OTHER503),
         _route(P_Q1A), _route(P_Q1B), _route(P_Q2A), _route(P_Q2B),
         _route(P_KA_A), _route(P_KA_B),
-        _route(P_RESCUE), _route(P_NORESCUE), _route(P_VANISH), _route(P_VANISH2),
+        _route(P_RESCUE), _route(P_NORESCUE), _route(P_RESCUE_DEAD), _route(P_VANISH), _route(P_VANISH2),
     ],
     "routers": [{
         "id": "router:t",
@@ -469,14 +485,18 @@ CONFIG = {
             {"id": "out:o503", "name": "o503", "upstreamHost": "127.0.0.1", "upstreamPort": OTHER503},
             {"id": "out:q1", "name": "q1", "upstreamHost": "127.0.0.1", "upstreamPort": ONE_SLOT},
             {"id": "out:q2", "name": "q2", "upstreamHost": "127.0.0.1", "upstreamPort": TWO_SLOT},
-            # ВАЖНО: без префикса out:. resolve_graph отрезает его у ссылки в
-            # ребре и ищет остаток среди outputs, тогда как pick_router_output
-            # (правила bySource) сверяет полный id. У двух резолверов разные
-            # соглашения, и на проде id выходов именно такие: srv:22001, cb:...
+            # IMPORTANT: no out: prefix. resolve_graph strips it from the
+            # edge's reference and looks up the remainder among outputs,
+            # while pick_router_output (bySource rules) checks the full id.
+            # The two resolvers follow different conventions, and in
+            # production output ids look exactly like this: srv:22001, cb:...
             {"id": "ka", "name": "ka", "upstreamHost": "127.0.0.1", "upstreamPort": KA_SLOT},
             {"id": "fail", "name": "fail", "upstreamHost": "127.0.0.1", "upstreamPort": FAILING},
             {"id": "out:bigslow", "name": "bigslow", "upstreamHost": "127.0.0.1", "upstreamPort": BIGSLOW},
             {"id": "backup", "name": "backup", "upstreamHost": "127.0.0.1", "upstreamPort": BACKUP},
+            # The same closed port under a graph-style id (no out: prefix) — the
+            # backup exit of e2, so that the replay itself is what fails.
+            {"id": "deadg", "name": "deadg", "upstreamHost": "127.0.0.1", "upstreamPort": DEAD},
         ],
         "graph": {
             "nodes": [
@@ -484,18 +504,24 @@ CONFIG = {
                     "admitEdge": "ea", "spillEdge": "es", "maxSlots": 1, "keepaliveSec": 1}},
                 {"id": "e1", "type": "onError", "config": {
                     "mainEdge": "emain", "rescueEdge": "eresc"}},
+                # Backup exit into a port nobody listens on: the replay itself fails.
+                {"id": "e2", "type": "onError", "config": {
+                    "mainEdge": "emain2", "rescueEdge": "eresc2"}},
             ],
             "edges": [
                 {"id": "ein_a", "from": f"in:skynet:proxy:{P_KA_A}", "to": "rule:q1"},
                 {"id": "ein_b", "from": f"in:skynet:proxy:{P_KA_B}", "to": "rule:q1"},
                 {"id": "ea", "from": "rule:q1", "to": "out:ka"},
-                # Спасение: главное ребро ведёт в падающий выход, запасное — в
-                # рабочий. Резолвер запасное лишь ЗАПИСЫВАЕТ; повтор делает
-                # обработчик, и только после настоящего отказа.
+                # Rescue: the main edge leads to a failing output, the backup
+                # to a working one. The resolver only RECORDS the backup; the
+                # handler does the retry, and only after a genuine failure.
                 {"id": "ein_r", "from": f"in:skynet:proxy:{P_RESCUE}", "to": "rule:e1"},
                 {"id": "emain", "from": "rule:e1", "to": "out:fail"},
                 {"id": "eresc", "from": "rule:e1", "to": "out:backup"},
                 {"id": "es", "from": "rule:q1", "to": "out:ka"},
+                {"id": "ein_rd", "from": f"in:skynet:proxy:{P_RESCUE_DEAD}", "to": "rule:e2"},
+                {"id": "emain2", "from": "rule:e2", "to": "out:fail"},
+                {"id": "eresc2", "from": "rule:e2", "to": "out:deadg"},
             ],
         },
         "rules": {"bySource": [{"proxyId": f"skynet:proxy:{P_DEAD}", "output": "out:dead"},
@@ -521,7 +547,7 @@ Path(os.environ["CLOUD_PROVIDERS_FILE"]).write_text(json.dumps({
                   "baseUrl": f"http://127.0.0.1:{SUB}"}],
     "blocks": [{"id": "blk:anthro", "accountId": "acc:anthro", "model": "claude-test-model"}],
 }), encoding="utf-8")
-# Без ключа маршрут отвечает "cloud provider not configured" и до перевода не доходит.
+# With no key, the route answers "cloud provider not configured" and never reaches translation.
 Path(os.environ["PROVIDER_SECRETS_FILE"]).write_text(
     json.dumps({"acc:anthro": {"apiKey": "sk-test"},
                 "acc:sub": {"apiKey": SUB_TOKEN}}), encoding="utf-8")
@@ -547,10 +573,11 @@ threading.Thread(target=_rude_upstream, daemon=True).start()
 BODY = json.dumps({"model": "m", "messages": [{"role": "user", "content": "hi"}]}).encode()
 
 
-# Ответа ждём недолго и НАМЕРЕННО: проверка, которая висит, хуже упавшей.
-# Доказано на этом же файле — если снять условие про загрузку модели, любой 503
-# начинает ретраиться до конца дедлайна, и прогон замирал вместо того, чтобы
-# покраснеть. Таймаут превращается в обычный провал с внятными словами.
+# The wait for a response is short ON PURPOSE: a check that hangs is worse
+# than one that fails. Proven on this very file — remove the condition about
+# a loading model, and any 503 starts retrying until the deadline runs out,
+# and the run would freeze instead of turning red. A timeout turns into an
+# ordinary failure with a legible message.
 RESPONSE_TIMEOUT = 12
 
 
@@ -651,10 +678,10 @@ def test_upstream_down():
     status, raw = post(P_DEAD)
     check(status == 502, f"502 (получено {status})")
     check(raw.strip() != "", "с непустым телом, а не молча")
-    # ЗАФИКСИРОВАНО КАК ЕСТЬ, НЕ КАК ХОРОШО: наружу уходит номер ошибки
-    # операционной системы. Это то же семейство, что чинили в фазе 5 у тела
-    # запроса, — внутренняя деталь в ответе клиенту. Снимок обязан записать
-    # это до переписывания, чтобы правка была видна как правка.
+    # PINNED AS-IS, NOT AS GOOD: an operating-system error number leaks out.
+    # This is the same family of bug fixed in phase 5 for the request body —
+    # an internal detail in the answer sent to a client. The snapshot must
+    # record this before the rewrite, so a fix shows up as a fix.
     doc = json.loads(raw)
     check(isinstance(doc.get("error"), str) and "Errno" in doc["error"],
           f"текст системного отказа сохранён — {doc.get('error')!r}")
@@ -664,7 +691,7 @@ def test_upstream_down():
 
 
 def test_classifier_both_sides():
-    """Один и тот же errno значит разное в зависимости от того, кто ещё на связи."""
+    """The same errno means something different depending on who else is still connected."""
     print("classify_proxy_error, обе стороны:")
     from caravan.proxy.translate import classify_proxy_error as cls
     reset = ConnectionResetError(54, "Connection reset by peer")
@@ -680,17 +707,17 @@ def test_classifier_both_sides():
           "и при ушедшем тоже")
     check(cls(ValueError("boom"), client_present=True) == "proxy_error",
           "всё прочее — общая ошибка прокси")
-    # Умолчание обязано остаться прежним: старый вызов без факта не должен
-    # менять поведение молча.
+    # The default must stay the same: an old call with no fact given must not
+    # silently change behaviour.
     check(cls(reset) == "client_disconnected", "умолчание не изменилось")
 
 
 def test_streaming_relay():
-    """Потоковый путь: что видит клиент и что попадает в журнал.
+    """The streaming path: what the client sees, and what lands in the log.
 
-    Самый горячий путь плоскости данных и до сих пор не пришпиленный: снимок
-    покрывал не-потоковые ответы и отказы. Трогать его нельзя, пока исходы не
-    записаны.
+    The hottest path in the data plane, and still unpinned until now: the
+    snapshot covered non-streaming responses and failures. It cannot be
+    touched until its outcomes are on record.
     """
     print("потоковая ретрансляция:")
     before = len(seen)
@@ -710,11 +737,12 @@ def test_streaming_relay():
           f"соединение закрывается (получено {got_headers.get('connection')!r})")
     check("content-length" not in got_headers,
           "длина НЕ объявляется — она неизвестна заранее")
-    # Кадр SSE завершается ПУСТОЙ строкой. Ретранслятор выходит из цикла,
-    # увидев `data: [DONE]`, и раньше оставлял эту строку непрочитанной в
-    # сокете — клиент получал на байт меньше, а строгий разборщик последний
-    # кадр не отдавал вовсе. Оба переводящих итератора терминатор отдают, и
-    # _send_sse_error тоже: незавершённым кадр оставлял ровно один путь из трёх.
+    # An SSE frame ends with an EMPTY line. The relay exits its loop on
+    # seeing `data: [DONE]`, and used to leave that line unread in the
+    # socket — the client got one byte short, and a strict parser never
+    # delivered the last frame at all. Both translating iterators emit the
+    # terminator, and so does _send_sse_error: leaving a frame unfinished was
+    # exactly one path out of three.
     expected_sent = b"".join(SSE_CHUNKS)
     check(body == expected_sent, f"поток дошёл байт в байт (хвост {body[-24:]!r})")
     check(body.endswith(b"data: [DONE]\n\n"),
@@ -754,7 +782,7 @@ def test_anthropic_translation():
     body = resp.read()
     conn.close()
 
-    # ── что ушло наверх ──────────────────────────────────────────────────────
+    # ── what went upstream ───────────────────────────────────────────────────
     check(len(anthro_seen) == before + 1, f"апстрим получил один запрос (получено {len(anthro_seen)-before})")
     path, sent_headers, sent_body = anthro_seen[-1]
     low = {k.lower(): v for k, v in sent_headers.items()}
@@ -770,7 +798,7 @@ def test_anthropic_translation():
           f"тело в форме anthropic (ключи {sorted(sent)})")
     check("max_tokens" in sent, "и с обязательным для anthropic max_tokens")
 
-    # ── что пришло вниз ──────────────────────────────────────────────────────
+    # ── what came back down ──────────────────────────────────────────────────
     check(resp.status == 200, f"клиенту 200 (получено {resp.status})")
     check(got_headers.get("content-type", "").startswith("text/event-stream"),
           f"клиенту поток (получено {got_headers.get('content-type')!r})")
@@ -792,10 +820,11 @@ def test_anthropic_translation():
 
 
 def test_subscription_translation():
-    """Перевод Responses-API → completions: вторая из двух переводящих веток.
+    """Translating Responses-API → completions: the second of two translating branches.
 
-    Опознаётся по `accountType`, которое несёт ТОЛЬКО маршрут в аккаунт: у блока
-    такого поля нет, и подписка распознавалась бы лишь по домену в baseUrl.
+    Identified by `accountType`, which ONLY a route into an account carries: a
+    block has no such field, and a subscription would otherwise be
+    recognized only by the domain in baseUrl.
     """
     print("перевод responses-api → completions:")
     before = len(sub_seen)
@@ -807,7 +836,7 @@ def test_subscription_translation():
     body = resp.read()
     conn.close()
 
-    # ── что ушло наверх ──────────────────────────────────────────────────────
+    # ── what went upstream ───────────────────────────────────────────────────
     check(len(sub_seen) == before + 1, f"апстрим получил один запрос (получено {len(sub_seen)-before})")
     path, sent_headers, sent_body = sub_seen[-1]
     low = {k.lower(): v for k, v in sent_headers.items()}
@@ -826,7 +855,7 @@ def test_subscription_translation():
     check("input" in sent, f"тело в форме Responses-API, а не chat (ключи {sorted(sent)})")
     check("messages" not in sent, "поле messages не переехало как есть")
 
-    # ── что пришло вниз ──────────────────────────────────────────────────────
+    # ── what came back down ──────────────────────────────────────────────────
     check(resp.status == 200, f"клиенту 200 (получено {resp.status})")
     check(got_headers.get("content-type", "").startswith("text/event-stream"),
           f"клиенту поток (получено {got_headers.get('content-type')!r})")
@@ -911,8 +940,9 @@ def test_responses_passthrough():
     check(req_summary.get("messages") == 1 and req_summary.get("roles") == ["user"] and req_summary.get("promptTextChars") == 2,
           f"сводка запроса читает input как сообщения — панель маршрута не покажет «запрос ни о чём» (получено {req_summary.get('messages')!r}, {req_summary.get('roles')!r}, {req_summary.get('promptTextChars')!r})")
 
-    # Буферизованный ответ: клиент просит stream:false — наверх всё равно stream:true,
-    # вниз — объект response из response.completed.
+    # A buffered response: the client asks for stream:false — upstream still
+    # gets stream:true, and what comes back down is the response object from
+    # response.completed.
     req["stream"] = False
     conn = http.client.HTTPConnection("127.0.0.1", P_SUB, timeout=30)
     conn.request("POST", "/v1/responses", body=json.dumps(req).encode(),
@@ -937,11 +967,12 @@ def test_responses_passthrough():
 
 
 def test_loading_model_retry():
-    """Ячейка ещё грузит модель: 503 ретраится, любой другой 503 — нет.
+    """A cell still loading its model: a 503 is retried; any other 503 is not.
 
-    Условие узкое по трём осям сразу: НЕ облако, статус ровно 503, и в теле
-    слова llama.cpp про загрузку. Негативный случай здесь обязателен — без него
-    проверка не отличит «ретрай сработал» от «ретрая нет вовсе».
+    The condition is narrow on three axes at once: NOT a cloud, a status of
+    exactly 503, and llama.cpp's own words about loading in the body. The
+    negative case is essential here — without it the check can't tell "the
+    retry worked" from "there was no retry at all".
     """
     print("ретрай на загружающейся модели:")
     loading_left[0] = 1
@@ -957,7 +988,7 @@ def test_loading_model_retry():
     gap = (loading_hits[1] - loading_hits[0]) if len(loading_hits) > 1 else 0
     check(2.5 <= gap <= 6.0, f"пауза около трёх секунд (получено {gap:.1f} с)")
 
-    # Тот же статус, другое тело — ретраить нельзя: это не про загрузку.
+    # The same status, a different body — this must not be retried: it isn't about loading.
     began = time.time()
     status, raw = post(P_OTHER503)
     took = time.time() - began
@@ -1030,7 +1061,7 @@ def test_queue_waits_for_a_free_slot():
 
 
 def test_queue_visible_in_journal():
-    """Ожидание обязано быть ВИДНО: иначе очередь неотличима от медленного апстрима."""
+    """The wait must be VISIBLE: otherwise a queue is indistinguishable from a slow upstream."""
     print("очередь в журнале:")
     rows = {}
     for row in _finished_events((f"r{P_Q1A}", f"r{P_Q1B}")):
@@ -1040,9 +1071,10 @@ def test_queue_visible_in_journal():
         item = (rows.get(name) or {}).get("item") or {}
         queued.append(int((item.get("queue") or {}).get("queuedMs") or 0))
     check(len(queued) == 2, f"обе записи найдены (получено {len(queued)})")
-    # Не «ровно ноль»: у прошедшего сразу набегает единица-другая миллисекунд,
-    # и первая версия этой проверки от них краснела. Пинится РАЗНИЦА — она и
-    # есть смысл очереди, — а не точное значение быстрой половины.
+    # Not "exactly zero": a request that went straight through still racks up
+    # a millisecond or two, and the first version of this check turned red
+    # over them. What's pinned is the DIFFERENCE — that's the whole point of
+    # a queue — not the exact value of the fast half.
     check(max(queued) >= SLOW_SECONDS * 1000 * 0.6,
           f"у ждавшего записано время в очереди, сравнимое с работой апстрима (получено {queued})")
     check(min(queued) < 200, f"у прошедшего сразу — почти ноль (получено {queued})")
@@ -1055,12 +1087,14 @@ STREAM_BODY = json.dumps({"model": "m", "stream": True,
 
 
 def test_keepalive_holds_a_queued_client():
-    """Пока запрос ждёт слот, клиенту идут биения — иначе он отвалится по таймауту.
+    """While a request waits for a slot, the client gets heartbeats — or it
+    would time out and drop.
 
-    Биение — не комментарий SSE, а НАСТОЯЩИЙ кадр с дельтой в канале мышления.
-    Так и записано в docstring keepalive_sse_bytes: клиенты сбрасывают свой
-    таймаут чтения только на кадрах с текстом токена, а `: comment` и пустую
-    дельту игнорируют. Пинится именно это — форма кадра, а не факт записи.
+    A heartbeat isn't an SSE comment, it's a REAL frame carrying a delta in
+    the thinking channel. That's exactly what keepalive_sse_bytes's docstring
+    says: clients only reset their read timeout on frames carrying token
+    text, and ignore a `: comment` or an empty delta. What's pinned here is
+    exactly that — the frame's shape, not merely the fact that something was written.
     """
     print("сердцебиение очереди:")
     out = {}
@@ -1080,9 +1114,10 @@ def test_keepalive_holds_a_queued_client():
         finally:
             conn.close()
 
-    # Оба клиента — на ОДИН порт: так ходит настоящий агент, и так не срабатывает
-    # липкая резервация слота, которая держится за портом (два разных порта в один
-    # апстрим добавляли к ожиданию два десятка секунд — это отдельный шов).
+    # Both clients go to ONE port: that's how a real agent calls, and this
+    # way the sticky slot reservation that's held against the port doesn't
+    # kick in (two different ports into one upstream used to add twenty
+    # seconds to the wait — a separate seam of its own).
     threads = [threading.Thread(target=_run, args=(k, P_KA_A))
                for k in ("a", "b")]
     for t in threads:
@@ -1145,7 +1180,7 @@ def test_rescue_replays_on_a_backup_exit():
     check(failing_hits[-1] == backup_hits[-1],
           "на запасной ушло ТО ЖЕ тело — это повтор, а не новый запрос")
 
-    # Негативная половина: без запасного выхода отказ доходит как есть.
+    # The negative half: with no backup output, the failure reaches the client as-is.
     f2 = len(failing_hits)
     status, raw = post(P_NORESCUE)
     check(status == 500, f"без запасного выхода отказ доходит до клиента (получено {status})")
@@ -1179,6 +1214,145 @@ def test_rescue_visible_in_journal():
     trail = resc.get("trail") or []
     check(len(trail) == 1 and trail[0].get("status") == 500,
           f"и хранит след: откуда и с каким отказом ушли (получено {trail})")
+
+
+def test_dead_main_is_skipped():
+    """A main exit known to be dead is not asked again for five minutes.
+
+    The rescue above left a fresh verdict on the failing output; the next
+    request goes straight down the backup exit — no doomed round trip — and
+    the summary confesses the skip, so a reader of the journal sees WHY the
+    backup answered without any rescue_retry event.
+    """
+    print("мёртвый главный выход пропускается:")
+    check(output_health.is_dead("fail"), "после спасения у главного выхода свежий вердикт «мёртв» (500)")
+
+    def _finished_rows():
+        rows = []
+        for path in sorted(Path(os.environ["AGENT_PROXY_LOG_DIR"]).glob("*")):
+            for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+                try:
+                    row = json.loads(line)
+                except Exception:
+                    continue
+                if row.get("event") == "finished" and row.get("route") == f"r{P_RESCUE}":
+                    rows.append(row)
+        return rows
+
+    n_before = len(_finished_rows())
+    f_before, b_before = len(failing_hits), len(backup_hits)
+    status, raw = post(P_RESCUE)
+    check(status == 200 and json.loads(raw).get("id") == "rescued",
+          f"клиент получил ответ ЗАПАСНОГО выхода (получено {status} {raw[:40]!r})")
+    check(len(failing_hits) == f_before, "главный выход НЕ опрашивался — к мёртвому не ходят")
+    check(len(backup_hits) == b_before + 1, "запасной опрошен ровно раз")
+    # The finished record is written after the answer left; wait for it.
+    deadline = time.time() + 3
+    rows = _finished_rows()
+    while len(rows) <= n_before and time.time() < deadline:
+        time.sleep(0.05)
+        rows = _finished_rows()
+    item = (rows[-1] if len(rows) > n_before else {}).get("item") or {}
+    check(item.get("skippedDead") == ["fail"], f"сводка сознаётся в пропуске и называет выход (получено {item.get('skippedDead')!r})")
+    check(not item.get("rescued"), "и это не спасение — повтора не было")
+    write_state()
+    state_doc = json.loads(Path(os.environ["AGENT_PROXY_STATE_FILE"]).read_text(encoding="utf-8"))
+    health = state_doc.get("outputHealth") or {}
+    check(health.get("fail", {}).get("state") == "error" and health["fail"].get("status") == 500,
+          f"state-файл несёт вердикт главного выхода для доски (получено {health.get('fail')})")
+    check(health.get("backup", {}).get("state") == "ok", "и «жив» запасного — из трафика")
+    nxt = (state_doc.get("onErrorNext") or {}).get("e1") or {}
+    check(nxt.get("next") == "backup" and nxt.get("main") == "fail" and nxt.get("backup") == "backup",
+          f"и говорит, куда пойдёт следующий запрос узла e1 (получено {nxt})")
+
+
+def test_dead_verdict_expires():
+    """An old verdict is only a memory: main is tried again, and rescued again if still down."""
+    print("истёкший вердикт — главный выход пробуется снова:")
+    output_health.note_error("fail", status=500, message="primary is down", now=time.time() - 400)
+    check(not output_health.is_dead("fail"), "вердикту 400 секунд — он истёк")
+    f_before, b_before = len(failing_hits), len(backup_hits)
+    status, raw = post(P_RESCUE)
+    check(status == 200 and json.loads(raw).get("id") == "rescued", "клиент снова получил ответ запасного")
+    check(len(failing_hits) == f_before + 1, "главный выход опрошен снова — вдруг ожил")
+    check(len(backup_hits) == b_before + 1, "и спасён на запасном")
+    check(output_health.is_dead("fail"), "новый отказ — новый свежий вердикт")
+    write_state()
+    nxt = (json.loads(Path(os.environ["AGENT_PROXY_STATE_FILE"]).read_text(encoding="utf-8")).get("onErrorNext") or {}).get("e1") or {}
+    check(nxt.get("next") == "backup", "и следующий запрос снова пойдёт в запасной")
+
+
+def test_failed_replay_names_the_chain():
+    """When the backup exit fails too, the client learns the whole story.
+
+    "[Errno 111] Connection refused" alone hid that main had answered first
+    and which exit refused; the error now names the exit that failed and every
+    exit before it — replayed on, or skipped on a fresh dead verdict.
+    """
+    print("провал цепочки спасения называет всю цепочку:")
+    output_health.clear()
+    status, raw = post(P_RESCUE_DEAD)
+    body = json.loads(raw)
+    check(status == 502 and body.get("kind") == "proxy_error", f"клиент получил 502 proxy_error (получено {status} {raw[:80]!r})")
+    err = str(body.get("error"))
+    check(err.startswith("deadg: ") and "refused" in err, f"ошибка начинается с выхода, который отказал сейчас (получено {err[:90]!r})")
+    check("after fail: 500 primary is down" in err, f"и называет главный выход с его статусом и словами (получено {err!r})")
+    # Main known dead → skipped; the backup refuses; the replay exit is main
+    # itself, and its 500 is what the client gets — with the chain in a header,
+    # since the body is the answering exit's own.
+    status, raw, got = post(P_RESCUE_DEAD, want_headers=True)
+    chain = got.get("x-agent-proxy-chain", "")
+    check(status == 500 and "primary is down" in raw,
+          f"второй запрос: main пропущен, запасной отказал, повтор на main — его 500 как есть (получено {status} {raw[:60]!r})")
+    check(chain.startswith("fail: skipped, known dead; deadg: 502"),
+          f"а заголовок X-Agent-Proxy-Chain называет пропуск и отказ запасного (получено {chain!r})")
+    # And the same thing in the LOG. Only a client reads the header; the
+    # incident panel reads the log, and there the last response used to sit
+    # with no chain attached: a local output failed with 502, the cloud
+    # answered 429, and the row blamed the cloud (production case on
+    # 2026-09-06, 21:28).
+    # There must be TWO entries (both requests above), and the log is
+    # written after the response: wait for the second one to appear, or the
+    # check reads the first one and declares its own race a defect.
+    rows = []
+    for _ in range(60):
+        rows = [r for r in _read_finished() if r.get("route") == f"r{P_RESCUE_DEAD}"]
+        if len(rows) >= 2:
+            break
+        time.sleep(0.05)
+    chains = [str(((r.get("item") or {}).get("chain") or "")) for r in rows]
+    check(any(c.startswith("fail: skipped, known dead; deadg: 502") for c in chains),
+          f"запись finished несёт ту же цепочку — панель читает её, а не заголовок (получено {chains!r})")
+    output_health.clear()
+
+
+def test_discovery_probe_neither_rescued_nor_a_verdict():
+    """A client's discovery GET is answered by the exit it reached, as it came.
+
+    llama.cpp says 404 to a path it never had; that is no word about the
+    model. Once it marked a healthy cell dead and sent the probe to a cloud
+    block that answered 405 — and the port advertised the wrong window
+    while the cell counted as dead.
+    """
+    print("разведочный GET: ни спасения, ни вердикта:")
+    output_health.clear()
+    b_before, g_before = len(backup_hits), len(failing_gets)
+    conn = http.client.HTTPConnection("127.0.0.1", P_RESCUE, timeout=RESPONSE_TIMEOUT)
+    conn.request("GET", "/api/v1/models")
+    resp = conn.getresponse(); raw = resp.read().decode("utf-8", "replace"); status = resp.status
+    conn.close()
+    check(status == 404 and "File Not Found" in raw, f"главный выход ответил 404 на незнакомый путь — и он ушёл клиенту как есть (получено {status} {raw[:50]!r})")
+    check(len(failing_gets) == g_before + 1, "главный выход получил этот GET")
+    check(len(backup_hits) == b_before, "запасной выход НЕ трогали — разведку не переигрывают")
+    check(output_health.row("fail") is None, "и вердикта о выходе нет: 404 на чужой путь — не слово о модели")
+    # The same exit's POST to a model path still earns its verdict and its replay.
+    status, raw = post(P_RESCUE)
+    check(status == 200 and output_health.is_dead("fail"), "а запрос вывода на тот же выход: спасён и вердикт «мёртв» записан")
+    check(_is_inference_request("POST", "/v1/chat/completions?x=1") and _is_inference_request("post", "/v1/responses")
+          and not _is_inference_request("GET", "/v1/chat/completions") and not _is_inference_request("POST", "/api/v1/models")
+          and not _is_inference_request("POST", "/"),
+          "запрос вывода — POST на путь модели; GET и чужие пути — нет")
+    output_health.clear()
 
 
 def test_error_inside_an_open_stream():
@@ -1236,14 +1410,14 @@ def test_client_vanishes_mid_response():
     import socket as _socket
     import struct as _struct
     before = len(big_seen)
-    payload = BODY  # stream не задан → сердцебиения и детекции ухода нет
+    payload = BODY  # stream isn't set → no heartbeats and no departure detection
     req = (b"POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\n"
            b"Content-Type: application/json\r\nContent-Length: " + str(len(payload)).encode()
            + b"\r\n\r\n" + payload)
     sock = _socket.create_connection(("127.0.0.1", P_VANISH), timeout=RESPONSE_TIMEOUT)
     sock.sendall(req)
-    got = sock.recv(4096)          # заголовки и начало тела — прокси уже пишет нам
-    # Уходим ГРУБО: RST, а не FIN — так падает агент, которого убили.
+    got = sock.recv(4096)          # headers and the start of the body — the proxy is already writing to us
+    # We leave HARD: RST, not FIN — that's how a killed agent goes down.
     sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_LINGER, _struct.pack("ii", 1, 0))
     sock.close()
     check(got.startswith(b"HTTP/1.1 200"), f"ответ начал приходить (получено {got[:24]!r})")
@@ -1253,8 +1427,9 @@ def test_client_vanishes_mid_response():
     row = rows.get(f"r{P_VANISH}") or {}
     kind = row.get("errorKind")
     check(row != {}, "запрос завершился и попал в журнал")
-    # Ушёл КЛИЕНТ — и записан клиент. Провал записи ему отмечается в
-    # _client_write там, где наблюдается, тем же путём, что и сердцебиение.
+    # The CLIENT left — and the client is what's recorded. The write failure
+    # is attributed to it in _client_write, right where it's observed, the
+    # same path a heartbeat takes.
     check(kind == "client_disconnected",
           f"уход клиента записан на клиента (получено {kind!r})")
     check(kind != "upstream_disconnected", "и НЕ свален на апстрим")
@@ -1263,16 +1438,16 @@ def test_client_vanishes_mid_response():
 
 
 def test_client_vanishes_before_first_byte():
-    """Клиент уходит ДО первого байта ответа — самый частый случай в бою.
+    """A client leaves BEFORE the first response byte — the most common case in production.
 
-    Убитый агент обычно умирает, пока ячейка ещё
-    считает, то есть раньше заголовков. Тогда первое, что прокси пишет
-    исчезнувшему клиенту, — ЗАГОЛОВКИ через send_response/end_headers, а не
-    тело через _client_write. Первая починка помечала провал записи только в
-    _client_write и этот путь не видела: живая проверка на проде показала
-    upstream_disconnected для ушедшего клиента. Теперь и заголовки, и тело идут
-    через один _on_client. Медленная ячейка на один слот отвечает через 1.5 с —
-    как раз после того, как клиент ушёл.
+    A killed agent usually dies while the cell is still computing, meaning
+    before the headers. In that case the first thing the proxy writes to the
+    vanished client is HEADERS through send_response/end_headers, not a body
+    through _client_write. The first fix marked a write failure only in
+    _client_write and never saw this path: a live check in production showed
+    upstream_disconnected for a client that had actually left. Now both
+    headers and the body go through one _on_client. A one-slot slow cell
+    answers after 1.5s — right after the client is gone.
     """
     print("клиент уходит до первого байта ответа:")
     import socket as _socket
@@ -1281,11 +1456,12 @@ def test_client_vanishes_before_first_byte():
     req = (b"POST /v1/chat/completions HTTP/1.1\r\nHost: x\r\n"
            b"Content-Type: application/json\r\nContent-Length: " + str(len(payload)).encode()
            + b"\r\n\r\n" + payload)
-    # Свой порт: медленная ячейка делится с тестом очереди, и по общему порту
-    # можно было взять ЕГО старую запись — первая версия так и сделала.
+    # Its own port: the slow cell is shared with the queue test, and on a
+    # shared port it could pick up ITS old record — the first version did
+    # exactly that.
     sock = _socket.create_connection(("127.0.0.1", P_VANISH2), timeout=RESPONSE_TIMEOUT)
     sock.sendall(req)
-    time.sleep(0.3)   # запрос дошёл до апстрима; ответа ещё нет — уходим
+    time.sleep(0.3)   # the request has reached the upstream; no answer yet — we leave
     sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_LINGER, _struct.pack("ii", 1, 0))
     sock.close()
 
@@ -1370,12 +1546,12 @@ def _read_finished():
 
 
 def test_error_kind_reaching_the_client():
-    """ЗАФИКСИРОВАНО КАК ЕСТЬ, НЕ КАК ХОРОШО.
+    """PINNED AS-IS, NOT AS GOOD.
 
-    На одном порту живут две формы конверта ошибки: блокировка отдаёт
-    {error, kind}, а провал пересылки — только строку, хотя вид ошибки
-    вычислен на строку выше и выброшен. И для разрыва со стороны АПСТРИМА
-    этот вид получается неверным.
+    Two shapes of error envelope live on the same port: a block returns
+    {error, kind}, while a forwarding failure returns only a string, even
+    though the error's kind is computed one line above and then thrown away.
+    And for a disconnect on the UPSTREAM side, that kind comes out wrong.
     """
     print("вид ошибки, доходящий до клиента:")
     status, raw = post(P_PAUSED)
@@ -1389,16 +1565,16 @@ def test_error_kind_reaching_the_client():
     status, raw = post(P_RUDE)
     doc = json.loads(raw)
     check(status == 502, f"апстрим разорвал соединение: 502 (получено {status})")
-    # Один и тот же сценарий даёт РАЗНЫЕ тексты в зависимости от того, где именно
-    # оборвалось соединение: "Connection reset by peer", "Remote end closed
-    # connection without response", а под нагрузкой ещё и "Broken pipe" — на
-    # загруженной машине последний выпадает почти в половине попыток, и полный
-    # прогон краснел четыре раза из восьми. На простое его не видно вовсе,
-    # поэтому шесть моих проверок подряд ничего не показали: замер был верен, а
-    # условия — нет.
-    # Отсюда и пин: строго ВИД ошибки (он одинаков во всех трёх случаях), а текст
-    # только на непустоту. Ровно то, что сказано выше в этом же файле — по тексту
-    # клиент ветвиться не может.
+    # The exact same scenario produces DIFFERENT text depending on exactly
+    # where the connection broke: "Connection reset by peer", "Remote end
+    # closed connection without response", and under load also "Broken
+    # pipe" — on a loaded machine the last one shows up in nearly half the
+    # attempts, and the full run turned red four times out of eight. On an
+    # idle machine it never shows at all, so six of my checks in a row found
+    # nothing: the measurement was right, but the conditions weren't.
+    # Hence the pin: strictly the error's KIND (it's the same across all
+    # three cases), and the text only checked for being non-empty. Exactly
+    # what's said earlier in this same file — a client cannot branch on the text.
     text = str(doc.get("error") or "")
     check(text.strip() != "", f"слова апстрима не потеряны (получено {text!r})")
     check(doc.get("kind") == "upstream_disconnected",
@@ -1409,7 +1585,7 @@ def test_error_kind_reaching_the_client():
 
 
 def test_error_kind_in_the_journal():
-    """Вид ошибки, который читает доска. Здесь он уже НЕВЕРЕН."""
+    """The error kind the board reads. Here it's already WRONG."""
     print("вид ошибки в журнале событий:")
     by_route = {}
     for row in _finished_events((f"r{P_DEAD}", f"r{P_RUDE}")):
@@ -1418,9 +1594,10 @@ def test_error_kind_in_the_journal():
     rude = by_route.get(f"r{P_RUDE}") or {}
     check(dead.get("errorKind") == "proxy_error",
           f"неслушающий апстрим: proxy_error (получено {dead.get('errorKind')!r})")
-    # Разорвал АПСТРИМ, а записано, что ушёл КЛИЕНТ. На доске это даёт заголовок
-    # "client disconnected", причину "client closed connection while proxy was
-    # still streaming" и здоровье degraded вместо failed.
+    # The UPSTREAM disconnected, yet it used to be recorded as the CLIENT
+    # leaving. On the board that produces the header "client disconnected",
+    # the reason "client closed connection while proxy was still
+    # streaming", and health degraded instead of failed.
     check(rude.get("errorKind") == "upstream_disconnected",
           f"разрыв со стороны апстрима записан на апстрим (получено {rude.get('errorKind')!r})")
     check(rude.get("errorKind") != "client_disconnected",
@@ -1437,6 +1614,9 @@ for fn in (test_blocked_modes, test_unrouted, test_api_key,
            test_queue_visible_in_journal, test_keepalive_holds_a_queued_client,
            test_keepalive_not_sent_without_streaming,
            test_rescue_replays_on_a_backup_exit, test_rescue_visible_in_journal,
+           test_dead_main_is_skipped, test_dead_verdict_expires,
+           test_failed_replay_names_the_chain,
+           test_discovery_probe_neither_rescued_nor_a_verdict,
            test_error_inside_an_open_stream, test_client_vanishes_mid_response,
            test_client_vanishes_before_first_byte, test_keepalive_not_sent_to_cloud,
            test_loading_model_retry_not_for_cloud):

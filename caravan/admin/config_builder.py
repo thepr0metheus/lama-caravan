@@ -121,6 +121,28 @@ CONFIG_FIELDS = [
     "ENABLE_EMBEDDINGS",
     "POOLING",
     "EMBD_NORMALIZE",
+    # ── Flags the binary has always accepted, reachable until now only by
+    # typing them into EXTRA_ARGS. Every one of these is non-deprecated in
+    # b10357 and belongs to a cell, not to a request.
+    "CHECKPOINT_MIN_STEP",
+    "SLOT_PROMPT_SIMILARITY",
+    "SLOT_SAVE_PATH",
+    "SSE_PING_INTERVAL",
+    "PRIO",
+    "CPU_MOE",
+    "OP_OFFLOAD",
+    "REPACK",
+    "WARMUP",
+    "CHECK_TENSORS",
+    "YARN_ORIG_CTX",
+    "YARN_EXT_FACTOR",
+    "YARN_ATTN_FACTOR",
+    "YARN_BETA_FAST",
+    "YARN_BETA_SLOW",
+    "SPEC_DRAFT_P_SPLIT",
+    "CPU_MOE_DRAFT",
+    "CORS_METHODS",
+    "CORS_HEADERS",
     "EXTRA_ARGS",
     # ── Generic command cell ────────────────────────────────────────────────
     # CELL_KIND="command" turns a cell into a managed arbitrary process (e.g. a
@@ -276,6 +298,25 @@ FIELD_HELP = {
     "ENABLE_EMBEDDINGS": "Run this server in embedding mode (--embeddings): exposes /v1/embeddings and returns vectors instead of chat. A chat model cannot also serve embeddings on the same instance — use a dedicated embedding model.",
     "POOLING": "How token states are pooled into one vector (--pooling): none | mean | cls | last | rank. Must match the model: Qwen3-Embedding = last, BERT/bge = cls, e5/gte/nomic = mean. Wrong pooling = garbage vectors.",
     "EMBD_NORMALIZE": "Embedding normalization (--embd-normalize): -1 none, 0 max-abs-int16, 1 taxicab, 2 euclidean/L2 (default), >2 p-norm. Leave blank for the llama.cpp default (L2).",
+    "CHECKPOINT_MIN_STEP": "Minimum spacing between context checkpoints, in tokens (--checkpoint-min-step, default 8192, 0 = no minimum). With CTX_CHECKPOINTS it decides how much of a long prompt can be rewound instead of reprocessed, and how much memory the checkpoints cost.",
+    "SLOT_PROMPT_SIMILARITY": "How much of a request's prompt must match a slot's for that slot to be reused (--slot-prompt-similarity, default 0.10, 0.0 = disabled). Raising it stops a near-miss from evicting a warm cache; lowering it reuses more eagerly.",
+    "SLOT_SAVE_PATH": "Directory the slot KV cache is saved to and restored from (--slot-save-path, default disabled). Required by the /slots save and restore endpoints; the path is on the cell's own host.",
+    "SSE_PING_INTERVAL": "Seconds between SSE keep-alive pings while a response streams (--sse-ping-interval, default 30, -1 = disabled). A long wait for the first token looks like a dead connection to any proxy that sees no bytes.",
+    "PRIO": "Process and thread priority (--prio): -1 low, 0 normal, 1 medium, 2 high, 3 realtime (default 0). Above 0 on a shared host this cell starves whatever else runs there.",
+    "CPU_MOE": "Keep ALL Mixture-of-Experts weights in CPU RAM (--cpu-moe). The all-or-nothing form of N_CPU_MOE — set one or the other, not both.",
+    "OP_OFFLOAD": "Offload host tensor operations to the device (--op-offload, default on). Turning it off keeps those operations on the CPU, which is the workaround for a backend that computes them wrong.",
+    "REPACK": "Repack weights for the CPU backend while loading (--repack, default on). Off loads faster and runs CPU inference slower.",
+    "WARMUP": "Run one empty pass at startup to warm the caches (--warmup, default on). Off makes the cell ready sooner and the first real request pays for it.",
+    "CHECK_TENSORS": "Validate the model's tensor data at load (--check-tensors, default off). A slower start that names a corrupt download instead of crashing on it later.",
+    "YARN_ORIG_CTX": "The model's original training context for YaRN (--yarn-orig-ctx, default 0 = read from the model). Only for overriding by hand: a CTX_SIZE above the native window already fills this in for a local model.",
+    "YARN_EXT_FACTOR": "YaRN extrapolation mix factor (--yarn-ext-factor, default -1 = the model's own, 0.0 = full interpolation).",
+    "YARN_ATTN_FACTOR": "YaRN attention-magnitude scale (--yarn-attn-factor, default -1 = the model's own).",
+    "YARN_BETA_FAST": "YaRN low correction dimension, beta (--yarn-beta-fast, default -1 = the model's own).",
+    "YARN_BETA_SLOW": "YaRN high correction dimension, alpha (--yarn-beta-slow, default -1 = the model's own).",
+    "SPEC_DRAFT_P_SPLIT": "Probability at which a speculative draft branch is split (--spec-draft-p-split, default 0.10).",
+    "CPU_MOE_DRAFT": "Keep all Mixture-of-Experts weights of the DRAFT model in CPU RAM (--spec-draft-cpu-moe). Frees VRAM for the main model when the drafter is itself a MoE.",
+    "CORS_METHODS": "Comma-separated HTTP methods allowed cross-origin (--cors-methods, default GET, POST, DELETE, OPTIONS).",
+    "CORS_HEADERS": "Comma-separated request headers allowed cross-origin (--cors-headers, default *). Narrow it and a browser app sending Authorization through a bridge port has to be listed here.",
     "EXTRA_ARGS": "Raw extra llama-server flags appended verbatim to the command, space-separated (e.g. --some-new-flag value). Escape hatch for options without a dedicated field.",
 }
 
@@ -342,6 +383,12 @@ def parse_config_from_text(text, source="text"):
     config["LLAMA_MODELS_DIR"] = config.get("LLAMA_MODELS_DIR") or str(DEFAULT_MODELS_DIR)
     return config
 
+# The llama-server half of CONFIG_FIELDS: everything before the generic
+# command-cell section that starts at RUNNER. Command, vLLM, whisper and the
+# other runners keep their own config block (render_command_cell_script), so
+# their fields have no business in a llama cell's.
+LLAMA_CONFIG_FIELDS = CONFIG_FIELDS[:CONFIG_FIELDS.index("RUNNER")]
+
 def quote_shell_value(value):
     text = str(value)
     escaped = text.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
@@ -378,6 +425,19 @@ def build_config_block(config):
         ["ENABLE_EMBEDDINGS", "POOLING", "EMBD_NORMALIZE"],
         ["ENABLE_TOOLS", "ENABLE_AGENT", "ENABLE_MCP_PROXY", "EXTRA_ARGS"],
     ]
+    # Whatever the hand-written groups above forgot. They were a curated list,
+    # and a curated list of fields is a list that falls behind CONFIG_FIELDS:
+    # seventeen settings — TEMPERATURE, SWA_FULL, CTX_CHECKPOINTS, N_CPU_MOE,
+    # CORS_ORIGINS, API_KEY_FILE… — reached the launch command but were never
+    # written back into the block. The cell ran correctly; its own description
+    # of itself simply omitted them, so a config backup restored a DIFFERENT
+    # cell than the one backed up, quietly and without an error. Nine of the
+    # eleven real llama cells were affected. Emitting the remainder means a
+    # field added tomorrow is carried by having been added at all.
+    listed = {key for group in groups for key in group}
+    rest = [key for key in LLAMA_CONFIG_FIELDS if key not in listed]
+    if rest:
+        groups = groups + [rest]
     for index, group in enumerate(groups):
         if index:
             lines.append("")
@@ -403,9 +463,9 @@ LLAMA_PATH_PLACEHOLDER_SPEC = "{{SPEC_PATH}}"
 #                        placeholders the route-agent substitutes after download)
 #   • GUI preview     -> POST /api/llama-command-preview
 # Adding a new flag means editing build_llama_args() and nothing else.
-# «Да» пишется одинаково в строке запроса, в конфиге ячейки и в теле запроса —
-# один словарь на всё, см. caravan/common/flags.py. Раньше их было два, и более
-# узкий молчал о том, что выбрасывает.
+# "Yes" is parsed the same way in the query string, a cell config, and a
+# request body — one shared dict, see caravan/common/flags.py. There used to
+# be two, and the narrower one stayed silent about what it was rejecting.
 _flag_truthy = truthy
 
 
@@ -477,6 +537,20 @@ _BUILDER_PAIRS = [
     ("--cors-origins", "CORS_ORIGINS"),
     ("--tools-runtime", "TOOLS_RUNTIME"),
     ("--api-key-file", "API_KEY_FILE"),
+    # Flags that were always reachable through EXTRA_ARGS and now have a home.
+    ("--checkpoint-min-step", "CHECKPOINT_MIN_STEP"),
+    ("--slot-prompt-similarity", "SLOT_PROMPT_SIMILARITY"),
+    ("--slot-save-path", "SLOT_SAVE_PATH"),
+    ("--sse-ping-interval", "SSE_PING_INTERVAL"),
+    ("--prio", "PRIO"),
+    ("--yarn-orig-ctx", "YARN_ORIG_CTX"),
+    ("--yarn-ext-factor", "YARN_EXT_FACTOR"),
+    ("--yarn-attn-factor", "YARN_ATTN_FACTOR"),
+    ("--yarn-beta-fast", "YARN_BETA_FAST"),
+    ("--yarn-beta-slow", "YARN_BETA_SLOW"),
+    ("--spec-draft-p-split", "SPEC_DRAFT_P_SPLIT"),
+    ("--cors-methods", "CORS_METHODS"),
+    ("--cors-headers", "CORS_HEADERS"),
 ]
 
 def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
@@ -564,6 +638,15 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
     add_bool("KV_UNIFIED", "--kv-unified", "--no-kv-unified")
     add_bool("CACHE_IDLE_SLOTS", "--cache-idle-slots", "--no-cache-idle-slots")
     add_bool("MMPROJ_AUTO", "--mmproj-auto", "--no-mmproj-auto")
+    # Three flags the binary has ON by default: stating them costs nothing and
+    # says what the cell runs, and withholding them keeps the default.
+    add_bool("OP_OFFLOAD", "--op-offload", "--no-op-offload")
+    add_bool("REPACK", "--repack", "--no-repack")
+    add_bool("WARMUP", "--warmup", "--no-warmup")
+    if truthy(c.get("CPU_MOE")):
+        args.append("--cpu-moe")
+    if truthy(c.get("CHECK_TENSORS")):
+        args.append("--check-tensors")
 
     if has("FIT"):
         args += ["--fit", "on" if truthy(c["FIT"]) else "off"]
@@ -650,6 +733,8 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
         args.append("--swa-full")
     if truthy(c.get("ENABLE_RERANK")):
         args.append("--rerank")
+    if truthy(c.get("CPU_MOE_DRAFT")) and not is_embedding:
+        args.append("--spec-draft-cpu-moe")
 
     if truthy(c.get("ENABLE_TOOLS")):
         args += ["--tools", "all"]
@@ -713,9 +798,12 @@ def _auto_yarn_args(c, model_path, *, args_present, extra_raw):
         # Ceil to 2 decimals: the factor must COVER the target, and a hair of
         # headroom beats a hair of shortfall.
         out += ["--rope-scale", f"{math.ceil(ctx / native * 100) / 100:g}"]
-    if "--yarn-orig-ctx" not in extra_raw:
+    # YARN_ORIG_CTX has a field of its own since 1.3.327, so the stated flag can
+    # now arrive from either side; emitting a second one would leave the binary
+    # to pick, and it picks the last.
+    if "--yarn-orig-ctx" not in args_present and "--yarn-orig-ctx" not in extra_raw:
         out += ["--yarn-orig-ctx", str(native)]
-    if "--override-kv" not in extra_raw:
+    if "--override-kv" not in args_present and "--override-kv" not in extra_raw:
         out += ["--override-kv", f"{arch}.context_length=int:{ctx}"]
     return out
 
@@ -753,6 +841,15 @@ _EXTRA_VALUE_FLAGS = {
     "--chat-template": "CHAT_TEMPLATE", "--chat-template-kwargs": "CHAT_TEMPLATE_KWARGS",
     "--pooling": "POOLING", "--embd-normalize": "EMBD_NORMALIZE",
     "--host": "HOST", "--port": "PORT",
+    "--checkpoint-min-step": "CHECKPOINT_MIN_STEP", "-cms": "CHECKPOINT_MIN_STEP",
+    "--slot-prompt-similarity": "SLOT_PROMPT_SIMILARITY", "-sps": "SLOT_PROMPT_SIMILARITY",
+    "--slot-save-path": "SLOT_SAVE_PATH",
+    "--sse-ping-interval": "SSE_PING_INTERVAL", "--prio": "PRIO",
+    "--yarn-orig-ctx": "YARN_ORIG_CTX", "--yarn-ext-factor": "YARN_EXT_FACTOR",
+    "--yarn-attn-factor": "YARN_ATTN_FACTOR",
+    "--yarn-beta-fast": "YARN_BETA_FAST", "--yarn-beta-slow": "YARN_BETA_SLOW",
+    "--spec-draft-p-split": "SPEC_DRAFT_P_SPLIT", "--draft-p-split": "SPEC_DRAFT_P_SPLIT",
+    "--cors-methods": "CORS_METHODS", "--cors-headers": "CORS_HEADERS",
 }
 
 # Flags taking an optional on/off/auto value; bare flag => on ("1").
@@ -780,6 +877,9 @@ _EXTRA_PAIR_BOOL = {
     # --jinja lives in _EXTRA_FLAG_ON; its negation belongs here. b10357 made
     # jinja default-on, so --no-jinja is the one the builder actually emits.
     "--no-jinja": ("ENABLE_JINJA", "0"),
+    "--op-offload": ("OP_OFFLOAD", "1"), "--no-op-offload": ("OP_OFFLOAD", "0"),
+    "--repack": ("REPACK", "1"), "--no-repack": ("REPACK", "0"), "-nr": ("REPACK", "0"),
+    "--warmup": ("WARMUP", "1"), "--no-warmup": ("WARMUP", "0"),
 }
 
 # Presence => "1".
@@ -787,6 +887,9 @@ _EXTRA_FLAG_ON = {
     "--props": "ENABLE_PROPS", "--metrics": "ENABLE_METRICS", "--mlock": "ENABLE_MLOCK",
     "--embeddings": "ENABLE_EMBEDDINGS", "--embedding": "ENABLE_EMBEDDINGS",
     "--jinja": "ENABLE_JINJA", "--agent": "ENABLE_AGENT", "--ui-mcp-proxy": "ENABLE_MCP_PROXY",
+    "--cpu-moe": "CPU_MOE", "-cmoe": "CPU_MOE", "--check-tensors": "CHECK_TENSORS",
+    "--spec-draft-cpu-moe": "CPU_MOE_DRAFT", "--cpu-moe-draft": "CPU_MOE_DRAFT",
+    "-cmoed": "CPU_MOE_DRAFT",
 }
 
 def flag_to_field_map():

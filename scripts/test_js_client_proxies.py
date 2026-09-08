@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
-"""Снимок static/js/topology-proxies.js — чья версия назначений выигрывает.
+"""Snapshot of static/js/topology-proxies.js — whose version of an assignment wins.
 
-У одного и того же агента есть ДВЕ версии его маршрутов: сохранённая на
-контроллере (что оператор задал) и живая из отчёта скаута (куда агент реально
-ходит). Доска их сливает, и сегодня ЖИВАЯ побеждает по роли. Это уже стоило
-одной починки: у живого отчёта пустой proxyId выигрывал слияние, и кабель не
-рисовался вовсе.
+The same agent has TWO versions of its routes: the one saved on the
+controller (what the operator set) and the live one from the scout's report
+(where the agent is actually calling). The board merges them, and today the
+LIVE one wins by role. This has already cost one fix: an empty proxyId on
+the live report used to win the merge, and the cable simply wasn't drawn.
 
-Для переноса управления на страницу это главный вопрос: настройка, положенная
-в сохранённый маршрут, при таком слиянии исчезнет из виду — живой отчёт её не
-несёт и никогда не понесёт. Пины закрепляют текущее правило по ролям и то,
-какие поля уже добираются из сохранённой версии, а какие нет.
+For moving management onto the page, this is the central question: a setting
+placed on the saved route disappears from view under this merge — the live
+report doesn't carry it and never will. The pins lock in the current
+per-role rule, and which fields already make it through from the saved
+version and which don't.
 
-Модуль грузится НАСТОЯЩИЙ (scripts/_js_harness.mjs).
+The module is loaded FOR REAL (scripts/_js_harness.mjs).
 
-Запуск: python3 scripts/test_js_client_proxies.py
+Run: python3 scripts/test_js_client_proxies.py
 """
 import json
 import os
@@ -412,8 +413,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

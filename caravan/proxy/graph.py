@@ -8,6 +8,7 @@ import re
 import time
 
 from caravan.proxy.capacity import active_count
+from caravan.proxy.output_health import output_health, output_id_of_ref
 from caravan.proxy.paths import UPSTREAM_HOST, UPSTREAM_PORT
 from caravan.proxy.runtime import slot_total_cache, slot_total_lock
 
@@ -110,8 +111,73 @@ _rr_lock = threading.Lock()
 def _graph_outgoing(edges, node_ref):
     return [e for e in edges if str(e.get("from")) == node_ref]
 
-def _eval_rule_node(router_id, node, outs, ctx, outputs, policy, now):
-    """Pick the outgoing edge's target ('to' ref) for one rule node."""
+#: Node types a plain request can be followed through without deciding anything
+#: twice. `weighted` and `roundRobin` are deliberately absent: their branch is
+#: drawn (or counted) at the moment of the request, so naming one in advance
+#: would be a guess — and a guess on the board is worse than "decided there".
+CHAIN_DECIDABLE = ("queue", "onError", "failover", "schedule", "requestType", "requestSize")
+
+
+def chain_exit(graph, ref, outputs=None, ctx=None, policy=None, now=None, limit=8):
+    """Where an edge LEADS: the terminal output ref, and the nodes crossed.
+
+    An exit of a backup node may point at another rule node rather than at an
+    output — on production the main exit goes into a queue. Health, the probe
+    and the "next exit" mark are all questions about the MODEL at the end of
+    that chain, and while this function did not exist they had no answer at
+    all: such an exit showed no verdict, was never probed, and a dead main
+    behind a queue was never skipped, because `output_id_of_ref` says None for
+    anything but `out:`.
+
+    Returns (ref | None, [node ids]). None means the chain cannot be named:
+    it is unwired, cyclic, too deep, or it meets a node whose branch is not
+    decidable in advance. An onError node inside the chain is followed down its
+    MAIN edge — that is the exit a request tries first, and asking about its
+    own backup here would be the outer node's question twice over.
+    """
+    if not isinstance(graph, dict):
+        return None, []
+    edges = [e for e in (graph.get("edges") or []) if isinstance(e, dict)]
+    nodes = {str(n.get("id")): n for n in (graph.get("nodes") or []) if isinstance(n, dict)}
+    chain, seen, cur = [], set(), str(ref or "")
+    for _ in range(max(1, int(limit))):
+        if cur.startswith("out:"):
+            return cur, chain
+        if not cur.startswith("rule:") or cur in seen:
+            return None, chain
+        seen.add(cur)
+        node = nodes.get(cur[5:])
+        if not node:
+            return None, chain
+        chain.append(str(node.get("id") or ""))
+        ntype = str(node.get("type") or "")
+        outs = _graph_outgoing(edges, cur)
+        if not outs or ntype not in CHAIN_DECIDABLE:
+            return None, chain
+        cfg = node.get("config") if isinstance(node.get("config"), dict) else {}
+        by_id = {str(e.get("id")): e for e in outs}
+        if ntype == "queue":
+            nxt = (by_id.get(str(cfg.get("admitEdge"))) or outs[0]).get("to")
+        elif ntype == "onError":
+            nxt = (by_id.get(str(cfg.get("mainEdge"))) or outs[0]).get("to")
+        else:
+            nxt = _eval_rule_node(None, node, outs, ctx, outputs or {}, policy, now)
+        cur = str(nxt or "")
+    return None, chain
+
+
+def chain_exit_id(graph, ref, outputs=None, ctx=None, policy=None, now=None):
+    """The output id an edge leads to through the graph, or None."""
+    target, _chain = chain_exit(graph, ref, outputs, ctx, policy, now)
+    return output_id_of_ref(target)
+
+
+def _eval_rule_node(router_id, node, outs, ctx, outputs, policy, now, exit_id=None):
+    """Pick the outgoing edge's target ('to' ref) for one rule node.
+
+    `exit_id` answers "which output does this ref lead to" for the onError
+    branch; without it only a direct `out:` ref is known, which is how a dead
+    main behind a queue went unnoticed."""
     ntype = node.get("type")
     cfg = node.get("config") if isinstance(node.get("config"), dict) else {}
     by_id = {str(e.get("id")): e for e in outs}
@@ -213,10 +279,19 @@ def _eval_rule_node(router_id, node, outs, ctx, outputs, policy, now):
         # spill behaviour is run by the handler from the spec resolve_graph surfaces.
         return edge_to(cfg.get("admitEdge")) or outs[0].get("to")
     if ntype == "onError":
-        # Happy path always goes down the main edge; the rescue edge is not a
-        # routing choice — resolve_graph records it and the handler replays the
-        # request there only after the main upstream actually failed.
-        return edge_to(cfg.get("mainEdge")) or outs[0].get("to")
+        # The happy path is the main edge — unless a FRESH verdict says its
+        # output is dead and the backup's is not: then the request goes down
+        # the backup at once instead of paying a doomed round trip first
+        # (output_health.py). The rescue exit is still what the handler replays
+        # on after a real failure; resolve_graph records the other edge for it.
+        main_to = edge_to(cfg.get("mainEdge")) or outs[0].get("to")
+        rescue_to = edge_to(cfg.get("rescueEdge"))
+        if rescue_to:
+            resolve = exit_id or output_id_of_ref
+            exit_name, _reason = output_health.next_exit(resolve(main_to), resolve(rescue_to), now)
+            if exit_name == "backup":
+                return rescue_to
+        return main_to
     return outs[0].get("to")
 
 def _queue_spec_from_node(node, policy):
@@ -340,18 +415,37 @@ def resolve_graph(router, route, ctx=None, policy=None, now=None, input_ref=None
                 spec = _queue_spec_from_node(node, policy)
                 spec["spillRef"] = spill_edge.get("to") if spill_edge else None
                 plan_out["spec"] = spec
+            nxt = _eval_rule_node(router_id, node, outs, ctx, outputs, policy, now,
+                                  exit_id=lambda ref: chain_exit_id(graph, ref, outputs, ctx, policy, now))
             if node.get("type") == "onError" and plan_out is not None:
                 # Collect every rescue exit crossed on the way to the output, in
-                # encounter order — the handler consumes them one failure at a time.
+                # encounter order — the handler consumes them one failure at a
+                # time. When main was skipped as dead, the replay exit is main
+                # itself: it may have recovered, and the verdict is only five
+                # minutes old at most.
                 _oe_by_id = {str(e.get("id")): e for e in outs}
-                _oe_resc = _oe_by_id.get(str((node.get("config") or {}).get("rescueEdge")))
-                if _oe_resc and _oe_resc.get("to"):
-                    plan_out.setdefault("rescueRefs", []).append(str(_oe_resc.get("to")))
-            nxt = _eval_rule_node(router_id, node, outs, ctx, outputs, policy, now)
+                _oe_cfg = node.get("config") if isinstance(node.get("config"), dict) else {}
+                _oe_main = _oe_by_id.get(str(_oe_cfg.get("mainEdge"))) or next(
+                    (e for e in outs if str(e.get("id")) != str(_oe_cfg.get("rescueEdge"))), None)
+                _oe_resc = _oe_by_id.get(str(_oe_cfg.get("rescueEdge")))
+                _main_to = str((_oe_main or {}).get("to") or "")
+                _resc_to = str((_oe_resc or {}).get("to") or "")
+                if _resc_to and str(nxt) == _resc_to and _main_to:
+                    plan_out.setdefault("rescueRefs", []).append(_main_to)
+                    plan_out.setdefault("deadSkipped", []).append(output_id_of_ref(_main_to) or _main_to)
+                elif _resc_to:
+                    plan_out.setdefault("rescueRefs", []).append(_resc_to)
         if not nxt:
             return None
         cur = str(nxt)
     return None
+
+# The ctx of a request that asks for nothing in particular: no model, no token
+# count, neither audio nor embeddings. GET /v1/models resolves the port with it,
+# and so does the board when it says which output a plain request reaches —
+# the same constant, so the two can never disagree about that output.
+PLAIN_REQUEST_CTX = {"model": "", "maxTokens": None, "audio": False, "embeddings": False}
+
 
 def apply_router(route, config, ctx=None):
     """Overlay the router-chosen upstream onto a route (in place on a copy).
@@ -402,6 +496,8 @@ def apply_router(route, config, ctx=None):
     resolved = _overlay_output(route, out, plan.get("spec"))
     if plan.get("rescueRefs"):
         resolved["rescueRefs"] = plan["rescueRefs"]
+    if plan.get("deadSkipped"):
+        resolved["deadSkipped"] = plan["deadSkipped"]
     # Per-input override: graph.inputs[<proxyId>].clientTimeoutSeconds (set on the canvas input
     # node) wins over the auto-synced route value. input_ref is "in:<proxyId>".
     inputs = (router.get("graph") or {}).get("inputs") if isinstance(router.get("graph"), dict) else None
@@ -428,6 +524,7 @@ def _overlay_output(route, out, queue_spec=None):
         resolved["cloudAccountId"] = str(out.get("accountId") or "")
     resolved.pop("queuePlan", None)
     resolved.pop("rescueRefs", None)
+    resolved.pop("deadSkipped", None)
     if queue_spec:
         resolved["queuePlan"] = {"spec": queue_spec}
     return resolved
@@ -448,4 +545,6 @@ def apply_router_spill(route, config, spill_ref, ctx=None):
     resolved = _overlay_output(route, out, plan.get("spec"))
     if plan.get("rescueRefs"):
         resolved["rescueRefs"] = plan["rescueRefs"]
+    if plan.get("deadSkipped"):
+        resolved["deadSkipped"] = plan["deadSkipped"]
     return resolved

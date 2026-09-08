@@ -42,17 +42,19 @@ def save_token_history():
         pass
 
 def _usage_sample(item):
-    """Скорость генерации, выведенная из ИТОГОВ завершённого запроса, или None.
+    """Generation speed derived from a completed request's TOTALS, or None.
 
-    llama.cpp отдаёт свой блок `timings`, и вся история писалась только из него.
-    Облачный апстрим такого блока не отдаёт вовсе — поэтому у порта, который
-    целыми днями возит трафик, график был пуст, и выглядело это как «запросов не
-    было». Их было сколько угодно; не было ИЗМЕРЕНИЯ.
+    llama.cpp hands over its own `timings` block, and the whole history used
+    to be written from that alone. A cloud upstream never sends that block at
+    all — so a port that carried traffic all day had an empty chart, and it
+    looked like "there were no requests". There were plenty; there was no
+    MEASUREMENT.
 
-    Вывести можно ровно одно: сколько токенов пришло и за сколько времени после
-    первого байта. Это настоящая скорость генерации, а не догадка. Скорость
-    промпта отсюда получить нельзя: время до первого байта у облака — это сеть
-    и очередь провайдера, и выдать его за обработку промпта значило бы соврать.
+    Exactly one thing can be derived: how many tokens arrived, and over how
+    much time after the first byte. That's a real generation speed, not a
+    guess. A prompt speed cannot be derived from this: the time to first byte
+    on a cloud call is network and the provider's queue, and passing it off
+    as prompt processing would be a lie.
     """
     if not isinstance(item, dict) or item.get("timings"):
         return None
@@ -133,10 +135,10 @@ def record_token_history(sample):
                 "client": item.get("client") or "",
                 "port": port,
                 "route": item.get("route") or "",
-                # Скорость промпта у выведенной записи НЕ ставится. Время до
-                # первого байта у облака — это сеть и очередь провайдера, а не
-                # обработка промпта; назвать его «скоростью промпта» значило бы
-                # объявить измерением то, чего мы не измеряли.
+                # Prompt speed is NOT set for a derived entry. The time to
+                # first byte on a cloud call is network and the provider's
+                # queue, not prompt processing; calling it "prompt speed"
+                # would claim a measurement we never took.
                 "promptTps": round(float(tm.get("prompt_per_second") or 0), 1) if tm else 0,
                 "evalTps": round(float(tm.get("predicted_per_second") or 0), 1) if tm else derived["evalTps"],
                 "promptTokens": int(tm.get("prompt_n") or 0) if tm else derived["promptTokens"],
@@ -145,8 +147,9 @@ def record_token_history(sample):
                 "genMs": int(round(float(tm.get("predicted_ms") or 0))) if tm else derived["genMs"],
                 "cacheTokens": int(tm.get("cache_n") or 0) if tm else 0,
                 "finish": finish,
-                # Чем измерено: собственными таймингами сервера или выведено из
-                # итогов запроса. Читателю графика это не одно и то же.
+                # What it was measured with: the server's own timings, or
+                # derived from the request's totals. Not the same thing to
+                # whoever reads the chart.
                 "source": "timings" if tm else "usage",
             })
             recent_sigs.add(sig)

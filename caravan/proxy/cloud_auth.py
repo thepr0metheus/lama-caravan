@@ -7,6 +7,7 @@ import time
 from caravan.common.fsio import atomic_write_text
 from caravan.proxy.paths import MODEL_CATALOG_FILE, CLOUD_PROVIDERS_FILE, PROVIDER_SECRETS_FILE
 from caravan.proxy.runtime import config_lock
+from caravan.common.context_window import block_window
 
 
 CLOUD_PROVIDER_AUTH = {
@@ -75,15 +76,15 @@ def load_cloud_provider(block_id):
         "oauthConfig": account.get("oauthConfig") if isinstance(account.get("oauthConfig"), dict) else {},
         "model": block.get("model") or "",
         "modelMode": block.get("modelMode") or "rewrite",
-        # The operator's own figure is the rule: it is deliberate, and it is the
-        # only source for a provider that publishes none. The number the
-        # provider reports is used ONLY when the operator ticked contextAuto —
-        # it used to be a silent fallback, and a number nobody chose is the
-        # same trap as a guessed one (docs/why.md). Neither known → absent.
-        "contextLength": (_cached_context_length(account.get("id"), block.get("model"))
-                          or block.get("contextLength")
-                          if block.get("contextAuto")
-                          else block.get("contextLength")),
+        # The window this block stands for: the operator's declared figure, or
+        # the provider's reported one when they ticked the switch — the rule is
+        # block_window's, shared with the board so both say the same number.
+        # The catalogue is read only when the switch is on: it is a file on
+        # disk, and a block that never asked for it should not depend on it.
+        "contextLength": block_window(
+            block.get("contextLength"),
+            _cached_context_length(account.get("id"), block.get("model")) if block.get("contextAuto") else None,
+            bool(block.get("contextAuto"))),
     }
 
 def load_cloud_account(account_id):

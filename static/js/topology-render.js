@@ -45,6 +45,8 @@ import {
   adoptScoutClients,
   editRouteModel,
   editRouteWait,
+  setRouteContextPrefer,
+  setRouteModelLock,
 } from "./remote-cells.js";
 import { renderTopologyRouterCard, renderTopologyRouterDetail } from "./routers.js";
 import { setTopology, state, topology, ui } from "./state.js";
@@ -258,9 +260,10 @@ export function renderTopology() {
     // Discovery hints: running agent-* machines on this host that aren't in the fleet registry.
     const candidates = Array.isArray(client.candidates) ? client.candidates : [];
     const discoveryBanner = clientDiscoveryBannerHtml(client, candidates);
-    // Карточка хоста — только там, где есть скаут: она вся про то, что он
-    // рассказал. Без него её место занимает либо карточка единственного агента
-    // (она же берёт управление клиентом), либо тонкая строка-заголовок.
+    // A host card exists only where a scout does: it's entirely about what
+    // the scout reported. Without one, its place is taken either by the sole
+    // agent's card (which also takes over managing the client) or by a thin
+    // caption row.
     const hostCard = !clientCardIsRedundant(client, (client.agents || []).length);
     const caption = clientNeedsCaption(client, (client.agents || []).length) ? `
       <div class="client-caption" data-t="board-client-caption" data-t-id="${escapeHtml(client.id || "")}">
@@ -286,18 +289,20 @@ export function renderTopology() {
             <strong>${escapeHtml(displayName)}</strong>
             <button class="client-rename-btn" type="button" title="${escapeHtml(t("trTitleSetName"))}"
               data-client-rename="${escapeHtml(client.id)}" data-client-name="${escapeHtml(displayName)}">✎</button>
-            <!-- Прокси назначается АГЕНТУ, а завести агента руками было нечем:
-                 у ручного клиента в карточке жили только «переименовать» и
-                 «удалить», поэтому запись существовала и настраиваться не
-                 могла. -->
+            <!-- A proxy is assigned to an AGENT, and there was no way to
+                 create one by hand: a manual client's card only offered
+                 "rename" and "delete", so the record existed but couldn't be
+                 configured. -->
             <button class="client-rename-btn" type="button" data-t="client-agent-add"
               title="${escapeHtml(t("topologyAgentAdd"))}"
               data-client-agent-add="${escapeHtml(client.id)}">＋</button>
-            <!-- Удаление живёт в заголовке, спокойной кнопкой. Раньше оно
-                 сидело ВНУТРИ красной плашки «агент не отвечает», и убрать её
-                 у клиента, который просто молчит по праву, значило удалить
-                 запись. Убрав плашку у ручных, я вместе с ней чуть не унёс
-                 единственный способ их удалить — что было бы своей ловушкой. -->
+            <!-- Deletion lives in the header now, as a calm button. It used
+                 to sit INSIDE the red "agent not answering" banner, and
+                 removing that banner for a client that's simply silent by
+                 design would have meant deleting the record. When the banner
+                 was removed for manual clients, I nearly took away their only
+                 way to be deleted along with it — which would have been a
+                 trap of its own making. -->
             <button class="client-rename-btn danger" type="button" data-t="client-delete"
               title="${escapeHtml(t("topologyClientDelete"))}"
               data-client-delete="${escapeHtml(client.id)}">✕</button>
@@ -336,7 +341,7 @@ export function renderTopology() {
     renderTopologyProxyForm(),
     renderTopologyRouterDetail(),
     renderTopologyScheduleModal(),
-    // Routing layer: a single router (Роутер). The proxy is the client's
+    // Routing layer: a single router. The proxy is the client's
     // primary/fallback row (left); its handle drags to the router input.
     `<div class="router-stack">${(topology.routers || []).filter((s) => s.id === "router:default").map(renderTopologyRouterCard).join("")}</div>`,
   ].join("");
@@ -353,12 +358,24 @@ export function renderTopology() {
       renderTopology();
     });
   });
-  // Правка окна контекста прямо на строке маршрута.
+  // The limit and the switch on the route's context line, edited in place.
   document.querySelectorAll("[data-route-ctx]").forEach((chip) => {
     chip.addEventListener("click", (e) => {
       e.stopPropagation();
       editRouteContext(chip.dataset.ctxHost, chip.dataset.ctxAgent, chip.dataset.ctxRole,
-                       chip.dataset.ctxValue, !!chip.dataset.ctxAuto);
+                       chip.dataset.ctxValue, !!chip.dataset.ctxPrefer);
+    });
+  });
+  // The row underneath opens the route detail on click; a click on the switch
+  // or its caption must not — the label swallows both.
+  document.querySelectorAll("[data-route-ctx-prefer-label]").forEach((label) => {
+    label.addEventListener("click", (e) => e.stopPropagation());
+    label.addEventListener("keydown", (e) => e.stopPropagation());
+  });
+  document.querySelectorAll("[data-route-ctx-prefer]").forEach((box) => {
+    box.addEventListener("change", () => {
+      setRouteContextPrefer(box.dataset.ctxHost, box.dataset.ctxAgent, box.dataset.ctxRole,
+                            box.dataset.ctxValue, box.checked);
     });
   });
   document.querySelectorAll("[data-route-wait]").forEach((chip) => {
@@ -371,18 +388,29 @@ export function renderTopology() {
     chip.addEventListener("click", (e) => {
       e.stopPropagation();
       editRouteModel(chip.dataset.modelHost, chip.dataset.modelAgent, chip.dataset.modelRole,
-                     chip.dataset.modelValue);
+                     chip.dataset.modelValue, !!chip.dataset.modelAuto);
     });
   });
-  // Завести клиента руками — кнопка в шапке лейна.
+  // The lock on the name: same record, a second decision. The name travels
+  // along with it — the server accepts both fields at once, and a missing
+  // one means "clear".
+  document.querySelectorAll("[data-route-model-lock]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setRouteModelLock(btn.dataset.modelHost, btn.dataset.modelAgent, btn.dataset.modelRole,
+                        btn.dataset.modelValue, !btn.dataset.modelAuto);
+    });
+  });
+  // Create a client by hand — a button in the lane's header.
   const addClientBtn = document.getElementById("topologyClientAddBtn");
   if (addClientBtn && !addClientBtn.dataset.bound) {
     addClientBtn.dataset.bound = "1";
     addClientBtn.addEventListener("click", () => addTopologyClient());
   }
-  // Перенос записей скаута под доску. Кнопка видна ТОЛЬКО когда есть что
-  // переносить и исчезает, когда не осталось: предложение, которое ничего не
-  // делает, читается как сломанное — и учит не верить кнопкам вообще.
+  // Moving the scout's records under the board's ownership. The button shows
+  // ONLY when there's something to move and disappears once there's
+  // nothing left: an offer that does nothing reads as broken — and teaches
+  // people to stop trusting buttons at all.
   const adoptBtn = document.getElementById("topologyAdoptBtn");
   if (adoptBtn) {
     if (!adoptBtn.dataset.bound) {
@@ -655,19 +683,26 @@ export function topologyServerPhase(s) {
 export function topologyStructureFingerprint() {
   if (!topology) return "";
   const server = topology.server || {};
-  // Агенты и НАСТРОЙКИ их маршрутов входят в отпечаток наравне с назначениями:
-  // всё, чего здесь нет, на доске не появляется до перезагрузки страницы — и
-  // читается как «не сохранилось». Так и было: агент, заведённый руками, лежал
-  // в записи невидимым, а чип окна контекста показывал прежнее число.
+  // Agents and the SETTINGS on their routes go into the fingerprint on equal
+  // footing with the assignments themselves: anything missing here doesn't
+  // appear on the board until the page reloads — and reads as "didn't save".
+  // That's exactly what happened: an agent created by hand sat invisible in
+  // the record, and the context-window chip kept showing the old number. The
+  // model name and its lock are the same kind of setting: while they weren't
+  // included here, the operator would press the lock, the server would
+  // record it, and the board would keep showing the old state until a
+  // reload — which is exactly "didn't save".
   const clients = (topology.clients || [])
     .map((c) => {
-      // Берётся то, что доска РИСУЕТ, — слияние живого отчёта и сохранённой
-      // записи. Пока здесь стоял topologyAssignmentsForHost, у клиента с живым
-      // отчётом побеждал отчёт, и правка сохранённого (окно контекста, флаг
-      // «руками») в отпечаток не попадала: доска молчала до перезагрузки.
+      // Takes what the board actually DRAWS — the merge of the live report
+      // and the stored record. While topologyAssignmentsForHost stood here
+      // instead, a client with a live report had the report win, and an edit
+      // to the stored side (context window, the "manual" flag) never reached
+      // the fingerprint: the board stayed silent until a reload.
       const routes = topologyBoardAssignmentsForHost(c.id)
         .map((row) => `${row.agentId}${row.manual ? "!" : ""}=` + (row.routes || [])
-          .map((r) => `${r.role}@${r.proxyId || ""}#${r.contextLength || ""}${r.contextAuto ? "A" : ""}`)
+          .map((r) => `${r.role}@${r.proxyId || ""}#${r.contextLength || ""}${r.contextAuto ? "A" : ""}`
+                       + `~${r.modelName || ""}${r.modelNameAuto ? "O" : ""}`)
           .sort().join("+"))
         .sort().join(";");
       return `${c.id}:${c.name || ""}:${c.state}:${(c.gpus || []).length}:`

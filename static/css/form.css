@@ -1,5 +1,5 @@
 /* Manual extra-args field — full width so it reads as a command-line box,
-   not a cramped single-column input. The Ф2 CSS split cut the original
+   not a cramped single-column input. The Phase 2 CSS split cut the original
    comment across the cards.css/form.css boundary, which silently voided this
    rule (each stylesheet parses on its own). */
 .advanced-tab-panel .advanced-grid.extra-args-grid {
@@ -68,7 +68,7 @@
   animation: spin-once 0.7s linear infinite;
 }
 
-/* п.1: removed flags row in command preview */
+/* 1: removed flags row in command preview */
 .cmd-removed-row {
   display: block;
   margin-top: 6px;
@@ -207,7 +207,7 @@
   margin-top: 2px;
 }
 
-/* п.3: dirty-indicator dot on Save/Start buttons */
+/* 3: dirty-indicator dot on Save/Start buttons */
 button.cmd-dirty {
   position: relative;
 }
@@ -943,7 +943,7 @@ button.cmd-dirty::after {
   border-radius: 7px; padding: 7px 10px; font-size: 13px;
 }
 
-/* Busy state for submit buttons (Применить / Start): inline spinner + lock */
+/* Busy state for submit buttons (Apply / Start): inline spinner + lock */
 .btn-busy {
   position: relative;
   pointer-events: none;

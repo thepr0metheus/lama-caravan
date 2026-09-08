@@ -168,7 +168,7 @@ export function renderPreviewTokens(pfx, target, previewTokens, owners = []) {
   }
   target.innerHTML = cmdParts.join("\n") + (hasChanges ? removedHtml : `\n<span class="cmd-note">${t("noCommandChanges")}</span>`);
 
-  // п.3: dirty-indicator on Save/Start buttons
+  // 3: dirty-indicator on Save/Start buttons
   if (pfx === "te-") {
     $("topologyLlamaEditSaveRestart")?.classList.toggle("cmd-dirty", hasChanges);
   } else if (pfx === "tr-") {

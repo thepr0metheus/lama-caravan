@@ -112,28 +112,28 @@ export function topologyAgentCard(client, agent, routeMap, ownsClient = false) {
         <div>
           <div class="agent-title-line">
           <strong>${escapeHtml(agent.name || agent.id)}</strong>
-          <!-- Переименовать блок агента. Раньше у карточки была только ✕: имя
-               можно было увидеть и нельзя изменить, хотя у карточки КЛИЕНТА
-               ✎ есть с самого начала. -->
+          <!-- Rename the agent's block. The card used to have only a ✕: the
+               name could be seen but not changed, even though the CLIENT
+               card has had a ✎ from the start. -->
           <button class="client-rename-btn" type="button" data-t="agent-rename"
             title="${escapeHtml(t("topologyAgentRename"))}"
             data-agent-rename="${escapeHtml(agent.id || "")}"
             data-agent-rename-client="${escapeHtml(client?.id || "")}"
             data-agent-rename-name="${escapeHtml(agent.name || agent.id || "")}">✎</button>
-          ${ownsClient ? `<!-- Управление КЛИЕНТОМ переехало сюда. У клиента,
-               заведённого руками и с одним агентом, отдельная карточка хоста
-               была второй карточкой об одном и том же: рассказать ей нечего, а
-               держали её ради этих трёх кнопок. Когда агентов несколько,
-               карточка возвращается — там она заголовок группы. -->
+          ${ownsClient ? `<!-- CLIENT management moved here. For a client created
+               by hand with a single agent, a separate host card was a second
+               card about the same thing: it had nothing left to say, and was
+               only kept for these three buttons. With more than one agent,
+               the card comes back — there it's the group's header. -->
           <button class="client-rename-btn" type="button" data-t="client-agent-add"
             title="${escapeHtml(t("topologyAgentAdd"))}"
             data-client-agent-add="${escapeHtml(client?.id || "")}">＋</button>
           <button class="client-rename-btn danger" type="button" data-t="client-delete"
             title="${escapeHtml(t("topologyClientDelete"))}"
             data-client-delete="${escapeHtml(client?.id || "")}">✕</button>` : ""}
-          <!-- Род агента — в ту же строку, что имя, и прижат вправо: своей
-               строкой он занимал целый ряд ради двух слов и растаскивал
-               заголовок по вертикали. -->
+          <!-- The agent's kind sits on the same line as its name, pushed to
+               the right: on its own line it took up a whole row for two
+               words and stretched the header out vertically. -->
           ${agentCallerHtml([primary, fallback])}
           <span class="agent-kind">${escapeHtml([agent.kind || "manual", topologyAgentMeta(agent)].filter(Boolean).join(" · "))}</span>
           </div>
@@ -149,20 +149,21 @@ export function topologyAgentCard(client, agent, routeMap, ownsClient = false) {
   `;
 }
 
-// Карточки лейна для ОДНОГО клиента: сначала он сам, потом КАЖДЫЙ его агент
-// отдельным блоком. Слепленные в одну карточку агенты читаются как одна
-// сущность, хотя это разные потребители с разными портами и разными окнами
-// контекста, — а лейн называется «клиенты и их прокси».
+// Lane cards for a SINGLE client: itself first, then EVERY one of its agents
+// as its own block. Agents lumped into one card read as a single entity,
+// even though they're different consumers with different ports and
+// different context windows — and the lane is named "clients and their
+// proxies".
 //
-// Так рисуется только запись, которой хозяин доска. У клиента от скаута
-// карточка остаётся прежней: там агенты сгруппированы по тому, где они живут
-// на машине, и это его собственные сведения, а не наша раскладка.
+// This is only drawn for a record the board owns. A scout-reported client
+// keeps its old card: there, agents are grouped by where they live on the
+// machine, and that's the scout's own information, not our layout.
 export function clientLaneAgentCards(client, assignments) {
   if (!client?.manual) return [];
   const routeMap = topologyAssignmentsByAgent(assignments);
   const agents = sortedTopologyAgents(client.agents || []);
-  // Единственный агент молчащего ручного клиента забирает и управление самим
-  // клиентом: карточки хоста рядом с ним не будет.
+  // The sole agent of a silent manual client also takes over managing the
+  // client itself: there will be no host card next to it.
   const owns = clientCardIsRedundant(client, agents.length) && agents.length === 1;
   return agents.map((agent) => {
     const routes = [...(routeMap.get(agent.id) || new Map()).values()];
@@ -171,24 +172,24 @@ export function clientLaneAgentCards(client, assignments) {
   });
 }
 
-// Есть ли на этом хосте caravan-scout. Карточка хоста существует ради того, что
-// рассказывает ОН: адрес, процессор, память, видеокарты, живость, находки. Без
-// скаута рассказывать нечего, и карточка вырождается в рамку вокруг пустоты —
-// а рядом с ней стоит карточка агента, и две карточки об одном заставляют
-// гадать, что удалит какая.
+// Whether this host has caravan-scout on it. The host card exists for what
+// IT reports: address, CPU, memory, GPUs, liveness, discoveries. With no
+// scout there's nothing left to report, and the card degrades into a frame
+// around emptiness — sitting next to an agent card, with two cards about the
+// same thing leaving it to guess which one deletes what.
 //
-// Признак — не «молчит», а «мы с ним говорим»: адрес агента, по которому
-// контроллер к нему ходит, или хоть один полученный ответ. Клиент, который
-// когда-то отвечал и замолчал, скаут имеет — и его карточка остаётся, чтобы
-// показать, когда это было.
+// The signal isn't "is silent" but "are we talking to it": the agent address
+// the controller reaches it at, or even a single answer ever received. A
+// client that once answered and went quiet is still one the scout has — and
+// its card stays, to show when that was.
 export function clientHasScout(client) {
   return !!String(client?.agentUrl || "").trim() || !!Number(client?.lastSeen || 0);
 }
 
-// Сколько часов через прокси этого агента не шло трафика. Считается по самому
-// свежему успешному запросу среди всех его ролей; ни одного за окно журнала
-// (7 дней) — Infinity, а не ноль: «никогда при нас» и «только что» — разные
-// ответы, и путать их нельзя.
+// How many hours this agent's proxy has carried no traffic. Computed from
+// the most recent successful request across all its roles; none within the
+// log's window (7 days) gives Infinity, not zero: "never, as far as we've
+// seen" and "just now" are different answers, and confusing them is not allowed.
 export function agentIdleHours(routes, nowSec = Date.now() / 1000) {
   const byId = new Map((topology?.proxies || []).map((p) => [String(p.id), p]));
   let last = 0;
@@ -202,9 +203,10 @@ export function agentIdleHours(routes, nowSec = Date.now() / 1000) {
 
 export const AGENT_IDLE_HOURS = 12;
 
-// Простаивает — если через его прокси не было успешного запроса дольше порога.
-// Это наблюдение о трафике, а не о живости клиента: агент может быть жив и
-// просто молчать, и карточка говорит именно это — жёлтым, не красным.
+// Idle means no successful request through its proxy longer than the
+// threshold. This is an observation about traffic, not about a client's
+// liveness: an agent can be alive and simply quiet, and the card says
+// exactly that — in yellow, not red.
 export function agentIsIdle(routes, nowSec = Date.now() / 1000) {
   return agentIdleHours(routes, nowSec) >= AGENT_IDLE_HOURS;
 }
@@ -221,13 +223,14 @@ export function clientIsLive(client, nowSec = Date.now() / 1000) {
   });
 }
 
-// Нужна ли карточка хоста. Она существует ради того, что рассказал скаут, —
-// значит нужна ровно там, где скаут есть.
+// Whether a host card is needed. It exists for what the scout reported —
+// so it's needed exactly where a scout exists.
 //
-// Без скаута карточки нет, но управление клиентом деться не может: при
-// единственном агенте его забирает карточка агента, а при нуле или нескольких
-// остаётся тонкая строка-заголовок — иначе кнопка «удалить клиента» повторилась
-// бы на каждом агенте, и оператору пришлось бы гадать, которая из них главная.
+// With no scout there's no card, but managing the client has to go
+// somewhere: with a single agent, its card takes it over; with zero or
+// several, a thin caption row remains — otherwise a "delete client" button
+// would repeat on every agent, and the operator would have to guess which
+// one is the real one.
 export function clientCardIsRedundant(client, agentCount) {
   return !clientHasScout(client);
 }
@@ -253,7 +256,15 @@ export function canvasBoardClients(proxies) {
   // it); the rows are then ordered as the board's cards are — the live agents
   // first, the quiet ones after, by name inside each group.
   for (const client of sortedTopologyClients(topology?.clients || [])) {
-    for (const row of sortedTopologyAgents(topologyBoardAssignmentsForHost(client.id).map((r) => ({ ...r, name: r.agentId })))) {
+    // Ordering and a port's claim to a name both go by the agent's SHOWN
+    // name — the same one on the lane card. While agentId stood here
+    // instead, an alias split one fleet into two pictures: an agent whose id
+    // is "openclaw" but which the board labels with an alias sat in the lane
+    // under the alias's letter and here under "o".
+    const shownName = new Map((client.agents || [])
+      .map((a) => [String(a?.id || ""), String(a?.name || a?.id || "")]));
+    for (const row of sortedTopologyAgents(topologyBoardAssignmentsForHost(client.id)
+        .map((r) => ({ ...r, name: shownName.get(String(r.agentId)) || r.agentId })))) {
       const own = [];
       for (const route of (row?.routes || [])) {
         const port = String(route?.proxyId || "").split(":").pop();
@@ -262,7 +273,7 @@ export function canvasBoardClients(proxies) {
       }
       if (own.length) rows.push({ key: `${client.id}::${row.agentId}`, clientId: client.id,
                                   agentId: row.agentId, proxies: own,
-                                  name: row.agentId, live: !agentIsIdle(row.routes || []) });
+                                  name: row.name || row.agentId, live: !agentIsIdle(row.routes || []) });
     }
   }
   return { rows: sortedLaneCards(rows), unclaimed: (proxies || []).filter((p) => !claimed.has(String(p.id))) };
@@ -270,11 +281,11 @@ export function canvasBoardClients(proxies) {
 
 export function topologyGroupedAgents(client, assignments) {
   const routeMap = topologyAssignmentsByAgent(assignments);
-  // Деление на HOST/VMS/DOCKER/OTHER — это пересказ того, что рассказал скаут:
-  // где именно на машине живёт агент. У записи, которой хозяин доска, такого
-  // рассказа нет и не будет, и четыре заголовка с прочерками — не сведения, а
-  // шум: три пустые рамки вокруг одного агента. Ручной клиент показывает своих
-  // агентов списком.
+  // The HOST/VMS/DOCKER/OTHER split retells what the scout reported: exactly
+  // where on the machine an agent lives. A record the board owns has no such
+  // report and never will, and four headers with dashes aren't information,
+  // they're noise: three empty frames around a single agent. A manual client
+  // shows its agents as a plain list instead.
   if (client?.manual) {
     const agents = sortedTopologyAgents(client.agents || []);
     return `
@@ -339,17 +350,19 @@ export function topologyBoardAssignmentsForHost(hostId) {
   // drawing breaks. Refill the id from the stored route, else resolve the proxy
   // by the port in the endpoint.
   const proxyByPort = new Map((topology?.proxies || []).map((p) => [String(p.port), p]));
-  // ЖИВОСТЬ приходит из живого отчёта, НАСТРОЙКИ — из сохранённой записи, и
-  // никогда наоборот. Живой отчёт настроек не несёт и никогда не понесёт: агент
-  // знает, куда он ходит, но не знает, что оператор про этот маршрут решил.
-  // Пока живой маршрут брался целиком, любая настройка исчезала у КАЖДОГО
-  // агента, о котором скаут отчитывается, — и выглядело это как «не задано»,
-  // то есть отсутствие, нарисованное как норма (docs/why.md).
+  // LIVENESS comes from the live report, SETTINGS come from the stored
+  // record, and never the other way around. A live report carries no
+  // settings and never will: an agent knows where it's calling, but not what
+  // the operator decided about that route. While a live route was taken
+  // wholesale, any setting used to vanish for EVERY agent the scout reports
+  // on — and it looked like "not set", which is absence drawn as normal
+  // (docs/why.md).
   //
-  // Отсюда же следует то, что раньше было частным случаем: пустой proxyId
-  // живого отчёта не побеждает сохранённый. Клиент знает свой endpoint, но не
-  // знает внутреннего id каравана, и предпочтение живого целиком роняло
-  // привязку — кабель на доске тихо переставал рисоваться.
+  // The same reasoning covers what used to be a special case: an empty
+  // proxyId from the live report doesn't win over the stored one. A client
+  // knows its own endpoint but not the caravan's internal id, and preferring
+  // the live one wholesale used to drop the binding entirely — the board's
+  // cable would quietly stop being drawn.
   const LIVENESS_FIELDS = ["proxyId", "endpoint"];
   const mergeRoute = (liveRoute, storedRoute) => {
     if (!liveRoute) return storedRoute || null;
@@ -358,17 +371,17 @@ export function topologyBoardAssignmentsForHost(hostId) {
     for (const key of LIVENESS_FIELDS) {
       if (liveRoute[key]) merged[key] = liveRoute[key];
     }
-    // Слияние берёт живость оттуда, а настройки отсюда — и когда порты
-    // РАЗОШЛИСЬ, получается строка, которой нет нигде: доска показывала окно
-    // рядом с портом, который его не публикует (публикует тот, что назван
-    // записью). Настройка не пропадает — она помечается чужим портом, и чип
-    // говорит, что здесь она не в силе.
+    // The merge takes liveness from one side and settings from the other —
+    // and when the ports have DIVERGED, the result is a row that exists
+    // nowhere: the board showed a window next to a port that doesn't publish
+    // it (the one named by the record does). The setting isn't lost — it's
+    // marked with the wrong port, and a chip says it's not in force here.
     if (storedRoute.proxyId && liveRoute.proxyId && storedRoute.proxyId !== liveRoute.proxyId) {
       merged.settingsProxyId = storedRoute.proxyId;
     }
     return merged;
   };
-  // Ни там, ни там id нет — достаём его по порту из endpoint.
+  // Neither side has an id — recover it from the port in the endpoint.
   const withProxyId = (route) => {
     if (!route || route.proxyId) return route;
     const port = (String(route.endpoint || "").match(/:(\d+)(?:\/|$)/) || [])[1];
@@ -471,10 +484,10 @@ export function topologyServerUpstreamHost(s, node) {
 
 export async function connectTopologyProxyToLlama(proxyId, llamaPort, llamaHost) {
   const targetHost = (llamaHost || "").trim() || "127.0.0.1";
-  // Раньше здесь стояла ВТОРАЯ, почти дословная копия сборки маршрутов, и
-  // расхождение пришло ровно оттуда: поле, добавленное в одну, во второй не
-  // появлялось. Теперь это один список с точечной заменой одного маршрута —
-  // граница пересборки в этом файле осталась одна.
+  // There used to be a SECOND, near-verbatim copy of the route-build logic
+  // here, and the drift came from exactly that: a field added to one never
+  // showed up in the other. Now it's one list with a targeted replacement of
+  // a single route — this file has exactly one rebuild boundary left.
   const routes = topologyProxyRoutes().map((route) => (
     `skynet:proxy:${route.port}` === proxyId
       ? { ...route, upstreamHost: targetHost, upstreamPort: Number(llamaPort),
@@ -525,13 +538,13 @@ export async function toggleTopologyGroupCloudFallback(groupKey) {
   toast(active ? "cloud fallback disabled" : "cloud fallback enabled");
 }
 
-// Сколько записей ещё принадлежит скауту: клиенты без пометки «руками» и их
-// строки назначений. Кнопка переноса показывается ТОЛЬКО когда это не ноль и
-// исчезает, когда переносить нечего, — предложение, которое ничего не делает,
-// читается как сломанное.
+// How many records still belong to the scout: clients with no "manual" mark,
+// and their assignment rows. The adopt button shows ONLY when this is
+// nonzero, and disappears once there's nothing left to adopt — an offer that
+// does nothing reads as broken.
 //
-// Сентинел контроллера сюда не входит: он не клиент скаута, и усыновление его
-// записи сделало бы вид, что оператор про него что-то решил.
+// The controller's sentinel isn't counted here: it isn't a scout client, and
+// adopting its record would pretend the operator decided something about it.
 export function scoutOwnedCounts() {
   const assignments = topology?.assignments || {};
   let clients = 0, agents = 0;

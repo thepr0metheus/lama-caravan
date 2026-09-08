@@ -269,10 +269,10 @@ def load_agent_proxy_logs(date_text="", limit=200, event_filter="",
                                          "total": 0, "errors": 0, "byKind": {},
                                          "clients": {}})
             entry["total"] += 1
-            # Кто на самом деле ходит в этот порт. Строки и так обходятся, а
-            # ответить на «чей это порт» иначе нечем: запись говорит, кому мы
-            # его ВЫДАЛИ, и это не то же самое — hermes месяцами ходил в порт,
-            # на котором его имени не стояло.
+            # Who actually calls this port. Rows already get walked, and
+            # there is no other way to answer "whose port is this": the
+            # record says who we ISSUED it to, and that's not the same thing
+            # — hermes called a port for months that carried a different name.
             caller = str(it.get("client") or "").strip()
             if caller:
                 entry["clients"][caller] = entry["clients"].get(caller, 0) + 1
@@ -282,8 +282,9 @@ def load_agent_proxy_logs(date_text="", limit=200, event_filter="",
                 k = kind or "error"
                 entry["byKind"][k] = entry["byKind"].get(k, 0) + 1
         for entry in agg.values():
-            # Самый частый и сколько их всего: один адрес — это ответ, а
-            # несколько — тоже ответ, и притом важный (порт общий).
+            # The most frequent caller, and how many there are in total: one
+            # address is an answer, and several is an answer too — and an
+            # important one (the port is shared).
             ranked = sorted(entry["clients"].items(), key=lambda kv: (-kv[1], kv[0]))
             entry["topClient"] = ranked[0][0] if ranked else ""
             entry["clientCount"] = len(ranked)

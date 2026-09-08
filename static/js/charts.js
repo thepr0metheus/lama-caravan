@@ -3,11 +3,12 @@ import { t } from "./i18n.js";
 import { formatTps } from "./polling.js";
 import { state, topology, ui } from "./state.js";
 import {
+  sortedLaneCards,
   topologyIncidentCause,
   topologyIncidentForItem,
   topologyIsQueuedItem,
 } from "./topology-activity.js";
-import { groupedTopologyProxies } from "./topology-proxies.js";
+import { agentIsIdle, canvasBoardClients } from "./topology-proxies.js";
 import { $, escapeHtml, formatMemoryMiB } from "./utils.js";
 
 export function formatRate(bytesPerSecond) {
@@ -286,6 +287,34 @@ export function nodeActivityFilter(nodeId) {
   return { endpoints: nodeEndpointSet(node), isController: node.role === "controller" };
 }
 
+// Route rows in the order the board lists its clients: routes that carried a
+// request within the idle window first, the quiet ones after, by name inside
+// each group — the traffic strip and the lane read the same way. One row per
+// distinct label; an empty label has no row.
+// Row order of the traffic strip and the Route-activity modal: the CLIENT CARDS
+// of the board, card by card, each card followed by its own ports in role order.
+//
+// It used to sort the route LABELS by the same live-first-then-name rule the
+// lane uses for cards — the same rule on a different key, which is not the same
+// order at all: a card named "hermes" holds a port labelled "skynet Hemi proxy",
+// so the strip put it under "s" while the lane had it under "h". Two pictures of
+// one fleet, and the eye cannot carry a row from one to the other. The card
+// order is the reference, and it comes from the same function the kanban uses
+// (canvasBoardClients), not from a copy of its rule.
+//
+// A port no card names is not dropped — it follows, ordered among its own kind
+// the way it always was. Silently hiding a routed port is exactly absence
+// rendered as normality (docs/why.md).
+export function orderedRouteLabels(proxies) {
+  const out = [];
+  const push = (label) => { const name = String(label || "").trim(); if (name && !out.includes(name)) out.push(name); };
+  const { rows, unclaimed } = canvasBoardClients(proxies || []);
+  rows.forEach((row) => (row.proxies || []).forEach((p) => push(p.label)));
+  const rest = unclaimed.map((p) => ({ name: String(p.label || "").trim(), live: !agentIsIdle([{ proxyId: p.id }]) }));
+  sortedLaneCards(rest).forEach((c) => push(c.name));
+  return out;
+}
+
 export function nodeRouteLabels(nodeId) {
   const node = (topology?.nodes || []).find((n) => String(n.id) === String(nodeId));
   if (!node) return [];
@@ -299,16 +328,13 @@ export function nodeRouteLabels(nodeId) {
       routersTouching.add(String(r.id));
     }
   });
-  const out = [];
-  (topology?.proxies || []).forEach((p) => {
-    if (String(p.upstreamType || "llama") === "cloud") return;       // cloud routes don't use a GPU
+  const hits = (topology?.proxies || []).filter((p) => {
+    if (String(p.upstreamType || "llama") === "cloud") return false;      // cloud routes don't use a GPU
     const direct = endpoints.has(`${p.upstreamHost}:${p.upstreamPort}`);
     const viaGraph = p.routerId && routersTouching.has(String(p.routerId));
-    if (!direct && !viaGraph) return;
-    const lbl = String(p.label || "").trim();
-    if (lbl && !out.includes(lbl)) out.push(lbl);
+    return direct || viaGraph;
   });
-  return out;
+  return orderedRouteLabels(hits);
 }
 
 // Time-bucket samples to a canvas width (mirrors the controller's bucketing).
@@ -967,19 +993,14 @@ export function drawTopologyRouteHistory(samples, buckets, barW, overrideCanvas,
   const canvas = overrideCanvas || $("topologyRouteHistoryChart");
   const legend = overrideCanvas ? null : $("topologyGpuHistoryLegend");
   if (!canvas) return;
-  // Build route order from Proxy Ports grouping (same order as the column).
-  const sortedProxies = (topology?.proxies || []).slice().sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
+  // Row order = the board's client order (live first, then by name), so the
+  // strip, the modal and the lane agree on who is where.
   const routes = [];
   if (Array.isArray(opts.routes)) {
     // Caller restricted the rows (e.g. a per-node Route Activity).
     opts.routes.forEach((name) => { if (name && !routes.includes(name)) routes.push(name); });
   } else {
-    groupedTopologyProxies(sortedProxies).forEach((group) => {
-      group.proxies.forEach((proxy) => {
-        const name = String(proxy.label || "").trim();
-        if (name && !routes.includes(name)) routes.push(name);
-      });
-    });
+    orderedRouteLabels(topology?.proxies || []).forEach((name) => routes.push(name));
   }
   if (!routes.length && !Array.isArray(opts.routes)) {
     // Fallback to any observed routes if proxies aren't loaded yet.
@@ -1127,16 +1148,16 @@ export function topologyRouteActivityForBucket(bucket, route, filter = null) {
 }
 
 export function topologyRouteActivityColor(_route, state) {
-  if (state === "failed")             return "rgba(255, 120, 120, 0.90)"; // красный — hard error / timeout
-  if (state === "client_disconnected") return "rgba(250, 204,  21, 0.82)"; // жёлтый — клиент ушёл сам
-  if (state === "preempting")         return "rgba(167, 139, 250, 0.88)"; // фиолетовый — вытесняется
-  if (state === "slow")               return "rgba( 45, 212, 191, 0.82)"; // бирюзовый — медленно, но успех
-  if (state === "degraded")           return "rgba(228, 173,  83, 0.88)"; // оранжевый — инцидент (не фатальный)
-  if (state === "active")             return "rgba( 37,  99, 235, 0.92)"; // тёмно-синий — выполняется локально
-  if (state === "cloud_active")       return "rgba(186, 230, 253, 0.92)"; // светло-облачный — обрабатывается облаком
-  if (state === "recent")             return "rgba( 52, 211, 153, 0.75)"; // зелёный — только что завершился нормально
-  if (state === "cloud_recent")       return "rgba( 99, 102, 241, 0.82)"; // индиго — облако завершило нормально
-  if (state === "queued")             return "rgba( 96, 165, 250, 0.60)"; // голубой — ждёт в очереди
+  if (state === "failed")             return "rgba(255, 120, 120, 0.90)"; // red — hard error / timeout
+  if (state === "client_disconnected") return "rgba(250, 204,  21, 0.82)"; // yellow — client left on its own
+  if (state === "preempting")         return "rgba(167, 139, 250, 0.88)"; // purple — being preempted
+  if (state === "slow")               return "rgba( 45, 212, 191, 0.82)"; // teal — slow, but succeeded
+  if (state === "degraded")           return "rgba(228, 173,  83, 0.88)"; // orange — incident (non-fatal)
+  if (state === "active")             return "rgba( 37,  99, 235, 0.92)"; // dark blue — running locally
+  if (state === "cloud_active")       return "rgba(186, 230, 253, 0.92)"; // light cloud blue — being handled by the cloud
+  if (state === "recent")             return "rgba( 52, 211, 153, 0.75)"; // green — just finished normally
+  if (state === "cloud_recent")       return "rgba( 99, 102, 241, 0.82)"; // indigo — cloud finished normally
+  if (state === "queued")             return "rgba( 96, 165, 250, 0.60)"; // light blue — waiting in queue
   return "rgba(150, 162, 168, 0.48)";
 }
 

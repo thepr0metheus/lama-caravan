@@ -1,4 +1,4 @@
-"""Раннер как класс, а не как строка, с которой все сравниваются.
+"""A runner as a class, not as a string everything else compares against.
 
 A "runner" is the launch flavour of a cell. Until now it was an id in a dict and
 a chain of `if rid == "..."` in five modules: the registry said what a runner is,

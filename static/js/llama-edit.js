@@ -179,7 +179,15 @@ export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
   renderSchedulePanel("te", CONTROLLER_HOST_ID, _teCellPort, findSlotEntry(CONTROLLER_HOST_ID, _teCellPort)?.schedule);
   // The YaRN hint must be right on OPEN, not only after a model change; the
   // tab bar needs the same treatment for its overflow state.
-  setTimeout(() => { updateCtxYarnHint("te-"); syncConfigTabs("te-"); }, 0);
+  setTimeout(() => {
+    // A RUNNING cell's trained window comes from its model card (the topology
+    // row), not from a file this host may not have: stashed on the field so
+    // that ctxNativeFor can offer it when the catalogue knows no header.
+    const ctxEl = $("te-CTX_SIZE");
+    const row = _teCellPort ? findSlotEntry(CONTROLLER_HOST_ID, _teCellPort) : null;
+    if (ctxEl) ctxEl.dataset.trained = Number(row?.ctxTrained) > 0 ? String(row.ctxTrained) : "";
+    updateCtxYarnHint("te-"); syncConfigTabs("te-");
+  }, 0);
   if (!teLlamaFormReady) {
     renderFields("te-");
     wireCellKindToggle("te-");
@@ -651,9 +659,15 @@ export function runnerRegistry() {
 }
 
 export function effectiveRunnerId(pfx) {
-  const explicit = ($(pfx + "RUNNER")?.value || "").trim();
+  // Mirrors `runner_id` in caravan/domain/runner.py: same trim, same lower-case,
+  // on both fields. It used to differ — RUNNER kept its case and CELL_KIND was
+  // compared raw — so a config the SERVER runs as whisper was previewed here as
+  // something else entirely, and " command " was drawn as a llama cell. The same
+  // config must not mean two different cells depending on who reads it.
+  const explicit = ($(pfx + "RUNNER")?.value || "").trim().toLowerCase();
   if (explicit) return explicit;
-  return ($(pfx + "CELL_KIND")?.value || "") === "command" ? "custom" : "llama-server";
+  const kind = ($(pfx + "CELL_KIND")?.value || "").trim().toLowerCase();
+  return kind === "command" ? "custom" : "llama-server";
 }
 
 // What KIND of artifact a MODEL_FILE value names. The extension is not enough:
@@ -1227,18 +1241,19 @@ export function buildVllmCommandPreview(pfx) {
 
 export function _buildCommandExecPreview(pfx) {
   const port = $(pfx + "PORT")?.value || (pfx === "te-" ? _teCellPort : _trCellPort) || "PORT";
-  if (effectiveRunnerId(pfx) === "vllm") {
+  const runner = effectiveRunnerId(pfx);
+  if (runner === "vllm") {
     return [`export PORT=${port}`,
             "# first start on a host provisions ~/vllm-venv (several minutes)",
             `exec ${buildVllmCommandPreview(pfx)}`].join("\n");
   }
-  if (effectiveRunnerId(pfx) === "whisper") {
+  if (runner === "whisper") {
     const size = ($(pfx + "WHISPER_MODEL")?.value || "").trim() || "large-v3";
     return [`export PORT=${port}`,
             "# model downloads on first start into <models root>/whisper",
             `exec env HUGGINGFACE_HUB_CACHE="\${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/whisper" bash $HOME/run_whisper.sh "$PORT" ${size}`].join("\n");
   }
-  if (effectiveRunnerId(pfx) === "transcribe") {
+  if (runner === "transcribe") {
     const mf = ($(pfx + "MODEL_FILE")?.value || "").trim();
     const model = (mf && !mf.startsWith("/") && !mf.startsWith("$"))
       ? `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${mf}`
@@ -1247,7 +1262,7 @@ export function _buildCommandExecPreview(pfx) {
             "# the engine and its venv come from scripts/install-transcribe.sh",
             `exec bash $HOME/run_transcribe.sh "$PORT" ${model}`].join("\n");
   }
-  if (effectiveRunnerId(pfx) === "moonshine") {
+  if (runner === "moonshine") {
     // This branch was missing: a moonshine cell showed the llama-server line,
     // which is a preview of a command it would never run — the operator reads
     // it as what will happen and it is simply another cell's command.
@@ -1256,17 +1271,21 @@ export function _buildCommandExecPreview(pfx) {
             "# first start provisions ~/moonshine-venv and fetches the model",
             `exec bash $HOME/run_moonshine.sh "$PORT" ${lang}`].join("\n");
   }
-  if (effectiveRunnerId(pfx) === "translate") {
+  if (runner === "translate") {
     const model = ($(pfx + "TRANSLATE_MODEL")?.value || "").trim()
       || "facebook/nllb-200-distilled-600M";
-    const src = ($(pfx + "TRANSLATE_SRC_LANG")?.value || "eng_Latn").trim();
-    const tgt = ($(pfx + "TRANSLATE_TGT_LANG")?.value || "rus_Cyrl").trim();
+    // trim BEFORE the fallback, like the model line above and every other
+    // runner here: with `|| ` first, a field holding only spaces is truthy,
+    // survives the fallback, and trims down to nothing — the command then ended
+    // with two blanks where the languages belong.
+    const src = ($(pfx + "TRANSLATE_SRC_LANG")?.value || "").trim() || "eng_Latn";
+    const tgt = ($(pfx + "TRANSLATE_TGT_LANG")?.value || "").trim() || "rus_Cyrl";
     return [`export PORT=${port}`,
             "# model downloads on first start into <models root>/translate",
             `exec env HUGGINGFACE_HUB_CACHE="\${LLAMA_MODELS_DIR:-$HOME/llama-model-cache}/translate" `
             + `bash $HOME/run_translate.sh "$PORT" ${model} ${src} ${tgt}`].join("\n");
   }
-  if (effectiveRunnerId(pfx) === "seamless") {
+  if (runner === "seamless") {
     const mf = ($(pfx + "MODEL_FILE")?.value || "").trim();
     const model = (mf && !mf.startsWith("/") && !mf.startsWith("$"))
       ? `"\${LLAMA_MODELS_DIR:-$HOME/llama.cpp/models}"/${mf}`
@@ -1276,7 +1295,24 @@ export function _buildCommandExecPreview(pfx) {
             "# first start provisions ~/seamless-venv (torch + transformers)",
             `exec bash $HOME/run_seamless.sh "$PORT" ${model} ${tgt}`].join("\n");
   }
-  const cmd = ($(pfx + "COMMAND")?.value || "").trim().replace(/^\s*exec\s+/, "");
+  // Runners this builder has no command for, told apart instead of being
+  // swept into the custom branch. Both used to land there and print `exec …` —
+  // a preview of a command that will never run, which the operator reads as
+  // what will happen. llama-server's command is rendered by the CONTROLLER
+  // (/api/llama-command-preview) and never came from here; an unknown runner is
+  // a cell whose start this caravan does not know, which is what the server
+  // already says in `UnknownRunner` (command_path = False).
+  if (runner === "llama-server") {
+    return [`export PORT=${port}`,
+            "# llama-server: the controller renders this command, not this preview"].join("\n");
+  }
+  if (runner !== "custom") {
+    return [`export PORT=${port}`,
+            `# unknown runner "${runner}" — this caravan does not know how it starts`].join("\n");
+  }
+  // `exec` alone is not a command: the old pattern demanded whitespace after it,
+  // so COMMAND="exec" survived the strip and came back out as `exec exec`.
+  const cmd = ($(pfx + "COMMAND")?.value || "").trim().replace(/^\s*exec(?:\s+|$)/, "");
   const lines = [`export PORT=${port}`];
   ($(pfx + "ENV")?.value || "").split(/[\n,]/).forEach((raw) => {
     const item = raw.trim();
@@ -1284,7 +1320,12 @@ export function _buildCommandExecPreview(pfx) {
     const i = item.indexOf("=");
     const k = item.slice(0, i).trim();
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(k)) return;
-    lines.push(`export ${k}="${item.slice(i + 1).trim()}"`);
+    // Escaped exactly as `command_cell_env_exports` escapes it in launch.py —
+    // backslash and quote, and deliberately NOT `$`, so paths and spaces survive
+    // while $VARS still expand. Unescaped, a value that already carried a quote
+    // came out as ""quoted"": the preview showed shell the cell would never run.
+    const v = item.slice(i + 1).trim().replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    lines.push(`export ${k}="${v}"`);
   });
   const wd = ($(pfx + "WORKDIR")?.value || "").trim();
   if (wd) lines.push(`cd ${wd}`);

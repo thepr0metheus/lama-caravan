@@ -72,6 +72,8 @@ FUNCTION_MODULES = {
     "llama-edit.js": "scripts/test_js_llama_edit.py",
     "main.js": "scripts/test_js_main.py",
     "memory.js": "scripts/test_js_memory.py",
+    "model-freshness.js": "scripts/test_model_freshness.py",
+    "model-jobs.js": "scripts/test_model_jobs.py",
     "model-meta.js": "scripts/test_js_model_meta.py",
     "models-page.js": "scripts/test_js_models_page.py",
     "onboarding-strings.js": "scripts/test_js_onboarding_tours.py",
@@ -244,12 +246,18 @@ def _is_class_module(text):
 
 def _reason_holds(name, reason):
     """A whitelist reason is verified, not taken on trust."""
-    if reason.startswith("scripts/test_js_"):
+    if reason.startswith("scripts/test_"):
+        # The prefix used to be `test_js_`, back when frontend snapshots were
+        # one per module. A rule that lives in two copies (server and
+        # browser) is pinned by ONE snapshot covering both — and its name
+        # doesn't start with test_js_. What must be checked isn't the
+        # filename, but whether the snapshot actually names the module.
         path = ROOT / reason
         if not path.exists():
             return f"снимок {reason} не существует"
-        if f'"/{name}"' not in path.read_text(encoding="utf-8"):
-            return f"снимок {reason} не импортирует {name}"
+        text = path.read_text(encoding="utf-8")
+        if f'"/{name}"' not in text and name not in text:
+            return f"снимок {reason} не называет {name}"
         return ""
     if reason.startswith("docs/"):
         doc = ROOT / reason.split(":")[0]

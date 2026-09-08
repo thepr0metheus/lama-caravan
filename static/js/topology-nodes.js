@@ -16,13 +16,13 @@ import { action, formatCtxTokens, formatTps } from "./polling.js";
 import {
   _deletingSlots,
   _newReservedCells,
-  _pendingRemoteStarts,
   _reservingCells,
   _pendingCellActions,
   _stoppingCells,
   _stoppingHosts,
   nextTopologyCellPort,
   nodeStartingCardHtml,
+  remoteStartPending,
 } from "./remote-cells.js";
 import { setState, state, topology } from "./state.js";
 import {
@@ -35,6 +35,7 @@ import { topologyLlamaDetailOpen } from "./topology-dnd.js";
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
 import { runnerRegistry } from "./llama-edit.js";
+import { jobsForCell } from "./model-jobs.js";
 import { $, api, copyText, escapeHtml, inferSpecType, toast } from "./utils.js";
 
 // ── Host-centric node view (Stage 3a) ────────────────────────────────────────
@@ -58,6 +59,41 @@ function runnerChipHtml(runnerId) {
                  "custom": ["🛠", "command"] }[runnerId];
   if (!meta) return "";
   return `<span class="mbadge mbadge-cmd node-runner-chip">${meta[0]} ${meta[1]}</span>`;
+}
+
+//: Same marks and the same words as the picker's chips — one vocabulary, so a
+//: model chosen as "🎧 speech → text" is still that after it starts.
+const JOB_MARKS = { llm: "\u{1F4AC}", embed: "\u{1F9EC}", asr: "\u{1F3A7}", tts: "\u{1F50A}",
+                    translate: "\u{1F310}", "speech-translate": "\u{1F3A7}\u{1F310}" };
+const JOB_LABELS = { llm: "jobLlm", embed: "jobEmbed", asr: "jobAsr", tts: "jobTts",
+                     translate: "jobTranslate", "speech-translate": "jobSpeechTranslate" };
+//: Spelled out, not composed — see the same table in form.js.
+const JOB_HOOKS = { llm: "cell-job-llm", embed: "cell-job-embed", asr: "cell-job-asr", tts: "cell-job-tts",
+                    translate: "cell-job-translate",
+                    "speech-translate": "cell-job-speech-translate" };
+
+// What the cell DOES, beside the chip that says what RUNS it.
+//
+// The live `kinds` outrank the runner table, which is the only way a TTS cell
+// can be named as one: voice cloning runs as a typed command, so its runner is
+// "custom" and the table knows nothing about it. A cell whose job cannot be
+// named draws no chip rather than a guessed one.
+function jobChipsHtml(runnerId, cellMeta, cfg) {
+  // An embedding server answers /v1/embeddings and returns vectors; llama.cpp
+  // cannot serve chat from the same instance. The runner is still llama-server,
+  // so the runner table alone called it a chat model — and a live
+  // Qwen3-Embedding cell wore "💬 LLM" on the board until this branch existed.
+  const embeds = String((cfg || {}).ENABLE_EMBEDDINGS || "").trim().toLowerCase();
+  if (embeds && !["", "0", "no", "false", "off"].includes(embeds)) {
+    return `<span class="mbadge mbadge-job node-job-chip" data-t="cell-job-embed">${
+      JOB_MARKS.embed} ${escapeHtml(t(JOB_LABELS.embed))}</span>`;
+  }
+  return jobsForCell(runnerId, (cellMeta || {}).kinds || []).map((job) => {
+    const key = JOB_LABELS[job];
+    if (!key) return "";
+    return `<span class="mbadge mbadge-job node-job-chip" data-t="${JOB_HOOKS[job]}">${
+      JOB_MARKS[job] || ""} ${escapeHtml(t(key))}</span>`;
+  }).join("");
 }
 
 // A cell explicitly pinned to the GPU — TTS_DEVICE/DEVICE=cuda|gpu or
@@ -244,6 +280,26 @@ export function serverLifecycleBar(lcIdx, lcActiveStep, uptimeTxt = "", cfgAttrs
   }</div>`;
 }
 
+// Launch file roles — in the operator's words, not the config's field names.
+function roleName(role) {
+  if (role === "mmproj") return t("cellLaunchFileMmproj");
+  if (role === "draft") return t("cellLaunchFileDraft");
+  return t("cellLaunchFileModel");
+}
+
+function launchRoleNames(roles) {
+  return roles.map(roleName).join(", ");
+}
+
+// A suffix on the chip — only when it's NOT the weights: "⇪ model re-issued"
+// on a card with no further detail reads as "the model has been updated",
+// and the operator goes looking for one.
+function launchFilesSuffix(roles) {
+  const others = roles.filter((r) => r !== "model");
+  if (!others.length) return "";
+  return ` · ${escapeHtml(launchRoleNames(others))}`;
+}
+
 export function nodeServerCardHtml(node, s) {
   const isStopping = !s.isController && _stoppingHosts.has(node.id);
   const port = s.port;
@@ -256,7 +312,10 @@ export function nodeServerCardHtml(node, s) {
   const isNewReserved = _newReservedCells.has(slotKey);
   // If a start was just submitted for this host and the slot still shows "stopped",
   // treat it as "starting" so the user can't accidentally click Start again.
-  const hasPendingStart = (!s.isController && _pendingRemoteStarts.has(String(node.id))) || pendingCellAction === "start";
+  // `remoteStartPending`, not `.has()`: a record that timed out is still in the
+  // map, waiting to be dismissed, and asking only whether it EXISTS kept every
+  // stopped cell of that host reading "starting" forever.
+  const hasPendingStart = (!s.isController && remoteStartPending(node.id)) || pendingCellAction === "start";
   const rawPhase = isStopping ? "stopping" : (s.phase || (s.status && s.status.phase) || (s.isController ? "running" : "stopped"));
   const phase = (rawPhase === "stopped" && hasPendingStart) ? "starting" : rawPhase;
   const running = phase === "running";
@@ -372,6 +431,13 @@ export function nodeServerCardHtml(node, s) {
     : (s.ctxMax
         ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(s.ctxMax || 0))}`, t("topologyCtxUsageTip") || "Context window")
         : "");
+  // What the weights were trained with, right after the model's name: a fact
+  // about the model, not about this cell — the cell's own window is the 🪟
+  // chip below, and the two differ on this fleet (131k trained, 60k served).
+  // Never a substitute for 🪟: a card with no served window shows none.
+  const trainedChip = (_isTokenCell && !_isSpeechCell && Number(s.ctxTrained) > 0)
+    ? mbadge("trained", `🎓 ${escapeHtml(formatCtxTokens(Number(s.ctxTrained)))}`, t("trainedCtxChipTitle"))
+    : "";
   const slotCtxChip = (_isTokenCell && !_isSpeechCell && !s.ctxMax && _scfg.CTX_SIZE)
     ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.CTX_SIZE)))}`) : "";
   const _benchKey = s.model ? (_modelBenchKey(s.model) || "") : "";
@@ -412,9 +478,58 @@ export function nodeServerCardHtml(node, s) {
   // file next to it is already current — a restart is what picks it up — so no
   // other chip on this card can show the gap. Command cells only: a llama or
   // vLLM cell runs a binary, whose staleness has its own banner.
+  // The cell HAS CRASHED. systemd brings it back up, and a minute later the
+  // card is "running" again — an evening with three crashes looked like
+  // smooth operation (2026-09-06: Xid 8, "CUDA error: the launch timed
+  // out"). The count is kept since the last MANUAL start: restart it
+  // yourself and the counter resets, which is honest.
+  const crash = s.crash && Number(s.crash.count) > 0 ? s.crash : null;
+  const crashChip = crash
+    ? mbadge("crashed", `💥 ${escapeHtml(t("cellCrashedChip", { count: String(crash.count) }))}`,
+             t("cellCrashedTip", { count: String(crash.count),
+                                   at: String(crash.at || "?"),
+                                   reason: String(crash.reason || "?") }), "cell-crashed")
+    : "";
   const staleSrcChip = (s.cellMeta || {}).sourceState === "stale"
     ? mbadge("stale-src", `⇪ ${escapeHtml(t("cellSourceStaleChip"))}`,
              t("cellSourceStaleTip"), "cell-source-stale")
+    : "";
+  // The same ⇪ as the stale-binary chip, but about the WEIGHTS: a different
+  // file sits under this name on HF now. An empty field means "not
+  // checked", and it stays silent: a "matches" icon over an unchecked file
+  // would be exactly the defect the watcher exists to fix.
+  // The file on disk has already been swapped, but the process is still
+  // running the old weights — it holds the INODE, not the name. This isn't
+  // "broken", it's "restart whenever convenient", and that has to be said
+  // plainly: silence here reads as "already updated".
+  // A launch involves not one file but up to three: the weights, mmproj, and
+  // the draft. All of them come from HF and all get re-issued, so the chip
+  // speaks about ANY of them and names which one — otherwise the operator
+  // goes looking for an update that isn't there.
+  const launchNewer = Array.isArray(s.launchDiskNewer) ? s.launchDiskNewer : [];
+  const diskNewerFiles = launchNewer.length ? launchNewer : (s.modelDiskNewer ? ["model"] : []);
+  const diskNewerChip = diskNewerFiles.length
+    ? mbadge("disk-newer",
+             `⟳ ${escapeHtml(t("cellModelDiskNewerChip"))}${launchFilesSuffix(diskNewerFiles)}`,
+             `${t("cellModelDiskNewerTip")}\n${t("cellLaunchFilesLine", { files: launchRoleNames(diskNewerFiles) })}`,
+             "cell-model-disk-newer")
+    : "";
+  const staleRows = (Array.isArray(s.launchFresh) ? s.launchFresh : [])
+    .filter((r) => r && (r.state === "size" || r.state === "date"));
+  // A fallback for a source that doesn't yet report a list: the card must
+  // not go blind just because that field hasn't arrived.
+  const staleRoles = staleRows.length
+    ? staleRows.map((r) => r.role)
+    : ((s.modelFresh === "size" || s.modelFresh === "date") ? ["model"] : []);
+  const staleModelChip = staleRoles.length
+    ? mbadge("stale-model",
+             `⇪ ${escapeHtml(t("cellModelStaleChip"))}${launchFilesSuffix(staleRoles)}`,
+             `${t("cellModelStaleTip")}\n${t("cellLaunchFilesLine", {
+               files: staleRows.length
+                 ? staleRows.map((r) => `${roleName(r.role)} — ${r.file}`).join(", ")
+                 : launchRoleNames(staleRoles),
+             })}`,
+             "cell-model-stale")
     : "";
   // Device chip — every non-reserved cell wears one. Runtime truth first: a
   // RUNNING cell shows its actual device (unit pids vs nvidia compute-apps;
@@ -473,21 +588,26 @@ export function nodeServerCardHtml(node, s) {
   const modelBlock = s.model ? `
     <div class="node-model-block" role="button" tabindex="0"
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
-      <div class="node-model-row1">
-        ${/* the chip names the ENGINE, so it must follow the cell's runner —
-             hardcoding llama-server made a transcribe cell (the one command-path
-             runner that carries a real MODEL_FILE) claim to be llama.cpp */""}
-        ${runnerChipHtml(_runner)}
-        ${memBadge}
-        <strong class="node-model-name" title="${escapeHtml(s.modelPath || s.model)}">${escapeHtml(parsed.label || s.model)}</strong>
+      ${/* The NAME owns this line. It used to share row 1 with three chips and
+             was left 38-72px wide: on a 31-card board 20 names wrapped to two
+             ragged lines. The name is what the operator is scanning for; the
+             chips describe it and belong beneath it. The trained-context number
+             stays pinned right as a fixed anchor — one thing that can run, one
+             thing that never moves. */""}
+      <div class="node-model-ident">
+        <strong class="node-model-name" title="${escapeHtml(s.modelPath || s.model)}"><span>${escapeHtml(parsed.label || s.model)}</span></strong>${trainedChip}
       </div>
-      ${statusRow || (deviceChip || chips || schedChip ? `<div class="node-model-row2"><span class="model-chips">${deviceChip}${chips}${schedChip}</span></div>` : "")}
+      ${/* One ordered row, always the same sequence: what it DOES, what RUNS it,
+             WHERE it computes, how MUCH it takes, then the file's own facts, and
+             warnings last. Two cards of the same kind now read in the same
+             order, which is what makes a board scannable at all. */""}
+      ${statusRow || (jobChipsHtml(_runner, s.cellMeta, _scfg) || deviceChip || chips || schedChip || diskNewerChip || staleModelChip || crashChip ? `<div class="node-model-row2"><span class="model-chips">${jobChipsHtml(_runner, s.cellMeta, _scfg)}${runnerChipHtml(_runner)}${deviceChip}${memBadge}${chips}${schedChip}${diskNewerChip}${staleModelChip}${crashChip}</span></div>` : "")}
     </div>` : "";
   const emptyCellBlock = isReserved ? `
     <div class="node-model-block node-model-block-empty">
-      <div class="node-model-row1">
+      <div class="node-model-ident">
         ${topologyModelIcon()}
-        <strong class="node-model-name">:${escapeHtml(String(port))}</strong>
+        <strong class="node-model-name"><span>:${escapeHtml(String(port))}</span></strong>
         <span class="node-reserved-tag">${escapeHtml(t("topologyReservedCellLabel"))}</span>${schedChip}
       </div>
       ${statusRow}
@@ -497,12 +617,13 @@ export function nodeServerCardHtml(node, s) {
   const commandBlock = isCmdCell ? `
     <div class="node-model-block" role="button" tabindex="0"
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
-      <div class="node-model-row1">
-        ${runnerChipHtml("custom")}
-        ${memBadge}
-        <strong class="node-model-name" title="${escapeHtml(cmdText)}">${escapeHtml(cmdText || t("commandCellFallback"))}</strong>
+      ${/* A typed command is the longest text on the board and was the most
+             squeezed of all; here it gets the whole line, and the rest of it
+             runs past on hover. */""}
+      <div class="node-model-ident">
+        <strong class="node-model-name" title="${escapeHtml(cmdText)}"><span>${escapeHtml(cmdText || t("commandCellFallback"))}</span></strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${jobChipsHtml("custom", s.cellMeta, _scfg)}${runnerChipHtml("custom")}${deviceChip}${memBadge}${_scfg.HEALTH_PATH ? mbadge("cmd", `❤ ${escapeHtml(_scfg.HEALTH_PATH)}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}${crashChip}</span></div>`}
     </div>` : "";
   // vLLM runner cell: no MODEL_FILE — the artifact lives in VLLM_MODEL. Same
   // body layout as a llama cell: model icon + model NAME, then runner chips.
@@ -529,12 +650,10 @@ export function nodeServerCardHtml(node, s) {
   const vllmBlock = (isVllmCell && !s.model) ? `
     <div class="node-model-block" role="button" tabindex="0"
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
-      <div class="node-model-row1">
-        ${runnerChipHtml("vllm")}
-        ${memBadge}
-        <strong class="node-model-name" title="${escapeHtml(vllmModel || vllmName)}${vllmAlias ? escapeHtml(` · served as ${vllmAlias}`) : ""}">${escapeHtml(vllmName)}</strong>
+      <div class="node-model-ident">
+        <strong class="node-model-name" title="${escapeHtml(vllmModel || vllmName)}${vllmAlias ? escapeHtml(` · served as ${vllmAlias}`) : ""}"><span>${escapeHtml(vllmName)}</span></strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${vllmFmt ? mbadge("quant", `🎛 ${escapeHtml(vllmFmt)}`) : ""}${s.vllmStats ? mbadge("cmd", `▶ ${s.vllmStats.requestsRunning}${s.vllmStats.requestsWaiting ? " ⏳" + s.vllmStats.requestsWaiting : ""}`, "running / queued requests") : ""}${s.vllmStats && s.vllmStats.genTps != null ? mbadge("bench", `${formatTps(s.vllmStats.genTps)} t/s`) : ""}${mbadge("cmd", "❤ /v1/models")}${_scfg.MAX_MODEL_LEN ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.MAX_MODEL_LEN)))}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${jobChipsHtml("vllm", s.cellMeta, _scfg)}${runnerChipHtml("vllm")}${deviceChip}${memBadge}${vllmFmt ? mbadge("quant", `🎛 ${escapeHtml(vllmFmt)}`) : ""}${s.vllmStats ? mbadge("cmd", `▶ ${s.vllmStats.requestsRunning}${s.vllmStats.requestsWaiting ? " ⏳" + s.vllmStats.requestsWaiting : ""}`, "running / queued requests") : ""}${s.vllmStats && s.vllmStats.genTps != null ? mbadge("bench", `${formatTps(s.vllmStats.genTps)} t/s`) : ""}${mbadge("cmd", "❤ /v1/models")}${_scfg.MAX_MODEL_LEN ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(_scfg.MAX_MODEL_LEN)))}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}${crashChip}</span></div>`}
     </div>` : "";
   // whisper runner cell: the "model" is a faster-whisper size name.
   const isWhisperCell = String(_scfg.RUNNER || "").toLowerCase() === "whisper";
@@ -542,12 +661,10 @@ export function nodeServerCardHtml(node, s) {
   const whisperBlock = (isWhisperCell && !s.model) ? `
     <div class="node-model-block" role="button" tabindex="0"
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
-      <div class="node-model-row1">
-        ${runnerChipHtml("whisper")}
-        ${memBadge}
-        <strong class="node-model-name" title="faster-whisper ${escapeHtml(whisperSize)}">${escapeHtml(whisperSize)}</strong>
+      <div class="node-model-ident">
+        <strong class="node-model-name" title="faster-whisper ${escapeHtml(whisperSize)}"><span>${escapeHtml(whisperSize)}</span></strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${jobChipsHtml("whisper", s.cellMeta, _scfg)}${runnerChipHtml("whisper")}${deviceChip}${memBadge}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}${crashChip}</span></div>`}
     </div>` : "";
   // moonshine runner cell: the "model" is a language code, CPU-only.
   const isMoonshineCell = String(_scfg.RUNNER || "").toLowerCase() === "moonshine";
@@ -555,12 +672,10 @@ export function nodeServerCardHtml(node, s) {
   const moonshineBlock = (isMoonshineCell && !s.model) ? `
     <div class="node-model-block" role="button" tabindex="0"
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
-      <div class="node-model-row1">
-        ${runnerChipHtml("moonshine")}
-        ${memBadge}
-        <strong class="node-model-name" title="moonshine ${escapeHtml(moonshineLang)}">${escapeHtml(moonshineLang)}</strong>
+      <div class="node-model-ident">
+        <strong class="node-model-name" title="moonshine ${escapeHtml(moonshineLang)}"><span>${escapeHtml(moonshineLang)}</span></strong>
       </div>
-      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${deviceChip}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}</span></div>`}
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${jobChipsHtml("moonshine", s.cellMeta, _scfg)}${runnerChipHtml("moonshine")}${deviceChip}${memBadge}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}${crashChip}</span></div>`}
     </div>` : "";
   const bodyBlock = modelBlock || vllmBlock || whisperBlock || moonshineBlock || commandBlock || emptyCellBlock;
   // No model/command block to host the status (e.g. a bare stopped server) —
@@ -1013,7 +1128,7 @@ export function nodesLaneHtml() {
     const nodeMtime = n.role === "controller" ? ctrlMtime : (n.llamaBinaryMtime || "");
     const nodeBuild = parseLlamaBuildVersion(nodeVerStr);
     const verLabel = nodeBuild ? `b${nodeBuild.build}` : "";
-    // Дата сборки: берём только дату (первые 10 символов ISO, без времени)
+    // Build date: keep only the date part (first 10 ISO characters, no time)
     const verDate = nodeMtime ? nodeMtime.slice(0, 10) : "";
     // Outdated = different commit hash (most reliable) OR lower build number when
     // commits are unavailable. Same commit hash → in sync regardless of build number
@@ -1160,7 +1275,11 @@ export function nodesLaneHtml() {
       // lives here, so it leads).
       const gpusHtml = cpuRowHtml + ((n.gpus || []).length
         ? n.gpus.map((g) => nodeGpuRowHtml(n, g)).join("")
-        : `<div class="topology-muted" style="font-size:12px">${escapeHtml(t("topologyNoGpu"))}</div>`);
+        // The reason outranks a dash: "no cards" and "can't ask a card" are
+        // different messages, and the second one names what to fix (after a
+        // driver update, that's "needs a reboot", while the card is right
+        // there).
+        : `<div class="topology-muted" style="font-size:12px"${n.gpuError ? ` title="${escapeHtml(n.gpuError)}"` : ""}>${escapeHtml(n.gpuError || t("topologyNoGpu"))}</div>`);
       // Controller node hosts the deep controller telemetry (mounted, not rebuilt):
       // Server charts toggle under the "Servers" header; GPU charts live in the
       // GPUs column; Incidents open in a modal from the header button.

@@ -2,6 +2,7 @@
 // $ and escapeHtml come from the shared utils module (note: that escapeHtml
 // also escapes single quotes — a strict superset of the old local copy).
 import { $, escapeHtml, markPageState } from "/js/utils.js";
+import { compareLocalFile, freshMark } from "/js/model-freshness.js";
 
 function hfToast(message) {
   let el = document.getElementById("hfToast");
@@ -39,6 +40,18 @@ const HFS = {
     noGguf: "No GGUF files found",
     selectForDownload: "Select for download",
     deleteLocalTitle: "Delete local file", deleteLocalConfirm: "Delete local file?", deleteWord: "Delete",
+    freshOurs: "ours", freshTheirs: "on HF",
+    freshSize: "A different build: the size does not match",
+    freshDate: "Possibly re-uploaded: same size, newer commit",
+    freshUnknown: "Cannot compare: a size or a date is missing",
+    freshSame: "Matches what is on HF",
+    verifyBtn: "Verify", verifyRunning: "Verifying…",
+    verifyTitle: "Read the local files and compare their sha256 with Hugging Face",
+    verifyFailed: "Verification could not start",
+    verifiedSame: "Verified: the same bytes as on HF",
+    verifiedDiffers: "Verified: a DIFFERENT file from the one on HF",
+    verifiedUnknown: "Verified nothing: HF publishes no hash for this file",
+    verifiedUnreadable: "Could not be read while verifying",
     deleteFailed: "Failed to delete: {err}",
     benchLoading: "Loading data from Artificial Analysis…",
     onDiskTitle: "Manage downloaded models",
@@ -71,6 +84,20 @@ const HFS = {
     noGguf: "GGUF-файлов не найдено",
     selectForDownload: "Выбрать для загрузки",
     deleteLocalTitle: "Удалить локальный файл", deleteLocalConfirm: "Удалить локальный файл?", deleteWord: "Удалить",
+    freshOurs: "у нас",
+    freshTheirs: "на HF",
+    freshSize: "Другая сборка: размер не совпадает",
+    freshDate: "Возможно, перезалит: тот же размер, коммит новее",
+    freshUnknown: "Сравнить нельзя: нет размера или даты",
+    freshSame: "Совпадает с HF",
+    verifyBtn: "Проверить",
+    verifyRunning: "Проверка…",
+    verifyTitle: "Прочитать локальные файлы и сравнить их sha256 с Hugging Face",
+    verifyFailed: "Не удалось начать проверку",
+    verifiedSame: "Проверено: те же байты, что и на HF",
+    verifiedDiffers: "Проверено: файл ОТЛИЧАЕТСЯ от версии на HF",
+    verifiedUnknown: "Ничего не проверено: HF не публикует хеш для этого файла",
+    verifiedUnreadable: "Не удалось прочитать при проверке",
     deleteFailed: "Не удалось удалить: {err}",
     benchLoading: "Загружаю данные Artificial Analysis…",
     onDiskTitle: "Скачанные модели",
@@ -109,6 +136,20 @@ const HFS = {
     noGguf: "未找到 GGUF 文件",
     selectForDownload: "选择以下载",
     deleteLocalTitle: "删除本地文件",
+    freshOurs: "本地",
+    freshTheirs: "HF 上",
+    freshSize: "版本不同:大小不一致",
+    freshDate: "可能已重新上传:大小相同,提交记录更新",
+    freshUnknown: "无法比较:缺少大小或日期",
+    freshSame: "与 HF 一致",
+    verifyBtn: "校验",
+    verifyRunning: "校验中…",
+    verifyTitle: "读取本地文件并将其 sha256 与 Hugging Face 对比",
+    verifyFailed: "无法开始校验",
+    verifiedSame: "已校验:字节与 HF 完全相同",
+    verifiedDiffers: "已校验:与 HF 上的文件【不同】",
+    verifiedUnknown: "未校验:HF 未公开此文件的哈希值",
+    verifiedUnreadable: "校验时无法读取该文件",
     deleteLocalConfirm: "删除本地文件？",
     deleteWord: "删除",
     deleteFailed: "删除失败：{err}",
@@ -149,6 +190,20 @@ const HFS = {
     noGguf: "कोई GGUF फ़ाइलें नहीं मिलीं",
     selectForDownload: "डाउनलोड के लिए चुनें",
     deleteLocalTitle: "स्थानीय फ़ाइल हटाएं",
+    freshOurs: "हमारा",
+    freshTheirs: "HF पर",
+    freshSize: "अलग बिल्ड: आकार मेल नहीं खाता",
+    freshDate: "संभवतः फिर से अपलोड किया गया: आकार वही, कमिट नया",
+    freshUnknown: "तुलना संभव नहीं: आकार या तारीख गायब है",
+    freshSame: "HF से मेल खाता है",
+    verifyBtn: "सत्यापित करें",
+    verifyRunning: "सत्यापित हो रहा है…",
+    verifyTitle: "स्थानीय फ़ाइलें पढ़ें और उनके sha256 की तुलना Hugging Face से करें",
+    verifyFailed: "सत्यापन शुरू नहीं हो सका",
+    verifiedSame: "सत्यापित: HF जैसे ही बाइट्स",
+    verifiedDiffers: "सत्यापित: HF वाली फ़ाइल से बिल्कुल अलग",
+    verifiedUnknown: "कुछ सत्यापित नहीं हुआ: HF इस फ़ाइल के लिए कोई हैश प्रकाशित नहीं करता",
+    verifiedUnreadable: "सत्यापन के दौरान पढ़ी नहीं जा सकी",
     deleteLocalConfirm: "स्थानीय फ़ाइल हटाएं?",
     deleteWord: "हटाएं",
     deleteFailed: "हटाना विफल: {err}",
@@ -189,6 +244,20 @@ const HFS = {
     noGguf: "No se encontraron archivos GGUF",
     selectForDownload: "Seleccionar para descargar",
     deleteLocalTitle: "Eliminar archivo local",
+    freshOurs: "local",
+    freshTheirs: "en HF",
+    freshSize: "Build diferente: el tamaño no coincide",
+    freshDate: "Posiblemente resubido: mismo tamaño, commit más reciente",
+    freshUnknown: "No se puede comparar: falta el tamaño o la fecha",
+    freshSame: "Coincide con HF",
+    verifyBtn: "Verificar",
+    verifyRunning: "Verificando…",
+    verifyTitle: "Leer los archivos locales y comparar su sha256 con Hugging Face",
+    verifyFailed: "No se pudo iniciar la verificación",
+    verifiedSame: "Verificado: los mismos bytes que en HF",
+    verifiedDiffers: "Verificado: un archivo DIFERENTE al de HF",
+    verifiedUnknown: "No se verificó nada: HF no publica un hash para este archivo",
+    verifiedUnreadable: "No se pudo leer durante la verificación",
     deleteLocalConfirm: "¿Eliminar archivo local?",
     deleteWord: "Eliminar",
     deleteFailed: "Fallo al eliminar: {err}",
@@ -229,6 +298,20 @@ const HFS = {
     noGguf: "Aucun fichier GGUF trouvé",
     selectForDownload: "Sélectionner pour téléchargement",
     deleteLocalTitle: "Supprimer le fichier local",
+    freshOurs: "local",
+    freshTheirs: "sur HF",
+    freshSize: "Build différent : la taille ne correspond pas",
+    freshDate: "Peut-être réuploadé : même taille, commit plus récent",
+    freshUnknown: "Comparaison impossible : taille ou date manquante",
+    freshSame: "Correspond à HF",
+    verifyBtn: "Vérifier",
+    verifyRunning: "Vérification…",
+    verifyTitle: "Lire les fichiers locaux et comparer leur sha256 avec Hugging Face",
+    verifyFailed: "Impossible de démarrer la vérification",
+    verifiedSame: "Vérifié : mêmes octets que sur HF",
+    verifiedDiffers: "Vérifié : fichier DIFFÉRENT de celui sur HF",
+    verifiedUnknown: "Rien n'a été vérifié : HF ne publie aucun hachage pour ce fichier",
+    verifiedUnreadable: "Impossible à lire pendant la vérification",
     deleteLocalConfirm: "Supprimer le fichier local ?",
     deleteWord: "Supprimer",
     deleteFailed: "Échec de la suppression : {err}",
@@ -269,6 +352,20 @@ const HFS = {
     noGguf: "لم يُعثر على ملفات GGUF",
     selectForDownload: "تحديد للتنزيل",
     deleteLocalTitle: "حذف الملف المحلي",
+    freshOurs: "لدينا",
+    freshTheirs: "على HF",
+    freshSize: "بنية مختلفة: الحجم غير متطابق",
+    freshDate: "ربما أُعيد رفعه: نفس الحجم، لكن بإيداع أحدث",
+    freshUnknown: "تعذّرت المقارنة: الحجم أو التاريخ غير متوفر",
+    freshSame: "مطابق لما هو على HF",
+    verifyBtn: "تحقق",
+    verifyRunning: "جارٍ التحقق…",
+    verifyTitle: "قراءة الملفات المحلية ومقارنة sha256 الخاص بها مع Hugging Face",
+    verifyFailed: "تعذّر بدء التحقق",
+    verifiedSame: "تم التحقق: نفس البايتات الموجودة في HF",
+    verifiedDiffers: "تم التحقق: الملف مختلف تمامًا عن HF",
+    verifiedUnknown: "لم يتم التحقق من شيء: لا تنشر HF قيمة تجزئة لهذا الملف",
+    verifiedUnreadable: "تعذّرت قراءته أثناء التحقق",
     deleteLocalConfirm: "حذف الملف المحلي؟",
     deleteWord: "حذف",
     deleteFailed: "فشل الحذف: {err}",
@@ -309,6 +406,20 @@ const HFS = {
     noGguf: "কোনো GGUF ফাইল পাওয়া যায়নি",
     selectForDownload: "ডাউনলোডের জন্য নির্বাচন করুন",
     deleteLocalTitle: "স্থানীয় ফাইল মুছুন",
+    freshOurs: "আমাদের",
+    freshTheirs: "HF-এ",
+    freshSize: "ভিন্ন বিল্ড: আকার মিলছে না",
+    freshDate: "সম্ভবত পুনরায় আপলোড হয়েছে: আকার একই, কমিট নতুন",
+    freshUnknown: "তুলনা করা যাচ্ছে না: আকার বা তারিখ নেই",
+    freshSame: "HF-এর সাথে মিলে যায়",
+    verifyBtn: "যাচাই করুন",
+    verifyRunning: "যাচাই করা হচ্ছে…",
+    verifyTitle: "স্থানীয় ফাইলগুলো পড়ে তাদের sha256 Hugging Face-এর সাথে তুলনা করুন",
+    verifyFailed: "যাচাই শুরু করা যায়নি",
+    verifiedSame: "যাচাই করা হয়েছে: HF-এর মতোই বাইট",
+    verifiedDiffers: "যাচাই করা হয়েছে: HF-এর ফাইল থেকে সম্পূর্ণ আলাদা",
+    verifiedUnknown: "কিছুই যাচাই হয়নি: এই ফাইলের জন্য HF কোনো হ্যাশ প্রকাশ করে না",
+    verifiedUnreadable: "যাচাইয়ের সময় পড়া যায়নি",
     deleteLocalConfirm: "স্থানীয় ফাইল মুছবেন?",
     deleteWord: "মুছুন",
     deleteFailed: "মুছতে ব্যর্থ: {err}",
@@ -349,6 +460,20 @@ const HFS = {
     noGguf: "Nenhum arquivo GGUF encontrado",
     selectForDownload: "Selecionar para baixar",
     deleteLocalTitle: "Excluir arquivo local",
+    freshOurs: "local",
+    freshTheirs: "no HF",
+    freshSize: "Build diferente: o tamanho não corresponde",
+    freshDate: "Possivelmente reenviado: mesmo tamanho, commit mais recente",
+    freshUnknown: "Não é possível comparar: falta o tamanho ou a data",
+    freshSame: "Corresponde ao que está no HF",
+    verifyBtn: "Verificar",
+    verifyRunning: "Verificando…",
+    verifyTitle: "Ler os arquivos locais e comparar o sha256 deles com o Hugging Face",
+    verifyFailed: "Não foi possível iniciar a verificação",
+    verifiedSame: "Verificado: os mesmos bytes que no HF",
+    verifiedDiffers: "Verificado: um arquivo DIFERENTE do que está no HF",
+    verifiedUnknown: "Nada verificado: o HF não publica hash para este arquivo",
+    verifiedUnreadable: "Não foi possível ler durante a verificação",
     deleteLocalConfirm: "Excluir o arquivo local?",
     deleteWord: "Excluir",
     deleteFailed: "Falha ao excluir: {err}",
@@ -389,6 +514,20 @@ const HFS = {
     noGguf: "GGUF ファイルが見つかりません",
     selectForDownload: "ダウンロード対象に選択",
     deleteLocalTitle: "ローカルファイルを削除",
+    freshOurs: "ローカル",
+    freshTheirs: "HF上",
+    freshSize: "ビルドが違う: サイズが一致しません",
+    freshDate: "再アップロードの可能性: サイズは同じ、コミットが新しい",
+    freshUnknown: "比較不可: サイズまたは日付がありません",
+    freshSame: "HFと一致",
+    verifyBtn: "検証",
+    verifyRunning: "検証中…",
+    verifyTitle: "ローカルファイルを読み込み、sha256 を Hugging Face と比較します",
+    verifyFailed: "検証を開始できませんでした",
+    verifiedSame: "検証済み: HF と同じバイト",
+    verifiedDiffers: "検証済み: HF とは【異なる】ファイル",
+    verifiedUnknown: "検証結果なし: HF はこのファイルのハッシュを公開していません",
+    verifiedUnreadable: "検証中に読み込めませんでした",
     deleteLocalConfirm: "ローカルファイルを削除しますか？",
     deleteWord: "削除",
     deleteFailed: "削除に失敗しました：{err}",
@@ -429,6 +568,20 @@ const HFS = {
     noGguf: "Keine GGUF-Dateien gefunden",
     selectForDownload: "Zum Herunterladen auswählen",
     deleteLocalTitle: "Lokale Datei löschen",
+    freshOurs: "Lokal",
+    freshTheirs: "auf HF",
+    freshSize: "Anderer Build: Größe stimmt nicht überein",
+    freshDate: "Möglicherweise neu hochgeladen: gleiche Größe, neuerer Commit",
+    freshUnknown: "Vergleich nicht möglich: Größe oder Datum fehlt",
+    freshSame: "Stimmt mit HF überein",
+    verifyBtn: "Prüfen",
+    verifyRunning: "Wird geprüft…",
+    verifyTitle: "Lokale Dateien lesen und ihren sha256 mit Hugging Face vergleichen",
+    verifyFailed: "Prüfung konnte nicht gestartet werden",
+    verifiedSame: "Geprüft: identische Bytes wie auf HF",
+    verifiedDiffers: "Geprüft: eine ANDERE Datei als auf HF",
+    verifiedUnknown: "Nichts geprüft: HF veröffentlicht keinen Hash für diese Datei",
+    verifiedUnreadable: "Konnte während der Prüfung nicht gelesen werden",
     deleteLocalConfirm: "Lokale Datei löschen?",
     deleteWord: "Löschen",
     deleteFailed: "Löschen fehlgeschlagen: {err}",
@@ -469,6 +622,20 @@ const HFS = {
     noGguf: "Tidak ada berkas GGUF ditemukan",
     selectForDownload: "Pilih untuk diunduh",
     deleteLocalTitle: "Hapus berkas lokal",
+    freshOurs: "lokal",
+    freshTheirs: "di HF",
+    freshSize: "Build berbeda: ukuran tidak cocok",
+    freshDate: "Mungkin diunggah ulang: ukuran sama, commit lebih baru",
+    freshUnknown: "Tidak dapat dibandingkan: ukuran atau tanggal tidak ada",
+    freshSame: "Cocok dengan yang ada di HF",
+    verifyBtn: "Verifikasi",
+    verifyRunning: "Memverifikasi…",
+    verifyTitle: "Membaca berkas lokal dan membandingkan sha256-nya dengan Hugging Face",
+    verifyFailed: "Verifikasi tidak dapat dimulai",
+    verifiedSame: "Terverifikasi: byte yang sama seperti di HF",
+    verifiedDiffers: "Terverifikasi: berkas yang BERBEDA dari yang ada di HF",
+    verifiedUnknown: "Tidak ada yang diverifikasi: HF tidak mempublikasikan hash untuk berkas ini",
+    verifiedUnreadable: "Tidak dapat dibaca saat verifikasi",
     deleteLocalConfirm: "Hapus berkas lokal?",
     deleteWord: "Hapus",
     deleteFailed: "Gagal menghapus: {err}",
@@ -509,6 +676,20 @@ const HFS = {
     noGguf: "کوئی GGUF فائلیں نہیں ملیں",
     selectForDownload: "ڈاؤن لوڈ کے لیے منتخب کریں",
     deleteLocalTitle: "مقامی فائل حذف کریں",
+    freshOurs: "ہمارا",
+    freshTheirs: "HF پر",
+    freshSize: "مختلف بلڈ: سائز میل نہیں کھاتا",
+    freshDate: "شاید دوبارہ اپ لوڈ ہوا: سائز وہی، کمٹ نیا",
+    freshUnknown: "موازنہ ممکن نہیں: سائز یا تاریخ موجود نہیں",
+    freshSame: "HF سے میل کھاتا ہے",
+    verifyBtn: "تصدیق کریں",
+    verifyRunning: "تصدیق ہو رہی ہے…",
+    verifyTitle: "مقامی فائلیں پڑھیں اور ان کے sha256 کا Hugging Face سے موازنہ کریں",
+    verifyFailed: "تصدیق شروع نہیں ہو سکی",
+    verifiedSame: "تصدیق ہو گئی: HF جیسے ہی بائٹس",
+    verifiedDiffers: "تصدیق ہو گئی: یہ HF والی فائل سے بالکل مختلف ہے",
+    verifiedUnknown: "کچھ بھی تصدیق نہیں ہوئی: HF اس فائل کے لیے کوئی ہیش شائع نہیں کرتا",
+    verifiedUnreadable: "تصدیق کے دوران پڑھی نہیں جا سکی",
     deleteLocalConfirm: "مقامی فائل حذف کریں؟",
     deleteWord: "حذف کریں",
     deleteFailed: "حذف کرنا ناکام: {err}",
@@ -549,6 +730,20 @@ const HFS = {
     noGguf: "GGUF dosyası bulunamadı",
     selectForDownload: "İndirmek için seç",
     deleteLocalTitle: "Yerel dosyayı sil",
+    freshOurs: "yerel",
+    freshTheirs: "HF'de",
+    freshSize: "Farklı build: boyut eşleşmiyor",
+    freshDate: "Muhtemelen yeniden yüklendi: boyut aynı, commit daha yeni",
+    freshUnknown: "Karşılaştırılamıyor: boyut veya tarih eksik",
+    freshSame: "HF'dekiyle eşleşiyor",
+    verifyBtn: "Doğrula",
+    verifyRunning: "Doğrulanıyor…",
+    verifyTitle: "Yerel dosyaları okuyup sha256 değerlerini Hugging Face ile karşılaştırın",
+    verifyFailed: "Doğrulama başlatılamadı",
+    verifiedSame: "Doğrulandı: HF ile aynı bayt dizisi",
+    verifiedDiffers: "Doğrulandı: HF'dekinden FARKLI bir dosya",
+    verifiedUnknown: "Hiçbir şey doğrulanmadı: HF bu dosya için hash yayımlamıyor",
+    verifiedUnreadable: "Doğrulama sırasında okunamadı",
     deleteLocalConfirm: "Yerel dosya silinsin mi?",
     deleteWord: "Sil",
     deleteFailed: "Silme başarısız: {err}",
@@ -589,6 +784,20 @@ const HFS = {
     noGguf: "GGUF 파일을 찾지 못함",
     selectForDownload: "다운로드 대상으로 선택",
     deleteLocalTitle: "로컬 파일 삭제",
+    freshOurs: "로컬",
+    freshTheirs: "HF에",
+    freshSize: "다른 빌드: 크기가 일치하지 않음",
+    freshDate: "재업로드된 것으로 보임: 크기는 같지만 커밋이 더 최신임",
+    freshUnknown: "비교 불가: 크기 또는 날짜 없음",
+    freshSame: "HF와 일치",
+    verifyBtn: "검증",
+    verifyRunning: "검증 중…",
+    verifyTitle: "로컬 파일을 읽어 sha256 값을 Hugging Face와 비교합니다",
+    verifyFailed: "검증을 시작할 수 없습니다",
+    verifiedSame: "검증됨: HF와 동일한 바이트",
+    verifiedDiffers: "검증됨: HF와 『다른』 파일",
+    verifiedUnknown: "검증된 것 없음: HF가 이 파일의 해시를 게시하지 않음",
+    verifiedUnreadable: "검증 중 읽을 수 없음",
     deleteLocalConfirm: "로컬 파일을 삭제할까요?",
     deleteWord: "삭제",
     deleteFailed: "삭제 실패: {err}",
@@ -629,6 +838,20 @@ const HFS = {
     noGguf: "Không tìm thấy tệp GGUF",
     selectForDownload: "Chọn để tải xuống",
     deleteLocalTitle: "Xóa tệp cục bộ",
+    freshOurs: "của ta",
+    freshTheirs: "trên HF",
+    freshSize: "Bản build khác: kích thước không khớp",
+    freshDate: "Có thể đã tải lên lại: cùng kích thước, commit mới hơn",
+    freshUnknown: "Không thể so sánh: thiếu kích thước hoặc ngày",
+    freshSame: "Khớp với bản trên HF",
+    verifyBtn: "Xác minh",
+    verifyRunning: "Đang xác minh…",
+    verifyTitle: "Đọc tệp cục bộ và so sánh sha256 của chúng với Hugging Face",
+    verifyFailed: "Không thể bắt đầu xác minh",
+    verifiedSame: "Đã xác minh: byte giống hệt trên HF",
+    verifiedDiffers: "Đã xác minh: tệp KHÁC với tệp trên HF",
+    verifiedUnknown: "Không xác minh được gì: HF không công bố mã băm cho tệp này",
+    verifiedUnreadable: "Không thể đọc được khi xác minh",
     deleteLocalConfirm: "Xóa tệp cục bộ?",
     deleteWord: "Xóa",
     deleteFailed: "Xóa thất bại: {err}",
@@ -669,6 +892,20 @@ const HFS = {
     noGguf: "Nessun file GGUF trovato",
     selectForDownload: "Seleziona per il download",
     deleteLocalTitle: "Elimina file locale",
+    freshOurs: "locale",
+    freshTheirs: "su HF",
+    freshSize: "Build diverso: la dimensione non corrisponde",
+    freshDate: "Possibile nuovo caricamento: stessa dimensione, commit più recente",
+    freshUnknown: "Confronto non possibile: dimensione o data mancante",
+    freshSame: "Corrisponde a HF",
+    verifyBtn: "Verifica",
+    verifyRunning: "Verifica in corso…",
+    verifyTitle: "Legge i file locali e confronta il loro sha256 con Hugging Face",
+    verifyFailed: "Impossibile avviare la verifica",
+    verifiedSame: "Verificato: stessi byte di HF",
+    verifiedDiffers: "Verificato: file DIVERSO da quello su HF",
+    verifiedUnknown: "Nulla verificato: HF non pubblica un hash per questo file",
+    verifiedUnreadable: "Impossibile leggerlo durante la verifica",
     deleteLocalConfirm: "Eliminare il file locale?",
     deleteWord: "Elimina",
     deleteFailed: "Eliminazione non riuscita: {err}",
@@ -709,6 +946,20 @@ const HFS = {
     noGguf: "GGUF ఫైళ్లు కనుగొనబడలేదు",
     selectForDownload: "డౌన్‌లోడ్ కోసం ఎంచుకోండి",
     deleteLocalTitle: "లోకల్ ఫైల్‌ను తొలగించండి",
+    freshOurs: "మనది",
+    freshTheirs: "HF-లో",
+    freshSize: "వేరే బిల్డ్: పరిమాణం సరిపోలలేదు",
+    freshDate: "బహుశా మళ్లీ అప్‌లోడ్ చేయబడింది: పరిమాణం అదే, కమిట్ కొత్తది",
+    freshUnknown: "పోల్చలేం: పరిమాణం లేదా తేదీ లేదు",
+    freshSame: "HFతో సరిపోలుతుంది",
+    verifyBtn: "ధృవీకరించండి",
+    verifyRunning: "ధృవీకరిస్తోంది…",
+    verifyTitle: "స్థానిక ఫైళ్లను చదివి వాటి sha256ను Hugging Face తో పోల్చండి",
+    verifyFailed: "ధృవీకరణ ప్రారంభం కాలేదు",
+    verifiedSame: "ధృవీకరించబడింది: HFలో ఉన్నట్లే బైట్‌లు",
+    verifiedDiffers: "ధృవీకరించబడింది: HFలోని దాని కంటే పూర్తిగా వేరే ఫైల్",
+    verifiedUnknown: "ఏమీ ధృవీకరించబడలేదు: ఈ ఫైల్ కోసం HF హ్యాష్‌ను ప్రచురించదు",
+    verifiedUnreadable: "ధృవీకరిస్తున్నప్పుడు చదవలేకపోయింది",
     deleteLocalConfirm: "లోకల్ ఫైల్‌ను తొలగించాలా?",
     deleteWord: "తొలగించండి",
     deleteFailed: "తొలగించడం విఫలమైంది: {err}",
@@ -749,6 +1000,20 @@ const HFS = {
     noGguf: "कोणत्याही GGUF फाइल्स सापडल्या नाहीत",
     selectForDownload: "डाउनलोडसाठी निवडा",
     deleteLocalTitle: "स्थानिक फाइल हटवा",
+    freshOurs: "आमचं",
+    freshTheirs: "HF वर",
+    freshSize: "वेगळं बिल्ड: आकार जुळत नाही",
+    freshDate: "कदाचित पुन्हा अपलोड केलं: आकार तोच, कमिट नवीन",
+    freshUnknown: "तुलना करता येत नाही: आकार किंवा तारीख नाही",
+    freshSame: "HF वरील फाईलशी जुळते",
+    verifyBtn: "पडताळणी करा",
+    verifyRunning: "पडताळणी होत आहे…",
+    verifyTitle: "स्थानिक फाइल्स वाचून त्यांचा sha256 Hugging Face शी तुलना करा",
+    verifyFailed: "पडताळणी सुरू होऊ शकली नाही",
+    verifiedSame: "पडताळणी झाली: HF प्रमाणेच बाइट्स",
+    verifiedDiffers: "पडताळणी झाली: HF वरील फाइलपेक्षा पूर्णपणे वेगळी फाइल",
+    verifiedUnknown: "काहीही पडताळले गेले नाही: HF या फाइलसाठी हॅश प्रकाशित करत नाही",
+    verifiedUnreadable: "पडताळणी करताना वाचता आली नाही",
     deleteLocalConfirm: "स्थानिक फाइल हटवायची?",
     deleteWord: "हटवा",
     deleteFailed: "हटवणे अयशस्वी: {err}",
@@ -789,6 +1054,20 @@ const HFS = {
     noGguf: "GGUF கோப்புகள் எதுவும் கிடைக்கவில்லை",
     selectForDownload: "பதிவிறக்கத்திற்குத் தேர்வுசெய்",
     deleteLocalTitle: "உள்ளூர் கோப்பை நீக்கு",
+    freshOurs: "நமது",
+    freshTheirs: "HF-இல்",
+    freshSize: "வேறு பில்ட்: அளவு பொருந்தவில்லை",
+    freshDate: "மீண்டும் பதிவேற்றப்பட்டிருக்கலாம்: அளவு அதே, கமிட் புதியது",
+    freshUnknown: "ஒப்பிட முடியவில்லை: அளவு அல்லது தேதி இல்லை",
+    freshSame: "HF-இல் உள்ளதுடன் பொருந்துகிறது",
+    verifyBtn: "சரிபார்",
+    verifyRunning: "சரிபார்க்கிறது…",
+    verifyTitle: "உள்ளூர் கோப்புகளைப் படித்து அவற்றின் sha256ஐ Hugging Face உடன் ஒப்பிடுக",
+    verifyFailed: "சரிபார்ப்பைத் தொடங்க முடியவில்லை",
+    verifiedSame: "சரிபார்க்கப்பட்டது: HF இல் உள்ளதைப் போலவே பைட்டுகள்",
+    verifiedDiffers: "சரிபார்க்கப்பட்டது: HF இல் உள்ளதிலிருந்து முற்றிலும் வேறுபட்ட கோப்பு",
+    verifiedUnknown: "எதுவும் சரிபார்க்கப்படவில்லை: இந்த கோப்பிற்கு HF ஹாஷை வெளியிடவில்லை",
+    verifiedUnreadable: "சரிபார்க்கும் போது படிக்க முடியவில்லை",
     deleteLocalConfirm: "உள்ளூர் கோப்பை நீக்கவா?",
     deleteWord: "நீக்கு",
     deleteFailed: "நீக்குவது தோல்வியுற்றது: {err}",
@@ -1022,12 +1301,12 @@ let favRepos = [];
 // ── filter / sort state ───────────────────────────────────────────────────────
 
 let filterParamRange = 'all';   // 'all'|'0-9'|'10-19'|'20-29'|'30-39'|'40-74'|'75+'
-let filterTypes = new Set();    // активные типы ('it','mmproj','mtp')
-let filterMask = '';            // подстрока по имени репо
+let filterTypes = new Set();    // active types ('it','mmproj','mtp')
+let filterMask = '';            // substring against the repo name
 let sortKey = 'downloads';      // 'downloads'|'likes'|'params'|'date'|'aa'|'olb'
 let sortDir = 'desc';
-let searchResults = [];         // repos из последнего поиска
-let discoveredTypes = new Set(); // типы найденные при загрузке файлов
+let searchResults = [];         // repos from the last search
+let discoveredTypes = new Set(); // types discovered while loading files
 let _filesLoadDone = 0, _filesLoadTotal = 0;
 let _benchLoadDone = 0, _benchLoadTotal = 0;
 
@@ -1292,7 +1571,78 @@ const repoMetaCache = new Map(); // repoId → { lastModified }
 const treeCache = new Map(); // repoId → {quantizations, base, siblings} | null while in flight
 const repoModality = new Map(); // repoId → { pipelineTag, tags:[] } from HF
 const checkedMap  = new Map();
+// The tooltip names BOTH pairs of numbers. A single pair would once again be
+// a claim about someone else's file, sitting next to a checkmark about ours.
+// ── sha256 verification ────────────────────────────────────────────────────
+// Size and date give a guess; the hash gives an answer. Hashing 17 GB is
+// minutes and a full pass over the disk, so it's button-triggered only, and
+// only for this repository. The result lives in verifyCache and survives a
+// list redraw.
+const verifyCache = new Map(); // repoId → { filename: {state, sha256, expected} }
+let verifyTimer = null;
+
+async function startVerify(repoId, btn) {
+  btn.disabled = true;
+  btn.textContent = hfT("verifyRunning");
+  const res = await fetch("/api/hf/verify", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo: repoId }),
+  }).then((r) => r.json()).catch(() => ({ ok: false, error: "network error" }));
+  if (!res.ok) {
+    btn.disabled = false;
+    btn.textContent = hfT("verifyBtn");
+    hfToast(res.error || hfT("verifyFailed"));
+    return;
+  }
+  pollVerify(repoId, res.jobId, btn);
+}
+
+function pollVerify(repoId, jobId, btn) {
+  clearTimeout(verifyTimer);
+  const tick = async () => {
+    const data = await fetch(`/api/hf/verify?job=${encodeURIComponent(jobId)}`)
+      .then((r) => r.json()).catch(() => null);
+    const job = data && data.job;
+    if (!job) {
+      btn.disabled = false;
+      btn.textContent = hfT("verifyBtn");
+      return;
+    }
+    verifyCache.set(repoId, job.files || {});
+    if (!job.done) {
+      // Progress in bytes, not in files: a single file can be 17 GB, and
+      // "1 of 3" would sit motionless on it for minutes.
+      const pct = job.totalBytes ? Math.min(100, Math.round(job.bytesDone * 100 / job.totalBytes)) : 0;
+      btn.textContent = `${hfT("verifyRunning")} ${pct}%`;
+      verifyTimer = setTimeout(tick, 700);
+      return;
+    }
+    btn.disabled = false;
+    btn.textContent = hfT("verifyBtn");
+    renderFilePanel(repoId);
+    if (job.error) hfToast(job.error);
+  };
+  tick();
+}
+
+function freshTitle(fresh) {
+  const d = fresh.detail || {};
+  const ours = `${hfT("freshOurs")}: ${d.localSize ? fmtBytes(d.localSize) : "?"}${d.localDate ? ` · ${d.localDate}` : ""}`;
+  const theirs = `${hfT("freshTheirs")}: ${d.remoteSize ? fmtBytes(d.remoteSize) : "?"}${d.remoteDate ? ` · ${d.remoteDate}` : ""}`;
+  const head = fresh.verified
+    ? { same: hfT("verifiedSame"), differs: hfT("verifiedDiffers"),
+        unknown: hfT("verifiedUnknown"), unreadable: hfT("verifiedUnreadable") }[fresh.verified]
+      || hfT("verifiedUnknown")
+    : ({ size: hfT("freshSize"), date: hfT("freshDate"),
+         unknown: hfT("freshUnknown"), same: hfT("freshSame") }[fresh.state] || "");
+  return `${head}\n${ours}\n${theirs}`;
+}
+
 const localCache  = new Map(); // repoId → Set of local filenames
+// repoId → { filename: {size, mtime} }. The name always matches — an author
+// re-issues a quant under the same name; these two numbers are what tell the
+// files apart.
+const localMetaCache = new Map();
 
 function getChecked(repoId) {
   if (!checkedMap.has(repoId)) checkedMap.set(repoId, new Set());
@@ -1607,7 +1957,7 @@ async function selectRepo(repoId) {
     // Refresh local markers in the background without re-fetching the file list.
     fetch(`/api/hf/local-check?repo=${encodeURIComponent(repoId)}`)
       .then(r => r.json()).then(d => {
-        if (d?.ok) { localCache.set(repoId, new Set(d.localNames)); renderFilePanel(repoId); }
+        if (d?.ok) { localCache.set(repoId, new Set(d.localNames)); localMetaCache.set(repoId, d.localFiles || {}); renderFilePanel(repoId); }
       }).catch(() => {});
     return;
   }
@@ -1622,7 +1972,7 @@ async function selectRepo(repoId) {
       fetch(`/api/hf/local-check?repo=${encodeURIComponent(repoId)}`).then(r => r.json()).catch(() => null),
     ]);
 
-    if (localData?.ok) localCache.set(repoId, new Set(localData.localNames));
+    if (localData?.ok) { localCache.set(repoId, new Set(localData.localNames)); localMetaCache.set(repoId, localData.localFiles || {}); }
 
     if (!filesData.ok) {
       fileCol.innerHTML =
@@ -1670,6 +2020,17 @@ function renderFilePanel(repoId) {
     (meta.lastModified
       ? `<span class="hf-repo-last-modified" title="Last modified: ${escapeHtml(meta.lastModified)}">updated ${escapeHtml(fmtDate(meta.lastModified))}</span>`
       : "");
+  // The verify button appears only when there's something to check. On a
+  // repository we have nothing from, it would promise work that won't happen.
+  if (Object.keys(localMetaCache.get(repoId) || {}).length) {
+    const verify = document.createElement("button");
+    verify.className = "hf-verify-btn";
+    verify.dataset.t = "hf-verify";
+    verify.textContent = hfT("verifyBtn");
+    verify.title = hfT("verifyTitle");
+    verify.addEventListener("click", () => startVerify(repoId, verify));
+    header.appendChild(verify);
+  }
   fileCol.appendChild(header);
 
   // safetensors checkpoint: ONE artifact row — the whole repo downloads into
@@ -1749,12 +2110,23 @@ function renderFilePanel(repoId) {
   list.className = "hf-file-list";
 
   const localNames = localCache.get(repoId) || new Set();
+  const localMeta = localMetaCache.get(repoId) || {};
 
   for (const f of files) {
     const isLocal = localNames.has(f.name);
+    // A hash-verified answer wins over a size-based guess: gemma's
+    // difference was 1,760 bytes out of 19.6 GB, and only the hash tells
+    // metadata apart from weights.
+    const verified = (verifyCache.get(repoId) || {})[f.name];
+    const fresh = verified
+      ? { state: { same: "same", differs: "size", unknown: "unknown", unreadable: "unknown" }[verified.state] || "unknown",
+          detail: compareLocalFile(localMeta[f.name], f).detail, verified: verified.state }
+      : compareLocalFile(localMeta[f.name], f);
     let cls = "hf-file";
     if (f.kind === "model" && isLowQuant(f.quant)) cls += " is-low-quant";
     if (isLocal) cls += " is-local";
+    if (isLocal && fresh.state !== "same") cls += ` is-${fresh.state}`;
+    if (isLocal && fresh.verified) cls += " is-verified";
     const row = document.createElement("div");
     row.className = cls;
     row._fileData = f;
@@ -1774,7 +2146,7 @@ function renderFilePanel(repoId) {
 
     row.appendChild(chk);
     row.insertAdjacentHTML("beforeend",
-      `<span class="hf-file-local">${isLocal ? "✓" : ""}</span>` +
+      `<span class="hf-file-local"${isLocal ? ` title="${escapeHtml(freshTitle(fresh))}"` : ""}>${isLocal ? freshMark(fresh) : ""}</span>` +
       `<span class="hf-file-kind hf-kind-${f.kind}">${f.kind}</span>` +
       `<span class="hf-file-name" title="${escapeHtml(f.path)}">${escapeHtml(f.name)}</span>` +
       `<span class="hf-file-quant">${escapeHtml(f.quant)}</span>` +
@@ -2204,6 +2576,7 @@ function pollDownload(job) {
             .then(r => r.json()).then(d => {
               if (d?.ok) {
                 localCache.set(s.repo, new Set(d.localNames));
+                localMetaCache.set(s.repo, d.localFiles || {});
                 if (activeRepoId === s.repo) renderFilePanel(s.repo);
               }
             }).catch(() => {});
@@ -2571,9 +2944,10 @@ const _initLoads = [loadTokenStatus(), loadFavs(), restoreDlJobs()];
 refreshDiskInfo();
 setInterval(refreshDiskInfo, 60_000);
 renderRefSection();
-// Пиксельный лоадер (inline в hf.html) прячем, когда стартовые данные пришли.
-// Тот же момент — «страницей можно пользоваться»: allSettled, потому что
-// упавший токен или пустые избранные не мешают искать модели.
+// The pixel loader (inline in hf.html) is hidden once the startup data
+// arrives. That's the same moment the page becomes usable: allSettled,
+// because a failed token check or an empty favorites list doesn't stop
+// searching for models.
 Promise.allSettled(_initLoads).then((rs) => {
   window.__plHide?.();
   const bad = rs.filter((r) => r.status === "rejected").length;

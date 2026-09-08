@@ -1,26 +1,27 @@
 #!/usr/bin/env python3
-"""Снимок static/js/topology-dnd.js — делегированный биндер доски.
+"""Snapshot of static/js/topology-dnd.js — the board's delegated binder.
 
-`bindTopologyDragAndDrop` вешает слушатели на ~сотню селекторов после каждого
-рендера. Снимок заполняет словарь селекторов элементами, зовёт биндер и
-дёргает слушатели, а пинит СЛЕДСТВИЯ: вызовы соседей (заглушки с записью),
-состояние `ui`, модульные флаги модалов, тексты общего confirm и что делает
-его подтверждение. Что здесь важно: ключ порта — «не требовать ключ»
-очищает поле, а снятие галки с пустым полем ГЕНЕРИРУЕТ ключ (пустое поле
-сохранилось бы как «открыто»); удаление блока облака перечисляет, кто на
-него ссылается (мосты, роли очереди, правила, кабели) — и не зависит от
-отказа этого перечисления; удаление прокси называет привязанных агентов;
-радио «default» откатывается до подтверждения, а подтверждение снимает
-`dormantDefault`; ползунки порогов: мышь/клавиши, минимум 1% у abort,
-живая подпись секундами; перетаскивание строк приоритета выше/ниже;
-расписание — сетка из правил, кисть, очистка, сохранение через saveRouters,
-рисование pointerdown/over; failover — цепочка с default первым или
-выключение; вход/выход прокси в роутер — с подтверждением; hover-подсветка
-кабелей; детали маршрута сохраняют диапазон при том же маршруте.
+`bindTopologyDragAndDrop` attaches listeners to ~a hundred selectors after
+every render. The snapshot fills the selector dict with elements, calls the
+binder, and fires the listeners, pinning the CONSEQUENCES: calls to
+neighbors (stubs recording them), `ui` state, module-level modal flags, the
+shared confirm's texts and what confirming it does. What matters here: the
+port key — "don't require a key" clears the field, and unchecking the box
+with an empty field GENERATES a key (an empty field would have been saved as
+"open"); deleting a cloud block enumerates everyone who references it
+(bridges, queue roles, rules, cables) — and doesn't depend on that
+enumeration failing; deleting a proxy names the agents bound to it; the
+"default" radio rolls back until confirmed, and confirming clears
+`dormantDefault`; threshold sliders: mouse/keys, a 1% floor for abort, a live
+caption in seconds; drag-reordering priority rows up/down; the schedule — a
+grid of rules, a paint brush, clearing, saving via saveRouters,
+pointerdown/over drawing; failover — a chain with default first, or turned
+off; a proxy entering/leaving a router — with confirmation; cable
+hover-highlighting; route details keep their range on the same route.
 
-DOM — словарь селекторов; elementFromPoint — стаб; rAF синхронный.
+The DOM is a selector dict; elementFromPoint is a stub; rAF is synchronous.
 
-Запуск: python3 scripts/test_js_topology_dnd.py
+Run: python3 scripts/test_js_topology_dnd.py
 """
 import json
 import os
@@ -127,10 +128,12 @@ PINS = [
     ("qp_policy_inputs_and_global_handles", '', '(() => { const edits = V("topology-modals.topologyQueuePriorityEdits"); const [num, chk] = many("[data-topology-qp-policy]", { type: "number", dataset: { topologyQpPolicy: "stickySlotSec" }, value: "15" }, { type: "checkbox", dataset: { topologyQpPolicy: "preemptEnabled" }, checked: false }); const fill = mkEl(); const pctEl = mkEl(); const hc = mkEl({ dataset: { qpHandle: "cloudFallbackPct" }, style: {}, q: { ".qp-handle-pct": pctEl } }); const ha = mkEl({ dataset: { qpHandle: "queueAbortPct" }, style: {}, q: {} }); const track = one("[data-qp-track]", { rect: { left: 0, width: 100 }, q: { "[data-qp-fill]": fill }, qa: { "[data-qp-handle]": [hc, ha] } }); const ex = one("[data-qp-example]"); bind(); fire(num, "input"); num.value = "abc"; fire(num, "input"); fire(chk, "change", { target: chk }); chk.checked = true; fire(chk, "change"); fire(hc, "keydown", { key: "ArrowUp", preventDefault() {} }); const a = [edits.cloudFallbackPct, hc.style.left, pctEl.textContent, ex.textContent, fill.style.width]; fire(ha, "mousedown", { preventDefault() {} }); docListeners.mousemove.at(-1)({ clientX: -50 }); docListeners.mouseup.at(-1)(); return [edits.stickySlotSec, edits.preemptEnabled, a, edits.queueAbortPct, fill.style.width]; })()',
      '[15,true,[21,"21%","21%","ex 21/50/85","85%"],1,"1%"]', "политика: число только конечное, галка; глобальные ползунки: стрелка от политики (+1), подпись/пример/заливка живые; мышь левее трека — минимум 1% у abort"),
     ("route_detail_open_keeps_range_for_same_route", '', '(() => { const [row] = many("[data-topology-route-detail]", { dataset: { topologyRouteDetail: "skynet:proxy:23001", clientIp: "10.0.0.7", clientName: "box" } }); const [row2] = [mkEl({ dataset: { topologyRouteDetail: "skynet:proxy:29999" } })]; globalThis.__qa["[data-topology-route-detail]"].push(row2); const [rng] = many("[data-token-range]", { dataset: { tokenRange: "24h" } }); const close = one("[data-topology-route-detail-close]"); bind(); fire(row, "click", { target: { closest: () => null } }); const first = { ...m.topologyRouteDetail }; fire(rng, "click"); const ranged = m.topologyRouteDetail.range; fire(row, "click", { target: { closest: () => null } }); const kept = m.topologyRouteDetail.range; fire(row2, "click", { target: { closest: () => null } }); const other = { port: m.topologyRouteDetail.port, range: m.topologyRouteDetail.range }; fire(row, "click", { target: { closest: () => ({}) } }); fire(close, "click"); return [first, ranged, kept, other, m.topologyRouteDetail, names().filter((x) => x === "loadRouteTokenHistory").length]; })()',
-     '[{"proxyId":"skynet:proxy:23001","port":23001,"routeLabel":"hermes","clientIp":"10.0.0.7","clientName":"box","range":"all"},"24h","24h",{"port":29999,"range":"all"},null,4]',
-     "детали маршрута: порт из прокси или из id, диапазон сохраняется при том же маршруте и сбрасывается при другом; клик по ручке не открывает; закрытие"),
+     '[{"proxyId":"skynet:proxy:23001","port":23001,"routeLabel":"hermes","clientIp":"10.0.0.7","clientName":"box","range":"all","tab":"details","modelCard":null},"24h","24h",{"port":29999,"range":"all"},null,4]',
+     "детали маршрута: порт из прокси или из id, диапазон И ВКЛАДКА сохраняются при том же маршруте и сбрасываются при другом (чужая карточка модели на вкладке была бы ложью); клик по ручке не открывает; закрытие"),
     ("proxy_form_cancel_and_delete_names_bound_agents", 'globalThis.__fetchReply["/api/agent-proxies/route-delete"] = { ok: true, topology: { proxies: [], clients: [], routers: [], assignments: {} } };', 'await (async () => { const cancel = one("[data-topology-proxy-cancel]"); const del = one("[data-topology-proxy-delete]"); bind(); let opts = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (_m, o) => { opts = o; return false; }; await fire(del, "click"); await settle(); const refused = [opts.detail, opts.danger, globalThis.__fetchCalls.length]; globalThis.__stubReturns["dialogs.appConfirm"] = async () => true; await fire(del, "click"); await settle(); const done = [JSON.parse(globalThis.__fetchCalls[0].body), st.topology.proxies.length, st.ui.topologyProxyFormOpen, F().toast.textContent.includes("23001")]; st.ui.topologyProxyFormOpen = true; fire(cancel, "click"); return [refused, done, st.ui.topologyProxyFormOpen]; })()',
      '[[":23001 hermes\\nstill used by: box-a/hermes",true,0],[{"port":23001},0,false,true],false]', "удаление прокси: confirm называет порт и привязанных агентов; отказ — ни запроса; согласие — POST порта, topology из ответа, форма закрыта, тост; отмена закрывает форму"),
+    ("route_detail_edit_and_delete_lead_to_the_port_form_and_the_delete_path", 'globalThis.__fetchReply["/api/agent-proxies/route-delete"] = { ok: true, topology: { proxies: [], clients: [], routers: [], assignments: {} } };', 'await (async () => { const [row] = many("[data-topology-route-detail]", { dataset: { topologyRouteDetail: "skynet:proxy:23001", clientIp: "10.0.0.7", clientName: "box" } }); const [ed] = many("[data-route-detail-edit]", { dataset: { routeDetailEdit: "skynet:proxy:23001" } }); const [del] = many("[data-route-detail-delete]", { dataset: { routeDetailDelete: "23001" } }); bind(); fire(row, "click", { target: { closest: () => null } }); const opened = m.topologyRouteDetail?.proxyId; fire(ed, "click"); const afterEdit = [opened, calls().filter((c) => c[0] === "editTopologyProxy").map((c) => c[1]), m.topologyRouteDetail]; st.ui.topologyProxyEditingId = ""; let opts = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (_m, o) => { opts = o; return true; }; await fire(del, "click"); await settle(); return [afterEdit, opts.detail, opts.danger, globalThis.__fetchCalls.map((c) => [c.path, JSON.parse(c.body)]), F().toast.textContent.includes("23001")]; })()',
+     '[["skynet:proxy:23001",["skynet:proxy:23001"],null],":23001 hermes\\nstill used by: box-a/hermes",true,[["/api/agent-proxies/route-delete",{"port":23001}]],true]', "окно деталей: открыто кликом по строке, «✎» закрывает его и открывает форму порта; «✕» берёт порт с кнопки (форма порта не открыта) и идёт тем же путём, что удаление из формы — confirm называет порт и привязанных агентов, POST порта, тост"),
     ("router_card_opens_kanban_unless_on_handle", '', '(() => { const [card] = many("[data-topology-router]", { dataset: { topologyRouter: "router:a" } }); const close = one("[data-topology-router-close]"); bind(); fire(card, "click", { target: { closest: (s) => (s.includes(".topology-handle") ? {} : null) } }); const onHandle = globalThis.__opened.length; fire(card, "keydown", { key: "Enter", preventDefault() {}, target: { closest: () => null } }); fire(close, "click"); return [onHandle, [...globalThis.__opened], st.ui.topologyRouterDetailId, st.ui.topologyCanvasRouterId]; })()',
      '[0,["/kanban"],"",""]', "карточка роутера открывает канбан в новой вкладке (не с ручки/подсказки); закрытие сбрасывает id"),
     ("set_default_reverts_radio_until_confirmed", '', 'await (async () => { const prev = one(\'[data-router-set-default="router:a"][data-output-id="cb:x"]\'); const [radio] = many("[data-router-set-default]", { dataset: { routerSetDefault: "router:a", outputId: "srv:2" }, checked: true, q: { "[data-router-out-row]": { querySelector: () => ({ textContent: " Second " }) } } }); bind(); fire(radio, "change"); const c = confirmState(); const reverted = [radio.checked, prev.checked]; st.ui.pendingConfirm(); await settle(); const saved = calls().find((x) => x[0] === "saveRouters")?.[1][0].rules; return [reverted, c.text.includes("Second"), c.danger, c.shown, saved.default, "dormantDefault" in saved]; })()',
@@ -183,8 +186,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

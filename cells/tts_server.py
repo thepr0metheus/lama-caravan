@@ -71,7 +71,11 @@ class TtsCell(CellServer):
 
     @property
     def kinds(self):
-        return [f"tts.{self.engine}"]
+        # "tts" first, then the engine. Only the engine was reported before, so
+        # a LAN scan looking for a synthesizer by its JOB found nothing and the
+        # cell was reachable only by whoever already knew it ran cosyvoice —
+        # the very gap cell_base's own header describes.
+        return ["tts", f"tts.{self.engine}"]
 
     def extra_health(self):
         return {"device": _state.get("device") or "",

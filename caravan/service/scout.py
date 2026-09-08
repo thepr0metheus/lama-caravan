@@ -1,27 +1,28 @@
-"""Разговор с caravan-scout на клиентской машине.
+"""Talking to caravan-scout on a client machine.
 
-ТРИ неудачи выглядят отсюда одинаково и не имеют между собой ничего общего:
+THREE kinds of failure look identical from here and have nothing in common:
 
-  * хост НЕДОСТУПЕН — не ответил никто, и чинить надо сеть, процесс скаута,
-    файрвол;
-  * хост ОТВЕТИЛ и ОТКАЗАЛ — он прекрасно доступен, и у него есть причина:
-    порт занят, модели нет, venv не собран;
-  * хост ОТВЕТИЛ НЕРАЗБОРЧИВО — соединение живо, но ответ оборвался на полуслове
-    или пришёл не тем, что мы умеем читать. Скаут, перезапущенный посреди
-    долгого вызова, выглядит именно так. Это не отказ (причины нет) и не
-    недоступность (связь была).
+  * the host is UNREACHABLE — nobody answered, and the fix is the network,
+    the scout process, a firewall;
+  * the host ANSWERED and REFUSED — it's perfectly reachable, and it has a
+    reason: the port is busy, there's no model, the venv isn't built;
+  * the host ANSWERED UNINTELLIGIBLY — the connection is alive, but the reply
+    broke off mid-sentence or arrived as something we can't read. A scout
+    restarted in the middle of a long call looks exactly like this. It's not
+    a refusal (there's no reason) and not unreachability (the link was up).
 
-Шесть мест звали скаута, и только одно разворачивало отказ и показывало слова
-самого агента; в его комментарии так и было написано — то есть урок выучили
-один раз и он никуда не поехал. Три остальных называли ответивший хост
-«client unreachable», четвёртое роняло сырое исключение, и оператор видел голый
-500. Человек шёл чинить исправную сеть.
+Six call sites talked to the scout, and only one of them unwrapped the
+refusal and showed the agent's own words; its own comment said as much — the
+lesson was learned once and never travelled anywhere. The other three called
+a host that had answered "client unreachable", the fourth let a raw exception
+through, and the operator saw a bare 500. A person went off to fix a network
+that was fine.
 
-Разрешение адреса тоже жило в двух копиях: помощник и те же девять строк,
-переписанные внутри `stop`.
+Address resolution also lived in two copies: a helper, and the same nine
+lines rewritten inside `stop`.
 
-Отсюда класс: он знает, где живёт клиент, и переводит его отказ на язык
-оператора — один раз, для всех вызовов.
+Hence the class: it knows where a client lives, and translates its failure
+into words the operator can use — once, for every call.
 """
 import json
 import urllib.error
@@ -32,7 +33,7 @@ from caravan.common.fetch import post_json
 
 
 class Scout:
-    """Скаут одного клиентского хоста."""
+    """The scout for one client host."""
 
     def __init__(self, host_id, agent_url, headers=None):
         self.host_id = host_id
@@ -41,11 +42,11 @@ class Scout:
 
     @classmethod
     def for_host(cls, host_id, topology, headers=None):
-        """Скаут зарегистрированного клиента.
+        """The scout for a registered client.
 
-        Адрес берётся из назначения, если оно есть, и только потом из записи
-        клиента: назначение — это то, куда его перецепили, и оно главнее того,
-        чем он представился при регистрации.
+        The address comes from the assignment first, if there is one, and
+        only then from the client record: the assignment is where it's been
+        rewired to, and that outranks what it announced at registration.
         """
         host_id = str(host_id or "").strip()
         if not host_id:
@@ -62,12 +63,12 @@ class Scout:
         return cls(host_id, agent_url, headers)
 
     def post(self, path, payload=None, timeout=10):
-        """Позвать скаута и перевести неудачу в понятный отказ.
+        """Call the scout and translate a failure into a legible refusal.
 
-        Различие между двумя видами неудачи — весь смысл этого метода:
-        `HTTPError` значит, что клиент ответил и отказал, и его слова обязаны
-        доехать до того, кто читает; `URLError` значит, что до клиента не
-        достучались, и вот тогда «недоступен» — правда.
+        The distinction between the two kinds of failure is this method's
+        whole point: `HTTPError` means the client answered and refused, and
+        its words must reach whoever reads this; `URLError` means the client
+        was never reached, and only then is "unreachable" true.
         """
         url = f"{self.agent_url}{path}"
         try:
@@ -133,7 +134,8 @@ class Scout:
 
     @staticmethod
     def _reason(exc):
-        """Слова агента из тела ответа; сам ответ, если это не наш JSON."""
+        """The agent's own words from the response body; the raw body if it
+        isn't our JSON."""
         try:
             body = exc.read().decode("utf-8")
         except Exception:  # noqa: BLE001

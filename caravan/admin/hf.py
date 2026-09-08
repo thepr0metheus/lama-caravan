@@ -119,6 +119,10 @@ def hf_list_files(repo_id):
                 "quant": _extract_quant(name) if kind == "model" else "",
                 "size": size,
                 "date": file_date,
+                # The file's own sha256, as LFS stores it. Size and date give
+                # a guess; this answer is definitive — the comparison uses it
+                # to tell "metadata re-uploaded" from "same bytes".
+                "oid": str(lfs.get("oid") or ""),
             })
             continue
         # Everything else that belongs to a safetensors checkpoint is collected
@@ -289,6 +293,15 @@ def hf_local_delete(repo_id: str, filename: str) -> dict:
     return {"ok": True}
 
 def hf_local_check(repo_id: str) -> dict:
+    """What we have locally from this repository — and in what shape.
+
+    This used to return a single list of names, and the repository row set a
+    ✓ from it. The name always matches: an author re-issues a quant UNDER THE
+    SAME name. So now the size and mtime travel alongside the name — that's
+    what caravan/common/model_freshness.py uses to decide whether this is
+    still our copy or not. localNames stays: deletion and the "downloaded"
+    mark still read it.
+    """
     repo_id = repo_id.strip().strip("/")
     if not repo_id:
         return {"ok": False, "error": "missing repo"}
@@ -297,10 +310,25 @@ def hf_local_check(repo_id: str) -> dict:
     models_dir = models_dir_from_config(parse_config())
     scan_root = models_dir / model_name / author if author else models_dir / model_name
     local_names: set[str] = set()
+    local_files: dict[str, dict] = {}
     if scan_root.is_dir():
         for p in scan_root.rglob("*.gguf"):
             local_names.add(p.name)
-    return {"ok": True, "localNames": sorted(local_names)}
+            try:
+                st = p.stat()
+            except OSError:
+                # The file is visible but unreadable — that is NOT "the same
+                # as on HF". The empty record reaches the rule and becomes
+                # "unknown" there.
+                local_files.setdefault(p.name, {})
+                continue
+            # One name can show up in two subfolders (different quants sit
+            # side by side). Take the newest one: that's the one that launches.
+            prev = local_files.get(p.name)
+            if not prev or int(st.st_mtime) > int(prev.get("mtime") or 0):
+                local_files[p.name] = {"size": st.st_size, "mtime": int(st.st_mtime),
+                                       "path": str(p)}
+    return {"ok": True, "localNames": sorted(local_names), "localFiles": local_files}
 
 
 def _derive_model_name(repo_id: str) -> str:

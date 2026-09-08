@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
-"""Снимок static/js/dialogs.js — appConfirm/appPrompt как промисы над одним модалом.
+"""Snapshot of static/js/dialogs.js — appConfirm/appPrompt as promises over one modal.
 
-Каждое опасное действие доски проходит через `appConfirm` (14 модулей
-импортируют его), и у примитива не было ни одного теста. Пинится ЗНАЧЕНИЕМ
-контракт, на который опираются все вызывающие: промис оседает только через
-`settleAppConfirm`, подтверждение даёт true/false, ввод — строку или null на
-отмене; повторное «оседание» без ожидающего диалога — false, а не исключение;
-после оседания модал скрыт и `ui.pendingConfirm` снят. Оформление, которое
-защищает оператора: тон «danger» по умолчанию и «ask» для ввода или
-`danger:false`; поле ввода для парольной фразы — type=password и
-autocomplete=off (менеджер паролей не должен предлагать её сохранить); подпись
-кнопки по умолчанию — переведённое «OK», а не пустая строка.
+Every dangerous action on the board goes through `appConfirm` (14 modules
+import it), and this primitive had not had a single test. What's pinned by
+VALUE is the contract every caller relies on: a promise settles only through
+`settleAppConfirm`, confirming gives true/false, input gives a string or null
+on cancel; settling again with no pending dialog gives false, not an
+exception; once settled the modal is hidden and `ui.pendingConfirm` is
+cleared. The styling that protects the operator: a "danger" tone by default,
+and "ask" for input or `danger:false`; a passphrase input field is
+type=password and autocomplete=off (a password manager must not offer to
+save it); the button's default caption is the translated "OK", not an empty
+string.
 
-DOM — словарь `globalThis.__fields` (см. scripts/_js_globals.mjs): элементы
-модала описаны ровно теми полями, которые модуль трогает.
+The DOM is the `globalThis.__fields` dict (see scripts/_js_globals.mjs): the
+modal's elements are described by exactly the fields this module touches.
 
-Запуск: python3 scripts/test_js_dialogs.py
+Run: python3 scripts/test_js_dialogs.py
 """
 import json
 import os
@@ -159,8 +160,8 @@ def main():
                 f"catch (e) {{ {sink}[{json.dumps(pid)}] = {{ __threw: String(e && e.message || e) }}; }}"
                 for pid, setup, expr, _exp, _msg in pins]
 
-    # Пины не опираются друг на друга: тот же набор в обратном порядке обязан
-    # дать те же значения.
+    # Pins don't depend on each other: the same set run in reverse order
+    # must give the same values.
     probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")

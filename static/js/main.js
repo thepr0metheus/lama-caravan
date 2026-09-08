@@ -204,7 +204,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (event.key === "Escape" && !$("confirmOverlay").hidden) { closeConfirmModal(); return; }
     if (event.key === "Escape" && !$("llamaRemoteEditOverlay")?.hidden) { $("llamaRemoteEditOverlay").hidden = true; return; }
     if (event.key === "Escape" && !$("topologyLlamaEditOverlay")?.hidden) { closeTopologyLlamaEdit(); return; }
-    // п.6: Ctrl+Enter → Save & Restart (local) or Start (remote)
+    // 6: Ctrl+Enter → Save & Restart (local) or Start (remote)
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
       if (!$("topologyLlamaEditOverlay")?.hidden) {
         event.preventDefault();

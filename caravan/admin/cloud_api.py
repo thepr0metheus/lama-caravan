@@ -727,7 +727,12 @@ def _normalize_subscription_usage(data):
                 resets_at = datetime.datetime.utcfromtimestamp(int(reset_at_ts)).strftime("%Y-%m-%dT%H:%M:%SZ")
             except Exception:
                 resets_at = str(reset_at_ts)
-        return {"label": label, "remainingPct": remaining_pct, "resetsAt": resets_at}
+        # A named window (OpenAI's "gpt-reserve" — the Luna Reserve allowance
+        # that appears once the regular one is spent) keeps its name in the
+        # label, so two "Weekly limit" bars cannot be mistaken for one another.
+        name = str(window.get("limit_name") or window.get("name") or "").strip()
+        return {"label": f"{name} · {label}" if name else label, "name": name,
+                "remainingPct": remaining_pct, "resetsAt": resets_at}
 
     # Label by the window's DURATION, not its primary/secondary slot: OpenAI
     # dropped the 5h window (2026-07), so "primary" is now the weekly one —
@@ -761,8 +766,27 @@ def _normalize_subscription_usage(data):
         except Exception:
             pass
 
+    # What the plan itself says about being blocked, and OpenAI's own banner
+    # for it — the card shows these ABOVE the bars, because a bar at 0% next to
+    # a stream of successful requests explained nothing: the counter and the
+    # enforcement are two different facts, and only the provider knows both.
+    reached = data.get("rate_limit_reached_type") if isinstance(data.get("rate_limit_reached_type"), dict) else {}
+    upsell = data.get("rate_limit_upsell") if isinstance(data.get("rate_limit_upsell"), dict) else {}
+    ctas = [str(c.get("label") or "") for c in (upsell.get("ctas") or []) if isinstance(c, dict) and c.get("label")]
     return {
         "ok": True,
         "limits": limits,
         "credits": credits_val,
+        "planType": str(data.get("plan_type") or ""),
+        "limitReached": bool(rate_limit.get("limit_reached")),
+        "allowed": (bool(rate_limit.get("allowed")) if "allowed" in rate_limit else None),
+        "reachedType": str(reached.get("type") or ""),
+        "reachedDetails": str(reached.get("details") or ""),
+        "upsell": ({"title": str(upsell.get("title") or ""), "description": str(upsell.get("description") or ""),
+                    "ctas": ctas} if upsell.get("title") or upsell.get("description") else None),
+        "creditsInfo": {
+            "hasCredits": bool(credits_obj.get("has_credits")) if isinstance(credits_obj, dict) else False,
+            "unlimited": bool(credits_obj.get("unlimited")) if isinstance(credits_obj, dict) else False,
+            "approxLocalMessages": (credits_obj.get("approx_local_messages") if isinstance(credits_obj, dict) else None),
+        },
     }

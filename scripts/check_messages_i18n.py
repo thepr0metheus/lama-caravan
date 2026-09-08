@@ -24,6 +24,9 @@ DATA = ROOT / "static" / "js" / "i18n-data.js"
 
 NON_LATIN = {"ru", "zh", "hi", "ar", "bn", "ja", "ko", "te", "mr", "ta", "ur"}
 
+#: Russian is the only Cyrillic language here, so Cyrillic anywhere else is a leak.
+_CYRILLIC_RE = re.compile(r"[\u0400-\u04FF]")
+
 # Keys that are intentionally identical / partly English in every language.
 TRANSLATION_ALLOWLIST = {
     "appAcronym",              # the LAMA CARAVAN acronym expansion — English by design
@@ -107,6 +110,13 @@ def main() -> int:
                 return "en-copy"
         if lang in NON_LATIN and _ENG_PHRASE.search(_IDENT_RE.sub(" ", value)):
             return "english-phrase"
+        if lang != "ru" and _CYRILLIC_RE.search(value):
+            # A Russian value left standing in another language's table. Neither
+            # check above sees it: it is not latin words, and it is not a copy of
+            # the en string — so `computeAuto: "авто"` sat in the Chinese table
+            # until someone read the file by eye (found 2026-09-07). Russian is
+            # the only Cyrillic language here, so anywhere else it is a leak.
+            return "russian-leak"
         return None
 
     for lang, entry in data.items():
