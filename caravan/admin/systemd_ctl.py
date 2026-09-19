@@ -146,8 +146,12 @@ _CELL_ERR_PATTERNS = (
     # before a single allocation is attempted, so its log has no oom wording.
     ("oom", ("out of memory", "cudamalloc", "failed to allocate", "unable to allocate",
              "erroroutofdevicememory", "not enough memory", "insufficient memory")),
+    # The last four are the launch script's own words (launch.py): its guards
+    # stop the start before llama.cpp ever runs, so without them a missing
+    # model — or a library that is not mounted — read as an unexplained crash.
     ("model", ("gguf_init_from_file", "error loading model", "failed to load model",
-               "no such file or directory")),
+               "no such file or directory", "model not found", "mmproj not found",
+               "spec draft not found", "library not mounted")),
     ("port", ("address already in use", "couldn't bind", "failed to bind")),
 )
 _cell_err_cache = {}

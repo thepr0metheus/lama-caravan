@@ -1,6 +1,7 @@
 """Render launch artifacts: start-server.sh config block, server-cell start.sh
 scripts (# BEGIN/END LLAMA COMMAND), snapshots and config save."""
 import json
+import os
 import re
 import shlex
 import shutil
@@ -15,8 +16,10 @@ from caravan.admin.config_builder import (
     build_config_block,
     build_local_llama_command,
     is_command_cell,
+    model_paths,
     quote_shell_value,
 )
+from caravan.admin.model_stores import MARKER_NAME
 from caravan.admin.paths import DEFAULT_MODELS_DIR, SERVER_CELLS_DIR, START_SCRIPT
 from caravan.common.errors import AppError
 from caravan.domain.runner import for_config
@@ -181,7 +184,33 @@ def render_command_cell_shell_line(config, port=None) -> str:
     return "; ".join(parts)
 
 
-def render_launch_script(config):
+def _start_guards(found):
+    """What the script checks before it starts: every library it reads from is
+    really mounted, and then every file is there.
+
+    The mark comes first, and once per library however many of its files this
+    cell reads. Without the mark the share did not mount, and what sits under
+    the mount point is the local disk — the file test alone would report the
+    model missing and send whoever reads the log looking for a deleted file
+    instead of a mount.
+    """
+    marks, files = [], []
+    seen = set()
+    for key, what in (("MODEL_FILE", "Model"), ("MMPROJ_FILE", "MMProj"), ("SPEC_DRAFT_MODEL_FILE", "Spec draft")):
+        at = found.get(key)
+        if not at:
+            continue
+        if at.in_library and at.store["root"] not in seen:
+            seen.add(at.store["root"])
+            mark = os.path.join(at.store["root"], MARKER_NAME)
+            name = at.store["name"] or at.store["id"]
+            marks.append(f'[ -f {shlex.quote(mark)} ] || {{ echo "The library {name} is not mounted at '
+                         f'{at.store["root"]} — the model stays there" >&2; exit 1; }}')
+        files.append(f'[ -f {shlex.quote(at.path)} ] || {{ echo "{what} not found: {at.path}" >&2; exit 1; }}')
+    return marks + files
+
+
+def render_launch_script(config, locations=None):
     """Generate a complete, self-contained start script.
 
     Layout:
@@ -189,6 +218,10 @@ def render_launch_script(config):
       reload values via parse_config) + a generated `exec llama-server …` block.
     The command block is regenerated from the config block by build_llama_args —
     do not hand-edit it.
+
+    `locations` says where each model file lives right now. A start passes a
+    fresh one, so the script points at the library when that is where the file
+    is; without it every file is taken to be on the models disk.
     """
     merged = {key: str(config.get(key, "")).strip() for key in CONFIG_FIELDS}
     if uses_command_path(merged):
@@ -197,20 +230,11 @@ def render_launch_script(config):
         merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
     # build_config_block validates MODEL_FILE / PORT / numeric fields.
     config_block = build_config_block(merged).rstrip("\n")
-    cmd = build_local_llama_command(merged)
+    cmd = build_local_llama_command(merged, locations=locations)
     if len(cmd) < 2 or "llama-server" not in cmd[0]:
         raise AppError("generated launch command looks invalid", 500)
 
-    models_dir = merged["LLAMA_MODELS_DIR"]
-    model_abs = _join_models_path(models_dir, merged.get("MODEL_FILE"))
-    mmproj_abs = _join_models_path(models_dir, merged.get("MMPROJ_FILE"))
-    spec_abs = _join_models_path(models_dir, merged.get("SPEC_DRAFT_MODEL_FILE"))
-
-    guards = [f'[ -f {shlex.quote(model_abs)} ] || {{ echo "Model not found: {model_abs}" >&2; exit 1; }}']
-    if mmproj_abs:
-        guards.append(f'[ -f {shlex.quote(mmproj_abs)} ] || {{ echo "MMProj not found: {mmproj_abs}" >&2; exit 1; }}')
-    if spec_abs:
-        guards.append(f'[ -f {shlex.quote(spec_abs)} ] || {{ echo "Spec draft not found: {spec_abs}" >&2; exit 1; }}')
+    guards = _start_guards(model_paths(merged, locations))
 
     # Quote the binary as a shell var so $LLAMA_HOME stays expandable; quote the
     # rest of the tokens literally.
@@ -248,14 +272,17 @@ def render_launch_script(config):
 def server_cell_dir(port):
     return SERVER_CELLS_DIR / str(int(port))
 
-def render_server_cell_script(config):
-    return render_launch_script(config)
+def render_server_cell_script(config, locations=None):
+    return render_launch_script(config, locations)
 
-def write_server_cell_artifacts(host_id, port, config):
+def write_server_cell_artifacts(host_id, port, config, locations=None):
     """Write the generated launch files for a configured server cell.
 
     cell.json is the structured source snapshot for humans/tools; start.sh is the
     executable artifact a future lama-cell@PORT.service can run directly.
+
+    `locations` says where the model files live right now: a start passes a
+    fresh one so the script points at whichever store holds them.
     """
     if not isinstance(config, dict):
         return {}
@@ -265,7 +292,7 @@ def write_server_cell_artifacts(host_id, port, config):
     merged["PORT"] = str(port)
     if not merged.get("LLAMA_MODELS_DIR"):
         merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
-    script = render_server_cell_script(merged)
+    script = render_server_cell_script(merged, locations)
     cell_dir = server_cell_dir(port)
     cell_dir.mkdir(parents=True, exist_ok=True)
     start_path = cell_dir / "start.sh"

@@ -472,3 +472,69 @@ export function subscriptionBannerHtml(data) {
   return "";
 }
 
+
+// ── Re-reading a usage panel: on the ↻ button, and on coming back to the tab ──
+
+//: The three readings a cloud card can show, each with the cache that holds it
+//: and the call that fills it. A table rather than three `if`s: the button
+//: handler already carried the same two lines three times, and the tab-return
+//: refresher below would have made it a fourth copy.
+export const USAGE_READINGS = {
+  subscription: { cache: subscriptionUsageCache, fetch: fetchSubscriptionUsage },
+  apiCosts: { cache: apiCostsCache, fetch: fetchApiCosts },
+  openrouter: { cache: openrouterLimitsCache, fetch: fetchOpenRouterLimits },
+};
+
+//: How old a reading must be before RETURNING to the page re-reads it.
+//: Not zero, and that is the whole point: a subscription reading costs a call
+//: against the very budget the panel is showing, and switching tabs happens
+//: dozens of times an hour. Refreshing on every return would spend the thing it
+//: measures. A minute is short enough that coming back after real work always
+//: re-reads, and long enough that flipping between two tabs does not.
+export const RETURN_REFRESH_MIN_AGE_MS = 60000;
+
+/** Which accounts in one cache are worth re-reading now. Pure on purpose: this
+ *  is the DECISION, and it is checked by values in scripts/test_js_usage_stats.py
+ *  — the same rule inside the event listener could only be checked by eye.
+ *
+ *  A reading already in flight is left alone; an account never read yet counts
+ *  as stale, so a card that failed its first read recovers on the next return. */
+export function staleReadings(cache, now, minAgeMs = RETURN_REFRESH_MIN_AGE_MS) {
+  const out = [];
+  for (const [accountId, entry] of cache) {
+    if (entry?.loading) continue;
+    if (now - (entry?.fetchedAt || 0) < minAgeMs) continue;
+    out.push(accountId);
+  }
+  return out;
+}
+
+/** Forget one reading and ask again — exactly what the ↻ button does, because
+ *  it is the same call. `_shouldFetch` refuses while good data is held, so the
+ *  cache entry has to go first; that is what makes this a REFRESH and not a
+ *  no-op. */
+export function refreshUsageReading(kind, accountId) {
+  const reading = USAGE_READINGS[kind];
+  if (!reading || !accountId) return false;
+  reading.cache.delete(accountId);
+  reading.fetch(accountId);
+  return true;
+}
+
+/** Re-read every panel that has gone stale, for the page the operator just came
+ *  back to. Returns what it refreshed, as `kind → [accountId]`, so the snapshot
+ *  can check the decision rather than the listener.
+ *
+ *  Why this exists: the numbers move while the tab is in the background — that
+ *  is when the tokens are being spent — and the panel had no way to notice.
+ *  Coming back to a card showing a five-minute-old percentage, with no sign it
+ *  was old, is absence drawn as a fact. */
+export function refreshUsageOnReturn(now = Date.now()) {
+  const refreshed = {};
+  for (const [kind, reading] of Object.entries(USAGE_READINGS)) {
+    const ids = staleReadings(reading.cache, now);
+    if (ids.length) refreshed[kind] = ids;
+    ids.forEach((id) => refreshUsageReading(kind, id));
+  }
+  return refreshed;
+}

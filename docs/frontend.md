@@ -1,6 +1,6 @@
 # Frontend module reference
 
-The UI is 36 native ES modules under `static/js/` plus one page-scoped module at `static/hf.js`.
+The UI is 46 native ES modules under `static/js/`; six of them (`hf-*.js`) are the `/hf` page.
 There is no bundler, no framework, no npm and no build step: the browser loads `/js/main.js` as a
 `type="module"` script and follows real `import` statements from there. The core was split out
 of a single 26,720-line `static/app.js` (the split tooling survives in `scripts/refactor/`).
@@ -11,8 +11,8 @@ Five pages share the code:
 |---|---|---|---|
 | `static/index.html` | `/board` (`/` and `/index.html` redirect) | `/js/main.js` | the topology board (main app) |
 | `static/kanban.html` | `/kanban` (`/router` redirects) | `/js/main.js` | standalone router workspace; an inline classic script sets `window.ROUTER_STANDALONE = true` — it runs immediately, before the (deferred) module executes, so `main.js` sees the flag. Deep-link a router with `?id=<routerId>` (default `router:default`) |
-| `static/hf.html` | `/hf` | `/hf.js` | HuggingFace model browser; imports only from `/js/utils.js` |
-| `static/models.html` | `/models` | `/js/models-page.js` | models-disk tree with size rollups and unreferenced-file cleanup |
+| `static/hf.html` | `/hf` | `/js/hf-page.js` | HuggingFace model browser: search and filters over the list on the left, the repository on the right, the selection and downloads in a dock along the bottom; imports only `utils.js` and `onboarding.js` from the shared code |
+| `static/models.html` | `/models` | `/js/models-page.js` | places (this disk, libraries), filters and the model tree in columns: sizes here and in the library, cells, downloads, moves, cleanup |
 | `static/system.html` | `/system` | `/js/system-page.js` | Controller / llama.cpp / Security / Diagnostics tabs (the former System modal) |
 
 Serving: the Python backend (`caravan/admin/routes.py`) serves every static file through
@@ -23,7 +23,8 @@ revalidates every load and gets a 304 when unchanged, so a redeploy is picked up
 
 CSS is 10 cascade-ordered files under `static/css/`, linked in this exact order on every page:
 `base`, `topology-board`, `canvas`, `modals`, `cards`, `form`, `monitor`, `nodes`, `hf`,
-`onboarding` (models/system skip `hf`, the only page-specific slice). They are
+`onboarding` (models/system skip `hf`, the only page-specific slice) — plus `hf-page.css`,
+linked last and only on `/hf`: the page's own layout, written for it rather than sliced. They are
 **contiguous slices** of the old `styles.css` — class families interleave heavily, so regrouping
 rules across files would reorder equal-specificity rules and change the cascade. Add new rules to
 the file whose range they belong to; never move existing rules between files (some slices even
@@ -170,9 +171,9 @@ on the kanban — a document-level click delegation survives re-renders, with a
 floating fallback if no header button exists). `onboarding.js` is the
 dependency-free engine (spotlight overlay + card, keyboard nav, skips steps
 whose anchor is missing/hidden, auto-start once per page via
-`caravanTourSeen:<page>` in localStorage, single active tour) — hf.js reuses
-it without pulling i18n-data. The welcome step embeds an interface-language
-picker (`setLang` from i18n.js; en/ru toggle on hf). `onboarding-tours.js` declares the board, config
+`caravanTourSeen:<page>` in localStorage, single active tour) — the /hf page
+reuses it without pulling i18n-data. The welcome step embeds an interface-language
+picker (`setLang` from i18n.js; on /hf the page's own list of all twenty). `onboarding-tours.js` declares the board, config
 editor (te-/tr- modal, picked automatically when one is open) and kanban
 tours; `onboarding-strings.js` holds the EN/RU texts and is merged into
 `messages` at import (other languages fall back to English via `t()`).
@@ -190,8 +191,8 @@ See "State model" above. 35 lines; read them.
 
 DOM/format/HTTP helpers with zero app-state and **zero i18n** dependencies: `$` (getElementById),
 `escapeHtml`, `api()` (fetch wrapper that throws `data.error` on non-OK), `toast`, `pill`,
-byte/MiB formatters, tooltip positioning. This is the entire import surface of `hf.js` — keep it
-i18n-free so the HF page never pulls the 11.7k-line translations module.
+byte/MiB formatters, tooltip positioning. The /hf modules import from it (`escapeHtml`,
+`markPageState`) — keep it i18n-free so the HF page never pulls the translations module.
 
 - Owns: nothing mutable.
 - Key exports: `$`, `escapeHtml`, `api`, `toast`, `pill`, `formatMemoryMiB`, `bindTooltips`.
@@ -202,14 +203,23 @@ Styled in-app replacements for `window.confirm()`/`window.prompt()`: Promise wra
 shared `#confirmOverlay` dialog. Native dialogs block the renderer (they froze CDP evaluation
 during a live audit once) and look foreign — nothing in the app should call them directly.
 
+`appChoose` is the same dialog with more than two answers: the options are buttons in its meta row
+and the promise resolves the chosen value ("" when it was closed instead of answered). Two yes/no
+dialogs in a row would make the operator answer a question nobody asked — "no" to the first is not
+"yes" to the second.
+
 - Owns: the pending-dialog resolver.
-- Key exports: `appConfirm`, `appPrompt`.
+- Key exports: `appConfirm`, `appChoose`, `appPrompt`.
 
 ## dialog-llamas.js
 
 Animated pixel llamas for the shared confirm dialog: scene kinds match the action being confirmed
-("delete" stomps a crate flat, "change" nose-flips a toggle, "start" launches a rocket, a neutral
-idle for the rest). Pure presentation over the dialog markup.
+("delete" stomps a crate flat, "change" nose-flips a toggle, "start" launches a rocket, "stop" lies
+down to sleep, "create" stacks crates, "move" — a pack llama carries a kraft parcel to a library
+cabinet, tips it into the hatch over its own bowed head, a spark says it is checked, the hatch shuts
+and the next parcel comes down). Frames are pure data (`sceneFrames`, `sceneSky`), so a snapshot
+holds a scene to its story without a browser: the move scene's arc never passes through the llama,
+its loop is seamless, and its pack is never the colour of the llama carrying it.
 
 - Owns: the scene timers.
 - Key exports: `initDialogLlamas` (scene selection is internal — it keys off the confirm text).
@@ -232,13 +242,109 @@ redraws, all launch-form input listeners (main and `te-` prefixed), then `loadSt
 
 ## models-page.js
 
-`/models` page entry: the tree of downloaded GGUFs (model → author → quant → files) with size
-rollups, which cells reference each file, and deletion of the unreferenced ones. Data:
-`/api/models/unused` + `/api/models/disk`; deletion goes through `/api/models/gc`, which refuses
-referenced files server-side too.
+`/models` page entry: every model this controller can serve, wherever it lies — the tree of model
+files (model → author → quant → files) with which cells use each file, downloads, moves and
+deletion of the unreferenced ones. Data: `/api/models/unused` (this disk), `/api/model-stores/files`
+(the libraries), `/api/models/freshness`, `/api/hf/download/jobs`; deletion goes through
+`/api/models/gc`, which refuses referenced files server-side too. A model branch and an author
+branch carry 🤗 to `/hf`: an author branch is a repository (`/hf?q=<author>/<model>` opens it), a
+model branch searches its name; folders not laid out as `<model>/<author>/<quant>` have none.
 
-- Owns: the page's selection state.
+The page is a side column and a main column. The side steers the list: the PLACES (drawn by
+`model-stores.js` — "All models", this disk, each library, with what it holds and its room), the
+FILTERS (on their way, unused, used by cells, newer on Hugging Face — each with the count of what it
+would keep in the chosen place), and the Hugging Face check with its settings in one box. The main
+column is the chosen place's summary (also `model-stores.js`), a line with how much lies unused
+beside the button that picks exactly those, everything on its way and the name filter, then the tree
+in columns — name, status, size here and in the library (one size column once a single place is
+chosen), age, ⇢. Nesting is indentation inside the name cell, so every size stays under its header.
+The selection bar floats over the list only while something is picked.
+
+- Owns: the last answers (so another place, filter or name redraws the list without asking the
+  server), the filter and the name (`view`), and the branches that were open before a filter or a
+  name narrowed the list — narrowed, the list opens every branch it keeps, and clearing it gives back
+  what was open.
 - Key exports: none (page entry).
+- `refresh()` fetches and `draw()` renders; markup is replaced only when it changed (`paint`), because
+  markup replaced under a pressed mouse button swallows the click, and the page draws itself after
+  every answer.
+- Mounts the places panel (`model-stores.js`) into `#mdlStores` with `#mdlSummary`, and the move
+  tracker (`model-moves.js`) on the tree, the line `#mdlMovesSum` and the button, and connects them:
+  the button and every ⇢ read the libraries off the panel (a changed set of libraries redraws the
+  tree), a file that arrived redraws the tree and re-measures the stores, a chosen place redraws the
+  list (`onScope`), and the line "⇢ N files on their way" first shows exactly those — every place,
+  the "On their way" filter, no name (`onReveal`). What a move says sits on the rows: a travelling
+  file shows its bar instead of a checkbox and the download buttons, a note from a finished move sits
+  in its status, ⇢ sits in the last column of every file and branch that can move, and a folded
+  branch carries its progress. The selection survives a redraw.
+- Everything that moves, deletes or writes over a model asks first: Delete selected, every move
+  (the button, ⇢ on a file, a branch or a library row, the list of libraries, Stop), "fetch new"
+  (it says whether the current build is kept) and "revert" (the newer file is deleted). A declined
+  question sends nothing.
+- Hands the panel what this disk holds and the model families of every place (`holds`): the tree
+  already counted them, and a second measurement would be a second number that can disagree.
+- Draws the libraries' files in the same tree: a file only a library holds takes its place marked
+  "📚 <library>" and has no checkbox (it is not here to delete); a file here that a library holds too
+  gets a 📚 and its bytes in both size columns. It carries ⇢ like any other row, with its library as
+  the source — back to this disk, or on to another library.
+
+## model-stores.js
+
+The places panel on `/models`: every place models live — this controller's own directory and the
+libraries the operator added (a NAS share mounted over NFS, for instance) — in two drawings. The
+list in the side column: "All models" with every place's bytes together (once this disk is counted),
+then each place with its state (a dot when available, a word otherwise: low on space, read-only,
+another library here, not mounted, folder not found, not answering), what it holds, how full it is
+and its free space, and "Add library". The summary over the tree: under "All models" one bar with a
+segment per place, a legend with each place's bytes and files, and a card per place with its room and
+"Open"; for one place, its state, path (✎ for this disk's models directory, "remove" for a library),
+files, bytes and model families, what is inside a library, and its room. Data: `/api/model-stores`;
+adding and removing: `/api/model-stores/add` and `/api/model-stores/remove`. A library that is not
+mounted draws no numbers: they would be the local disk's, under the bare mount point. The page never
+looks inside a store itself — the server does, from a child process with a deadline
+(`caravan/admin/model_stores.py`).
+
+- Owns: the panel's copy of the last answer (`null` until the first one arrives), the chosen place
+  (`scope`: `all` or a store id; a place that disappears hands the list back to `all`), the open
+  editors, and the markup it last drew (unchanged markup is left in place, and what is typed survives
+  a redraw).
+- Key exports: `StoresPanel` (class), `mountStores(root, opts)` (the page's face; `opts.summary` is
+  the summary's element, `opts.onChange` hears every answer — the move button needs the libraries —
+  `opts.onScope` hears a chosen place, `opts.onSavePath` saves a new models directory).
+
+## model-moves.js
+
+Moves into a library on `/models`, drawn where the files are — there is no panel of jobs. A file on
+its way carries its bar on its own row of the tree: where to, the pass (first the copy, then the
+check — the copy is read back from the library and compared before the local file is deleted), the
+speed and the time left (from the work done between two answers, smoothed; worded by `pace.js`), and Stop. A checked
+copy counts down the wait before the copy here is deleted (`removeIn`, counted by the server, so
+another clock does not matter). A pass the library holds up turns red and says why. A folded branch says how many of its files travel and how
+far; one line over the list counts everything on its way and, asked, lets the page show exactly those
+files (`opts.onReveal`) before it opens their branches and brings the first bar into view. A
+finished move shows in the tree itself — the file becomes a 📚 row; a move that left a file here says
+why on that row until the note is hidden (per browser, in `localStorage`). ⇢ on a row or a branch
+moves just those files — straight to the one place they can go, or through a short list with free
+space when there are several; a library's row carries its store, so its ⇢ sends the file back to
+this disk or on to another library. The "Move to <library>" button in the selection bar, next to
+"Delete selected", moves the picked ones, and only this disk's files carry a checkbox.
+A model that is a whole folder — a whisper HF cache, a safetensors checkpoint — is one row like any
+other, marked 📁, and travels as one item: the server walks it, copies every file inside, plants the
+links back as links and deletes the folder only once all of it is proven. The confirm says how many
+of the picked items are folders, since one row can be thousands of files on the wire.
+Data: `/api/model-stores/moves`, polled every 1.2 s while something moves; starting:
+`/api/model-stores/move`; stopping: `/api/model-stores/moves/cancel`. Starting and stopping ask
+first, and Stop says so when the move carries more than its own file. The job runs on the server
+(`caravan/admin/store_moves.py`), so its progress survives a reload and shows in a second tab.
+
+- Owns: the last answer (`null` until the first one), each open job's speed, the hidden notes, and
+  the shape it last drew — bytes move the bars in place; a file arriving or staying redraws the tree.
+- Key exports: `MoveTracker` (class), `mountMoves(opts)` (the page's face).
+
+A model a cell NAMES and one a cell READS are different things on this page: the checkbox (delete)
+goes by named, since removing a stopped cell's model breaks it silently, while ⇢ only needs that
+nobody has the file open — a stopped cell's model travels and its start brings it back. Such a row
+keeps its ✓, muted, and says so in its tooltip.
 
 ## system-page.js
 
@@ -260,6 +366,8 @@ object and is the shared read path for the main form and the `te-`/`tr-` modals.
 
 - Owns: no cross-module state (form state lives in the DOM).
 - Key exports: `readConfigForm`, `renderFields`, `renderModelSelects`, `makeModelCombobox`, `modelsByPath`, `renderChatTemplateOptions`, `syncToggleLabel`.
+- A file only a library holds is offered like any other picker row, in its place among the files
+  of this disk, marked `📚 <library>` (`model-in-library`).
 
 ## memory.js
 
@@ -329,12 +437,30 @@ Stateless — its open/editing flags live in `ui` (`topologyProxyFormOpen`, `top
 
 The host-centric nodes view: per-node cards with server cards (lifecycle bar, error
 classification, uptime), GPU rows with VRAM bars and sparklines, the incidents modal, and the
-models bar (models-dir edit). `parkLaneStats()` / `mountNodeTelemetry()` move the live chart
+models bar — two ways in, to `/models` and to `/hf`, both in a new tab. `parkLaneStats()` / `mountNodeTelemetry()` move the live chart
 elements out of and back into the controller node around `innerHTML` rebuilds so their canvases
 survive. Collapsed nodes persist to localStorage.
 
-- Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`, `_modelsDirEditing`.
+- Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
 - Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`.
+- A controller cell whose launch files only a library holds wears `📚 <library>`
+  (`cell-model-in-library`, from `modelStore`), naming the file when it is not the weights
+  (`· mmproj`); a parked cell's ≈VRAM badge counts moved weights by the library's measure.
+- A starting or warming cell with `loadProgress` shows the measured load (`cell-load.js`) in place of
+  the looping "loading model into VRAM…" line; without it the old line stays.
+
+## cell-load.js / pace.js
+
+`CellLoad` draws a starting cell's measured load (`loadProgress`, from `load_progress.py`) as two
+rows: the bar with read of total, speed and time left — "no data for N s" with ⚠ instead of the
+spinner when the load stands, "setting up: context, warm-up" between files and after the last —
+and under it one step per file in reading order: ✓ done, ▸ reading with its bytes, ○ waiting with
+its size, 📚 for a file read from a library. The hover names every file, its size and where it is
+read from. A role or state the card has no word for is shown as sent (`?`), never guessed.
+`Pace` holds the one wording of speed and time left, shared with the moves on `/models`.
+
+- Owns: nothing mutable.
+- Key exports: `CellLoad` (class; `html(cellId, tail)`), `Pace.speed`, `Pace.eta`.
 
 ## cables.js
 
@@ -491,18 +617,47 @@ Artificial-Analysis score queue (batched, self-pumping). Fetches `/api/proxy-dai
 
 **HF page**
 
-## ../hf.js
+## hf-page.js / hf-catalog.js / hf-bench.js / hf-repo-view.js / hf-downloads.js / hf-text.js
 
-The entire HuggingFace browser page (`static/hf.js`, served at `/hf.js`): token status/save, repo
-search with filters, sort and inferred badges (params/instruct/vision/audio/uncensored),
-server-persisted favorites, per-repo GGUF file lists with local-presence checks, background
-benchmark loads, a download queue with progress, and local-file deletion — all against the
-`/api/hf/*` endpoints. It imports exactly two names — `$` and `escapeHtml` from `/js/utils.js` —
-and must stay that way: anything more risks dragging app state or the translations payload into a
-page that needs neither. Functions are file-local; nothing is exported.
+The HuggingFace browser at `/hf`, as classes. Two columns and a dock: on the left the search, its
+filters, the HF token and the list with two tabs (results, ★ favorites); on the right the
+repository; along the bottom the selection plan and the downloads. The header is the shared one.
 
-- Owns: all its page state (module-scope consts/lets).
-- Key exports: none (page-scope module).
+- **hf-page.js** — the entry (`HfPage.boot` on `DOMContentLoaded`) and `HfDialog`, the page's own
+  question. Clicks are delegated to containers that never change; `paint()` rewrites a container
+  only when its markup changed and puts focus back; the list is not redrawn while a pointer is
+  held over it (a row replaced between mousedown and mouseup swallowed the click). A repository's
+  file list and on-disk check are one request pair however many callers ask. Loads the token,
+  the favorites and the jobs at start and marks the page ready with how many got nothing.
+- **hf-catalog.js** — `HfRepoFacts` (one repository: size read off the name as a whole token,
+  capabilities, format, date, what is on disk) and `HfCatalog` (results, server-kept favorites,
+  filters, faceted chip counts, a stable sort by downloads/likes/size/date/AA/Open LLM). A filter
+  that cannot tell yet does not count as a match, and the list says how many it hid. No DOM.
+- **hf-bench.js** — `HfBench`: benchmarks per repository (one request each, a background queue a
+  newer queue replaces), the frontier list, and the AA Intelligence score drawn on the frontier's
+  scale — ticks in the list rows, the model between its two neighbours in the repository header,
+  the full panel with group names and descriptions in the page's language.
+- **hf-repo-view.js** — `HfQuant` (rank, bits, low quants, the quant in a file name) and
+  `HfRepoView`: quants grouped by bit depth with the low groups folded, a split quant as one row,
+  companions (every mmproj, the MTP nearest the chosen quant), our copy against Hugging Face
+  (✓ same / ⇪ another build / ? cannot tell, sha256 when verified), the safetensors checkpoint,
+  the model tree and the other files. What we have of a file is shown for this disk (✓ ⇪ ?, 🗑,
+  Verify) and for every library holding a copy (📚 with the same comparison, a violet row when only a
+  library has it) — from `libraryFiles` of `/api/hf/local-check`.
+- **hf-downloads.js** — `HfDownloads`: a selection across repositories and its plan (where each
+  file lands as `<model>/<author>/<quant>/`, whether it fits with room to assemble a split file,
+  what it would write over); one job per repository; jobs polled while they run or retry, Cancel
+  on the server, interrupted partials with Resume; jobs survive a reload through the server's list,
+  with this browser's copy as the fallback.
+- **hf-text.js** — the page's words: `HF_LANGS` (a mirror of `LANGS`), the twenty-language `HFS`
+  table, `HF_TOUR`, `HfText` (`t`, `ago`, `tour`) and `HfFormat`. The page does not load the shared
+  dictionary. `check_i18n_calls.py` holds the table to the shared rules (every key in every
+  language, same placeholders, actually translated); `check_tour_i18n.py` the tour and the mirror.
+
+Nothing on disk is deleted or written over without a question: 🗑 asks, clearing the token asks, a
+download larger than the free space asks, and a download that would land on a file already there
+is refused by the server (`code: "exists"`) until the page has asked and resent it with
+`replace: true`. Snapshots: `scripts/test_js_hf_{catalog,repo_view,bench,downloads,page}.py`.
 
 ## Invariants for contributors
 
@@ -512,8 +667,9 @@ page that needs neither. Functions are file-local; nothing is exported.
    `importedName =` assignments (the check that caught the fourteen sites fixed in `9de2510`).
 2. **New cross-feature flags go into `ui`** in state.js — property writes need no setters. A
    mutable that is written by exactly one module stays a module-local exported `let` there.
-3. **utils.js stays i18n-free and app-state-free.** It is hf.js's only import; adding an
-   `i18n-data` (or `state`) dependency would pull 11.7k lines of translations into the HF page.
+3. **utils.js stays i18n-free and app-state-free.** The /hf modules import it (with
+   `onboarding.js`) and nothing else shared; an `i18n-data` (or `state`) dependency here would
+   pull the translations into the HF page.
 4. **CSS files are cascade-ordered contiguous slices** of the old `styles.css`. Keep the `<link>`
    order identical on every page, add rules in the file they belong to, and never regroup
    rules across files — equal-specificity rules depend on their order.

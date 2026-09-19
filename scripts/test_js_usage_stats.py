@@ -68,6 +68,32 @@ out.banner_notok = m.subscriptionBannerHtml({ ok: false });
 m.subscriptionUsageCache.set("acc", { data: { ok: true, limits: LIM(0), credits: null, limitReached: true, creditsInfo: { hasCredits: false }, upsell: null }, fetchedAt: 1 });
 const panel = m.subscriptionUsageHtml("acc");
 out.banner_order = [panel.indexOf("sub-usage-banner"), panel.indexOf("sub-usage-row")];
+
+// ── возврат на вкладку перечитывает то, что устарело ──
+const NOW = 1_000_000;
+const MIN = m.RETURN_REFRESH_MIN_AGE_MS;
+const C = (entries) => new Map(entries);
+out.stale_old = m.staleReadings(C([["a", { data: {}, fetchedAt: NOW - MIN - 1 }]]), NOW);
+out.stale_fresh = m.staleReadings(C([["a", { data: {}, fetchedAt: NOW - MIN + 1 }]]), NOW);
+out.stale_boundary = m.staleReadings(C([["a", { data: {}, fetchedAt: NOW - MIN }]]), NOW);
+out.stale_loading = m.staleReadings(C([["a", { loading: true, fetchedAt: 0 }]]), NOW);
+out.stale_never = m.staleReadings(C([["a", {}]]), NOW);
+out.stale_failed = m.staleReadings(C([["a", { data: null, error: "boom", fetchedAt: NOW - MIN - 1 }]]), NOW);
+out.stale_mixed = m.staleReadings(C([
+  ["old", { data: {}, fetchedAt: NOW - MIN - 1 }],
+  ["fresh", { data: {}, fetchedAt: NOW }],
+  ["busy", { loading: true, fetchedAt: 0 }],
+]), NOW);
+out.stale_empty = m.staleReadings(C([]), NOW);
+out.min_age = MIN;
+out.readings = Object.keys(m.USAGE_READINGS).sort();
+// действие: забыть и спросить заново — то же, что делает кнопка ↻
+m.subscriptionUsageCache.set("gone", { data: { ok: true }, fetchedAt: NOW });
+const didRefresh = m.refreshUsageReading("subscription", "gone");
+const after = m.subscriptionUsageCache.get("gone");
+out.refresh_forgets = [didRefresh, after?.data ?? null, !!after?.loading];
+out.refresh_unknown_kind = m.refreshUsageReading("sorcery", "gone");
+out.refresh_no_id = m.refreshUsageReading("subscription", "");
 console.log(JSON.stringify(out));
 """
 
@@ -142,6 +168,24 @@ check("Requests continue on gpt-reserve · Weekly limit: 80% left" in got["banne
 check(got["banner_warn"].startswith('<div class="sub-usage-banner warn" data-t="sub-usage-banner">⚠ Weekly limit: 0% left by OpenAI'),
       f"счётчик 0%, но не заблокировано — янтарное предупреждение (получено {got['banner_warn'][:90]!r})")
 check(got["banner_none"] == "" and got["banner_notok"] == "", "всё в порядке или чтение не удалось — баннера нет")
+
+print("возврат на вкладку:")
+check(got["stale_old"] == ["a"], "цифра старше минуты — перечитываем: пока вкладка была в фоне, токены и тратились")
+check(got["stale_fresh"] == [], "negative: моложе минуты — НЕ ходим; чтение подписки стоит вызова по тому самому лимиту, который показывает панель")
+check(got["stale_boundary"] == ["a"], "boundary: РОВНО минута считается устаревшей")
+check(got["stale_loading"] == [], "negative: запрос уже в полёте — второй не шлём")
+check(got["stale_never"] == ["a"], "ни разу не читали — читаем: карточка после неудачного первого чтения чинится сама при возврате")
+check(got["stale_failed"] == ["a"], "прошлое чтение упало — пробуем снова, а не держим панель мёртвой до перезагрузки")
+check(got["stale_mixed"] == ["old"], f"из трёх аккаунтов берётся ровно устаревший (got {got['stale_mixed']})")
+check(got["stale_empty"] == [], "negative: пустой кэш — пустой ответ, а не падение")
+check(got["min_age"] == 60000, f"порог — минута (got {got['min_age']})")
+check(got["readings"] == ["apiCosts", "openrouter", "subscription"], 
+      f"все три вида чтений в одной таблице — кнопка и возврат зовут одно действие (got {got['readings']})")
+check(got["refresh_forgets"] == [True, None, True],
+      f"обновление СНАЧАЛА забывает прежние данные и уходит в «идёт запрос»: _shouldFetch отказывает, пока лежат хорошие данные, "
+      f"так что без удаления это был бы холостой вызов (got {got['refresh_forgets']})")
+check(got["refresh_unknown_kind"] is False and got["refresh_no_id"] is False,
+      "negative: неизвестный вид чтения или пустой id — ничего не делаем и говорим об этом false")
 check(0 <= got["banner_order"][0] < got["banner_order"][1], f"в панели баннер стоит ВЫШЕ шкал (получено {got['banner_order']})")
 
 print()

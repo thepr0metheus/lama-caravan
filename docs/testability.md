@@ -159,7 +159,7 @@ Where it is set:
 | `/kanban` | topology fetched and the router rendered | `static/js/main.js` |
 | `/models` | the model tree is drawn | `static/js/models-page.js` |
 | `/system` | `/api/state` + `/api/controller-info` settled | `static/js/system-page.js` |
-| `/hf` | token status, favourites and download jobs settled | `static/hf.js` |
+| `/hf` | token status, favourites and download jobs settled; the detail counts the start-up loads that got nothing | `static/js/hf-page.js` |
 
 Helper: `markPageState(state, detail)` in `static/js/utils.js`.
 
@@ -206,16 +206,16 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 255 values. Regenerate with
+Generated from the source, not from memory — 339 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
-source disagree. Thirty-seven of them are composed at runtime (`…-picker`,
+source disagree. Fifty of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
 that is why there is a script and not a one-liner.
 
 **agent** — `agent-bind-menu`, `agent-proxy-bind`, `agent-rename`
 **app** — `app-toast`
-**board** — `board-agent-card`, `board-cell-add`, `board-client-caption`, `board-client-card`, `board-clients-lane`, `board-cloud-lane`, `board-gpus-lane`, `board-incidents-list`, `board-llama-suspect-banner`, `board-models-bar`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-system-open`
-**cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-edit-apply`, `cell-edit-cancel`, `cell-edit-command-preview`, `cell-edit-command`, `cell-edit-compute`, `cell-edit-env`, `cell-edit-fields`, `cell-edit-health-path`, `cell-edit-max-model-len`, `cell-edit-mmproj`, `cell-edit-modal`, `cell-edit-model-picker`, `cell-edit-model`, `cell-edit-moonshine-model-picker`, `cell-edit-moonshine-model`, `cell-edit-offload-slider`, `cell-edit-offload`, `cell-edit-runner-tab`, `cell-edit-runner`, `cell-edit-seamless-lang`, `cell-edit-translate-model`, `cell-edit-translate-src`, `cell-edit-translate-tgt`, `cell-edit-vllm-model-picker`, `cell-edit-vllm-model`, `cell-edit-whisper-model-picker`, `cell-edit-whisper-model`, `cell-edit-workdir`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-model-disk-newer`, `cell-model-stale`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-source-stale`, `cell-start`, `cell-stop`
+**board** — `board-agent-card`, `board-cell-add`, `board-client-caption`, `board-client-card`, `board-clients-lane`, `board-cloud-lane`, `board-gpus-lane`, `board-hf-open`, `board-incidents-list`, `board-llama-suspect-banner`, `board-models-bar`, `board-models-open`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-system-open`
+**cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-edit-apply`, `cell-edit-cancel`, `cell-edit-command-preview`, `cell-edit-command`, `cell-edit-compute`, `cell-edit-env`, `cell-edit-fields`, `cell-edit-health-path`, `cell-edit-max-model-len`, `cell-edit-mmproj`, `cell-edit-modal`, `cell-edit-model-picker`, `cell-edit-model`, `cell-edit-moonshine-model-picker`, `cell-edit-moonshine-model`, `cell-edit-offload-slider`, `cell-edit-offload`, `cell-edit-runner-tab`, `cell-edit-runner`, `cell-edit-seamless-lang`, `cell-edit-translate-model`, `cell-edit-translate-src`, `cell-edit-translate-tgt`, `cell-edit-vllm-model-picker`, `cell-edit-vllm-model`, `cell-edit-whisper-model-picker`, `cell-edit-whisper-model`, `cell-edit-workdir`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-load-file`, `cell-load`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-stale`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-source-stale`, `cell-start`, `cell-stop`
 
 **client** — `client-add`, `client-agent-add`, `client-delete`
 
@@ -226,16 +226,17 @@ that is why there is a script and not a one-liner.
 **route** — `route-caller`, `route-context`, `route-context-line`, `route-context-model`, `route-context-prefer`, `route-detail-delete`, `route-detail-edit`, `route-detail-tab`, `route-model`, `route-model-lock`, `route-state`, `route-wait`
 
 **sub-usage** — `sub-usage-banner`
+**dialog** — `dialog-choice`
 **confirm** — `confirm-accept`, `confirm-cancel`, `confirm-input`, `confirm-meta`, `confirm-overlay`, `confirm-path`, `confirm-text`, `confirm-title`
 **header** — `header`, `header-app-title`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-page-title`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
-**hf** — `hf-capability-filter`, `hf-download-job`, `hf-limit`, `hf-mask`, `hf-on-disk`, `hf-result`, `hf-search-input`, `hf-search-submit`, `hf-size-filter`, `hf-sort`, `hf-token-clear`, `hf-token-edit`, `hf-token-input`, `hf-token-save`, `hf-verify`
+**hf** — `hf-bench-panel`, `hf-bench-refresh`, `hf-bench-toggle`, `hf-capability-filter`, `hf-checkpoint`, `hf-checkpoint-download`, `hf-confirm`, `hf-confirm-cancel`, `hf-confirm-ok`, `hf-dock`, `hf-download-cancel`, `hf-download-dismiss`, `hf-download-interrupted`, `hf-download-job`, `hf-download-resume`, `hf-download-start`, `hf-downloads`, `hf-downloads-toggle`, `hf-file`, `hf-file-check`, `hf-file-delete`, `hf-file-in-library`, `hf-frontier`, `hf-frontier-open`, `hf-frontier-refresh`, `hf-in-library`, `hf-limit`, `hf-load-progress`, `hf-low-toggle`, `hf-mask`, `hf-on-disk`, `hf-other-toggle`, `hf-quant`, `hf-repo`, `hf-repo-star`, `hf-result`, `hf-search-input`, `hf-search-submit`, `hf-selection-clear`, `hf-selection-plan`, `hf-selection-remove`, `hf-selection-toggle`, `hf-size-filter`, `hf-sort`, `hf-sort-dir`, `hf-star`, `hf-tab`, `hf-token-clear`, `hf-token-edit`, `hf-token-input`, `hf-token-menu`, `hf-token-save`, `hf-tree-repo`, `hf-tree-toggle`, `hf-verify`
 **kanban** — `kanban-back-link`, `kanban-cable`, `kanban-cables`, `kanban-canvas`, `kanban-input-wait`, `kanban-node`, `kanban-palette-add`, `kanban-save-status`, `kanban-unclaimed`
 **login** — `login-error`, `login-form`, `login-lang`, `login-password`, `login-submit`, `login-username`
-**model** — `model-file-stale`, `model-job-asr`, `model-job-embed`, `model-job-llm`, `model-job-speech-translate`, `model-job-translate`, `model-job-tts`
+**model** — `model-file-stale`, `model-in-library`, `model-job-asr`, `model-job-embed`, `model-job-llm`, `model-job-speech-translate`, `model-job-translate`, `model-job-tts`
 
-**models** — `models-delete-selected`, `models-fresh-at`, `models-fresh-auto`, `models-fresh-check`, `models-fresh-get`, `models-fresh-keep`, `models-fresh-stamp`, `models-hero-stats`, `models-model-select`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-staged-download`, `models-staged-progress`, `models-staged-revert`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-unused-select-all`
+**models** — `models-delete-selected`, `models-filter`, `models-filter-clear`, `models-filter-empty`, `models-filters`, `models-folder-item`, `models-fresh-at`, `models-fresh-auto`, `models-fresh-check`, `models-fresh-get`, `models-fresh-keep`, `models-fresh-stamp`, `models-hf-open`, `models-library-file`, `models-model-select`, `models-move-branch`, `models-move-dest`, `models-move-dismiss`, `models-move-menu`, `models-move-open`, `models-move-progress`, `models-move-selected`, `models-move-stayed`, `models-move-stop`, `models-move-target`, `models-moves-summary`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-place-all`, `models-place-card`, `models-place-open`, `models-search`, `models-selection`, `models-staged-download`, `models-staged-progress`, `models-staged-revert`, `models-store`, `models-store-add`, `models-store-add-cancel`, `models-store-add-open`, `models-store-add-path`, `models-store-add-row`, `models-store-files`, `models-store-meta`, `models-store-remove`, `models-store-state`, `models-stores`, `models-stores-error`, `models-summary`, `models-summary-bar`, `models-summary-facts`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-tree-head`, `models-unused-select-all`, `models-unused-summary`
 **node** — `node-poweroff`, `node-power-schedule`, `node-reboot`
-**host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `hf-download-interrupted`, `hf-download-resume`, `cell-ctx-native`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
+**host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `cell-ctx-native`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
 **setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
 **system** — `system-controller-info`, `system-diag-checks`, `system-diag-service-repair`, `system-driver-auto-check`, `system-driver-auto-install`, `system-driver-check`, `system-driver-log`, `system-driver-summary`, `system-driver-update`, `system-gc-close`, `system-gc-delete`, `system-gc-list`, `system-gc-modal`, `system-gc-open`, `system-gc-select-all`, `system-gc-selected`, `system-gc-summary`, `system-hero-stats`, `system-llama-build-update`, `system-llama-builds`, `system-llama-summary`, `system-llama-update-log`, `system-llama-versions-check`, `system-security-info`, `system-security-logout`, `system-tab-controller`, `system-tab-diag`, `system-tab-driver`, `system-tab-llama`, `system-tab-security`, `system-settings-export`, `system-settings-file`, `system-settings-import`, `system-settings-info`, `system-settings-passphrase`, `system-settings-secrets`, `system-tab-settings`, `system-vllm-list`
 
@@ -244,6 +245,16 @@ use `host:port` (the `slotKey` the board already computes), `kanban-node` uses
 the node id (`rule:…`, `inputs:block`), `kanban-input-wait` uses the input
 port's id (`skynet:proxy:<port>` — `skynet` is the controller's internal id in
 the data model, not a hostname), `kanban-palette-add` mirrors its `data-cv-add`.
+
+On `/models` the places carry the store's id — `models-store`,
+`models-place-card` and `models-place-open` use `local` or the library's
+`lib-…` id — and the chosen place is the one with `aria-current="true"`;
+`models-summary` says which place it summarises in its own `data-t-id` (`all`
+or a store id). `models-filter` uses `moving`, `unused`, `used` or `newer`, and
+the filter that is on has `aria-pressed="true"`; a filter that would keep
+nothing is `disabled`. Two hooks exist only after a step: `models-store-add-row`
+(its path box and buttons) after `models-store-add-open` is clicked, and the
+selection bar `models-selection` is `hidden` while nothing is picked.
 
 ## Hooks that carry a value but are never visible
 
@@ -261,6 +272,27 @@ can never pass**, and that is not a defect to chase.
 | `cell-*-whisper-model`, `cell-*-moonshine-model` | hidden carriers — the size / language is chosen in the SHARED model picker | read the value |
 | `board-gpus-lane` | a GPU mini-summary `nodes.css` hides on purpose — redundant with the node card's own GPU rows | read the values; it has no landmark role for the same reason |
 
+## A cell reading its model
+
+While a controller cell loads a model it READS — always so from a library, and
+locally when its loading mode reads instead of mapping — its card has two rows
+in place of the chips: `cell-load` (`data-t-id` = `host:port`) and one
+`cell-load-file` per file (`data-t-id` = `model`, `draft` or `mmproj`, in the
+order llama-server reads them).
+
+| hook | `data-t-state` | what it means |
+|---|---|---|
+| `cell-load` | `starting` | the process is up, no file is read yet |
+| | `reading` | a file is being read; the text has bytes, speed and time left once two readings exist |
+| | `stalled` | a file is open and no byte has come for 30 s |
+| | `setup` | no file open, at least one read: the context is being made, between files or after the last |
+| `cell-load-file` | `done` / `reading` / `waiting` | where that file is |
+
+A load the controller cannot measure — a mapped one, or a size it does not
+know — has neither hook: the card keeps its looping "loading model…" line.
+Assert on `cell-load` only when the start reads, or the test will wait for a row
+that is correctly never drawn.
+
 ## Landmark regions
 
 The panels and lanes carry `role="region"` with a name, so they can be reached
@@ -270,7 +302,7 @@ as `getByRole('region', { name })` and a keyboard user can jump between them:
 |---|---|---|
 | `/` | Model servers, Clients with caravan-scout, Cloud providers | the section's own `<h2>` |
 | `/system` | Controller, llama.cpp, Archived builds, vLLM runner, Security, Diagnostics | the panel's own `<h2>`/`<h3>` |
-| `/models` | Model files, Disk summary | their own string (no heading exists) |
+| `/models` | Model files; the side column's `navigation` landmarks Model stores and List filters | their own string (no heading exists) |
 | `/kanban` | Routing graph | its own string |
 
 Nine of the twelve are named by `aria-labelledby` pointing at the heading a
@@ -343,29 +375,52 @@ Assert both are present. Press neither. `node-poweroff` belongs with
 `cell-*-apply`, `system-gc-delete` and `hf-token-clear` — named so a test can see
 them, not so it can use them.
 
-## `/hf` stands apart
+## `/hf` keeps its own words
 
-It is the one page that does not use the shared header, so none of the `header-*`
-hooks exist there — it has its own back link. It also loads no shared JS: `hf.js`
-deliberately imports nothing from `js/`, which is why the 1.9 MB translation
-table never reached it even before that was split. Expect a smaller vocabulary,
-not a missing one.
+It has the shared header, but not the shared dictionary: the page is six modules
+(`static/js/hf-*.js`) that import only `utils.js` and `onboarding.js`, and its
+words are the twenty-language table in `hf-text.js`. Expect a smaller
+vocabulary, not a missing one.
 
-Its two repeated families carry the identity the page already works in:
+Two columns and a dock, each a container that never changes: `hf-repo` holds
+the repository, `hf-dock` the selection plan and the downloads, `hf-frontier`
+the frontier panel. Clicks are delegated to them, so a hook inside is found
+fresh after every redraw — never keep an element handle across one.
+
+Repeated elements carry the identity the page already works in:
 
 | hook | `data-t-id` |
 |---|---|
-| `hf-result` | the repository id, e.g. `unsloth/gemma-4-31B-it-GGUF` |
-| `hf-download-job` | the job id from the server, falling back to the local uid before one is assigned |
+| `hf-result`, `hf-star`, `hf-in-library` | the repository id, e.g. `unsloth/gemma-4-31B-it-GGUF` |
+| `hf-tab` | `results`, `favorites` |
 | `hf-size-filter` | `all`, `0-9`, `10-19`, `20-29`, `30-39`, `40-74`, `75+` |
-| `hf-capability-filter` | the type as the API names it (`it`, `mmproj`, `mtp`, `vision`, …) |
+| `hf-capability-filter` | the type as the API names it (`it`, `vision`, `audio`, `mmproj`, `mtp`, `uncensored`) |
+| `hf-quant` | the quant, e.g. `Q4_K_M` — one row for all parts of a split quant |
+| `hf-low-toggle` | the bit depth of the folded group, e.g. `2` |
+| `hf-file`, `hf-file-check` | the file path in the repository (a quant row's check names its first part) |
+| `hf-file-delete` | the file name on disk (a quant row's deletes all its parts) |
+| `hf-tree-repo` | the repository id the model tree points to |
+| `hf-selection-remove` | the file path in the repository |
+| `hf-download-job`, `hf-download-cancel` | the job id from the server, falling back to the local uid before one is assigned |
+| `hf-download-interrupted`, `hf-download-resume` | the name of the partial file |
+
+What we have of a repository is marked twice on its list row, and the two are
+told apart: ✓ N counts files on this controller's disk (no hook of its own),
+`hf-in-library` (📚 N) files a library holds. On a file row the ON DISK cell
+carries this disk's mark and `hf-file-in-library` for a library's copy. Only
+this disk's files have `hf-file-delete` and count for `hf-verify`.
 
 The size buckets are the values the page filters on, not their labels — `0-9`
 rather than `≤9B`, so a translated label cannot move them.
 
-**`hf-token-clear` deletes a credential** and `hf-download-job` writes to disk.
-Both are named so they can be asserted present; neither should be clicked, the
-same rule as `cell-*-apply` and the destructive controls on `/system`.
+**Every destructive or writing control asks first** in the page's own dialog,
+`hf-confirm`: deleting files (`hf-file-delete`), clearing the token
+(`hf-token-clear`), writing over files already on disk, downloading more than
+the disk holds, and a safetensors checkpoint (`hf-checkpoint-download`).
+`hf-confirm-cancel` always answers no and changes nothing, so a test may open
+the question and cancel it. `hf-download-start`, `hf-download-cancel` and
+`hf-download-resume` act without a question when there is nothing to warn
+about — assert them present, do not press them.
 
 ## `kanban-cable` endpoints are ports, not always nodes
 

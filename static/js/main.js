@@ -42,7 +42,7 @@ import {
   topologyRouterInputAtPoint,
 } from "./topology-dnd.js";
 import { activeView, flushPendingTopologyRender, refreshTopology, renderAll, renderTopology, setActiveView } from "./topology-render.js";
-import { openUsageStatsModal } from "./usage-stats.js";
+import { openUsageStatsModal, refreshUsageOnReturn } from "./usage-stats.js";
 import { $, api, bindTooltips, escapeHtml, markPageState, toast, fillVersionChipFromHealth } from "./utils.js";
 
 // The pixel-llama page loader is inline in index.html/kanban.html so it shows
@@ -115,8 +115,30 @@ function bindUserChip() {
   }).catch(() => {});
 }
 
+// Coming back to the page re-reads the usage panels. The numbers move WHILE the
+// tab is in the background — that is exactly when the tokens are being spent —
+// and until now the card kept showing whatever it read on first paint, with
+// nothing to say the figure was old. Returning to a stale percentage that looks
+// current is absence drawn as a fact.
+//
+// Two events, because they are two different returns: `visibilitychange` covers
+// switching tabs inside the browser, `focus` covers coming back to the browser
+// from another application, which does not fire visibilitychange when the tab
+// was never hidden. Both funnel into one call, and the minute-old floor inside
+// it (RETURN_REFRESH_MIN_AGE_MS) is what keeps the pair from re-reading twice.
+//
+// Bound HERE, once, on DOMContentLoaded. The cloud card's own click delegate
+// lives in bindTopologyDragAndDrop, which runs again on every board repaint —
+// a listener added there would fire once per repaint that had ever happened.
+function bindUsageRefreshOnReturn() {
+  const onReturn = () => { if (!document.hidden) refreshUsageOnReturn(); };
+  document.addEventListener("visibilitychange", onReturn);
+  window.addEventListener("focus", onReturn);
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   initDialogLlamas();
+  bindUsageRefreshOnReturn();
   // The language table is its own module now (see i18n-data.js), so it has
   // to arrive before the first render — otherwise the page paints English
   // and only repaints on the next language change.

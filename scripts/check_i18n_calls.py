@@ -18,15 +18,26 @@ Three lookup routes, because the UI has three:
      key itself, which a screen reader then reads aloud, letter salad and all.
      A missed [data-i18n] is at least visible on screen; a missed name is only
      audible, and only to the people least able to work around it.
-  3. hfT("key") in static/hf.js            → hf.js's OWN 20-language HFS table,
-     a separate dictionary that predates the shared one.
+  3. hfT("key") and this.t("key") in static/js/hf-*.js → the /hf page's OWN
+     20-language HFS table in static/js/hf-text.js, a separate dictionary that
+     predates the shared one. Inside those modules `t(` is HfText.t, so they
+     are checked against HFS and never against the shared dictionary.
+
+The HFS table is also checked whole: every app language carries exactly the
+keys of `en` with the same {placeholders}, translated by the same rules
+check_messages_i18n.py holds the shared dictionary to. Nothing else reads it,
+and a language missing a key would quietly show English on that one line.
 
 Dynamic keys (t(someVar), t(`x${y}`)) cannot be checked and are skipped: this
 looks only at plain string literals.
 """
+import json
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from check_messages_i18n import untranslated  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 EN = ROOT / "static" / "js" / "i18n" / "en.js"
@@ -35,12 +46,19 @@ EN = ROOT / "static" / "js" / "i18n" / "en.js"
 TOURS = ROOT / "static" / "js" / "onboarding-strings.js"
 JS_DIRS = [ROOT / "static" / "js", ROOT / "static"]
 
-HF = ROOT / "static" / "hf.js"
+HF = ROOT / "static" / "js" / "hf-text.js"
+LANGS_SRC = ROOT / "static" / "js" / "i18n-data.js"
 
 # A literal key, and NOT the head of a built one: t("period_" + n) is dynamic
 # and unknowable from here, so the trailing `+` disqualifies the match.
 CALL = re.compile(r'\bt\(\s*"([A-Za-z][\w.]*)"(?!\s*\+)')
 HF_CALL = re.compile(r'\bhfT\(\s*"([A-Za-z][\w.]*)"(?!\s*\+)')
+PLACEHOLDER = re.compile(r"\{\w+\}")
+#: /hf words that are the same in every language by design: names, units.
+HF_SAME_EVERYWHERE = {
+    "sortOlb",                 # "Open LLM" — the leaderboard's name
+    "benchDescOpenLlmAvg",     # the leaderboard's name and its benchmark list
+}
 # Keys defined in the en block — the canonical set; the other guard proves the
 # rest match it.
 DEF = re.compile(r'^\s{4}([A-Za-z][\w]*)\s*:', re.M)
@@ -90,6 +108,51 @@ def check_lang_wiring() -> list:
     return problems
 
 
+def hf_blocks(hf_text):
+    """The HFS table's language blocks: code → {key: text}."""
+    table = re.search(r"^const HFS = \{\n(.*?)^\};", hf_text, re.S | re.M)
+    if not table:
+        return {}
+    blocks = {}
+    for m in re.finditer(r"^  (\w+): \{\n(.*?)^  \},", table.group(1), re.S | re.M):
+        blocks[m.group(1)] = {k: json_text(v) for k, v in re.findall(r'^\s{4}([A-Za-z]\w*):\s*("(?:[^"\\]|\\.)*"),?$', m.group(2), re.M)}
+    return blocks
+
+
+def json_text(literal):
+    try:
+        return json.loads(literal)
+    except ValueError:
+        return literal
+
+
+def check_hf_table(blocks) -> list:
+    """Every app language in HFS, with en's keys and en's placeholders."""
+    langs = re.findall(r'code: "(\w+)"', LANGS_SRC.read_text(encoding="utf-8"))
+    en = blocks.get("en", {})
+    problems = []
+    if len(en) < 50:
+        return [f"HFS: the en block parsed to only {len(en)} keys"]
+    for code in langs:
+        block = blocks.get(code)
+        if block is None:
+            problems.append(f"HFS: language `{code}` is missing")
+            continue
+        for key in sorted(set(en) - set(block)):
+            problems.append(f"HFS.{code}: missing key {key}")
+        for key in sorted(set(block) - set(en)):
+            problems.append(f"HFS.{code}: unknown key {key} (not in en)")
+        for key in sorted(set(en) & set(block)):
+            if sorted(PLACEHOLDER.findall(en[key])) != sorted(PLACEHOLDER.findall(block[key])):
+                problems.append(f"HFS.{code}.{key}: placeholders {sorted(PLACEHOLDER.findall(block[key]))} != en {sorted(PLACEHOLDER.findall(en[key]))}")
+            verdict = code != "en" and untranslated(code, key, block[key], en[key], HF_SAME_EVERYWHERE)
+            if verdict:
+                problems.append(f"HFS.{code}.{key}: {verdict}")
+    for code in sorted(set(blocks) - set(langs)):
+        problems.append(f"HFS: language `{code}` is not an app language")
+    return problems
+
+
 def main() -> int:
     # English is its own module since the split — and it is still the canonical
     # set, because t() falls back to it for every key another language lacks.
@@ -104,20 +167,17 @@ def main() -> int:
         tsrc = TOURS.read_text(encoding="utf-8")
         known |= set(re.findall(r'^\s{2}([A-Za-z][\w]*)\s*:', tsrc, re.M))
 
-    # hf.js carries its own table. Read the `en:` block only — the other guard
-    # proves the remaining nineteen agree with it.
-    hf_known = set()
-    hf_text = ""
-    if HF.exists():
-        hf_text = HF.read_text(encoding="utf-8")
-        start = re.search(r'^  en:\s*\{$', hf_text, re.M)
-        end = re.search(r'^  ru:\s*\{$', hf_text, re.M)
-        if not start or not end:
-            print("cannot find the en/ru blocks of hf.js's HFS table",
-                  file=sys.stderr)
-            return 1
-        hf_known = set(re.findall(r'\b([A-Za-z][\w]*)\s*:\s*"',
-                                  hf_text[start.end():end.start()]))
+    # The /hf page carries its own table. Calls are checked against its `en`
+    # block; check_hf_table() proves the other nineteen carry the same keys.
+    if not HF.exists():
+        print(f"cannot find {HF}", file=sys.stderr)
+        return 1
+    blocks = hf_blocks(HF.read_text(encoding="utf-8"))
+    if "en" not in blocks:
+        print("cannot find the en block of the HFS table in static/js/hf-text.js", file=sys.stderr)
+        return 1
+    hf_known = set(blocks["en"])
+    hf_modules = sorted((ROOT / "static" / "js").glob("hf-*.js"))
 
     missing = {}
     checked = 0
@@ -130,16 +190,18 @@ def main() -> int:
 
     for d in JS_DIRS:
         for path in sorted(d.glob("*.js")):
-            if path.name == "i18n-data.js":
+            if path.name == "i18n-data.js" or path in hf_modules:
                 continue
             text = path.read_text(encoding="utf-8")
             rel = path.relative_to(ROOT)
             for m in CALL.finditer(text):
                 note(m.group(1), f"{rel}:{text.count(chr(10), 0, m.start()) + 1}", known)
-    for m in HF_CALL.finditer(hf_text):
-        note(m.group(1),
-             f"static/hf.js:{hf_text.count(chr(10), 0, m.start()) + 1} (hfT)",
-             hf_known)
+    for path in hf_modules:
+        text = path.read_text(encoding="utf-8")
+        rel = path.relative_to(ROOT)
+        for pattern, how in ((HF_CALL, "hfT"), (CALL, "HfText.t")):
+            for m in pattern.finditer(text):
+                note(m.group(1), f"{rel}:{text.count(chr(10), 0, m.start()) + 1} ({how})", hf_known)
     for path in sorted((ROOT / "static").glob("*.html")):
         text = path.read_text(encoding="utf-8")
         rel = path.relative_to(ROOT)
@@ -149,21 +211,27 @@ def main() -> int:
                  known)
 
     wiring = check_lang_wiring()
+    table = check_hf_table(blocks)
 
     if missing:
         print(f"i18n: {len(missing)} key(s) asked for but not defined:", file=sys.stderr)
         for key in sorted(missing):
             print(f"  - {key}  ({', '.join(missing[key][:3])})", file=sys.stderr)
         print("t()/[data-i18n*] keys go in every static/js/i18n/<lang>.js; "
-              "hfT() keys go in the HFS table in static/hf.js", file=sys.stderr)
+              "hfT() keys go in the HFS table in static/js/hf-text.js", file=sys.stderr)
     if wiring:
         for problem in wiring:
             print(f"i18n wiring: {problem}", file=sys.stderr)
-    if missing or wiring:
+    if table:
+        print(f"i18n /hf table: {len(table)} problem(s):", file=sys.stderr)
+        for problem in table[:40]:
+            print(f"  - {problem}", file=sys.stderr)
+    if missing or wiring or table:
         return 1
     print(f"i18n calls OK: {checked} lookups resolve — t(\"…\") in JS, "
           f"[data-i18n*] in HTML, hfT(\"…\") on /hf "
-          f"({len(known)} shared keys + {len(hf_known)} hf keys defined)")
+          f"({len(known)} shared keys + {len(hf_known)} hf keys defined, "
+          f"the hf table whole in {len(blocks)} languages)")
     return 0
 
 

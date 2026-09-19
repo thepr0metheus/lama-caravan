@@ -52,13 +52,19 @@ COMPOSED = {
     "cell-crashed": "topology-nodes.js: mbadge(..., 'cell-crashed')",
     "cell-model-stale": "topology-nodes.js: mbadge(..., 'cell-model-stale')",
     "cell-model-disk-newer": "topology-nodes.js: mbadge(..., 'cell-model-disk-newer')",
+    "cell-model-in-library": "topology-nodes.js: mbadge(..., 'cell-model-in-library')",
     # static/js/form.js — ⇪ on a file's row in the model picker: the card
     # names the file's ROLE, and which file exactly has diverged is only
     # visible here.
     "model-file-stale": "form.js: mbadge(..., 'model-file-stale') on the picker row",
-    # static/hf.js — set through dataset.t on a constructed element
-    "hf-result": "hf.js: buildRepoRow sets div.dataset.t",
-    "hf-verify": "hf.js: the sha256 verify button in the repo header",
+    # static/js/form.js — 📚 on the row of a file only a library holds
+    "model-in-library": "form.js: mbadge(..., 'model-in-library') on the picker row",
+    # static/js/model-moves.js — the short list of libraries a ⇢ opens, set
+    # through dataset.t on the element it builds
+    "models-move-menu": "model-moves.js: showMenu sets menu.dataset.t",
+    # static/js/hf-page.js — the page's question dialog, set through
+    # setAttribute on the overlay it builds
+    "hf-confirm": "hf-page.js: HfDialog.confirm sets data-t on the overlay",
     # static/js/form.js — one per config tab, set on the constructed button
     "cell-config-tab": "form.js: renderFields sets data-t on each tab button",
     "agent-proxy-bind": "topology-activity.js: the clickable primary port chip",

@@ -26,77 +26,212 @@
     }
     .topbar { position: sticky; top: 0; z-index: 30; }
 
+    /* Two colours of their own on this page: the library's lilac and the
+       blue of bytes on their way. Every 📚 and every ⇢ below wears them. */
     .mdl-wrap {
-      width: min(980px, 94vw);
+      --lib: #b39ddb;
+      --move: #4fc3f7;
+      --faint: color-mix(in srgb, var(--muted) 72%, var(--bg));
+      --line-soft: color-mix(in srgb, var(--line) 70%, var(--surface));
+      width: min(1320px, calc(100% - 32px));
       margin: 0 auto;
-      padding: 22px 0 60px;
-      display: flex; flex-direction: column; gap: 16px; flex: 1;
+      padding: 20px 0 64px;
+      display: grid; grid-template-columns: 264px minmax(0, 1fr); gap: 16px; align-items: start;
+      flex: 1;
     }
-    .mdl-hero {
-      display: flex; align-items: flex-end; justify-content: space-between;
-      gap: 18px; flex-wrap: wrap; padding: 22px 24px;
-      border: 1px solid var(--line); border-radius: 16px;
-      background:
-        radial-gradient(1200px 300px at 8% -40%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%),
-        var(--surface);
-    }
-    .mdl-hero h2 { margin: 0 0 4px; font-size: 26px; display: flex; align-items: center; gap: 10px; }
-    .mdl-hero p { margin: 0; font-size: 12.5px; color: var(--muted); max-width: 52ch; }
-    .mdl-hero-stats {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 8px; min-width: min(460px, 100%);
-    }
-    .mdl-stat {
-      border: 1px solid var(--line); border-radius: 12px; padding: 9px 12px;
-      background: color-mix(in srgb, var(--bg) 55%, transparent);
-      display: flex; flex-direction: column; gap: 2px; min-width: 0;
-    }
-    .mdl-stat span { font-size: 9.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
-    .mdl-stat strong { font-size: 13.5px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .mdl-stat.warn strong { color: var(--warn, #e0a03f); }
-    .mdl-stat.good strong { color: var(--ok, #4fc38a); }
+    @media (max-width: 900px) { .mdl-wrap { grid-template-columns: minmax(0, 1fr); } }
+    /* The app's forms make every input a full-width 42px field and every
+       checkbox 22px; on this page they sit inside rows of text. */
+    .mdl-wrap input[type=checkbox] { width: 14px; height: 14px; min-height: 14px; margin: 0; flex: none; accent-color: var(--accent); }
+    /* …and every button 34px tall, which in a 36px row is a row of buttons. */
+    .mdl-wrap button { min-height: 0; }
 
-    .mdl-panel {
-      border: 1px solid var(--line); border-radius: 16px;
-      padding: 16px 18px; background: var(--surface);
-      display: flex; flex-direction: column; gap: 10px;
+    /* ── The side: where to look, what to show, Hugging Face ────────────── */
+    /* It stays in view while the list scrolls: the places and the filters
+       are how the list is steered, and a steering wheel scrolled off the
+       screen is one nobody reaches for. */
+    .mdl-side {
+      position: sticky; top: 72px; max-height: calc(100dvh - 88px); overflow: auto;
+      display: grid; gap: 18px; padding: 12px 8px;
+      border: 1px solid var(--line); border-radius: 16px; background: var(--surface);
     }
-    .mdl-panel-head { display: flex; align-items: center; gap: 10px; }
-    .mdl-panel-head .mdl-path { color: var(--muted); font-size: 11.5px; font-family: ui-monospace, Menlo, monospace; margin-right: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .mdl-path-edit { display: flex; gap: 8px; align-items: center; }
-    .mdl-path-edit input { flex: 1; min-width: 0; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px;
-      background: var(--field); border: 1px solid var(--line); border-radius: 8px; color: var(--text); padding: 6px 10px; }
-    .mdl-tree { overflow: auto; font-size: 12.5px; }
-    .mdl-tree details { margin: 2px 0; }
-    .mdl-tree summary {
-      cursor: pointer; list-style: none; display: flex; align-items: center; gap: 8px;
-      padding: 5px 8px; border-radius: 8px;
+    @media (max-width: 900px) { .mdl-side { position: static; max-height: none; } }
+    .mdl-side-h {
+      margin: 0 0 6px 10px; font-size: 10.5px; font-weight: 600; letter-spacing: .1em;
+      text-transform: uppercase; color: var(--faint);
     }
+    .mdl-nav { display: grid; gap: 3px; }
+    .mdl-place, .mdl-filter {
+      display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; column-gap: 8px; row-gap: 5px; align-items: center;
+      width: 100%; padding: 8px 10px; border: 0; border-radius: 10px; background: transparent;
+      color: var(--text); font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+    }
+    .mdl-place:hover, .mdl-filter:hover:not(:disabled) { background: color-mix(in srgb, var(--line) 35%, transparent); }
+    .mdl-place:focus-visible, .mdl-filter:focus-visible, .mdl-open:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
+    .mdl-place[aria-current="true"], .mdl-filter[aria-pressed="true"] {
+      background: color-mix(in srgb, var(--accent) 14%, transparent);
+      box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+    }
+    .mdl-place .nm { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .mdl-place .nm > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mdl-place .c, .mdl-filter .c { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .mdl-place .mdl-store-bar, .mdl-place .sub { grid-column: 2 / 4; }
+    .mdl-place .mdl-store-bar { width: auto; height: 4px; }
+    .mdl-place .sub { margin-top: -2px; font-size: 11.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .mdl-place.add { grid-template-columns: 20px minmax(0, 1fr); color: var(--muted); border: 1px dashed var(--line); }
+    .mdl-filter:disabled { opacity: .45; cursor: default; }
+    .mdl-filter .c.warn { color: var(--warn); }
+    .mdl-filter .c.mv { color: var(--move); }
+    /* The side column is narrow: the path gets a line of its own, the
+       buttons go under it. */
+    .mdl-store-add { flex-wrap: wrap; padding: 4px 4px 0; }
+    .mdl-path-edit.mdl-store-add input { flex: 1 1 100%; }
+    /* A healthy store is a green dot in the list — its word is still there
+       for a screen reader and a test, just not printed beside every name; a
+       store that is NOT fine says so in words. */
+    .mdl-place .mdl-store-state.good {
+      width: 7px; height: 7px; padding: 0; border: 0; border-radius: 50%;
+      background: currentColor; font-size: 0; flex: none;
+    }
+    .mdl-hf { display: grid; gap: 9px; padding: 14px 10px 4px; border-top: 1px solid var(--line-soft); font-size: 12px; color: var(--muted); }
+    .mdl-hf .mdl-side-h { margin: 0; }
+    .mdl-fresh-row { display: flex; align-items: center; gap: 6px 10px; flex-wrap: wrap; }
+    .mdl-fresh-auto { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+    .mdl-fresh-at {
+      width: auto; height: 26px; background: transparent; color: var(--text); font-size: 12px;
+      border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+      border-radius: 6px; padding: 1px 6px;
+    }
+    .mdl-fresh-at:disabled { opacity: 0.45; }
+    /* The timestamp is required: a report without one reads as "just
+       checked", and yesterday's "everything matches" looks like today's. */
+    .mdl-fresh-stamp { color: var(--text); }
+    .mdl-hf-check {
+      justify-self: start; padding: 5px 12px; border-radius: 8px; cursor: pointer; font: inherit; font-size: 12px;
+      border: 1px solid var(--line); background: var(--button-bg, #151f23); color: var(--text);
+    }
+    .mdl-hf-check:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+    .mdl-hf-check:disabled { opacity: .6; cursor: default; }
+
+    /* ── The main column ───────────────────────────────────────────────── */
+    /* clip, not hidden: hidden would make this box the scroller, and the
+       selection bar below could no longer stick to the bottom of the
+       window. */
+    .mdl-main {
+      min-width: 0; display: flex; flex-direction: column; overflow: clip;
+      border: 1px solid var(--line); border-radius: 16px; background: var(--surface);
+    }
+
+    /* The summary over the list says what the chosen place holds and how
+       much room it has left. */
+    .mdl-sum { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 16px; border-bottom: 1px solid var(--line); }
+    .mdl-sum-main { flex: 1 1 320px; display: grid; gap: 10px; min-width: 0; }
+    .mdl-sum-title { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; margin: 0; font-size: 17px; font-weight: 700; }
+    .mdl-sum-title .facts { font-size: 13px; font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .mdl-sum-line { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .mdl-sum-line .mdl-store-path { max-width: 60ch; }
+    .mdl-sum-line .mdl-path-edit { flex: 1 1 420px; }
+    /* Where the models are, as one bar: a segment per place, as long as
+       what that place holds. */
+    .mdl-stack { display: grid; gap: 6px; }
+    .mdl-stack-bars { display: flex; height: 10px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--line) 85%, transparent); }
+    .mdl-stack-bars i { display: block; height: 100%; }
+    .mdl-stack-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .mdl-stack-legend b { color: var(--text); font-weight: 600; }
+    .mdl-sw { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 5px; }
+    .mdl-stack .here { background: color-mix(in srgb, var(--accent) 80%, var(--muted)); }
+    .mdl-stack .lib0 { background: color-mix(in srgb, var(--lib) 80%, var(--muted)); }
+    .mdl-stack .lib1 { background: color-mix(in srgb, var(--lib) 50%, var(--move)); }
+    .mdl-stack .lib2 { background: color-mix(in srgb, var(--lib) 45%, var(--bg)); }
+    .mdl-cards { flex: 0 1 auto; display: flex; flex-wrap: wrap; gap: 10px; }
+    .mdl-card {
+      width: 230px; display: grid; gap: 7px; padding: 10px 12px; border-radius: 12px;
+      border: 1px solid var(--line-soft); background: color-mix(in srgb, var(--bg) 55%, transparent);
+    }
+    .mdl-card-h { display: flex; align-items: center; gap: 7px; min-width: 0; font-size: 12.5px; font-weight: 650; }
+    .mdl-card-h .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mdl-card .mdl-store-bar { width: auto; height: 5px; }
+    .mdl-card .mdl-full { font-size: 11.5px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+    .mdl-open { padding: 0; border: 0; background: transparent; color: var(--accent-strong); font: inherit; font-size: 11.5px; cursor: pointer; white-space: nowrap; }
+    .mdl-open:hover { text-decoration: underline; }
+    .mdl-free { display: flex; align-items: baseline; gap: 6px; font-variant-numeric: tabular-nums; }
+    .mdl-free b { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+    .mdl-free span { font-size: 11.5px; color: var(--muted); }
+    .mdl-sum-space { flex: 0 1 300px; display: grid; gap: 8px; min-width: 240px; }
+    .mdl-sum-space .mdl-free { justify-content: flex-end; }
+    .mdl-sum-space .mdl-free b { font-size: 24px; letter-spacing: -.02em; }
+    .mdl-sum-space .mdl-store-bar { width: auto; height: 6px; }
+    .mdl-sum-space .mdl-full { font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+
+    /* The line over the list: how much lies unused and the button that picks
+       exactly those, everything on its way, and the name filter. */
+    .mdl-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 10px 16px; border-bottom: 1px solid var(--line-soft); font-size: 12.5px; color: var(--muted); }
+    .mdl-strip .mini-link { margin-left: 0; }
+    .mdl-strip-gap { flex: 1 1 auto; }
+    .mdl-unused { color: var(--muted); }
+    .mdl-unused.warn { color: var(--warn); font-weight: 600; }
+    .mdl-search {
+      width: 220px; max-width: 100%; height: 30px; padding: 0 12px; border-radius: 9px;
+      border: 1px solid var(--line); background: var(--field); color: var(--text);
+      font: 12px ui-monospace, Menlo, monospace;
+    }
+    .mdl-search:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 1px; }
+
+    /* ── The list: one grid, so every size sits under its own header ────── */
+    /* Nesting is indentation INSIDE the name cell, never a margin on the
+       branch: a nested box a few pixels narrower would shift every column of
+       its rows off the header's. */
+    .mdl-tree { --cols: minmax(0, 1fr) minmax(0, 270px) 84px 84px 44px 28px; font-size: 13px; padding-bottom: 6px; }
+    .mdl-tree.one { --cols: minmax(0, 1fr) minmax(0, 270px) 90px 44px 28px; }
+    .mdl-row {
+      display: grid; grid-template-columns: var(--cols); align-items: center; column-gap: 12px;
+      min-height: 36px; padding: 0 14px; border-top: 1px solid var(--line-soft);
+    }
+    .mdl-head { min-height: 32px; border-top: 0; font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: var(--faint); }
+    .mdl-c-name { display: flex; align-items: center; gap: 8px; min-width: 0; padding-left: calc(var(--lvl, 0) * 18px); }
+    .mdl-c-status { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; font-size: 11.5px; color: var(--muted); }
+    .mdl-c-size, .mdl-c-age { text-align: right; white-space: nowrap; font-size: 12px; font-variant-numeric: tabular-nums; }
+    .mdl-c-size.lib { color: var(--lib); }
+    .mdl-c-age { color: var(--faint); }
+    .mdl-c-go { display: flex; justify-content: flex-end; }
+    .mdl-dim { color: var(--faint); }
+    .mdl-tree details { margin: 0; }
+    .mdl-tree summary { cursor: pointer; list-style: none; }
     .mdl-tree summary::-webkit-details-marker { display: none; }
-    .mdl-tree summary:hover { background: color-mix(in srgb, var(--line) 30%, transparent); }
-    .mdl-tree summary .tw { width: 12px; color: var(--muted); flex: 0 0 auto; }
+    .mdl-tree summary:hover, .mdl-tree .mdl-file:hover { background: color-mix(in srgb, var(--line) 26%, transparent); }
+    .mdl-tree .tw { width: 12px; flex: none; text-align: center; font-size: 10px; color: var(--muted); }
     .mdl-tree details[open] > summary .tw::before { content: "▾"; }
     .mdl-tree details:not([open]) > summary .tw::before { content: "▸"; }
-    .mdl-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .mdl-size { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
-    .mdl-lvl { margin-left: 18px; border-left: 1px solid color-mix(in srgb, var(--line) 60%, transparent); padding-left: 8px; }
-    .mdl-file { display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 26px; border-radius: 8px; }
-    .mdl-file:hover { background: color-mix(in srgb, var(--line) 24%, transparent); }
-    .mdl-file code { font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .mdl-file .meta { margin-left: auto; color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .mdl-name { font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mdl-file code { font-size: 11.5px; color: color-mix(in srgb, var(--text) 88%, var(--muted)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mdl-nobox { width: 14px; flex: none; }
+    .mdl-empty { display: grid; justify-items: center; gap: 8px; padding: 28px 16px; color: var(--muted); text-align: center; }
+    .mdl-empty .mini-link { margin-left: 0; }
+    @media (max-width: 720px) {
+      /* Fixed, not auto: every row is a grid of its own, and auto columns
+         would size to each row's numbers and zigzag down the list. */
+      .mdl-tree { --cols: minmax(0, 1fr) 86px 86px 28px; }
+      .mdl-tree.one { --cols: minmax(0, 1fr) 72px 28px; }
+      .mdl-head, .mdl-c-age { display: none; }
+      .mdl-c-status { grid-column: 1 / -1; grid-row: 2; padding: 0 0 6px calc(var(--lvl, 0) * 18px + 20px); }
+      .mdl-c-status:empty { display: none; }
+      .mdl-tree:not(.one) .mdl-c-size.here::before { content: "🏠 "; }
+      .mdl-tree:not(.one) .mdl-c-size.lib::before { content: "📚 "; }
+    }
+
     .mdl-used {
       font-size: 10px; padding: 1px 6px; border-radius: 4px; white-space: nowrap;
       background: color-mix(in srgb, #4fc38a 18%, transparent); color: #6fd6a4;
       max-width: 220px; overflow: hidden; text-overflow: ellipsis;
     }
+    /* A stopped cell's model: named by a cell, read by none — quieter. */
+    .mdl-used.parked { background: transparent; color: var(--muted); border: 1px solid var(--line); }
     /* Freshness: ⇪ means a different file sits under this name on HF; "?"
        means there's nothing to compare against. A match gets NO mark at all:
        a checkmark over every matching file would turn the page into a forest
        of checkmarks, when its job is to show what needs attention. Empty
        space here means "no questions". */
-    .mdl-fresh {
-      font-size: 11px; font-weight: 700; line-height: 1; cursor: help;
-    }
+    .mdl-fresh { font-size: 11px; font-weight: 700; line-height: 1; cursor: help; }
     .mdl-fresh.newer { color: #ffb74d; }
     .mdl-fresh.unknown { color: #90a4ae; }
     /* Buttons on a file's row. "Update" is dim: it's a suggestion, not a
@@ -127,7 +262,7 @@
       background: color-mix(in srgb, #4fc3f7 26%, transparent);
       transition: width 0.4s linear;
     }
-    .mdl-dl-text { position: relative; color: var(--text); }
+    .mdl-dl-text { position: relative; color: var(--text); overflow: hidden; text-overflow: ellipsis; }
     /* Interrupted is NOT running. Frozen percentages in the same colors
        would read as a slow download, so the color and the word are both
        different. */
@@ -136,30 +271,124 @@
       background: color-mix(in srgb, #ef5350 10%, transparent);
     }
     .mdl-dl.stalled .mdl-dl-bar { background: color-mix(in srgb, #ef5350 24%, transparent); }
-    .mdl-freshness-row {
-      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-      padding: 6px 0 2px; font-size: 12px;
+    /* A move rides the file's own row: the downloads' bar (.mdl-dl) — one look
+       for "bytes on their way", either direction — wider for the speed and
+       the time left, with Stop right beside it. */
+    .mdl-move-bar { min-width: 0; flex: 1 1 auto; }
+    .mdl-move-stop { padding: 1px 6px; flex: none; }
+    /* ⇢ on every row that can move, at the right edge: quiet until the row is
+       under the pointer, so fifty of them do not shout. */
+    .mdl-go {
+      width: 26px; height: 22px; display: inline-grid; place-items: center;
+      font-size: 12px; line-height: 1; padding: 0; border-radius: 6px; cursor: pointer;
+      background: transparent; color: var(--move, #4fc3f7); opacity: .35;
+      border: 1px solid color-mix(in srgb, #4fc3f7 35%, transparent);
     }
-    .mdl-fresh-auto { display: flex; align-items: center; gap: 6px; color: var(--muted); }
-    .mdl-fresh-at {
-      background: transparent; color: var(--text); font-size: 12px;
-      border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
-      border-radius: 4px; padding: 1px 5px;
+    .mdl-tree .mdl-file:hover .mdl-go, .mdl-tree summary:hover .mdl-go, .mdl-go:focus-visible { opacity: 1; }
+    @media (hover: none) { .mdl-go { opacity: .8; } }
+    /* A move that left the file here says why, in the warning colour. */
+    .mdl-stayed {
+      font-size: 10px; color: var(--warn, #e0a03f); cursor: default; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
-    .mdl-fresh-at:disabled { opacity: 0.45; }
-    /* The timestamp is required: a report without one reads as "just
-       checked", and yesterday's "everything matches" looks like today's. */
-    .mdl-fresh-stamp { margin-left: auto; color: var(--muted); }
-    .mdl-file input[type=checkbox] { accent-color: var(--accent); }
-    .mdl-foot { display: flex; align-items: center; gap: 10px; padding-top: 8px; border-top: 1px solid var(--line); }
-    .mdl-foot .picked { color: var(--muted); font-size: 12px; margin-right: auto; }
+    /* A folded branch says how far its files are; red while the library holds them up. */
+    .mdl-move-branch { font-size: 10px; color: #4fc3f7; white-space: nowrap; }
+    .mdl-move-branch.stalled { color: #ef5350; }
+    .mdl-moves-sum { font-size: 12px; color: #4fc3f7; cursor: pointer; white-space: nowrap; }
+    /* Several libraries: a short list by the ⇢, each with its free space. */
+    .mdl-move-menu {
+      position: fixed; z-index: 50; display: flex; flex-direction: column; gap: 2px; padding: 4px; min-width: 240px;
+      background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, .35);
+    }
+    .mdl-move-menu button {
+      display: flex; align-items: center; justify-content: space-between; gap: 12px; text-align: left;
+      background: transparent; border: 0; color: var(--text); padding: 6px 8px; border-radius: 6px;
+      cursor: pointer; font-size: 12px;
+    }
+    .mdl-move-menu button:hover, .mdl-move-menu button:focus-visible { background: color-mix(in srgb, #4fc3f7 14%, transparent); }
+    .mdl-move-menu .meta { color: var(--muted); font-size: 11px; }
+    /* Files in a library: the 📚 says where; a file that is ONLY there is
+       dimmer, because it is not on this disk. */
+    .mdl-lib { font-size: 10px; color: var(--lib, #b39ddb); white-space: nowrap; cursor: default; }
+    /* 🤗 beside a model or author name: to that model on /hf. Quiet until the row is looked at. */
+    /* A class of its own: .mdl-hf is the Hugging Face box in the side column and .mdl-hf-link the
+       header button, and a tree link that borrowed either name restyled them. The name cell's gap spaces it. */
+    .mdl-tree-hf { display: inline-block; align-self: center; padding: 0; line-height: 1; font-size: 12px; text-decoration: none; opacity: .55; flex: none; }
+    .mdl-row:hover .mdl-tree-hf, .mdl-tree-hf:focus-visible { opacity: 1; }
+    .mdl-kind { font-size: 10px; cursor: default; flex: none; }
+    .mdl-file-lib code { opacity: .7; }
+
+    /* ── Stores: state, path, room ─────────────────────────────────────── */
+    .mdl-store-path {
+      color: var(--muted); font-size: 11px; min-width: 0; max-width: 42ch;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    /* How FULL the store is, not how empty: a glance answers "is there room"
+       without reading two numbers and dividing one by the other. */
+    .mdl-store-bar {
+      display: block; width: 84px; height: 5px; border-radius: 999px; overflow: hidden;
+      background: color-mix(in srgb, var(--line) 80%, transparent);
+    }
+    .mdl-store-bar i { display: block; height: 100%; background: color-mix(in srgb, var(--accent) 70%, var(--muted)); }
+    .mdl-store-bar.low i { background: var(--warn, #e0a03f); }
+    .mdl-store-state {
+      font-size: 10px; font-weight: 500; padding: 1px 7px; border-radius: 999px; white-space: nowrap; cursor: default;
+      border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+    }
+    .mdl-store-state.good { color: var(--ok, #4fc38a); }
+    .mdl-store-state.warn { color: var(--warn, #e0a03f); }
+    .mdl-store-state.bad { color: #ef5350; }
+    .mdl-path-edit { display: flex; gap: 8px; align-items: center; min-width: 0; }
+    .mdl-path-edit input {
+      flex: 1; width: auto; height: 30px; min-width: 0; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px;
+      background: var(--field); border: 1px solid var(--line); border-radius: 8px; color: var(--text); padding: 6px 10px;
+    }
+    .mdl-path-edit .mini-link { margin-left: 0; }
+    .mdl-store-files > summary {
+      cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--accent-strong);
+    }
+    .mdl-store-files > summary::-webkit-details-marker { display: none; }
+    .mdl-store-files > summary .tw { width: 10px; font-size: 10px; }
+    .mdl-store-files[open] > summary .tw::before { content: "▾"; }
+    .mdl-store-files:not([open]) > summary .tw::before { content: "▸"; }
+    .mdl-inside { display: grid; gap: 2px; margin-top: 6px; max-height: 220px; overflow: auto; }
+    .mdl-inside-row { display: flex; align-items: center; gap: 10px; padding: 2px 4px; font-size: 11.5px; }
+    .mdl-inside-row code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mdl-inside-row .meta { margin-left: auto; color: var(--muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+    /* ── What is picked, and what can be done with it ───────────────────── */
+    /* It appears only while something is picked, and floats at the bottom of
+       the window over the list: the list is longer than the screen, and
+       buttons at its end are buttons nobody finds. */
+    .mdl-foot {
+      position: sticky; bottom: 16px; z-index: 20; align-self: center;
+      width: fit-content; max-width: calc(100% - 24px); margin: 10px auto 14px;
+      display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 7px 7px 7px 16px;
+      border: 1px solid var(--line); border-radius: 999px;
+      background: color-mix(in srgb, var(--surface) 70%, #34464d);
+      box-shadow: 0 10px 30px rgba(0, 0, 0, .45); font-size: 12.5px;
+    }
+    .mdl-foot .picked { color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
     .mdl-del {
       background: color-mix(in srgb, #e05555 22%, var(--surface));
       border: 1px solid #8a3030; color: #f2b8b5;
-      border-radius: 8px; padding: 6px 12px; cursor: pointer; font-size: 12px;
+      border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 12px;
     }
     .mdl-del:disabled { opacity: .5; cursor: default; }
+    .mdl-move-btn {
+      background: color-mix(in srgb, #4fc3f7 14%, var(--surface));
+      border: 1px solid color-mix(in srgb, #4fc3f7 45%, transparent); color: var(--text);
+      border-radius: 999px; padding: 6px 14px; cursor: pointer; font-size: 12px;
+    }
+    .mdl-move-btn:disabled { opacity: .5; cursor: default; }
+    .mdl-move-to {
+      width: auto; height: 30px; background: transparent; color: var(--text); font-size: 12px; border-radius: 999px; padding: 3px 8px;
+      border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+    }
     .mdl-hf-link { text-decoration: none; }
+    @media (prefers-reduced-motion: reduce) { .mdl-dl-bar { transition: none; } }
   </style>
 </head>
 <body data-t-page="models" data-t-state="loading" aria-busy="true">
@@ -244,43 +473,43 @@
   </header>
 
   <div class="mdl-wrap">
-    <section class="mdl-hero">
+    <!-- The side steers the list: which place it shows, which of its files,
+         and the Hugging Face check that marks files as newer. The places are
+         drawn by static/js/model-stores.js (it measures them), the filters by
+         this page (they count the list). -->
+    <aside class="mdl-side">
       <div>
-        <h2><span aria-hidden="true">📦</span> <span data-i18n="modelsPage">Models on disk</span></h2>
-        <p data-i18n="modelsPageSub">Everything the controller can serve — sizes, which cells use what, and cleanup of the rest.</p>
+        <h3 class="mdl-side-h" data-i18n="mdlPlaces">Places</h3>
+        <nav class="mdl-nav" id="mdlStores" data-t="models-stores"
+             data-i18n-aria="a11yModelStores" aria-label="Model stores"><p class="muted">…</p></nav>
       </div>
-      <div class="mdl-hero-stats" id="mdlHeroStats" data-t="models-hero-stats" role="region" data-i18n-aria="a11yModelsSummary" aria-label="Disk summary"></div>
-    </section>
-
-    <section class="mdl-panel">
-      <div class="mdl-panel-head">
-        <span class="mdl-path" id="mdlPath" data-t="models-path-value"></span>
-        <button class="mini-link" type="button" id="mdlPathEdit" title="Edit models directory" data-t="models-path-edit">✎</button>
-        <button class="mini-link" type="button" id="mdlSelectAll" data-i18n="gcSelectAll" data-t="models-unused-select-all">Select all unused</button>
+      <div>
+        <h3 class="mdl-side-h" data-i18n="mdlShow">Show</h3>
+        <nav class="mdl-nav" id="mdlFilters" data-t="models-filters"
+             data-i18n-aria="a11yModelsFilters" aria-label="List filters"></nav>
       </div>
-      <div class="mdl-path-edit" id="mdlPathEditRow" hidden data-t="models-path-edit-row">
-        <input id="mdlPathInput" placeholder="/path/to/models" autocomplete="off" spellcheck="false"
-               data-i18n-aria="a11yModelsDirectory" aria-label="Models directory" data-t="models-path-input">
-        <button class="mini-link" type="button" id="mdlPathSave" data-i18n="save" data-t="models-path-save">Save</button>
-        <button class="mini-link" type="button" id="mdlPathCancel" data-i18n="cancel" data-t="models-path-cancel">Cancel</button>
-      </div>
-      <div class="mdl-freshness-row">
-        <button class="mini-link" type="button" id="mdlFreshCheck"
-                data-i18n="mdlFreshCheck" data-t="models-fresh-check">Check Hugging Face</button>
-        <label class="mdl-fresh-auto" data-i18n-tip="mdlFreshAutoTip"
-               title="Compares what is on disk with Hugging Face at the time below. Looking alone downloads nothing.">
-          <input type="checkbox" id="mdlFreshAuto" data-t="models-fresh-auto">
-          <span data-i18n="mdlFreshAutoLabel">Look once a day</span>
-        </label>
+      <!-- The freshness check lives with its settings in one box: four loose
+           checkboxes used to sit over the tree as if they were part of it, and
+           then behind a ⚙ where nobody saw what was set. -->
+      <section class="mdl-hf" aria-labelledby="mdlHfTitle">
+        <h3 class="mdl-side-h" id="mdlHfTitle" data-i18n="mdlHfTitle">Updates from Hugging Face</h3>
+        <span class="mdl-fresh-stamp" id="mdlFreshStamp" data-t="models-fresh-stamp"></span>
         <!-- The time of day sits RIGHT NEXT TO the checkbox it qualifies.
              "Once a day" with no answer to "at what time exactly" is half a
              setting, and the operator goes looking for the other half where
              it doesn't exist. -->
-        <label class="mdl-fresh-auto">
-          <span data-i18n="mdlFreshAtLabel">at</span>
-          <input type="time" id="mdlFreshAt" class="mdl-fresh-at" data-t="models-fresh-at"
-                 data-i18n-tip="mdlFreshAtTip" title="Local time of the daily check">
-        </label>
+        <div class="mdl-fresh-row">
+          <label class="mdl-fresh-auto" data-i18n-tip="mdlFreshAutoTip"
+                 title="Compares what is on disk with Hugging Face at the time below. Looking alone downloads nothing.">
+            <input type="checkbox" id="mdlFreshAuto" data-t="models-fresh-auto">
+            <span data-i18n="mdlFreshAutoLabel">Look once a day</span>
+          </label>
+          <label class="mdl-fresh-auto">
+            <span data-i18n="mdlFreshAtLabel">at</span>
+            <input type="time" id="mdlFreshAt" class="mdl-fresh-at" data-t="models-fresh-at"
+                   data-i18n-tip="mdlFreshAtTip" title="Local time of the daily check">
+          </label>
+        </div>
         <!-- The label must name the ACTION: the first checkbox used to
              promise "never downloads" while the one next to it downloaded —
              the row contradicted itself in front of the operator. -->
@@ -293,11 +522,41 @@
           <input type="checkbox" id="mdlFreshKeep" data-t="models-fresh-keep">
           <span data-i18n="mdlFreshKeepLabel">Keep the previous build (costs its size on disk)</span>
         </label>
-        <span class="mdl-fresh-stamp" id="mdlFreshStamp" data-t="models-fresh-stamp"></span>
+        <button class="mdl-hf-check" type="button" id="mdlFreshCheck"
+                data-i18n="mdlFreshCheck" data-t="models-fresh-check">Check Hugging Face</button>
+      </section>
+    </aside>
+
+    <section class="mdl-main">
+      <!-- What the chosen place holds and how much room it has: every place
+           side by side under "All models", one place's path, state and room
+           once it is chosen. Drawn by static/js/model-stores.js. -->
+      <div class="mdl-sum" id="mdlSummary" data-t="models-summary"><p class="muted">…</p></div>
+      <!-- The line over the list: on the left the reason this page exists (how
+           much is lying unused) and the button that picks exactly those, then
+           everything on its way; on the right the name filter. -->
+      <div class="mdl-strip">
+        <span class="mdl-unused" id="mdlUnused" data-t="models-unused-summary"></span>
+        <button class="mini-link" type="button" id="mdlSelectAll" data-i18n="gcSelectAll" data-t="models-unused-select-all">Select all unused</button>
+        <!-- Everything on its way to a library, in one line: the rows carry the
+             details, and the line shows just those rows. Its words are drawn by
+             static/js/model-moves.js, hidden while nothing moves. -->
+        <span class="mdl-moves-sum" id="mdlMovesSum" data-t="models-moves-summary" role="button" tabindex="0" hidden></span>
+        <span class="mdl-strip-gap"></span>
+        <input type="search" id="mdlSearch" class="mdl-search" data-t="models-search" autocomplete="off" spellcheck="false"
+               placeholder="Filter by name…" data-i18n-placeholder="mdlSearchPlaceholder"
+               aria-label="Filter by name…" data-i18n-aria="mdlSearchPlaceholder">
       </div>
       <div class="mdl-tree" id="mdlTree" data-t="models-tree" role="region" data-i18n-aria="a11yModelsTree" aria-label="Model files"><p class="muted">…</p></div>
-      <div class="mdl-foot">
+      <!-- What is picked, and what can be done with it: shown only while
+           something is picked. -->
+      <div class="mdl-foot" id="mdlFoot" data-t="models-selection" hidden>
         <span class="picked" id="mdlPicked" data-t="models-picked-summary"></span>
+        <!-- The move button's text is the tracker's: "Move to <library>" when
+             there is one library, and the choice beside it when there are more. -->
+        <select id="mdlMoveTo" class="mdl-move-to" hidden data-t="models-move-target"
+                data-i18n-aria="a11yMoveTarget" aria-label="Library to move to"></select>
+        <button class="mdl-move-btn" id="mdlMove" type="button" disabled data-t="models-move-selected"></button>
         <button class="mdl-del" id="mdlDelete" disabled data-i18n="gcDelete" data-t="models-delete-selected">Delete selected</button>
       </div>
     </section>

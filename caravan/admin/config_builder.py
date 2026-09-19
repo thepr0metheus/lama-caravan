@@ -11,6 +11,7 @@ import re
 import shlex
 from pathlib import Path
 
+from caravan.admin.model_locator import Located, home_path
 from caravan.admin.paths import DEFAULT_MODELS_DIR, LLAMA_HOME, START_SCRIPT
 from caravan.common.errors import AppError
 from caravan.common.flags import truthy
@@ -554,7 +555,7 @@ _BUILDER_PAIRS = [
 ]
 
 def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
-                     include_local_paths=True):
+                     include_local_paths=True, over_network=False):
     """Return the full llama-server argument list (everything AFTER the binary).
 
     `model_path` / `mmproj_path` / `spec_path` are the values emitted for the
@@ -564,6 +565,12 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
 
     `include_local_paths` controls host-local-only flags (e.g.
     --chat-template-file) that make no sense to ship to a different host.
+
+    `over_network` says the model is read from a library over the network. Then
+    the loading mode is not the operator's to choose: llama.cpp keeps the input
+    layer on the CPU and reads it from the file for every token, so a mapped
+    model on a share that blinks takes the running cell down with it. The model
+    is read into memory instead — see `no_mmap_mode`.
     """
     c = config if isinstance(config, dict) else {}
 
@@ -623,13 +630,16 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
     # three DEPRECATED. LOAD_MODE wins when set — two booleans cannot express
     # five modes, and emitting both invites them to contradict each other.
     # Leaving it empty keeps the old toggles working exactly as before.
-    load_mode = str(c.get("LOAD_MODE") or "").strip()
+    load_mode = no_mmap_mode(c.get("LOAD_MODE")) if over_network else str(c.get("LOAD_MODE") or "").strip()
     if load_mode:
         args += ["--load-mode", load_mode]
 
     add_bool("KV_OFFLOAD", "--kv-offload", "--no-kv-offload")
     if not load_mode:
-        add_bool("MMAP", "--mmap", "--no-mmap")
+        if over_network:
+            args.append("--no-mmap")
+        else:
+            add_bool("MMAP", "--mmap", "--no-mmap")
     add_bool("CACHE_PROMPT", "--cache-prompt", "--no-cache-prompt")
     add_bool("ENABLE_SLOTS", "--slots", "--no-slots")
     add_bool("SKIP_CHAT_PARSING", "--skip-chat-parsing", "--no-skip-chat-parsing")
@@ -979,6 +989,23 @@ def build_remote_llama_args(config):
         include_local_paths=False,
     )
 
+def no_mmap_mode(load_mode):
+    """The same loading mode with the mapping taken out — what a model read
+    over the network is loaded with.
+
+    Whatever else the operator asked for is kept: mlock stays mlock, direct I/O
+    stays direct I/O. Only the mapping goes, and only because the file is not on
+    a disk this host owns. An empty mode stays empty — the caller then emits
+    --no-mmap, which is the old way of saying the same thing.
+    """
+    mode = str(load_mode or "").strip()
+    if mode == "mmap+mlock":
+        return "mlock"
+    if mode == "mmap":
+        return "none"
+    return mode
+
+
 def _join_models_path(models_dir, rel):
     rel = str(rel or "").strip()
     if not rel:
@@ -1050,17 +1077,45 @@ def command_token_owners(config, builder=None):
     return owners
 
 
-def build_local_llama_command(config, *, llama_home=None):
-    """[binary, *args] for a server running on THIS controller host, with all
-    paths resolved to real absolute locations."""
+def model_paths(config, locations=None):
+    """Where this host reads the cell's three model files, as `Located` answers
+    keyed by their config field.
+
+    Without `locations` every file is taken to be on the models disk — the
+    answer the controller gave before libraries existed, and the right one for a
+    command that is only being shown. A start passes a fresh snapshot, so a file
+    that lives in a library now is read from there.
+    """
     merged = {key: str(config.get(key, "")).strip() for key in CONFIG_FIELDS}
-    models_dir = merged.get("LLAMA_MODELS_DIR") or str(DEFAULT_MODELS_DIR)
+    # The home directory is written two ways in a saved config — "~/models" as
+    # typed and "$HOME/models" as the launch renderer stores it — and a command
+    # carries real paths, not spellings a shell would have to expand: quoted,
+    # "$HOME" reaches llama-server as four literal characters.
+    root = home_path(merged.get("LLAMA_MODELS_DIR") or str(DEFAULT_MODELS_DIR))
+    out = {}
+    for key in ("MODEL_FILE", "MMPROJ_FILE", "SPEC_DRAFT_MODEL_FILE"):
+        rel = merged.get(key)
+        if not rel:
+            continue
+        found = locations.locate(rel, root) if locations is not None else None
+        out[key] = found or Located(rel, "local", _join_models_path(root, rel))
+    return out
+
+
+def build_local_llama_command(config, *, llama_home=None, locations=None):
+    """[binary, *args] for a server running on THIS controller host, with all
+    paths resolved to real absolute locations — in a library, when that is where
+    the file lives now."""
+    merged = {key: str(config.get(key, "")).strip() for key in CONFIG_FIELDS}
     home = str(llama_home or LLAMA_HOME)
-    model_abs = _join_models_path(models_dir, merged.get("MODEL_FILE"))
-    mmproj_abs = _join_models_path(models_dir, merged.get("MMPROJ_FILE"))
-    spec_abs = _join_models_path(models_dir, merged.get("SPEC_DRAFT_MODEL_FILE"))
-    args = build_llama_args(merged, model_path=model_abs, mmproj_path=mmproj_abs,
-                            spec_path=spec_abs, include_local_paths=True)
+    found = model_paths(merged, locations)
+
+    def at(key):
+        return found[key].path if key in found else ""
+
+    args = build_llama_args(merged, model_path=at("MODEL_FILE"), mmproj_path=at("MMPROJ_FILE"),
+                            spec_path=at("SPEC_DRAFT_MODEL_FILE"), include_local_paths=True,
+                            over_network=any(f.in_library for f in found.values()))
     return [f"{home.rstrip('/')}/build/bin/llama-server", *args]
 
 def is_command_cell(config):

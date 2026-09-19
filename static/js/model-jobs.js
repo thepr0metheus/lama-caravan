@@ -23,6 +23,22 @@
 //: The whole vocabulary. Order is the order chips are drawn in.
 export const JOBS = ["llm", "embed", "asr", "tts", "translate", "speech-translate"];
 
+//: How a job is drawn: the mark and the i18n key of its label. Here, beside the
+//: vocabulary itself, because BOTH surfaces draw it — the picker row and the
+//: cell card. They each held their own copy for a day, written differently
+//: (emoji literals in one, \u escapes in the other), which is precisely how two
+//: copies of one fact stop looking like copies and then quietly disagree.
+//: `speech-translate` wears both marks: it is the compound job, and a lone globe
+//: would read as plain text translation.
+export const JOB_MARKS = {
+  llm: "\u{1F4AC}", embed: "\u{1F9EC}", asr: "\u{1F3A7}", tts: "\u{1F50A}",
+  translate: "\u{1F310}", "speech-translate": "\u{1F3A7}\u{1F310}",
+};
+export const JOB_LABELS = {
+  llm: "jobLlm", embed: "jobEmbed", asr: "jobAsr", tts: "jobTts",
+  translate: "jobTranslate", "speech-translate": "jobSpeechTranslate",
+};
+
 //: Words a cell may report in `kinds` that mean one of ours. Cell servers grew
 //: their own spellings before there was a vocabulary, so a dotted kind is read
 //: by its first segment and the aliases carry the rest.

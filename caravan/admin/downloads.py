@@ -22,6 +22,10 @@ from pathlib import Path
 
 _download_jobs: dict = {}
 
+
+class DownloadCancelled(Exception):
+    """The operator pressed Cancel: the job stops where it is, and is not retried."""
+
 _download_jobs_lock = threading.Lock()
 
 # Scanning the models tree costs a full walk, and the jobs endpoint is polled
@@ -86,10 +90,20 @@ def _drop_manifest(tmp_path: Path) -> None:
         pass
 
 
+def _cancelled(job: dict) -> bool:
+    with _download_jobs_lock:
+        return bool(job.get("cancel"))
+
+
 def _run_download_job(job_id: str, repo: str, files: list, models_dir: str, token: str):
     job = _download_jobs[job_id]
+    tmp_path = None
     try:
         for i, f in enumerate(files):
+            # Checked before each file as well as inside the transfer: a
+            # cancel pressed while one file finishes must not start the next.
+            if _cancelled(job):
+                raise DownloadCancelled()
             with _download_jobs_lock:
                 job["current_idx"] = i
                 job["current_file"] = f["name"]
@@ -173,6 +187,10 @@ def _run_download_job(job_id: str, repo: str, files: list, models_dir: str, toke
                         downloaded = offset
                         with open(tmp_path, mode) as fh:
                             while True:
+                                # Once per mebibyte: Cancel stops a 40 GB file
+                                # within a second instead of after it.
+                                if _cancelled(job):
+                                    raise DownloadCancelled()
                                 chunk = resp.read(1024 * 1024)
                                 if not chunk:
                                     break
@@ -192,6 +210,8 @@ def _run_download_job(job_id: str, repo: str, files: list, models_dir: str, toke
                         )
                     os.replace(tmp_path, dest_path)
                     _drop_manifest(tmp_path)
+                except DownloadCancelled:
+                    raise
                 except Exception as exc:
                     # KEEP the .part AND its manifest — together they are the
                     # resume point for the next attempt, whether that attempt
@@ -221,6 +241,24 @@ def _run_download_job(job_id: str, repo: str, files: list, models_dir: str, toke
             job["done"] = True
             job["status"] = "done"
             job["finished_at"] = time.time()
+    except DownloadCancelled:
+        # The bytes already fetched stay, with their manifest: the partial is
+        # listed as interrupted and "Resume" continues it. A partial with no
+        # bytes is nothing to resume, so it leaves no trace.
+        if tmp_path is not None and not (tmp_path.exists() and tmp_path.stat().st_size > 0):
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+            _drop_manifest(tmp_path)
+        with _download_jobs_lock:
+            job["done"] = True
+            job["status"] = "cancelled"
+            job["error"] = None
+            job["finished_at"] = time.time()
+        # The interrupted list is cached for a few seconds; the partial this
+        # job leaves must show up on the very next poll, not after the cache.
+        _part_scan_cache["at"] = 0.0
     except Exception as exc:
         with _download_jobs_lock:
             job["done"] = True
@@ -247,6 +285,16 @@ def _dest_path(f: dict) -> str:
     dest_dir = str(f.get("destDir") or "").strip("/")
     name = str(f.get("name") or "")
     return f"{dest_dir}/{name}" if dest_dir else name
+
+
+def replaces_on_disk(files: list, models_dir: str) -> list:
+    """The destinations of `files` that already hold a file: what this download
+    would write over. The download lands with os.replace, so the build it
+    replaces is gone — and a request only says which files it wants, not that
+    it knows some of them are already here. A leftover ".part" is not a file on
+    disk yet: it is where a download resumes, and it is replaced by design."""
+    root = Path(models_dir)
+    return sorted(rel for rel in (_dest_path(f) for f in files) if (root / rel).is_file())
 
 
 def start_hf_download(repo: str, files: list, models_dir: str, token: str) -> str:
@@ -280,6 +328,17 @@ def start_hf_download(repo: str, files: list, models_dir: str, token: str) -> st
                      args=(job_id, repo, files, models_dir, token),
                      daemon=True).start()
     return job_id
+
+
+def cancel_hf_download(job_id: str):
+    """Ask a running job to stop. Returns a copy of the job, or None when there
+    is no such job or it has already finished — there is nothing to cancel."""
+    with _download_jobs_lock:
+        job = _download_jobs.get(str(job_id or ""))
+        if not job or job.get("done"):
+            return None
+        job["cancel"] = True
+        return dict(job)
 
 
 def _live_part_paths() -> set:

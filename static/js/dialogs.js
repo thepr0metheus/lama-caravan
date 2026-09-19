@@ -3,7 +3,7 @@
 // renderer and look foreign — nothing in the app should call them directly.
 import { ui } from "./state.js";
 import { t } from "./i18n.js";
-import { $ } from "./utils.js";
+import { $, escapeHtml } from "./utils.js";
 
 let _resolve = null;
 let _mode = "confirm";
@@ -60,12 +60,29 @@ function openDialog(message, opts, mode) {
     // Most callers pass nothing, which is exactly when it mattered.
     btn.textContent = opts.confirmLabel || t("okAction");
     btn.classList.toggle("danger", mode !== "prompt" && opts.danger !== false);
+    // A question with more than two answers: the answers ARE the buttons, in
+    // the dialog's own meta row, and the one confirm button steps aside. Two
+    // yes/no dialogs in a row would make the operator answer a question they
+    // were never asked ("no" to the first is not "yes" to the second).
+    btn.hidden = mode === "choose";
+    if (mode === "choose" && meta) {
+      meta.hidden = false;
+      meta.innerHTML = (opts.options || []).map((option) =>
+        `<button type="button" class="mdl-choice" data-t="dialog-choice"`
+        + ` data-t-id="${escapeHtml(option.value)}" data-choice="${escapeHtml(option.value)}"`
+        + ` title="${escapeHtml(option.hint || "")}">${escapeHtml(option.label)}</button>`).join("");
+      meta.onclick = (e) => {
+        const one = e.target.closest ? e.target.closest("[data-choice]") : null;
+        if (one) settleAppConfirm(one.dataset.choice);
+      };
+    }
     ui.pendingConfirm = () => settleAppConfirm(true);
     $("confirmOverlay").hidden = false;
     // Move focus into the dialog: the input for prompts, Cancel for dangerous
     // confirms (safe default), the confirm button otherwise.
     requestAnimationFrame(() => {
       if (mode === "prompt") { input.focus(); input.select(); }
+      else if (mode === "choose") { const first = meta && meta.querySelector("button"); if (first) first.focus(); }
       else if (dlg.dataset.tone === "danger") $("confirmCancel").focus();
       else btn.focus();
     });
@@ -74,6 +91,13 @@ function openDialog(message, opts, mode) {
 
 export function appConfirm(message, opts = {}) {
   return openDialog(message, opts, "confirm");
+}
+
+// A question with several answers: `options` are [{value, label, hint}], and the
+// promise resolves the chosen value — "" when the operator closed the dialog
+// instead of answering.
+export function appChoose(message, opts = {}) {
+  return openDialog(message, { danger: false, ...opts }, "choose");
 }
 
 // window.prompt() replacement: resolves the entered string, or null on cancel.
@@ -89,12 +113,19 @@ export function appPrompt(message, opts = {}) {
 export function settleAppConfirm(ok) {
   const resolve = _resolve;
   _resolve = null;
-  const value = _mode === "prompt" ? (ok ? $("confirmInput").value : null) : !!ok;
+  // A choice answers with itself; Cancel and Escape arrive here as `true`/
+  // `false` from the shared close path, and neither of those is an answer.
+  const value = _mode === "prompt" ? (ok ? $("confirmInput").value : null)
+    : _mode === "choose" ? (typeof ok === "string" ? ok : "")
+      : !!ok;
   _mode = "confirm";
   $("confirmOverlay").hidden = true;
   $("confirmInput").hidden = true;
   const hint = $("confirmInputHint");
   if (hint) hint.hidden = true;
+  const meta = $("confirmMeta");
+  if (meta) { meta.hidden = true; meta.innerHTML = ""; }
+  $("confirmDelete").hidden = false;
   $("confirmDelete").classList.remove("danger");
   // Legacy openers (backup delete, service action, save/restart) write the
   // dialog fields directly and expect the destructive look.

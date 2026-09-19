@@ -13,7 +13,8 @@ the window's edges and repositioned under the trigger. `markPageState` — a
 single flag on body: state, details capped at 200 characters, aria-busy only
 while loading. `inferSpecType` — a draft's type from the FIRST token of the
 filename. `fillVersionChipFromHealth` — the version from /health, only where
-a git branch hasn't already been written.
+a git branch hasn't already been written. `fmtGb` — one gigabyte format for
+the models page and its stores panel (two copies of a format drift apart).
 
 The DOM is the `globalThis.__fields` dict, plus minimal body/clipboard stubs.
 
@@ -65,6 +66,8 @@ PINS = [
      "negative: на путях авторизации и на самой странице входа 401 не уводит никуда"),
     ("toast", '', '(() => { m.toast("hi"); return [F().toast.textContent, F().toast.classList.has("show"), [...globalThis.__timers]]; })()', '["hi",true,[3200]]', "тост: текст, класс show, снятие через 3.2 с"),
     ("pill", '', '[m.pill("ok", "good"), m.pill("x")]', '["<span class=\\"pill good\\">ok</span>","<span class=\\"pill \\">x</span>"]', "пилюля с видом; без вида — пустой класс"),
+    ("fmt_gb_one_format", '', '[m.fmtGb(150 * 2 ** 30), m.fmtGb(100 * 2 ** 30), m.fmtGb(14.5 * 2 ** 30), m.fmtGb(8 * 2 ** 30), m.fmtGb(0)]', '["150 GB","100 GB","14.5 GB","8.00 GB","0.00 GB"]',
+     "гигабайты одним форматом: от 100 — целые, от 10 — одна десятичная, ниже — две; копия жила в странице моделей и понадобилась панели хранилищ — две копии формата разъезжаются"),
     ("copy_text_clipboard", '', 'await (async () => { let got = ""; Object.defineProperty(globalThis, "navigator", { value: { language: "en", clipboard: { writeText: async (t) => { got = t; } } }, configurable: true }); const ok = await m.copyText("abc"); return [ok, got]; })()', '[true,"abc"]', "буфер обмена доступен — текст ушёл, true"),
     ("copy_text_fallback_and_failure", '', 'await (async () => { const ok = await m.copyText("abc"); const el = globalThis.__created; globalThis.__exec = false; const bad = await m.copyText("abc"); return [ok, bad]; })()', '[true,false]', "без clipboard — textarea+execCommand; execCommand false — честный false"),
     ("copy_text_fallback_cleans_up", '', 'await (async () => { let made = null; document.createElement = () => { made = mkEl({ select() { this.selected += 1; }, remove() { this.removed += 1; } }); return made; }; await m.copyText("abc"); return [made.value, made.appended, made.selected, made.removed, made.style.props["position"] ?? made.style.position]; })()', '["abc",1,1,1,"fixed"]',

@@ -235,27 +235,41 @@ def hf_model_tree(repo_id):
     return {"ok": True, "repo": repo_id, "quantizations": quants, "base": base, "siblings": siblings}
 
 
+def _repo_record(r):
+    """One repository as the /hf page reads it. The search list and a model's
+    own page carry the same fields, so both answers are built here."""
+    return {"id": r.get("id", ""), "downloads": r.get("downloads", 0), "likes": r.get("likes", 0),
+            "createdAt": r.get("createdAt", ""),
+            # Modality hints straight from the HF model record (already in the
+            # answer — no extra request). pipeline_tag values like
+            # "image-text-to-text" / "audio-text-to-text" / "any-to-any" and
+            # the tags list let the UI badge vision/audio input.
+            "pipelineTag": r.get("pipeline_tag") or "",
+            "tags": [str(t) for t in (r.get("tags") or []) if isinstance(t, str)][:40]}
+
+
 def hf_search(query, limit=20):
     query = query.strip()
     if not query:
         return {"ok": False, "error": "missing query"}
     if "/" in query:
-        return {"ok": True, "repos": [{"id": query.strip("/"), "downloads": 0, "likes": 0}]}
+        # An exact "author/repo" opens that repository whether or not a word
+        # search would list it. Its record comes from the model's own page. When
+        # that cannot be read (a typo, a gated repository without a token) the
+        # record is the id alone: no counts rather than counts of zero, which
+        # the page drew as a repository nobody downloads and saved over a
+        # favorite's real numbers.
+        repo_id = query.strip("/")
+        info = _hf_request(f"models/{urllib.parse.quote(repo_id, safe='/')}")
+        if isinstance(info, dict) and not info.get("_error") and info.get("id"):
+            return {"ok": True, "repos": [_repo_record(info)]}
+        return {"ok": True, "repos": [{"id": repo_id}]}
     limit = max(5, min(100, int(limit)))
     raw = _hf_request(f"models?search={urllib.parse.quote(query)}&filter=gguf&limit={limit}&sort=downloads&direction=-1")
     if not isinstance(raw, list):
         err = (raw.get("_error", "search failed")) if isinstance(raw, dict) else "search failed"
         return {"ok": False, "error": err}
-    repos = [{"id": r.get("id", ""), "downloads": r.get("downloads", 0), "likes": r.get("likes", 0),
-              "createdAt": r.get("createdAt", ""),
-              # Modality hints straight from the HF model record (already in the
-              # search response — no extra request). pipeline_tag values like
-              # "image-text-to-text" / "audio-text-to-text" / "any-to-any" and
-              # the tags list let the UI badge vision/audio input.
-              "pipelineTag": r.get("pipeline_tag") or "",
-              "tags": [str(t) for t in (r.get("tags") or []) if isinstance(t, str)][:40]}
-             for r in raw if r.get("id")]
-    return {"ok": True, "repos": repos}
+    return {"ok": True, "repos": [_repo_record(r) for r in raw if r.get("id")]}
 
 def hf_local_delete(repo_id: str, filename: str) -> dict:
     repo_id = repo_id.strip().strip("/")
@@ -301,6 +315,13 @@ def hf_local_check(repo_id: str) -> dict:
     what caravan/common/model_freshness.py uses to decide whether this is
     still our copy or not. localNames stays: deletion and the "downloaded"
     mark still read it.
+
+    A model does not live on this disk alone any more: a move carries its
+    files to a library (a NAS share the fleet mounts), where cells read them.
+    libraryFiles names those, file by file, with the library and the size and
+    time to hold them against Hugging Face. They come from the libraries' last
+    look (model_locator.py), never from the mount: a dead NAS must not hold
+    this request, and a library that is not there holds nothing.
     """
     repo_id = repo_id.strip().strip("/")
     if not repo_id:
@@ -328,7 +349,26 @@ def hf_local_check(repo_id: str) -> dict:
             if not prev or int(st.st_mtime) > int(prev.get("mtime") or 0):
                 local_files[p.name] = {"size": st.st_size, "mtime": int(st.st_mtime),
                                        "path": str(p)}
-    return {"ok": True, "localNames": sorted(local_names), "localFiles": local_files}
+    return {"ok": True, "localNames": sorted(local_names), "localFiles": local_files,
+            "libraryFiles": _library_files(f"{model_name}/{author}/" if author else f"{model_name}/")}
+
+
+def _library_files(prefix: str) -> dict:
+    """The GGUF files under one repository's folder in every usable library,
+    by name: [{store: {id, name}, size, mtime}], one entry per library."""
+    try:
+        from caravan.admin.model_locator import current_locations
+        entries = current_locations().library_copies()
+    except Exception:
+        return {}
+    found: dict[str, list] = {}
+    for rel, store, f in entries:
+        if not rel.startswith(prefix) or not rel.lower().endswith(".gguf"):
+            continue
+        found.setdefault(rel.rsplit("/", 1)[-1], []).append(
+            {"store": {"id": store["id"], "name": store["name"]},
+             "size": int(f.get("size") or 0), "mtime": int(f.get("mtime") or 0)})
+    return found
 
 
 def _derive_model_name(repo_id: str) -> str:

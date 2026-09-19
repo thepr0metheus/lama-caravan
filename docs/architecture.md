@@ -149,9 +149,9 @@ caravan/
 ├── admin/                 admin server (38 modules)   → docs/backend-admin.md
 └── proxy/                 proxy daemon (14 modules)   → docs/backend-proxy.md
 static/
-├── js/                    36 ES modules (entry main.js) → docs/frontend.md
-├── css/                   10 cascade-ordered stylesheets
-└── index.html / kanban.html / hf.html / models.html / system.html / hf.js
+├── js/                    46 ES modules (entries main.js, models-page.js, system-page.js, hf-page.js) → docs/frontend.md
+├── css/                   10 cascade-ordered stylesheets + hf-page.css
+└── index.html / kanban.html / hf.html / models.html / system.html
 scripts/                   install/start scripts, queue-node unit tests, refactor tooling
 systemd/                   unit files installed on the controller
 cells/                     cell servers served to the fleet (/api/cell-assets)

@@ -278,46 +278,76 @@ def _freshness_by_path():
     return out
 
 
-def list_models(config=None):
+def _gguf_kind(rel):
+    """A GGUF's role by its path: "model", "mmproj" or "draft" — or None for a
+    vocab or template file, which is no model at all."""
+    name = Path(rel).name.lower()
+    parts = Path(rel).parts
+    if "vocab" in name or (parts and parts[0] in ("vocabs", "templates")):
+        return None
+    is_mmproj = any(token in name for token in ["mmproj", "mm-proj", "projector"])
+    # Draft: filename starts with a speculative-sidecar prefix, OR lives in a
+    # legacy "mtp" subdirectory. Only "mtp-" was recognised until b10357, so a
+    # dflash-/dspark-/eagle3- sidecar was filed as an ordinary MODEL: it never
+    # reached suggestedDraft, and the operator had to know it existed and type
+    # its path by hand. That is what kept Muse Glimmer at a third of its speed.
+    is_draft = (
+        any(name.startswith(prefix + "-") for prefix, _ in SPEC_SIDECAR_TYPES)
+        or (len(parts) >= 2 and parts[1] == "mtp")
+    )
+    if is_draft:
+        return "draft"
+    if is_mmproj:
+        return "mmproj"
+    return "model"
+
+
+def _header(path, rel, size, store):
+    """A GGUF header's runtime facts: read from this disk — or, for a file only
+    a library holds, remembered from its local copy (library_meta.py). A file
+    the library got some other way has none: {} rather than a guess."""
+    if store is None:
+        return extract_runtime_meta(read_gguf_metadata_cached(path))
+    from caravan.admin.library_meta import library_meta
+    return library_meta().lookup(store["id"], rel, size) or {}
+
+
+def _where(store):
+    """What a row says about its place: nothing for this disk, the library for
+    a file only a library holds."""
+    if store is None:
+        return {}
+    return {"store": {"id": store["id"], "name": store["name"]}, "libraryOnly": True}
+
+
+def list_models(config=None, locations=None):
     """Scan models directory — flat layout where all files for one quant share a dir:
       {model}/{author}/{quant}/model.gguf
       {model}/{author}/{quant}/mmproj*.gguf   ← vision projector
       {model}/{author}/{quant}/mtp-*.gguf     ← speculative draft head
+    …plus the files only a library holds (`locations`, model_locator.py), in
+    their places, marked with the library.
     """
     rows = []
     models_dir = models_dir_from_config(config or parse_config())
-    if not models_dir.exists():
+    if locations is None:
+        from caravan.admin.model_locator import current_locations
+        locations = current_locations()
+    if not models_dir.exists() and not locations.library_entries():
         return rows
     # Freshness for each file — from the same report the models page reads.
     # Gathered ONCE per list: the config panel opens often, and a directory
     # can hold close to a hundred rows.
     fresh_by_path = _freshness_by_path()
     ggufs = []
-    for path in sorted(models_dir.rglob("*.gguf")):
+    for path in (sorted(models_dir.rglob("*.gguf")) if models_dir.exists() else []):
         if not path.is_file():
             continue
         rel = str(path.relative_to(models_dir))
         name = path.name.lower()
-        parts = Path(rel).parts
-        is_vocab = "vocab" in name or parts[0] in ("vocabs", "templates")
-        if is_vocab:
+        kind = _gguf_kind(rel)
+        if kind is None:
             continue
-        is_mmproj = any(token in name for token in ["mmproj", "mm-proj", "projector"])
-        # Draft: filename starts with a speculative-sidecar prefix, OR lives in a
-        # legacy "mtp" subdirectory. Only "mtp-" was recognised until b10357, so a
-        # dflash-/dspark-/eagle3- sidecar was filed as an ordinary MODEL: it never
-        # reached suggestedDraft, and the operator had to know it existed and type
-        # its path by hand. That is what kept Muse Glimmer at a third of its speed.
-        is_draft = (
-            any(name.startswith(prefix + "-") for prefix, _ in SPEC_SIDECAR_TYPES)
-            or (len(parts) >= 2 and parts[1] == "mtp")
-        )
-        if is_draft:
-            kind = "draft"
-        elif is_mmproj:
-            kind = "mmproj"
-        else:
-            kind = "model"
         try:
             st = path.stat()
             size = st.st_size
@@ -325,19 +355,31 @@ def list_models(config=None):
         except OSError:
             size = 0
             mtime = 0
-        ggufs.append((path, rel, name, kind, size, mtime))
+        ggufs.append((path, rel, name, kind, size, mtime, None))
+    # What only a library holds joins the list, marked with its library: the
+    # picker must offer a model that moved to the NAS, since a cell can start
+    # from there. This disk wins when it has the file too.
+    local_rels = {entry[1] for entry in ggufs}
+    for rel, store, f in locations.library_entries():
+        kind = _gguf_kind(rel)
+        if kind is None or rel in local_rels:
+            continue
+        ggufs.append((None, rel, Path(rel).name.lower(), kind, int(f.get("size") or 0), int(f.get("mtime") or 0), store))
+    # One order for both, by path parts — the order the directory walk gave —
+    # so a library file sits beside its siblings from this disk.
+    ggufs.sort(key=lambda entry: entry[1].split("/"))
 
     # Index companions (mmproj, draft) by their quant directory — same dir as the model.
     companions_by_dir: dict = {}
-    for path, rel, name, kind, size, mtime in ggufs:
+    for path, rel, name, kind, size, mtime, store in ggufs:
         if kind not in ("mmproj", "draft"):
             continue
-        parent = str(path.parent.relative_to(models_dir))
+        parent = str(Path(rel).parent)
         if parent not in companions_by_dir:
             companions_by_dir[parent] = {"mmproj": [], "draft": []}
         companions_by_dir[parent][kind].append(rel)
 
-    for path, rel, name, kind, size, mtime in ggufs:
+    for path, rel, name, kind, size, mtime, store in ggufs:
         if kind != "model":
             continue
 
@@ -347,7 +389,7 @@ def list_models(config=None):
         # MTP built-in: unsloth-style repos embed MTP heads in the model weights.
         has_mtp_builtin = bool(re.search(r"[-_]MTP[-_.]|[-_]MTP-GGUF$|[-_]MTP$", top, re.IGNORECASE))
 
-        parent_rel = str(path.parent.relative_to(models_dir))
+        parent_rel = str(Path(rel).parent)
         # Also check the sibling "default/" folder — HF downloads files whose quant
         # isn't recognised (e.g. mtp-*, mmproj) there, next to the quant folder.
         default_sibling = str(Path(parent_rel).parent / "default")
@@ -376,7 +418,7 @@ def list_models(config=None):
         capability = "vision_likely" if (compatible or name_hints) else "text"
 
         family_defaults = FAMILY_DEFAULTS.get(family, {})
-        gguf_meta = extract_runtime_meta(read_gguf_metadata_cached(path))
+        gguf_meta = _header(path, rel, size, store)
 
         # Speech-to-text weights: the file says so itself (stt.variant). They
         # are GGUF and would otherwise sit in the picker looking exactly like a
@@ -400,7 +442,7 @@ def list_models(config=None):
 
         rows.append({
             "path": rel,
-            "name": path.name,
+            "name": Path(rel).name,
             "kind": kind,
             "size": size,
             "sizeGb": round(size / (1024 ** 3), 2),
@@ -415,17 +457,18 @@ def list_models(config=None):
             "detectedFamily": family,
             "familyDefaults": family_defaults,
             "ggufMeta": gguf_meta,
+            **_where(store),
         })
 
     # Also include mmproj and draft files so the frontend dropdown is populated
     # and modelsByPath() can identify them by kind (needed for auto-fill guard logic:
     # replacing wrong mmproj/draft when switching models).
-    for path, rel, name, kind, size, mtime in ggufs:
+    for path, rel, name, kind, size, mtime, store in ggufs:
         if kind not in ("mmproj", "draft"):
             continue
         row = {
             "path": rel,
-            "name": path.name,
+            "name": Path(rel).name,
             "kind": kind,
             "size": size,
             "sizeGb": round(size / (1024 ** 3), 2),
@@ -440,7 +483,8 @@ def list_models(config=None):
         # all, so the panel had nothing to read and fell back to a default of 3 —
         # a third of the throughput the file itself is asking for.
         if kind == "draft":
-            row["ggufMeta"] = extract_runtime_meta(read_gguf_metadata_cached(path))
+            row["ggufMeta"] = _header(path, rel, size, store)
+        row.update(_where(store))
         rows.append(row)
 
     return rows

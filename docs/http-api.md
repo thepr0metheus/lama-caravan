@@ -46,21 +46,29 @@ fails at import time.
 
 | Method & path | Purpose |
 |---|---|
-| `GET /api/models` | Local GGUF catalog (families, sizes, metadata). |
+| `GET /api/models` | GGUF catalog (families, sizes, metadata): this disk's files, and the files only a library holds, marked `libraryOnly` with their `store` — their header facts are the ones remembered when a move read the local copy. Never waits for a NAS: the libraries come from their last measurement. |
 | `GET /api/models/download?path=` | Stream a local GGUF file — to the browser, and to a scout provisioning a client cell (fleet token). 404 if the controller does not have it: it never fetches a model on a client's behalf. |
 | `GET /api/cell-assets` | Manifest of the cell servers this controller owns (`cells/`): sha256, size and exec bit per file, plus which files each runner needs. Fleet token. |
 | `GET /api/cell-assets/file?name=` | One cell server or launcher, raw. Explicit allowlist — a file dropped into `cells/` is not served until it is listed in `cell_assets.py`. Fleet token. |
-| `GET /api/models/disk` | Models-disk tree with per-directory size rollups (the `/models` page). |
+| `GET /api/models/disk` | Free and total space of the models directory's disk (`freeGb`, `totalGb`) — the `/hf` page's headroom badge. `/models` takes each place's room from `/api/model-stores`. |
 | `GET /api/models/unused` | GGUFs no cell/config references (multi-part groups counted as one). |
 | `POST /api/models/gc` | Delete selected unreferenced model files (server re-checks references). |
+| `GET /api/model-stores[?force=1]` | Every model store — this controller's directory and the libraries — with its state in a word and, when it is really there, its numbers. Looks inside from a child process with an 8 s deadline; `force` measures again instead of reusing the last 15 s. |
+| `POST /api/model-stores/add` | `{path, name, force}` — add a library; it is known by the mark in its root. A refusal is `{ok:false, error, code}`; a bare directory (`not-a-mount`) is refused unless `force`. |
+| `POST /api/model-stores/remove` | `{id}` — take a library off the list; its files and its mark stay. |
+| `POST /api/model-stores/move` | `{files, to, from}` — move unused models from one store to another: this disk into a library, a library back onto this disk, one library into another. An item is a GGUF (a picked part brings its whole group) or a whole model folder — a whisper cache, a checkpoint — which travels as one item, links planted back as links. `from` is the store they sit in now (the models disk when omitted), `to` where they go. Checked before a byte moves; a refusal is `{ok:false, error, code}` (`in-use`, `busy`, `no-room`, `target-<state>`…). The job copies, reads the copy back and compares sha256, and only then deletes the local copy; a folder is deleted only once every file in it is proven, and never if something appeared inside meanwhile (`folder-changed`). |
+| `GET /api/model-stores/moves` | The move jobs, newest first, from memory: status (`queued`, `running`, `waiting` with the reason, `done`, `failed`, `cancelled`), totals and a row per file (phase, bytes, why it stayed, and for a checked copy `removeIn` — the seconds until the copy here is deleted, counted by the server). |
+| `POST /api/model-stores/moves/cancel` | `{id}` — stop a move between blocks: the file in progress stays here, its unfinished copy in the library is deleted. A move still in line ends at once. |
+| `GET /api/model-stores/files[?force=1]` | What each library holds — its GGUF files and its model folders (a whisper cache, a checkpoint, marked with `kind`), as path from the library's root, size, age in days, capped at 5000 with `more`, for the tree on `/models`. From the same look that counts them for the panel; a library that is not there names no files and says its state. |
 | `GET /api/hf/model-tree?repo=` | Quantizations/siblings of a repo via the HF model-tree filter. |
-| `GET /api/hf/search?q=&limit=` | HuggingFace model search. |
+| `GET /api/hf/search?q=&limit=` | HuggingFace model search (GGUF, by downloads, `limit` held to 5–100). An exact `author/repo` skips the search and answers that repository's own record; when Hugging Face cannot give it, the record is `{id}` alone — no counts, never zeros. |
 | `GET /api/hf/files?repo=` | GGUF file listing of a repo (classified by quant/type). |
-| `GET /api/hf/local-check?repo=` | Which files of the repo already exist locally. |
+| `GET /api/hf/local-check?repo=` | What we have of the repo: `localNames`/`localFiles` on this disk (size, mtime), and `libraryFiles` — the same folder in every usable library, by name, one `{store, size, mtime}` per library. Libraries come from their last look (model_locator.py), never from the mount. |
 | `DELETE /api/hf/local-file?repo=&name=` | Delete a local copy of a repo file. |
-| `POST /api/hf/download` | Start a background download job `{repo, files[]}`; answers `{jobId}`. |
+| `POST /api/hf/download` | Start a background download job `{repo, files[], replace?}`; answers `{jobId}`. A file whose destination already holds a file is written over only with `replace: true` — without it the answer is `{ok: false, code: "exists", files: [...]}` and nothing starts (the `/hf` page asks, then resends). A leftover `.part` does not count: it is where a download resumes. |
 | `GET /api/hf/download/status?job=` | One job's progress. |
-| `GET /api/hf/download/jobs` | All running/errored jobs (page-reload recovery). |
+| `GET /api/hf/download/jobs` | All running/errored jobs (page-reload recovery), plus partials on disk no job owns as `status: "interrupted"` rows. A cancelled job is not listed: its partial is. |
+| `POST /api/hf/download/cancel` | Stop a running job `{jobId}`. The transfer checks the flag before each file and after each MiB; the job ends `status: "cancelled"` (no error, not retried), the bytes already fetched stay as a resumable partial, and a partial with no bytes is removed. `{ok: false}` for a missing id or a job that is unknown or finished. |
 | `GET /api/hf/token` / `POST /api/hf/token` | Masked HF token status / save token (clears the HF cache). |
 | `GET /api/hf/favorites` / `POST /api/hf/favorites` | Starred repos for the HF browser. |
 | `GET /api/hf/benchmarks?repo=&force=` | Benchmark metadata for a repo (leaderboards + AA). |
@@ -86,7 +94,7 @@ fails at import time.
 
 | Method & path | Purpose |
 |---|---|
-| `GET /api/topology` | The full fleet tree: clients, agents, servers, GPUs, proxies, routers, cloud. |
+| `GET /api/topology` | The full fleet tree: clients, agents, servers, GPUs, proxies, routers, cloud. A controller cell that is starting from files it reads carries `loadProgress`: `{stage: starting\|reading\|stalled\|setup, read, total, speed?, left?, idle?, files: [{role, name, size, read, state: done\|reading\|waiting, library?}]}` — bytes, bytes per second, seconds; absent when the load cannot be measured (a mapped load, an unknown size). |
 | `POST /api/topology/client-heartbeat` | Route-agent heartbeat: llama nodes, GPUs, cache state. |
 | `POST /api/topology/assignments` | Store client→router assignments (cable drops). |
 | `POST /api/topology/client-alias` | Rename a client in the UI. |
@@ -101,7 +109,7 @@ fails at import time.
 | `POST /api/topology/client-llama/start` / `…/stop` | Start/stop a llama node on a client via its route-agent. |
 | `POST /api/topology/client-llama/purge-cache` | Clear a client's model cache. |
 | `POST /api/topology/server-slot/add` / `…/delete` | Declare/remove a persistent host:port server slot. |
-| `POST /api/topology/server-cell/action` | Cell lifecycle `{action: start\|stop\|restart\|delete}` (controller systemd or client via agent). |
+| `POST /api/topology/server-cell/action` | Cell lifecycle `{action: start\|stop\|restart\|delete}` (controller systemd or client via agent). A start also takes `modelFrom` when a library holds the model: `"disk"` answers `{ok, bringing}` — a move home, and the cell starts when it arrives — `"library"` starts now and reads it over the network, and an empty value lets the server decide (home if there is room). The start script is rewritten before every start, from where the files are at that moment. |
 | `POST /api/topology/server-cell/save-config` | Save a cell's config without starting it. |
 | `POST /api/topology/server-cell/schedule` | Save a cell's start/stop window (`{enabled, start, stop, days[]}`). |
 | `POST /api/topology/server-cell/reassign-port` | Move a parked cell to a free port (fleet-wide check; router refs remapped `srv:old→srv:new`). |
@@ -176,7 +184,7 @@ fleet token) requires the `caravan_session` cookie.
 | `GET /models` | Models-disk page: GGUF tree, size rollups, unreferenced-file cleanup. |
 | `GET /system` | System page: Controller / llama.cpp / Security / Diagnostics tabs. |
 | `GET /js/<name>.js`, `/css/<name>.css` | ES modules / stylesheets (traversal-safe name class, ETag + no-cache). |
-| `GET /hf.js`, `/favicon.svg`, `/favicon.ico` | Remaining whitelisted static files. |
+| `GET /favicon.svg`, `/favicon.ico` | Remaining whitelisted static files. |
 
 ## Proxy daemon surface (per route port)
 

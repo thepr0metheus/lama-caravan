@@ -106,6 +106,14 @@ def main():
     # start; across deploys it never once lived to the end of that sleep (see
     # model_watch.model_watch_tick).
     start_scheduler_thread()
+    # A model move a restart interrupted continues from the point the library
+    # confirmed (caravan/admin/store_moves.py). Nothing was deleted before the
+    # proof, so there is nothing to repair — only to finish.
+    try:
+        from caravan.admin.store_moves import runner as store_moves
+        store_moves().resume()
+    except Exception as exc:
+        print(f"store moves: resume skipped ({exc})", flush=True)
 
     server = _Server((HOST, PORT), Handler)
     print(f"lama-caravan listening on http://{HOST}:{PORT}")

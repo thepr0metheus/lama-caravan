@@ -7,7 +7,10 @@
 // Scene kinds: "delete" — the llama stomps a crate flat (a fresh one slides
 // in, loop); "change" — it nose-flips a big toggle; "start" — a night launch:
 // the llama presses the button, the rocket climbs out of the frame past a
-// crescent moon, and a fresh rocket rolls onto the pad.
+// crescent moon, and a fresh rocket rolls onto the pad; "move" — a pack
+// llama, the caravan's own trade: a parcel on its back, it walks up to a
+// library shelf, tips the parcel into the empty slot, a spark says it is
+// checked, the parcel is put away, and a fresh one is loaded on its back.
 // The kind comes from overlay.dataset.dlgScene (set by appConfirm/appPrompt
 // opts.scene) or falls back by tone: danger→delete, ask→change. Colors are
 // re-rolled from the loader palette on every open, so the llama differs.
@@ -39,6 +42,8 @@ const LEGS = {
   press:  { b: [[3, 10], [3, 11], [5, 10], [5, 11], [8, 10], [8, 11], [11, 9], [12, 9]], h: [[3, 12], [13, 10]] },
   // standA legs, neck craned up — watching the rocket climb without moving
   watch:  { b: [[3, 10], [3, 11], [5, 10], [5, 11], [8, 10], [8, 11], [10, 10], [10, 11]], h: [[3, 12], [10, 12]], headDy: -1 },
+  // standA legs, head dipped — tipping the load off its back toward the shelf
+  bow:    { b: [[3, 10], [3, 11], [5, 10], [5, 11], [8, 10], [8, 11], [10, 10], [10, 11]], h: [[3, 12], [10, 12]], headDy: 1 },
 };
 
 // Lying-down sprite for the stop scene: body dropped to the ground, legs
@@ -174,6 +179,51 @@ function tower(stage, accent) {
                           [16, 4, accent], [17, 4, accent], [16, 5, accent]); // banner
   return px;
 }
+// move scene. The LIBRARY is a cabinet: static scenery on the sky layer, book
+// spines on its lower shelf so it reads as a library and not as a crate stack,
+// and a hatch above them. The parcel is a model on its way — a flat pack tied
+// with string, the same wood as the other scenes' crates. It is flat on
+// purpose: to reach the hatch it has to pass over the llama's head, and the
+// stage shows barely a cell and a half above the grid.
+const SHELF = "#5a4633", HATCH = "#7d6247", BOOK1 = "#4f8fd0", BOOK2 = "#c4574e", BOOK3 = "#43b3a4";
+function moveSky() {
+  const px = [];
+  for (let x = 17; x <= 21; x += 1) px.push([x, 3, SHELF], [x, 12, SHELF]);   // top and floor
+  for (let y = 4; y <= 11; y += 1) px.push([17, y, SHELF], [21, y, SHELF]);   // sides
+  for (let x = 18; x <= 20; x += 1) px.push([x, 8, SHELF]);                   // shelf under the hatch
+  px.push([18, 9, BOOK1], [18, 10, BOOK1], [18, 11, BOOK1],                   // spines, one short
+          [19, 10, BOOK2], [19, 11, BOOK2],
+          [20, 9, BOOK3], [20, 10, BOOK3], [20, 11, BOOK3]);
+  return px;
+}
+// A 3×2 pack in kraft paper: string down the middle, the lower row in its own
+// shadow. Kraft, not crate wood — it rides ON the llama, and three of the
+// bodies are the crates' browns; a wooden pack on a brown llama vanished.
+const KRAFT = "#e3c48a", KRAFT2 = "#b8894f", STRING = "#6e5137";
+function parcel(x0, y0) {
+  return [[x0, y0, KRAFT], [x0 + 1, y0, STRING], [x0 + 2, y0, KRAFT],
+          [x0, y0 + 1, KRAFT2], [x0 + 1, y0 + 1, STRING], [x0 + 2, y0 + 1, KRAFT2]];
+}
+// The hatch shut over a parcel put away — lighter wood than the cabinet, so it
+// reads as a door, with a knob.
+function hatch() {
+  const px = [];
+  for (let y = 4; y <= 7; y += 1) for (let x = 18; x <= 20; x += 1) px.push([x, y, HATCH]);
+  px.push([20, 6, ROPE]);
+  return px;
+}
+// What rides on the llama itself — drawn on ITS layer, so it walks with it:
+// "back" sits on the blanket, "drop" is a fresh pack coming down onto it.
+function pack(kind) {
+  if (kind === "back") return parcel(5, 4);
+  if (kind === "drop") return parcel(5, 2);
+  return [];
+}
+// Checked: the copy was read back and matched.
+function spark(accent) {
+  return [[19, 0, accent], [18, 1, accent], [19, 1, "#fff6d8"], [20, 1, accent], [19, 2, accent]];
+}
+
 // The timelines below still call this on every prop list; it now just passes
 // the cells through, because painting turned into SVG.
 const propShadow = (px) => px;
@@ -198,8 +248,25 @@ function cellsSvg(px) {
   return out;
 }
 
-// ── scene timelines: [pose, propShadow, llamaShiftEm, propSlide] per tick ────
+// ── scene timelines: [pose, propShadow, llamaShiftEm, propSlide, pack] per tick
 function timeline(kind, accent) {
+  if (kind === "move") {
+    // A seamless loop: the hatch is open and empty when it starts and again
+    // when it ends, so no parcel blinks out of existence between two rounds.
+    // The arc goes OVER the bowed head (ears drop to row 1, the pack flies at
+    // rows -1..0), never through it.
+    return [
+      ["standA", [], 0, false, "back"],                           // loaded
+      ["standB", [], 1, false, "back"],                           // walks up to the cabinet
+      ["bow", propShadow(parcel(8, 1)), 1, false, ""],            // lifts it off its back
+      ["bow", propShadow(parcel(12, -1)), 1, false, ""],          // over the head
+      ["bow", propShadow(parcel(16, 1)), 1, false, ""],           // on to the hatch
+      ["standA", propShadow([...parcel(18, 6), ...spark(accent)]), 1, false, ""], // in, and checked
+      ["standB", propShadow(hatch()), 0, false, ""],              // the hatch shuts; steps back
+      ["standA", propShadow(hatch()), 0, false, ""],
+      ["standA", [], 0, false, "drop"],                           // open again; the next pack comes down
+    ];
+  }
   if (kind === "create") {
     return [
       ["standA", propShadow(tower(0, accent)), 0, false],
@@ -254,6 +321,31 @@ function timeline(kind, accent) {
   ];
 }
 
+// Every frame of a scene as plain cell lists — what the llama layer and the
+// prop layer draw, and how far the llama stands to the right. Pure: no DOM, so
+// a snapshot can hold a scene to its story without a browser.
+export function sceneFrames(kind, colors = {}) {
+  const body = colors.body || BODIES[0];
+  const blanket = colors.blanket || BLANKETS[0];
+  const accent = colors.accent || "#4da392";
+  return timeline(kind, accent).map(([pose, prop, shift, slide, carried = ""]) => ({
+    pose,
+    shift,
+    slide: !!slide,
+    llama: [...(pose.startsWith("lie")
+      ? lieShadow(pose.endsWith("B") ? "b" : "a", body, blanket)
+      : llamaShadow(pose, body, blanket)), ...pack(carried)],
+    prop: prop || [],
+  }));
+}
+
+// The scenery that does not move for the whole scene.
+export function sceneSky(kind) {
+  if (kind === "start") return startSky();
+  if (kind === "move") return moveSky();
+  return [];
+}
+
 let _timer = null;
 
 function mountScene(overlay) {
@@ -271,7 +363,7 @@ function mountScene(overlay) {
     blanket = BLANKETS[Math.floor(Math.random() * BLANKETS.length)];
   }
   const accent = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#4da392";
-  const frames = timeline(kind, accent);
+  const frames = sceneFrames(kind, { body, blanket, accent });
   modal.classList.add("dlg-staged");   // hides the small header tile
   const stage = document.createElement("div");
   stage.className = "dlg-stage";
@@ -297,16 +389,14 @@ function mountScene(overlay) {
   const llamaEl = stage.querySelector(".dlg-sc-llama");
   const propEl = stage.querySelector(".dlg-sc-prop");
   const skyEl = stage.querySelector(".dlg-sc-sky");
-  skyEl.innerHTML = kind === "start" ? cellsSvg(startSky()) : "";
+  skyEl.innerHTML = cellsSvg(sceneSky(kind));
   let i = 0;
   const paint = () => {
-    const [pose, prop, shift, slide] = frames[i % frames.length];
-    llamaEl.innerHTML = cellsSvg(pose.startsWith("lie")
-      ? lieShadow(pose.endsWith("B") ? "b" : "a", body, blanket)
-      : llamaShadow(pose, body, blanket));
-    llamaEl.style.transform = `translateX(${shift}px)`;   // 1 grid unit = 1 user unit
-    propEl.innerHTML = cellsSvg(prop);
-    propEl.classList.toggle("dlg-sc-slide", !!slide);
+    const frame = frames[i % frames.length];
+    llamaEl.innerHTML = cellsSvg(frame.llama);
+    llamaEl.style.transform = `translateX(${frame.shift}px)`;   // 1 grid unit = 1 user unit
+    propEl.innerHTML = cellsSvg(frame.prop);
+    propEl.classList.toggle("dlg-sc-slide", frame.slide);
     i += 1;
   };
   paint();

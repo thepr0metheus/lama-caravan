@@ -170,6 +170,9 @@ def main():
         'for (const [n, k, v, a, fam] of arts) out.art[n] = m.jobsForArtifact(k, v, a, fam);\n'
         'for (const [n, r, k] of cells) out.cell[n] = m.jobsForCell(r, k);\n'
         'out.__jobs = m.JOBS;\n'
+        'out.__marks = m.JOBS.map((j) => m.JOB_MARKS[j] || "");\n'
+        'out.__labels = m.JOBS.map((j) => m.JOB_LABELS[j] || "");\n'
+        'out.__extraMarks = Object.keys(m.JOB_MARKS).filter((k) => !m.JOBS.includes(k));\n'
         'out.__empty = [m.jobsFromKinds(null), m.jobsFromKinds([])];\n'
         'out.__case = m.jobsFromKinds(["STT.Whisper", " ASR "]);\n'
         'console.log(JSON.stringify(out));\n'
@@ -195,6 +198,16 @@ def main():
     check(not diverged,
           f"обе копии правила отвечают ОДИНАКОВО на всей таблице (разошлись: {diverged})")
     check(js["__jobs"] == list(JOBS), f"словарь совпадает в обеих копиях (got {js['__jobs']})")
+    # Marks and labels live BESIDE the vocabulary, in one place, because both the
+    # picker row and the cell card draw them. They each kept a private copy for a
+    # day — written differently, emoji in one and \u escapes in the other — which
+    # is how two copies of one fact stop looking like copies.
+    check(all(js["__marks"]), f"у КАЖДОЙ работы есть значок — иначе чип нарисуется пустым (got {js['__marks']})")
+    check(all(js["__labels"]), f"и подпись у каждой (got {js['__labels']})")
+    check(len(set(js["__marks"])) == len(js["__marks"]),
+          f"значки не повторяются: две работы под одним значком неразличимы (got {js['__marks']})")
+    check(js["__extraMarks"] == [],
+          f"negative: значка без работы нет — осиротевшая запись пережила бы удаление работы (got {js['__extraMarks']})")
     check(js["__empty"] == [[], []], "js: пустые kinds — пустой ответ")
     check(js["__case"] == ["asr"], f"js: регистр и пробелы так же (got {js['__case']})")
     return _verdict()

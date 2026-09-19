@@ -68,6 +68,27 @@ import(process.argv[1]).then(async ({ LANGS, allMessages }) => {
 """
 
 
+def untranslated(lang, key, value, en_value, allowlist=TRANSLATION_ALLOWLIST):
+    """Why a value is not a translation, or None. Shared with the /hf table's
+    guard (check_i18n_calls.py), which has an allowlist of its own."""
+    if key in allowlist or not value:
+        return None
+    if en_value and en_value.startswith("{") is False and value == en_value:
+        # verbatim en copy — flag for ANY locale when it's real prose
+        if len(value) > 14 and len(value.split()) >= 3 and lang not in NON_LATIN:
+            return "en-copy"
+    if lang in NON_LATIN and _ENG_PHRASE.search(_IDENT_RE.sub(" ", value)):
+        return "english-phrase"
+    if lang != "ru" and _CYRILLIC_RE.search(value):
+        # A Russian value left standing in another language's table. Neither
+        # check above sees it: it is not latin words, and it is not a copy of
+        # the en string — so `computeAuto: "авто"` sat in the Chinese table
+        # until someone read the file by eye (found 2026-09-07). Russian is
+        # the only Cyrillic language here, so anywhere else it is a leak.
+        return "russian-leak"
+    return None
+
+
 def main() -> int:
     # i18n-data.js is an ES module; reading it means running it, and that needs
     # node. A host that CANNOT run this check must say so and stand aside: a
@@ -100,24 +121,6 @@ def main() -> int:
     en_strings, en_help = data["en"]["strings"], data["en"]["fieldHelp"]
     en_keys = set(en_strings)
     failed = False
-
-    def untranslated(lang, key, value, en_value):
-        if key in TRANSLATION_ALLOWLIST or not value:
-            return None
-        if en_value and en_value.startswith("{") is False and value == en_value:
-            # verbatim en copy — flag for ANY locale when it's real prose
-            if len(value) > 14 and len(value.split()) >= 3 and lang not in NON_LATIN:
-                return "en-copy"
-        if lang in NON_LATIN and _ENG_PHRASE.search(_IDENT_RE.sub(" ", value)):
-            return "english-phrase"
-        if lang != "ru" and _CYRILLIC_RE.search(value):
-            # A Russian value left standing in another language's table. Neither
-            # check above sees it: it is not latin words, and it is not a copy of
-            # the en string — so `computeAuto: "авто"` sat in the Chinese table
-            # until someone read the file by eye (found 2026-09-07). Russian is
-            # the only Cyrillic language here, so anywhere else it is a leak.
-            return "russian-leak"
-        return None
 
     for lang, entry in data.items():
         if lang == "en":

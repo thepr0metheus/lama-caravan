@@ -14,6 +14,11 @@ import re
 import threading
 import time
 
+#: How long before a window opens the cell's model is brought back from a
+#: library. Long enough for tens of gigabytes over a gigabit link, and the move
+#: itself waits out an outage, so an early start costs nothing.
+PREFETCH_MIN = 30
+
 from caravan.admin.server_cells import server_slot_key
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.admin.state import topology as topo
@@ -92,6 +97,55 @@ def in_window(sched, now=None):
     return ((day - 1) % 7) in days and cur < stop
 
 
+def minutes_to_window(sched, now=None):
+    """Minutes until this schedule's next window opens, or None when it never
+    opens (start == stop, or no day it runs on)."""
+    now = now or time.localtime()
+    days = sched.get("days") or list(range(7))
+    start = _mins(sched.get("start") or "22:00")
+    if start == _mins(sched.get("stop") or "08:00") or not days:
+        return None
+    cur = now.tm_hour * 60 + now.tm_min
+    for ahead in range(8):
+        if (now.tm_wday + ahead) % 7 not in days:
+            continue
+        left = ahead * 1440 + start - cur
+        if left >= 0:
+            return left
+    return None
+
+
+def prefetch_tick(slot, sched, now):
+    """Bring a model home before the window opens, so a scheduled cell starts
+    from this disk instead of reading over the network.
+
+    Nobody can be asked at 02:00, so the rule decides: the move is tried, and a
+    disk with no room for it simply keeps the model where it is — the cell then
+    starts from the library. The cell is NOT started here: its window has not
+    come, and the model being home is all this does.
+
+    Once per window: the window it was done for is remembered on the slot, so a
+    tick a minute later does not queue the same move again.
+    """
+    left = minutes_to_window(sched, now)
+    if left is None or left > PREFETCH_MIN:
+        return False
+    opens = time.strftime("%Y-%m-%d %H:%M", time.localtime(time.mktime(now) + left * 60))
+    if slot.get("schedFetch") == opens:
+        return False
+    slot["schedFetch"] = opens
+    from caravan.admin.cell_ops import bring_home
+    from caravan.admin.model_locator import current_locations
+    try:
+        job = bring_home(slot.get("hostId"), slot.get("port"), slot.get("config") or {}, "",
+                         current_locations(wait=True), then_start=False)
+        if job:
+            print(f"[cell-schedule] {slot.get('hostId')}:{slot.get('port')}: bringing the model home for {opens}")
+    except Exception as exc:  # noqa: BLE001 - a fetch that fails must not stop the tick
+        print(f"[cell-schedule] prefetch failed for {slot.get('port')}: {exc}")
+    return True
+
+
 def scheduler_tick(now=None):
     # Local import: cell_ops sits above this module in the layering.
     from caravan.admin.cell_ops import server_cell_action
@@ -105,6 +159,8 @@ def scheduler_tick(now=None):
                 changed = True
             continue
         want = "on" if in_window(sched, now) else "off"
+        if want == "off" and prefetch_tick(slot, sched, now):
+            changed = True
         last = slot.get("schedState")
         if last == want:
             continue

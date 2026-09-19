@@ -12,7 +12,17 @@ empty tree, failures (ok:false and an exception both → text and the page's
 error state), counting the selection, deletion only of what's selected and
 only after confirmation, changing the models directory — merged on top of
 the CURRENT saved config (otherwise /api/config would wipe out everything
-else) with restart:false; an empty path is never saved.
+else) with restart:false; an empty path is never saved. The neighbours: the
+stores panel gets its place, and the move tracker gets the tree, the line by
+the button and the button; the tracker reads the libraries off the stores
+panel, a new measurement re-labels the button and — only when the libraries
+changed — redraws the tree, and an arrived file redraws the tree and
+re-measures the stores. What a move says sits on the rows: a travelling file
+shows its bar instead of a checkbox and the download buttons; a note from a
+finished move sits on its row, the checkbox kept; ⇢ sits at the right edge of
+every file and branch that can move (on this disk, unused, not a folder, not
+travelling); a folded branch carries its progress. A picked folder says it is
+one; the selection survives a redraw.
 
 The DOM is the `globalThis.__fields` dict; `document.querySelectorAll` for a
 selector string returns the checkbox list from `globalThis.__boxes`.
@@ -21,6 +31,7 @@ Run: python3 scripts/test_js_models_page.py
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -29,9 +40,34 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _node import find_node, node_search_paths  # noqa: E402
 
+
+def _english():
+    """Every one-string line of en.js — expectations quote the page's own words
+    instead of a copy of them that can drift."""
+    out = {}
+    for key, raw in re.findall(r'^  (\w+): (".*"),$', (ROOT / "static/js/i18n/en.js").read_text(encoding="utf-8"), re.M):
+        try:
+            out[key] = json.loads(raw)
+        except ValueError:
+            continue
+    return out
+
+
+EN = _english()
+
+
+def en(key, **kw):
+    text = EN[key]
+    for k, v in kw.items():
+        text = text.replace("{" + k + "}", str(v))
+    return text
+
 STUBS = ("dialogs,dialog-llamas,polling,canvas,topology-dnd,topology-render,charts,cables,cloud,history,favorites,"
          "config-locator,system-panels,onboarding,onboarding-tours,usage-stats,system-page,memory,command-preview,"
-         "llama-edit,remote-cells,topology-nodes,topology-modals,routers,topology-activity,topology-proxies,model-meta,form")
+         "llama-edit,remote-cells,topology-nodes,topology-modals,routers,topology-activity,topology-proxies,model-meta,form,"
+         "model-stores,model-moves")
+
+PAGE_READS = ["/api/models/unused", "/api/models/freshness", "/api/hf/download/jobs", "/api/model-stores/files"]
 
 PREAMBLE = r"""
 import "./_js_globals.mjs";
@@ -53,20 +89,25 @@ document.querySelectorAll = (sel) => {
   // который спрашивает уже после стирания (так и было: пин зелёный, страница
   // схлопывается). Заодно исчезает и прокрутка: страница стала короче.
   if (sel.includes("details[open][data-branch]")) {
-    const wiped = !String(globalThis.__fields.mdlTree.innerHTML).includes("<details");
-    return wiped ? [] : globalThis.__openBranches.map((b) => ({ dataset: { branch: b } }));
+    const html = String(globalThis.__fields.mdlTree.innerHTML);
+    if (!html.includes("<details")) return [];
+    // What the markup itself has open (a narrowed list opens everything it
+    // keeps), plus what the operator opened since it was drawn.
+    const drawn = [...html.matchAll(/data-branch="([^"]*)" open>/g)].map((x) => x[1]);
+    return [...new Set([...drawn, ...globalThis.__openBranches])].map((b) => ({ dataset: { branch: b } }));
   }
   return [];
 };
 await import(pathToFileURL(process.env.JS_ROOT + "/models-page.js").href);
-const cls = () => { const s = new Set(); return { add: (...c) => c.forEach((x) => s.add(x)), remove: (...c) => c.forEach((x) => s.delete(x)), has: (c) => s.has(c) } };
-const mkEl = (onWipe) => ({ textContent: "", _html: "", get innerHTML() { return this._html; }, set innerHTML(v) { this._html = v; if (onWipe && !String(v).includes("<details")) onWipe(); }, hidden: false, disabled: false, value: "", classList: cls(), listeners: {}, focused: 0, clicked: 0, addEventListener(t, fn) { (this.listeners[t] ||= []).push(fn); }, setAttribute() {}, focus() { this.focused += 1; }, click() { this.clicked += 1; (this.listeners.click || []).forEach((fn) => fn({})); }, contains: () => false });
-const IDS = ["mdlTree", "mdlPicked", "mdlDelete", "mdlPath", "mdlHeroStats", "confirmCancel", "confirmDelete", "confirmOverlay", "mdlPathEdit", "mdlPathInput", "mdlPathEditRow", "mdlPathCancel", "mdlPathSave", "mdlSelectAll", "toast", "userChipName", "userChip", "userMenu", "userChipBtn", "userMenuLogout", "mdlFreshCheck", "mdlFreshAuto", "mdlFreshStamp", "mdlFreshGet", "mdlFreshKeep", "mdlFreshAt"];
+const cls = () => { const s = new Set(); return { add: (...c) => c.forEach((x) => s.add(x)), remove: (...c) => c.forEach((x) => s.delete(x)), has: (c) => s.has(c), toggle: (c, on) => (on === undefined ? (s.has(c) ? s.delete(c) : s.add(c)) : (on ? s.add(c) : s.delete(c))) } };
+const mkEl = (onWipe) => ({ textContent: "", _html: "", writes: 0, get innerHTML() { return this._html; }, set innerHTML(v) { this._html = v; this.writes += 1; if (onWipe && !String(v).includes("<details")) onWipe(); }, hidden: false, disabled: false, value: "", classList: cls(), listeners: {}, focused: 0, clicked: 0, addEventListener(t, fn) { (this.listeners[t] ||= []).push(fn); }, setAttribute() {}, focus() { this.focused += 1; }, click() { this.clicked += 1; (this.listeners.click || []).forEach((fn) => fn({})); }, contains: () => false });
+const IDS = ["mdlTree", "mdlPicked", "mdlDelete", "mdlUnused", "mdlStores", "mdlMovesSum", "mdlMove", "mdlMoveTo", "confirmCancel", "confirmDelete", "confirmOverlay", "mdlSelectAll", "toast", "userChipName", "userChip", "userMenu", "userChipBtn", "userMenuLogout", "mdlFreshCheck", "mdlFreshAuto", "mdlFreshStamp", "mdlFreshGet", "mdlFreshKeep", "mdlFreshAt", "mdlFoot", "mdlSummary", "mdlFilters", "mdlSearch"];
 const F = () => globalThis.__fields;
 const calls = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c.method, body: c.body === null ? null : JSON.parse(c.body) }));
 const settle = async () => { for (let i = 0; i < 4; i++) await new Promise((r) => setImmediate(r)); };
 const FILES = () => [
-  { path: "qwen/Qwen/Q4/qwen-q4.gguf", sizeBytes: 4 * 2 ** 30, ageDays: 12, referenced: true, referencedBy: ["cell:22001"] },
+  { path: "qwen/Qwen/Q4/qwen-q4.gguf", sizeBytes: 4 * 2 ** 30, ageDays: 12, referenced: true,
+    referencedBy: ["cell:22001"], readBy: ["cell:22001"] },
   { path: "qwen/Qwen/Q8/qwen-q8.gguf", sizeBytes: 8 * 2 ** 30, ageDays: 3, referenced: false },
   { path: "llama/Meta/Q4/l-q4.gguf", sizeBytes: 2 * 2 ** 30, ageDays: 40, referenced: false },
   { path: "root.gguf", sizeBytes: 0.5 * 2 ** 30, ageDays: 1, referenced: false },
@@ -82,10 +123,37 @@ const boot = async (files = FILES(), disk = { ok: true, freeGb: 120 }, fresh = u
   for (const fn of docListeners.DOMContentLoaded) await fn(); await settle(); globalThis.__fetchCalls.length = 0;
 };
 const reset = () => { globalThis.__fields = Object.fromEntries(IDS.map((id) => [id, mkEl(id === "mdlTree" ? _wipeScroll : null)])); globalThis.__boxes = []; globalThis.__openBranches = []; st.ui.pendingConfirm = null;
-  globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = { "/api/auth/me": { enabled: false } }; globalThis.__stubReturns = { "dialogs.appConfirm": async () => true }; };
+  globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = { "/api/auth/me": { enabled: false } }; globalThis.__stubReturns = { "dialogs.appConfirm": async () => true,
+  // The stores band is a module of its own; a pin that does not care about it
+  // still needs the shape the page talks to.
+  "model-stores.mountStores": () => ({ stores: [], render() {}, refresh() {}, holds() {} }) }; };
 reset();
 const tree = () => F().mdlTree.innerHTML;
 const box = (path, size, checked) => ({ checked, dataset: { delPath: path, size: String(size) } });
+// The move tracker's face as the page uses it; a pin overrides what it needs.
+const tracker = (over = {}) => ({ onWay: () => null, rowHtml: () => "", stayedHtml: () => "", branchHtml: () => "", openHtml: () => "",
+  storesKey: () => "", syncButton() {}, render() {}, ...over });
+// One file's row, from its opening tag to its end: rows hold no nested divs.
+const rowOf = (h, name) => { const hit = h.split('<div class="mdl-file').find((s) => s.includes(`>${name}</code>`)); return hit ? '<div class="mdl-file' + hit.split("</div>")[0] + "</div>" : ""; };
+// A branch's own row: its <summary>, found by the chain of names.
+const branchOf = (h, trail) => { const at = h.indexOf(`data-branch="${trail}"`); return at < 0 ? "" : h.slice(at, h.indexOf("</summary>", at)); };
+// A filter's button in the side column.
+const filterOf = (id) => { const f = F().mdlFilters.innerHTML; const at = f.indexOf(`data-t-id="${id}"`); return at < 0 ? "" : f.slice(at, f.indexOf("</button>", at)); };
+const pressFilter = (id) => F().mdlFilters.listeners.click[0]({ target: { closest: (s) => (s === "[data-filter]" ? { dataset: { filter: id }, disabled: false } : null) } });
+const typeName = (text) => { F().mdlSearch.value = text; F().mdlSearch.listeners.input[0]({}); };
+// A library listing: one file only there, one moved away from here, one copy
+// of a file this disk holds too; a second library that named only part of its files.
+const LIBS = () => ({ ok: true, libraries: [
+  { id: "lib-a", name: "NAS", state: "ok", more: 0, files: [{ path: "qwen/Qwen/Q5/qwen-q5.gguf", size: 5 * 2 ** 30, ageDays: 20 },
+    { path: "moved/X/Q4/x.gguf", size: 20 * 2 ** 30, ageDays: 9 }, { path: "qwen/Qwen/Q8/qwen-q8.gguf", size: 8 * 2 ** 30, ageDays: 3 }] },
+  { id: "lib-b", name: "Archive", state: "ok", more: 2, files: [{ path: "old/O/Q2/old.gguf", size: 2 ** 30, ageDays: 400 },
+    { path: "qwen/Qwen/Q5/qwen-q5.gguf", size: 6 * 2 ** 30, ageDays: 30 }] }] });
+// A places panel that can be steered: the page asks it for `scope`, and a
+// choice tells the page through onScope, as the real one does.
+const panel = (scope = "all") => { globalThis.__stubReturns["model-stores.mountStores"] = (root, opts) => { globalThis.__storesOpts = opts;
+  return (globalThis.__panel = { scope, chosen: [], stores: [{ id: "local", builtin: true }, { id: "lib-a", builtin: false }, { id: "lib-b", builtin: false }],
+    render() {}, refresh() {}, holds(x) { globalThis.__held = x; }, choose(s) { this.chosen.push(s); this.scope = s; opts.onScope(s); } }); }; };
+const place = (scope) => { globalThis.__panel.scope = scope; globalThis.__storesOpts.onScope(scope); };
 const out = {};
 """
 
@@ -105,8 +173,38 @@ PINS = [
      'negative: сохранения не было — откат не предлагаем, а «обновить» на месте'),
     ("staged_buttons_post_by_path", '',
      'await (async () => { await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 1786000000, repos: { r: { files: { "qwen/Qwen/Q4/qwen-q4.gguf": { state: "size" } } } }, prev: {}, watch: {} }); const btn = { dataset: { stagedGet: "qwen/Qwen/Q4/qwen-q4.gguf" }, disabled: false, textContent: "", closest: (s) => (s === "[data-staged-get]" ? btn : null) }; const h = (F().mdlTree.listeners.click || [])[0]; await h({ target: btn }); await settle(); return calls().map((c) => [c.path, c.body]); })()',
-     '[["/api/models/staged/download",{"file":"qwen/Qwen/Q4/qwen-q4.gguf"}],["/api/models/unused",null],["/api/models/disk",null],["/api/models/freshness",null],["/api/hf/download/jobs",null]]',
+     json.dumps([["/api/models/staged/download", {"file": "qwen/Qwen/Q4/qwen-q4.gguf"}]] + [[p, None] for p in PAGE_READS]),
      'кнопка шлёт ПУТЬ файла: одно имя лежит в репозитории дважды, и по имени она писала бы в чужую копию. Куда класть и откуда качать, знает отчёт сверки; страница сразу перечитывает себя — без ответа с jobId ждать нечего'),
+    ("fetching_a_new_build_asks_what_is_lost",
+     'globalThis.__asked = []; globalThis.__answer = false; '
+     'globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__asked.push([msg, opts]); return globalThis.__answer; };',
+     r"""await (async () => { const report = (keepPrev) => ({ ok: true, checkedAt: 1786000000, repos: { r: { files: { "qwen/Qwen/Q4/qwen-q4.gguf": { state: "size", remoteSize: 2 ** 33 } } } }, prev: {}, watch: { keepPrev } });
+       const press = async () => { const btn = { dataset: { stagedGet: "qwen/Qwen/Q4/qwen-q4.gguf" }, disabled: false, textContent: "fetch new", closest: (s) => (s === "[data-staged-get]" ? btn : null) };
+         await F().mdlTree.listeners.click[0]({ target: btn }); await settle(); return btn; };
+       await boot(FILES(), { ok: true, freeGb: 120 }, report(false)); const no = await press(); const declined = [calls().length, no.disabled, no.textContent];
+       globalThis.__answer = true; await press(); const yes = calls().map((c) => c.path)[0];
+       await boot(FILES(), { ok: true, freeGb: 120 }, report(true)); globalThis.__answer = false; await press();
+       return [globalThis.__asked[0][0], globalThis.__asked[0][1], declined, yes, globalThis.__asked[2][0], globalThis.__asked[2][1].danger]; })()""",
+     json.dumps([en("mdlStagedGetConfirm", name="qwen-q4.gguf", size="8.00 GB") + "\n\n" + EN["mdlStagedGetLost"],
+                 {"title": EN["mdlStagedGetTitle"], "confirmLabel": EN["mdlStagedGet"], "danger": True, "scene": "change"},
+                 [0, False, "fetch new"], "/api/models/staged/download",
+                 en("mdlStagedGetConfirm", name="qwen-q4.gguf", size="8.00 GB") + "\n\n" + EN["mdlStagedGetKept"], False], ensure_ascii=False),
+     "«fetch new» пишет поверх файла, с которого работает ячейка, — поэтому сначала вопрос: какой файл, сколько весит новая сборка и что "
+     "станет с текущей (не сохраняется — вернуть нельзя, красным; сохраняется как прежняя — можно вернуть); после «да» — запрос; "
+     "negative: «нет» — ни запроса, кнопка на месте со своим словом"),
+    ("reverting_asks_and_says_what_is_deleted",
+     'globalThis.__asked = []; globalThis.__answer = false; '
+     'globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__asked.push([msg, opts]); return globalThis.__answer; };',
+     r"""await (async () => { await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 1786000000, repos: { r: { files: { "qwen/Qwen/Q4/qwen-q4.gguf": { state: "same" } } } }, prev: { "qwen/Qwen/Q4/qwen-q4.gguf": { prev: "/m/qwen-q4.gguf.prev", prevSize: 2 ** 33 } }, watch: {} });
+       const press = async () => { const btn = { dataset: { stagedPrev: "qwen/Qwen/Q4/qwen-q4.gguf" }, disabled: false, textContent: "revert", closest: (s) => (s === "[data-staged-prev]" ? btn : null) };
+         await F().mdlTree.listeners.click[0]({ target: btn }); await settle(); return btn; };
+       const no = await press(); const declined = [calls().length, no.disabled]; globalThis.__answer = true; await press();
+       return [globalThis.__asked[0][0], globalThis.__asked[0][1], declined, calls().map((c) => [c.path, c.body])[0]]; })()""",
+     json.dumps([en("mdlStagedPrevConfirm", name="qwen-q4.gguf"),
+                 {"title": EN["mdlStagedPrevTitle"], "confirmLabel": EN["mdlStagedPrev"], "danger": True, "scene": "change"},
+                 [0, False], ["/api/models/staged/revert", {"file": "qwen/Qwen/Q4/qwen-q4.gguf"}]], ensure_ascii=False),
+     "«revert» кладёт сохранённую сборку на место рабочей, и новый файл удаляется — сначала вопрос, который это говорит, красным; после "
+     "«да» — запрос по пути; negative: «нет» — ни запроса"),
     ("the_daily_check_has_a_time_of_day", '',
      'await (async () => { await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 1786000000, repos: {}, prev: {}, watch: { check: true, at: "04:30" } }); const shown = F().mdlFreshAt.value; const enabled = !F().mdlFreshAt.disabled; '
      'globalThis.__fetchReply["/api/models/freshness/watch"] = { ok: true, watch: { check: true, download: false, keepPrev: false, at: "07:05" } }; '
@@ -204,16 +302,62 @@ PINS = [
      'await (async () => { await boot(); F().mdlFreshCheck.click(); await settle(); const a = calls().map((c) => c.path); globalThis.__fetchCalls.length = 0; F().mdlFreshAuto.checked = true; (F().mdlFreshAuto.listeners.change || []).forEach((fn) => fn({})); await settle(); return [a.includes("/api/models/freshness/check"), calls().map((c) => [c.path, c.body])]; })()',
      '[true,[["/api/models/freshness/watch",{"check":true,"download":false,"keepPrev":false,"at":""}]]]',
      'кнопка просит проверку; три галки уезжают ОДНИМ телом — сервер сам делает нижние обязательными для верхних'),
-    ("hero_tiles", '', 'await (async () => { await boot(); const h = F().mdlHeroStats.innerHTML; return [h.includes("<span>GGUF</span><strong title=\\"4\\">4</strong>"), h.includes("<strong title=\\"14.5 GB\\">14.5 GB</strong>"), h.includes("mdl-stat warn\\"><span>Unused models</span>") || /mdl-stat warn"><span>[^<]*<\\/span><strong title="3 · 10.5 GB"/.test(h), h.includes("mdl-stat good\\"><span>models disk</span><strong title=\\"120 GB free\\">"), F().mdlPath.textContent]; })()',
-     '[true,true,true,true,"/models"]', "плитки: число GGUF, общий объём, неиспользуемые — warn, диск — good при 120 GB; путь каталога"),
-    ("hero_disk_low_and_missing", '', 'await (async () => { await boot(FILES(), { ok: true, freeGb: 20 }); const a = F().mdlHeroStats.innerHTML.includes("mdl-stat warn\\"><span>models disk</span>"); await boot(FILES(), { ok: false }); return [a, F().mdlHeroStats.innerHTML.includes("models disk")]; })()',
-     '[true,false]', "диск ниже 50 GB — warn; без данных о диске плитки нет"),
-    ("hero_all_used_is_good", '', 'await (async () => { await boot([{ path: "a/b/c/d.gguf", sizeBytes: 2 ** 30, ageDays: 1, referenced: true, referencedBy: ["x"] }]); return /mdl-stat good"><span>[^<]*<\\/span><strong title="0 · 10.5 GB"/.test(F().mdlHeroStats.innerHTML); })()', 'true', "ничего неиспользуемого — плитка good"),
-    ("tree_grouping_and_rollups", '', 'await (async () => { await boot(); const h = tree(); return [h.includes(\'data-t="models-tree-group" data-t-id="qwen"\'), h.includes("mdl-name\\">qwen</span>\\n        <span class=\\"mdl-size\\">12.0 GB · 3d</span>"), h.includes("mdl-name\\">Q8</span>\\n        <span class=\\"mdl-size\\">8.00 GB · 3d</span>"), h.includes(\'data-t-id="(root)"\'), h.includes("mdl-name\\">·</span>"), (h.match(/<details/g) || []).length]; })()',
-     '[true,true,true,true,true,10]', "дерево: модель с суммой объёма и свежестью (самый свежий файл внутри), квант с двумя десятичными до 10 GB, файл в корне — (root) с «·» уровнями; 3 модели × 3 уровня + 1"),
+    ("the_unused_line_is_the_reason_for_the_buttons", '',
+     r"""await (async () => { await boot(); const idle = [F().mdlUnused.textContent, F().mdlUnused.classList.has("warn")];
+       await boot([{ path: "a/b/c/d.gguf", sizeBytes: 2 ** 30, ageDays: 1, referenced: true, referencedBy: ["x"], readBy: ["x"] }]);
+       return [idle, F().mdlUnused.textContent, F().mdlUnused.classList.has("warn")]; })()""",
+     json.dumps([[en("mdlUnusedLine", n=3, size="10.5 GB"), True], EN["mdlUnusedNone"], False], ensure_ascii=False),
+     "над деревом — одна строка про то, ради чего страница: сколько лежит без дела, предупреждающим тоном; "
+     "ничего лишнего нет — обычным. Плиток с цифрами больше нет: свободное место и счёт каждого хранилища "
+     "стоят на его собственной строке, а раньше тот же диск отвечал дважды разными словами"),
+    ("saving_the_models_directory_is_the_pages_business",
+     'globalThis.__fetchReply["/api/state"] = { config: { MODEL_FILE: "x.gguf", THREADS: "8" } };'
+     ' globalThis.__stubReturns["model-stores.mountStores"] = (root, opts) => { globalThis.__storesOpts = opts; return { stores: [], render() {}, refresh() {}, holds() {} }; };',
+     r"""await (async () => { await boot(); await globalThis.__storesOpts.onSavePath("/srv/models"); await settle();
+       const c = calls(); return [c[0].path, c[1].path, c[1].body, F().toast.textContent, c.slice(2).map((x) => x.path)]; })()""",
+     json.dumps(["/api/state", "/api/config", {"config": {"MODEL_FILE": "x.gguf", "THREADS": "8", "LLAMA_MODELS_DIR": "/srv/models"}, "restart": False},
+                 "Saved.", PAGE_READS]),
+     "каталог моделей правится в сводке своего диска, а страница отвечает за то, ЧТО значит сохранить: "
+     "путь сливается поверх ТЕКУЩЕГО сохранённого конфига (POST /api/config заменяет его целиком), без рестарта, "
+     "и потом всё перечитывается"),
+    ("the_stores_band_is_told_what_this_disk_holds",
+     'panel(); globalThis.__fetchReply["/api/model-stores/files"] = LIBS();',
+     'await (async () => { await boot(); return globalThis.__held; })()',
+     '{"files":4,"size":15569256448,"families":{"all":5,"local":3,"lib-a":2,"lib-b":2}}',
+     "панель мест получает счёт этого диска от страницы: дерево уже посчитало те же файлы, "
+     "и мерить их второй раз значило бы завести второе число, которое может разойтись с первым; "
+     "заодно — сколько семейств у каждого места (семейство — верхняя папка дерева; копия файла считается в обоих местах)"),
+    ("tree_grouping_and_rollups", '',
+     r"""await (async () => { await boot(); const h = tree(); return [h.includes('data-t="models-tree-group" data-t-id="qwen"'),
+       branchOf(h, "qwen").includes('<span class="mdl-name">qwen</span><a class="mdl-tree-hf" href="/hf?q=qwen" data-t="models-hf-open" data-t-id="qwen" title="Find this model on Hugging Face" aria-label="Find this model on Hugging Face">🤗</a></span><span class="mdl-c-status"></span><span class="mdl-c-size here">12.0 GB</span><span class="mdl-c-size lib"><span class="mdl-dim">—</span></span><span class="mdl-c-age">3d</span>'),
+       branchOf(h, "qwen/Qwen/Q8").includes('<span class="mdl-c-size here">8.00 GB</span>'), branchOf(h, "qwen/Qwen/Q8").includes('<span class="mdl-c-age">3d</span>'),
+       h.includes('data-t-id="(root)"'), h.includes('mdl-name">·</span>'), (h.match(/<details/g) || []).length,
+       h.startsWith('<div class="mdl-row mdl-head" data-t="models-tree-head">'), branchOf(h, "qwen/Qwen").includes('style="--lvl:1"'), rowOf(h, "qwen-q8.gguf").includes('style="--lvl:3"')]; })()""",
+     '[true,true,true,true,true,true,10,true,true,true]',
+     "дерево — колонками под заголовком: у модели объём здесь, прочерк в библиотеке и свежесть (самый свежий файл внутри); квант с двумя "
+     "десятичными до 10 GB; файл в корне — (root) с «·» уровнями; 3 модели × 3 уровня + 1; вложенность — отступ в колонке имени, а не сдвиг строки"),
+    ("branches_lead_to_hugging_face", '',
+     r"""await (async () => { const files = [...FILES(), { path: "models--facebook--nllb/snap/x.gguf", sizeBytes: 5, ageDays: 1, referenced: false },
+         { path: "gemma/default/Q4/g.gguf", sizeBytes: 5, ageDays: 1, referenced: false }]; await boot(files); const h = tree();
+       const links = [...h.matchAll(/<a class="mdl-tree-hf" href="([^"]*)" data-t="models-hf-open" data-t-id="([^"]*)" title="([^"]*)"/g)].map((m) => [m[1], m[2], m[3]]).sort((a, b) => (a[1] < b[1] ? -1 : 1));
+       const inBranch = (trail) => branchOf(h, trail).includes('data-t="models-hf-open"');
+       return [links, inBranch("qwen/Qwen/Q8"), inBranch("(root)"), inBranch("(root)/·"), inBranch("models--facebook--nllb/snap"), inBranch("gemma/default")]; })()""",
+     '[[["/hf?q=Meta%2Fllama","Meta/llama","Open this repository on Hugging Face"],["/hf?q=Qwen%2Fqwen","Qwen/qwen","Open this repository on Hugging Face"],'
+     '["/hf?q=gemma","gemma","Find this model on Hugging Face"],["/hf?q=llama","llama","Find this model on Hugging Face"],["/hf?q=qwen","qwen","Find this model on Hugging Face"]],false,false,false,false,false]',
+     "дорога на Hugging Face: ветка автора — это репозиторий, 🤗 открывает его на /hf; ветка модели ищет по имени (все авторы); у кванта, (root), «·», кэша models-- и автора default ссылки нет"),
+
     ("tree_largest_first_every_level", '', 'await (async () => { await boot(); const h = tree(); const i = (s) => h.indexOf(s); return [i(\'data-t-id="qwen"\') < i(\'data-t-id="llama"\'), i(\'data-t-id="llama"\') < i(\'data-t-id="(root)"\'), i(\'data-t-id="Q8"\') < i(\'data-t-id="Q4"\')]; })()', '[true,true,true]', "крупные первыми на каждом уровне: модели, кванты"),
-    ("file_rows_used_and_deletable", '', 'await (async () => { await boot(); const h = tree(); return [h.includes("<span class=\\"mdl-used\\" title=\\"cell:22001\\">✓ cell:22001</span><code title=\\"qwen/Qwen/Q4/qwen-q4.gguf\\">qwen-q4.gguf</code>"), h.includes(\'aria-label="qwen/Qwen/Q8/qwen-q8.gguf" data-t="models-model-select" data-t-id="qwen/Qwen/Q8/qwen-q8.gguf" data-del-path="qwen/Qwen/Q8/qwen-q8.gguf" data-size="8589934592"\'), (h.match(/data-del-path=/g) || []).length, h.includes("8.00 GB · 3d</span>"), h.includes("0.50 GB · 1d")]; })()',
-     '[true,true,3,true,true]', "строка файла: используемый — ✓ с ячейками и без чекбокса; неиспользуемый — чекбокс с путём (не именем) и размером; размер и возраст"),
+    ("file_rows_used_and_deletable", '',
+     r"""await (async () => { await boot(); const h = tree(); const used = rowOf(h, "qwen-q4.gguf"), free = rowOf(h, "qwen-q8.gguf"); return [
+       used.includes('<span class="mdl-nobox"></span><code title="qwen/Qwen/Q4/qwen-q4.gguf">qwen-q4.gguf</code></span><span class="mdl-c-status"><span class="mdl-used" title="cell:22001">✓ cell:22001</span>'),
+       used.includes("data-del-path"),
+       free.includes('aria-label="qwen/Qwen/Q8/qwen-q8.gguf" data-t="models-model-select" data-t-id="qwen/Qwen/Q8/qwen-q8.gguf" data-del-path="qwen/Qwen/Q8/qwen-q8.gguf" data-size="8589934592"'),
+       (h.match(/data-del-path=/g) || []).length,
+       free.includes('<span class="mdl-c-size here">8.00 GB</span><span class="mdl-c-size lib"><span class="mdl-dim">—</span></span><span class="mdl-c-age">3d</span>'),
+       rowOf(h, "root.gguf").includes('<span class="mdl-c-size here">0.50 GB</span>')]; })()""",
+     '[true,false,true,3,true,true]',
+     "строка файла: используемый — пустое место вместо чекбокса и ✓ с ячейками в колонке состояния; неиспользуемый — чекбокс с путём (не именем) "
+     "и размером; размер и возраст — в своих колонках"),
     ("tree_empty", '', 'await (async () => { await boot([]); return [tree().includes("Nothing unused"), F().mdlDelete.disabled, F().mdlPicked.textContent, document.body.dataset.tState]; })()', '[true,true,"","ready"]', "пустой каталог — подсказка, удаление выключено, страница ready"),
     ("refresh_not_ok_and_throw", '', 'await (async () => { globalThis.__fetchReply["/api/models/unused"] = { ok: false, error: "no such dir" }; for (const fn of docListeners.DOMContentLoaded) await fn(); await settle(); const a = [tree().includes("no such dir"), document.body.dataset.tState]; globalThis.__fetchReply["/api/models/unused"] = { __status: 500, error: "boom" }; for (const fn of docListeners.DOMContentLoaded) await fn(); await settle(); return [...a, tree().includes("boom"), document.body.dataset.tState]; })()',
      '[true,"error",true,"error"]', "negative: ok:false и исключение — текст в дереве и состояние error (страница честно говорит, что не загрузилась)"),
@@ -222,13 +366,249 @@ PINS = [
     ("delete_nothing_selected", '', 'await (async () => { await boot(); await F().mdlDelete.listeners.click[0](); return calls().length; })()', '0', "negative: ничего не выбрано — ни запроса"),
     ("delete_refused_by_confirm", '', 'await (async () => { await boot(); globalThis.__boxes = [box("a/b", 2 ** 30, true)]; globalThis.__stubReturns["dialogs.appConfirm"] = async () => false; await F().mdlDelete.listeners.click[0](); return calls().length; })()', '0', "negative: отказ подтверждения — ни запроса"),
     ("delete_selected_posts_and_refreshes", 'globalThis.__fetchReply["/api/models/gc"] = { ok: true, freedGb: 9 };', 'await (async () => { await boot(); globalThis.__boxes = [box("qwen/Qwen/Q8/qwen-q8.gguf", 8 * 2 ** 30, true), box("root.gguf", 1, false)]; await F().mdlDelete.listeners.click[0](); await settle(); const c = calls(); return [c[0].path, c[0].body, F().toast.textContent, c.slice(1).map((x) => x.path), F().mdlDelete.disabled]; })()',
-     '["/api/models/gc",{"files":["qwen/Qwen/Q8/qwen-q8.gguf"]},"9 GB freed",["/api/models/unused","/api/models/disk","/api/models/freshness","/api/hf/download/jobs"],false]', "удаление: POST только отмеченных путей, тост, перечитывание, кнопка снова включена"),
-    ("path_edit_opens_with_current", '', 'await (async () => { await boot(); F().mdlPathEdit.listeners.click[0](); return [F().mdlPathInput.value, F().mdlPathEditRow.hidden, F().mdlPathInput.focused]; })()', '["/models",false,1]', "правка каталога: поле с текущим путём, строка показана, фокус"),
-    ("path_save_merges_over_saved_config", 'globalThis.__fetchReply["/api/state"] = { config: { MODEL_FILE: "x.gguf", THREADS: "8" } };', 'await (async () => { await boot(); F().mdlPathInput.value = " /srv/models "; await F().mdlPathSave.listeners.click[0](); await settle(); const c = calls(); return [c[0].path, c[1].path, c[1].body, F().mdlPathEditRow.hidden, F().toast.textContent, c.slice(2).map((x) => x.path)]; })()',
-     '["/api/state","/api/config",{"config":{"MODEL_FILE":"x.gguf","THREADS":"8","LLAMA_MODELS_DIR":"/srv/models"},"restart":false},true,"Saved.",["/api/models/unused","/api/models/disk","/api/models/freshness","/api/hf/download/jobs"]]', "сохранение каталога: путь обрезан и слит поверх ТЕКУЩЕГО сохранённого конфига, без рестарта; потом перечитывание"),
-    ("path_save_empty_is_noop", '', 'await (async () => { await boot(); F().mdlPathInput.value = "   "; await F().mdlPathSave.listeners.click[0](); return calls().length; })()', '0', "negative: пустой путь не сохраняется"),
-    ("path_keys_enter_and_escape", '', 'await (async () => { await boot(); let p = 0; F().mdlPathInput.listeners.keydown[0]({ key: "Enter", preventDefault: () => p++ }); F().mdlPathInput.listeners.keydown[0]({ key: "Escape", preventDefault: () => p++ }); return [p, F().mdlPathSave.clicked, F().mdlPathCancel.clicked, F().mdlPathEditRow.hidden]; })()', '[2,1,1,true]', "Enter сохраняет, Escape отменяет, оба события погашены"),
+     json.dumps(["/api/models/gc", {"files": ["qwen/Qwen/Q8/qwen-q8.gguf"]}, "9 GB freed", PAGE_READS, False]), "удаление: POST только отмеченных путей, тост, перечитывание, кнопка снова включена"),
     ("confirm_wiring", '', 'await (async () => { await boot(); let settled = []; globalThis.__stubReturns["dialogs.settleAppConfirm"] = (ok) => settled.push(ok); F().confirmCancel.listeners.click[0](); F().confirmOverlay.listeners.click[0]({ target: { id: "confirmOverlay" } }); F().confirmOverlay.listeners.click[0]({ target: { id: "inner" } }); let ran = 0; st.ui.pendingConfirm = () => ran++; F().confirmDelete.listeners.click[0](); return [settled, ran]; })()', '[[false,false],1]', "проводка общего confirm: отмена и клик по подложке оседают false, клик внутри — нет; кнопка подтверждения зовёт pendingConfirm"),
+    ("stores_panel_gets_its_place", 'globalThis.__stubReturns["model-stores.mountStores"] = (root) => { globalThis.__mountedInto = root; return { render() {}, refresh() {}, holds() {}, stores: [] }; };',
+     'await (async () => { globalThis.__mountedInto = undefined; await boot(); return [globalThis.__mountedInto === F().mdlStores, !!F().mdlStores]; })()', '[true,true]',
+     "панель хранилищ получает свой #mdlStores — и только его: свои данные она берёт сама, а перечитывания страницы (пины выше пересчитывают их запросы поштучно) её не касаются"),
+    ("moves_get_the_tree_the_line_and_the_button",
+     'globalThis.__movesOpts = null; globalThis.__storesOpts = null; globalThis.__syncs = 0; globalThis.__storeRefreshes = []; globalThis.__libKey = ""; '
+     'globalThis.__stubReturns["model-moves.mountMoves"] = (opts) => { globalThis.__movesOpts = opts; return tracker({ storesKey: () => globalThis.__libKey, syncButton() { globalThis.__syncs += 1; } }); }; '
+     'globalThis.__stubReturns["model-stores.mountStores"] = (root, opts) => { globalThis.__storesOpts = opts; return { render() {}, holds() {}, stores: [{ id: "lib-a" }], refresh(force) { globalThis.__storeRefreshes.push(force); } }; };',
+     r"""await (async () => { await boot(); const o = globalThis.__movesOpts; const before = globalThis.__syncs; globalThis.__storesOpts.onChange(); await settle();
+       const same = [globalThis.__syncs - before, calls().length]; globalThis.__libKey = "lib-a:NAS"; globalThis.__storesOpts.onChange(); await settle(); const fresh = calls().map((c) => c.path);
+       globalThis.__fetchCalls.length = 0; globalThis.__storesOpts.onChange(); await settle(); const again = calls().length;
+       o.onChange(); await settle();
+       return [o.tree === F().mdlTree, o.summary === F().mdlMovesSum, o.button === F().mdlMove, o.select === F().mdlMoveTo, o.stores().map((s) => s.id), same, fresh, again, calls().map((c) => c.path), globalThis.__storeRefreshes]; })()""",
+     json.dumps([True, True, True, True, ["lib-a"], [1, 0], PAGE_READS, 0, PAGE_READS, [True]]),
+     "трекер переносов получает дерево, строку у кнопки, кнопку и выбор библиотеки; библиотеки берёт у панели хранилищ; новый замер пересчитывает кнопку, а дерево перерисовывает, только если состав библиотек изменился (иначе ⇢ предлагали бы старые); приехавший файл перерисовывает дерево и заново меряет хранилища"),
+    ("a_travelling_file_shows_its_bar_instead_of_a_checkbox",
+     'globalThis.__stubReturns["model-moves.mountMoves"] = () => tracker({ onWay: (p) => (p === "qwen/Qwen/Q8/qwen-q8.gguf" ? { job: {}, row: {} } : null), '
+     'rowHtml: (p) => `<i data-bar="${p}"></i>`, openHtml: (s, v) => `<b data-open="${s}:${v}"></b>`, stayedHtml: () => "<i data-note></i>" });',
+     r"""await (async () => { await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 1786000000, repos: { r: { files: { "qwen/Qwen/Q8/qwen-q8.gguf": { state: "size" } } } }, prev: {}, watch: {} }); const h = tree();
+       const row = rowOf(h, "qwen-q8.gguf");
+       return [row.includes('<span class="mdl-c-status"><span class="mdl-fresh newer"'), row.includes('<i data-bar="qwen/Qwen/Q8/qwen-q8.gguf"></i>'), row.includes("data-del-path"), row.includes("data-staged-get"), row.includes("data-open="), row.includes("data-note"), (h.match(/data-del-path=/g) || []).length]; })()""",
+     '[true,true,false,false,false,false,2]',
+     "файл в пути — на его строке полоса переноса вместо чекбокса и кнопок загрузки (удалить, обновить или перенести второй раз посреди переноса нельзя), без ⇢ и без старой пометки; остальные неиспользуемые — с чекбоксами"),
+    ("a_stopped_cells_model_can_still_move",
+     'globalThis.__stubReturns["model-moves.mountMoves"] = () => tracker({ openHtml: (s, v) => `<b data-open="${s}:${v}"></b>` });',
+     r"""await (async () => { const files = [...FILES(), { path: "parked/P/Q4/p.gguf", sizeBytes: 2 ** 30, ageDays: 5, referenced: true, referencedBy: ["cell:22002"], readBy: [] }];
+       await boot(files); const h = tree(); const row = (name) => rowOf(h, name);
+       return [row("p.gguf").includes('data-open="file:parked/P/Q4/p.gguf"'), row("p.gguf").includes("data-del-path"),
+               row("p.gguf").includes('class="mdl-used parked"'), (row("p.gguf").match(/class="mdl-used parked" title="([^"]*)"/) || [])[1],
+               row("qwen-q4.gguf").includes("data-open="), row("qwen-q4.gguf").includes('class="mdl-used"')]; })()""",
+     json.dumps([True, False, True, EN["mdlUsedStopped"].replace("{names}", "cell:22002"), False, True], ensure_ascii=False),
+     "модель ОСТАНОВЛЕННОЙ ячейки: ⇢ есть (перенос вернётся при старте), чекбокса нет (удаление ячейку сломает), "
+     "а ✓ приглушён и говорит почему; модель ЗАПУЩЕННОЙ ячейки ⇢ не получает"),
+    ("the_arrow_sits_where_a_file_can_move",
+     'globalThis.__stubReturns["model-moves.mountMoves"] = () => tracker({ openHtml: (s, v) => `<b data-open="${s}:${v}"></b>` }); '
+     'globalThis.__fetchReply["/api/model-stores/files"] = { ok: true, libraries: [{ id: "lib-a", name: "NAS", state: "ok", more: 0, files: [{ path: "moved/X/Q4/x.gguf", size: 2 ** 30, ageDays: 9 }] }] };',
+     r"""await (async () => { const files = [...FILES(), { path: "whisper/models--x", kind: "whisper", sizeBytes: 5, ageDays: 2, referenced: false }]; await boot(files); const h = tree();
+       return [[...h.matchAll(/data-open="([^"]+)"/g)].map((x) => x[1]).sort(), h.includes('<span class="mdl-c-age">3d</span><span class="mdl-c-go"><b data-open="file:qwen/Qwen/Q8/qwen-q8.gguf"></b></span></div>')]; })()""",
+     json.dumps([sorted(["file:qwen/Qwen/Q8/qwen-q8.gguf", "file:llama/Meta/Q4/l-q4.gguf", "file:root.gguf", "file:moved/X/Q4/x.gguf",
+                         "file:whisper/models--x", "branch:whisper", "branch:whisper/·", "branch:whisper/·/·",
+                         "branch:qwen", "branch:qwen/Qwen", "branch:qwen/Qwen/Q8", "branch:llama", "branch:llama/Meta", "branch:llama/Meta/Q4",
+                         "branch:(root)", "branch:(root)/·", "branch:(root)/·/·"]), True], ensure_ascii=False),
+     "⇢ стоит у каждого предмета, который можно перенести, и у каждой ветки с такими предметами — в последней колонке строки: у файлов и ПАПОК этого диска (не занятых) и у файла из библиотеки, которому есть куда ехать; занятый файл и ветка только из занятых ⇢ не получают"),
+    ("a_library_row_can_move_too",
+     'globalThis.__stubReturns["model-moves.mountMoves"] = () => tracker({ openHtml: (s, v, it = {}) => `<b data-open="${s}:${v}:${it.from}:${it.kind || ""}"></b>`, '
+     'onWay: (p) => (p === "moved/X/Q4/x.gguf" ? { job: {}, row: {} } : null), rowHtml: (p) => `<i data-bar="${p}"></i>` }); '
+     'globalThis.__fetchReply["/api/model-stores/files"] = { ok: true, libraries: [{ id: "lib-a", name: "NAS", state: "ok", more: 0, files: ['
+     '{ path: "qwen/Qwen/Q5/qwen-q5.gguf", size: 5 * 2 ** 30, ageDays: 20 }, { path: "moved/X/Q4/x.gguf", size: 2 * 2 ** 30, ageDays: 9 }, '
+     '{ path: "whisper/models--gone", kind: "whisper", size: 3 * 2 ** 30, ageDays: 4 }] }] };',
+     r"""await (async () => { await boot(); const h = tree(); const row = (name) => rowOf(h, name);
+       return [row("qwen-q5.gguf").includes('<b data-open="file:qwen/Qwen/Q5/qwen-q5.gguf:lib-a:"></b>'), row("qwen-q5.gguf").includes("data-bar"),
+               row("x.gguf").includes('<i data-bar="moved/X/Q4/x.gguf"></i>'), row("x.gguf").includes("data-open"),
+               row("models--gone").includes('<b data-open="file:whisper/models--gone:lib-a:whisper"></b>'),
+               row("models--gone").includes('title="A whole folder (whisper): it is moved and deleted as one item, with everything inside it.">📁</span>')]; })()""",
+     '[true,false,true,false,true,true]',
+     "строка библиотеки тоже переносится: её ⇢ несёт хранилище как «откуда» — обратно на этот диск или в другую библиотеку; пока файл едет, на строке та же полоса, и ⇢ нет; папка-модель в библиотеке — такая же строка с 📁, и её ⇢ несёт вид: она вернётся целиком"),
+    ("a_note_from_a_finished_move_sits_on_the_row",
+     'globalThis.__stubReturns["model-moves.mountMoves"] = () => tracker({ stayedHtml: (p) => (p === "llama/Meta/Q4/l-q4.gguf" ? "<i data-note></i>" : "") });',
+     r"""await (async () => { await boot(); const h = tree(); return [rowOf(h, "l-q4.gguf").includes('<i data-note></i></span><span class="mdl-c-size here">2.00 GB</span>'), h.includes('data-del-path="llama/Meta/Q4/l-q4.gguf"'), (h.match(/data-note/g) || []).length]; })()""",
+     '[true,true,1]',
+     "пометка законченного переноса стоит в колонке состояния строки своего файла, перед размерами; чекбокс остаётся — файл здесь, с ним можно работать"),
+    ("a_folded_branch_carries_its_progress",
+     'globalThis.__stubReturns["model-moves.mountMoves"] = () => tracker({ branchHtml: (trail) => (trail === "qwen/Qwen" ? `<i data-branch-bar="${trail}"></i>` : "") });',
+     r"""await (async () => { await boot(); const h = tree(); return [h.includes('<span class="mdl-name">Qwen</span><a class="mdl-tree-hf" href="/hf?q=Qwen%2Fqwen" data-t="models-hf-open" data-t-id="Qwen/qwen" title="Open this repository on Hugging Face" aria-label="Open this repository on Hugging Face">🤗</a></span><span class="mdl-c-status"><i data-branch-bar="qwen/Qwen"></i></span>'), (h.match(/data-branch-bar/g) || []).length]; })()""",
+     '[true,1]',
+     "свёрнутая ветка несёт свой прогресс в колонке состояния: ключ — цепочка от корня, поэтому чип попадает ровно на свою ветку"),
+    ("picking_tells_the_move_button_and_folders_say_so",
+     'globalThis.__syncs = 0; globalThis.__stubReturns["model-moves.mountMoves"] = (opts) => { globalThis.__movesOpts = opts; return tracker({ syncButton() { globalThis.__syncs += 1; } }); };',
+     r"""await (async () => { const files = [...FILES(), { path: "whisper/models--x", kind: "whisper", sizeBytes: 5, ageDays: 2, referenced: false }]; await boot(files); const h = tree();
+       const marked = h.includes('data-del-path="whisper/models--x" data-size="5" data-kind="whisper"');
+       const chip = h.includes('<span class="mdl-kind" data-t="models-folder-item" data-t-id="whisper/models--x" title="A whole folder (whisper): it is moved and deleted as one item, with everything inside it.">📁</span>');
+       globalThis.__boxes = [box("a.gguf", 2 ** 30, true), { checked: true, dataset: { delPath: "whisper/models--x", size: "5", kind: "whisper" } }]; const before = globalThis.__syncs; F().mdlTree.listeners.change[0]();
+       return [marked, chip, (h.match(/mdl-kind/g) || []).length, globalThis.__syncs - before, globalThis.__movesOpts.picked()]; })()""",
+     '[true,true,1,1,[{"path":"a.gguf","size":1073741824,"kind":""},{"path":"whisper/models--x","size":5,"kind":"whisper"}]]',
+     "выбор меняется — кнопка переноса пересчитывается; папка (кэш HF, safetensors) названа папкой и в разметке, и значком 📁, и в выборе — её переносят и удаляют целиком; обычный файл значка не получает"),
+    ("the_tree_stays_while_a_refresh_waits",
+     'globalThis.__stubReturns["model-moves.mountMoves"] = (opts) => { globalThis.__movesOpts = opts; return tracker(); };',
+     r"""await (async () => { await boot(); const before = tree();
+       let release; const gate = new Promise((r) => { release = r; }); const plain = globalThis.fetch;
+       globalThis.fetch = async (path, o) => { if (String(path) === "/api/models/unused") await gate; return plain(path, o); };
+       try {
+         globalThis.__movesOpts.onChange(); await settle();
+         const during = tree(); release(); await settle();
+         return [before.includes("<details"), during === before, tree().includes("<details")];
+       } finally { globalThis.fetch = plain; } })()""",
+     '[true,true,true]',
+     "пока новый ответ в пути, дерево остаётся на экране: раньше оно стиралось в «…» ДО запросов, а перенос "
+     "перерисовывает дерево на каждом приехавшем файле, пока библиотеку меряют по сети, занятой этой же копией — "
+     "живьём на месте семидесяти моделей висело «…», сколько отвечал NAS"),
+    ("an_older_answer_does_not_paint_over_a_newer_one",
+     'globalThis.__stubReturns["model-moves.mountMoves"] = (opts) => { globalThis.__movesOpts = opts; return tracker(); };',
+     r"""await (async () => { await boot();
+       let release; const gate = new Promise((r) => { release = r; }); const plain = globalThis.fetch; let held = false;
+       const old = REPLY([{ path: "stale/S/Q4/stale.gguf", sizeBytes: 2 ** 30, ageDays: 1, referenced: false }]);
+       globalThis.fetch = async (path, o) => {
+         if (String(path) === "/api/models/unused" && !held) { held = true; await gate; return new Response(JSON.stringify(old)); }
+         return plain(path, o); };
+       try {
+         globalThis.__movesOpts.onChange(); await settle();
+         globalThis.__movesOpts.onChange(); await settle();
+         const newer = tree().includes("qwen-q8.gguf"); release(); await settle();
+         return [newer, tree().includes("stale.gguf"), tree().includes("qwen-q8.gguf")];
+       } finally { globalThis.fetch = plain; } })()""",
+     '[true,false,true]',
+     "negative: две перерисовки наперегонки — ответ первой пришёл ПОСЛЕ второй и выброшен: иначе медленный старый "
+     "ответ закрасил бы новое дерево старым списком"),
+    ("the_selection_survives_a_redraw", '',
+     r"""await (async () => { await boot(); globalThis.__boxes = [box("qwen/Qwen/Q8/qwen-q8.gguf", 8 * 2 ** 30, true)]; await boot(); const h = tree();
+       return [h.includes('data-del-path="qwen/Qwen/Q8/qwen-q8.gguf" data-size="8589934592" checked>'), h.includes('data-del-path="llama/Meta/Q4/l-q4.gguf" data-size="2147483648">')]; })()""",
+     '[true,true]',
+     "отмеченное переживает перерисовку: перенос перерисовывает дерево на каждом приехавшем файле, и выбор не должен слетать; неотмеченное остаётся неотмеченным"),
+    ("library_files_take_their_place_in_the_tree",
+     'globalThis.__fetchReply["/api/model-stores/files"] = { ok: true, libraries: [{ id: "lib-a", name: "NAS", state: "ok", more: 0, files: ['
+     '{ path: "qwen/Qwen/Q5/qwen-q5.gguf", size: 5 * 2 ** 30, ageDays: 20 }, { path: "moved/X/Q4/x.gguf", size: 2 * 2 ** 30, ageDays: 9 }, '
+     '{ path: "qwen/Qwen/Q8/qwen-q8.gguf", size: 8 * 2 ** 30, ageDays: 3 }] }] };',
+     r"""await (async () => { await boot(); const h = tree(); return [
+       rowOf(h, "qwen-q5.gguf") === '<div class="mdl-file mdl-file-lib mdl-row" data-t="models-library-file" data-t-id="qwen/Qwen/Q5/qwen-q5.gguf" style="--lvl:3"><span class="mdl-c-name"><span class="tw"></span><span class="mdl-nobox"></span><code title="qwen/Qwen/Q5/qwen-q5.gguf">qwen-q5.gguf</code></span><span class="mdl-c-status"><span class="mdl-lib" title="In the library NAS, not on this disk">📚 NAS</span></span><span class="mdl-c-size here"><span class="mdl-dim">—</span></span><span class="mdl-c-size lib">5.00 GB</span><span class="mdl-c-age">20d</span><span class="mdl-c-go"></span></div>',
+       h.includes('data-t="models-library-file" data-t-id="moved/X/Q4/x.gguf"'), h.includes('data-del-path="qwen/Qwen/Q5/qwen-q5.gguf"'),
+       rowOf(h, "qwen-q8.gguf").includes('<span class="mdl-c-status"><span class="mdl-lib" title="Also in the library NAS">📚</span>'),
+       rowOf(h, "qwen-q8.gguf").includes('<span class="mdl-c-size here">8.00 GB</span><span class="mdl-c-size lib">8.00 GB</span>'),
+       branchOf(h, "qwen").includes('<span class="mdl-c-size here">12.0 GB</span><span class="mdl-c-size lib">13.0 GB</span>'),
+       branchOf(h, "moved").includes('<span class="mdl-c-size here"><span class="mdl-dim">—</span></span><span class="mdl-c-size lib">2.00 GB</span>'),
+       h.includes('data-t="models-library-file" data-t-id="qwen/Qwen/Q8/qwen-q8.gguf"'), (h.match(/data-del-path=/g) || []).length,
+       F().mdlUnused.textContent, h.includes("…and")]; })()""",
+     json.dumps([True, True, False, True, True, True, True, False, 3, en("mdlUnusedLine", n=3, size="10.5 GB"), False],
+                ensure_ascii=False),
+     "файлы библиотеки — в дереве на своих местах: 📚 с именем библиотеки в колонке состояния и пустое место вместо чекбокса (на этом диске их нет ни для удаления, ни для переноса); "
+     "файл, который есть и здесь, и в библиотеке, остаётся строкой диска с 📚, и его байты стоят в ОБЕИХ колонках — они и там, и там; "
+     "у ветки то же: здесь — что держит этот диск, в библиотеке — что держит библиотека; прочерк вместо «0.00 GB»; строка «не используются» считает только этот диск"),
+    ("a_library_that_does_not_answer_leaves_the_tree_as_it_was",
+     'globalThis.__fetchReply["/api/model-stores/files"] = { __status: 502, error: "no answer" };',
+     r"""await (async () => { await boot(); const h = tree(); return [h.includes("models-library-file"), (h.match(/data-del-path=/g) || []).length, document.body.dataset.tState]; })()""",
+     '[false,3,"ready"]',
+     "negative: список библиотек не пришёл — дерево то же, что было, страница готова: без библиотеки в дереве её файлов нет, и только"),
+    ("a_long_library_says_what_it_left_out",
+     'globalThis.__fetchReply["/api/model-stores/files"] = { ok: true, libraries: [{ id: "lib-a", name: "NAS", state: "ok", more: 7, files: [{ path: "moved/X/Q4/x.gguf", size: 2 ** 30, ageDays: 1 }] }] };',
+     r"""await (async () => { await boot(); return tree().includes('<p class="muted">📚 NAS: …and 7 more</p>'); })()""",
+     'true',
+     "библиотека назвала не все файлы — дерево говорит, сколько осталось за кадром, а не выдаёт список за полный"),
+    ("a_place_shows_its_own_files",
+     'panel(); globalThis.__fetchReply["/api/model-stores/files"] = LIBS();',
+     r"""await (async () => { await boot(); const all = tree(); const reads = calls().length;
+       place("local"); const local = tree(); const localOne = F().mdlTree.classList.has("one");
+       place("lib-a"); const lib = tree(); const libOne = F().mdlTree.classList.has("one");
+       place("all"); const back = [tree() === all, F().mdlTree.classList.has("one")];
+       const order = [all.indexOf('data-branch="qwen"') < all.indexOf('data-branch="moved"'), lib.indexOf('data-branch="moved"') < lib.indexOf('data-branch="qwen"'),
+                      rowOf(all, "qwen-q5.gguf").includes('<span class="mdl-c-size lib">11.0 GB</span>'), rowOf(lib, "qwen-q5.gguf").includes('<span class="mdl-c-size lib">5.00 GB</span>')];
+       return [...order, all.includes(`📚 ${EN.mdlColLibrary}`), all.includes("📚 Archive: …and 2 more"),
+               local.includes("models-library-file"), (local.match(/data-del-path=/g) || []).length, localOne, local.includes(`🏠 ${EN.mdlColSize}</span>`),
+               lib.includes('data-t-id="qwen/Qwen/Q5/qwen-q5.gguf"'), lib.includes(">l-q4.gguf</code>"), lib.includes(">old.gguf</code>"),
+               rowOf(lib, "qwen-q8.gguf").includes('<span class="mdl-c-size lib">8.00 GB</span><span class="mdl-c-age">'), libOne, lib.includes(`📚 ${EN.mdlColSize}</span>`),
+               lib.includes("Archive: …and"), ...back, calls().length - reads]; })()""",
+     '[true,true,true,true,true,true,false,3,true,true,true,false,false,true,true,true,false,true,false,0]',
+     "выбранное место — это список его файлов: свой диск — только файлы этого диска (без строк библиотеки) с одной колонкой «🏠 Размер»; "
+     "библиотека — её файлы, включая копии файлов этого диска, с одной колонкой «📚 Размер» и её байтами (у «Все модели» — байты всех копий), "
+     "крупное в ней — первым; «…и ещё N» — только у того места, "
+     "которое назвало не всё; negative: чужих файлов в месте нет, а переключение мест не ходит на сервер и возвращает тот же список"),
+    ("the_filters_count_what_they_would_keep_here",
+     'panel(); globalThis.__fetchReply["/api/model-stores/files"] = LIBS(); '
+     'globalThis.__stubReturns["model-moves.mountMoves"] = () => tracker({ onWay: (p) => (p === "llama/Meta/Q4/l-q4.gguf" ? { job: {}, row: {} } : null) });',
+     r"""await (async () => { await boot(FILES(), { ok: true, freeGb: 120 }, { ok: true, checkedAt: 1786000000, repos: { r: { files: { "qwen/Qwen/Q8/qwen-q8.gguf": { state: "size" } } } }, prev: {}, watch: {} });
+       const all = ["moving", "unused", "used", "newer"].map(filterOf);
+       place("lib-a"); const lib = ["moving", "unused", "used", "newer"].map(filterOf);
+       return [all[0].includes('<span class="c mv">1</span>'), all[1].includes('<span class="c warn">3 · 10.5 GB</span>'), all[2].includes('<span class="c">1</span>'), all[3].includes('<span class="c">1</span>'),
+               all.map((b) => b.includes("disabled")), all[1].includes(`<span>${EN.mdlFilterUnused}</span>`),
+               lib[0].includes("disabled"), lib[1].includes('<span class="c warn">1 · 8.00 GB</span>'), lib[2].includes("disabled"), lib[3].includes('<span class="c">1</span>')]; })()""",
+     '[true,true,true,true,[false,false,false,false],true,true,true,true,true]',
+     "число у фильтра — длина списка, который он даст, в ЭТОМ месте: в пути, не используются (с объёмом), используются ячейками, новее на HF; "
+     "negative: в библиотеке «не используются» — это только копии файлов этого диска, а фильтр без единого файла выключен"),
+    ("a_filter_keeps_its_files_and_opens_their_branches", '',
+     r"""await (async () => { await boot(); globalThis.__openBranches = ["llama"]; pressFilter("unused"); const h = tree();
+       const on = [h.includes(">qwen-q8.gguf</code>"), h.includes(">qwen-q4.gguf</code>"), (h.match(/ open>/g) || []).length, (h.match(/<details/g) || []).length,
+                   filterOf("unused").includes('aria-pressed="true"'), calls().length];
+       pressFilter("unused"); const off = tree();
+       return [...on, off.includes(">qwen-q4.gguf</code>"), (off.match(/ open>/g) || []).length, off.includes('data-branch="llama" open>'), filterOf("unused").includes('aria-pressed="false"')]; })()""",
+     '[true,false,9,9,true,0,true,1,true,true]',
+     "фильтр оставляет только свои файлы и сам раскрывает ветки, где они лежат (найденное, свёрнутое с глаз, не найдено); повторное нажатие снимает фильтр и возвращает ровно те ветки, что были открыты до него, а не всё раскрытое фильтром; "
+     "negative: фильтр не ходит на сервер"),
+    ("a_filter_that_is_on_stays_reachable",
+     'panel(); globalThis.__way = "llama/Meta/Q4/l-q4.gguf"; '
+     'globalThis.__stubReturns["model-moves.mountMoves"] = () => tracker({ onWay: (p) => (p === globalThis.__way ? { job: {}, row: {} } : null) });',
+     r"""await (async () => { await boot(); pressFilter("moving"); const moving = filterOf("moving"); globalThis.__way = ""; place("all");
+       const done = filterOf("moving"); pressFilter("used"); const other = filterOf("moving");
+       return [moving.includes("disabled"), done.includes('aria-pressed="true"'), done.includes("disabled"), other.includes("disabled")]; })()""",
+     '[false,true,false,true]',
+     "фильтр, который включён, остаётся нажимаемым, даже когда под него больше ничего не подходит (переносы доехали): иначе его нечем "
+     "было бы выключить; negative: выключенный фильтр без файлов — неактивен"),
+    ("the_name_box_narrows_the_list", '',
+     r"""await (async () => { await boot(); typeName("QWEN-Q8"); const h = tree(); const found = [h.includes(">qwen-q8.gguf</code>"), h.includes(">l-q4.gguf</code>"), (h.match(/<details/g) || []).length];
+       let prevented = 0; F().mdlSearch.listeners.keydown[0]({ key: "a", preventDefault() { prevented += 1; } }); const kept = [F().mdlSearch.value, tree().includes(">l-q4.gguf</code>")];
+       F().mdlSearch.listeners.keydown[0]({ key: "Escape", preventDefault() { prevented += 1; } });
+       return [...found, ...kept, F().mdlSearch.value, tree().includes(">l-q4.gguf</code>"), prevented]; })()""",
+     '[true,false,3,"QWEN-Q8",false,"",true,1]',
+     "поле имени сужает список по пути файла без учёта регистра; Escape очищает поле и возвращает весь список; negative: другие клавиши — просто ввод"),
+    ("nothing_matches_says_so_with_the_way_back", '',
+     r"""await (async () => { await boot(); pressFilter("used"); typeName("zzz"); const h = tree();
+       const empty = [h.includes('data-t="models-filter-empty"'), h.includes(EN.mdlFilterEmpty), h.includes('data-t="models-filter-clear"'), h.includes("models-tree-head")];
+       F().mdlTree.listeners.click[0]({ target: { closest: (s) => (s === "[data-show-all]" ? {} : null) } });
+       const back = [F().mdlSearch.value, tree().includes(">qwen-q8.gguf</code>"), filterOf("used").includes('aria-pressed="false"')];
+       await boot([]); const disk = tree();
+       return [...empty, ...back, disk.includes(EN.gcNoUnused), disk.includes("models-filter-empty")]; })()""",
+     '[true,true,true,false,"",true,true,true,false]',
+     "фильтр и имя, под которые ничего не подошло, говорят это и дают дорогу назад: «Показать всё» снимает и фильтр, и имя, место остаётся; "
+     "negative: пустой диск без фильтра — прежнее «ничего не лежит без дела», а не «под фильтр ничего не подошло»"),
+    ("an_empty_place_says_it_holds_nothing",
+     'panel(); globalThis.__fetchReply["/api/model-stores/files"] = { ok: true, libraries: [] };',
+     r"""await (async () => { await boot(); place("lib-a"); const h = tree(); return [h.includes(EN.storeEmpty), h.includes(EN.mdlFilterEmpty), h.includes(EN.gcNoUnused), F().mdlUnused.textContent, F().mdlSelectAll.hidden]; })()""",
+     '[true,false,false,"",true]',
+     "место, в котором ничего нет, говорит «моделей пока нет», а не про фильтр и не про неиспользуемые; строка «не используются» в библиотеке "
+     "без копий этого диска молчит, и кнопка выбора, которой нечего выбрать, не показана"),
+    ("the_unused_line_counts_this_place",
+     'panel(); globalThis.__fetchReply["/api/model-stores/files"] = LIBS();',
+     r"""await (async () => { await boot(); const all = [F().mdlUnused.textContent, F().mdlSelectAll.hidden];
+       place("lib-a"); const lib = [F().mdlUnused.textContent, F().mdlUnused.classList.has("warn"), F().mdlSelectAll.hidden];
+       return [...all, ...lib]; })()""",
+     json.dumps([en("mdlUnusedLine", n=3, size="10.5 GB"), False, en("mdlUnusedLine", n=1, size="8.00 GB"), True, False], ensure_ascii=False),
+     "строка «не используются» — это счёт фильтра «Не используются» в том же месте и теми же словами (раньше рядом стояли «159.9 GB» сервера "
+     "и «160 GB» фильтра): в библиотеке это копии этого диска, которые никто не использует"),
+    ("the_moves_line_shows_what_is_on_its_way",
+     'panel("lib-a"); globalThis.__fetchReply["/api/model-stores/files"] = LIBS(); '
+     'globalThis.__stubReturns["model-moves.mountMoves"] = (opts) => { globalThis.__movesOpts = opts; return tracker({ onWay: (p) => (p === "llama/Meta/Q4/l-q4.gguf" ? { job: {}, row: {} } : null) }); };',
+     r"""await (async () => { await boot(); typeName("qwen"); globalThis.__movesOpts.onReveal();
+       const h = tree(); const moved = [globalThis.__panel.chosen, F().mdlSearch.value, filterOf("moving").includes('aria-pressed="true"'), h.includes(">l-q4.gguf</code>"), h.includes(">qwen-q8.gguf</code>")];
+       pressFilter("moving"); globalThis.__movesOpts.onReveal();
+       return [...moved, globalThis.__panel.chosen, filterOf("moving").includes('aria-pressed="true"'), calls().length]; })()""",
+     '[["all"],"",true,true,false,["all"],true,0]',
+     "строка «⇢ N файлов в пути» показывает ровно их: все места, фильтр «В пути», имя очищено — и только потом трекер подводит к первой полосе; "
+     "negative: когда место уже «Все модели», его не выбирают второй раз; на сервер ничего не уходит"),
+    ("the_selection_bar_shows_only_while_something_is_picked", '',
+     r"""await (async () => { await boot(); const idle = F().mdlFoot.hidden; globalThis.__boxes = [box("a", 2 ** 30, true)]; F().mdlTree.listeners.change[0]();
+       const picked = F().mdlFoot.hidden; globalThis.__boxes = [box("a", 2 ** 30, false)]; F().mdlTree.listeners.change[0](); return [idle, picked, F().mdlFoot.hidden]; })()""",
+     '[true,false,true]',
+     "плашка «выбрано · перенести · удалить» всплывает над списком только пока что-то выбрано; negative: без выбора её нет — две выключенные кнопки над каждой строкой мешали бы читать"),
+    ("an_identical_redraw_leaves_the_markup_alone",
+     'panel();',
+     r"""await (async () => { await boot(); const t0 = F().mdlTree.writes, f0 = F().mdlFilters.writes;
+       place("all"); const same = [F().mdlTree.writes - t0, F().mdlFilters.writes - f0];
+       pressFilter("unused"); pressFilter("unused"); const twice = [F().mdlTree.writes - t0, F().mdlFilters.writes - f0];
+       return [same, twice]; })()""",
+     '[[0,0],[2,2]]',
+     "перерисовка, которая ничего не меняет, разметку не трогает: страница рисует себя после каждого ответа, а разметка, заменённая под "
+     "зажатой кнопкой мыши, съедает клик (живьём терялись клики по фильтрам и местам); negative: фильтр туда и обратно перерисовывает дважды"),
 ]
 
 
@@ -257,7 +637,10 @@ def main():
 
     # Pins don't depend on each other: the same set run in reverse order
     # must give the same values.
-    probe = (PREAMBLE + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
+    # The words pins compare against, from en.js — never retyped in a pin.
+    words = "const EN = " + json.dumps({k: EN[k] for k in ("mdlColLibrary", "mdlColSize", "mdlFilterUnused", "mdlFilterEmpty",
+                                                             "gcNoUnused", "storeEmpty")}, ensure_ascii=False) + ";\n"
+    probe = (PREAMBLE + words + "\n".join(blocks(PINS, "out")) + "\nconst rev = {};\n"
              + "\n".join(blocks(list(reversed(PINS)), "rev"))
              + "\nconsole.log(JSON.stringify({ out, rev })); process.exit(0);\n")
     harness = ROOT / "scripts" / "_js_harness.mjs"

@@ -70,15 +70,10 @@ import {
 } from "./topology-proxies.js";
 import { flushPendingTopologyRender, renderTopology } from "./topology-render.js";
 import {
-  apiCostsCache,
-  fetchApiCosts,
-  fetchOpenRouterLimits,
-  fetchSubscriptionUsage,
   fetchUsageStats,
-  openrouterLimitsCache,
+  refreshUsageReading,
   saveApiPrice,
   saveLocalPricing,
-  subscriptionUsageCache,
   usageStatsApiPriceEdit,
   usageStatsData,
 } from "./usage-stats.js";
@@ -235,27 +230,22 @@ export function bindTopologyDragAndDrop() {
     ui.pendingConfirm = () => { closeConfirmModal(); deleteCloudAccount().catch((err) => toast(err.message)); };
     $("confirmOverlay").hidden = false;
   });
-  // Subscription usage refresh buttons (event delegation on topology container)
+  // The ↻ buttons on a cloud card. One table instead of three identical blocks:
+  // each was `cache.delete(id); fetch(id)` under a different attribute, and the
+  // tab-return refresher (usage-stats.js) would have made it a fourth copy of
+  // the same two lines. The button and the refresher now call the same action.
+  const USAGE_REFRESH_BUTTONS = [
+    ["data-usage-refresh", "usageRefresh", "subscription"],
+    ["data-api-costs-refresh", "apiCostsRefresh", "apiCosts"],
+    ["data-or-limits-refresh", "orLimitsRefresh", "openrouter"],
+  ];
   document.getElementById("topologyCloudProviders")?.addEventListener("click", (e) => {
-    const subBtn = e.target.closest("[data-usage-refresh]");
-    if (subBtn) {
+    for (const [attr, dataKey, kind] of USAGE_REFRESH_BUTTONS) {
+      const btn = e.target.closest(`[${attr}]`);
+      if (!btn) continue;
       e.stopPropagation();
-      const id = subBtn.dataset.usageRefresh;
-      if (id) { subscriptionUsageCache.delete(id); fetchSubscriptionUsage(id); }
+      refreshUsageReading(kind, btn.dataset[dataKey]);
       return;
-    }
-    const costBtn = e.target.closest("[data-api-costs-refresh]");
-    if (costBtn) {
-      e.stopPropagation();
-      const id = costBtn.dataset.apiCostsRefresh;
-      if (id) { apiCostsCache.delete(id); fetchApiCosts(id); }
-      return;
-    }
-    const orBtn = e.target.closest("[data-or-limits-refresh]");
-    if (orBtn) {
-      e.stopPropagation();
-      const id = orBtn.dataset.orLimitsRefresh;
-      if (id) { openrouterLimitsCache.delete(id); fetchOpenRouterLimits(id); }
     }
   });
   document.querySelectorAll("[data-cloud-field]").forEach((input) => {

@@ -396,6 +396,28 @@ PINS = [
      'ROW(m.nodeServerCardHtml(node, mk({ phase: "warming", slotConfig: { RUNNER: "Moonshine" } })))',
      '"<div class=\\"node-model-row2 model-status-line\\"><span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar indeterminate\\"><span></span></span><span class=\\"msl-text\\">loading model into RAM…</span></div>"',
      'defect-history: 75b2195: RUNNER moonshine (регистронезависимо) → RAM-текст'),
+    ('card_load_warming_measured',
+     'const LOAD = (h) => { const n = norm(h); const hook = n.match(/data-t="cell-load" data-t-id="([^"]*)" data-t-state="([^"]*)"/);'
+     ' return [hook && hook.slice(1), (n.match(/model-status-line/g) || []).length, (n.match(/data-t="cell-load-file"/g) || []).length,'
+     ' n.includes("msl-bar indeterminate"), n.includes("loading model into"), (n.match(/<span class="msl-text">([^<]*)<\\/span>/) || [])[1]]; };'
+     ' const LP = (over) => ({ stage: "reading", read: 2 * 2 ** 30, total: 11 * 2 ** 30, speed: 112 * 2 ** 20, left: 80, files: ['
+     '{ role: "model", name: "m.gguf", size: 10 * 2 ** 30, read: 2 * 2 ** 30, state: "reading", library: "NAS" },'
+     ' { role: "mmproj", name: "p.gguf", size: 2 ** 30, read: 0, state: "waiting", library: "NAS" }], ...over });',
+     '[LOAD(m.nodeServerCardHtml(node, mk({ phase: "warming", loadProgress: LP() }))), LOAD(m.nodeServerCardHtml(node, mk({ isController: true, phase: "starting", loadProgress: LP({ stage: "starting", read: 0 }) })))]',
+     '[[["h1:22001","reading"],1,2,false,false,"2.00 GB / 11.0 GB · 112 MB/s · ~2 min left"],[["controller:22001","starting"],1,2,false,false,"starting"]]',
+     'loadProgress при warming и starting — строки замера вместо бегущей полосы и «loading model into…»: хук с ячейкой и стадией, шаги файлов, цифры'),
+    ('card_load_keeps_the_card_tail',
+     'const PREV = (h) => norm(h).match(/data-t="cell-load"[^>]*>.*?<\\/div>/)[0].match(/<span class="msl-prev-err"[^>]*>⚠<\\/span><\\/div>$/) !== null;',
+     'PREV(m.nodeServerCardHtml(node, mk({ phase: "warming", status: { lastError: { kind: "oom", tail: "boom" } }, loadProgress: { stage: "reading", read: 1, total: 2, files: [{ role: "model", name: "m.gguf", size: 2, read: 1, state: "reading" }] } })))',
+     'true',
+     'чип ⚠ прошлой попытки остаётся — в конце строки замера'),
+    ('card_load_not_for_other_phases',
+     'const HAS = (h) => norm(h).includes(\'data-t="cell-load"\'); const LP1 = { stage: "reading", read: 1, total: 2, files: [{ role: "model", name: "m.gguf", size: 2, read: 1, state: "reading" }] };',
+     '[HAS(m.nodeServerCardHtml(node, mk({ phase: "running", loadProgress: LP1 }))), HAS(m.nodeServerCardHtml(node, mk({ phase: "stopped", loadProgress: LP1 }))),'
+     ' HAS(m.nodeServerCardHtml(node, mk({ phase: "error", loadProgress: LP1 }))), HAS(m.nodeServerCardHtml(node, mk({ phase: "downloading", loadProgress: LP1 }))),'
+     ' HAS(m.nodeServerCardHtml(node, mk({ phase: "warming" }))), HAS(m.nodeServerCardHtml(node, mk({ phase: "warming", loadProgress: LP1 })))]',
+     '[false,false,false,false,false,true]',
+     'negative: у работающей, остановленной, упавшей и качающейся ячейки строк замера нет; без loadProgress — старая строка'),
     ('card_warming_ngl1_stays_vram',
      'const ROW = (h) => (norm(h).match(/<div class="node-model-row2 model-status-line[^"]*">.*?<\\/div>/) || [null])[0];',
      'ROW(m.nodeServerCardHtml(node, mk({ phase: "warming", slotConfig: { RUNNER: "llama-server", N_GPU_LAYERS: "1" } })))',
@@ -1087,6 +1109,37 @@ PINS = [
      '[(h.match(/data-t="cell-model-disk-newer">([^<]*)<\\/span>/) || [])[1] ?? null, tip.includes("draft")]',
      '["\u27f3 file updated \u00b7 draft",true]',
      'positive: подменили черновик, а не веса — «перезапусти» сказано и названо, что именно обновилось'),
+    # The weights moved to a library: the cell still starts — from there — and
+    # the card says so, instead of looking like a cell whose files are local.
+    ('library_chip_names_the_store',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelStore: { stores: [{ id: "lib-a", name: "NAS" }], roles: ["model"] } })));'
+     ' const tip = (h.match(/mbadge mbadge-lib" title="([^"]*)"/) || [])[1] ?? "";',
+     '[(h.match(/data-t="cell-model-in-library">([^<]*)<\\/span>/) || [])[1] ?? null, tip.startsWith("In the library NAS, not on this disk")]',
+     '["\U0001f4da NAS",true]',
+     'positive: веса лежат только в библиотеке — на карточке чип 📚 с её именем, в подсказке «не на этом диске»'),
+    ('library_chip_names_the_file',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelStore: { stores: [{ id: "lib-a", name: "NAS" }], roles: ["mmproj"] } })));'
+     ' const tip = (h.match(/mbadge mbadge-lib" title="([^"]*)"/) || [])[1] ?? "";',
+     '[(h.match(/data-t="cell-model-in-library">([^<]*)<\\/span>/) || [])[1] ?? null, tip.includes("mmproj")]',
+     '["\U0001f4da NAS · mmproj",true]',
+     'в библиотеке не веса, а проектор — чип называет файл, как ⇪ и ⟳'),
+    ('library_chip_names_every_library',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelStore: { stores: [{ id: "a", name: "NAS" }, { id: "b", name: "RO" }], roles: ["model", "draft"] } })));',
+     '(h.match(/data-t="cell-model-in-library">([^<]*)<\\/span>/) || [])[1] ?? null',
+     '"\U0001f4da NAS, RO · draft"',
+     'файлы в двух библиотеках — названы обе, а не первая за всех'),
+    ('library_chip_escapes_the_name',
+     'const h = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelStore: { stores: [{ id: "x", name: "N<AS" }], roles: ["model"] } })));',
+     '(h.match(/data-t="cell-model-in-library">([^<]*)<\\/span>/) || [])[1] ?? null',
+     '"\U0001f4da N&lt;AS"',
+     'имя библиотеки задаёт оператор — в тексте чипа оно экранировано (mbadge текст не экранирует)'),
+    ('library_chip_absent',
+     'const a = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf" }))).includes("mbadge-lib");'
+     ' const b = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelStore: null }))).includes("mbadge-lib");'
+     ' const c = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelStore: { stores: [{ id: "x", name: "NAS" }], roles: [] } }))).includes("mbadge-lib");',
+     '[a, b, c]',
+     '[false,false,false]',
+     'negative: файлы на этом диске (поля нет, null, пустой список) — чипа нет; клиентская ячейка поля не несёт вовсе'),
     ('model_stale_same_and_unknown_and_absent',
      'const a = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelFresh: "same" }))).includes("mbadge-stale-model");'
      ' const b = norm(m.nodeServerCardHtml(node, mk({ model: "m.gguf", modelFresh: "unknown" }))).includes("mbadge-stale-model");'
@@ -2480,6 +2533,22 @@ PINS = [
      'errTitle({ kind: "oom", detail: \'a"<b>\' })',
      '"a&quot;&lt;b&gt;"',
      'positive: title строки msl-err экранируется (кавычка и угловые скобки)'),
+    ('models_bar_is_two_ways_in',
+     'globalThis.__fields = { topologyModelsBar: { innerHTML: "old" } };',
+     r"""(() => { m.renderModelsBar(); const h = norm(globalThis.__fields.topologyModelsBar.innerHTML); return [
+       h.includes('<a class="models-bar-link models-bar-models" href="/models" target="_blank" rel="noopener" title="'),
+       /data-t="board-models-open"> ?<span aria-hidden="true">📦<\/span><span>Models<\/span>/.test(h),
+       h.includes('<a class="models-bar-link models-bar-hf" href="/hf" target="_blank" rel="noopener" title="HuggingFace model browser" data-t="board-hf-open">'),
+       h.includes('<span aria-hidden="true">🤗</span><span>Hugging Face</span>'),
+       /href="\/models"[^>]*title="[^"]+"/.test(h),
+       (h.match(/<a /g) || []).length, h.includes("✎"), h.includes("models-bar-path"), h.includes("<input"), h.includes("help-tip")]; })()""",
+     '[true,true,true,true,true,2,false,false,false,false]',
+     'полоса моделей на доске — два входа и ничего больше: 📦 «Модели» ведёт на /models (хранилища, дерево, перенос, уборка) с подсказкой, что там; 🤗 Hugging Face — на /hf; обе в новой вкладке, доска остаётся. Пути, ✎ и «?» нет: путей теперь несколько, и правит их /models'),
+    ('models_bar_without_its_element_is_quiet',
+     'globalThis.__fields = {};',
+     '(() => { m.renderModelsBar(); return "quiet"; })()',
+     '"quiet"',
+     'negative: полосы на странице нет — отрисовка молча ничего не делает, а не падает'),
 ]
 
 _fail = []

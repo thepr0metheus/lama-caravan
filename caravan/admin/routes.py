@@ -312,8 +312,8 @@ from caravan.admin.benchmarks import (
 from caravan.admin.settings_bundle import (SETTINGS_BACKUP_DIR, apply_bundle,
                                           encrypt_credentials, export_bundle,
                                           preview_import)
-from caravan.admin.downloads import (_download_jobs, _download_jobs_lock,
-                                    resume_interrupted_download,
+from caravan.admin.downloads import (_download_jobs, _download_jobs_lock, cancel_hf_download,
+                                    replaces_on_disk, resume_interrupted_download,
                                     scan_interrupted_downloads, start_hf_download)
 from caravan.admin.terminal import terminal_frame_to_html, terminal_frame_to_text
 from caravan.admin.models import (
@@ -518,8 +518,10 @@ def _get_api_hf_download_jobs(h, parsed):
             for _k in [k for k, v in _download_jobs.items()
                        if v.get("finished_at") and _now - v["finished_at"] > 300]:
                 _download_jobs.pop(_k, None)
+            # A cancelled job is over; what it fetched is listed below as an
+            # interrupted partial, the row that can be resumed.
             _jobs = [{"jobId": k, **v} for k, v in _download_jobs.items()
-                     if v.get("status") != "done"]
+                     if v.get("status") not in ("done", "cancelled")]
         # Partials with no running job behind them: a download the service was
         # restarted out from under. Reporting them is the difference between
         # "interrupted at 15 of 39 GB" and a blank panel that reads as success.
@@ -885,6 +887,35 @@ def _get_api_models_unused(h, parsed):
         h.send_json(list_unused_models())
         return
 
+@_route(GET_ROUTES, '/api/model-stores')
+def _get_api_model_stores(h, parsed):
+        # Every look inside a store happens in a child process with a
+        # deadline (caravan/admin/model_stores.py): a dead NAS answers
+        # "unknown" here instead of holding this request thread.
+        from caravan.admin.model_stores import registry
+        import urllib.parse as _upa
+        h.send_json({"ok": True, "stores": registry().statuses(
+            force=_flag(_upa.parse_qs(parsed.query or ""), "force"))})
+        return
+
+@_route(GET_ROUTES, '/api/model-stores/moves')
+def _get_api_model_stores_moves(h, parsed):
+        # From memory: the mover's thread is the only one that touches the
+        # library, and a request never waits for it.
+        from caravan.admin.store_moves import runner
+        h.send_json({"ok": True, "jobs": runner().summaries()})
+        return
+
+@_route(GET_ROUTES, '/api/model-stores/files')
+def _get_api_model_stores_files(h, parsed):
+        # The libraries' GGUF files for the tree on /models — from the same
+        # look (a child process with a deadline) that counts them for the panel.
+        from caravan.admin.model_stores import registry
+        import urllib.parse as _upa
+        h.send_json({"ok": True, "libraries": registry().library_files(
+            force=_flag(_upa.parse_qs(parsed.query or ""), "force"))})
+        return
+
 @_route(GET_ROUTES, '/api/llamacpp')
 def _get_api_llamacpp(h, parsed):
         h.send_json(llama_cpp_info(fetch_remote=True))
@@ -954,11 +985,6 @@ def _get_models(h, parsed):
         h.send_file(STATIC_DIR / "models.html", "text/html; charset=utf-8")
         return
 
-@_route(GET_ROUTES, '/hf.js')
-def _get_hf_js(h, parsed):
-        h.send_file(STATIC_DIR / "hf.js", "application/javascript; charset=utf-8")
-        return
-
 @_route(GET_ROUTES, '/favicon.svg', '/favicon.ico')
 def _get_favicon_svg(h, parsed):
         h.send_file(STATIC_DIR / "favicon.svg", "image/svg+xml")
@@ -1017,6 +1043,15 @@ def _post_api_hf_download(h, parsed, body):
                 h.send_json({"ok": False, "error": "invalid destDir"})
                 return
         _models_dir = str(models_dir_from_config(parse_config()))
+        # Writing over a model that is already on disk needs a yes: the page
+        # asks, then sends replace:true. Without it the answer names the files,
+        # instead of starting a job that ends by replacing them.
+        if not truthy(body.get("replace")):
+            _taken = replaces_on_disk(_files, _models_dir)
+            if _taken:
+                h.send_json({"ok": False, "code": "exists", "files": _taken,
+                             "error": "already on disk: " + ", ".join(_taken)})
+                return
         _token = admin_state.get("hfToken") or ""
         _jid = start_hf_download(_repo, _files, _models_dir, _token)
         h.send_json({"ok": True, "jobId": _jid})
@@ -1058,6 +1093,56 @@ def _post_api_models_freshness_watch(h, parsed, body):
         h.send_json({"ok": True, "watch": set_watch_settings(body or {})})
         return
 
+@_route(POST_ROUTES, '/api/model-stores/add')
+def _post_api_model_stores_add(h, parsed, body):
+        # A refusal carries its code: the page offers a second, confirmed try
+        # for a bare directory ("not-a-mount") and for nothing else.
+        from caravan.admin.model_stores import StoreRefused, registry
+        _b = body or {}
+        try:
+            h.send_json({"ok": True, "store": registry().add(
+                _b.get("path"), _b.get("name"), force=truthy(_b.get("force")))})
+        except StoreRefused as exc:
+            h.send_json({"ok": False, "error": str(exc), "code": exc.code})
+        return
+
+@_route(POST_ROUTES, '/api/model-stores/remove')
+def _post_api_model_stores_remove(h, parsed, body):
+        # Off the list only: the library's files and its mark stay where they are.
+        from caravan.admin.model_stores import StoreRefused, registry
+        try:
+            h.send_json({"ok": True, **registry().remove((body or {}).get("id"))})
+        except StoreRefused as exc:
+            h.send_json({"ok": False, "error": str(exc), "code": exc.code})
+        return
+
+@_route(POST_ROUTES, '/api/model-stores/move')
+def _post_api_model_stores_move(h, parsed, body):
+        # Everything is checked before a byte moves (caravan/admin/store_moves.py);
+        # a refusal carries its code, like the stores' own.
+        from caravan.admin.store_moves import MoveRefused, runner
+        _b = body or {}
+        _files = _b.get("files") if isinstance(_b.get("files"), list) else []
+        try:
+            # "from" is the store the files sit in now — the models disk unless
+            # the page says otherwise (a move back from a library, or between two).
+            h.send_json({"ok": True, "job": runner().start(_files, str(_b.get("to") or ""),
+                                                           str(_b.get("from") or "") or None)})
+        except MoveRefused as exc:
+            h.send_json({"ok": False, "error": str(exc), "code": exc.code})
+        return
+
+@_route(POST_ROUTES, '/api/model-stores/moves/cancel')
+def _post_api_model_stores_moves_cancel(h, parsed, body):
+        # Stopping deletes nothing here: the file in progress stays, its
+        # unfinished copy in the library goes.
+        from caravan.admin.store_moves import MoveRefused, runner
+        try:
+            h.send_json({"ok": True, "job": runner().cancel((body or {}).get("id"))})
+        except MoveRefused as exc:
+            h.send_json({"ok": False, "error": str(exc), "code": exc.code})
+        return
+
 @_route(POST_ROUTES, '/api/hf/verify')
 def _post_api_hf_verify(h, parsed, body):
         # Hashing a terabyte on someone else's say-so is out of the question:
@@ -1073,6 +1158,20 @@ def _post_api_hf_verify(h, parsed, body):
                                 _local.get("localFiles") or {})
         except AppError as exc:
             h.send_json({"ok": False, "error": str(exc)})
+            return
+        h.send_json({"ok": True, "jobId": _jid})
+        return
+
+@_route(POST_ROUTES, '/api/hf/download/cancel')
+def _post_api_hf_download_cancel(h, parsed, body):
+        # Stops the transfer where it is; the bytes stay as a resumable partial.
+        _jid = str((body or {}).get("jobId") or "").strip()
+        if not _jid:
+            h.send_json({"ok": False, "error": "missing jobId"})
+            return
+        _job = cancel_hf_download(_jid)
+        if _job is None:
+            h.send_json({"ok": False, "error": "job not found or already finished"})
             return
         h.send_json({"ok": True, "jobId": _jid})
         return
@@ -1158,15 +1257,26 @@ def _post_api_config_snapshot(h, parsed, body):
 @_route(POST_ROUTES, '/api/llama-command-preview')
 def _post_api_llama_command_preview(h, parsed, body):
         cfg = body.get("config") if isinstance(body.get("config"), dict) else {}
+        # The preview says what this cell runs, so it reads the model from
+        # wherever it lives — the library included. Without waiting: the editor
+        # asks again on every keystroke, and a NAS that is thinking must not
+        # hold up a person typing.
+        from caravan.admin.model_locator import current_locations
+        where = current_locations(wait=False)
+
+        def build(config, **kw):
+            return build_local_llama_command(config, locations=where, **kw)
+
         try:
-            tokens = build_local_llama_command(cfg)
+            tokens = build(cfg)
         except AppError as exc:
             h.send_json({"ok": False, "error": str(exc), "tokens": []})
             return
         # Which field produced each token — drives hover-a-token-find-the-field
         # in the config editor. Measured per request so it can never describe a
-        # command other than the one shown next to it.
-        owners = command_token_owners(cfg)
+        # command other than the one shown next to it, which is also why it is
+        # measured with the SAME builder.
+        owners = command_token_owners(cfg, builder=build)
         h.send_json({"ok": True, "tokens": tokens, "command": " ".join(tokens),
                      "owners": owners})
         return

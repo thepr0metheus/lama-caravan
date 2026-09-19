@@ -754,6 +754,10 @@ button.topology-detail-action.danger:focus {
    and it drinks from --cell-accent so CPU-pinned cells get the blue family. */
 .mbadge-vram-est { background: color-mix(in srgb, var(--cell-accent, var(--good,#4ade80)) 7%, transparent); color: color-mix(in srgb, var(--cell-accent, var(--good,#4ade80)) 65%, var(--fg,#e6edf3)); border: 1px dashed color-mix(in srgb, var(--cell-accent, var(--good,#4ade80)) 35%, transparent); font-weight: 600; font-variant-numeric: tabular-nums; }
 
+/* 📚 files only a library holds — on a picker row and a cell card; the same
+   lavender the /models tree uses for them. */
+.mbadge-lib { background: color-mix(in srgb, #b39ddb 12%, transparent); color: #d1c4e9; border-color: color-mix(in srgb, #b39ddb 32%, transparent); }
+
 /* llama.cpp version chip in node header */
 .llama-ver-chip {
   font-size: 10px;

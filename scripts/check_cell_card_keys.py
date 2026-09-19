@@ -51,6 +51,8 @@ DECLARED = {
                    "draft) — and for the same reason, only for a controller cell",
     "launchDiskNewer": "slot: each launch file's mtime against the unit's "
                        "start time — both numbers exist only for a controller cell",
+    "modelStore": "slot: which launch files only a library holds — the libraries "
+                  "are mounted on the controller; a client cell reads its own disk",
 }
 
 

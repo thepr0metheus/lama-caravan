@@ -27,6 +27,29 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _node import find_node, node_search_paths  # noqa: E402
 
+def _english():
+    """Every one-string line of en.js — a pin quotes the page's own words, not a
+    copy of them that can drift."""
+    import re
+    out = {}
+    for key, raw in re.findall(r'^  (\w+): (".*"),$', (ROOT / "static/js/i18n/en.js").read_text(encoding="utf-8"), re.M):
+        try:
+            out[key] = json.loads(raw)
+        except ValueError:
+            continue
+    return out
+
+
+EN = _english()
+
+
+def en(key, **kw):
+    text = EN[key]
+    for k, v in kw.items():
+        text = text.replace("{" + k + "}", str(v))
+    return text
+
+
 STUBS = ("topology-render,topology-modals,cables,routers,cloud,history,dialogs,favorites,config-locator,system-panels,"
          "onboarding,topology-dnd,canvas,usage-stats,dialog-llamas,models-page,system-page,onboarding-tours")
 
@@ -321,6 +344,25 @@ PINS = [
      'await (async () => { await rc.cellServiceAction("h1", 22001, "boot"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
      '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"boot\\"}"}], "toast": "", "pending": null, "stopping": []}',
      'positive: cellServiceAction: boot идёт по ветке start — pending снят сразу'),
+    ('csa_asks_where_when_a_library_holds_the_model',
+     'globalThis.__stubReturns["dialogs.appChoose"] = async (text, opts) => { globalThis.__asked = [text, opts.title, (opts.options || []).map((o) => [o.value, o.label])]; return "disk"; };',
+     r"""await (async () => { const btn = { dataset: { nodeCellLibrary: "NAS", nodeCellLibraryFiles: "model, mmproj" } };
+       const answer = await rc.askWhereFrom(btn); await rc.cellServiceAction("h1", 22001, "start", answer);
+       const none = await rc.askWhereFrom({ dataset: {} });
+       return ({ answer, none, asked: globalThis.__asked, body: calls()[0].body }); })()""",
+     json.dumps({"answer": "disk", "none": "",
+                 "asked": [en("startWhereText", name="NAS", files="model, mmproj"), EN["startWhereTitle"],
+                           [["disk", EN["startWhereDisk"]], ["library", en("startWhereLibrary", name="NAS")]]],
+                 "body": json.dumps({"hostId": "h1", "port": 22001, "action": "start", "modelFrom": "disk"},
+                                    separators=(",", ":"))}, ensure_ascii=False),
+     'модель в библиотеке — вопрос с её именем и обоими ответами, и выбранный уходит на провод полем modelFrom; '
+     'модели на диске (у кнопки нет библиотеки) вопроса не задают вовсе'),
+    ('csa_bringing_says_so',
+     'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: true, bringing: { id: "mv-1" } };',
+     'await (async () => { await rc.cellServiceAction("h1", 22001, "start", "disk"); return toastText(); })()',
+     json.dumps(EN["startBringing"], ensure_ascii=False),
+     'ответ «везу модель» сказан вслух: карточка будет стоять «остановлена», пока перенос идёт, и молчание '
+     'читалось бы как старт, который ничего не сделал'),
     ('csa_port_nan_body',
      '',
      'await (async () => { await rc.cellServiceAction("h1", "abc", "start"); return { calls: calls(), pending: rc._pendingCellActions.get("h1:abc") ?? null }; })()',

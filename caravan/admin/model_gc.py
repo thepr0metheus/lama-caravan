@@ -14,6 +14,7 @@ from caravan.admin.config_builder import models_dir_from_config, parse_config
 from caravan.admin.state import topology_store
 from caravan.admin.state import topology as topo
 from caravan.common.errors import AppError
+from caravan.common.model_artifacts import artifact_dirs, folder_weight
 
 _PART_RE = re.compile(r"^(?P<stem>.+)-\d{5}-of-(?P<n>\d{5})\.gguf$", re.I)
 
@@ -61,36 +62,25 @@ def _referenced_relpaths(with_owners=False):
     return (refs, owners) if with_owners else refs
 
 
-def _dir_stats(d):
-    size = 0
-    mtime = 0
-    for f in d.rglob("*"):
-        try:
-            if f.is_file():
-                st = f.stat()
-                size += st.st_size
-                mtime = max(mtime, int(st.st_mtime))
-        except OSError:
-            continue
-    return size, mtime
+def part_group(rel):
+    """The group a multi-part GGUF belongs to — its own path when it is whole.
+    Public because a move plans by group, whichever store the file sits in."""
+    return _part_group(rel)
+
+
+def referenced_set():
+    """Every model path a cell refers to right now, as relative paths. The same
+    answer for any store: a cell names its files relative to a models root."""
+    refs, _owners = _referenced_relpaths(with_owners=True)
+    return set(refs)
 
 
 def _artifact_dirs(models_dir):
     """Non-gguf artifacts as (relpath, kind) — whisper HF-cache dirs and
-    safetensors checkpoint folders."""
-    out = []
-    wroot = models_dir / "whisper"
-    if wroot.is_dir():
-        for d in sorted(wroot.glob("models--*")):
-            if d.is_dir():
-                out.append((str(d.relative_to(models_dir)), "whisper"))
-    seen = set()
-    for f in models_dir.rglob("*.safetensors"):
-        d = f.parent
-        if d not in seen and d != models_dir:
-            seen.add(d)
-            out.append((str(d.relative_to(models_dir)), "safetensors"))
-    return out
+    safetensors checkpoint folders. The rule they are found by is the one a
+    library is walked with too (caravan/common/model_artifacts.py), so the same
+    folder is one item on either side of a move."""
+    return artifact_dirs(str(models_dir))
 
 
 def list_unused_models():
@@ -106,6 +96,10 @@ def list_unused_models():
         for w in who:
             if w not in group_owners[_part_group(rel)]:
                 group_owners[_part_group(rel)].append(w)
+    # Named by a cell and read by one are two different facts, and the page
+    # shows both: a stopped cell's model can still travel (its start brings it
+    # back), while a running cell's cannot be moved out from under it.
+    running = running_owners({w for who in owners.values() for w in who})
     now = time.time()
     files = []
     for f in sorted(models_dir.rglob("*.gguf")):
@@ -122,12 +116,13 @@ def list_unused_models():
             "ageDays": int((now - stat.st_mtime) // 86400),
             "referenced": referenced,
             "referencedBy": owners.get(rel) or group_owners.get(_part_group(rel)) or [],
+            "readBy": [w for w in (owners.get(rel) or group_owners.get(_part_group(rel)) or []) if w in running],
             "group": _part_group(rel),
         })
     # Non-gguf artifacts (whisper HF-cache dirs, safetensors folders) join the
     # same list — one manager for everything under the models root.
     for rel, kind in _artifact_dirs(models_dir):
-        size, mtime = _dir_stats(models_dir / rel)
+        size, mtime = folder_weight(str(models_dir / rel))
         referenced = rel in refs
         files.append({
             "path": rel,
@@ -137,6 +132,7 @@ def list_unused_models():
             "ageDays": int((now - mtime) // 86400) if mtime else 0,
             "referenced": referenced,
             "referencedBy": owners.get(rel) or [],
+            "readBy": [w for w in (owners.get(rel) or []) if w in running],
             "group": rel,
         })
     unused = [f for f in files if not f["referenced"]]
@@ -173,7 +169,7 @@ def delete_models(body):
         try:
             if is_artifact_dir:
                 import shutil
-                size, _mtime = _dir_stats(target)
+                size, _mtime = folder_weight(str(target))
                 shutil.rmtree(target)
             else:
                 size = target.stat().st_size
@@ -185,3 +181,61 @@ def delete_models(body):
         except OSError as exc:
             raise AppError(f"delete failed for {rel}: {exc}", 500)
     return {"ok": True, "deleted": deleted, "freedGb": round(freed / 2**30, 2)}
+
+
+def referenced_any(rels):
+    """True if a cell uses any of these files — or any part of their multi-part
+    groups — right now.
+
+    A move asks this at the last moment before removing a local copy: the list
+    it planned from is minutes or hours old by then, and a cell configured in
+    between must keep its file. One rule, the same one delete_models refuses by.
+    """
+    refs = _referenced_relpaths()
+    groups = {_part_group(r) for r in refs}
+    return any(str(r) in refs or _part_group(str(r)) in groups for r in rels)
+
+
+def running_owners(owners):
+    """Which of these cells are RUNNING, as "host:port".
+
+    A cell on a client host cannot be asked from here — its systemd is not this
+    host's — so it counts as running: treating it as busy is the harmless
+    mistake, and whatever refuses says whose cell it is.
+    """
+    from caravan.admin.paths import CONTROLLER_HOST_ID
+    from caravan.admin.systemd_ctl import cell_service_status
+    out = set()
+    for who in set(owners):
+        host, _, port = str(who).rpartition(":")
+        if host != CONTROLLER_HOST_ID:
+            out.add(who)
+            continue
+        try:
+            if (cell_service_status(int(port)) or {}).get("ActiveState") == "active":
+                out.add(who)
+        except (ValueError, OSError):
+            out.add(who)
+    return out
+
+
+def holders(rels):
+    """The cells READING these files right now, as "host:port".
+
+    A move asks this, and deletion does not: a stopped cell's model may travel,
+    because a start brings it back, while a running cell has the file open and
+    deleting it underneath would end the cell mid-answer.
+
+    Only the cells that name these very files are asked — one question each, not
+    one per cell in the fleet.
+    """
+    _refs, owners = _referenced_relpaths(with_owners=True)
+    groups = {}
+    for rel, who in owners.items():
+        groups.setdefault(_part_group(rel), []).extend(who)
+    wanted = set()
+    for rel in rels:
+        rel = str(rel)
+        wanted.update(owners.get(rel) or [])
+        wanted.update(groups.get(_part_group(rel)) or [])
+    return sorted(running_owners(wanted))

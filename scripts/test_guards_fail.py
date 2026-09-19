@@ -67,13 +67,27 @@ BREAKAGES = {
         ([], "static/js/i18n/zh.js",
          'computeAuto: "\u81ea\u52a8",', 'computeAuto: "\u0430\u0432\u0442\u043e",'),
     ],
-    "check_i18n_calls": (
-        [], "static/js/system-page.js",
-        'function bindSettingsBundle() {',
-        'function bindSettingsBundle() {\n  const _leak = t("keyThatWasNeverDefined");'),
-    "check_tour_i18n": (
-        [], "static/js/onboarding-strings.js",
-        '  tourCfgFieldsB:', '  tourCfgFieldsBRENAMED:'),
+    "check_i18n_calls": [
+        ([], "static/js/system-page.js",
+         'function bindSettingsBundle() {',
+         'function bindSettingsBundle() {\n  const _leak = t("keyThatWasNeverDefined");'),
+        # The /hf modules ask their own table, not the shared one.
+        ([], "static/js/hf-page.js",
+         'this.toast(hfT("networkError"));', 'this.toast(hfT("networkErrorNeverDefined"));'),
+        # A language of the /hf table left in English: the key is there, so only
+        # the translation rule can see it.
+        ([], "static/js/hf-text.js",
+         '    diskFitTitle: "Espace insuffisant sur le disque des modèles",',
+         '    diskFitTitle: "Not enough space on the models disk",'),
+    ],
+    "check_tour_i18n": [
+        ([], "static/js/onboarding-strings.js",
+         '  tourCfgFieldsB:', '  tourCfgFieldsBRENAMED:'),
+        # A step of the /hf tour still in English in another language.
+        ([], "static/js/hf-text.js",
+         '       "Ce qui est sélectionné, où il sera placé, si cela tient et si quelque chose serait écrasé — avant que vous cliquiez sur Télécharger. Les téléchargements en cours (avec Annuler) et les téléchargements interrompus (avec Reprendre) se trouvent ici aussi."],',
+         '       "What is selected, where it lands, whether it fits and whether anything would be written over — before you press Download. Running downloads (with Cancel) and interrupted ones (with Resume) live here too."],'),
+    ],
     "testability_names": (
         ["--check"], "static/index.html",
         '<div id="te-offloadPlan"',

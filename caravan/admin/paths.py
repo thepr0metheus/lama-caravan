@@ -45,6 +45,16 @@ MONITOR_HISTORY_FILE = Path(os.environ.get("LLAMA_MONITOR_HISTORY")
     or _default("state/monitor-history.json", Path.home() / ".local/state/llamacpp-easy-admin/monitor-history.json"))
 INCIDENT_LOG_FILE = Path(os.environ.get("LLAMA_INCIDENT_LOG")
     or _default("state/incident-log.jsonl", Path.home() / ".local/state/llamacpp-easy-admin/incident-log.jsonl"))
+# Model moves between stores (caravan/admin/store_moves.py): one manifest per
+# job, rewritten after every step, so a restart continues a move instead of
+# forgetting it.
+STORE_MOVES_DIR = Path(os.environ.get("CARAVAN_STORE_MOVES_DIR")
+    or _default("state/store-moves", Path.home() / ".local/state/llamacpp-easy-admin/store-moves"))
+# Header facts of GGUF files that live in a library (caravan/admin/library_meta.py),
+# read from the local copy before a move deleted it: reading them over NFS from
+# this process is what model_stores.py forbids.
+LIBRARY_META_FILE = Path(os.environ.get("CARAVAN_LIBRARY_META")
+    or _default("state/library-meta.json", Path.home() / ".local/state/llamacpp-easy-admin/library-meta.json"))
 MONITOR_SAMPLE_INTERVAL = float(os.environ.get("LLAMA_MONITOR_SAMPLE_INTERVAL", "1"))
 MONITOR_RETENTION_DEFAULT = int(os.environ.get("LLAMA_MONITOR_RETENTION_SECONDS", "600"))
 INCIDENT_RETENTION_SECONDS = int(os.environ.get("LLAMA_INCIDENT_RETENTION_SECONDS", str(30 * 24 * 60 * 60)))

@@ -41,7 +41,7 @@ import {
   offloadSplit,
   vramFitForPfx,
 } from "./memory.js";
-import { jobsForArtifact } from "./model-jobs.js";
+import { JOB_LABELS, JOB_MARKS, jobsForArtifact } from "./model-jobs.js";
 import { _modelBenchKey, fetchPickerBenchBatch, serverBenchCache } from "./model-meta.js";
 import { saveConfig } from "./polling.js";
 import { _trCachedModels, _trClientCpu } from "./remote-cells.js";
@@ -256,13 +256,6 @@ export function badge(text, kind) {
 // `testId` stamps data-t on badges a test needs to find. Most badges describe a
 // model and are asserted through the card that holds them; the ones that report
 // a FAULT are the ones worth locating directly — see docs/testability.md.
-//: Emoji per job. The WORD does the telling — these only make the chip findable
-//: while scanning, which is why `speech-translate` wears both marks: it is the
-//: compound job, and 🌐 alone would read as plain text translation.
-const JOB_MARKS = { llm: "💬", embed: "🧬", asr: "🎧", tts: "🔊", translate: "🌐",
-                    "speech-translate": "🎧🌐" };
-const JOB_LABELS = { llm: "jobLlm", embed: "jobEmbed", asr: "jobAsr", tts: "jobTts",
-                     translate: "jobTranslate", "speech-translate": "jobSpeechTranslate" };
 //: Test hooks spelled out rather than composed, so `grep data-t` still finds
 //: every one of them — the contract in docs/testability.md is only worth what a
 //: reader can locate in the source.
@@ -563,6 +556,12 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
       if (item.fresh === "size" || item.fresh === "date") {
         badges += mbadge("stale-model", "⇪", t("cellModelStaleTip"), "model-file-stale");
       }
+      // Only a library holds this file: said on its row, with the library's
+      // name — the cell will read it from there, not from this disk.
+      if (item.libraryOnly) {
+        const libName = (item.store && item.store.name) || "";
+        badges += mbadge("lib", `📚 ${escapeHtml(libName)}`, t("mdlInLibrary", { name: libName }), "model-in-library");
+      }
       if (item.kind === "st") badges += mbadge("st", item.stFormat || "safetensors", "safetensors");
       if (item.cached) badges += mbadge("cached", t("cachedOnHost"));
       if (item.missing) {
@@ -642,6 +641,10 @@ export function renderModelSelects(pfx = "") {
       sttVariant: (row.ggufMeta || {}).sttVariant || "",
       langs: (row.ggufMeta || {}).languages || [],
       cached: pfx === "tr-" && _trCachedModels.has(row.path),
+      // A file only a library holds: offered like any other — the cell can
+      // start from there — but it says where it is.
+      libraryOnly: !!row.libraryOnly,
+      store: row.store || null,
     }));
   // Safetensors artifacts (vLLM launches them). Controller forms only: client
   // hosts don't have the controller's models tree and the scout syncs gguf only.
@@ -780,7 +783,7 @@ export function renderModelSelects(pfx = "") {
     { value: "", label: t("textOnlyOption"), kind: "mmproj" },
     ...models
       .filter((row) => row.kind === "mmproj" && (!repoPrefix || row.path.startsWith(repoPrefix)))
-      .map((row) => ({ value: row.path, sizeGb: row.sizeGb, kind: "mmproj" })),
+      .map((row) => ({ value: row.path, sizeGb: row.sizeGb, kind: "mmproj", libraryOnly: !!row.libraryOnly, store: row.store || null })),
   ];
   if (currentMmproj && !mmprojItems.find((i) => i.value === currentMmproj)) {
     mmprojItems.push({ value: currentMmproj, kind: "mmproj", label: `${currentMmproj} (${t("currentNotFiltered")})` });
@@ -797,7 +800,7 @@ export function renderModelSelects(pfx = "") {
       { value: "", label: t("textOnlyOption"), kind: "draft" },
       ...models
         .filter((row) => row.kind === "draft" && (!repoPrefix || row.path.startsWith(repoPrefix)))
-        .map((row) => ({ value: row.path, sizeGb: row.sizeGb, kind: "draft" })),
+        .map((row) => ({ value: row.path, sizeGb: row.sizeGb, kind: "draft", libraryOnly: !!row.libraryOnly, store: row.store || null })),
     ];
     if (currentDraft && !draftItems.find((i) => i.value === currentDraft)) {
       draftItems.push({ value: currentDraft, kind: "draft", label: `${currentDraft} (${t("currentNotFiltered")})` });

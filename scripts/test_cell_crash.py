@@ -99,7 +99,26 @@ def test_crash_note():
     check(len(calls) == 2, "а новое падение (счёт вырос) перечитывает сразу, не дожидаясь TTL")
 
 
+def test_last_error_kinds():
+    print("почему ячейка не стартовала:")
+
+    def kind_of(text):
+        systemd_ctl.run = lambda *a, **k: {"ok": True, "stdout": text, "stderr": ""}
+        systemd_ctl._cell_err_cache.clear()
+        res = systemd_ctl.cell_last_error(22011)
+        return res and res["kind"]
+    guards = [kind_of("Model not found: /home/x/models/M/m.gguf"), kind_of("MMProj not found: /home/x/models/M/p.gguf"),
+              kind_of("Spec draft not found: /mnt/lib/M/d.gguf"), kind_of("Library not mounted: NAS (/mnt/lib)")]
+    check(guards == ["model", "model", "model", "model"],
+          f"слова самого скрипта запуска — «нет модели», «нет проектора», «нет черновика», «библиотека не смонтирована» — это "
+          f"причина «модель», а не необъяснимый крэш: скрипт останавливает старт раньше llama.cpp (got {guards})")
+    check(kind_of("cudaMalloc failed: out of memory\nllama_model_load: error loading model") == "oom",
+          "negative: нехватка памяти по-прежнему важнее «модели» — такой лог всегда заканчивается и «error loading model»")
+    check(kind_of("Segmentation fault (core dumped)") == "crash", "negative: незнакомые слова — крэш, а не выдуманная причина")
+
+
 test_crash_note()
+test_last_error_kinds()
 
 print()
 if _fail:

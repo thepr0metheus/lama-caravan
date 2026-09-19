@@ -1,5 +1,5 @@
 // DOM/format/HTTP helpers with zero app-state and zero i18n dependencies
-// (hf.js imports from here — keep this module free of i18n-data).
+// (the /hf modules import from here — keep this module free of i18n-data).
 
 export function $(id) {
   return document.getElementById(id);
@@ -77,6 +77,24 @@ export function toast(message) {
   el.textContent = message;
   el.classList.add("show");
   setTimeout(() => el.classList.remove("show"), 3200);
+}
+
+// Gigabytes the way the pages print them: whole numbers from 100 GB up, one
+// decimal from 10, two below. One copy for the models page and its stores
+// panel — two copies of a format drift apart, and then one number reads
+// differently in two places on the same screen.
+export function fmtGb(bytes) {
+  const gb = bytes / 2 ** 30;
+  return gb >= 100 ? `${Math.round(gb)} GB` : `${gb.toFixed(gb >= 10 ? 1 : 2)} GB`;
+}
+
+// A whole store's capacity, where models are measured in gigabytes but the
+// store itself is not: "5532 GB free of 7143 GB" is two numbers nobody reads,
+// and the same shelf says "5.4 TB free of 7.0 TB" at a glance. Files keep
+// fmtGb — a model IS a gigabytes-sized thing.
+export function fmtSpace(bytes) {
+  const tb = bytes / 2 ** 40;
+  return tb >= 1 ? `${tb.toFixed(tb >= 10 ? 0 : 1)} TB` : fmtGb(bytes);
 }
 
 export function pill(text, kind) {

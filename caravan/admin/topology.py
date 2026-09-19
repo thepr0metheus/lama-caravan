@@ -18,6 +18,8 @@ from caravan.admin.runners import (cell_artifact_label, cell_model_ref,
 from caravan.admin.fleet_clients import assignment_port_claims, refresh_topology_clients_from_agents, topology_clients
 from caravan.admin.llama_metrics import runtime_metrics_sample, runtime_phase, vllm_metrics_sample
 from caravan.admin.models import display_model_name
+from caravan.admin.load_progress import LOAD_WATCH
+from caravan.admin.model_locator import current_locations
 from caravan.admin.monitoring import (
     cpu_snapshot,
     gpu_compute_apps,
@@ -260,6 +262,64 @@ def _launch_disk_newer(config, model_path, cell_status):
     """
     return [role for role, ref in _launch_files(config, model_path)
             if _model_disk_newer(ref, cell_status)]
+
+
+def _launch_in_library(cell_config, model_path, config, locations):
+    """Which launch files only a library holds: {"stores": [{id, name}…],
+    "roles": [role…]} — or None when all of them are on this disk, or nowhere
+    (a file that is nowhere is the start's own error, and the start says it).
+
+    The files are looked for where the cell's start joins them: its own models
+    directory, or the controller's. For a controller cell only: the libraries
+    are mounted here, and a client cell reads its own disk.
+    """
+    models_dir = models_dir_from_config({"LLAMA_MODELS_DIR": (cell_config or {}).get("LLAMA_MODELS_DIR")
+                                         or (config or {}).get("LLAMA_MODELS_DIR")})
+    roles, stores = [], []
+    for role, ref in _launch_files(cell_config, model_path):
+        hit = locations.locate(ref, models_dir)
+        if hit is None or not hit.in_library:
+            continue
+        roles.append(role)
+        store = {"id": hit.store["id"], "name": hit.store["name"]}
+        if store not in stores:
+            stores.append(store)
+    return {"stores": stores, "roles": roles} if roles else None
+
+
+def _load_file_size(path, locations):
+    """(bytes, library name or None) of a file a starting cell reads — or None
+    when that is not known. A library's file is measured by the library's last
+    look and never stat()ed here, usable or not: a NAS that stops answering
+    would hold the board. A file on this disk is stat()ed, all its parts."""
+    hit = locations.library_file(path)
+    if hit is None:
+        size = _slot_model_size_bytes(path, "")
+        return (size, None) if size else None
+    store, size = hit
+    return (size, store["name"]) if store and size else None
+
+
+def _cell_load(port, phase, locations):
+    """How far a controller cell has read its model files — or None. Only a
+    starting or warming cell is asked about; any other is forgotten, so a cell
+    that loaded once keeps no old reading. A measurement that fails leaves the
+    card its old line, never a broken board."""
+    if phase not in ("starting", "warming"):
+        LOAD_WATCH.forget(port)
+        return None
+    try:
+        return LOAD_WATCH.look(port, cell_unit_pids(port), lambda path: _load_file_size(path, locations))
+    except Exception:
+        return None
+
+
+def _parked_model_size(model_path, config, locations):
+    """Weights-on-disk for a parked cell's ≈VRAM badge: here — or, for weights
+    a move put in a library, the library's own measure, so the badge does not
+    vanish with the move."""
+    return (_slot_model_size_bytes(model_path, str(models_dir_from_config(config)))
+            or locations.library_size(model_path))
 
 
 def _model_fresh_state(model_path):
@@ -602,6 +662,9 @@ def topology_server(config=None):
         for s in llama_servers
     }
     clients_by_id = store.get("clients", {})
+    # What the libraries hold, as last measured — once for all the cards, and
+    # without waiting for a NAS that may not answer.
+    model_locations = current_locations()
     for slot in store.get("serverSlots", {}).values():
         host_id = str(slot.get("hostId") or "")
         port = slot.get("port")
@@ -716,11 +779,14 @@ def topology_server(config=None):
         # Authoritative modalities for a live cell (controller on 127.0.0.1,
         # remote on its IP). Stopped/reserved cells have no running server.
         progress_note = ""
+        load_progress = None
         if is_controller_slot and slot_phase in ("starting", "warming"):
             try:
                 progress_note = cell_progress_note(port)
             except Exception:
                 progress_note = ""
+        if is_controller_slot:
+            load_progress = _cell_load(port, slot_phase, model_locations)
         slot_mods = None
         if slot_phase == "running" and not slot_is_command:
             probe_ip = "127.0.0.1" if is_controller_slot else client_ip
@@ -764,6 +830,11 @@ def topology_server(config=None):
                                if is_controller_slot and slot_phase == "running" else False),
             "launchDiskNewer": (_launch_disk_newer(slot.get("config") or {}, model_path, cell_status)
                                 if is_controller_slot and slot_phase == "running" else []),
+            # Which launch files only a library holds: they were moved off this
+            # disk, and the cell starts from there. Controller cells only — that
+            # is where the libraries are mounted.
+            "modelStore": (_launch_in_library(slot_cfg, model_path, config, model_locations)
+                           if is_controller_slot else None),
             "mmproj": str(((slot.get("config") or {}).get("MMPROJ_FILE")) or ""),
             "specDraft": str(((slot.get("config") or {}).get("SPEC_DRAFT_MODEL_FILE")) or ""),
             "specType": str(((slot.get("config") or {}).get("SPEC_TYPE")) or ""),
@@ -787,6 +858,7 @@ def topology_server(config=None):
             "gpuName": gpu_name,
             "modalities": slot_mods,
             "phase": slot_phase,
+            **({"loadProgress": load_progress} if load_progress else {}),
             "downloadedBytes": _cdl,
             "totalBytes": _ctot,
             # A running llama or vLLM cell on this host states its windows on
@@ -799,7 +871,7 @@ def topology_server(config=None):
             # ≈VRAM hint for a parked cell: weights-on-disk size (context/KV
             # overhead not included). Live phases get the real figure from GPU
             # process memory instead.
-            "modelSizeBytes": (_slot_model_size_bytes(model_path, str(models_dir_from_config(config)))
+            "modelSizeBytes": (_parked_model_size(model_path, config, model_locations)
                                if slot_phase in ("stopped", "reserved", "error") else 0),
             "promptTps": cell_metrics.get("promptTokensPerSecond") if cell_metrics.get("ok") else None,
             "genTps": cell_metrics.get("predictedTokensPerSecond") if cell_metrics.get("ok") else None,

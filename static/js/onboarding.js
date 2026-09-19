@@ -1,7 +1,7 @@
 // Dependency-free onboarding tour engine + floating "?" button.
-// No app imports on purpose: /hf.js reuses it without pulling i18n-data.
+// No app imports on purpose: the /hf page reuses it without pulling i18n-data.
 // Tours are declared elsewhere (onboarding-tours.js for the board/kanban,
-// inline in hf.js) and passed in; strings arrive pre-translated.
+// hf-text.js for /hf) and passed in; strings arrive pre-translated.
 
 const BTN_SEEN_KEY = "caravanTourBtnUsed";
 

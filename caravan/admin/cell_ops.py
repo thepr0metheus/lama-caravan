@@ -10,6 +10,8 @@ from caravan.domain.runner import for_config
 from caravan.admin.fleet_clients import client_llama_start, client_llama_stop
 from caravan.admin.cell_assets import assets_for_runner, materialize_local_assets
 from caravan.admin.launch import server_cell_dir, write_server_cell_artifacts
+from caravan.admin.config_builder import model_paths
+from caravan.admin.model_locator import current_locations
 from caravan.admin.server_cells import (
     assert_server_cell_port_available,
     delete_server_slot,
@@ -152,6 +154,47 @@ def server_cell_save_config(body: dict) -> dict:
         save_admin_state()
     return {"ok": True, "hostId": host_id, "port": port, "state": state()}
 
+def bring_home(host_id, port, config, choice, locations, then_start=True):
+    """Decide where this cell reads its model from, and act on it.
+
+    Returns the move that was started, or None when the cell may start right
+    now — either because its model is on this disk already, or because it will
+    be read from the library it sits in.
+
+    `choice` is what the operator answered: "disk" brings the model back and
+    starts the cell when it is here, "library" starts now and reads it there.
+    Empty means nobody could be asked — a schedule, a restart after a crash —
+    and then the model comes home if there is room for it and is read where it
+    lies if there is not. No second copy of the space arithmetic: the planner
+    already refuses "no-room", and that refusal IS the answer.
+
+    `then_start` is False when the move is only a preparation — the schedule
+    fetching a model before its window opens. The cell is not started then: its
+    window has not come.
+    """
+    away = [at for at in model_paths(config, locations).values() if at.in_library]
+    if not away or choice == "library":
+        return None
+    from caravan.admin.model_stores import StoreRegistry
+    from caravan.admin.store_moves import MoveRefused, runner as move_runner
+    then = {"start": {"hostId": host_id, "port": port}} if then_start else {}
+    started = None
+    by_store = {}
+    for at in away:
+        by_store.setdefault(at.store["id"], []).append(at.rel)
+    try:
+        # One job per library the files are spread over; the promise to start
+        # rides on the last one. The start script checks every file anyway, so
+        # a cell whose earlier job failed refuses to start and says which file.
+        for store_id, rels in by_store.items():
+            started = move_runner().start(sorted(rels), StoreRegistry.LOCAL_ID, source_id=store_id, then=then)
+    except MoveRefused:
+        if choice == "disk":
+            raise
+        return None
+    return started
+
+
 def server_cell_action(body: dict) -> dict:
     host_id = str(body.get("hostId") or "").strip()
     port = int(body.get("port") or 0)
@@ -180,8 +223,21 @@ def server_cell_action(body: dict) -> dict:
                         f"port {port} is already in use by "
                         f"{_lcomm or 'another process'}"
                         f"{f' (pid {_lpid})' if _lpid else ''} — stop it first", 409)
-        if action_name in {"start", "restart", "enable"} and not (slot.get("artifact") or {}).get("startScript"):
-            artifact = write_server_cell_artifacts(host_id, port, cfg)
+        where = current_locations(wait=True) if action_name in {"start", "restart", "enable"} else None
+        # A model that lives in a library: bring it home first, or read it
+        # there. The answer may be a move, and then the cell starts when the
+        # move ends — not now.
+        if action_name in {"start", "restart"}:
+            bringing = bring_home(host_id, port, cfg, str(body.get("modelFrom") or ""), where)
+            if bringing:
+                return {"ok": True, "hostId": host_id, "port": port, "action": action_name,
+                        "bringing": bringing, "state": state()}
+        # The script is written again at every start, not only when it is
+        # missing: where a model lives can change between two starts. A file
+        # moved into a library since the last one has to be read from there,
+        # and the script written back then still points at this disk.
+        if action_name in {"start", "restart", "enable"}:
+            artifact = write_server_cell_artifacts(host_id, port, cfg, locations=where)
             if artifact:
                 slot["artifact"] = artifact
                 topo.put_slot(host_id, port, slot)
@@ -210,6 +266,17 @@ def server_cell_action(body: dict) -> dict:
             for_config(cfg).preflight_start(cfg, model)
         elif not model:
             raise AppError("cell has no saved model — configure it first", 400)
+        # A client downloads its model FROM THIS CONTROLLER, and the controller
+        # serves what is on its own disk. A model that lives only in a library
+        # would answer that request with "not found" — a client cell that dies
+        # on a 404 halfway through a download, with the reason on the other
+        # machine. Refuse here instead, and name the library it is in.
+        # (A client mounts the same library, but it does not read it yet: that
+        # is its own step, and pretending otherwise would break the download.)
+        at = model_paths({**cfg, "MODEL_FILE": model}, current_locations(wait=True)).get("MODEL_FILE")
+        if at is not None and at.in_library:
+            raise AppError(f"its model is in the library {at.store['name'] or at.store['id']}, not on this "
+                           f"controller's disk — bring it back here first: {model}", 409)
         result = client_llama_start({
             "hostId": host_id,
             "modelPath": model,

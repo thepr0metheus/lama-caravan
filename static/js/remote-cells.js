@@ -1,5 +1,5 @@
 // Remote cell lifecycle: reserve/start/stop, tr- edit form, remote backups.
-import { appConfirm, appPrompt } from "./dialogs.js";
+import { appChoose, appConfirm, appPrompt } from "./dialogs.js";
 import { renderCommandPreview } from "./command-preview.js";
 import { CONTROLLER_HOST_ID, defaultOnOptionalToggles } from "./constants.js";
 import { refreshFavoritesPanel } from "./favorites.js";
@@ -449,7 +449,25 @@ export async function reserveServerCell(hostId, portHint = "") {
   }
 }
 
-export async function cellServiceAction(hostId, port, actionName) {
+// A cell whose model lives in a library: the operator decides how it starts —
+// bring the model home first (checked on the way, the cell starts when it is
+// here), or start now and read it over the network. The card already knows, so
+// the question is asked INSTEAD of the ordinary start confirm: two dialogs in a
+// row would ask the same person the same thing twice. Automatic starts (a
+// schedule, a restart after a crash) never come through here, and the server
+// decides for them.
+export async function askWhereFrom(btn) {
+  const name = btn.dataset.nodeCellLibrary || "";
+  if (!name) return "";
+  return appChoose(t("startWhereText", { name, files: btn.dataset.nodeCellLibraryFiles || "" }), {
+    title: t("startWhereTitle"),
+    scene: "start",
+    options: [{ value: "disk", label: t("startWhereDisk"), hint: t("startWhereDiskHint") },
+              { value: "library", label: t("startWhereLibrary", { name }), hint: t("startWhereLibraryHint") }],
+  });
+}
+
+export async function cellServiceAction(hostId, port, actionName, modelFrom = "") {
   const cellKey = `${hostId}:${port}`;
   _pendingCellActions.set(cellKey, actionName);
   _patchCellButtonsBusy(hostId, port, actionName);
@@ -460,9 +478,16 @@ export async function cellServiceAction(hostId, port, actionName) {
   try {
     const res = await api("/api/topology/server-cell/action", {
       method: "POST",
-      body: JSON.stringify({ hostId, port: Number(port), action: actionName }),
+      // The answer to "where from" travels only when there was a question:
+      // every other action would otherwise carry an empty field about a
+      // decision nobody made.
+      body: JSON.stringify({ hostId, port: Number(port), action: actionName, ...(modelFrom ? { modelFrom } : {}) }),
       signal: AbortSignal.timeout(60000),
     });
+    // The model is being brought home; the cell starts when it is here. Said
+    // out loud because the card will sit "stopped" until then, and silence
+    // there reads as a start that did nothing.
+    if (res && res.bringing) toast(t("startBringing"));
     // The request can succeed (HTTP 200) but the agent may reject the action —
     // e.g. a client has a single server slot and another cell is still
     // starting/downloading. Surface that instead of silently doing nothing.
@@ -812,6 +837,12 @@ export function bindServerSlotControls(root) {
       // For a command-path cell that .node-model-name row is the command line,
       // so the model wording announced "bash ~/run_tts.sh $PORT cosyvoice" as a
       // model and promised it would load into memory — neither is true.
+      if (b.dataset.nodeCellLibrary) {
+        const from = await askWhereFrom(b);
+        if (!from) return;
+        cellServiceAction(b.dataset.nodeCellLaunch, port, "start", from);
+        return;
+      }
       const msg = (b.dataset.nodeCellRunner || "llama-server") !== "llama-server"
         ? t("dlgStartCommand", { port })
         : (model ? t("dlgStartModel", { model, port }) : t("dlgStartPort", { port }));

@@ -93,8 +93,17 @@ jobs:
           python3 scripts/test_model_freshness.py
           python3 scripts/test_model_jobs.py
           python3 scripts/test_hf_verify.py
+          python3 scripts/test_hf_search.py
+          python3 scripts/test_hf_local_check.py
           python3 scripts/test_model_watch.py
           python3 scripts/test_model_staging.py
+          python3 scripts/test_model_artifacts.py
+          python3 scripts/test_start_from_library.py
+          python3 scripts/test_model_stores.py
+          python3 scripts/test_store_moves.py
+          python3 scripts/test_model_locator.py
+          python3 scripts/test_load_progress.py
+          python3 scripts/test_models_list.py
           python3 scripts/test_proxy_forward.py
           python3 scripts/test_api_body.py
           python3 scripts/test_js_model_meta.py
@@ -104,12 +113,14 @@ jobs:
           python3 scripts/test_js_form.py
           python3 scripts/test_js_topology_activity.py
           python3 scripts/test_js_topology_nodes.py
+          python3 scripts/test_js_cell_load.py
           python3 scripts/test_js_llama_edit.py
           python3 scripts/test_js_remote_cells.py
           python3 scripts/test_js_client_proxies.py
           python3 scripts/test_js_routers.py
           python3 scripts/test_js_cloud.py
           python3 scripts/test_js_dialogs.py
+          python3 scripts/test_js_dialog_llamas.py
           python3 scripts/test_js_topology_modals.py
           python3 scripts/test_js_charts.py
           python3 scripts/test_js_cables.py
@@ -118,7 +129,14 @@ jobs:
           python3 scripts/test_js_config_locator.py
           python3 scripts/test_js_system_panels.py
           python3 scripts/test_js_models_page.py
+          python3 scripts/test_js_model_stores.py
+          python3 scripts/test_js_model_moves.py
           python3 scripts/test_js_system_page.py
+          python3 scripts/test_js_hf_catalog.py
+          python3 scripts/test_js_hf_repo_view.py
+          python3 scripts/test_js_hf_bench.py
+          python3 scripts/test_js_hf_downloads.py
+          python3 scripts/test_js_hf_page.py
           python3 scripts/test_js_polling.py
           python3 scripts/test_js_utils.py
           python3 scripts/test_js_i18n.py
@@ -134,6 +152,8 @@ jobs:
           python3 scripts/check_command_mirrors.py
           python3 scripts/test_settings_bundle.py
           python3 scripts/test_download_retry.py
+          python3 scripts/test_download_replace.py
+          python3 scripts/test_download_cancel.py
           python3 scripts/test_cell_servers.py
           python3 scripts/check_cell_health_contract.py
           # Правило, потерявшее и код и ссылку, — потерянный инцидент.

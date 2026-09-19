@@ -440,7 +440,7 @@ export function renderControllerInfo(info) {
   }
   el.innerHTML = chips.join("");
 }
-// ── HuggingFace Browser moved to /hf (static/hf.js) ─────────────────────────
+// ── HuggingFace Browser moved to /hf (static/js/hf-page.js) ─────────────────
 
 
 export function renderLlamaCpp() {

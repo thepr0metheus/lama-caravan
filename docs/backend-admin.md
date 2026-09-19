@@ -35,6 +35,7 @@ place, never reassigned.
 | `fsio` | File I/O. `atomic_write_text` writes to a per-process/thread temp name (`name.<pid>.<tid>.tmp`) then `os.replace`, so readers never see a partial file and concurrent writers never clobber each other's temp. Optional `chmod`/`mkdir`. | `read_text`, `atomic_write_text` |
 | `fetch` | urllib HTTP helpers. `fetch_json` returns `{ok:False, error}` on failure, `fetch_text` returns an `"ERROR: …"` string; `post_json` is the one that raises. | `fetch_json`, `fetch_text`, `post_json` |
 | `jsonx` | JSON encoding for responders. `json_bytes` tries `allow_nan=False` first; only on `ValueError` does it walk the tree replacing inf/nan with `None` (browser `JSON.parse` rejects them). | `json_bytes` |
+| `model_artifacts` | Which folders are models in their own right — a whisper HF cache, a safetensors checkpoint. Outermost only: a snapshot directory inside a cache matches the rule too, but naming it as well would let one move carry half a model off. `folder_weight` counts what a COPY weighs — real files once, links never (a cache holds every blob under a link as well). The probe child in `model_stores.py` imports nothing of ours, so it carries this module's own source text: the models disk and a library are walked by the same lines. | `artifact_kind`, `artifact_dirs`, `folder_weight`, `hidden`, `relative` |
 | `ttl_cache` | `(timestamp, value)` TTL cache with an internal lock. `get()` returns the `MISS` sentinel so falsy values are cacheable. No single-flight by design: concurrent misses may both fetch, same as the pre-refactor call sites. | `TtlCache`, `MISS` |
 
 ## `paths.py`
@@ -98,11 +99,20 @@ all funnel through it — adding a flag means editing it and nothing else. Safet
 embeddings mode drops speculative decoding and `--jinja`; `ENABLE_THINKING` merges into
 `--chat-template-kwargs`. `parse_extra_args` is the inverse — it hoists recognized raw flags out of
 `EXTRA_ARGS` into their form fields.
+`model_paths` answers where this host reads the cell's three model files: without a `locations`
+snapshot every one is on the models disk (the answer from before libraries existed, and the right
+one for a command that is only being shown), with one a file that lives in a library is read from
+there. A file read over the network is never mapped — llama.cpp keeps the input layer on the CPU
+and reads it from the file per token, so a share that blinks takes a running cell down. `--mmap`
+asked for in the fields is overruled and `--load-mode` loses only its mapping (`no_mmap_mode`:
+mmap+mlock → mlock, mmap → none, dio and mlock untouched). One file over the wire is enough:
+`--no-mmap` is a property of the process, not of a file.
 Owns: `CONFIG_FIELDS`/`FIELD_HELP` and the config-block markers.
 Key functions: `parse_config` (read start-server.sh), `parse_config_from_text`/`split_config`,
 `build_config_block` (validates MODEL_FILE/PORT/numerics), `build_llama_args`,
 `build_remote_llama_args` (placeholders, no host-local flags), `build_local_llama_command` (absolute
-paths + binary), `parse_extra_args`, `is_command_cell`, `models_dir_from_config`.
+paths + binary), `model_paths`, `no_mmap_mode`, `parse_extra_args`, `is_command_cell`,
+`models_dir_from_config`.
 
 ## `runners.py`
 
@@ -131,7 +141,11 @@ for a host that runs it as a child process instead of a unit — shipped to clie
 `payload["shellLine"]`. The two share `command_cell_env_exports`: the agent used to parse `ENV`
 itself and had already lost `set -euo pipefail`, so one config behaved differently per host.
 `write_server_cell_artifacts` writes `var/server-cells/<port>/start.sh` + `cell.json`
-(temp+replace). Snapshots are manual-only (`snapshot_config` — named
+(temp+replace) — again at every start, not only when the script is missing, because where a model
+lives can change between two starts. A file in a library brings one guard more, before the file
+tests and once per library: its mark in the library's root. Without the mark the share did not
+mount, and what sits under the mount point is the local disk — the file test alone would report the
+model missing and send whoever reads the log looking for a deleted file. Snapshots are manual-only (`snapshot_config` — named
 `start-server.sh.bak.<stamp>-<name>` files, rendered from the live form config when given so
 cell-specific values are captured); `save_config` rewrites the whole start-server.sh with no
 auto-backup.
@@ -155,6 +169,44 @@ Owns: `FAMILY_DEFAULTS`.
 Key functions: `read_gguf_metadata`, `extract_runtime_meta`, `detect_family`,
 `embedding_family_defaults`, `list_models`, `list_chat_templates`, `serve_model_file` (GET
 `/api/models/download`), `list_gguf_models` (grouped listing for remote start).
+`list_models` also lists the files only a usable library holds (`model_locator.py`), in their places
+and marked `libraryOnly` with their `store`; their header facts come from `library_meta.py`, never
+from reading the NAS.
+
+## `model_locator.py`
+
+Where a model file lives right now: on this disk (a local `stat`), in a library, or nowhere. A
+library's files come from the registry's last look (`model_stores.py`) — this process never touches
+the NAS, since a dead NFS server makes `stat()` wait. A library counts only while it is really there
+(`ok`, `low-space`, `read-only`). The board and the picker read the snapshot without waiting
+(`current_locations()`); a start asks for a fresh one (`wait=True`).
+`Locations.library_file(path)` answers the same for a path as this host reads it — the size a
+library's last look gave it, all parts of a multi-part GGUF; a path under a library that is not
+usable now is unknown, and nothing may look there.
+Key functions: `Locations.locate`, `Locations.library_entries`, `Locations.library_size`,
+`Locations.library_file`, `current_locations`.
+
+## `load_progress.py`
+
+How far a starting cell has read its model files, which one it reads now and what is still to come
+— the card's two load rows. Measured from the kernel alone: the running process's command line
+decides whether it READS its files (`--no-mmap`, `--load-mode none|mlock`; a library start always
+does), `rchar` in `/proc/PID/io` is how much it has read, and `readlink` on its open descriptors
+says which file. Bytes are credited in llama-server's own order (weights, draft, projector); the
+speed needs two readings and skips the pause in which the context is made; 30 s without a byte, a
+file open, is `stalled`. A mapped load, an unknown size or a silent kernel gets no answer, so the
+card keeps its looping line instead of a made-up 0 %. Nothing here opens or `stat()`s a model file.
+Owns: `LOAD_WATCH` — per port, the readings of the start being watched (forgotten when the cell
+stops loading, or after ten minutes unseen).
+Key functions: `LlamaProcess.among`, `LlamaProcess.reads_files`, `LoadWatch.look`, `LoadWatch.forget`.
+
+## `library_meta.py`
+
+A GGUF header's runtime facts for the files that live in a library: read from the local copy just
+before a move deletes it (`store_moves.py` → `remember_header`) and kept in
+`state/library-meta.json` by library, path and size — a different size under the same name is
+another file and gets nothing.
+Key functions: `LibraryMeta.lookup`, `LibraryMeta.remember_file`, `library_meta`.
 
 ## `model_gc.py`
 
@@ -163,9 +215,13 @@ server slot's saved config (`MODEL_FILE`/`MMPROJ_FILE`/`SPEC_DRAFT_MODEL_FILE`) 
 start-server.sh; multi-part GGUFs (`…-00001-of-00004.gguf`) are grouped — if any part is
 referenced, every part is. `list_unused_models` reports unreferenced files with sizes;
 `delete_models` re-checks references server-side before removing (the UI cannot talk it into
-deleting a referenced file) and prunes emptied directories.
+deleting a referenced file) and prunes emptied directories. Named by a cell and READ by one are two
+different facts: `holders` answers the second (only the cells that name the very files asked about
+are questioned, and a client's cell counts as reading — it cannot be asked from here), and a move
+goes by it, because a stopped cell's model may travel and its start brings it back. Deletion keeps
+going by the first. Each listed file carries both: `referencedBy` and `readBy`.
 Owns: —.
-Key functions: `list_unused_models`, `delete_models`.
+Key functions: `list_unused_models`, `delete_models`, `holders`, `running_owners`.
 
 ## `systemd_ctl.py`
 
@@ -214,8 +270,13 @@ chunks into `<models>/<destDir>/`, updating progress under the jobs lock. A sile
 stream (HF CDN closing early) is detected by byte count, the partial file deleted, and the job
 marked `error` — so a short GGUF is never served as a valid model. Finished job records are pruned
 300s after completion by the `/api/hf/download/jobs` handler.
+A cancel (`cancel_hf_download`, from `POST /api/hf/download/cancel`) raises a flag the thread
+checks before each file and after each chunk: the job ends `cancelled`, is never retried, and the
+bytes already fetched stay as a partial with its manifest — listed as interrupted and resumable at
+once (the scan cache is dropped); a partial with no bytes is removed.
 Owns: `_download_jobs` + `_download_jobs_lock`; job worker threads.
-Key functions: `start_hf_download` (returns job id; status polled via `/api/hf/download/status`).
+Key functions: `start_hf_download` (returns job id; status polled via `/api/hf/download/status`),
+`cancel_hf_download`, `scan_interrupted_downloads`, `resume_interrupted_download`.
 
 ## `benchmarks.py`
 
@@ -491,10 +552,13 @@ Per-cell start/stop schedule. A slot may carry `schedule = {enabled, start "HH:M
 days [0..6]}` (empty days = daily); a background tick (1/min, started by `main()`) acts only on
 window **edges** — so a manual stop inside a window sticks until the next window opens
 (`schedState` on the slot remembers the last applied edge). Start/stop go through the same
-`server_cell_action` path the buttons use.
-Owns: the scheduler thread, `schedState` on slots.
-Key functions: `normalize_schedule`, `set_cell_schedule`, `in_window`, `scheduler_tick`,
-`start_scheduler_thread`.
+`server_cell_action` path the buttons use. The same tick also brings a model home before its window
+opens (`PREFETCH_MIN` minutes, once per window — the window it was done for is remembered on the
+slot), so a scheduled cell starts from this disk instead of reading over the network; the cell is
+NOT started then, and a disk with no room simply keeps the model where it is.
+Owns: the scheduler thread, `schedState` and `schedFetch` on slots.
+Key functions: `normalize_schedule`, `set_cell_schedule`, `in_window`, `minutes_to_window`,
+`prefetch_tick`, `scheduler_tick`, `start_scheduler_thread`.
 
 ## `fleet_clients.py`
 
@@ -531,6 +595,9 @@ upstream through its router's default output (the route's own upstreamPort is a 
 auto-syncs router outputs to the available providers (persisting once, via a fresh read-modify-write
 to avoid clobbering concurrent edits), and returns servers, nodes, proxies, routers, policy,
 clients, assignments, orphaned agents, aliases, layout, OpenClaw configs and cloud state.
+A controller cell that is starting or warming carries `loadProgress` when its load can be measured
+(`_cell_load` → `load_progress.py`, sizes by `_load_file_size`: a library's file by the library's
+last look, never a `stat()` on the share).
 `apply_topology_assignments` validates and stores agent→proxy assignments and pushes them to the
 client agents.
 Owns: — (aggregates; writes only via `proxies_config`/`state`).
@@ -594,9 +661,17 @@ next heartbeat. `server_cell_save_config` saves without starting. `server_cell_a
 on `skynet` it ensures the start.sh artifact exists and drives systemd `lama-cell@<port>`
 (start/stop/restart/enable/disable); on a client it forwards start/restart (from the saved slot
 config; command cells must have a COMMAND, llama cells a model) or stop to the route-agent.
+`bring_home` decides where a start reads its model from when a library holds it: `modelFrom: "disk"`
+starts a move back and the cell starts when the file is here (the promise rides in the move's own
+manifest, so it survives a closed tab and a restarted controller), `"library"` starts now and reads
+it there, and an empty choice — a schedule, a restart after a crash, nobody to ask — brings it home
+if there is room and reads it where it lies if there is not. The space arithmetic is the move
+planner's alone: its `no-room` refusal IS the fallback. A CLIENT cell is refused instead, by
+library name: a client downloads its model from this controller, and the controller serves only its
+own disk, so the alternative is a 404 halfway through a download on another machine.
 Owns: —.
 Key functions: `client_server_slot_add`, `client_server_slot_delete`, `server_cell_save_config`,
-`server_cell_action`.
+`server_cell_action`, `bring_home`.
 
 ## `routes.py`
 

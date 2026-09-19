@@ -1,9 +1,9 @@
 // Host-centric nodes view: server cards, telemetry mounts, incidents, models bar.
 import { drawTopologyCables } from "./cables.js";
+import { CellLoad } from "./cell-load.js";
 import { CONTROLLER_HOST_ID } from "./constants.js";
 import { nodeTelemetryRowsHtml, renderTopologyIncidents } from "./charts.js";
-import { effectiveModelsDir } from "./command-preview.js";
-import { badge, mbadge, modelsByPath, renderModelSelects } from "./form.js";
+import { badge, mbadge, modelsByPath } from "./form.js";
 import { t } from "./i18n.js";
 import {
   _modelBenchKey,
@@ -24,7 +24,7 @@ import {
   nodeStartingCardHtml,
   remoteStartPending,
 } from "./remote-cells.js";
-import { setState, state, topology } from "./state.js";
+import { state, topology } from "./state.js";
 import {
   topologyLlamaActivity,
   topologyRuntimePanelHtml,
@@ -35,7 +35,7 @@ import { topologyLlamaDetailOpen } from "./topology-dnd.js";
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
 import { runnerRegistry } from "./llama-edit.js";
-import { jobsForCell } from "./model-jobs.js";
+import { JOB_LABELS, JOB_MARKS, jobsForCell } from "./model-jobs.js";
 import { $, api, copyText, escapeHtml, inferSpecType, toast } from "./utils.js";
 
 // ── Host-centric node view (Stage 3a) ────────────────────────────────────────
@@ -61,12 +61,6 @@ function runnerChipHtml(runnerId) {
   return `<span class="mbadge mbadge-cmd node-runner-chip">${meta[0]} ${meta[1]}</span>`;
 }
 
-//: Same marks and the same words as the picker's chips — one vocabulary, so a
-//: model chosen as "🎧 speech → text" is still that after it starts.
-const JOB_MARKS = { llm: "\u{1F4AC}", embed: "\u{1F9EC}", asr: "\u{1F3A7}", tts: "\u{1F50A}",
-                    translate: "\u{1F310}", "speech-translate": "\u{1F3A7}\u{1F310}" };
-const JOB_LABELS = { llm: "jobLlm", embed: "jobEmbed", asr: "jobAsr", tts: "jobTts",
-                     translate: "jobTranslate", "speech-translate": "jobSpeechTranslate" };
 //: Spelled out, not composed — see the same table in form.js.
 const JOB_HOOKS = { llm: "cell-job-llm", embed: "cell-job-embed", asr: "cell-job-asr", tts: "cell-job-tts",
                     translate: "cell-job-translate",
@@ -364,6 +358,11 @@ export function nodeServerCardHtml(node, s) {
     const p = tot > 0 ? Math.round((done / tot) * 100) : null;
     const dlFile = s.downloadingFile ? escapeHtml(s.downloadingFile) : escapeHtml(t("topologyRemoteDownloading"));
     statusRow = _msl("", `<span class="msl-bar"><span style="width:${p ?? 0}%"></span></span><span class="msl-text" data-live-dl>${dlFile} · ${(done/1e9).toFixed(1)}/${(tot/1e9).toFixed(1)} GB${p!=null?` · ${p}%`:""}</span>`);
+  } else if (s.loadProgress && (isWarming || phase === "starting")) {
+    // Measured on the controller: bytes read, speed, time left and the files
+    // still to come (cell-load.js). A load it cannot measure sends nothing and
+    // gets the looping line below.
+    statusRow = new CellLoad(s.loadProgress).html(slotKey, _prevErrChip(s));
   } else if (isWarming) {
     // "into VRAM" is a lie on a CPU cell — it loads into RAM. The full isCpuCell
     // is derived further down (it needs the live GPU list), so the two cases
@@ -531,6 +530,16 @@ export function nodeServerCardHtml(node, s) {
              })}`,
              "cell-model-stale")
     : "";
+  // Only a library holds this cell's files — they were moved off this disk.
+  // The cell still starts, from there; the card says so and names which
+  // files, instead of looking like a cell whose weights are right here.
+  const libRoles = Array.isArray((s.modelStore || {}).roles) ? s.modelStore.roles : [];
+  const libName = ((s.modelStore || {}).stores || []).map((x) => String((x || {}).name || "")).join(", ");
+  const libraryChip = libRoles.length
+    ? mbadge("lib", `📚 ${escapeHtml(libName)}${launchFilesSuffix(libRoles)}`,
+             `${t("mdlInLibrary", { name: libName })}\n${t("cellLaunchFilesLine", { files: launchRoleNames(libRoles) })}`,
+             "cell-model-in-library")
+    : "";
   // Device chip — every non-reserved cell wears one. Runtime truth first: a
   // RUNNING cell shows its actual device (unit pids vs nvidia compute-apps;
   // command cells included). A STOPPED cell shows the CONFIGURED target —
@@ -601,7 +610,7 @@ export function nodeServerCardHtml(node, s) {
              WHERE it computes, how MUCH it takes, then the file's own facts, and
              warnings last. Two cards of the same kind now read in the same
              order, which is what makes a board scannable at all. */""}
-      ${statusRow || (jobChipsHtml(_runner, s.cellMeta, _scfg) || deviceChip || chips || schedChip || diskNewerChip || staleModelChip || crashChip ? `<div class="node-model-row2"><span class="model-chips">${jobChipsHtml(_runner, s.cellMeta, _scfg)}${runnerChipHtml(_runner)}${deviceChip}${memBadge}${chips}${schedChip}${diskNewerChip}${staleModelChip}${crashChip}</span></div>` : "")}
+      ${statusRow || (jobChipsHtml(_runner, s.cellMeta, _scfg) || deviceChip || chips || schedChip || diskNewerChip || staleModelChip || libraryChip || crashChip ? `<div class="node-model-row2"><span class="model-chips">${jobChipsHtml(_runner, s.cellMeta, _scfg)}${runnerChipHtml(_runner)}${deviceChip}${memBadge}${chips}${schedChip}${diskNewerChip}${staleModelChip}${libraryChip}${crashChip}</span></div>` : "")}
     </div>` : "";
   const emptyCellBlock = isReserved ? `
     <div class="node-model-block node-model-block-empty">
@@ -736,7 +745,7 @@ export function nodeServerCardHtml(node, s) {
     const cellRunner = isCmdCell ? "custom"
       : (String(_scfg.RUNNER || "").toLowerCase() || "llama-server");
     const playBtn = `<button class="node-action-btn ${canPlay ? "ok" : "muted"}" type="button"
-        ${canPlay ? `data-t="cell-start" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-runner="${escapeHtml(cellRunner)}"` : "disabled"}
+        ${canPlay ? `data-t="cell-start" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-runner="${escapeHtml(cellRunner)}"${libRoles.length ? ` data-node-cell-library="${escapeHtml(libName)}" data-node-cell-library-files="${escapeHtml(launchRoleNames(libRoles))}"` : ""}` : "disabled"}
         title="${escapeHtml(canPlay ? t("nodeStartServer") : (isReserved ? t("nodeConfigureFirst") : t("nodeNotStopped")))}">▶<span class="nab-lbl">${escapeHtml(t("start"))}</span></button>`;
 
     // ⏹ stop — active when starting or running; spinner while stopping
@@ -1416,65 +1425,19 @@ export function closeIncidentsModal() {
   if (home && card) home.appendChild(card);
 }
 
-// ── Models directory bar ──────────────────────────────────────────────────────
-export let _modelsDirEditing = false;
-
+// ── Models bar: two ways in ───────────────────────────────────────────────────
+// The board no longer shows or edits where models live. It showed ONE path, and
+// models now live in several stores (this disk, the libraries); the ✎ here was a
+// second editor for what /models edits, with the stores next to it. What stays
+// is the way to each page: what is on the disks, and what can be downloaded.
+// Both open in a new tab — the board keeps running where it was.
 export function renderModelsBar() {
   const el = $("topologyModelsBar");
   if (!el) return;
-  const dir = effectiveModelsDir(state?.config || {});
-  if (_modelsDirEditing) {
-    el.innerHTML = `
-      <span class="models-bar-icon" aria-hidden="true">📁</span>
-      <input id="modelsDirEditInput" class="models-bar-input" value="${escapeHtml(dir)}" placeholder="/path/to/models" autocomplete="off" spellcheck="false">
-      <button class="models-bar-btn models-bar-save" type="button" title="${escapeHtml(t("savePath"))}">${escapeHtml(t("save"))}</button>
-      <button class="models-bar-btn models-bar-cancel" type="button" title="${escapeHtml(t("cancel"))}">✕</button>`;
-    const input = el.querySelector("#modelsDirEditInput");
-    input?.focus();
-    input?.select();
-    el.querySelector(".models-bar-save")?.addEventListener("click", async () => {
-      const newVal = input?.value?.trim() || "";
-      _modelsDirEditing = false;
-      await saveModelsDir(newVal);
-    });
-    el.querySelector(".models-bar-cancel")?.addEventListener("click", () => {
-      _modelsDirEditing = false;
-      renderModelsBar();
-    });
-    input?.addEventListener("keydown", async (e) => {
-      if (e.key === "Enter") { e.preventDefault(); el.querySelector(".models-bar-save")?.click(); }
-      if (e.key === "Escape") { e.preventDefault(); el.querySelector(".models-bar-cancel")?.click(); }
-    });
-  } else {
-    const dirDisplay = dir || "(not set)";
-    el.innerHTML = `
-      <span class="models-bar-icon" aria-hidden="true">📁</span>
-      <span class="models-bar-label">${escapeHtml(t("topologyModelsLabel"))}</span>
-      <code class="models-bar-path${dir ? "" : " models-bar-empty"}" title="${escapeHtml(dir)}">${escapeHtml(dirDisplay)}</code>
-      <button class="models-bar-btn models-bar-edit" type="button" title="${escapeHtml(t("editModelsDir"))}">✎</button>
-      <span class="inline-tip help-tip models-bar-tip" tabindex="0" aria-label="${escapeHtml(t("modelsLayoutHint"))}">?<span class="tooltip" role="tooltip">${escapeHtml(t("modelsLayoutHint"))}</span></span>
-      <a class="models-bar-btn models-bar-hf" href="/hf" target="_blank" rel="noopener" title="${escapeHtml(t("hfBrowserTitle"))}">HF ↗</a>`;
-    el.querySelector(".models-bar-edit")?.addEventListener("click", () => {
-      _modelsDirEditing = true;
-      renderModelsBar();
-    });
-  }
-}
-
-export async function saveModelsDir(newPath) {
-  try {
-    const config = Object.assign({}, state?.config || {}, { LLAMA_MODELS_DIR: newPath });
-    const data = await api("/api/config", {
-      method: "POST",
-      body: JSON.stringify({ config, restart: false }),
-    });
-    setState(data.state);
-    renderModelsBar();
-    // Refresh model dropdowns everywhere since dir changed
-    renderModelSelects("");
-  } catch (e) {
-    toast(String(e));
-    renderModelsBar();
-  }
+  el.innerHTML = `
+    <a class="models-bar-link models-bar-models" href="/models" target="_blank" rel="noopener" title="${escapeHtml(t("modelsPageSub"))}" data-t="board-models-open">
+      <span aria-hidden="true">📦</span><span>${escapeHtml(t("topologyModelsLabel"))}</span><span class="models-bar-arrow" aria-hidden="true">↗</span></a>
+    <a class="models-bar-link models-bar-hf" href="/hf" target="_blank" rel="noopener" title="${escapeHtml(t("hfBrowserTitle"))}" data-t="board-hf-open">
+      <span aria-hidden="true">🤗</span><span>Hugging Face</span><span class="models-bar-arrow" aria-hidden="true">↗</span></a>`;
 }
 

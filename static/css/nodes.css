@@ -265,6 +265,14 @@
 .msl-err-icon { color: var(--danger, #e05555); font-size: 12px; flex: 0 0 auto; }
 /* "Previous attempt failed" marker next to the loading spinner (hover = journal tail). */
 .msl-prev-err { color: var(--warn, #e0a03f); font-size: 12px; flex: 0 0 auto; cursor: help; }
+/* A measured load (cell-load.js): the files in reading order under the bar.
+   It wraps rather than clips — which file comes next is the point of the row. */
+.msl-steps { gap: 2px 10px; flex-wrap: wrap; min-height: 16px; font-size: 11px; color: var(--muted); }
+.msl-step { white-space: nowrap; }
+.msl-step.is-reading { color: var(--text); }
+.msl-step.is-waiting { opacity: .7; }
+.model-status-line.msl-load-stalled .msl-text { color: var(--warn, #e0a03f); }
+.msl-stall-icon { color: var(--warn, #e0a03f); font-size: 12px; flex: 0 0 auto; }
 
 .node-server-foot { font-size:11px; margin-top:4px; }
 

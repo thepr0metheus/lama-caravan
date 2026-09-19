@@ -15,701 +15,7 @@
   <link rel="stylesheet" href="/css/nodes.css">
   <link rel="stylesheet" href="/css/hf.css">
   <link rel="stylesheet" href="/css/onboarding.css">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    html, body { margin: 0; padding: 0; }
-
-    body {
-      height: 100dvh;
-      display: grid;
-      grid-template-rows: auto auto 1fr auto;
-      overflow: hidden;
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--font-ui, system-ui, sans-serif);
-      font-size: 13px;
-    }
-
-    /* ── header ── */
-    .hf-back-link {
-      color: var(--muted);
-      text-decoration: none;
-      font-size: 12px;
-      white-space: nowrap;
-      padding: 4px 8px;
-      border-radius: 4px;
-      border: 1px solid var(--border, var(--line));
-    }
-    .hf-back-link:hover { color: var(--text); }
-    .hf-page-title { font-weight: 700; font-size: 14px; white-space: nowrap; }
-    /* The token lives in the search row now, pushed to its far end and
-       fenced off by a rule — it configures what the search can REACH, so it
-       belongs beside the query rather than among the app-wide controls the
-       header carries on every page. */
-    .hf-search .hf-token-row {
-      display: flex; align-items: center; gap: 8px;
-      margin-left: auto; padding-left: 14px;
-      border-left: 1px solid var(--line);
-      font-size: 12px;
-    }
-    .hf-search .hf-token-label { color: var(--muted); white-space: nowrap; }
-
-    /* ── search ── */
-    .hf-search {
-      display: flex;
-      gap: 10px;
-      padding: 10px 18px;
-      border-bottom: 1px solid var(--line);
-      background: var(--surface);
-    }
-    .hf-search input {
-      flex: 1;
-      padding: 7px 12px;
-      border-radius: 6px;
-      border: 1px solid var(--border, var(--line));
-      background: var(--field);
-      color: var(--text);
-      font-size: 13px;
-      outline: none;
-    }
-    .hf-search input:focus { border-color: var(--accent); }
-    .hf-search button {
-      padding: 7px 22px;
-      border-radius: 6px;
-      border: none;
-      background: var(--accent);
-      color: #fff;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .hf-search button:hover { opacity: .85; }
-    .hf-search button:disabled { opacity: .45; cursor: default; }
-    .hf-search select {
-      flex-shrink: 0;
-      width: auto;
-      padding: 7px 10px;
-      border-radius: 6px;
-      border: 1px solid var(--border, var(--line));
-      background: var(--field);
-      color: var(--text);
-      font-size: 13px;
-      cursor: pointer;
-      outline: none;
-    }
-
-    /* ── split ── */
-    .hf-split {
-      display: grid;
-      grid-template-columns: 1fr 2fr;
-      min-height: 0;
-      overflow: hidden;
-    }
-
-    /* ── left: repo list ── */
-    .hf-repo-col {
-      border-right: 1px solid var(--line);
-      overflow-y: auto;
-      overscroll-behavior: contain;
-    }
-    .hf-section-label {
-      padding: 6px 14px 4px;
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      color: var(--muted);
-    }
-    .hf-fav-toggle {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      cursor: pointer;
-      user-select: none;
-      padding-right: 12px;
-    }
-    .hf-fav-toggle:hover { color: var(--text); }
-    .hf-fav-chevron { font-size: 8px; opacity: 0.6; }
-    .hf-section-divider {
-      height: 1px;
-      background: var(--line);
-      margin: 4px 0;
-    }
-    .hf-results-list { display: flex; flex-direction: column; }
-
-    .hf-repo-row {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      padding: 8px 12px 8px 14px;
-      border-bottom: 1px solid var(--line);
-      cursor: pointer;
-      user-select: none;
-    }
-    .hf-repo-row:hover { background: color-mix(in srgb, var(--accent) 7%, var(--bg)); }
-    .hf-repo-row.is-active {
-      background: color-mix(in srgb, var(--accent) 12%, var(--bg));
-      border-left: 3px solid var(--accent);
-      padding-left: 11px;
-    }
-    .hf-repo-row-top {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      min-width: 0;
-    }
-    .hf-repo-row-id {
-      flex: 1;
-      min-width: 0;
-      font-weight: 600;
-      font-size: 13px;
-      font-family: monospace;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .hf-star-btn {
-      flex-shrink: 0;
-      background: none;
-      border: none;
-      cursor: pointer;
-      font-size: 14px;
-      color: var(--muted);
-      padding: 0 2px;
-      line-height: 1;
-    }
-    .hf-star-btn:hover, .hf-star-btn.is-starred { color: #f5a623; }
-    .hf-repo-row-bottom {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .hf-repo-row-meta {
-      font-size: 11px;
-      color: var(--muted);
-      flex-shrink: 0;
-    }
-    .hf-repo-params {
-      color: var(--accent);
-      font-weight: 600;
-    }
-    .hf-repo-badges {
-      display: flex;
-      gap: 3px;
-      flex-wrap: wrap;
-    }
-
-    /* ── right: file panel ── */
-    .hf-file-col {
-      overflow-y: auto;
-      overscroll-behavior: contain;
-      display: flex;
-      flex-direction: column;
-    }
-    .hf-file-col-header {
-      position: sticky;
-      top: 0;
-      z-index: 1;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 16px;
-      background: var(--panel);
-      border-bottom: 1px solid var(--line);
-    }
-    .hf-file-col-title {
-      flex: 1;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      font-weight: 600;
-      font-size: 13px;
-      font-family: monospace;
-      color: var(--text);
-    }
-    .hf-file.is-low-quant { opacity: 0.38; }
-    .hf-file.is-low-quant:hover { opacity: 0.75; }
-    .hf-file-empty {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: var(--muted);
-      font-size: 13px;
-    }
-    /* file list lives inside file-col, reuse existing .hf-file* styles */
-    .hf-file-col .hf-file-list { padding: 8px 12px; gap: 3px; }
-    .hf-file-col .hf-file-name { flex: 1; min-width: 0; }
-
-    /* local file indicator */
-    .hf-file.is-local {
-      background: color-mix(in srgb, #4ade80 8%, transparent);
-      border-radius: 4px;
-    }
-    /* Downloaded — but no longer what's on HF. The green "we have it"
-       background gives way to amber: the row is still about our file, what
-       changed is the claim about it. The rules live HERE, next to
-       .hf-file.is-local: in hf.css they'd have the same specificity, and
-       load order would decide the winner — which is exactly what happened
-       on the first live check. */
-    .hf-file.is-local.is-size,
-    .hf-file.is-local.is-date {
-      background: color-mix(in srgb, #ffb74d 12%, transparent);
-    }
-    .hf-file.is-local.is-size > .hf-file-local,
-    .hf-file.is-local.is-date > .hf-file-local {
-      color: #ffb74d;
-    }
-    /* Nothing to compare against: gray. Not green and not amber — this is
-       not-knowing, not a conclusion, and coloring it like a conclusion would
-       repeat the original defect. */
-    .hf-file.is-local.is-unknown {
-      background: color-mix(in srgb, #90a4ae 8%, transparent);
-    }
-    .hf-file.is-local.is-unknown > .hf-file-local {
-      color: #90a4ae;
-    }
-    /* Hash-verified is a conclusion, not a guess: a solid border on the left
-       says "this was measured". A size-based guess gets no such border. */
-    .hf-file.is-local.is-verified {
-      border-left: 2px solid currentColor;
-      padding-left: 6px;
-    }
-    .hf-verify-btn {
-      margin-left: auto;
-      font-size: 11px;
-      padding: 2px 8px;
-      border-radius: 4px;
-      border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
-      background: transparent;
-      color: inherit;
-      cursor: pointer;
-    }
-    .hf-verify-btn:disabled { opacity: 0.6; cursor: default; }
-    .hf-file-local {
-      flex-shrink: 0;
-      font-size: 11px;
-      font-weight: 700;
-      color: #4ade80;
-    }
-
-    .hf-repo-date {
-      opacity: 0.75;
-    }
-    .hf-repo-last-modified {
-      flex-shrink: 0;
-      font-size: 11px;
-      color: var(--muted);
-      font-style: italic;
-    }
-
-    /* ── benchmark inline chips ── */
-    .hf-bench-inline {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      padding: 2px 0 0;
-    }
-    .hf-bench-chip {
-      display: flex;
-      align-items: center;
-      gap: 3px;
-      padding: 1px 6px;
-      border-radius: 4px;
-      background: color-mix(in srgb, var(--accent) 10%, var(--bg));
-      border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
-      font-size: 10.5px;
-      white-space: nowrap;
-    }
-    .hf-bench-chip-name {
-      color: var(--muted);
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: .03em;
-      font-size: 9.5px;
-    }
-    .hf-bench-chip-val {
-      color: var(--text);
-      font-weight: 700;
-      font-variant-numeric: tabular-nums;
-    }
-    .hf-bench-chip.is-elo {
-      background: color-mix(in srgb, #f5a623 10%, var(--bg));
-      border-color: color-mix(in srgb, #f5a623 30%, transparent);
-    }
-    .hf-bench-chip.is-elo .hf-bench-chip-name { color: #c8850a; }
-
-    /* ── benchmark toggle button ── */
-    .hf-bench-toggle {
-      flex-shrink: 0;
-      background: none;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      color: var(--muted);
-      font-size: 10px;
-      padding: 1px 5px;
-      cursor: pointer;
-      line-height: 1.5;
-      white-space: nowrap;
-    }
-    .hf-bench-toggle:hover { color: var(--text); border-color: var(--muted); }
-    .hf-bench-toggle.is-active { color: var(--accent); border-color: var(--accent); }
-
-    /* ── benchmark expandable panel ── */
-    .hf-bench-panel {
-      margin: 4px 0 2px;
-      border: 1px solid var(--line);
-      border-radius: 6px;
-      overflow: hidden;
-      background: color-mix(in srgb, var(--surface) 60%, var(--bg));
-    }
-    .hf-bench-loading {
-      padding: 8px 12px;
-      font-size: 11px;
-      color: var(--muted);
-    }
-    .hf-bench-group {
-      border-bottom: 1px solid var(--line);
-    }
-    .hf-bench-group:last-child { border-bottom: none; }
-    .hf-bench-group-label {
-      padding: 5px 10px 3px;
-      font-size: 9px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: .07em;
-      color: var(--muted);
-      background: color-mix(in srgb, var(--surface) 80%, transparent);
-    }
-    .hf-bench-row {
-      display: grid;
-      grid-template-columns: 100px 1fr 52px 60px;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 10px;
-      border-top: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
-    }
-    .hf-bench-row:first-of-type { border-top: none; }
-    .hf-bench-row-name {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .hf-bench-row-desc {
-      font-size: 10px;
-      color: var(--muted);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .hf-bench-bar-wrap {
-      height: 5px;
-      background: color-mix(in srgb, var(--muted) 20%, transparent);
-      border-radius: 3px;
-      overflow: hidden;
-    }
-    .hf-bench-bar-fill {
-      height: 100%;
-      border-radius: 3px;
-      background: var(--accent);
-      transition: width .3s ease;
-    }
-    .hf-bench-row-val {
-      font-size: 11px;
-      font-weight: 700;
-      color: var(--text);
-      font-variant-numeric: tabular-nums;
-      text-align: right;
-      white-space: nowrap;
-    }
-    .hf-bench-row-scale {
-      font-size: 9.5px;
-      color: var(--muted);
-      text-align: right;
-      white-space: nowrap;
-    }
-    /* Elo row gets gold accent */
-    .hf-bench-row.is-elo .hf-bench-bar-fill { background: #f5a623; }
-    .hf-bench-row.is-elo .hf-bench-row-val  { color: #c8850a; }
-
-    /* Benchmark name link */
-    .hf-bench-row-name a {
-      color: inherit;
-      text-decoration: none;
-    }
-    .hf-bench-row-name a:hover { text-decoration: underline; color: var(--accent); }
-
-    /* Panel header: data-from note + refresh btn */
-    .hf-bench-panel-header {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 5px 10px;
-      border-bottom: 1px solid var(--line);
-      background: color-mix(in srgb, var(--surface) 90%, transparent);
-    }
-    .hf-bench-data-from {
-      flex: 1;
-      font-size: 10px;
-      color: var(--muted);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .hf-bench-data-from strong { color: var(--text); font-weight: 600; }
-    .hf-bench-refresh {
-      flex-shrink: 0;
-      background: none;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      color: var(--muted);
-      font-size: 11px;
-      padding: 1px 6px;
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .hf-bench-refresh:hover { color: var(--text); border-color: var(--muted); }
-    .hf-bench-from-cache {
-      font-size: 9px;
-      color: var(--muted);
-      opacity: 0.7;
-    }
-
-    /* recommendation highlight */
-    .hf-file.is-recommended {
-      background: color-mix(in srgb, #fb923c 10%, transparent);
-      border-radius: 4px;
-    }
-    .hf-file-rec {
-      flex-shrink: 0;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: .04em;
-      text-transform: uppercase;
-      color: #fb923c;
-      padding: 1px 5px;
-      border: 1px solid color-mix(in srgb, #fb923c 45%, transparent);
-      border-radius: 3px;
-    }
-
-    /* ── filter bar ── */
-    .hf-filter-bar {
-      flex-shrink: 0;
-      padding: 6px 10px 4px;
-      border-bottom: 1px solid var(--line);
-      background: var(--bg);
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-    }
-    .hf-filter-row {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      flex-wrap: wrap;
-    }
-    .hf-filter-label {
-      font-size: 10px;
-      color: var(--muted);
-      white-space: nowrap;
-      text-transform: uppercase;
-      letter-spacing: .04em;
-    }
-    .hf-chips { display: flex; gap: 3px; flex-wrap: wrap; }
-    .hf-chip {
-      font-size: 11px;
-      padding: 2px 7px;
-      border-radius: 10px;
-      border: 1px solid var(--line);
-      background: none;
-      color: var(--muted);
-      cursor: pointer;
-      white-space: nowrap;
-    }
-    .hf-chip:hover { border-color: var(--accent); color: var(--accent); }
-    .hf-chip.is-active { background: var(--accent); color: #fff; border-color: var(--accent); }
-    .hf-mask-input {
-      flex: 1;
-      min-width: 80px;
-      background: var(--field);
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      color: var(--text);
-      font-size: 11px;
-      padding: 3px 7px;
-      outline: none;
-    }
-    .hf-mask-input:focus { border-color: var(--accent); }
-    .hf-sort-select {
-      background: var(--field);
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      color: var(--text);
-      font-size: 11px;
-      padding: 3px 6px;
-      cursor: pointer;
-      outline: none;
-    }
-    .hf-load-progress {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 2px 0;
-    }
-    .hf-load-bar-track {
-      flex: 1;
-      height: 3px;
-      background: var(--line);
-      border-radius: 2px;
-      overflow: hidden;
-    }
-    .hf-load-bar-fill {
-      height: 100%;
-      background: var(--accent);
-      border-radius: 2px;
-      transition: width .2s;
-      width: 0%;
-    }
-    .hf-load-text { font-size: 10px; color: var(--muted); white-space: nowrap; }
-
-    /* ── section headers ── */
-    .hf-section-header {
-      position: sticky;
-      top: 0;
-      z-index: 2;
-      padding: 5px 12px;
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      cursor: default;
-    }
-    .hf-fav-header {
-      background: color-mix(in srgb, var(--accent) 18%, var(--bg));
-      color: var(--accent);
-      border-bottom: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-      cursor: pointer;
-      user-select: none;
-    }
-    .hf-fav-header .hf-fav-chevron { cursor: pointer; font-size: 9px; }
-    .hf-results-header {
-      background: color-mix(in srgb, var(--fg) 8%, var(--bg));
-      color: var(--muted);
-      border-bottom: 1px solid var(--line);
-    }
-    .hf-ref-header {
-      background: color-mix(in srgb, #a78bfa 10%, var(--bg));
-      color: #c4b5fd;
-      border-bottom: 1px solid color-mix(in srgb, #a78bfa 20%, transparent);
-      cursor: pointer;
-      user-select: none;
-    }
-
-    /* ── frontier reference table ── */
-    .hf-ref-table {
-      padding: 4px 0 2px;
-    }
-    .hf-ref-row {
-      display: grid;
-      grid-template-columns: 55px 1fr 55px 28px;
-      align-items: center;
-      gap: 5px;
-      padding: 3px 12px;
-      font-size: 11px;
-    }
-    .hf-ref-row:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
-    .hf-ref-org {
-      font-size: 10px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: .03em;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .hf-ref-name {
-      color: var(--text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .hf-ref-bar-wrap {
-      height: 6px;
-      background: color-mix(in srgb, var(--muted) 15%, transparent);
-      border-radius: 3px;
-      overflow: hidden;
-    }
-    .hf-ref-bar-fill {
-      height: 100%;
-      border-radius: 3px;
-      transition: width .4s ease;
-    }
-    .hf-ref-val {
-      font-size: 11px;
-      font-weight: 700;
-      font-variant-numeric: tabular-nums;
-      color: var(--text);
-      text-align: right;
-    }
-    .hf-ref-footer {
-      padding: 4px 12px 6px;
-      font-size: 10px;
-      color: var(--muted);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .hf-ref-footer a { color: var(--muted); }
-    .hf-ref-footer a:hover { color: var(--accent); }
-
-    /* ── download panel ── */
-    #hfDownloadPanel {
-      border-top: 2px solid var(--accent);
-      background: color-mix(in srgb, var(--accent) 5%, var(--panel, var(--bg)));
-      flex-shrink: 0;
-    }
-    .hf-dl-bar {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 8px 18px;
-    }
-    .hf-dl-bar-label {
-      flex: 1;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--text);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .hf-dl-toggle {
-      background: none;
-      border: 1px solid var(--line);
-      border-radius: 4px;
-      color: var(--muted);
-      font-size: 11px;
-      padding: 2px 7px;
-      cursor: pointer;
-    }
-    .hf-dl-toggle:hover { color: var(--text); border-color: var(--muted); }
-    .hf-dl-body {
-      padding: 0 18px 10px;
-    }
-    .hf-dl-body .hf-dl-preview {
-      max-height: 120px;
-      overflow-y: auto;
-      margin-bottom: 8px;
-    }
-  </style>
+  <link rel="stylesheet" href="/css/hf-page.css">
 </head>
 <body data-t-page="hf" data-t-state="loading" aria-busy="true">
   <script>
@@ -816,7 +122,9 @@
         const lang = (localStorage.getItem("llamacppAdminLang") || "en").toLowerCase();
         const hints = { en: "loading…", ru: "загружается…", zh: "加载中…", es: "cargando…",
           fr: "chargement…", de: "lädt…", ja: "読み込み中…", pt: "carregando…", it: "caricamento…",
-          ko: "로딩 중…", tr: "yükleniyor…", vi: "đang tải…" };
+          ko: "로딩 중…", tr: "yükleniyor…", vi: "đang tải…", hi: "लोड हो रहा है…", ar: "جارٍ التحميل…",
+          bn: "লোড হচ্ছে…", id: "memuat…", ur: "لوڈ ہو رہا ہے…", te: "లోడ్ అవుతోంది…",
+          mr: "लोड होत आहे…", ta: "ஏற்றுகிறது…" };
         l.querySelector(".pl-hint").textContent = hints[lang] || hints.en;
         // random caravan: cargo shape × body color × blanket × cargo color —
         // shapes come from a pixel grid (.pl-s1..s4), colors are mixed via variables;
@@ -878,7 +186,7 @@
       <h1 class="page-title" data-t="header-page-title">HuggingFace Browser</h1>
     <div class="actions">
       <span id="hfDiskBadge" class="hf-disk-badge" hidden></span>
-      <button id="hfOnDiskBtn" data-t="hf-on-disk" type="button" class="hf-ondisk-btn" title="Manage downloaded models">📦 on disk</button>
+      <a id="hfOnDiskBtn" data-t="hf-on-disk" class="hf-ondisk-btn" href="/models" title="Manage downloaded models">📦 <span data-label>on disk</span></a>
       <div class="user-chip" id="userChip" hidden data-t="header-user-chip">
         <button id="userChipBtn" type="button" aria-haspopup="menu" aria-expanded="false" data-t="header-user-menu-open">
           <span class="user-chip-ico">👤</span><span id="userChipName" data-t="header-user-name"></span><span class="lang-caret" aria-hidden="true">▾</span>
@@ -900,39 +208,59 @@
     </div>
   </header>
 
-  <div class="hf-search">
-    <input id="hfSearchInput" data-t="hf-search-input" type="text"
-           placeholder="bartowski/Qwen3-35B-GGUF  or  search term…"
-           autocomplete="off" spellcheck="false">
-    <!-- title= was hardcoded English, so this select was named — always in
-         English, whatever the interface language. Both attributes are set from
-         the dictionary on load; see the DOMContentLoaded block in hf.js. -->
-    <select id="hfLimitSelect" data-t="hf-limit">
-      <option value="10">10</option>
-      <option value="20" selected>20</option>
-      <option value="50">50</option>
-    </select>
-    <button id="hfSearchBtn" data-t="hf-search-submit" type="button">Search</button>
-    <div class="hf-token-row">
-        <span class="hf-token-label">HF Token</span>
-        <span id="hfTokenStatus" class="hf-token-status">checking…</span>
-        <input id="hfTokenInput" data-t="hf-token-input" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false" class="hf-token-input" hidden>
-        <button id="hfTokenSaveBtn" data-t="hf-token-save" type="button" class="hf-token-save" hidden>Save</button>
-        <button id="hfTokenEditBtn" data-t="hf-token-edit" type="button" class="hf-token-edit">Change</button>
-        <button id="hfTokenClearBtn" data-t="hf-token-clear" type="button" class="hf-token-clear muted" hidden>Clear</button>
+  <main class="hfp" id="hfPage">
+    <section class="hfp-side">
+      <div class="hfp-filters" id="hfFilters">
+        <form class="hfp-search" id="hfSearchForm" role="search">
+          <input id="hfSearchInput" data-t="hf-search-input" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="author/repo or search words…" aria-label="Search Hugging Face">
+          <select id="hfLimitSelect" data-t="hf-limit" aria-label="Number of results">
+            <option value="10">10</option>
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+          </select>
+          <button id="hfSearchBtn" data-t="hf-search-submit" type="submit" class="hfp-btn is-primary">Search</button>
+        </form>
+        <div class="hfp-chips" id="hfSizeChips" role="group" aria-label="Model size"></div>
+        <div class="hfp-chips" id="hfCapChips" role="group" aria-label="Capabilities" hidden></div>
+        <div class="hfp-line">
+          <input id="hfMaskInput" data-t="hf-mask" type="search" autocomplete="off" spellcheck="false" placeholder="name contains…" aria-label="Filter by file name">
+          <select id="hfSortSelect" data-t="hf-sort" aria-label="Sort order"></select>
+          <button id="hfSortDir" data-t="hf-sort-dir" type="button" class="hfp-btn">↓</button>
+        </div>
+        <div class="hfp-line">
+          <div class="hfp-load" id="hfLoad" data-t="hf-load-progress" hidden>
+            <span id="hfLoadText"></span><span class="hfp-bar"><i id="hfLoadFill"></i></span>
+          </div>
+          <span class="grow"></span>
+          <div class="hfp-token" id="hfToken">
+            <button id="hfTokenBtn" data-t="hf-token-menu" type="button" class="hfp-link" aria-haspopup="dialog" aria-expanded="false">
+              <span class="hfp-token-label">HF token</span> <span id="hfTokenStatus">checking…</span> ▾
+            </button>
+            <div class="hfp-token-pop" id="hfTokenPop" hidden>
+              <div id="hfTokenText"></div>
+              <input id="hfTokenInput" data-t="hf-token-input" type="password" placeholder="hf_…" autocomplete="off" spellcheck="false" hidden>
+              <div class="hfp-line">
+                <button id="hfTokenSaveBtn" data-t="hf-token-save" type="button" class="hfp-btn is-primary" hidden>Save</button>
+                <button id="hfTokenEditBtn" data-t="hf-token-edit" type="button" class="hfp-btn">Change</button>
+                <button id="hfTokenClearBtn" data-t="hf-token-clear" type="button" class="hfp-btn" hidden>Clear</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-  </div>
+      <div class="hfp-tabs" id="hfTabs" role="tablist">
+        <button id="hfTabResults" data-t="hf-tab" data-t-id="results" data-tab="results" type="button" role="tab" aria-selected="true" class="is-on">Results</button>
+        <button id="hfTabFavs" data-t="hf-tab" data-t-id="favorites" data-tab="favorites" type="button" role="tab" aria-selected="false">★ Favorites</button>
+      </div>
+      <div class="hfp-listhead" id="hfListHead"></div>
+      <div class="hfp-list" id="hfList"></div>
+    </section>
+    <section class="hfp-repo" id="hfRepo" data-t="hf-repo" aria-live="polite"></section>
+    <div class="hfp-dock" id="hfDock" data-t="hf-dock" hidden></div>
+  </main>
+  <div class="hfp-frontier" id="hfFrontier" data-t="hf-frontier" role="dialog" hidden></div>
 
-  <div class="hf-split">
-    <div class="hf-repo-col" id="hfRepoCol"></div>
-    <div class="hf-file-col" id="hfFileCol">
-      <div class="hf-file-empty">← Select a repository</div>
-    </div>
-  </div>
-
-  <div id="hfDownloadPanel" class="hf-download-panel" hidden></div>
-
-
-  <script type="module" src="/hf.js"></script>
+  <script type="module" src="/js/hf-page.js"></script>
 </body>
 </html>

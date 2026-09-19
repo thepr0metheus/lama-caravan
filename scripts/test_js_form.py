@@ -18,7 +18,9 @@ slot. VALUES are pinned:
 - LLAMA_MODELS_DIR: field → state.paths.modelsDir, trailing slashes trimmed;
 - badge does NOT escape its text, mbadge escapes title and data-t but not the
   text — as-is (every caller passes its own strings, never user input);
-- mcFormatMtime depends on Node's locale — the snapshot runs under en_US/UTC.
+- mcFormatMtime depends on Node's locale — the snapshot runs under en_US/UTC;
+- a file only a library holds is a picker row like any other, with a 📚 chip
+  naming the library (escaped: the name is the operator's).
 
 The DOM is replaced by a field dict (globalThis.__fields in _js_globals.mjs):
 getElementById(id) returns the dict's entry or null, the same as a browser
@@ -120,6 +122,53 @@ globalThis.__fields = { "te-MODEL_FILE": { value: "a.gguf" }, "te-CTX_SIZE": { v
 out.ctxNative.apply = [m.applyCtxNative("te-"), globalThis.__fields["te-CTX_SIZE"].value];
 globalThis.__fields = { "te-CTX_SIZE": { value: "100000", placeholder: "", dataset: {} } };
 out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-CTX_SIZE"].value];
+// The picker row of a file only a library holds — a fake list, the real renderer.
+{
+  const kids = [];
+  const list = { innerHTML: "", appendChild: (el) => kids.push(el) };
+  const trigger = { innerHTML: "", appendChild() {} };
+  const wrap = { classList: { contains: (c) => c === "mc-wrap" },
+                 querySelector: (q) => (q === ".mc-list" ? list : q === ".mc-trigger" ? trigger : null) };
+  const made = document.createElement;
+  document.createElement = () => ({ className: "", dataset: {}, style: {}, classList: { add() {} }, setAttribute() {},
+                                    addEventListener() {}, appendChild() {}, innerHTML: "", textContent: "" });
+  m.updateModelComboboxItems({ previousElementSibling: wrap, value: "" }, [
+    { value: "M/a/Q4/m-Q4.gguf", kind: "model", sizeGb: 4, libraryOnly: true, store: { id: "lib-a", name: "N<AS" } },
+    { value: "M/a/Q8/m-Q8.gguf", kind: "model", sizeGb: 8 }], "");
+  document.createElement = made;
+  const lib = (h) => (h.match(/<span class="mbadge mbadge-lib"[^>]*>[^<]*<\/span>/) || [null])[0];
+  out.libRows = kids.map((el) => ({ lib: lib(el.innerHTML), llama: el.innerHTML.includes("🦙") }));
+}
+// The picker as a whole: renderModelSelects carries a library row's place onto
+// the model, projector and draft pickers alike.
+{
+  const fakeSelect = () => {
+    const kids = [];
+    const list = { innerHTML: "", appendChild: (el) => kids.push(el) };
+    const trigger = { innerHTML: "", appendChild() {} };
+    const wrap = { classList: { contains: (c) => c === "mc-wrap", toggle() {}, add() {} },
+                   querySelector: (q) => (q === ".mc-list" ? list : q === ".mc-trigger" ? trigger : null) };
+    return { kids, sel: { value: "", dataset: {}, innerHTML: "", appendChild() {}, previousElementSibling: wrap } };
+  };
+  const [pm, pp, pd] = [fakeSelect(), fakeSelect(), fakeSelect()];
+  const lib = { id: "lib-a", name: "NAS" };
+  st.setState({ ...st.state, config: {}, models: [
+    { path: "L/a/Q4/lib-Q4.gguf", kind: "model", sizeGb: 4, libraryOnly: true, store: lib },
+    { path: "L/a/Q4/loc-Q4.gguf", kind: "model", sizeGb: 4 },
+    { path: "L/a/Q4/mmproj-lib.gguf", kind: "mmproj", sizeGb: 1, libraryOnly: true, store: lib },
+    { path: "L/a/Q4/mtp-lib.gguf", kind: "draft", sizeGb: 1, libraryOnly: true, store: lib }] });
+  globalThis.__fields = { MODEL_FILE: pm.sel, MMPROJ_FILE: pp.sel, SPEC_DRAFT_MODEL_FILE: pd.sel };
+  (globalThis.__stubReturns ||= {})["llama-edit.runnerRegistry"] = () => [];
+  const made = document.createElement;
+  document.createElement = () => ({ className: "", dataset: {}, style: {}, classList: { add() {}, toggle() {} }, setAttribute() {},
+                                    addEventListener() {}, appendChild() {}, innerHTML: "", textContent: "" });
+  // The insight panels after the pickers want a real page; the pickers are drawn by then.
+  try { m.renderModelSelects(""); } catch (e) { out.pickerMapError = String((e && e.message) || e); }
+  document.createElement = made;
+  const rows = (p) => p.kids.filter((el) => String(el.dataset.value || "").startsWith("L/"))
+    .map((el) => [el.dataset.value, el.innerHTML.includes('data-t="model-in-library"')]);
+  out.pickerMap = { model: rows(pm), mmproj: rows(pp), draft: rows(pd) };
+}
 console.log(JSON.stringify(out));
 """
 
@@ -243,6 +292,19 @@ check(cn["state"][2] == {"hidden": True, "label": "", "title": "", "active": Fal
 check(cn["state"][3] == "🎓 32.8k", "формат тот же, что у 🪟 на карточке")
 check(cn["apply"] == [262144, "262144"], "нажатие пишет обученное окно в поле и возвращает его")
 check(cn["applyNothing"] == [0, "100000"], "без числа поле не трогается")
+
+print("📚 строка пикера из библиотеки:")
+lib_rows = got["libRows"]
+check(lib_rows[0] == {"lib": '<span class="mbadge mbadge-lib" title="In the library N&lt;AS, not on this disk" '
+                             'data-t="model-in-library">\U0001f4da N&lt;AS</span>', "llama": True},
+      f"файл только из библиотеки — в пикере как любой другой (🦙: ячейка стартует и оттуда), с чипом 📚 и именем "
+      f"библиотеки; имя экранировано и в тексте, и в подсказке (got {lib_rows[0]})")
+check(lib_rows[1] == {"lib": None, "llama": True}, f"negative: файл с этого диска — без чипа 📚 (got {lib_rows[1]})")
+pmap = got["pickerMap"]
+check(pmap == {"model": [["L/a/Q4/lib-Q4.gguf", True], ["L/a/Q4/loc-Q4.gguf", False]],
+               "mmproj": [["L/a/Q4/mmproj-lib.gguf", True]], "draft": [["L/a/Q4/mtp-lib.gguf", True]]},
+      f"пикер целиком: место файла доходит до всех трёх выборов — модели, проектора и черновика; строка с этого диска "
+      f"без 📚 (got {pmap}, {got.get('pickerMapError')})")
 
 print()
 if _fail:
