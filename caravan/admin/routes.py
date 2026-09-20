@@ -1106,6 +1106,19 @@ def _post_api_model_stores_add(h, parsed, body):
             h.send_json({"ok": False, "error": str(exc), "code": exc.code})
         return
 
+@_route(POST_ROUTES, '/api/model-stores/repath')
+def _post_api_model_stores_repath(h, parsed, body):
+        # The share moved, or its mount point did. The library keeps its
+        # identity: the new folder must carry the same mark, and the refusal
+        # says so by code, so the page can offer Add instead.
+        from caravan.admin.model_stores import StoreRefused, registry
+        _b = body or {}
+        try:
+            h.send_json({"ok": True, **registry().repath(_b.get("id"), _b.get("path"))})
+        except StoreRefused as exc:
+            h.send_json({"ok": False, "error": str(exc), "code": exc.code})
+        return
+
 @_route(POST_ROUTES, '/api/model-stores/remove')
 def _post_api_model_stores_remove(h, parsed, body):
         # Off the list only: the library's files and its mark stay where they are.

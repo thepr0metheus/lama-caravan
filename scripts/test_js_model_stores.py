@@ -92,7 +92,8 @@ const cls = () => { const s = new Set(); return { add: (...c) => c.forEach((x) =
 // the markup under a pressed mouse button.
 const mkEl = () => ({ textContent: "", _html: "", writes: 0, get innerHTML() { return this._html; }, set innerHTML(v) { this._html = v; this.writes += 1; },
   value: "", disabled: false, dataset: {}, classList: cls(), listeners: {}, addEventListener(t, fn) { (this.listeners[t] ||= []).push(fn); } });
-const HANDS = { "[data-store-path]": "__input", "[data-store-add]": "__addBtn", "[data-store-dir]": "__dir", "[data-dir-save]": "__saveBtn" };
+const HANDS = { "[data-store-path]": "__input", "[data-store-add]": "__addBtn", "[data-store-dir]": "__dir", "[data-dir-save]": "__saveBtn",
+  "[data-store-repath-box]": "__repathBox", "[data-repath-save]": "__repathBtn" };
 const mkRoot = () => { const r = mkEl(); r.querySelector = (sel) => (HANDS[sel] ? globalThis[HANDS[sel]] || null : null); return r; };
 const GB = 2 ** 30;
 const STORES = () => [
@@ -110,6 +111,7 @@ const settle = async () => { for (let i = 0; i < 8; i++) await new Promise((r) =
 const box = () => ({ value: "", focused: 0, selected: 0, disabled: false, classList: cls(), focus() { this.focused += 1; }, select() { this.selected += 1; } });
 const reset = () => { globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {}; globalThis.__fields = { toast: mkEl() };
   globalThis.__input = box(); globalThis.__addBtn = { disabled: false }; globalThis.__dir = null; globalThis.__saveBtn = null;
+  globalThis.__repathBox = box(); globalThis.__repathBtn = { disabled: false, classList: cls(), dataset: { repathSave: "lib-a" } };
   globalThis.__confirms = []; globalThis.__titles = []; globalThis.__confirmAnswer = true; globalThis.__scopes = [];
   globalThis.__stubReturns = { "dialogs.appConfirm": async (msg, opts) => { globalThis.__confirms.push(msg); globalThis.__titles.push(opts && opts.title); return globalThis.__confirmAnswer !== false; } }; };
 const mount = async (stores = STORES(), opts = {}) => { globalThis.__fetchReply["/api/model-stores"] = { ok: true, stores }; const root = mkRoot(); const summary = mkRoot();
@@ -128,6 +130,58 @@ const out = {};
 """
 
 PINS = [
+    ("why_it_does_not_answer_and_what_to_run", '',
+     r"""(() => { const H = (f, path) => { const h = new m.MountHint(f, path); return [h.text(), h.command()]; };
+       return [H({ inFstab: true, source: "", type: "", host: "", answers: null }, "/mnt/x"),
+               H({ inFstab: false, source: "", type: "", host: "", answers: null }, "/mnt/x"),
+               H({ inFstab: true, source: "nas.lan:/v/lib", type: "nfs4", host: "nas.lan", answers: false }, "/mnt/x"),
+               H({ inFstab: true, source: "nas.lan:/v/lib", type: "nfs4", host: "nas.lan", answers: true }, "/mnt/x"),
+               H({ inFstab: true, source: "/dev/sdb1", type: "ext4", host: "", answers: null }, "/mnt/x"),
+               H(null, "/mnt/x")]; })()""",
+     json.dumps([[en("storeWhyNotMounted"), "sudo mount /mnt/x"],
+                 [en("storeWhyNoFstab"), ""],
+                 [en("storeWhyFrom", source="nas.lan:/v/lib") + " · " + en("storeWhySilent", host="nas.lan"),
+                  "sudo umount -l /mnt/x && sudo mount /mnt/x"],
+                 [en("storeWhyFrom", source="nas.lan:/v/lib") + " · " + en("storeWhyAnswers", host="nas.lan"), ""],
+                 [en("storeWhyFrom", source="/dev/sdb1"), ""],
+                 ["", ""]], ensure_ascii=False),
+     "почему не отвечает: ничего не смонтировано — команда смонтировать; записи в fstab нет — команды нет, монтировать нечего; "
+     "машина молчит — перемонтировать; машина отвечает и устройство без машины — только факт, без команды (она увела бы не туда); "
+     "фактов нет — ни строки, ни команды"),
+
+    ("why_line_only_where_something_is_wrong", '',
+     r"""await (async () => { const s = STORES();
+       s[1] = { ...s[1], state: "unknown", detail: "no answer in 8 s", mount: { inFstab: true, source: "nas.lan:/v/lib", type: "nfs4", host: "nas.lan", answers: false } };
+       const { p, sum } = await mount(s); p.choose("lib-a"); const bad = sum();
+       p.choose("local"); const good = sum();
+       return [bad.includes('data-t="models-store-why" data-t-id="lib-a"'), bad.includes("nas.lan"),
+               bad.includes('data-t="models-store-why-command"'), bad.includes("sudo umount -l /mnt/lama-caravan-models"),
+               good.includes('data-t="models-store-why"')]; })()""",
+     '[true,true,true,true,false]',
+     "строка «почему» рисуется там, где сервер прислал факты о монтировании (а он шлёт их только неотвечающему месту), с готовой командой; у здорового места фактов нет — и строки нет"),
+
+    ("repath_edits_in_place_and_posts_it", '',
+     r"""await (async () => { const { p, summary, sum } = await mount(); p.choose("lib-a");
+       const before = sum().includes('data-t="models-store-repath"');
+       click(summary, "[data-store-repath]", { dataset: { storeRepath: "lib-a" } }); await settle();
+       const editing = sum(); globalThis.__repathBox.value = "  /mnt/new-place  ";
+       globalThis.__fetchReply["/api/model-stores/repath"] = { ok: true, store: { id: "lib-a", name: "lama-caravan-models", path: "/mnt/new-place" } };
+       click(summary, "[data-repath-save]", globalThis.__repathBtn); await settle();
+       return [before, editing.includes('data-t="models-store-repath-input"'), editing.includes('value="/mnt/lama-caravan-models"'),
+               globalThis.__repathBox.focused, calls().filter((c) => c.path.includes("repath")), p.repathing]; })()""",
+     '[true,true,true,1,[{"path":"/api/model-stores/repath","method":"POST","body":{"id":"lib-a","path":"/mnt/new-place"}}],""]',
+     "✎ у библиотеки открывает поле с её нынешним путём и ставит в него курсор; сохранение шлёт id и путь без пробелов и закрывает поле"),
+
+    ("repath_refusal_stays_open_and_says_why", '',
+     r"""await (async () => { const { p, summary } = await mount(); p.choose("lib-a");
+       click(summary, "[data-store-repath]", { dataset: { storeRepath: "lib-a" } }); await settle();
+       globalThis.__repathBox.value = "/mnt/other";
+       globalThis.__fetchReply["/api/model-stores/repath"] = { ok: false, error: "/mnt/other holds another library: Other", code: "other-library" };
+       click(summary, "[data-repath-save]", globalThis.__repathBtn); await settle();
+       return [globalThis.__fields.toast.textContent, p.repathing, globalThis.__repathBtn.disabled]; })()""",
+     '["/mnt/other holds another library: Other","lib-a",false]',
+     "negative: отказ сервера показан как есть, поле остаётся открытым, кнопка снова доступна — вторая, молчаливая попытка «добавить» не делается"),
+
     ("a_place_in_the_list_says_what_it_holds_and_its_room", '',
      r"""await (async () => { const { p, html } = await mount(); p.holds(HELD()); const h = html();
        const loc = entryOf(h, "local"), lib = entryOf(h, "lib-a");

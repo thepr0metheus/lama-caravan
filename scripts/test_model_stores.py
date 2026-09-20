@@ -407,11 +407,92 @@ def section_library_files():
     check(len(probe.calls) == looked, "negative: пока идёт один замер в фоне, второй не начинается — мёртвый NAS не копит потоки")
 
 
+
+def section_mount_facts():
+    print("почему хранилище не отвечает:")
+    with tempfile.TemporaryDirectory() as tmp:
+        mounts = Path(tmp) / "mountinfo"
+        fstab = Path(tmp) / "fstab"
+        mounts.write_text(
+            "25 30 0:22 / /proc rw,nosuid - proc proc rw\n"
+            "31 25 0:26 / /mnt/lib rw,relatime - nfs4 172.16.0.30:/volume1/lib rw,vers=4.1\n"
+            "32 25 0:27 / /mnt/lib rw,relatime - nfs4 nas.lan:/volume1/lib rw,vers=4.1\n"
+            "33 25 0:28 / /mnt/smb rw,relatime - cifs //nas.lan/share rw\n"
+            "34 25 0:29 / /mnt/disk rw,relatime - ext4 /dev/sdb1 rw\n"
+            "35 25 0:30 / /mnt/odd rw,relatime - fuse.odd odd-fs rw\n", encoding="utf-8")
+        fstab.write_text("# comment\nnas.lan:/volume1/lib /mnt/lib nfs4 defaults 0 0\n"
+                         "/dev/sdb1 /mnt/disk ext4 defaults 0 0\n", encoding="utf-8")
+        knocks = []
+
+        def knock(host, port):
+            knocks.append((host, port))
+            return host == "nas.lan"
+
+        facts = ms.MountFacts(mounts=str(mounts), fstab=str(fstab), knock=knock)
+        lib = facts.at("/mnt/lib")
+        check(lib == {"inFstab": True, "source": "nas.lan:/volume1/lib", "type": "nfs4", "host": "nas.lan", "answers": True},
+              f"смонтировано: источник и тип берутся у ПОСЛЕДНЕГО монтирования в этой точке — читатель попадает в него (got {lib})")
+        check(knocks == [("nas.lan", 2049)], f"стучимся по порту вида монтирования, один раз (got {knocks})")
+        smb = facts.at("/mnt/smb")
+        check((smb["host"], smb["answers"], knocks[-1]) == ("nas.lan", True, ("nas.lan", 445)),
+              f"//host/share — тоже машина, порт другой (got {smb})")
+        disk = facts.at("/mnt/disk")
+        check((disk["host"], disk["answers"], disk["inFstab"]) == ("", None, True),
+              f"negative: устройство не называет машину — стучаться некуда, «не знаю», а не «не отвечает» (got {disk})")
+        odd = facts.at("/mnt/odd")
+        check((odd["source"], odd["answers"]) == ("odd-fs", None), f"negative: вид монтирования без порта — тоже «не знаю» (got {odd})")
+        none = facts.at("/mnt/nothing")
+        check(none == {"inFstab": False, "source": "", "type": "", "host": "", "answers": None},
+              f"negative: в этой точке ничего не смонтировано и в fstab её нет (got {none})")
+        silent = ms.MountFacts(mounts=str(mounts), fstab=str(fstab), knock=lambda h, p: False).at("/mnt/lib")
+        check(silent["answers"] is False, "машина молчит — так и сказано")
+        gone = ms.MountFacts(mounts=str(Path(tmp) / "nope"), fstab=str(Path(tmp) / "nope")).at("/mnt/lib")
+        check(gone == {"inFstab": False, "source": "", "type": "", "host": "", "answers": None},
+              f"negative: файлов системы нет — пусто, без падения (got {gone})")
+
+    probe = FakeProbe(claim=marks)
+    reg, _state, _saves = make_registry(probe)
+    probe.looks["/mnt/lib"] = {"ok": False, "timeout": True, "error": "no answer in 8 s"}
+    added = reg.add("/mnt/lib", "NAS")
+    reg.mount_facts = ms.MountFacts(mounts="/nonexistent", fstab="/nonexistent")
+    rows = {r["id"]: r for r in reg.statuses(force=True)}
+    check(rows[added["id"]]["state"] == "unknown" and rows[added["id"]]["mount"]["source"] == "",
+          f"у неотвечающего хранилища в ответе есть раздел «чем смонтировано» (got {rows[added['id']].get('mount')})")
+    check("mount" not in rows["local"], "negative: у здорового хранилища этого раздела нет — объяснять нечего")
+
+
+def section_repath():
+    print("смена пути библиотеки:")
+    probe = FakeProbe(claim=marks)
+    reg, state, saves = make_registry(probe)
+    added = reg.add("/mnt/lib", "NAS")
+    sid = added["id"]
+    probe.looks["/mnt/new"] = {"ok": True, "exists": True, "writable": True, "marker": {"id": sid, "name": "NAS"}}
+    probe.looks["/mnt/other"] = {"ok": True, "exists": True, "writable": True, "marker": {"id": "lib-zzz", "name": "Other"}}
+    probe.looks["/mnt/bare"] = {"ok": True, "exists": True, "writable": True}
+    probe.looks["/mnt/dead"] = {"ok": False, "timeout": True, "error": "no answer in 8 s"}
+    before = len(saves)
+    moved = reg.repath(sid, "/mnt/new/")
+    check(moved["store"]["path"] == "/mnt/new" and state["modelStores"][0]["path"] == "/mnt/new" and len(saves) == before + 1,
+          f"та же библиотека по новому пути: путь нормализован, записан одной записью (got {moved})")
+    check(reg.repath(sid, "/mnt/new")["store"]["path"] == "/mnt/new" and len(saves) == before + 1,
+          "тот же путь второй раз — ничего не пишется")
+    for bad, code in (("/mnt/other", "other-library"), ("/mnt/bare", "not-a-mount"), ("/mnt/dead", "unreachable"),
+                      ("mnt/rel", "not-absolute"), ("", "no-path"), ("/home/x/models", "duplicate"),
+                      ("/home/x/models/inner", "nested")):
+        check(refused(reg.repath, sid, bad) == code, f"negative: {bad!r} — отказ {code}")
+    check(refused(reg.repath, "local", "/tmp/x") == "builtin", "negative: свой каталог меняется ✎ на странице, не этим")
+    check(refused(reg.repath, "lib-nope", "/mnt/new") == "unknown-id", "negative: неизвестная библиотека")
+    check(state["modelStores"][0]["path"] == "/mnt/new", "после всех отказов путь остался прежним")
+
+
 def main():
     section_rule()
     section_child()
     section_deadline()
     section_registry()
+    section_mount_facts()
+    section_repath()
     section_cache()
     section_library_files()
     print()

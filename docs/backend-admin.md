@@ -200,6 +200,16 @@ Owns: `LOAD_WATCH` — per port, the readings of the start being watched (forgot
 stops loading, or after ten minutes unseen).
 Key functions: `LlamaProcess.among`, `LlamaProcess.reads_files`, `LoadWatch.look`, `LoadWatch.forget`.
 
+`MountFacts` answers what the card shows when a store is NOT ok: what this host has mounted at
+that path (`/proc/self/mountinfo`, the last mount wins — that is the one a reader gets), whether the
+machine the source names answers a knock on its port (2049 for NFS, 445 for SMB; a device names
+nobody and the answer is "not known", never "silent"), and whether `/etc/fstab` carries a line for
+the mount point. All of it is this host's own files plus one connect with its own deadline — none of
+it can wait on a dead share the way a `stat()` on the mount point does. `StoreRegistry.repath`
+points a library at another path when the share or its mount point moved: a library is its mark, not
+its path, so the new folder must carry the same mark (`other-library` otherwise), and the rest of
+the refusals are Add's.
+
 ## `library_meta.py`
 
 A GGUF header's runtime facts for the files that live in a library: read from the local copy just

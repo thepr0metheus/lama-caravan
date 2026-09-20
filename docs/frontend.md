@@ -312,6 +312,14 @@ looks inside a store itself — the server does, from a child process with a dea
   the summary's element, `opts.onChange` hears every answer — the move button needs the libraries —
   `opts.onScope` hears a chosen place, `opts.onSavePath` saves a new models directory).
 
+`MountHint` (same module) turns the `mount` facts into the line a place shows when it does not
+answer — what it is mounted from, whether that machine replies — and the one command that takes the
+next step (`sudo mount …` when fstab names it, `umount -l && mount` when the machine went silent,
+nothing at all when there is nothing to run). No facts means no line: the server sends them only for
+a store that is not ok, so the page holds no second rule about which states deserve an explanation.
+✎ beside a library's path edits it in place and posts `/api/model-stores/repath`; a refusal is shown
+as it came and the box stays open.
+
 ## model-moves.js
 
 Moves into a library on `/models`, drawn where the files are — there is no panel of jobs. A file on

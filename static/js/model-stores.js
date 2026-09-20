@@ -17,7 +17,52 @@
 // as a spinner that does not end.
 import { appConfirm } from "./dialogs.js";
 import { t } from "./i18n.js";
-import { api, escapeHtml, fmtGb, fmtSpace, toast } from "./utils.js";
+import { api, copyText, escapeHtml, fmtGb, fmtSpace, toast } from "./utils.js";
+
+// Why a store does not answer, in one line and — when there is one — the
+// command that takes the next step. A pure rule over the facts the server
+// sends (`mount`): the page never looks at a mount itself, and no facts means
+// no line — the server sends them only for a store that is NOT ok, so there is
+// no second rule here about which states deserve an explanation.
+export class MountHint {
+  constructor(facts, path) {
+    this.f = facts && typeof facts === "object" ? facts : null;
+    this.path = String(path || "");
+  }
+
+  text() {
+    const f = this.f;
+    if (!f) return "";
+    if (!f.source) return f.inFstab ? t("storeWhyNotMounted") : t("storeWhyNoFstab");
+    const from = t("storeWhyFrom", { source: f.source });
+    if (f.answers === false) return `${from} · ${t("storeWhySilent", { host: f.host })}`;
+    if (f.answers === true) return `${from} · ${t("storeWhyAnswers", { host: f.host })}`;
+    return from;
+  }
+
+  // Nothing to run is an answer too: with no line in fstab there is nothing to
+  // mount, and a share that answers is not the trouble — the command would
+  // send the operator down the wrong road.
+  command() {
+    const f = this.f;
+    if (!f || !this.path) return "";
+    if (!f.source) return f.inFstab ? `sudo mount ${this.path}` : "";
+    if (f.answers === false) return `sudo umount -l ${this.path} && sudo mount ${this.path}`;
+    return "";
+  }
+
+  html(id) {
+    const text = this.text();
+    if (!text) return "";
+    const cmd = this.command();
+    return `<div class="mdl-store-why" data-t="models-store-why" data-t-id="${escapeHtml(String(id))}">`
+      + `<span class="mdl-why-text">${escapeHtml(text)}</span>`
+      + (cmd ? `<code class="mdl-why-cmd" data-t="models-store-why-command">${escapeHtml(cmd)}</code>`
+        + `<button class="mdl-mini" type="button" data-why-copy="${escapeHtml(cmd)}"`
+        + ` title="${escapeHtml(t("copyCommand"))}" aria-label="${escapeHtml(t("copyCommand"))}">⧉</button>` : "")
+      + `</div>`;
+  }
+}
 
 // State → the tone of its chip, and → the key of its word. A state the server
 // adds tomorrow falls through to "unknown", never to "ok".
@@ -65,6 +110,8 @@ export class StoresPanel {
     // Changing where the models directory IS: the panel owns the pencil on
     // that place's summary, and the page owns what saving means.
     this.onSavePath = opts.onSavePath || null;
+    //: The library whose path is being edited in place, "" when none.
+    this.repathing = "";
     this.editing = false;
     this.adding = false;
     // "all", or the id of the place the list shows.
@@ -293,6 +340,7 @@ export class StoresPanel {
     return `<div class="mdl-sum-main"><h2 class="mdl-sum-title"><span aria-hidden="true">${s.builtin ? "🏠" : "📚"}</span> ${escapeHtml(this.nameOf(s))} ${this.chip(s)}</h2>`
       + `<div class="mdl-sum-line">${this.pathCell(s)}</div>`
       + (facts ? `<div class="mdl-sum-line" data-t="models-summary-facts">${escapeHtml(facts)}</div>` : "")
+      + new MountHint(s.mount, s.path).html(s.id)
       + (held && !s.builtin ? this.folders(s) : "")
       + `</div>`
       + (used === null ? "" : `<div class="mdl-sum-space">${this.room(s, used)}</div>`);
@@ -309,10 +357,19 @@ export class StoresPanel {
         + `<button class="mini-link" type="button" data-dir-save data-t="models-path-save">${escapeHtml(t("save"))}</button>`
         + `<button class="mini-link" type="button" data-dir-cancel data-t="models-path-cancel">${escapeHtml(t("cancel"))}</button></span>`;
     }
+    if (!s.builtin && this.repathing === s.id) {
+      return `<span class="mdl-path-edit" data-t="models-store-repath-row">`
+        + `<input data-store-repath-box value="${escapeHtml(s.path || "")}" autocomplete="off" spellcheck="false"`
+        + ` data-i18n-aria="a11yStorePath" aria-label="${escapeHtml(t("storeRepath"))}" data-t="models-store-repath-input">`
+        + `<button class="mini-link" type="button" data-repath-save="${escapeHtml(s.id)}" data-t="models-store-repath-save">${escapeHtml(t("save"))}</button>`
+        + `<button class="mini-link" type="button" data-repath-cancel data-t="models-store-repath-cancel">${escapeHtml(t("cancel"))}</button></span>`;
+    }
     const act = s.builtin
       ? `<button class="mdl-mini" type="button" data-dir-edit title="${escapeHtml(t("mdlEditModelsDir"))}"`
         + ` aria-label="${escapeHtml(t("mdlEditModelsDir"))}" data-t="models-path-edit">✎</button>`
-      : `<button class="mdl-mini" type="button" data-store-remove="${escapeHtml(s.id)}"`
+      : `<button class="mdl-mini" type="button" data-store-repath="${escapeHtml(s.id)}" title="${escapeHtml(t("storeRepath"))}"`
+        + ` aria-label="${escapeHtml(t("storeRepath"))}" data-t="models-store-repath">✎</button>`
+        + `<button class="mdl-mini" type="button" data-store-remove="${escapeHtml(s.id)}"`
         + ` data-t="models-store-remove">${escapeHtml(t("storeRemove"))}</button>`;
     return `<code class="mdl-store-path" data-t="models-path-value" title="${escapeHtml(s.path || "")}">`
       + `${escapeHtml(s.path || "")}</code>${act}`;
@@ -379,6 +436,15 @@ export class StoresPanel {
       if (add) return this.add(add);
       const rm = find("[data-store-remove]");
       if (rm) return this.remove(rm.dataset.storeRemove, rm);
+      const why = find("[data-why-copy]");
+      // A copy that did not land shows the command instead, the way the
+      // cloud bridge does: the operator can still take it by hand.
+      if (why) { const cmd = why.dataset.whyCopy; copyText(cmd).then((ok) => toast(ok ? t("storeWhyCopied") : cmd)); return undefined; }
+      const rep = find("[data-store-repath]");
+      if (rep) { this.repathing = rep.dataset.storeRepath; this.render(); this.focusOn("[data-store-repath-box]"); return undefined; }
+      if (find("[data-repath-cancel]")) { this.repathing = ""; this.render(); return undefined; }
+      const repSave = find("[data-repath-save]");
+      if (repSave) return this.saveRepath(repSave.dataset.repathSave, repSave);
       if (find("[data-dir-edit]")) { this.editing = true; this.render(); this.focusOn("[data-store-dir]"); return undefined; }
       if (find("[data-dir-cancel]")) { this.editing = false; this.render(); return undefined; }
       const save = find("[data-dir-save]");
@@ -390,6 +456,11 @@ export class StoresPanel {
       if (on("[data-store-dir]")) {
         if (e.key === "Enter") { e.preventDefault(); this.saveDir(this.query("[data-dir-save]")); }
         if (e.key === "Escape") { e.preventDefault(); this.editing = false; this.render(); }
+        return;
+      }
+      if (on("[data-store-repath-box]")) {
+        if (e.key === "Enter") { e.preventDefault(); this.saveRepath(this.repathing, this.query("[data-repath-save]")); }
+        if (e.key === "Escape") { e.preventDefault(); this.repathing = ""; this.render(); }
         return;
       }
       if (!on("[data-store-path]")) return;
@@ -417,6 +488,25 @@ export class StoresPanel {
       await this.onSavePath(path);
       this.editing = false;
       this.render();
+    } catch (err) {
+      toast(String((err && err.message) || err));
+      if (btn) { btn.disabled = false; btn.classList.remove("btn-busy"); }
+    }
+  }
+
+  // The share moved, or its mount point did. The server keeps the library's
+  // identity: a folder with another mark is refused, and the refusal is shown
+  // as it came rather than turned into a second, silent Add.
+  async saveRepath(id, btn) {
+    const box = this.query("[data-store-repath-box]");
+    const path = String((box && box.value) || "").trim();
+    if (!id || !path) return;
+    if (btn) { btn.disabled = true; btn.classList.add("btn-busy"); }
+    try {
+      const res = await api("/api/model-stores/repath", { method: "POST", body: { id, path } });
+      if (res && res.ok === false) throw new Error(res.error || "failed");
+      this.repathing = "";
+      await this.refresh(true);
     } catch (err) {
       toast(String((err && err.message) || err));
       if (btn) { btn.disabled = false; btn.classList.remove("btn-busy"); }

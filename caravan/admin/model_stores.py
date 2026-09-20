@@ -254,6 +254,96 @@ class ModelStore:
                 "role": self.role, "builtin": self.builtin}
 
 
+class MountFacts:
+    """Where a path is mounted from, whether that machine answers, and whether
+    /etc/fstab names it — asked WITHOUT touching the path itself.
+
+    A library that does not answer was the one case where the card had nothing
+    to say and the operator nowhere to look: the NAS changed address, the mount
+    hung, and "not answering" was the whole story (2026-09-20). Both questions
+    here are safe on a dead share — /proc/self/mountinfo and /etc/fstab are this
+    host's own files, and a knock on the server is a connect with its own
+    deadline — while a stat() on the mount point is exactly what waits.
+    """
+
+    #: The port a source of this kind answers on. A source that names no host —
+    #: a local device — is not knocked on at all.
+    PORTS = {"nfs": 2049, "nfs4": 2049, "cifs": 445, "smb3": 445}
+    KNOCK_TIMEOUT = 1.5
+
+    def __init__(self, mounts="/proc/self/mountinfo", fstab="/etc/fstab", knock=None,
+                 timeout=KNOCK_TIMEOUT):
+        self.mounts = mounts
+        self.fstab = fstab
+        self.timeout = float(timeout)
+        self._knock = knock or self._connect
+
+    def at(self, path):
+        """{"source", "type", "host", "answers", "inFstab"} — or None when this
+        host says nothing about `path`. `answers` is None when there is nobody
+        to knock on: a local device, or a kind of mount we have no port for."""
+        mount = self._mounted(path)
+        doc = {"inFstab": self._in_fstab(path)}
+        if mount is None:
+            return {**doc, "source": "", "type": "", "host": "", "answers": None}
+        source, kind = mount
+        host = self._host(source)
+        port = self.PORTS.get(kind)
+        answers = self._knock(host, port) if host and port else None
+        return {**doc, "source": source, "type": kind, "host": host, "answers": answers}
+
+    def _mounted(self, path):
+        """(source, type) of the LAST thing mounted at `path` — mounts stack, and
+        the last one is what a reader gets — or None."""
+        want = os.path.normpath(str(path))
+        found = None
+        try:
+            with open(self.mounts, encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    left, _, right = line.partition(" - ")
+                    fields, rest = left.split(), right.split()
+                    if len(fields) < 5 or len(rest) < 2:
+                        continue
+                    if os.path.normpath(fields[4].replace("\\040", " ")) == want:
+                        found = (rest[1], rest[0])
+        except OSError:
+            return None
+        return found
+
+    def _in_fstab(self, path):
+        """Whether /etc/fstab names this mount point — "not mounted" reads very
+        differently when nothing was ever going to mount it."""
+        want = os.path.normpath(str(path))
+        try:
+            with open(self.fstab, encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    row = line.split("#", 1)[0].split()
+                    if len(row) >= 2 and os.path.normpath(row[1]) == want:
+                        return True
+        except OSError:
+            return False
+        return False
+
+    @staticmethod
+    def _host(source):
+        """The machine a source names: "host:/export" (NFS), "//host/share"
+        (SMB). A device path names nobody."""
+        text = str(source or "")
+        if text.startswith("//"):
+            return text[2:].split("/")[0]
+        if ":" in text and not text.startswith("/"):
+            return text.split(":", 1)[0]
+        return ""
+
+    def _connect(self, host, port):
+        import socket
+        try:
+            with socket.create_connection((host, int(port)), timeout=self.timeout):
+                return True
+        except OSError:
+            return False
+
+
 class StoreStatus:
     """What was measured about one store, when, and the one word for it.
 
@@ -307,7 +397,7 @@ class StoreStatus:
 
     def to_json(self):
         doc = {"state": self.state, "detail": self.detail, "checkedAt": self.checked_at}
-        for key in ("free", "total", "files", "folders", "more"):
+        for key in ("free", "total", "files", "folders", "more", "mount"):
             if key in self.measured:
                 doc[key] = self.measured[key]
         if "bytes" in self.measured:
@@ -334,11 +424,13 @@ class StoreRegistry:
 
     LOCAL_ID = "local"
 
-    def __init__(self, state=None, save=None, local_root=None, probe=None, clock=None, ttl=STATUS_TTL_S):
+    def __init__(self, state=None, save=None, local_root=None, probe=None, clock=None, ttl=STATUS_TTL_S,
+                 mount_facts=None):
         self._state = state
         self._save = save
         self._local_root = local_root
         self.probe = probe or StoreProbe()
+        self.mount_facts = mount_facts or MountFacts()
         self._clock = clock or time.time
         self.ttl = float(ttl)
         self._cache = {}
@@ -387,7 +479,16 @@ class StoreRegistry:
                 looks = list(pool.map(lambda s: self.probe.look(s.path, listing=s.role == "library"), stale))
             with self._lock:
                 for store, probe in zip(stale, looks):
-                    self._cache[store.id] = (store.path, StoreStatus.judge(store, probe, now), now)
+                    status = StoreStatus.judge(store, probe, now)
+                    # Why it does not answer, for the card to say: asked only
+                    # when something IS wrong, and only about this host's own
+                    # files and a port that either answers or does not.
+                    if status.state != "ok":
+                        try:
+                            status.measured["mount"] = self.mount_facts.at(store.path)
+                        except Exception:  # noqa: BLE001
+                            pass
+                    self._cache[store.id] = (store.path, status, now)
         rows = []
         with self._lock:
             for store in stores:
@@ -500,6 +601,50 @@ class StoreRegistry:
         with self._lock:
             self._cache.pop(store_id, None)
         return {**ModelStore(store_id, row["name"], root, "library").to_json(), "adopted": bool(answer.get("adopted"))}
+
+    def repath(self, store_id, path):
+        """Point a library at another path on THIS host — the share moved, or
+        its mount point did.
+
+        A library is its mark, not its path: the new folder must carry the same
+        mark, or this is a different library and belongs to Add. Every other
+        refusal is the one Add gives — absolute, not a duplicate, not nested.
+        """
+        sid = str(store_id or "").strip()
+        if sid == self.LOCAL_ID:
+            raise StoreRefused("the controller's own models directory is changed with ✎ on the page", "builtin")
+        rows = self._saved()
+        row = next((r for r in rows if str(r["id"]) == sid), None)
+        if row is None:
+            raise StoreRefused(f"no such store: {sid}", "unknown-id", 404)
+        raw = str(path or "").strip()
+        if not raw:
+            raise StoreRefused("a path is required", "no-path", 400)
+        if not os.path.isabs(raw):
+            raise StoreRefused(f"the path must be absolute: {raw}", "not-absolute", 400)
+        root = os.path.normpath(raw)
+        if root == os.path.normpath(row["path"]):
+            return {"store": dict(row)}
+        for other in [os.path.normpath(self._local())] + [os.path.normpath(r["path"]) for r in rows
+                                                          if str(r["id"]) != sid]:
+            if root == other:
+                raise StoreRefused(f"{root} is already a store", "duplicate")
+            if root.startswith(other.rstrip("/") + "/") or other.startswith(root.rstrip("/") + "/"):
+                raise StoreRefused(f"{root} and {other} are nested: every model in the inner one would be counted twice", "nested")
+        answer = self.probe.look(root)
+        if not answer.get("ok"):
+            raise StoreRefused(f"{root} does not answer: {answer.get('error') or 'the probe failed'}", "unreachable", 504)
+        mark = answer.get("marker") if isinstance(answer.get("marker"), dict) else None
+        if not mark:
+            raise StoreRefused(f"{root} carries no library mark: the share is not mounted there", "not-a-mount")
+        if str(mark.get("id")) != sid:
+            raise StoreRefused(f"{root} holds another library: {mark.get('name') or mark.get('id')}", "other-library")
+        row["path"] = root
+        self._admin()["modelStores"] = rows
+        self._persist()
+        with self._lock:
+            self._cache.pop(sid, None)
+        return {"store": dict(row)}
 
     def remove(self, store_id):
         sid = str(store_id or "").strip()
