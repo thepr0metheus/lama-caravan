@@ -404,7 +404,7 @@ PINS = [
      '{ role: "model", name: "m.gguf", size: 10 * 2 ** 30, read: 2 * 2 ** 30, state: "reading", library: "NAS" },'
      ' { role: "mmproj", name: "p.gguf", size: 2 ** 30, read: 0, state: "waiting", library: "NAS" }], ...over });',
      '[LOAD(m.nodeServerCardHtml(node, mk({ phase: "warming", loadProgress: LP() }))), LOAD(m.nodeServerCardHtml(node, mk({ isController: true, phase: "starting", loadProgress: LP({ stage: "starting", read: 0 }) })))]',
-     '[[["h1:22001","reading"],1,2,false,false,"2.00 GB / 11.0 GB · 112 MB/s · ~2 min left"],[["controller:22001","starting"],1,2,false,false,"starting"]]',
+     '[[["h1:22001","reading"],1,2,false,false,"2.00 / 11.0 GB · 112 MB/s · ~2 min left"],[["controller:22001","starting"],1,2,false,false,"starting"]]',
      'loadProgress при warming и starting — строки замера вместо бегущей полосы и «loading model into…»: хук с ячейкой и стадией, шаги файлов, цифры'),
     ('card_load_keeps_the_card_tail',
      'const PREV = (h) => norm(h).match(/data-t="cell-load"[^>]*>.*?<\\/div>/)[0].match(/<span class="msl-prev-err"[^>]*>⚠<\\/span><\\/div>$/) !== null;',

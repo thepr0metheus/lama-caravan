@@ -42,13 +42,13 @@ PINS = [
     ("summary_reading_with_pace", "",
      r"""(() => [new L.CellLoad(P()).summary(), new L.CellLoad(P({ speed: undefined, left: undefined })).summary(),
                 new L.CellLoad(P({ left: 7300 })).summary(), new L.CellLoad(P({ speed: 3 * GB })).summary()])()""",
-     '["2.00 GB / 11.0 GB · 112 MB/s · ~2 min left","2.00 GB / 11.0 GB","2.00 GB / 11.0 GB · 112 MB/s · ~2 h 2 min left","2.00 GB / 11.0 GB · 3.0 GB/s · ~2 min left"]',
+     '["2.00 / 11.0 GB · 112 MB/s · ~2 min left","2.00 / 11.0 GB","2.00 / 11.0 GB · 112 MB/s · ~2 h 2 min left","2.00 / 11.0 GB · 3.0 GB/s · ~2 min left"]',
      "строка у полосы: прочитано из целого · скорость · осталось; первое чтение — без скорости и остатка (их ещё нет); часы и ГБ/с — той же формулировкой, что переносы"),
 
     ("summary_other_stages", "",
      r"""(() => [new L.CellLoad(P({ stage: "stalled", idle: 45, read: 3 * GB })).summary(), new L.CellLoad(P({ stage: "setup" })).summary(),
                 new L.CellLoad(P({ stage: "starting" })).summary(), new L.CellLoad(P({ stage: "stalled", idle: 45 })).summary().includes("MB/s")])()""",
-     '["3.00 GB / 11.0 GB · no data for 45 s","setting up: context, warm-up","starting",false]',
+     '["3.00 / 11.0 GB · no data for 45 s","setting up: context, warm-up","starting",false]',
      "стоит — «нет данных N с» вместо скорости; подготовка контекста — своей фразой; до первого файла — «starting»; у стоящей загрузки скорости нет"),
 
     ("bar_share", "",
@@ -61,7 +61,7 @@ PINS = [
             { role: "draft", name: "mtp.gguf", size: 512 * MB, read: 100 * MB, state: "reading" }, { role: "mmproj", name: "p.gguf", size: GB, read: 0, state: "waiting", library: LIB }] }));
         return c.files.map((f) => c.step(f)); })()""",
      '["<span class=\\"msl-step is-done\\" data-t=\\"cell-load-file\\" data-t-id=\\"model\\" data-t-state=\\"done\\">✓ 📚 weights 10.0 GB</span>",'
-     '"<span class=\\"msl-step is-reading\\" data-t=\\"cell-load-file\\" data-t-id=\\"draft\\" data-t-state=\\"reading\\">▸ draft 0.10 GB / 0.50 GB</span>",'
+     '"<span class=\\"msl-step is-reading\\" data-t=\\"cell-load-file\\" data-t-id=\\"draft\\" data-t-state=\\"reading\\">▸ draft 0.10 / 0.50 GB</span>",'
      '"<span class=\\"msl-step is-waiting\\" data-t=\\"cell-load-file\\" data-t-id=\\"mmproj\\" data-t-state=\\"waiting\\">○ 📚 mmproj 1.00 GB</span>"]',
      "шаги: ✓ готово с размером, ▸ читается «прочитано / размер», ○ ждёт с размером; 📚 только у файла из библиотеки; порядок — как прислан"),
 
@@ -78,9 +78,9 @@ PINS = [
     ("html_two_rows_with_hooks", "",
      r"""(() => new L.CellLoad(P()).html("controller:22009"))()""",
      '"<div class=\\"node-model-row2 model-status-line msl-load\\" data-t=\\"cell-load\\" data-t-id=\\"controller:22009\\" data-t-state=\\"reading\\" title=\\"▸ weights: m-Q4_K_M.gguf · 10.0 GB · read from library lama-caravan-models\\n○ mmproj: mmproj-BF16.gguf · 1.00 GB · read from library lama-caravan-models\\">'
-     '<span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar\\"><span style=\\"width:18%\\"></span></span><span class=\\"msl-text\\">2.00 GB / 11.0 GB · 112 MB/s · ~2 min left</span></div>'
+     '<span class=\\"topology-spinner\\" aria-hidden=\\"true\\"></span><span class=\\"msl-bar\\"><span style=\\"width:18%\\"></span></span><span class=\\"msl-text\\">2.00 / 11.0 GB · 112 MB/s · ~2 min left</span></div>'
      '<div class=\\"node-model-row2 msl-steps\\" title=\\"▸ weights: m-Q4_K_M.gguf · 10.0 GB · read from library lama-caravan-models\\n○ mmproj: mmproj-BF16.gguf · 1.00 GB · read from library lama-caravan-models\\">'
-     '<span class=\\"msl-step is-reading\\" data-t=\\"cell-load-file\\" data-t-id=\\"model\\" data-t-state=\\"reading\\">▸ 📚 weights 2.00 GB / 10.0 GB</span>'
+     '<span class=\\"msl-step is-reading\\" data-t=\\"cell-load-file\\" data-t-id=\\"model\\" data-t-state=\\"reading\\">▸ 📚 weights 2.00 / 10.0 GB</span>'
      '<span class=\\"msl-step is-waiting\\" data-t=\\"cell-load-file\\" data-t-id=\\"mmproj\\" data-t-state=\\"waiting\\">○ 📚 mmproj 1.00 GB</span></div>"',
      "две строки: полоса с долей и цифрами (хук cell-load с ячейкой и стадией, подсказка), под ней шаги файлов (хуки cell-load-file)"),
 

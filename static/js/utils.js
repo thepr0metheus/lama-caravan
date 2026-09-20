@@ -88,6 +88,13 @@ export function fmtGb(bytes) {
   return gb >= 100 ? `${Math.round(gb)} GB` : `${gb.toFixed(gb >= 10 ? 1 : 2)} GB`;
 }
 
+// Part of a whole, as one measure: "14.1 / 20.3 GB". The unit is said once —
+// a cell's card has room for the numbers, and with it said twice the line was
+// cut mid-word on a real load ("~2 mi…", seen live 2026-09-20).
+export function fmtGbPair(part, whole) {
+  return `${fmtGb(part).replace(/\s*GB$/, "")} / ${fmtGb(whole)}`;
+}
+
 // A whole store's capacity, where models are measured in gigabytes but the
 // store itself is not: "5532 GB free of 7143 GB" is two numbers nobody reads,
 // and the same shelf says "5.4 TB free of 7.0 TB" at a glance. Files keep

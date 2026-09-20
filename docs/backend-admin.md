@@ -326,7 +326,9 @@ proxy daemon only reads it (by mtime, ~2s). Every write funnels through `write_a
 the single choke point: it recomputes cloud-fallback eligibility, re-normalizes routers against the
 routes, and enforces graph protection — whenever the on-disk file has router-graph nodes it
 snapshots an autobackup (`agent-proxies.json.bak-graph-<stamp>`) before every write, and if the
-incoming payload would lose a non-empty graph it restores the old graph into the new payload. Reads
+incoming payload would lose a non-empty graph it restores the old graph into the new payload. The
+newest 20 of those copies are kept (`ProxyStore.backups_kept`) and older ones are removed on the
+next write — there was no limit, and a copy per save left 13 678 of them beside the file (2026-09-20). Reads
 migrate the legacy pre-rename schema (`switchboards`/`sb:default` → routers) idempotently.
 `sync_router_outputs` auto-derives every router's outputs: one `srv:<port>` per live local llama
 server + one `cb:<blockId>` per **exposed** cloud block (with a one-time migration from legacy

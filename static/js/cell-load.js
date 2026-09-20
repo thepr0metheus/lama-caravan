@@ -7,7 +7,7 @@
 // — a looping bar says "working" without inventing a number.
 import { t } from "./i18n.js";
 import { Pace } from "./pace.js";
-import { escapeHtml, fmtGb } from "./utils.js";
+import { escapeHtml, fmtGb, fmtGbPair } from "./utils.js";
 
 // Role → its word on the card. A role the controller adds later is shown as it
 // is sent, never dropped: a step without a word for it is still a step.
@@ -46,14 +46,14 @@ export class CellLoad {
     const p = this.p;
     if (p.stage === "setup") return t("cellLoadSetup");
     if (p.stage === "starting") return t("topologyRemoteStarting");
-    const amount = `${fmtGb(Number(p.read) || 0)} / ${fmtGb(Number(p.total) || 0)}`;
+    const amount = fmtGbPair(Number(p.read) || 0, Number(p.total) || 0);
     if (p.stage === "stalled") return `${amount} · ${t("cellLoadStalled", { n: String(p.idle) })}`;
     return [amount, Pace.speed(p.speed), Pace.eta(p.left)].filter((part) => part).join(" · ");
   }
 
   step(file) {
     const size = Number(file.size) || 0;
-    const amount = file.state === "reading" ? `${fmtGb(Number(file.read) || 0)} / ${fmtGb(size)}` : fmtGb(size);
+    const amount = file.state === "reading" ? fmtGbPair(Number(file.read) || 0, size) : fmtGb(size);
     const state = escapeHtml(String(file.state || ""));
     return `<span class="msl-step is-${state}" data-t="cell-load-file" data-t-id="${escapeHtml(String(file.role || ""))}" data-t-state="${state}">`
       + `${CellLoad.mark(file)} ${file.library ? "📚 " : ""}${escapeHtml(CellLoad.role(file))} ${escapeHtml(amount)}</span>`;

@@ -170,6 +170,7 @@ class _Start:
         self.files = files
         self.rules = rules
         self.last = None
+        self.mark = (now, 0)
         self.was_reading = False
         self.moved = now
         self.speed = None
@@ -183,14 +184,20 @@ class _Start:
         at = next((i for i, f in enumerate(self.files) if f.is_among(opened)), None)
         if self.last is not None and got > self.last[1]:
             self.moved = now
-            # Only a stretch read with a file open all along is a speed: the
-            # context is made between two files, and a reading across that
-            # pause would pull the speed down for no slower a link.
-            if at is not None and self.was_reading and now > self.last[0]:
-                rate = (got - self.last[1]) / (now - self.last[0])
-                self.speed = rate if self.speed is None else self.speed + rules.PACE * (rate - self.speed)
-        if at is not None and not self.was_reading:
-            self.moved = now  # a file was just opened: the stall clock starts here
+        if at is None or not self.was_reading:
+            # A pause is not a speed: the context is made between two files with
+            # nothing read, and a stretch measured across it would say the link
+            # slowed down. The next reading starts from here.
+            self.mark = (now, got)
+            if at is not None:
+                self.moved = now  # a file was just opened: the stall clock too
+        elif got - self.mark[1] >= rules.STEP and now > self.mark[0]:
+            # Enough bytes to divide by. The first reading of a load catches the
+            # header alone, and a few kilobytes over a second is not a speed —
+            # dividing by it once said nine billion seconds left (seen live).
+            rate = (got - self.mark[1]) / (now - self.mark[0])
+            self.speed = rate if self.speed is None else self.speed + rules.PACE * (rate - self.speed)
+            self.mark = (now, got)
         self.last = (now, got)
         self.was_reading = at is not None
 
@@ -240,6 +247,8 @@ class LoadWatch:
     #: real change within a few looks, not so far that one slow stretch makes
     #: the time left jump. The same weight as the moves on /models.
     PACE = 0.3
+    #: Bytes a reading must add before it counts as a speed.
+    STEP = 1 << 20
     #: Seconds without a byte, a file open, before the load is called stalled.
     #: CUDA starts with the weights' file open and nothing read yet, for up to
     #: a few seconds on this fleet; a dead share never answers at all.

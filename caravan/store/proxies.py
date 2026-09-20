@@ -31,9 +31,13 @@ from caravan.store.base import Store, keep_unreadable
 class ProxyStore(Store):
     """The proxy document. Its write path is the graph's only protection."""
 
-    #: How many timestamped copies to keep when a write touches a file that
-    #: still has graph nodes.
+    #: What a timestamped copy is called, made when a write touches a file
+    #: that still has graph nodes.
     backup_suffix = "bak-graph"
+    #: How many of those copies to keep. There was no limit, and this comment
+    #: claimed one: a copy per save, never removed, left 13 678 of them beside
+    #: the file on the controller — each a full copy of the routes (2026-09-20).
+    backups_kept = 20
 
     def __init__(self, path, legacy_router_id="sb:default", default_router_id="router:default"):
         self.legacy_router_id = legacy_router_id
@@ -126,6 +130,7 @@ class ProxyStore(Store):
                 return payload
             backup = self.path.with_name(f"{self.path.stem}.json.{self.backup_suffix}-{stamp}")
             backup.write_text(self.path.read_text(encoding="utf-8"), encoding="utf-8")
+            self.prune_backups()
             if self.graph_nodes(payload):
                 return payload
             old_by_id = {r["id"]: r for r in (old.get("routers") or []) if r.get("id")}
@@ -135,6 +140,22 @@ class ProxyStore(Store):
         except Exception:  # noqa: BLE001
             pass
         return payload
+
+    def prune_backups(self):
+        """Leave the newest `backups_kept` copies and remove the rest.
+
+        By the stamp in the name, not by mtime: the stamp says which save a copy
+        belongs to, and a file touched afterwards is not a newer copy. A copy
+        that will not go is left where it is — this runs inside the safety net
+        around a write, and tidying up may not cost the operator their save.
+        """
+        copies = sorted(self.path.parent.glob(f"{self.path.stem}.json.{self.backup_suffix}-*"))
+        doomed = copies[:-self.backups_kept] if self.backups_kept > 0 else copies
+        for old in doomed:
+            try:
+                old.unlink()
+            except OSError:
+                pass
 
     def write(self, payload):
         """The file, indented, UTF-8 as itself, with a trailing newline.

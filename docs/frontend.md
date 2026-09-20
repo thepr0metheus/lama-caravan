@@ -457,7 +457,9 @@ spinner when the load stands, "setting up: context, warm-up" between files and a
 and under it one step per file in reading order: ✓ done, ▸ reading with its bytes, ○ waiting with
 its size, 📚 for a file read from a library. The hover names every file, its size and where it is
 read from. A role or state the card has no word for is shown as sent (`?`), never guessed.
-`Pace` holds the one wording of speed and time left, shared with the moves on `/models`.
+`Pace` holds the one wording of speed and time left, shared with the moves on `/models`; the two
+sizes are one measure — `fmtGbPair` says the unit once ("14.1 / 20.3 GB"), because with it said
+twice the line was cut mid-word on a real load.
 
 - Owns: nothing mutable.
 - Key exports: `CellLoad` (class; `html(cellId, tail)`), `Pace.speed`, `Pace.eta`.

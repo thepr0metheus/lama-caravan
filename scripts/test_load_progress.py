@@ -181,12 +181,12 @@ def run(proc, root):
     now[0] += 5
     proc.io(50, 2 * GB + 500 * MB)
     second = watch.look(22009, {50}, size_of)
-    check((second["speed"], second["left"]) == (100 * MB, int((11 * GB - 2 * GB - 500 * MB) / (100 * MB))),
+    check((second.get("speed"), second.get("left")) == (100 * MB, int((11 * GB - 2 * GB - 500 * MB) / (100 * MB))),
           f"второе чтение: скорость = прирост за время, остаток = недочитанное / скорость (got {second.get('speed')}, {second.get('left')})")
     now[0] += 5
     proc.io(50, 2 * GB + 1500 * MB)
     third = watch.look(22009, {50}, size_of)
-    check(third["speed"] == int(100 * MB + 0.3 * (200 * MB - 100 * MB)), f"новая скорость сдвигает показанную на 0,3 разницы (got {third['speed']})")
+    check(third.get("speed") == int(100 * MB + 0.3 * (200 * MB - 100 * MB)), f"новая скорость сдвигает показанную на 0,3 разницы (got {third.get('speed')})")
 
     print("пауза, стоп, второй файл:")
     now[0] += 20
@@ -208,11 +208,11 @@ def run(proc, root):
     check((reopened["stage"], [f["state"] for f in reopened["files"]], reopened["files"][0]["read"], reopened["files"][1]["read"])
           == ("reading", ["done", "reading"], 10 * GB, 0),
           f"mmproj открыт после 40 с паузы — чтение, не «стоит»: часы стоя начинаются заново; веса — целиком, mmproj пока 0 (got {reopened['stage']})")
-    check(reopened["speed"] == third["speed"], "первое чтение после паузы скорость не трогает: промежуток через паузу — не скорость канала")
+    check(reopened.get("speed") == third.get("speed"), "первое чтение после паузы скорость не трогает: промежуток через паузу — не скорость канала")
     now[0] += 5
     proc.io(50, 10 * GB + 300 * MB)
     mm = watch.look(22009, {50}, size_of)
-    check((mm["files"][1]["read"], mm["speed"]) == (300 * MB, int(third["speed"] + 0.3 * (350 * MB / 5 - third["speed"]))),
+    check((mm["files"][1]["read"], mm.get("speed")) == (300 * MB, int(third.get("speed") + 0.3 * (350 * MB / 5 - third.get("speed")))),
           f"mmproj: прочитано сверх весов; скорость снова следует за чтением (got {mm['files'][1]['read']}, {mm.get('speed')})")
     proc.io(50, 11 * GB + 2 * MB)
     proc.open(50, [])
@@ -225,7 +225,7 @@ def run(proc, root):
     watch.look(22012, {90}, size_of)
     now[0] += 5
     proc.io(90, 1 * GB + 500 * MB)
-    before = watch.look(22012, {90}, size_of)["speed"]
+    before = watch.look(22012, {90}, size_of).get("speed")
     now[0] += 5
     proc.io(90, 10 * GB - 10 * MB)
     proc.open(90, [])
@@ -234,9 +234,26 @@ def run(proc, root):
     proc.io(90, 10 * GB + 200 * MB)
     proc.open(90, [MMPROJ])
     after = watch.look(22012, {90}, size_of)
-    check((before, after["speed"], after["files"][1]["read"]) == (100 * MB, 100 * MB, 200 * MB),
-          f"байты пришли между паузой и следующим взглядом — скорость та же: 210 МБ за 40 с не скорость канала (got {before}, {after['speed']})")
+    check((before, after.get("speed"), after["files"][1]["read"]) == (100 * MB, 100 * MB, 200 * MB),
+          f"байты пришли между паузой и следующим взглядом — скорость та же: 210 МБ за 40 с не скорость канала (got {before}, {after.get('speed')})")
     watch.forget(22012)
+
+    print("мелкий прирост — не скорость:")
+    proc.process(95, llama(), rchar=2 * GB, opened=[MODEL])
+    t0 = now[0]
+    watch.look(22013, {95}, size_of)
+    now[0] += 1.3
+    proc.io(95, 2 * GB + 4096)
+    tiny = watch.look(22013, {95}, size_of)
+    check("speed" not in tiny and "left" not in tiny,
+          f"4 КБ за 1,3 с — не скорость: ни скорости, ни остатка (живьём такой замер давал остаток в 8 926 338 683 с) (got {tiny.get('speed')}, {tiny.get('left')})")
+    now[0] += 5
+    proc.io(95, 2 * GB + 500 * MB)
+    real = watch.look(22013, {95}, size_of)
+    check(real.get("speed") == int(500 * MB / (now[0] - t0)),
+          f"прирост больше мегабайта — скорость за весь промежуток от прошлой отметки (got {real.get('speed')})")
+    watch.forget(22013)
+    proc.drop(95)
 
     print("заголовок, перезапуск, части:")
     proc.drop(50)

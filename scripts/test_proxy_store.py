@@ -62,6 +62,21 @@ def run(script, initial=None):
         return out, written, backups, kept
 
 
+MANY_WRITES = '''
+import os
+from pathlib import Path
+from caravan.store.proxies import ProxyStore
+path = Path(os.environ["AGENT_PROXY_CONFIG_FILE"])
+keeper = path.with_name("agent-proxies.json.a-keep-me")
+keeper.write_text("не копия", encoding="utf-8")
+store = ProxyStore(path)
+doc = {"routes": [], "routers": [{"id": "router:default", "graph": {"nodes": [{"id": "n1"}], "edges": []}}]}
+for i in range(30):
+    store.protect_graph(doc, "20260920-1200%02d" % i)
+    store.write(doc)
+print("keeper=%s" % keeper.exists())
+'''
+
 READ = '''
 import json
 from caravan.admin.proxies_config import read_agent_proxy_payload
@@ -197,6 +212,18 @@ def main():
               len(backups) == 1, str(backups))
     else:
         check("graph guard", False, out.stderr.strip()[-300:])
+
+    # ── the copies do not pile up ────────────────────────────────────────────
+    out, _, backups, _ = run(MANY_WRITES, WITH_GRAPH)
+    if out.returncode == 0:
+        check("only the newest copies are kept, not one per save",
+              len(backups) == 20, f"копий {len(backups)}")
+        check("and they ARE the newest, by the stamp in the name",
+              backups == sorted(backups)[-20:] and backups[-1].endswith("-20260920-120029"), str(backups[-2:]))
+        check("negative: a file that is not one of these copies is left alone",
+              (out.stdout or "").strip().endswith("keeper=True"), out.stdout.strip()[-80:])
+    else:
+        check("many writes", False, out.stderr.strip()[-300:])
 
     # ── a caller that DOES bring a graph must win ────────────────────────────
     out, written, _, _ = run(WRITE_KEEPS_ITS_OWN, WITH_GRAPH)
