@@ -245,7 +245,7 @@ FIELD_HELP = {
     "MMAP": "Memory-map model files. Usually faster startup and lower RAM pressure.",
     "NUMA": "NUMA mode: distribute, isolate, or numactl. Empty disables.",
     "DEVICE": "Comma-separated devices for offload. Empty lets llama.cpp choose.",
-    "SPLIT_MODE": "Multi-GPU split mode: none, layer, or row.",
+    "SPLIT_MODE": "Multi-GPU split mode: none, layer, row or tensor.",
     "TENSOR_SPLIT": "Comma-separated proportions for splitting tensors across GPUs.",
     "MAIN_GPU": "Main GPU index for split-mode none/row.",
     "FIT": "Let llama.cpp adjust unset options to fit device memory.",

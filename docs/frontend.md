@@ -384,8 +384,30 @@ runtime estimate, and fit checks. Sizing is done against **free** VRAM (`gpuFree
 nvidia-smi's `memory.free`, falls back to total−used), not total. Also resolves the compute target
 (which GPUs, or CPU cores/RAM) for a form prefix. Pure functions over `state`/`topology`.
 
-- Owns: nothing mutable.
+The GPU tile also offers, under the card chips and **only while two cards or more are actually
+picked**, how the model is divided between them (`split-mode.js`). With one card there is nothing
+to divide, so the row is absent rather than inert.
+
+- Owns: `_computeGpuDdOpen` (the multi-GPU dropdown's open state across re-renders).
 - Key exports: `estimateKvCacheGb`, `estimateRuntimeMemoryGb`, `gpuFreeMiB`, `vramFit`, `ramFit`, `applyComputeTarget`, `refreshComputeTarget`.
+
+## split-mode.js
+
+One value of llama-server's `-sm/--split-mode`, and what it means to say it: the labels, the
+one-line hint, and the value a fresh multi-card selection gets. The four legal values live in
+`constants.js` with every other field's value set (`fieldChoices.SPLIT_MODE`, which also fills the
+Devices field's datalist); this module owns their meaning, so a fifth mode llama.cpp adds is named
+in one place. `layer` hands whole layers to each card, which then take turns; `row` and `tensor`
+cut every weight between the cards so they work at once — `SplitMode.PARALLEL`.
+
+`SplitMode.DEFAULT` is `row`: two cards default to working at the same time. Not the newer
+`tensor`, which llama.cpp itself marks EXPERIMENTAL — a default is what an operator gets without
+asking for it. A mode already chosen survives re-picking a card; only a blank or an unknown value
+is filled in. A value llama-server does not know is said out loud under the buttons with none of
+them lit, rather than drawn as a fourth mode that simply is not highlighted.
+
+- Owns: nothing mutable.
+- Key exports: `SplitMode` (`known`, `parallel`, `label()`, `hint()`, `forCards(n)`, `html(hook)`).
 
 ## favorites.js
 

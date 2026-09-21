@@ -9,6 +9,7 @@ import { _applyDeviceToEnv, _envDeviceState } from "./llama-edit.js";
 import { modelsByPath, renderAsideVramBar, renderModelInsight } from "./form.js";
 import { t } from "./i18n.js";
 import { _trClientCpu, _trClientGpus } from "./remote-cells.js";
+import { SplitMode } from "./split-mode.js";
 import { state, topology } from "./state.js";
 import { $, escapeHtml, pill } from "./utils.js";
 
@@ -142,6 +143,13 @@ export function offloadSplit(pfx = "") {
   // question the operator actually has with two cards in the box: does it fit
   // THIS card, and how much still lands in RAM. Proportional to FREE memory,
   // so a card already hosting another cell is not promised room it lacks.
+  //
+  // Said out loud: under a TENSOR split (-sm row/tensor) whole layers are not
+  // handed to a card at all — every weight is cut between them by the same
+  // proportions, so the per-card GB here still reads about right, but "layers
+  // on this card" would not, and with -sm row the KV lives on --main-gpu
+  // alone rather than spread. The bar prints only the GB, never the per-card
+  // layer count, which is why this stays honest for all three modes.
   {
     const gpus = computeTargetGpus(pfx);
     const sel = computeSelectedGpuIdx(pfx);
@@ -285,7 +293,9 @@ export function applyComputeTarget(pfx, sel) {
     set("N_GPU_LAYERS", "auto");
     set("DEVICE", isAll ? "" : idx.map((i) => `CUDA${i}`).join(","));
     set("MAIN_GPU", isAll ? "" : String(idx[0]));
-    set("SPLIT_MODE", idx.length > 1 ? "layer" : "");
+    // Tensor-parallel by default on two cards or more (SplitMode.DEFAULT);
+    // a mode the operator already chose survives re-picking a card.
+    set("SPLIT_MODE", new SplitMode($(pfx + "SPLIT_MODE")?.value).forCards(idx.length));
     set("TENSOR_SPLIT", "");
     set("THREADS", "1"); set("THREADS_BATCH", "1");
   }
@@ -590,7 +600,14 @@ export function refreshComputeTarget(pfx) {
         + `</div>`;
     }
   }
-  box.innerHTML = `<div class="compute-label">${t("computeTarget")}</div><div class="compute-cards">${cpuCard}${gpuCards}${autoCard}</div>${subPicker}`;
+  // How the picked cards divide the model — shown only once TWO or more are
+  // actually selected. With one card there is nothing to divide and the flag
+  // changes nothing, and a control that changes nothing is worse than none:
+  // the operator reads it as a setting that did not take effect.
+  const splitRow = (multi && mode === "gpu" && shownSel.length > 1)
+    ? new SplitMode($(pfx + "SPLIT_MODE")?.value).html(pfx === "tr-" ? "cell-remote-split" : "cell-edit-split")
+    : "";
+  box.innerHTML = `<div class="compute-label">${t("computeTarget")}</div><div class="compute-cards">${cpuCard}${gpuCards}${autoCard}</div>${subPicker}${splitRow}`;
   refreshOffloadPlan(pfx);
   box.querySelectorAll(".compute-card:not(.disabled)").forEach((btn) => btn.addEventListener("click", () => {
     const kind = btn.dataset.compute;
@@ -611,6 +628,14 @@ export function refreshComputeTarget(pfx) {
     e.preventDefault();
     _computeGpuDdOpen = true;
     applyComputeMode(pfx, { mode: "gpu" });          // empty DEVICE = every card
+  }));
+  box.querySelectorAll("[data-split]").forEach((btn) => btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    const el = $(pfx + "SPLIT_MODE");
+    if (el) el.value = btn.dataset.split;
+    refreshComputeTarget(pfx);
+    syncFavoriteMirrors(pfx);
+    renderCommandPreview(pfx);
   }));
   const dd = box.querySelector(".compute-gpu-dd");
   if (dd) dd.addEventListener("toggle", () => { _computeGpuDdOpen = dd.open; });

@@ -165,6 +165,20 @@
 .compute-gpu-chip-m { color: var(--muted, #8b93a1); font-size: 10px; }
 .compute-gpu-chip.on .compute-gpu-chip-m { color: #9fe1cb; }
 
+/* Split across cards — under the card chips, and only while two or more cards
+   are picked. A segmented control rather than a text field: the four values are
+   llama-server's own, and a fifth is not something to be typed into existence. */
+.compute-split { margin-top: 9px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, 0.07); }
+.compute-split-label { font-size: 12px; color: var(--muted, #8b93a1); margin-bottom: 5px; }
+.compute-split-seg { display: inline-flex; flex-wrap: wrap; gap: 0; border: 1px solid rgba(255, 255, 255, 0.16); border-radius: 8px; overflow: hidden; }
+.compute-split-btn { display: inline-flex; align-items: baseline; gap: 5px; font: inherit; font-size: 11px; padding: 5px 11px; border: 0; border-left: 1px solid rgba(255, 255, 255, 0.12); background: rgba(255, 255, 255, 0.03); color: #cdd3db; white-space: nowrap; cursor: pointer; }
+.compute-split-btn:first-child { border-left: 0; }
+.compute-split-btn:hover { background: rgba(255, 255, 255, 0.07); }
+.compute-split-btn.on { color: #e6edf3; background: color-mix(in srgb, #34d399 14%, transparent); box-shadow: inset 0 -2px 0 #34d399; }
+.compute-split-exp { font-size: 9px; text-transform: uppercase; letter-spacing: 0.04em; color: #e3b341; }
+.compute-split-hint { margin: 6px 0 0; font-size: 11px; line-height: 1.45; color: var(--muted, #8b93a1); }
+.compute-split-warn { margin: 6px 0 0; font-size: 11px; line-height: 1.45; color: #e3b341; }
+
 .compute-gpu-dd { position: relative; margin-top: 7px; }
 .compute-gpu-dd-sum { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; padding: 7px 11px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.16); background: rgba(255, 255, 255, 0.03); color: #cdd3db; cursor: pointer; list-style: none; }
 .compute-gpu-dd-sum::-webkit-details-marker { display: none; }

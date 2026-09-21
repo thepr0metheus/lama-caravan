@@ -109,6 +109,7 @@ jobs:
           python3 scripts/test_js_model_meta.py
           python3 scripts/test_js_usage_stats.py
           python3 scripts/test_js_memory.py
+          python3 scripts/test_js_split_mode.py
           python3 scripts/test_js_command_preview.py
           python3 scripts/test_js_form.py
           python3 scripts/test_js_topology_activity.py
