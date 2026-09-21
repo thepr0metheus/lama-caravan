@@ -35,6 +35,7 @@ import "./_js_globals.mjs";
 import { pathToFileURL } from "node:url";
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/memory.js").href);
 const g = (total, free, used) => ({ memoryTotalMiB: total, memoryFreeMiB: free, memoryUsedMiB: used });
+const gx = (index) => ({ index, memoryTotalMiB: 24576, memoryFreeMiB: 24576, memoryUsedMiB: 0 });
 const out = {
   size: Object.fromEntries([0, -1, NaN, "abc", 1.5, 12.34, 9.999, 10].map((v) => [String(v), m.formatSizeGb(v)])),
   cache: Object.fromEntries(["q8_0","Q8_0","q6_k","q5_1","q4_0","iq4_nl","f32","bf16","f16",null,"weird"].map((v) => [String(v), m.cacheBytesPerElement(v)])),
@@ -51,6 +52,48 @@ const out = {
     twoCards: m._vramFitFrom([g(12288, 12288, 0), g(12288, 12288, 0)], 20),
   },
   caps: Object.fromEntries(["vllm","whisper","moonshine","transcribe","seamless","translate","custom","llama-server","nonsense"].map((r) => [r, m.runnerDeviceCaps(r)])),
+  // What the GPU tile WRITES. The split mode is decided in split-mode.js and
+  // pinned there by value; what this pins is the wiring — that picking cards
+  // is what applies it, and that one card leaves the flag unsaid.
+  applied: await (async () => {
+    const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
+    st.setState({ gpu: { gpus: [gx(0), gx(1)] }, memory: { availableMiB: 65536 }, cpu: { physicalCores: 8, availableCores: 8 } });
+    st.setTopology(null);
+    const run = (sel, before) => {
+      globalThis.__fields = Object.fromEntries(
+        ["N_GPU_LAYERS", "DEVICE", "MAIN_GPU", "SPLIT_MODE", "TENSOR_SPLIT", "THREADS", "THREADS_BATCH"]
+          .map((k) => [k, { value: k === "SPLIT_MODE" ? before : "" }]));
+      m.applyComputeTarget("", sel);
+      return Object.fromEntries(["DEVICE", "MAIN_GPU", "SPLIT_MODE"].map((k) => [k, globalThis.__fields[k].value]));
+    };
+    return {
+      bothBlank: run({ mode: "gpu", gpuIdx: [0, 1] }, ""),
+      bothChosen: run({ mode: "gpu", gpuIdx: [0, 1] }, "layer"),
+      oneCard: run({ mode: "gpu", gpuIdx: [1] }, "row"),
+      cpu: run({ mode: "cpu" }, "row"),
+    };
+  })(),
+  // WHERE the control is offered. The tile renders into an element, so the
+  // element is faked and its innerHTML read back — the claim "only once two
+  // cards are actually picked" is otherwise nobody's to check.
+  tile: await (async () => {
+    const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
+    const shown = (gpus, device, ngl) => {
+      st.setState({ gpu: { gpus }, memory: { availableMiB: 65536 }, cpu: { physicalCores: 8, availableCores: 8 } });
+      const box = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
+      globalThis.__fields = { computeTarget: box, DEVICE: { value: device },
+                              N_GPU_LAYERS: { value: ngl }, SPLIT_MODE: { value: "row" } };
+      m.refreshComputeTarget("");
+      return box.innerHTML.includes("compute-split-seg");
+    };
+    const two = [gx(0), gx(1)];
+    return {
+      twoPicked: shown(two, "", "auto"),
+      twoHostOnePicked: shown(two, "CUDA0", "auto"),
+      oneCardHost: shown([gx(0)], "", "auto"),
+      cpuMode: shown(two, "", "0"),
+    };
+  })(),
 };
 console.log(JSON.stringify(out));
 """
@@ -106,6 +149,25 @@ check(all(caps[r] == {"cpu": True, "gpu": True, "auto": False} for r in ("transc
 check(caps["custom"] == {"cpu": True, "gpu": True, "auto": True}, "custom — единственный с auto")
 check(caps["llama-server"] == caps["nonsense"] == {"cpu": True, "gpu": True, "auto": False},
       "llama-server и неизвестный раннер — умолчание: оба, без auto")
+
+print("applyComputeTarget — что плитка пишет в поля:")
+ap = got["applied"]
+check(ap["bothBlank"] == {"DEVICE": "", "MAIN_GPU": "", "SPLIT_MODE": "row"},
+      f"обе карты и пустой режим: DEVICE пуст (= все карты), деление тензорное (получено {ap['bothBlank']})")
+check(ap["bothChosen"]["SPLIT_MODE"] == "layer",
+      "уже выбранный конвейер переживает повторный выбор карт — плитка не переписывает решение оператора")
+check(ap["oneCard"] == {"DEVICE": "CUDA1", "MAIN_GPU": "1", "SPLIT_MODE": ""},
+      f"одна карта: флаг деления снимается, делить нечего (получено {ap['oneCard']})")
+check(ap["cpu"]["SPLIT_MODE"] == "" and ap["cpu"]["DEVICE"] == "",
+      "CPU: деления между картами нет вовсе")
+
+print("где плитка показывает деление:")
+tl = got["tile"]
+check(tl["twoPicked"], "две карты выбраны — переключатель деления на виду, в плитке «где запускать»")
+check(tl["twoHostOnePicked"] is False,
+      "в машине две карты, выбрана одна — переключателя нет: делить нечего, а показанный он читался бы как настройка, которая не сработала")
+check(tl["oneCardHost"] is False, "одна карта в машине — переключателя нет")
+check(tl["cpuMode"] is False, "режим CPU — переключателя нет")
 
 print()
 if _fail:

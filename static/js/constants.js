@@ -94,6 +94,10 @@ export const fieldChoices = {
   SPEC_TYPE: ["none", "draft-simple", "draft-eagle3", "draft-mtp", "draft-dflash",
     "draft-dspark", "ngram-simple", "ngram-map-k", "ngram-map-k4v", "ngram-mod", "ngram-cache"],
   LOAD_MODE: ["none", "mmap", "mlock", "mmap+mlock", "dio"],
+  // The four ways a model is divided between cards. SplitMode (split-mode.js)
+  // reads this list — the values live here with every other field's value set,
+  // what they MEAN lives there.
+  SPLIT_MODE: ["none", "layer", "row", "tensor"],
   N_GPU_LAYERS: ["auto", "all", "0"],
   // The five levels --prio names, spelled the way llama-server prints them.
   PRIO: ["-1", "0", "1", "2", "3"],
