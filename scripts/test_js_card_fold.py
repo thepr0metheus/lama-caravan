@@ -165,6 +165,10 @@ out.peek = await (async () => {
   // alive); this one wait is ref'd back, or node would exit before the beat.
   await new Promise((res) => setTimeout(res, FoldPeek.ENTER_MS + 40)?.ref?.());
   r.enterAfterBeat = [...s3.classList.removed];
+  // closing takes both marks off at once, whatever beat it falls on
+  const s4 = { dataset: { foldKey: "k4" }, classList: { removed: [], add() {}, remove(...c) { this.removed.push(...c); }, contains: () => false },
+    ownerDocument: { querySelectorAll: () => [] } };
+  free.open(s4); free.close(s4); r.closeMarks = [...s4.classList.removed];
   return r;
 })();
 out.words = {
@@ -274,6 +278,7 @@ check(pk["freeOpen"] == [True, "k3"], "в покое карточка всплы
 check(pk["enterMarked"] == ["peek", "peek-enter"] and pk["enterBeforeBeat"] == [],
       "открытие жестом ставит peek и на один такт peek-enter — это он играет разворот")
 check(pk["enterAfterBeat"] == ["peek-enter"], "через ENTER_MS peek-enter снят сам — раскрытая карточка остаётся раскрытой, но не проигрывается заново")
+check(pk["closeMarks"] == ["peek", "peek-enter"], "закрытие снимает обе метки сразу — даже посреди разворота")
 check(got["delay"] == 300, "задержка перед всплытием — 300 мс: пересечь ленту — не мигать каждой карточкой")
 
 print("подписи переключателя:")
