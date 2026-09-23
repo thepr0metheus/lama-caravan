@@ -379,6 +379,7 @@ export default {
   taBindStored: "已绑定；代理尚未确认",
   taBindCleared: "回到自动",
   taBindFailed: "绑定失败",
+  taBindTakenNote: "已被其他代理占用：{count}",
   configSearchPlaceholder: "搜索设置 — 名称、参数或说明",
   configSearchEmpty: "未找到结果",
   grpEndpoint: "端点",

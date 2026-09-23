@@ -1077,3 +1077,6 @@
 .agent-bind-row .bind-port { font-size: 11px; font-weight: 700; }
 .agent-bind-row .bind-label { font-size: 10px; color: var(--muted); }
 .agent-bind-row.make { color: var(--accent); font-size: 11px; font-weight: 600; }
+/* The ports another agent holds are counted, not offered: each would end in a
+   refusal (one port, one owner). The line says how many; its title says whose. */
+.agent-bind-taken { padding: 6px 8px 3px; font-size: 10.5px; color: var(--muted); cursor: help; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); margin-top: 3px; }

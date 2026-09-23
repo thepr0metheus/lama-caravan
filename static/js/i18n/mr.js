@@ -379,6 +379,7 @@ export default {
   taBindStored: "जोडले; एजंटने अद्याप पुष्टी केली नाही",
   taBindCleared: "पुन्हा स्वयंचलित",
   taBindFailed: "जोडणी अयशस्वी",
+  taBindTakenNote: "इतर एजंटांकडे: {count}",
   configSearchPlaceholder: "सेटिंग्ज शोधा — नाव, फ्लॅग किंवा वर्णन",
   configSearchEmpty: "काहीही सापडले नाही",
   grpEndpoint: "एंडपॉइंट",

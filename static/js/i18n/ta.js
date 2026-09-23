@@ -379,6 +379,7 @@ export default {
   taBindStored: "இணைக்கப்பட்டது; ஏஜென்ட் இன்னும் உறுதி செய்யவில்லை",
   taBindCleared: "மீண்டும் தானியக்கம்",
   taBindFailed: "இணைக்க முடியவில்லை",
+  taBindTakenNote: "பிற முகவர்கள் வைத்துள்ளவை: {count}",
   configSearchPlaceholder: "அமைப்புகளைத் தேடு — பெயர், கொடி அல்லது விளக்கம்",
   configSearchEmpty: "எதுவும் கிடைக்கவில்லை",
   grpEndpoint: "எண்ட்பாயிண்ட்",

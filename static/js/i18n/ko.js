@@ -379,6 +379,7 @@ export default {
   taBindStored: "고정했습니다. 에이전트는 아직 미확인",
   taBindCleared: "자동으로 되돌리기",
   taBindFailed: "고정 실패",
+  taBindTakenNote: "다른 에이전트가 사용 중: {count}",
   configSearchPlaceholder: "설정 검색 — 이름, 플래그 또는 설명",
   configSearchEmpty: "찾을 수 없음",
   grpEndpoint: "엔드포인트",

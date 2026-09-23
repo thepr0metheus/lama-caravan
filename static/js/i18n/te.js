@@ -379,6 +379,7 @@ export default {
   taBindStored: "కట్టాం; ఏజెంట్ ఇంకా ధృవీకరించలేదు",
   taBindCleared: "తిరిగి ఆటోమేటిక్‌కు",
   taBindFailed: "కట్టడం విఫలమైంది",
+  taBindTakenNote: "ఇతర ఏజెంట్ల వద్ద: {count}",
   configSearchPlaceholder: "సెట్టింగ్‌లను వెతకండి — పేరు, ఫ్లాగ్ లేదా వివరణ",
   configSearchEmpty: "ఏమీ దొరకలేదు",
   grpEndpoint: "ఎండ్‌పాయింట్",

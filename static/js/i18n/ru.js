@@ -153,6 +153,7 @@ export default {
   taBindStored: "Привязано; агент пока не подтвердил",
   taBindCleared: "Обратно на автоматику",
   taBindFailed: "Не удалось привязать",
+  taBindTakenNote: "Заняты другими агентами: {count}",
   configSearchPlaceholder: "Поиск настроек — имя, флаг или описание",
   configSearchEmpty: "Ничего не найдено",
   grpEndpoint: "Эндпоинт",

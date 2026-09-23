@@ -379,6 +379,7 @@ export default {
   taBindStored: "固定しました。エージェントは未確認です",
   taBindCleared: "自動に戻す",
   taBindFailed: "固定に失敗しました",
+  taBindTakenNote: "他のエージェントが使用中：{count}",
   configSearchPlaceholder: "設定を検索 — 名前・フラグ・説明",
   configSearchEmpty: "見つかりません",
   grpEndpoint: "エンドポイント",

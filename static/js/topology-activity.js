@@ -1793,6 +1793,49 @@ export function neighbourPortForFallback(hostId, agentId) {
   return taken ? 0 : candidate;
 }
 
+// Which ports an agent may be bound to. The server refuses a port another
+// agent holds — one port, one owner (bind_agent_to_proxy) — so the picker
+// offers only what a click can get: ports nobody holds and the agent's own
+// (moving a port between its own roles is allowed). The rest are counted, not
+// listed: a menu of rows that each end in a refusal is worse than no menu —
+// on 2026-09-23 all fifteen ports were held and every row was a 409.
+// `holders` comes from the server (topology_state), read by the same function
+// the refusal is decided by; a proxy without the field — an older controller —
+// is offered as before rather than hidden on a guess.
+export function bindablePorts(proxies, hostId, agentId) {
+  const open = [];
+  const taken = [];
+  for (const p of proxies || []) {
+    if (!(Number(p.port) > 0)) continue;
+    const others = (p.holders || []).filter((h) => !(h.hostId === hostId && h.agentId === agentId));
+    (others.length ? taken : open).push(others.length ? { ...p, others } : p);
+  }
+  const byPort = (a, b) => Number(a.port) - Number(b.port);
+  return { open: open.sort(byPort), taken: taken.sort(byPort) };
+}
+
+// The picker's markup, as a value: what it offers is decided here and can be
+// read without a page.
+export function bindMenuHtml({ hostId, agentId, role, current = "", neighbour = 0, proxies }) {
+  const { open, taken } = bindablePorts(proxies, hostId, agentId);
+  const takenTip = taken.map((p) => `${p.port} — ${p.others.map((h) => `${h.agentId} · ${h.role}`).join(", ")}`).join("\n");
+  return `
+    <div class="agent-bind-head">${escapeHtml(t("taBindHead"))} <b>${escapeHtml(agentId)}</b> · ${escapeHtml(role)}</div>
+    <button type="button" class="agent-bind-row auto" data-bind-choice="">${escapeHtml(t("taBindAutomatic"))}</button>
+    ${current ? `<button type="button" class="agent-bind-row remove" data-bind-remove="1">${escapeHtml(t("taBindRemoveRoute"))}</button>` : ""}
+    <button type="button" class="agent-bind-row make" data-bind-new="1">${escapeHtml(t("taBindNewPort"))}</button>
+    ${neighbour ? `<button type="button" class="agent-bind-row make neighbour" data-bind-new="1"
+      data-bind-neighbour="${escapeHtml(String(neighbour))}">${escapeHtml(t("taBindNeighbourPort", { port: String(neighbour) }))}</button>` : ""}
+    ${open.map((p) => `
+      <button type="button" class="agent-bind-row${String(p.port) === String(current) ? " current" : ""}"
+              data-bind-choice="${escapeHtml(String(p.port))}">
+        <span class="bind-port">${escapeHtml(String(p.port))}</span>
+        <span class="bind-label">${escapeHtml(p.label || "")}</span>
+      </button>`).join("")}
+    ${taken.length ? `<div class="agent-bind-taken" data-t="agent-bind-taken" title="${escapeHtml(takenTip)}">${escapeHtml(t("taBindTakenNote", { count: String(taken.length) }))}</div>` : ""}
+  `;
+}
+
 function openBindMenu(chip) {
   closeBindMenu();
   const hostId = chip.dataset.bindHost;
@@ -1803,27 +1846,11 @@ function openBindMenu(chip) {
   // would silently overwrite the working route.
   const role = String(chip.dataset.bindRole || "primary");
   const neighbour = role === "fallback" ? neighbourPortForFallback(hostId, agentId) : 0;
-  const routes = (topology?.proxies || [])
-    .filter((p) => Number(p.port) > 0)
-    .sort((a, b) => Number(a.port) - Number(b.port));
 
   const menu = document.createElement("div");
   menu.className = "agent-bind-menu";
   menu.setAttribute("data-t", "agent-bind-menu");
-  menu.innerHTML = `
-    <div class="agent-bind-head">${escapeHtml(t("taBindHead"))} <b>${escapeHtml(agentId)}</b> · ${escapeHtml(role)}</div>
-    <button type="button" class="agent-bind-row auto" data-bind-choice="">${escapeHtml(t("taBindAutomatic"))}</button>
-    ${current ? `<button type="button" class="agent-bind-row remove" data-bind-remove="1">${escapeHtml(t("taBindRemoveRoute"))}</button>` : ""}
-    <button type="button" class="agent-bind-row make" data-bind-new="1">${escapeHtml(t("taBindNewPort"))}</button>
-    ${neighbour ? `<button type="button" class="agent-bind-row make neighbour" data-bind-new="1"
-      data-bind-neighbour="${escapeHtml(String(neighbour))}">${escapeHtml(t("taBindNeighbourPort", { port: String(neighbour) }))}</button>` : ""}
-    ${routes.map((p) => `
-      <button type="button" class="agent-bind-row${String(p.port) === current ? " current" : ""}"
-              data-bind-choice="${escapeHtml(String(p.port))}">
-        <span class="bind-port">${escapeHtml(String(p.port))}</span>
-        <span class="bind-label">${escapeHtml(p.label || "")}</span>
-      </button>`).join("")}
-  `;
+  menu.innerHTML = bindMenuHtml({ hostId, agentId, role, current, neighbour, proxies: topology?.proxies || [] });
   document.body.appendChild(menu);
   const box = chip.getBoundingClientRect();
   menu.style.left = `${Math.min(box.left, window.innerWidth - menu.offsetWidth - 12)}px`;

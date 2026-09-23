@@ -379,6 +379,7 @@ export default {
   taBindStored: "Đã gắn; agent chưa xác nhận",
   taBindCleared: "Trở lại tự động",
   taBindFailed: "Gắn thất bại",
+  taBindTakenNote: "Tác tử khác đang giữ: {count}",
   configSearchPlaceholder: "Tìm cài đặt — tên, cờ hoặc mô tả",
   configSearchEmpty: "Không tìm thấy",
   grpEndpoint: "Endpoint",

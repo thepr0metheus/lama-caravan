@@ -379,6 +379,7 @@ export default {
   taBindStored: "Terikat; agen belum mengonfirmasi",
   taBindCleared: "Kembali ke otomatis",
   taBindFailed: "Gagal mengikat",
+  taBindTakenNote: "Dipakai agen lain: {count}",
   configSearchPlaceholder: "Cari pengaturan — nama, flag, atau deskripsi",
   configSearchEmpty: "Tidak ada hasil",
   grpEndpoint: "Endpoint",

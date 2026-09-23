@@ -379,6 +379,7 @@ export default {
   taBindStored: "বাঁধা হয়েছে; এজেন্ট এখনও নিশ্চিত করেনি",
   taBindCleared: "আবার স্বয়ংক্রিয়",
   taBindFailed: "বাঁধা যায়নি",
+  taBindTakenNote: "অন্য এজেন্টদের দখলে: {count}",
   configSearchPlaceholder: "সেটিংস খুঁজুন — নাম, ফ্ল্যাগ বা বিবরণ",
   configSearchEmpty: "কিছু পাওয়া যায়নি",
   grpEndpoint: "এন্ডপয়েন্ট",

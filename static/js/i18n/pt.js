@@ -379,6 +379,7 @@ export default {
   taBindStored: "Vinculado; o agente ainda não confirmou",
   taBindCleared: "Voltar ao automático",
   taBindFailed: "Falha ao vincular",
+  taBindTakenNote: "Ocupadas por outros agentes: {count}",
   configSearchPlaceholder: "Buscar configurações — nome, flag ou descrição",
   configSearchEmpty: "Nada encontrado",
   grpEndpoint: "Endpoint",

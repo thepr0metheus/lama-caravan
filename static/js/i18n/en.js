@@ -159,6 +159,7 @@ export default {
   taBindStored: "Bound; the agent has not confirmed yet",
   taBindCleared: "Back to automatic",
   taBindFailed: "Bind failed",
+  taBindTakenNote: "Held by other agents: {count}",
   configSearchPlaceholder: "Search settings — name, flag or description",
   configSearchEmpty: "Nothing found",
   grpEndpoint: "Endpoint",
