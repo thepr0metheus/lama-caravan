@@ -129,17 +129,12 @@ export class FoldPeek {
    *  enough that crossing the lane does not flash every card on the way, short
    *  enough that looking at one does not feel like waiting. */
   static DELAY_MS = 300;
-  /** How long the opening gesture is marked (peek-enter): a little longer than
-   *  the unfold transition it plays (fold.css), and never part of the rendered
-   *  markup — a repaint must draw an open card open, not replay its arrival. */
-  static ENTER_MS = 260;
 
   constructor(fold, { busy = () => false, changed = () => {} } = {}) {
     this.fold = fold;
     this.busy = busy;
     this.changed = changed;
     this.timer = 0;
-    this.enterTimer = 0;
     this.bound = false;
   }
 
@@ -149,21 +144,16 @@ export class FoldPeek {
     clearTimeout(this.timer);
     if (!slot || this.busy()) return;
     for (const other of slot.ownerDocument.querySelectorAll(".fold-slot.peek")) {
-      if (other !== slot) other.classList.remove("peek", "peek-enter");
+      if (other !== slot) other.classList.remove("peek");
     }
-    slot.classList.add("peek", "peek-enter");
-    // One beat per opening: a quick close-and-reopen must not have the first
-    // opening's timer take the mark off halfway through the second unfold.
-    clearTimeout(this.enterTimer);
-    this.enterTimer = setTimeout(() => slot.classList.remove("peek-enter"), FoldPeek.ENTER_MS);
+    slot.classList.add("peek");
     this.fold.peekKey = slot.dataset.foldKey || "";
   }
 
   close(slot, doc = globalThis.document) {
     clearTimeout(this.timer);
-    clearTimeout(this.enterTimer);
     const open = slot ? [slot] : [...(doc?.querySelectorAll(".fold-slot.peek") || [])];
-    for (const s of open) s.classList.remove("peek", "peek-enter");
+    for (const s of open) s.classList.remove("peek");
     this.fold.peekKey = "";
   }
 

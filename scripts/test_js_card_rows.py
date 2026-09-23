@@ -182,8 +182,6 @@ check('<div class="fold-row cell-row parked">line</div><article class="node-serv
 check('data-t="fold-pin"' in s["line"] and "📌" in s["line"] and f'title="{s["pinWords"][0]}"' in s["line"],
       "у свёрнутой — 📌 «оставить открытой» (foldPinTitle)")
 check(' peek"' in s["peek"] and ' peek"' not in s["line"], "всплывшая — класс peek, только если попросили")
-check("peek-enter" not in s["peek"],
-      "разметка всплывшей никогда не несёт peek-enter: перерисовка рисует открытое открытым, разворот не повторяется")
 check(s["pinned"].startswith('<div class="fold-slot cells-fold" data-fold-key="controller:22002" data-fold-mode="pinned">'),
       "закреплённая — режим pinned, и peek ей не ставится даже по просьбе")
 check("line</div>" not in s["pinned"] and "card</article>" in s["pinned"],
