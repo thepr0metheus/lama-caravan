@@ -206,20 +206,21 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 348 values. Regenerate with
+Generated from the source, not from memory — 355 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Fifty of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
 that is why there is a script and not a one-liner.
 
-**agent** — `agent-bind-menu`, `agent-proxy-bind`, `agent-rename`
+**agent** — `agent-bind-menu`, `agent-no-route`, `agent-proxy-bind`, `agent-rename`, `agent-row`
 **app** — `app-toast`
-**board** — `board-agent-card`, `board-cell-add`, `board-client-caption`, `board-client-card`, `board-clients-lane`, `board-cloud-lane`, `board-gpus-lane`, `board-hf-open`, `board-incidents-list`, `board-llama-suspect-banner`, `board-models-bar`, `board-models-open`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-system-open`
-**cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-edit-apply`, `cell-edit-cancel`, `cell-edit-command-preview`, `cell-edit-command`, `cell-edit-compute`, `cell-edit-env`, `cell-edit-fields`, `cell-edit-health-path`, `cell-edit-max-model-len`, `cell-edit-mmproj`, `cell-edit-modal`, `cell-edit-model-picker`, `cell-edit-model`, `cell-edit-moonshine-model-picker`, `cell-edit-moonshine-model`, `cell-edit-offload-slider`, `cell-edit-offload`, `cell-edit-runner-tab`, `cell-edit-runner`, `cell-edit-seamless-lang`, `cell-edit-split`, `cell-edit-translate-model`, `cell-edit-translate-src`, `cell-edit-translate-tgt`, `cell-edit-vllm-model-picker`, `cell-edit-vllm-model`, `cell-edit-whisper-model-picker`, `cell-edit-whisper-model`, `cell-edit-workdir`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-load-file`, `cell-load`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-stale`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-source-stale`, `cell-start`, `cell-stop`
+**board** — `board-agent-card`, `board-cell-add`, `board-client-caption`, `board-client-card`, `board-clients-lane`, `board-cloud-lane`, `board-density`, `board-gpus-lane`, `board-hf-open`, `board-incidents-list`, `board-llama-suspect-banner`, `board-models-bar`, `board-models-open`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-system-open`
+**cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-edit-apply`, `cell-edit-cancel`, `cell-edit-command-preview`, `cell-edit-command`, `cell-edit-compute`, `cell-edit-env`, `cell-edit-fields`, `cell-edit-health-path`, `cell-edit-max-model-len`, `cell-edit-mmproj`, `cell-edit-modal`, `cell-edit-model-picker`, `cell-edit-model`, `cell-edit-moonshine-model-picker`, `cell-edit-moonshine-model`, `cell-edit-offload-slider`, `cell-edit-offload`, `cell-edit-runner-tab`, `cell-edit-runner`, `cell-edit-seamless-lang`, `cell-edit-split`, `cell-edit-translate-model`, `cell-edit-translate-src`, `cell-edit-translate-tgt`, `cell-edit-vllm-model-picker`, `cell-edit-vllm-model`, `cell-edit-whisper-model-picker`, `cell-edit-whisper-model`, `cell-edit-workdir`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-load-file`, `cell-load`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-stale`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-row`, `cell-row-start`, `cell-source-stale`, `cell-start`, `cell-stop`
 
 **client** — `client-add`, `client-agent-add`, `client-delete`
 
 **clients** — `clients-adopt`
+**fold** — `fold-pin`, `fold-unpin`
 
 **cloud** — `cloud-context-reported`
 
@@ -314,6 +315,18 @@ still the stable address.
 **`/system` regions live on tabs.** Only the active tab's panel is in the
 accessibility tree — `getByRole('region', { name: 'Security' })` is 0 until
 that tab is selected, and 1 after. That is correct behaviour, not a defect.
+
+**Board cards may be folded — but not for automation.** The board folds quiet
+cells and agents into one line each (`cell-row`, `agent-row`); the full card
+stays in the DOM behind the line and floats open on hover, so its hooks
+(`cell-start`, `cell-configure`, `route-model`…) exist but are not visible.
+A browser driven by automation (`navigator.webdriver`) sees every card in full
+by default, so a suite written against full cards keeps working unchanged. To
+test the folded view, click `board-density` (`data-t-id` = `cells` or
+`clients`) — the choice sticks in that browser's `localStorage`. A folded card
+is pinned open with `fold-pin` and folded back with `fold-unpin`; a line's own
+▶ is `cell-row-start`. A card in trouble (error, crash, start in progress, an
+agent with no route — that one also carries `agent-no-route`) never folds.
 
 ## Repeated elements carry their own name
 

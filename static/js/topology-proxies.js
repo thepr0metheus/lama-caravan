@@ -6,7 +6,15 @@ import { option } from "./form.js";
 import { t } from "./i18n.js";
 import { action } from "./polling.js";
 import { state, topology, ui } from "./state.js";
+import { CARD_FOLD, CardFold } from "./card-fold.js";
+import { AgentRow, FoldSlot } from "./card-rows.js";
 import {
+  routeAddress,
+  routeErrBadgeHtml,
+  routeHandleHtml,
+  routeIncident,
+  routeStateFace,
+  routeWaitSec,
   sortedTopologyAgents,
   topologyAgentGroup,
   topologyAgentMeta,
@@ -56,7 +64,10 @@ export function _cvProxyIsStale(p) {
   return agent ? agent.runtimeDetected !== true : false;
 }
 
-export function topologyAgentCard(client, agent, routeMap, ownsClient = false) {
+// `fold` asks for the lane's folding (card-fold.js): a quiet agent becomes its
+// header and one line per route, and the full card floats open on hover.
+// Without it the card is drawn exactly as it always was.
+export function topologyAgentCard(client, agent, routeMap, ownsClient = false, { fold = false } = {}) {
   const routes = routeMap.get(agent.id) || new Map();
   const primary = routes.get("primary");
   const fallback = routes.get("fallback");
@@ -104,7 +115,21 @@ export function topologyAgentCard(client, agent, routeMap, ownsClient = false) {
     }
   }
 
-  return `
+  const foldKey = `agent:${client.id}:${agent.id}`;
+  const foldMode = fold
+    ? CARD_FOLD.mode("clients", foldKey, CardFold.agentQuiet({
+        routes: (primary ? 1 : 0) + (fallback ? 1 : 0),
+        stale: agentIsStale,
+        incident: !!(routeIncident(primary) || routeIncident(fallback)),
+      }))
+    : "full";
+  const kind = [agent.kind || "manual", topologyAgentMeta(agent)].filter(Boolean).join(" · ");
+  // An agent that goes nowhere says so. Its card used to be two quiet empty
+  // frames — "primary +", "fallback +" — and read as an agent at rest.
+  const noRoute = !primary && !fallback
+    ? `<div class="agent-noroute" data-t="agent-no-route">⚠ ${escapeHtml(t("agentNoRoute"))}</div>`
+    : "";
+  const card = (anchor) => `
     <div class="topology-agent ${escapeHtml(topologyAgentGroup(agent))}${agentIsStale ? " agent-stale" : ""}${deleteBtn ? " has-remove" : ""}" data-topology-agent="1" data-host-id="${escapeHtml(client.id)}" data-agent-id="${escapeHtml(agent.id)}">
       ${deleteBtn}
       <div class="topology-agent-summary${isOpenclaw ? " clickable" : ""}"${summaryAttrs}>
@@ -135,18 +160,41 @@ export function topologyAgentCard(client, agent, routeMap, ownsClient = false) {
                the right: on its own line it took up a whole row for two
                words and stretched the header out vertically. -->
           ${agentCallerHtml([primary, fallback])}
-          <span class="agent-kind">${escapeHtml([agent.kind || "manual", topologyAgentMeta(agent)].filter(Boolean).join(" · "))}</span>
+          <span class="agent-kind">${escapeHtml(kind)}</span>
           </div>
           ${agent.endpoint || agent.url ? `<code>${escapeHtml(agent.endpoint || agent.url)}</code>` : ""}
         </div>
         ${configBtns}
       </div>
-      <div class="topology-agent-routes">
-        ${topologyAgentRouteRow(client, agent, "primary", primary, usageOf("primary", primary))}
-        ${topologyAgentRouteRow(client, agent, "fallback", fallback, usageOf("fallback", fallback))}
+      ${noRoute}<div class="topology-agent-routes">
+        ${topologyAgentRouteRow(client, agent, "primary", primary, usageOf("primary", primary), { anchor })}
+        ${topologyAgentRouteRow(client, agent, "fallback", fallback, usageOf("fallback", fallback), { anchor })}
       </div>
     </div>
   `;
+  if (foldMode === "full") return card(true);
+  if (foldMode === "pinned") return new FoldSlot({ key: foldKey, lane: "clients", mode: "pinned", card: card(true) }).html();
+  // The fold's facts come from the same fields the card's chips read; the
+  // handles move to the line, so exactly one element per route carries them.
+  const lineRoute = (role, route) => {
+    if (!route) return null;
+    const proxy = (topology?.proxies || []).find((p) => p.id === route.proxyId);
+    const port = proxy?.port || String(route.proxyId || "").split(":").pop() || "";
+    const usage = usageOf(role, route);
+    const model = String(route.modelName || "").trim();
+    return {
+      role, port, address: routeAddress(route, port), face: routeStateFace(usage), muted: usage === "unused",
+      model, locked: !!model && !route.modelNameAuto, waitSec: routeWaitSec(route).sec,
+      limit: Number(route.contextLength || 0) > 0 ? Number(route.contextLength) : 0,
+      errBadge: routeErrBadgeHtml(port), anchor: routeHandleHtml(client, agent, role, route, usage),
+    };
+  };
+  const line = new AgentRow({
+    key: foldKey, name: agent.name || agent.id, kind,
+    routes: [lineRoute("primary", primary), lineRoute("fallback", fallback)],
+  }).html();
+  return new FoldSlot({ key: foldKey, lane: "clients", mode: "line", line, card: card(false),
+                        peek: CARD_FOLD.peekKey === foldKey }).html();
 }
 
 // Lane cards for a SINGLE client: itself first, then EVERY one of its agents
@@ -167,7 +215,7 @@ export function clientLaneAgentCards(client, assignments) {
   const owns = clientCardIsRedundant(client, agents.length) && agents.length === 1;
   return agents.map((agent) => {
     const routes = [...(routeMap.get(agent.id) || new Map()).values()];
-    return { agentId: agent.id, name: agent.name || agent.id || "", html: topologyAgentCard(client, agent, routeMap, owns),
+    return { agentId: agent.id, name: agent.name || agent.id || "", html: topologyAgentCard(client, agent, routeMap, owns, { fold: true }),
              idle: agentIsIdle(routes) };
   });
 }
@@ -292,7 +340,7 @@ export function topologyGroupedAgents(client, assignments) {
       <section class="topology-agent-group flat">
         <div class="topology-agent-list">
           ${agents.length
-            ? agents.map((agent) => topologyAgentCard(client, agent, routeMap)).join("")
+            ? agents.map((agent) => topologyAgentCard(client, agent, routeMap, false, { fold: true })).join("")
             : `<div class="topology-empty-group">-</div>`}
         </div>
       </section>
@@ -311,7 +359,7 @@ export function topologyGroupedAgents(client, assignments) {
         <h3>${escapeHtml(topologyGroupLabel(group))}</h3>
         <div class="topology-agent-list">
           ${agents.length
-            ? agents.map((agent) => topologyAgentCard(client, agent, routeMap)).join("")
+            ? agents.map((agent) => topologyAgentCard(client, agent, routeMap, false, { fold: true })).join("")
             : `<div class="topology-empty-group">-</div>`}
         </div>
       </section>

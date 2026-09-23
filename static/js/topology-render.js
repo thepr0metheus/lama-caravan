@@ -1,4 +1,5 @@
 // Render orchestration: renderAll/renderTopology, structure fingerprint, live sync.
+import { CARD_FOLD } from "./card-fold.js";
 import { drawTopologyCables, topologyAccentStyle } from "./cables.js";
 import { _cvDrag, bindCanvasInteractions, drawCanvasConnectors } from "./canvas.js";
 import { drawTopologyGpuHistory } from "./charts.js";
@@ -227,6 +228,9 @@ export function clientDiscoveryBannerHtml(client, candidates) {
 
 export function renderTopology() {
   if (!topology) return;
+  // The lane switches live in the page's static header, outside the lanes this
+  // repaints; their words still follow the language and the current setting.
+  CARD_FOLD.syncSwitches();
   // Park live stat/chart elements back home before any innerHTML rebuild so we
   // never destroy them (they're re-mounted into the controller node below).
   parkLaneStats();
@@ -900,6 +904,15 @@ export function syncTopologyLive() {
       const card = nodeEl.querySelector(`.node-server[data-llama-port="${CSS.escape(String(s.port))}"]`);
       if (!card) return;
       const running = topologyServerPhase(s) === "running";
+      // A folded cell's line carries the one live number it shows — generation
+      // speed — and breathes while it generates; the card behind it is patched
+      // below as always, for the moment it floats open.
+      const line = nodeEl.querySelector(`.cell-row[data-llama-port="${CSS.escape(String(s.port))}"]`);
+      if (line) {
+        const gen = running ? Number(s.genTps || 0) : 0;
+        _liveSet(line, "[data-live-rowtps]", gen > 0 ? `${formatTps(gen)} t/s` : "");
+        line.classList.toggle("busy", gen > 0);
+      }
       if (running) {
         const tpsEl = card.querySelector("[data-live-tps]");
         if (tpsEl) {

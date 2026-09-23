@@ -1,5 +1,7 @@
 // Host-centric nodes view: server cards, telemetry mounts, incidents, models bar.
 import { drawTopologyCables } from "./cables.js";
+import { CARD_FOLD, CardFold } from "./card-fold.js";
+import { CellRow, FoldSlot } from "./card-rows.js";
 import { CellLoad } from "./cell-load.js";
 import { CONTROLLER_HOST_ID } from "./constants.js";
 import { nodeTelemetryRowsHtml, renderTopologyIncidents } from "./charts.js";
@@ -294,7 +296,10 @@ function launchFilesSuffix(roles) {
   return ` · ${escapeHtml(launchRoleNames(others))}`;
 }
 
-export function nodeServerCardHtml(node, s) {
+// `fold` asks for the lane's folding: a quiet cell becomes a line whose full
+// card floats open on hover (card-fold.js). Without it — the tests, the
+// detail views — the card is drawn exactly as it always was.
+export function nodeServerCardHtml(node, s, { fold = false } = {}) {
   const isStopping = !s.isController && _stoppingHosts.has(node.id);
   const port = s.port;
   const slotHostId = s.isController ? CONTROLLER_HOST_ID : node.id;
@@ -744,8 +749,11 @@ export function nodeServerCardHtml(node, s) {
     // render knows the runner, so hand it to the click handler.
     const cellRunner = isCmdCell ? "custom"
       : (String(_scfg.RUNNER || "").toLowerCase() || "llama-server");
+    // What a start needs to know, once: the card's ▶ and the folded line's ▶
+    // are the same start, and two copies of these attributes would drift.
+    const launchAttrs = `data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-runner="${escapeHtml(cellRunner)}"${libRoles.length ? ` data-node-cell-library="${escapeHtml(libName)}" data-node-cell-library-files="${escapeHtml(launchRoleNames(libRoles))}"` : ""}`;
     const playBtn = `<button class="node-action-btn ${canPlay ? "ok" : "muted"}" type="button"
-        ${canPlay ? `data-t="cell-start" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-runner="${escapeHtml(cellRunner)}"${libRoles.length ? ` data-node-cell-library="${escapeHtml(libName)}" data-node-cell-library-files="${escapeHtml(launchRoleNames(libRoles))}"` : ""}` : "disabled"}
+        ${canPlay ? `data-t="cell-start" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" ${launchAttrs}` : "disabled"}
         title="${escapeHtml(canPlay ? t("nodeStartServer") : (isReserved ? t("nodeConfigureFirst") : t("nodeNotStopped")))}">▶<span class="nab-lbl">${escapeHtml(t("start"))}</span></button>`;
 
     // ⏹ stop — active when starting or running; spinner while stopping
@@ -765,13 +773,18 @@ export function nodeServerCardHtml(node, s) {
         ${canBoot ? `data-node-cell-boot="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-boot-action="${s.bootEnabled ? "disable" : "enable"}"` : "disabled"}
         title="${escapeHtml(bootSupported ? (s.bootEnabled ? t("tnBootDisable") : t("tnBootEnable")) : t("tnBootUnsupported"))}">${bootSupported && s.bootEnabled ? "↟" : "↥"}<span class="nab-lbl">${escapeHtml(t("topologyAutostart"))}</span></button>`;
 
-    return `
+    // The cable's handle. Exactly one element may carry it: cables and drops
+    // find it by querySelector and read its position, and a copy inside a
+    // hidden card would hand them a rectangle of zeros — a cable drawn to the
+    // board's corner. While the card is folded, the line owns it.
+    const anchorHtml = `<span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
+              data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>`;
+    const cardHtml = (anchor) => `
       <article class="node-server ${cardCls}"
                data-t="cell-card" data-t-id="${escapeHtml(slotKey)}" aria-label="${escapeHtml(t("a11yCell"))} ${escapeHtml(slotKey)}" data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}"
                ${_vramClaim ? `data-cell-node="${escapeHtml(String(node.id))}" data-cell-vram="${escapeHtml(_vramClaim)}"` : ""}>
         ${running ? '<span class="cell-beam" aria-hidden="true"></span>' : ""}
-        <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
-              data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>
+        ${anchor}
         <div class="node-ctrl-row">
           ${playBtn}${stopBtn}${bootBtn}${delBtn}
         </div>
@@ -806,6 +819,34 @@ export function nodeServerCardHtml(node, s) {
           </div>`;
         })() : ""}
       </article>`;
+    const foldMode = fold
+      ? CARD_FOLD.mode("cells", slotKey, CardFold.cellQuiet({
+          phase,
+          transient: isDeleting || isStopping || isCellStopping || !!pendingCellAction || !!statusRow,
+          crashed: !!crash,
+          unreachable: running && s.reachable === false,
+        }))
+      : "full";
+    if (foldMode === "full") return cardHtml(anchorHtml);
+    if (foldMode === "pinned") {
+      return new FoldSlot({ key: slotKey, lane: "cells", mode: "pinned", card: cardHtml(anchorHtml) }).html();
+    }
+    // The same name the card's body shows, by the same precedence as its blocks.
+    const rowName = s.model ? (parsed.label || s.model)
+      : isVllmCell ? vllmName
+        : isWhisperCell ? whisperSize
+          : isMoonshineCell ? moonshineLang
+            : isCmdCell ? (cmdText || t("commandCellFallback")) : "";
+    const line = new CellRow({
+      key: slotKey, port, name: rowName, title: s.model ? (s.modelPath || s.model) : rowName,
+      state: running ? "running" : (isReserved ? "reserved" : "parked"),
+      cpu: isCpuCell, chip: memBadge || deviceChip, launch: canPlay ? launchAttrs : "",
+      warn: !!(staleSrcChip || staleModelChip || diskNewerChip),
+      tps: running && Number(s.genTps || 0) > 0 ? `${formatTps(s.genTps)} t/s` : "",
+      busy: running && Number(s.genTps || 0) > 0, anchor: anchorHtml,
+    }).html();
+    return new FoldSlot({ key: slotKey, lane: "cells", mode: "line", line, card: cardHtml(""),
+                          peek: CARD_FOLD.peekKey === slotKey }).html();
   } else if (s.isController) {
     // Controller's legacy single "current" llama server (not a reserved slot).
     const editBtn = `<button class="node-icon-btn" type="button" data-node-ctrl-edit title="${escapeHtml(t("nodeEditConfig"))}">✎</button>`;
@@ -1244,7 +1285,7 @@ export function nodesLaneHtml() {
     } else {
       const startingCard = nodeStartingCardHtml(n);
       const serversHtml = servers.length
-        ? servers.map((s) => nodeServerCardHtml(n, s)).join("")
+        ? servers.map((s) => nodeServerCardHtml(n, s, { fold: true })).join("")
         : "";
       // Cells that run on this host WITHOUT touching a GPU (n-gpu-layers 0,
       // command cells): they never appear in a GPU row's ▶ ports, so give

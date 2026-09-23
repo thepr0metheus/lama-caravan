@@ -1430,7 +1430,7 @@ function routeErrTitle(st) {
   return `${st.errors} failed request${st.errors === 1 ? "" : "s"} in the last hour${kinds ? `: ${kinds}` : ""}`;
 }
 
-function routeErrBadgeHtml(port) {
+export function routeErrBadgeHtml(port) {
   const st = port && ui.routeErrHour ? ui.routeErrHour[String(port)] : null;
   if (!st || (st.errors || 0) < ROUTE_ERR_BADGE_MIN) return "";
   return `<span class="route-err-badge" title="${escapeHtml(routeErrTitle(st))}">⚠ ${st.errors}</span>`;
@@ -1670,18 +1670,53 @@ export function routeContextLineHtml(client, agent, role, route) {
 // A confirmed state is shown TOO. As long as the label existed only for the
 // doubtful case, "nothing written" meant two different things at once —
 // "checked" and "hasn't been looked at yet"; now each one has its own face.
-export function routeStateBadgeHtml(route, usage) {
-  if (!route) return "";
-  if (usage === "unused") {
-    return `<span class="route-muted-tag" data-t="route-state" title="${escapeHtml(t("taTitleMutedRoute"))}">⏸</span>`;
-  }
-  if (usage === "unverified") {
-    return `<span class="route-unverified-tag" data-t="route-state" title="${escapeHtml(t("taTitleUnverifiedRoute"))}">?</span>`;
-  }
-  return `<span class="route-confirmed-tag" data-t="route-state" title="${escapeHtml(t("taTitleConfirmedRoute"))}">✓</span>`;
+// One face per route state: the card's badge and a folded agent's line wear
+// the same glyph, from here. Anything that is not muted or unverified is
+// confirmed — the old three-way branch said the same.
+export const ROUTE_STATE_FACE = {
+  unused: { cls: "route-muted-tag", glyph: "⏸", tip: "taTitleMutedRoute" },
+  unverified: { cls: "route-unverified-tag", glyph: "?", tip: "taTitleUnverifiedRoute" },
+  confirmed: { cls: "route-confirmed-tag", glyph: "✓", tip: "taTitleConfirmedRoute" },
+};
+
+export function routeStateFace(usage) {
+  return ROUTE_STATE_FACE[usage === "unused" || usage === "unverified" ? usage : "confirmed"];
 }
 
-export function topologyAgentRouteRow(client, agent, role, route, usage = "confirmed") {
+export function routeStateBadgeHtml(route, usage) {
+  if (!route) return "";
+  const face = routeStateFace(usage);
+  return `<span class="${face.cls}" data-t="route-state" title="${escapeHtml(t(face.tip))}">${face.glyph}</span>`;
+}
+
+// A route's cable handle. One element per route may carry it — cables find it
+// by querySelector and read its position, and a copy inside a hidden card would
+// hand them a rectangle of zeros. A folded agent's line carries it instead of
+// the card (card-rows.js), which is why it is built here, once.
+export function routeHandleHtml(client, agent, role, route, usage = "confirmed") {
+  if (!route) return "";
+  const muted = usage === "unused";
+  const unverified = usage === "unverified";
+  return `
+    <span class="topology-handle output ${escapeHtml(role)} ${muted ? "muted" : ""}"
+      data-topology-route-handle="1"
+      data-host-id="${escapeHtml(client.id || "")}"
+      data-agent-id="${escapeHtml(agent.id || "")}"
+      data-route-role="${escapeHtml(role)}"
+      data-proxy-id="${escapeHtml(route.proxyId || "")}"
+      title="${escapeHtml(muted ? `${role} (inactive)` : unverified ? `${role} — ${t("taTitleUnverifiedRoute")}` : role)}"></span>
+  `;
+}
+
+// Whether a route is in an incident right now — the same reading the row uses
+// for its incident line, so the card and its fold agree on what is wrong.
+export function routeIncident(route) {
+  if (!route) return null;
+  const activity = topologyProxyActivity(route.proxyId || "");
+  return activity?.incident || topologyIncidentForItem(activity?.item) || null;
+}
+
+export function topologyAgentRouteRow(client, agent, role, route, usage = "confirmed", { anchor = true } = {}) {
   const activity = route ? topologyProxyActivity(route.proxyId || "") : null;
   const incident = activity?.incident || topologyIncidentForItem(activity?.item);
   // The proxy port is now shown ON this route row (no separate proxy column). The
@@ -1699,15 +1734,7 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
   const manualBound = !!port && ((topology?.assignments?.[client?.id]?.assignments) || [])
     .some((a) => a.agentId === agent?.id && a.manual);
   const unverified = !!route && usage === "unverified";
-  const handle = route ? `
-    <span class="topology-handle output ${escapeHtml(role)} ${muted ? "muted" : ""}"
-      data-topology-route-handle="1"
-      data-host-id="${escapeHtml(client.id || "")}"
-      data-agent-id="${escapeHtml(agent.id || "")}"
-      data-route-role="${escapeHtml(role)}"
-      data-proxy-id="${escapeHtml(route.proxyId || "")}"
-      title="${escapeHtml(muted ? `${role} (inactive)` : unverified ? `${role} — ${t("taTitleUnverifiedRoute")}` : role)}"></span>
-  ` : "";
+  const handle = anchor ? routeHandleHtml(client, agent, role, route, usage) : "";
   const detailAttrs = route ? ` data-topology-route-detail="${escapeHtml(route.proxyId || "")}" data-client-ip="${escapeHtml(client?.ip || "")}" data-client-name="${escapeHtml(client?.name || client?.id || "")}" tabindex="0" role="button"` : "";
   const timeoutHtml = route ? topologyRouteTimeoutHtml(client, agent, route, activity) : "";
   return `

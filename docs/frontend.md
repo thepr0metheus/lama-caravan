@@ -391,6 +391,44 @@ to divide, so the row is absent rather than inert.
 - Owns: `_computeGpuDdOpen` (the multi-GPU dropdown's open state across re-renders).
 - Key exports: `estimateKvCacheGb`, `estimateRuntimeMemoryGb`, `gpuFreeMiB`, `vramFit`, `ramFit`, `applyComputeTarget`, `refreshComputeTarget`.
 
+## card-fold.js
+
+Which cards on the board fold into a line, and which one floats open now. The two long
+lanes — model cells and client agents — drew every card at full height: on 2026-09-23 the
+controller had 24 cells of which 6 ran, and 14 client routes of which one had a fallback.
+`CardFold` holds the operator's per-lane choice (`compact` or `full`, the lane-header switch
+`board-density`), the cards pinned open, and the one rule for what is quiet enough to fold:
+`cellQuiet` (running with nothing to report, or parked) and `agentQuiet` (has a route, not
+stale, no incident). A card in motion or in trouble never folds. Automation
+(`navigator.webdriver`) sees full cards by default. `FoldPeek` is the pointer and keyboard
+side: the full card floats over the lane after the pointer rests 300 ms on its line (at once
+on keyboard focus), a click on the line or 📌 pins it, ▴ folds it back, Escape closes; no card
+floats while a cable is dragged. Delegated on the document once — the lanes are repainted
+wholesale.
+
+- Owns: `CARD_FOLD` (densities, pinned set, `peekKey` so a float survives a repaint); both
+  persisted in `localStorage` (`boardCardDensity`, `boardCardPinned`) as a per-browser
+  convenience.
+- Key exports: `CardFold` (`density`, `toggleDensity`, `togglePin`, `mode`, `syncSwitches`,
+  `cellQuiet`, `agentQuiet`), `FoldPeek` (`bind`), `CARD_FOLD`.
+
+## card-rows.js
+
+The folded line of a board card, and the slot that holds the line and the card. `CellRow` and
+`AgentRow` only lay out facts the card computed — the name, the memory chip, the ▶ start
+attributes, the route values — so the line and the card cannot disagree. The line owns the
+cable's handle while folded: cables and drops find handles by `querySelector` and read their
+rectangle, and a copy inside a hidden card would hand them zeros. `FoldSlot` holds the line
+(which never moves) and the full card (which floats over the lane); pinned, it holds the card
+in place with ▴. An agent's line shows only what is set — no dash placeholders, no empty
+fallback. Values are still changed on the full card, where they always were.
+
+`nodeServerCardHtml(node, s, { fold })` and `topologyAgentCard(…, { fold })` take the lane's
+request; without it the card is drawn byte for byte as before. Styles: `static/css/fold.css`.
+
+- Owns: nothing mutable.
+- Key exports: `CellRow`, `AgentRow`, `FoldSlot`.
+
 ## split-mode.js
 
 One value of llama-server's `-sm/--split-mode`, and what it means to say it: the labels, the
