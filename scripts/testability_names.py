@@ -42,6 +42,9 @@ COMPOSED = {
     # static/js/memory.js — the CPU/GPU/auto tiles, data-t-id cpu|gpu|auto
     "cell-edit-compute": "memory.js: tHook by prefix",
     "cell-remote-compute": "memory.js: tHook by prefix",
+    # static/js/card-rows.js — a folded card's control: 📌 keeps it open, ▴ folds it back
+    "fold-pin": "card-rows.js: FoldSlot.control() by mode",
+    "fold-unpin": "card-rows.js: FoldSlot.control() by mode",
     # static/js/split-mode.js — split across cards, data-t-id layer|row|tensor
     "cell-edit-split": "memory.js: hook by prefix, SplitMode.html()",
     "cell-remote-split": "memory.js: hook by prefix, SplitMode.html()",

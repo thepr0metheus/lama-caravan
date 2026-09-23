@@ -13,6 +13,7 @@
   <link rel="stylesheet" href="/css/form.css">
   <link rel="stylesheet" href="/css/monitor.css">
   <link rel="stylesheet" href="/css/nodes.css">
+  <link rel="stylesheet" href="/css/fold.css">
   <link rel="stylesheet" href="/css/hf.css">
   <link rel="stylesheet" href="/css/onboarding.css">
 </head>
@@ -379,6 +380,7 @@
             <button id="topologyAdoptBtn" type="button" class="icon-action prominent" hidden
               data-t="clients-adopt" data-title-i18n="topologyAdoptClients"
               aria-label="Move scout clients to manual">⇩</button>
+            <button id="topologyClientsDensityBtn" type="button" class="icon-action prominent" data-board-density="clients" data-t="board-density" data-t-id="clients" aria-pressed="true">⊟</button>
             <button id="topologyClientAddBtn" type="button" class="icon-action prominent" data-t="client-add" data-title-i18n="topologyClientAdd" aria-label="Add a client">＋</button>
           </div>
         </div>
@@ -397,6 +399,7 @@
             <div class="topology-lane-head">
               <h2 class="title-with-tip"><span id="boardNodesHead" data-i18n="topologyLlamaServersSection">Model servers</span><span id="topologyLlamaServersTip"></span></h2>
               <div class="topology-head-actions">
+                <button id="topologyCellsDensityBtn" type="button" class="icon-action prominent" data-board-density="cells" data-t="board-density" data-t-id="cells" aria-pressed="true">⊟</button>
                 <button id="usageStatsBtn" type="button" class="icon-action prominent" data-title-i18n="usageStatsBtn" aria-label="Usage &amp; spend statistics">📊</button>
                 <button id="topologyRequestHistoryBtn" type="button" class="icon-action prominent" data-title-i18n="requestHistoryTitle" title="Request history">
                   <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>

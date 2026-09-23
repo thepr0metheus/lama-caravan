@@ -1,6 +1,7 @@
 // Entry point: DOMContentLoaded wiring and the standalone kanban page init.
 import { appConfirm } from "./dialogs.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
+import { CARD_FOLD, FoldPeek } from "./card-fold.js";
 import { drawLiveTopologyCable, drawTopologyCables } from "./cables.js";
 import { canvasLoadPositions, cvSetViewport, drawCanvasConnectors } from "./canvas.js";
 import { drawTopologyServerStats, systemSamples } from "./charts.js";
@@ -168,6 +169,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   onLangChange(renderAll);
 
   bindUserChip();
+  // Folded board cards float open on hover and pin on a click (card-fold.js).
+  // Bound once, on the document: the lanes are repainted wholesale. No card
+  // floats up while a cable is being dragged across the lane.
+  new FoldPeek(CARD_FOLD, {
+    busy: () => !!topologyPointerDrag,
+    changed: () => { renderTopology(); requestAnimationFrame(drawTopologyCables); },
+  }).bind(document);
 
   // Remote llama-server modal buttons
   $("llamaRemoteEditStart")?.addEventListener("click", submitRemoteLlamaStart);
