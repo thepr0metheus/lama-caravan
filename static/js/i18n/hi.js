@@ -379,6 +379,7 @@ export default {
   taBindStored: "बाँधा; एजेंट ने अभी पुष्टि नहीं की",
   taBindCleared: "वापस स्वचालित पर",
   taBindFailed: "बाँधना विफल",
+  taBindTakenNote: "दूसरे एजेंटों के पास: {count}",
   configSearchPlaceholder: "सेटिंग खोजें — नाम, फ़्लैग या विवरण",
   configSearchEmpty: "कुछ नहीं मिला",
   grpEndpoint: "एंडपॉइंट",

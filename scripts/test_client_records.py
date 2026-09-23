@@ -1035,6 +1035,57 @@ def test_route_context_is_per_consumer():
     check(routes()[0].get("contextLength") == 4096 and routes()[0]["proxyId"] == "skynet:proxy:23002",
           "перепривязка порта переставляет ЖИВОСТЬ, настройку не трогая")
 
+
+def test_the_board_is_told_who_holds_each_port():
+    """One reading of ownership, for the bind check and for the board.
+
+    The port picker used to list every port while the server refused any port
+    another agent held: on 2026-09-23 all fifteen were held, and every row of
+    the menu ended in a 409. Now each proxy reaches the board carrying its
+    holders, read by the same function the refusal is decided by.
+
+    The one line in topology_state that hands the reading to _board_proxy is
+    checked on the live board, not here: topology_state reaches twenty
+    collaborators, and a harness for all of them would test the harness.
+    """
+    print("кто держит порт — одно чтение для отказа и для доски:")
+    store = {"assignments": {}, "clients": {}}
+    T = _topology_harness(store, [23001, 23002, 23003])
+    T.bind_agent_to_proxy({"hostId": "h1", "agentId": "a1", "port": 23001, "role": "primary"})
+    T.bind_agent_to_proxy({"hostId": "h2", "agentId": "b1", "port": 23002, "role": "fallback"})
+    held = T._port_holders()
+    check(held == {"skynet:proxy:23001": [("h1", "a1", "primary")],
+                   "skynet:proxy:23002": [("h2", "b1", "fallback")]},
+          f"держатели по порту, со своей ролью, через весь флот (got {held})")
+    check("skynet:proxy:23003" not in held, "никем не взятого порта в чтении нет — пустота, а не выдуманный хозяин")
+
+    # as-is: a port held twice (a record from before the one-owner rule) lists
+    # both, in stored order — and the refusal still finds the other one.
+    store["assignments"]["h3"] = {"assignments": [{"agentId": "c1", "routes": [
+        {"role": "primary", "proxyId": "skynet:proxy:23001"}]}]}
+    check(T._port_holders()["skynet:proxy:23001"] == [("h1", "a1", "primary"), ("h3", "c1", "primary")],
+          "as-is: дважды взятый порт (запись до правила «один хозяин») — оба держателя, в порядке хранения")
+    check(T._port_holder(23001, exclude=("h1", "a1")) == ("h3", "c1", "primary"),
+          "проверка при привязке по-прежнему видит второго держателя, исключив самого просящего")
+    check(T._port_holder(23003) is None, "свободный порт — никто")
+
+    board = T._board_proxy({"port": 23001, "upstreamPort": 8080}, holders=T._port_holders(),
+                           last_seen={23001: 1700000000}, routers_by_id={})
+    check(board["holders"] == [{"hostId": "h1", "agentId": "a1", "role": "primary"},
+                               {"hostId": "h3", "agentId": "c1", "role": "primary"}],
+          "порт уходит на доску со всеми держателями — теми же, по которым решается отказ")
+    check(board["id"] == "skynet:proxy:23001" and board["endpoint"].endswith(":23001/v1")
+          and board["lastRequestAt"] == 1700000000 and board["upstreamId"] == "skynet:llama-server:8080",
+          "вынесенная сборка порта даёт те же поля, что давала внутри topology_state")
+    free = T._board_proxy({"port": 23003}, holders=T._port_holders(), last_seen={}, routers_by_id={})
+    check(free["holders"] == [] and free["lastRequestAt"] == 0,
+          "свободный порт — пустой список держателей, а не отсутствующее поле")
+    routed = T._board_proxy({"port": 23003, "routerId": "r1"}, holders={}, last_seen={},
+                            routers_by_id={"r1": {"outputs": [{"id": "o1", "upstreamPort": 22003, "upstreamHost": "10.0.0.2"}],
+                                                  "rules": {"default": "o1"}}})
+    check((routed.get("resolvedUpstreamHost"), routed.get("resolvedUpstreamPort")) == ("10.0.0.2", 22003),
+          "куда порт идёт на самом деле — по выходу роутера по умолчанию, как прежде")
+
 for fn in (test_provisioned_record_shape, test_route_can_be_removed,
            test_agent_alias_survives_the_report,
            test_model_name_is_per_role,
@@ -1042,6 +1093,7 @@ for fn in (test_provisioned_record_shape, test_route_can_be_removed,
            test_agent_added_by_hand,
            test_adopting_the_scouts_clients,
            test_bind_refuses_a_port_someone_else_holds,
+           test_the_board_is_told_who_holds_each_port,
            test_set_route_names_every_setting,
            test_saving_the_window_reaches_the_port_without_a_heartbeat,
            test_bridge_carries_the_window_to_the_route,

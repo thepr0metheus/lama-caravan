@@ -379,6 +379,7 @@ export default {
   taBindStored: "منسلک؛ ایجنٹ نے ابھی تصدیق نہیں کی",
   taBindCleared: "واپس خودکار پر",
   taBindFailed: "منسلک کرنا ناکام",
+  taBindTakenNote: "دوسرے ایجنٹوں کے پاس: {count}",
   configSearchPlaceholder: "ترتیبات تلاش کریں — نام، فلیگ یا تفصیل",
   configSearchEmpty: "کچھ نہیں ملا",
   grpEndpoint: "اینڈ پوائنٹ",

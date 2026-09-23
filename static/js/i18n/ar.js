@@ -379,6 +379,7 @@ export default {
   taBindStored: "تم الربط؛ لم يؤكد العميل بعد",
   taBindCleared: "العودة إلى التلقائي",
   taBindFailed: "فشل الربط",
+  taBindTakenNote: "يشغلها وكلاء آخرون: {count}",
   configSearchPlaceholder: "ابحث في الإعدادات — الاسم أو الراية أو الوصف",
   configSearchEmpty: "لا توجد نتائج",
   grpEndpoint: "نقطة النهاية",

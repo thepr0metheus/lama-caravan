@@ -379,6 +379,7 @@ export default {
   taBindStored: "Gebunden; der Agent hat noch nicht bestätigt",
   taBindCleared: "Zurück auf automatisch",
   taBindFailed: "Binden fehlgeschlagen",
+  taBindTakenNote: "Von anderen Agenten belegt: {count}",
   configSearchPlaceholder: "Einstellungen suchen — Name, Flag oder Beschreibung",
   configSearchEmpty: "Nichts gefunden",
   grpEndpoint: "Endpunkt",

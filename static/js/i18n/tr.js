@@ -379,6 +379,7 @@ export default {
   taBindStored: "Bağlandı; aracı henüz onaylamadı",
   taBindCleared: "Otomatiğe dön",
   taBindFailed: "Bağlama başarısız",
+  taBindTakenNote: "Başka ajanların elinde: {count}",
   configSearchPlaceholder: "Ayarlarda ara — ad, bayrak veya açıklama",
   configSearchEmpty: "Sonuç bulunamadı",
   grpEndpoint: "Uç nokta",

@@ -95,7 +95,7 @@ fails at import time.
 
 | Method & path | Purpose |
 |---|---|
-| `GET /api/topology` | The full fleet tree: clients, agents, servers, GPUs, proxies, routers, cloud. A controller cell that is starting from files it reads carries `loadProgress`: `{stage: starting\|reading\|stalled\|setup, read, total, speed?, left?, idle?, files: [{role, name, size, read, state: done\|reading\|waiting, library?}]}` — bytes, bytes per second, seconds; absent when the load cannot be measured (a mapped load, an unknown size). |
+| `GET /api/topology` | The full fleet tree: clients, agents, servers, GPUs, proxies, routers, cloud. A controller cell that is starting from files it reads carries `loadProgress`: `{stage: starting\|reading\|stalled\|setup, read, total, speed?, left?, idle?, files: [{role, name, size, read, state: done\|reading\|waiting, library?}]}` — bytes, bytes per second, seconds; absent when the load cannot be measured (a mapped load, an unknown size). Every proxy carries `holders: [{hostId, agentId, role}]` — who holds the port, read by the same function `POST /api/topology/agent-proxy-bind` refuses by (one port, one owner, 409); empty when nobody holds it. |
 | `POST /api/topology/client-heartbeat` | Route-agent heartbeat: llama nodes, GPUs, cache state. |
 | `POST /api/topology/assignments` | Store client→router assignments (cable drops). |
 | `POST /api/topology/client-alias` | Rename a client in the UI. |

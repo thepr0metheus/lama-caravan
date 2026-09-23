@@ -1291,6 +1291,41 @@ def annotate_route_windows(proxies, proxy_config, server_obj, cloud_blocks):
     return proxies
 
 
+def _board_proxy(route, *, holders, last_seen, routers_by_id):
+    """One proxy route as the board is handed it: the route's own fields plus
+    its id and address, when it last served, where its router actually sends
+    it, and who holds it.
+
+    Its own function so that what a proxy carries can be checked by value —
+    topology_state around it reaches twenty collaborators.
+    """
+    served = last_seen.get(int(route.get("port") or 0) or -1)
+    proxy = {
+        **route,
+        "id": f"skynet:proxy:{route.get('port')}",
+        "endpoint": f"http://{TOPOLOGY_SERVER_IP}:{route.get('port')}/v1",
+        "upstreamId": f"skynet:llama-server:{route.get('upstreamPort')}",
+        "lastRequestAt": int(served) if served else 0,
+    }
+    # Who holds the port — the same reading the bind check refuses by, so the
+    # port picker can offer only what a bind will accept.
+    proxy["holders"] = [{"hostId": h, "agentId": a, "role": r}
+                        for h, a, r in holders.get(proxy["id"], [])]
+    # Resolve the actual upstream the proxy routes to via its router graph outputs.
+    # route.upstreamPort is a legacy placeholder (:8080); the graph output is authoritative.
+    router = routers_by_id.get(str(route.get("routerId") or ""))
+    if router:
+        outputs = router.get("outputs") or []
+        default_id = str((router.get("rules") or {}).get("default") or "")
+        out = next((o for o in outputs if str(o.get("id")) == default_id), None)
+        if not out:
+            out = next((o for o in outputs if str(o.get("upstreamType") or "llama") != "cloud"), None)
+        if out and int(out.get("upstreamPort") or 0):
+            proxy["resolvedUpstreamHost"] = str(out.get("upstreamHost") or "127.0.0.1")
+            proxy["resolvedUpstreamPort"] = int(out.get("upstreamPort"))
+    return proxy
+
+
 def topology_state(refresh_clients=True):
     if refresh_clients:
         refresh_topology_clients_from_agents()
@@ -1311,28 +1346,9 @@ def topology_state(refresh_clients=True):
     # Traffic is proof a route is used — the board promotes "unverified" to
     # "confirmed" on it, since most agents never report their own config.
     _last_seen = proxy_ports_last_seen()
+    _holders = _port_holders()
     for route in proxy_config.get("routes", []):
-        _served = _last_seen.get(int(route.get("port") or 0) or -1)
-        proxy = {
-            **route,
-            "id": f"skynet:proxy:{route.get('port')}",
-            "endpoint": f"http://{TOPOLOGY_SERVER_IP}:{route.get('port')}/v1",
-            "upstreamId": f"skynet:llama-server:{route.get('upstreamPort')}",
-            "lastRequestAt": int(_served) if _served else 0,
-        }
-        # Resolve the actual upstream the proxy routes to via its router graph outputs.
-        # route.upstreamPort is a legacy placeholder (:8080); the graph output is authoritative.
-        router = _routers_by_id.get(str(route.get("routerId") or ""))
-        if router:
-            outputs = router.get("outputs") or []
-            default_id = str((router.get("rules") or {}).get("default") or "")
-            out = next((o for o in outputs if str(o.get("id")) == default_id), None)
-            if not out:
-                out = next((o for o in outputs if str(o.get("upstreamType") or "llama") != "cloud"), None)
-            if out and int(out.get("upstreamPort") or 0):
-                proxy["resolvedUpstreamHost"] = str(out.get("upstreamHost") or "127.0.0.1")
-                proxy["resolvedUpstreamPort"] = int(out.get("upstreamPort"))
-        proxies.append(proxy)
+        proxies.append(_board_proxy(route, holders=_holders, last_seen=_last_seen, routers_by_id=_routers_by_id))
     server_obj = topology_server(config)
     # Auto-sync router outputs to the available providers (local llama servers
     # now; cloud later). Persist once when they change so agent-proxies.py routes.
@@ -1434,6 +1450,27 @@ def normalize_topology_assignment(assignment):
     """
     return AgentAssignment.from_raw(assignment).to_dict()
 
+def _port_holders():
+    """{proxyId: [(hostId, agentId, role), ...]} — who holds each proxy port,
+    read from the stored assignments in their stored order.
+
+    The one reading of ownership: the bind check refuses by it (_port_holder)
+    and the board is handed it on every proxy (topology_state), so the port
+    picker offers exactly the ports a bind will accept. Before, the picker
+    listed every port and the server refused most of them — on 2026-09-23 all
+    fifteen were held, and every row of the menu ended in a 409.
+    """
+    held = {}
+    for host_id, entry in (topology_store().get("assignments") or {}).items():
+        for row in (entry.get("assignments") or []):
+            agent_id = str(row.get("agentId") or "")
+            for route in (row.get("routes") or []):
+                pid = str(route.get("proxyId") or "")
+                if pid:
+                    held.setdefault(pid, []).append((host_id, agent_id, str(route.get("role") or "primary")))
+    return held
+
+
 def _port_holder(port, exclude=()):
     """Who already holds this port: (hostId, agentId, role), or None.
 
@@ -1444,17 +1481,10 @@ def _port_holder(port, exclude=()):
     client or a neighboring one, is a conflict: the port grid is shared
     across the whole fleet.
     """
-    want = f"{PROXY_ID_PREFIX}{int(port)}"
-    for host_id, entry in (topology_store().get("assignments") or {}).items():
-        for row in (entry.get("assignments") or []):
-            agent_id = str(row.get("agentId") or "")
-            for route in (row.get("routes") or []):
-                if str(route.get("proxyId") or "") != want:
-                    continue
-                role = str(route.get("role") or "primary")
-                if tuple(exclude) == (host_id, agent_id):
-                    continue
-                return (host_id, agent_id, role)
+    for holder in _port_holders().get(f"{PROXY_ID_PREFIX}{int(port)}", []):
+        if tuple(exclude) == holder[:2]:
+            continue
+        return holder
     return None
 
 

@@ -379,6 +379,7 @@ export default {
   taBindStored: "Lié ; l'agent n'a pas encore confirmé",
   taBindCleared: "Retour à l'automatique",
   taBindFailed: "Échec de la liaison",
+  taBindTakenNote: "Occupés par d'autres agents : {count}",
   configSearchPlaceholder: "Rechercher un paramètre — nom, option ou description",
   configSearchEmpty: "Aucun résultat",
   grpEndpoint: "Endpoint",
