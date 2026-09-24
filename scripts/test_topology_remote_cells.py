@@ -144,8 +144,27 @@ def test_autostart_on_the_card():
           "negative: остановленная ячейка скаута без списка — «не умеет»")
 
 
+def test_crash_on_the_card():
+    print("💥 ячейки скаута:")
+
+    def crash(note):
+        answer = served([dict(LLAMA, crash=note)] if note is not ... else [LLAMA])
+        return next(s for s in answer["llamaServers"] if s.get("isRemote"))["crash"]
+    at = "2026-09-24T20:00:00+0400"
+    check(crash({"count": 2, "at": at, "reason": "CUDA error: out of memory"})
+          == {"count": 2, "at": at, "kind": "gpu-oom", "reason": "CUDA error: out of memory"},
+          "сторож скаута (2.5+) говорит, сколько раз и почему — карточка показывает 💥 тем же видом, что у ячейки "
+          "контроллера: вид определяет контроллер по тем же словам")
+    check(crash({"count": 4, "at": at, "reason": "GGML_ASSERT failed", "gaveUp": True})
+          == {"count": 4, "at": at, "kind": "assert", "reason": "GGML_ASSERT failed", "gaveUp": True},
+          "сдался — так и сказано")
+    check(crash(...) is None and crash({"count": 0}) is None and crash("oops") is None,
+          "negative: скаут старше 2.5, ноль падений или мусор — нет 💥, а не «0 раз»")
+
+
 if __name__ == "__main__":
-    for fn in (test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell, test_autostart_on_the_card):
+    for fn in (test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell, test_autostart_on_the_card,
+               test_crash_on_the_card):
         try:
             fn()
         except Exception as exc:  # noqa: BLE001
