@@ -29,82 +29,18 @@ import {
 import { refreshComputeTarget } from "./memory.js";
 import { action, startMonitor } from "./polling.js";
 import { setTopology, state, topology } from "./state.js";
-import { topologyStatusPill } from "./topology-activity.js";
-import { openNodeServerDetail } from "./topology-nodes.js";
-import { scoutOwnedCounts } from "./topology-proxies.js";
+import { topologyAssignmentsByAgent, topologyStatusPill } from "./topology-activity.js";
+import { hostAgeText, openNodeServerDetail } from "./topology-nodes.js";
 import { _topologyRenderPending, markTopologyRenderPending, refreshTopology, renderTopology, topologyInteractionActive, topologyServerPhase } from "./topology-render.js";
-import { $, api, escapeHtml, formatMemoryMiB, toast } from "./utils.js";
+import { $, api, escapeHtml, toast } from "./utils.js";
 
 export let _trCachedModels = new Set(); // relative paths of .gguf files cached on the current remote host
-export function topologyClientGpusHtml(client) {
-  const gpus = client?.gpus || [];
-  if (!gpus.length) return "";
-  // A client can hold several concurrent slots (translator + whisper + …). We
-  // can't map a node to a specific GPU from this data, so list every running
-  // slot's port on each GPU row (same imprecision as the old single-node view).
-  const lnodes = (Array.isArray(client?.llamaNodes) && client.llamaNodes.length)
-    ? client.llamaNodes
-    : (client?.llamaNode ? [client.llamaNode] : []);
-  const running = lnodes.filter((n) => n && n.running === true && Number(n.port) > 0);
-
-  const rows = gpus.map((gpu, idx) => {
-    if (gpu.driverStatus === "driver_missing") {
-      return `
-        <div class="client-gpu-row" style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-          <span>🖥 <b>${escapeHtml(gpu.name || "GPU")}</b>
-            <span class="topology-muted" style="color:var(--warn,#e0a000)">⚠ ${escapeHtml(t("topologyClientGpuNoDriver"))}</span>
-          </span>
-        </div>`;
-    }
-    const used = formatMemoryMiB(gpu.memoryUsedMiB);
-    const total = formatMemoryMiB(gpu.memoryTotalMiB);
-    // Unknown is "?", not "0": a card whose utilisation the scout could not read
-    // used to render as 0% — an idle card — while the temperature right beside it
-    // admitted it did not know. Both siblings (topology-render, topology-nodes)
-    // already say "?".
-    const util = gpu.utilizationGpuPct ?? "?";
-    const temp = gpu.temperatureC ?? "n/a";
-
-    let actionHtml;
-    if (running.length) {
-      // "2d 13h" instead of raw six-digit seconds — two largest units carry it.
-      const fmtDur = (sec) => {
-        const v = Math.max(0, Number(sec) || 0);
-        const d = Math.floor(v / 86400), h = Math.floor((v % 86400) / 3600), m = Math.floor((v % 3600) / 60);
-        if (d) return `${d}d ${h}h`;
-        if (h) return `${h}h ${m}m`;
-        if (m) return `${m}m`;
-        return `${Math.floor(v)}s`;
-      };
-      // A command cell (whisper/tts/moonshine) has no modelPath, which left bare
-      // ports on the card. Its display name is already shipped as cellLabel on
-      // the slot record — the same name the Model Servers panel shows.
-      const fleetCells = (topology?.nodes || []).flatMap((nd) => nd.servers || []);
-      actionHtml = running.map((n) => {
-        const uptime = n.uptimeSec ? t("topologyClientGpuUptime").replace("{dur}", fmtDur(n.uptimeSec)) : "";
-        const cell = fleetCells.find((s) => String(s.clientId || "") === String(client.id) && Number(s.port) === Number(n.port));
-        const name = (cell && cell.cellLabel) || (n.modelPath || "").split("/").pop() || "";
-        return `<span class="topology-muted" style="font-size:11px">
-          ▶ :${escapeHtml(String(n.port))}${name ? " · " + escapeHtml(name) : ""}${uptime ? " · " + escapeHtml(uptime) : ""}
-        </span>`;
-      }).join("<br>");
-    } else {
-      actionHtml = `<span class="topology-muted" style="font-size:11px;font-style:italic">${escapeHtml(t("topologyClientGpuAvailable"))}</span>`;
-    }
-
-    return `
-      <div class="client-gpu-row" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
-        <span>🖥 <b>${escapeHtml(gpu.name || "GPU")}</b>
-          <span class="topology-muted">VRAM ${used}/${total} · ${escapeHtml(String(util))}% · ${escapeHtml(String(temp))}C</span>
-        </span>
-        ${actionHtml}
-      </div>`;
-  }).join("");
-
-  return `<div class="client-gpus" style="margin-top:6px;padding:6px 0;border-top:1px solid var(--border,#333);display:flex;flex-direction:column;gap:4px">
-    <div class="topology-muted" style="font-size:11px">${escapeHtml(t("topologyClientGpus"))}</div>
-    ${rows}
-  </div>`;
+// The machine a scout reports, by its id: GPUs, CPU, address, liveness. Its
+// own record (topology.hosts) — not the client that may share the id, which
+// is the operator's and carries agents, no hardware (docs/scout-split.md).
+// null when no scout reported for the id: an absence, not an empty machine.
+export function topologyHost(hostId) {
+  return (topology?.hosts || []).find((h) => h.id === hostId) || null;
 }
 
 // ── Remote llama-server start tracking ───────────────────────────────────────
@@ -189,8 +125,8 @@ export function startRemoteStartWatch() {
 
 // Shared server-slot actions (used by the node view).
 export function openRemoteFormForHost(hostId, port = "") {
-  const client = (topology?.clients || []).find((c) => c.id === hostId) || {};
-  openLlamaRemoteEdit(hostId, (client.gpus && client.gpus[0] && client.gpus[0].name) || "", client.gpus || [], port);
+  const host = topologyHost(hostId) || {};
+  openLlamaRemoteEdit(hostId, (host.gpus && host.gpus[0] && host.gpus[0].name) || "", host.gpus || [], port);
 }
 
 // ── Port picker: move a parked cell to another free port ─────────────────────
@@ -653,22 +589,6 @@ export async function addTopologyClient() {
   } catch (e) { toast(String(e)); }
 }
 
-// Move the scout's records under the board's ownership. Adoption happens IN
-// PLACE: nothing is created or deleted, so routes never disappear even for a
-// moment, and a repeat call is harmless. Reported as numbers: "done" doesn't
-// say whether anything actually happened.
-export async function adoptScoutClients() {
-  const { clients, agents } = scoutOwnedCounts();
-  if (!clients && !agents) return;
-  if (!(await appConfirm(t("dlgAdoptClients", { clients, agents }),
-                         { confirmLabel: t("topologyAdoptClients") }))) return;
-  try {
-    const res = await api("/api/topology/clients/adopt", { method: "POST", body: {} });
-    toast(t("topologyAdoptDone", { clients: res.clients ?? 0, agents: res.agents ?? 0 }));
-    refreshTopology().catch(() => {});
-  } catch (e) { toast(String(e)); }
-}
-
 // Create an agent for a client by hand. A proxy is assigned to an agent, so
 // without this move a manual client was a record that couldn't be configured.
 export async function addTopologyAgent(clientId) {
@@ -681,68 +601,48 @@ export async function addTopologyAgent(clientId) {
   } catch (e) { toast(String(e)); }
 }
 
-export async function deleteTopologyClient(clientId) {
-  const client = (topology?.clients || []).find((c) => c.id === clientId);
-  const name = client?.name || clientId;
-  // The confirmation used to promise the record would come back on the next
-  // heartbeat. For a client created by hand this is NOT TRUE: it never
-  // reports in at all, and the deletion is final. Promising reversibility
-  // where none exists is the worst thing a confirmation can say before an
-  // irreversible action; that's exactly how a record nobody meant to touch
-  // got lost.
-  const text = client?.manual ? t("dlgDeleteManualClient", { name }) : t("dlgDeleteClient", { name });
-  if (!(await appConfirm(text, { confirmLabel: t("deleteAction") }))) return;
+// Forget a machine whose scout went silent: its host record, and only that.
+// The cells configured on it are kept and come back with the machine when its
+// scout reports again; a client with the same id is not touched. The server
+// refuses a scout that still answers — its next report would undo this.
+export async function forgetTopologyHost(hostId) {
+  const host = topologyHost(hostId);
+  const name = host?.name || hostId;
+  const ago = hostAgeText(host || {});
+  if (!(await appConfirm(t("dlgForgetHost", { name, ago }), { confirmLabel: t("nodeForgetHost") }))) return;
   try {
-    await api("/api/topology/client/delete", {
-      method: "POST",
-      body: JSON.stringify({ clientId }),
-    });
+    await api("/api/topology/host/delete", { method: "POST", body: JSON.stringify({ hostId }) });
+    toast(t("hostForgotten", { name }));
     refreshTopology().catch(() => {});
   } catch (e) { toast(String(e)); }
 }
 
-// Register a discovered (running but unregistered) agent into the fleet registry.
-export async function discoveryAddCandidate(suggestedId, host) {
-  const id = ((await appPrompt(t("dlgRegisterAgentId"), { value: suggestedId || "", scene: "create" })) || "").trim();
-  if (!id) return;
-  const ip = ((await appPrompt(t("dlgRegisterHost"), { value: host || "", scene: "create" })) || "").trim();
-  if (!ip) return;
-  const portStr = ((await appPrompt(t("dlgRegisterPort", { ip }), { value: "18796", scene: "create" })) || "").trim();
-  const port = parseInt(portStr, 10);
-  if (!port) { toast(t("portRequired")); return; }
-  try {
-    const res = await api("/api/topology/discover/add", {
-      method: "POST",
-      body: JSON.stringify({ id, name: id, host: ip, port }),
-    });
-    toast(res?.ok ? t("agentRegistered", { id }) : t("agentAddFailed", { err: res?.error || "?" }));
-    refreshTopology().catch(() => {});
-  } catch (e) { toast(String(e)); }
+// The ports an agent's saved routes go through. Its delete leaves them free,
+// and the dialog names them, so the operator knows what stays behind.
+export function savedAgentPorts(clientId, agentId) {
+  const rows = topology?.assignments?.[clientId]?.assignments || [];
+  const routes = topologyAssignmentsByAgent(rows).get(agentId) || new Map();
+  const ports = [...routes.values()].map((r) => String(r?.proxyId || "").split(":").pop()).filter(Boolean);
+  return [...new Set(ports)];
 }
 
 export async function deleteTopologyClientAgent(clientId, agentId) {
   const client = (topology?.clients || []).find((c) => c.id === clientId);
   const agent = (client?.agents || []).find((a) => a.id === agentId);
   const name = agent?.name || agentId;
-  if (!(await appConfirm(t("dlgDeleteAgent", { name }), { confirmLabel: t("deleteAction") }))) return;
+  const ports = savedAgentPorts(clientId, agentId);
+  const question = ports.length
+    ? t("dlgDeleteAgentPorts", { name, ports: ports.map((p) => ":" + p).join(" ") })
+    : t("dlgDeleteAgent", { name });
+  if (!(await appConfirm(question, { confirmLabel: t("deleteAction") }))) return;
   try {
-    await api("/api/topology/client/agent/delete", {
-      method: "POST",
-      body: JSON.stringify({ clientId, agentId }),
-    });
-    refreshTopology().catch(() => {});
-  } catch (e) { toast(String(e)); }
-}
-
-export async function deleteOrphanAgent(clientId, agentId) {
-  if (!(await appConfirm(t("dlgDeleteOrphan", { agent: agentId, client: clientId }), { confirmLabel: t("deleteAction") }))) return;
-  try {
-    const res = await api("/api/topology/orphan-assignment/delete", {
+    const res = await api("/api/topology/client/agent/delete", {
       method: "POST",
       body: JSON.stringify({ clientId, agentId }),
     });
     const freed = (res && res.freedPorts) || [];
-    toast(freed.length ? t("agentRemovedPorts", { id: agentId, ports: freed.map((p) => ":" + p).join(" ") }) : t("agentRemoved", { id: agentId }));
+    toast(freed.length ? t("agentRemovedPorts", { id: name, ports: freed.map((p) => ":" + p).join(" ") })
+                       : t("agentRemoved", { id: name }));
     refreshTopology().catch(() => {});
   } catch (e) { toast(String(e)); }
 }
@@ -956,8 +856,7 @@ export function remoteStartPending(hostId) {
 }
 
 export async function submitLlamaStop(hostId) {
-  const client = (topology?.clients || []).find((c) => c.id === hostId);
-  const name = client?.name || hostId;
+  const name = topologyHost(hostId)?.name || hostId;
   if (!(await appConfirm(`${t("stopServerConfirm", { host: name })}`, { confirmLabel: t("stop"), scene: "stop" }))) return;
 
   _stoppingHosts.add(hostId);
@@ -991,17 +890,18 @@ export function renderNvidiaSmiSourceButtons() {
   const container = $("nvidiaSmiSources");
   if (!container) return;
 
-  // Build list: the controller first, then online clients with GPUs
+  // Build list: the controller first, then the machines whose scouts answer
+  // and report a GPU.
   const sources = [
     { id: "local", label: topology?.server?.name || "Controller" },
   ];
-  for (const client of (topology?.clients || [])) {
-    if (client.state !== "online") continue;
-    if (!(client.gpus || []).length) continue;
-    const gpu = client.gpus[0] || {};
+  for (const host of (topology?.hosts || [])) {
+    if (host.state !== "online") continue;
+    if (!(host.gpus || []).length) continue;
+    const gpu = host.gpus[0] || {};
     sources.push({
-      id: client.id,
-      label: client.name || client.id,
+      id: host.id,
+      label: host.name || host.id,
       gpu: gpu.name || "",
     });
   }
@@ -1208,7 +1108,7 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") 
   _trHostId = hostId;
   _trClientGpus = Array.isArray(clientGpus) ? clientGpus : [];
   _trGpuName = String(gpuName || _trClientGpus[0]?.name || "");
-  _trClientCpu = ((topology?.clients || []).find((c) => c.id === hostId) || {}).cpu || {};
+  _trClientCpu = (topologyHost(hostId) || {}).cpu || {};
   _trCellPort = cellPort ? String(cellPort) : "";
   // Same as the controller editor: the tab bar's overflow state is only
   // measurable once this modal is actually on screen.
@@ -1461,17 +1361,17 @@ export async function submitRemoteLlamaStart() {
     if (result?.ok) {
       // Config is persisted server-side in the cell's slot (single source of
       // truth); no per-host localStorage copy needed for the next form open.
-      const client = (topology?.clients || []).find((c) => c.id === _trHostId) || {};
+      const host = topologyHost(_trHostId) || {};
       registerPendingRemoteStart({
         hostId: _trHostId,
-        hostName: client.name || _trHostId,
+        hostName: host.name || _trHostId,
         modelName: modelPath.split("/").pop(),
         port,
-        clientIp: client.ip || "",
-        gpuName: (client.gpus && client.gpus[0] && client.gpus[0].name) || "",
+        clientIp: host.ip || "",
+        gpuName: (host.gpus && host.gpus[0] && host.gpus[0].name) || "",
       });
       $("llamaRemoteEditOverlay").hidden = true;
-      toast(t("topologyRemoteStartSent", { host: client.name || _trHostId }));
+      toast(t("topologyRemoteStartSent", { host: host.name || _trHostId }));
       renderTopology();
     } else {
       toast(result?.result?.error || result?.error || "Error starting remote server");
@@ -1481,15 +1381,15 @@ export async function submitRemoteLlamaStart() {
     // "startup already in progress" means we sent a duplicate — treat as success:
     // close the dialog and show a friendly notice instead of an error.
     if (msg.toLowerCase().includes("already in progress") || msg.toLowerCase().includes("already starting")) {
-      const client = (topology?.clients || []).find((c) => c.id === _trHostId) || {};
+      const host = topologyHost(_trHostId) || {};
       if (!_pendingRemoteStarts.has(_trHostId)) {
         registerPendingRemoteStart({
           hostId: _trHostId,
-          hostName: client.name || _trHostId,
+          hostName: host.name || _trHostId,
           modelName: modelPath.split("/").pop(),
           port,
-          clientIp: client.ip || "",
-          gpuName: (client.gpus && client.gpus[0] && client.gpus[0].name) || "",
+          clientIp: host.ip || "",
+          gpuName: (host.gpus && host.gpus[0] && host.gpus[0].name) || "",
         });
       }
       $("llamaRemoteEditOverlay").hidden = true;

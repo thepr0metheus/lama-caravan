@@ -19,6 +19,7 @@ Run: python3 scripts/test_js_topology_render.py
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -101,12 +102,12 @@ PINS = [
      'true',
      "negative: ничего не менялось — отпечаток тот же, иначе доска перерисовывалась бы на каждом тике"),
     ("fingerprint_ignores_liveness_age",
-     'st.setTopology({ ...st.topology, clients: [CLIENT({ agents: [{ id: "a1" }], ageSeconds: 5 })] });'
+     'st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: false, ageSeconds: 5 }] });'
      ' globalThis.__fp4 = m.topologyStructureFingerprint();'
-     ' st.setTopology({ ...st.topology, clients: [CLIENT({ agents: [{ id: "a1" }], ageSeconds: 900 })] });',
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: false, ageSeconds: 900 }] });',
      'm.topologyStructureFingerprint() === globalThis.__fp4',
      'true',
-     "negative: возраст ответа — не структура, его чинит живой патчер; иначе полный ререндер каждые пару секунд"),
+     "negative: возраст отчёта скаута — не структура, его двигает живой патчер; иначе полный ререндер каждые пару секунд"),
     ("fingerprint_sees_stored_change_under_a_live_report",
      'st.setTopology({ ...st.topology, clients: [CLIENT({ agents: [{ id: "a1" }],'
      ' assignments: [{ agentId: "a1", routes: [{ role: "primary", proxyId: "skynet:proxy:23001",'
@@ -119,63 +120,6 @@ PINS = [
      'm.topologyStructureFingerprint() !== globalThis.__fp9',
      'true',
      "defect-history: у клиента, о котором есть ЖИВОЙ отчёт, отпечаток читал только его — и правка сохранённой записи (окно, флаг «руками») на доску не доезжала до перезагрузки"),
-    ("silent_manual_client_says_it_once",
-     '',
-     'm.clientHasNothingToReport({ manual: true })',
-     'true',
-     'ручной и ни разу не отвечавший: «ip n/a», плашка, «never answered» и заметка — четыре способа сказать одно и то же'),
-    ("client_that_answered_reports_normally",
-     '',
-     '[m.clientHasNothingToReport({ manual: true, ageSeconds: 0 }), m.clientHasNothingToReport({ manual: true, ageSeconds: 300 })]',
-     '[false,false]',
-     'boundary: отозвался — есть что сказать, и ноль секунд это ответ прямо сейчас, а не отсутствие'),
-    ("client_with_an_address_reports_it",
-     '',
-     'm.clientHasNothingToReport({ manual: true, ip: "10.0.0.5" })',
-     'false',
-     'negative: адрес известен — молчать не о чем'),
-    ("scout_client_always_reports",
-     '',
-     '[m.clientHasNothingToReport({ lastSeen: 111 }), m.clientHasNothingToReport({ agentUrl: "http://h:8092" })]',
-     '[false,false]',
-     'negative: у клиента СО СКАУТОМ ничего не скрывается — правило про то, есть ли кому рассказывать, а не про пометку «руками»'),
-    ("quiet_manual_client_gets_no_alarm",
-     'st.setTopology({ ...st.topology, clients: [CLIENT({ manual: true, state: "stale", agents: [] })] });',
-     '(h => [h.includes("client-stale-banner"), h.includes("client-delete-btn"), h.includes("client-quiet-note")])'
-     '(m.clientStaleBannerHtml({ id: "c1", manual: true }, true))',
-     '[false,false,true]',
-     'defect-history: молчащему ручному клиенту доска кричала красным «агент не отвечает» и ставила рядом Delete — на этом жесте потеряли запись'),
-    ("quiet_scout_client_still_alarms",
-     'st.setTopology({ ...st.topology, clients: [CLIENT({ state: "stale", agents: [] })] });',
-     '(h => [h.includes("client-stale-banner"), h.includes("client-delete-btn")])'
-     '(m.clientStaleBannerHtml({ id: "c1", lastSeen: 111 }, true))',
-     '[true,true]',
-     'negative: скаут был и замолчал — это настоящая поломка, тревога остаётся; усыновление пометило manual весь флот, и по нему судить больше нельзя'),
-    ("quiet_note_absent_while_the_client_answers",
-     '',
-     '[m.clientStaleBannerHtml({ id: "c1", manual: true }, false), m.clientStaleBannerHtml({ id: "c1" }, false)]',
-     '["",""]',
-     'negative: клиент отвечает — ни тревоги, ни заметки: сказать нечего'),
-    ("discovery_hidden_on_a_manual_client",
-     '',
-     'm.clientDiscoveryBannerHtml({ id: "c1", manual: true }, [{ machine: "m1", suggestedId: "s1" }])',
-     '""',
-     "запись ведёт доска: агенты заводятся ＋ в карточке, и второй, чужой способ рядом — вопрос «какой правильный»"),
-    ("discovery_shown_on_a_scout_client",
-     '',
-     'm.clientDiscoveryBannerHtml({ id: "c1" }, [{ machine: "m1", suggestedId: "s1" }]).includes("data-discover-add")',
-     'true',
-     "negative: у клиента, которого ведёт скаут, предложение остаётся — там это его работа"),
-    ("discovery_empty_when_nothing_found",
-     '',
-     'm.clientDiscoveryBannerHtml({ id: "c1" }, [])',
-     '""',
-     "negative: находок нет — пустая рамка не рисуется"),
-    ("discovery_survives_missing_candidates",
-     '',
-     'm.clientDiscoveryBannerHtml({ id: "c1" }, null)',
-     '""',
-     "boundary: список не пришёл вовсе — это не находки, а их отсутствие"),
     ("fingerprint_sees_a_new_client",
      'st.setTopology({ ...st.topology, clients: [CLIENT()] });'
      ' globalThis.__fp5 = m.topologyStructureFingerprint();'
@@ -184,12 +128,26 @@ PINS = [
      'true',
      "positive: новый клиент — структура, как и было"),
     ("fingerprint_sees_state_change",
-     'st.setTopology({ ...st.topology, clients: [CLIENT({ state: "stale" })] });'
+     'st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true }] });'
      ' globalThis.__fp6 = m.topologyStructureFingerprint();'
-     ' st.setTopology({ ...st.topology, clients: [CLIENT({ state: "online" })] });',
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: false }] });',
      'm.topologyStructureFingerprint() !== globalThis.__fp6',
      'true',
-     "positive: замолчал или отозвался — структура, как и было"),
+     "positive: скаут замолчал или отозвался — структура: у узла появляется или уходит баннер с ✕"),
+    ("fingerprint_sees_a_new_host",
+     'st.setTopology({ ...st.topology, nodes: [] });'
+     ' globalThis.__fpH = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, gpus: [], servers: [] }] });',
+     'm.topologyStructureFingerprint() !== globalThis.__fpH',
+     'true',
+     "positive: появилась машина без видеокарт и ячеек — структура: её id несут строка хостов и строка сборок llama.cpp"),
+    ("fingerprint_ignores_a_client_rows_liveness",
+     'st.setTopology({ ...st.topology, clients: [CLIENT({ state: "stale", gpus: [] })] });'
+     ' globalThis.__fpC = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, clients: [CLIENT({ state: "online", gpus: [{ name: "RTX" }] })] });',
+     'm.topologyStructureFingerprint() === globalThis.__fpC',
+     'true',
+     "negative: у клиента нет своей живости и железа — это поля машины; в строке клиента они больше не структура"),
     ("fingerprint_sees_a_new_assignment",
      'st.setTopology({ ...st.topology, clients: [CLIENT()], assignments: {} });'
      ' globalThis.__fp7 = m.topologyStructureFingerprint();'
@@ -208,6 +166,31 @@ PINS = [
 ]
 
 
+
+
+def _en(key):
+    """A string the pins expect, read out of static/js/i18n/en.js."""
+    text = (ROOT / "static" / "js" / "i18n" / "en.js").read_text(encoding="utf-8")
+    m = re.search(r'^\s*' + re.escape(key) + r':\s*(".*"),\s*$', text, re.M)
+    return json.loads(m.group(1))
+
+
+PINS += [
+    ("live_patch_moves_a_silent_hosts_age",
+     'globalThis.CSS = { escape: (x) => x };'
+     ' const age = { textContent: "" };'
+     ' const nodeEl = { querySelector: (sel) => sel === "[data-live-hostage]" ? age : null };'
+     ' globalThis.__age = age;'
+     ' globalThis.__qs = document.querySelector;'
+     ' document.querySelector = (sel) => sel.includes(\'data-node-id="h1"\') ? nodeEl : null;'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: false, ageSeconds: 900, gpus: [], servers: [] }] });',
+     '(() => { try { m.syncTopologyLive(); return globalThis.__age.textContent; }'
+     ' finally { document.querySelector = globalThis.__qs; } })()',
+     json.dumps(_en("nodeScoutLastReport").replace("{ago}", "15m")),
+     "positive: живой патчер двигает возраст молчащего скаута тем же текстом, что и узел (hostAgeText), — "
+     "иначе починка текста держалась бы один тик опроса"),
+]
+
 _fail = []
 
 
@@ -218,7 +201,10 @@ def check(cond, msg):
 
 
 def main():
-    if len(PINS) < 20:
+    # The floor catches a list cut short by accident, so it follows the list: 15
+    # since the host card's seven pins went with the card (2026-09-24), and
+    # the host's liveness came to the fingerprint and the live patch as three.
+    if len(PINS) < 15:
         print(f"js topology-render FAILED: всего {len(PINS)} пинов — снимок урезан")
         return 1
     node = find_node()

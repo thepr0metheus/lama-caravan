@@ -69,8 +69,8 @@
 
 /* In the clients lane, the "create client" button spans the full width, like
    the cards below it: a 34px square in the corner read as a utility icon,
-   when it's the lane's main action. When the adopt button appears next to
-   it, the two split the width evenly. */
+   when it's the lane's main action. The buttons beside it split the width
+   evenly. */
 .topology-board > .topology-column:first-of-type .topology-head-actions {
   display: flex;
   width: 100%;
@@ -630,7 +630,6 @@ details.topology-server-stats-card > .topology-processes-details {
     var(--shadow);
 }
 
-.topology-card.client-card,
 .topology-card.proxy-card {
   border-color: color-mix(in srgb, var(--topology-accent, var(--line)) 52%, var(--line));
   background:
@@ -638,7 +637,6 @@ details.topology-server-stats-card > .topology-processes-details {
     var(--panel);
 }
 
-.topology-card.client-card::before,
 .topology-card.proxy-card::before {
   content: "";
   position: absolute;

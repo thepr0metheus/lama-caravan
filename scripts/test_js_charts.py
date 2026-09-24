@@ -43,8 +43,8 @@ const m = await import(pathToFileURL(process.env.JS_ROOT + "/charts.js").href);
 const el = () => ({ innerHTML: "", textContent: "" });
 const NODES = () => [
   { id: "controller", role: "controller", ip: "10.0.0.1", servers: [{ port: 22001 }, { port: 22002, clientIp: "10.0.0.1" }] },
-  { id: "box-a", role: "client", ip: "10.0.0.5", servers: [{ port: 22011 }] },
-  { id: "box-b", role: "client", ip: "10.0.0.6", servers: [] },
+  { id: "box-a", role: "host", ip: "10.0.0.5", servers: [{ port: 22011 }] },
+  { id: "box-b", role: "host", ip: "10.0.0.6", servers: [] },
 ];
 const PROXIES = () => [
   { id: "p1", port: 23001, label: "hermes", upstreamHost: "127.0.0.1", upstreamPort: 22001 },

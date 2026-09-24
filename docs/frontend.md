@@ -91,12 +91,13 @@ history filters in history, the cloud-block modal flags in cloud.
      `_topologyRenderPending` and do nothing; `flushPendingTopologyRender()` runs when the
      interaction ends;
   2. `topologyStructureFingerprint(topology)` differs from the last render → full `renderTopology()`;
-  3. otherwise → `syncTopologyLive()` patches only the volatile numbers in place (heartbeat age,
-     CPU/RAM meta, t/s, ctx, download %, GPU util/VRAM bars, sparklines) and redraws cables — DOM,
-     animations and drags survive.
+  3. otherwise → `syncTopologyLive()` patches only the volatile numbers in place (a silent
+     scout's report age on its node, CPU/RAM, t/s, ctx, download %, GPU util/VRAM bars,
+     sparklines) and redraws cables — DOM, animations and drags survive.
 
 The fingerprint covers graph identity only: which cards/handles/cables exist and how they connect
-(clients, servers with their **phase**, GPUs, proxies, cloud providers, view mode, open modals).
+(clients and their agents, hosts and whether their scouts answer, servers with their **phase**,
+GPUs, proxies, cloud providers, view mode, open modals).
 It deliberately **excludes** fast-moving numbers. Any phase transition (`downloading` → `loading`
 → `running`) is structural and forces a full rebuild; the numbers inside a phase are live-patched.
 Around rebuilds, `parkLaneStats()` / `mountNodeTelemetry()` (topology-nodes) move the live chart
@@ -493,17 +494,21 @@ group in `_lastRuntimePanelHtml`), the sticky-bar slot animations, and queue/dur
 
 ## topology-proxies.js
 
-Agent cards on the client hosts (agents grouped per host with their primary/fallback routes) and
-the proxy-port registry: the route form (render/read/save via `/api/agent-proxies/config`), route
+Agent cards in the clients lane (every agent of a client its own card, with its primary/fallback
+routes) and the proxy-port registry: the route form (render/read/save via `/api/agent-proxies/config`), route
 sorting, connect actions (proxy→llama, proxy→cloud), the per-group cloud-fallback toggle.
 Stateless — its open/editing flags live in `ui` (`topologyProxyFormOpen`, `topologyProxyEditingId`).
 
 - Owns: nothing mutable.
-- Key exports: `topologyAgentCard`, `topologyGroupedAgents`, `topologyAssignmentsForHost`, `renderTopologyProxyForm`, `saveTopologyProxyForm`, `sortedTopologyRoutes`.
-- An agent is drawn dead (☠, `agent-stale`, the delete button titled "No link") only by
-  `agentLooksDead`: its machine reports now (`state: "online"`) and does not see it running. A
-  silent machine's agents stay quiet rows — the machine's own card says it is offline, and its
-  agents are records, not liveness. The kanban's `_cvProxyIsStale` asks the same function.
+- Key exports: `topologyAgentCard`, `clientLaneAgentCards`, `topologyAssignmentsForHost`, `renderTopologyProxyForm`, `saveTopologyProxyForm`, `sortedTopologyRoutes`.
+- An agent card makes no claim about whether the agent runs: no report says so any more (the
+  scout knows hardware only). Every agent carries its ✕ (`agent-remove`); the dialog names the
+  ports it leaves free (`savedAgentPorts` in remote-cells.js).
+- The clients lane holds clients only — the operator's records. A client with one agent is drawn
+  as that agent's card, which also carries the client's ＋ (a second agent); with several, a caption
+  row carries ✎ ＋ (`clientNeedsCaption`). There is no "delete client" on the board: a card's own ×
+  removes that card, and the client goes with its last agent. The machine a scout reports is a node,
+  not a card here.
 
 ## topology-nodes.js
 
@@ -514,7 +519,13 @@ elements out of and back into the controller node around `innerHTML` rebuilds so
 survive. Collapsed nodes persist to localStorage.
 
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
-- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`.
+- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`.
+- Every machine with a scout is a node (role `host`), with or without GPUs — the ＋ that reserves a
+  first cell lives here. A host whose scout stopped answering is dimmed and gets a banner under its
+  header: the age of the last report (`hostAgeText`, the same text the live patcher writes) and
+  ✕ «Forget machine» (`node-forget` → `POST /api/topology/host/delete`). Hardware readers —
+  the remote cell form, stop, the nvidia-smi sources, the GPU lane — take the machine from
+  `topology.hosts` (`topologyHost` in remote-cells.js), never from a client row.
 - A controller cell whose launch files only a library holds wears `📚 <library>`
   (`cell-model-in-library`, from `modelStore`), naming the file when it is not the weights
   (`· mmproj`); a parked cell's ≈VRAM badge counts moved weights by the library's measure.
@@ -588,8 +599,8 @@ marching-ants "saving" indicator (`_setRoutersSaving`) since the workspace auto-
 
 ## topology-modals.js
 
-The detail/config modal renderers: llama server detail, client detail (open/refresh), the GPU
-logs/raw-API modal, the raw-config viewer, the agent openclaw-config modal, the priority and
+The detail/config modal renderers: llama server detail, the GPU logs/raw-API modal, the
+raw-config viewer, the priority and
 queue-priority modals (threshold timelines, per-proxy edits), and the weekly schedule modal with
 grid↔rules conversion. Renderers return HTML strings that `renderTopology()` injects;
 topology-dnd wires their buttons.
@@ -613,7 +624,7 @@ confirm modal (`openActionModal`, `openToolbarConfirm`, `closeConfirmModal`, res
 
 Remote cell lifecycle on client hosts: reserve cells, start/stop via `/api/topology/client-llama/*`,
 the `tr-` remote edit form (per-host model caches, GPU pickers, nvidia-smi source buttons), remote
-backups and snapshots, model-cache purge, discovery add, and client/agent/slot deletion. Optimistic
+backups and snapshots, model-cache purge, and client/agent/slot deletion. Optimistic
 pending-start placeholders drive `startRemoteStartWatch()` — a 2 s `refreshTopology()` loop that
 stops itself when nothing is starting, with a 240 s timeout turning placeholders terminal.
 
@@ -651,7 +662,7 @@ Events tab (raw), date selection, client/via/status filters, and a per-row detai
 
 ## system-panels.js
 
-Controller-level panels: service summary, runtime, CPU/GPU, section tips, OpenClaw links, project
+Controller-level panels: service summary, runtime, CPU/GPU, section tips, project
 git branch, Known Problems, and the System info modal (where the llama.cpp build panel and Known
 Problems moved when the Classic view was retired), plus the llama.cpp check/update/revert and
 repair-user-service flows. Stateless.

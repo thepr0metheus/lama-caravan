@@ -13,6 +13,11 @@ kept its own template — and the fix held for exactly one frame: the very
 next tick brought back "?s ago". Snapshots never saw it, because the pins sit
 on the builder, and the patcher isn't loaded by them.
 
+The fact moved with the host card (2026-09-24): a client is the operator's
+record and never answers; the silence the board tells about is the scout's,
+on the machine's node, and its age is written by the node builder and the
+patcher alike.
+
 The guard fails TWO ways: when a fact gets computed somewhere else again, and
 when the sole source stops computing it — then there's nothing left to guard.
 
@@ -28,16 +33,17 @@ ROOT = Path(__file__).resolve().parent.parent
 #: The COMPUTATION PATTERN is searched for, not words: reading the same fact
 #: elsewhere is not forbidden.
 SHARED_FACTS = {
-    "возраст ответа клиента": (
-        re.compile(r"`\$\{[^`]*\}s ago`"),
-        "static/js/topology-activity.js",
-        "clientAgeText",
+    "возраст отчёта скаута": (
+        re.compile(r't\("nodeScoutLastReport"'),
+        "static/js/topology-nodes.js",
+        "hostAgeText",
     ),
 }
 
 #: Files that draw the board: the builder, the patcher, and everything in between.
 BOARD_FILES = ("static/js/topology-render.js", "static/js/topology-activity.js",
-               "static/js/topology-proxies.js", "static/js/remote-cells.js")
+               "static/js/topology-proxies.js", "static/js/remote-cells.js",
+               "static/js/topology-nodes.js")
 
 
 def main():

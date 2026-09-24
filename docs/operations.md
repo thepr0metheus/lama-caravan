@@ -156,7 +156,7 @@ controller and reconnects by itself:
 3. Change `Environment=LLAMACPP_ADMIN_PORT=` in the unit, `daemon-reload`,
    restart. Heartbeats resume within one interval.
 4. Verify each client's `lastSeen` on the board before touching anything else.
-5. Sweep the leftovers: OpenClaw config-manager URLs, bookmarks, and any
+5. Sweep the leftovers: bookmarks, and any
    `config.json.bak-*` that would resurrect the old address on a restore.
 
 Run the admin against scratch state so you don't touch `~/.local/state` or

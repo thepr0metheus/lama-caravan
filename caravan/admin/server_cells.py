@@ -307,34 +307,3 @@ def delete_server_slot(host_id, port):
     if removed is not None:
         save_admin_state()
     return removed is not None
-
-def normalize_topology_agent(agent):
-    if not isinstance(agent, dict):
-        return None
-    agent_id = str(agent.get("id") or agent.get("name") or "").strip()[:120]
-    if not agent_id:
-        return None
-    row = {
-        "id": agent_id,
-        "name": str(agent.get("name") or agent_id).strip()[:120],
-        "kind": str(agent.get("kind") or "manual").strip()[:80],
-        "status": str(agent.get("status") or "configured").strip()[:80],
-    }
-    for key, limit in {
-        "runtime": 80,
-        "scope": 80,
-        "container": 120,
-        "port": 20,
-        "endpoint": 240,
-        "url": 240,
-        "description": 240,
-    }.items():
-        value = agent.get(key)
-        if value is not None and str(value).strip():
-            row[key] = str(value).strip()[:limit]
-    rd = agent.get("runtimeDetected")
-    if rd is not None:
-        row["runtimeDetected"] = bool(rd)
-    return row
-
-

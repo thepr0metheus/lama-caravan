@@ -106,7 +106,7 @@ out.cellQuiet = Object.fromEntries([
 ].map(([k, f]) => [k, CardFold.cellQuiet(f)]));
 out.agentQuiet = Object.fromEntries([
   ["one", { routes: 1 }], ["two", { routes: 2 }], ["none", { routes: 0 }], ["asText", { routes: "2" }],
-  ["stale", { routes: 1, stale: true }], ["incident", { routes: 1, incident: true }], ["missing", {}],
+  ["oldStale", { routes: 1, stale: true }], ["incident", { routes: 1, incident: true }], ["missing", {}],
 ].map(([k, f]) => [k, CardFold.agentQuiet(f)]));
 
 // ── FoldPeek: clicks and keys ───────────────────────────────────────────
@@ -256,7 +256,9 @@ print("что тихо у агента:")
 aq = got["agentQuiet"]
 check(aq["one"] and aq["two"] and aq["asText"], "один или два маршрута — тихо; число строкой — тоже число")
 check(not aq["none"], "без маршрута — не тихо: агент, который никуда не ходит, — самый громкий случай ленты")
-check(not aq["stale"] and not aq["incident"], "исчезнувшая машина агента и инцидент на маршруте — не тихо")
+check(not aq["incident"], "инцидент на маршруте — не тихо")
+check(aq["oldStale"], "«stale» больше ничего не решает: живость агента никто не сообщает, "
+      "и свернуться ему не мешает слово, которое некому сказать")
 check(not aq["missing"], "нет фактов — не тихо")
 
 print("FoldPeek — клики и клавиши:")

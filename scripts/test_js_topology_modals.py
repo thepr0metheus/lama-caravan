@@ -64,8 +64,8 @@ const ROUTER = () => ({ id: "router:sched", name: "sched", outputs: [{ id: "srv:
   rules: { default: "srv:22001", schedule: [{ days: ["mon", "tue"], from: "09:00", to: "17:59", output: "cb:terra" }] } });
 const TOPO = (extra = {}) => ({ proxies: PROXIES(), clients: [{ id: "box-a", name: "Box A", agents: [{ id: "hermes", name: "Hermes" }] }], routers: [ROUTER()], assignments: {}, proxyPolicy: { cloudFallbackPct: 20, priorityPreemptPct: 50, queueAbortPct: 85, preemptGraceSec: 20 }, ...extra });
 const reset = () => {
-  st.setState({ config: {} }); st.setTopology(TOPO()); st.ui.latestSystemMonitor = null; st.ui.topologyAgentConfigMode = "";
-  m.closeQueuePriorityModal(); m.closePriorityModal(); m.closeClientDetail(); m.closeAgentConfigModal(); m.closeRawConfigViewer();
+  st.setState({ config: {} }); st.setTopology(TOPO()); st.ui.latestSystemMonitor = null;
+  m.closeQueuePriorityModal(); m.closePriorityModal(); m.closeRawConfigViewer();
   globalThis.__fields = { toast: toastEl() };
   globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {};
   globalThis.__stubReturns = { "canvas.scheduleOutputColor": (r, id) => (id ? "#123456" : ""), "polling.formatTps": (v) => `${v} t/s`, "dialogs.appPrompt": async () => null };
@@ -117,29 +117,7 @@ PINS = [
      '[168,18,3,18]', "7×24 клеток; закрашены 2 дня × 9 часов; палитра = выходы + ластик; цвет из canvas на каждой закрашенной"),
     ("schedule_modal_router_missing", 'st.setTopology(TOPO({ routers: [] }));', 'm.renderTopologyScheduleModal()', '""', "negative: роутер модала не найден — пустая строка"),
     # ── client details ──
-    ("client_detail_closed", '', 'm.renderTopologyClientDetail()', '""', "negative: детали не открыты — пусто"),
-    ("client_detail_no_manager", 'm.openClientDetail("box-a", "Hermes");',
-     '(h => [h.includes("OpenClaw config — Box A · Hermes"), h.includes("No OpenClaw config manager registered for <code>box-a</code>")])(m.renderTopologyClientDetail())',
-     '[true,true]', "без менеджера конфига — так и сказано, заголовок «хост · агент»"),
-    ("client_detail_unreachable", 'st.setTopology(TOPO({ openclawConfigs: { "box-a": { ok: false, url: "http://box-a:18789", error: "timeout" } } })); m.openClientDetail("box-a", "Box A");',
-     '(h => [h.includes("Could not reach <code>http://box-a:18789</code>: timeout"), h.includes("OpenClaw config — Box A<")])(m.renderTopologyClientDetail())',
-     '[true,true]', "не достучались — URL и причина; имя агента = имя хоста → без « · »"),
-    ("client_detail_ok_body", 'st.setTopology(TOPO({ openclawConfigs: { "box-a": { ok: true, fetchedAt: 1700000000, data: { agents: { defaults: { timeoutSeconds: 600, contextTokens: 158000, model: { primary: "p/gpt", fallbacks: ["f/mini"] } } }, models: { providers: { p: { baseUrl: "http://ctl:23001/v1", timeoutSeconds: 600, models: [{ id: "gpt", contextWindow: 158000, maxTokens: 4096 }] } } }, gateway: { port: 18789, bind: "lan", auth: { mode: "token" } } } } } })); m.openClientDetail("box-a");',
-     '(h => [h.includes("<code>p/gpt</code>"), h.includes("<code>f/mini</code>"), h.includes("http://ctl:23001/v1"), h.includes("ctx 158000 · max 4096"), h.includes("<strong>18789</strong>"), h.includes("Fetched ")])(m.renderTopologyClientDetail())',
-     '[true,true,true,true,true,true]', "ok: primary/fallback, провайдер с URL и моделью, шлюз, время выборки"),
-    ("openclaw_body_without_providers", '', 'm.renderOpenclawConfigBody({}, null).includes("no providers configured")', 'true', "negative: пустой конфиг — «no providers configured», без исключения"),
-    ("refresh_client_detail_stores_reply", 'm.openClientDetail("box-a"); globalThis.__fetchReply["/api/openclaw-config?client=box-a&refresh=1"] = { ok: true, data: { gateway: { port: 1 } } };',
-     'await (async () => { await m.refreshClientDetail(); return [calls()[0].path, st.topology.openclawConfigs["box-a"].data.gateway.port, m.topologyClientDetailLoading]; })()',
-     '["/api/openclaw-config?client=box-a&refresh=1",1,false]', "обновление: GET с refresh=1, ответ ложится в topology, флаг загрузки снят"),
-    ("refresh_client_detail_closed_is_noop", '', 'await (async () => { await m.refreshClientDetail(); return calls().length; })()', '0', "negative: детали закрыты — запроса нет"),
     # ── agent config ──
-    ("agent_config_closed", '', 'm.renderTopologyAgentConfigModal()', '""', "negative: режим пуст — пусто"),
-    ("agent_config_ports_mode_roles", 'globalThis.__fetchReply["/api/topology/agent-openclaw?client=box-a&agent=hermes"] = { ok: true, path: "/home/x/.openclaw/openclaw.json", data: { agents: { defaults: { model: { primary: "hemi/gpt", fallbacks: ["spare/mini"] } } }, models: { providers: { hemi: { baseUrl: "http://ctl:23001/v1" }, spare: { baseUrl: "http://ctl:23002/v1" }, other: { baseUrl: "http://x" } } } } };',
-     'await (async () => { await m.openAgentConfigModal("box-a", "hermes", "ports"); const h = m.renderTopologyAgentConfigModal(); return [h.includes("Hermes — .openclaw/openclaw.json"), h.includes("<strong>hemi</strong>\\n          <span class=\\"proxy-role-label\\">primary</span>"), h.includes("<strong>spare</strong>\\n          <span class=\\"proxy-role-label\\">fallback</span>"), h.includes("<strong>other</strong>\\n          \\n"), m.topologyAgentConfigLoading]; })()',
-     '[true,true,true,true,false]', "режим ports: роли primary/fallback из ссылок defaults, прочие без роли"),
-    ("agent_config_raw_mode_and_error", 'globalThis.__fetchReply["/api/topology/agent-openclaw?client=box-a&agent=hermes"] = { __status: 502, error: "scout down" };',
-     'await (async () => { await m.openAgentConfigModal("box-a", "hermes", "raw"); return [m.renderTopologyAgentConfigModal().includes("topology-incident-line failed\\">scout down"), m.topologyAgentConfigResult.ok]; })()',
-     '[true,false]', "negative: отказ скаута — строка ошибки, результат ok:false"),
     # ── queue and priorities: rendering ──
     ("queue_modal_closed", '', 'm.renderTopologyQueuePriorityModal()', '""', "negative: модал очереди закрыт — пусто"),
     ("queue_modal_policy_and_edits", 'm.openQueuePriorityModal(); m.topologyQueuePriorityEdits.cloudFallbackPct = 30;',

@@ -101,14 +101,15 @@ class TopologyStore:
     def clients(self):
         return self._section("clients")
 
+    def hosts(self):
+        """Machines with a scout: what their reports say (HostRecord)."""
+        return self._section("hosts")
+
     def assignments(self):
         return self._section("assignments")
 
     def aliases(self):
         return self._section("clientAliases")
-
-    def deleted_agents(self):
-        return self._section("deletedAgents")
 
     def power_schedules(self):
         return self._section("hostPowerSchedules")

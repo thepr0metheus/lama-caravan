@@ -32,8 +32,9 @@ import time
 
 from caravan.admin.fleet_clients import _scout_headers, post_json
 from caravan.admin.paths import is_controller_host
-from caravan.admin.state import topology_store
+from caravan.admin.state import topology as topo
 from caravan.common.errors import AppError
+from caravan.service.scout import Scout
 
 ACTIONS = ("reboot", "poweroff")
 
@@ -71,16 +72,7 @@ def host_power(body: dict, action: str = "reboot") -> dict:
         return {"ok": True, "hostId": host_id, "action": action,
                 "result": _local(action), "at": int(time.time())}
 
-    store = topology_store()
-    meta = (store.get("clients") or {}).get(host_id)
-    if not meta:
-        raise AppError(f"client not registered: {host_id}", 404)
-    agent_url = str(
-        ((store.get("assignments") or {}).get(host_id) or {}).get("agentUrl")
-        or meta.get("agentUrl") or ""
-    ).rstrip("/")
-    if not agent_url:
-        raise AppError(f"no agentUrl for client {host_id}", 400)
+    agent_url = Scout.for_host(host_id, topo).agent_url
     try:
         # Short timeout on purpose: the scout answers before rebooting, and a
         # box that is already going down must not hold the board's request open.

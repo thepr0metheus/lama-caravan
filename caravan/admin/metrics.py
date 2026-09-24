@@ -14,8 +14,10 @@ from caravan import __version__ as APP_VERSION
 from caravan.admin.config_builder import models_dir_from_config, parse_config
 from caravan.admin.monitoring import gpu_state
 from caravan.admin.proxy_stats import agent_proxy_sample, proxy_daily_stats
+from caravan.admin.paths import HOST_REPORT_TTL
 from caravan.admin.state import topology_store
 from caravan.admin.systemd_ctl import systemctl
+from caravan.domain.host import HostRecord
 
 
 def _esc(value):
@@ -43,16 +45,20 @@ def build_metrics_text():
     # ── clients ──────────────────────────────────────────────────────────────
     now = time.time()
     store = topology_store()
-    metric("caravan_client_online", "1 when the client heartbeated within 3 minutes")
-    metric("caravan_client_last_seen_seconds", "Seconds since the client's last heartbeat")
-    for client in (store.get("clients") or {}).values():
-        host = str(client.get("id") or "")
-        last = float(client.get("lastSeen") or 0)
+    metric("caravan_client_online", "1 while the machine's scout reported within the host report window")
+    metric("caravan_client_last_seen_seconds", "Seconds since the machine's scout last reported")
+    # Machines with a scout — the only records a heartbeat writes. The names
+    # keep "client" so existing dashboards keep their series. Online by the
+    # board's own rule (HostRecord.liveness, HOST_REPORT_TTL): the gauge and
+    # the node's banner cannot disagree about the same machine.
+    for record in (store.get("hosts") or {}).values():
+        host = str(record.get("id") or "")
         if not host:
             continue
-        sample("caravan_client_online", 1 if now - last < 180 else 0, {"host": host})
-        if last:
-            sample("caravan_client_last_seen_seconds", round(now - last, 1), {"host": host})
+        state, age = HostRecord.liveness(record, int(now), HOST_REPORT_TTL)
+        sample("caravan_client_online", 1 if state == "online" else 0, {"host": host})
+        if age is not None:
+            sample("caravan_client_last_seen_seconds", round(now - float(record.get("lastSeen") or 0), 1), {"host": host})
 
     # ── cells ────────────────────────────────────────────────────────────────
     slots = store.get("serverSlots") or {}

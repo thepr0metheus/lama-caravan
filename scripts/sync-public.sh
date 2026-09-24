@@ -46,7 +46,7 @@ DRY=0
 # docs/oop-rewrite.md and docs/clients-page.md are working journals — session
 # notes in the operator's voice, not documentation of the project. Asked to stay
 # private on 2026-09-05; the public reference for modules is docs/frontend.md.
-EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|docs/oop-rewrite\.md|docs/clients-page\.md|scripts/refactor/|tests/golden/)'
+EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|docs/oop-rewrite\.md|docs/clients-page\.md|docs/scout-split\.md|scripts/refactor/|tests/golden/)'
 
 # Anything matching this in the public tree stops the sync. Machine names and
 # addresses are the operator's, not the project's; "Revoice" is a private
@@ -152,7 +152,7 @@ head1 "гварды и тесты на публичном дереве"
   done
   printf '  %-30s ' "testability_names"
   python3 scripts/testability_names.py --check >/dev/null 2>&1 && echo "✓" || { echo "✗"; exit 1; }
-  for t in test_guards_fail test_cell_servers test_settings_bundle test_download_retry test_auto_provision test_admin_store test_topology_store test_proxy_store test_auth_store test_cloud_store test_slot_artifacts test_scout_errors test_query_flags; do
+  for t in test_guards_fail test_cell_servers test_settings_bundle test_download_retry test_client_records test_queue_thresholds test_admin_store test_topology_store test_proxy_store test_auth_store test_cloud_store test_slot_artifacts test_scout_errors test_query_flags; do
       printf '  %-30s ' "$t"; python3 "scripts/$t.py" >/dev/null 2>&1 && echo "✓" || { echo "✗"; exit 1; }
   done
 ) || die "проверки на публичном дереве не прошли"

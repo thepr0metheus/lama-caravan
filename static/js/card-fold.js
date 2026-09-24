@@ -106,11 +106,13 @@ export class CardFold {
     return settled && !f.transient && !f.crashed && !f.unreachable;
   }
 
-  /** Whether an agent may fold: it goes somewhere, and nothing about it is
-   *  wrong. An agent with no route at all is the loudest case of the lane —
-   *  folded, it would read as one more quiet line. */
+  /** Whether an agent may fold: it goes somewhere, and its last request did
+   *  not fail. An agent with no route at all is the loudest case of the lane —
+   *  folded, it would read as one more quiet line. There is no "stale" here any
+   *  more: no report says whether an agent runs, so nothing may fold on it or
+   *  refuse to. */
   static agentQuiet(f = {}) {
-    return Number(f.routes) > 0 && !f.stale && !f.incident;
+    return Number(f.routes) > 0 && !f.incident;
   }
 }
 

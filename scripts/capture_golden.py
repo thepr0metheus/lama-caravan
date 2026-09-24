@@ -110,9 +110,14 @@ def api_shape(value, depth=0):
 # and the fleet token does not open them. Calling the builder on the controller
 # is both simpler and closer to the point: what is being pinned is the shape the
 # CODE produces, not what the transport layer wraps around it.
+#
+# The board's builder is called WITHOUT asking the scouts for fresher reports.
+# That ask starts a background pull which writes the admin state file — from
+# this second process, next to the live service writing the same file. A
+# photograph must not touch what it photographs.
 SHAPE_SOURCES = {
     "state": "from caravan.admin.status import state as f",
-    "topology": "from caravan.admin.topology import topology_state as f",
+    "topology": "from caravan.admin.topology import topology_state; f = lambda: topology_state(refresh_hosts=False)",
     "controller-info": "from caravan.admin.status import controller_info as f",
 }
 

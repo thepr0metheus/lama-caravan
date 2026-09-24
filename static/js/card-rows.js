@@ -60,7 +60,6 @@ export class AgentRow {
     this.key = String(f.key || "");
     this.name = String(f.name || "");
     this.kind = String(f.kind || "");
-    this.stale = !!f.stale;
     this.routes = (f.routes || []).filter((r) => r && r.port);
   }
 
@@ -71,7 +70,7 @@ export class AgentRow {
       r.waitSec ? `<span class="ar-meta">${escapeHtml(t("routeWaitLabel", { sec: String(r.waitSec) }))}</span>` : "",
       r.limit ? `<span class="ar-meta">${escapeHtml(t("routeCtxLimit", { value: String(r.limit) }))}</span>` : "",
     ].join("");
-    return `<div class="ar-route ${escapeHtml(r.role)}${r.muted ? " muted" : ""}">${r.anchor || ""}`
+    return `<div class="ar-route ${escapeHtml(r.role)}">${r.anchor || ""}`
       + `<span class="${face.cls}" title="${escapeHtml(face.tip ? t(face.tip) : "")}">${face.glyph}</span>`
       + `<span class="ar-port" title="${escapeHtml(r.address || "")}">${r.role === "fallback" ? "↪ " : ""}:${escapeHtml(String(r.port))}</span>`
       + `${facts}${r.errBadge || ""}</div>`;

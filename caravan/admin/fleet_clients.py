@@ -1,5 +1,6 @@
-"""Client fleet management: heartbeats, remote llama-node lifecycle via the
-route-agent HTTP API, agent auto-provisioning and fleet-registry discovery."""
+"""Client fleet management: scout heartbeats (the machine only), remote
+llama-node lifecycle through the scout's HTTP API, and the client records the
+operator makes by hand — agents, their assignment rows, names."""
 import json
 import secrets
 import os
@@ -14,26 +15,19 @@ from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args,
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
 from caravan.admin.launch import render_command_cell_shell_line, _sanitize_snapshot_name
 from caravan.admin.paths import (
-    AGENT_PROXY_BASE_PORT,
     CONTROLLER_HOST_ID,
     LEGACY_CONTROLLER_HOST_IDS,
-    FLEET_REGISTRY_URL,
-    TOPOLOGY_SERVER_IP,
+    HOST_REPORT_TTL,
     SERVER_BACKUPS_DIR,
-    TOPOLOGY_CLIENT_TTL,
     is_controller_host,
 )
 from caravan.admin.proxies_config import (
-    load_agent_proxy_config,
-    normalize_routers,
     read_agent_proxy_payload,
     write_agent_proxy_payload,
 )
-from caravan.admin.router_dsl import DEFAULT_ROUTER_ID, normalize_agent_proxy_policy
 from caravan.admin.server_cells import (
     assert_server_cell_port_available,
     move_server_cell,
-    normalize_topology_agent,
     server_slot_key,
     upsert_server_slot,
 )
@@ -43,7 +37,9 @@ from caravan.admin.systemd_ctl import restart_agent_proxy
 from caravan.admin.telemetry import _normalize_modalities
 from caravan.common.errors import AppError
 from caravan.domain.client import FleetClient
-from caravan.domain.client_proxy import PROXY_ID_PREFIX, AgentAssignment, ProxyRoute
+from caravan.domain.host import HostRecord
+from caravan.admin.scout_poll import ScoutPoller
+from caravan.domain.client_proxy import PROXY_ID_PREFIX
 from caravan.common.fetch import fetch_json, post_json
 from caravan.service.scout import Scout
 
@@ -63,17 +59,6 @@ def client_monitor(host_id: str, kind: str) -> dict:
         raise AppError("hostId is required", 400)
     if kind not in ("nvidia-smi",):
         raise AppError(f"unsupported monitor kind: {kind}", 400)
-    store = topology_store()
-    client = store["clients"].get(host_id)
-    if not client:
-        raise AppError(f"client not registered: {host_id}", 404)
-    assignments = store.get("assignments", {})
-    agent_url = str(
-        (assignments.get(host_id) or {}).get("agentUrl") or
-        client.get("agentUrl") or ""
-    ).rstrip("/")
-    if not agent_url:
-        raise AppError(f"no agentUrl for client {host_id}", 400)
     return _scout(host_id).read(f"/api/monitor/{kind}", timeout=5)
 
 def client_llama_update(body: dict) -> dict:
@@ -99,17 +84,9 @@ def client_llama_start(body: dict) -> dict:
     host_id = str(body.get("hostId") or "").strip()
     if not host_id:
         raise AppError("hostId is required", 400)
-    store = topology_store()
-    assignments = store.get("assignments", {})
-    client_meta = store["clients"].get(host_id)
-    if not client_meta:
-        raise AppError(f"client not registered: {host_id}", 404)
-    agent_url = str(
-        (assignments.get(host_id) or {}).get("agentUrl") or
-        client_meta.get("agentUrl") or ""
-    ).rstrip("/")
-    if not agent_url:
-        raise AppError(f"no agentUrl for client {host_id}", 400)
+    # Refuses an unknown host or one without a scout address before anything
+    # is moved or reserved below.
+    scout = _scout(host_id)
 
     payload = {
         "modelPath": str(body.get("modelPath") or "").strip(),
@@ -160,7 +137,7 @@ def client_llama_start(body: dict) -> dict:
         key = server_slot_key(host_id, payload["port"])
         assert_server_cell_port_available(payload["port"], exclude_key=key if topo.has_slot(host_id, payload["port"]) else None)
 
-    result = _scout(host_id).post("/api/llama-node/start", payload, timeout=10)
+    result = scout.post("/api/llama-node/start", payload, timeout=10)
     if result.get("ok"):
         # Persist a server slot so the proxy cable stays attached across
         # stop / model change.
@@ -172,13 +149,8 @@ def client_llama_start(body: dict) -> dict:
     return {"ok": result.get("ok", False), "hostId": host_id, "result": result}
 
 def _scout(host_id):
-    """The scout of a registered client, ready to be called."""
+    """The scout of a machine that reported, ready to be called."""
     return Scout.for_host(host_id, topo, headers=_scout_headers())
-
-
-def _client_agent_url(host_id: str) -> str:
-    """Return agentUrl for a registered client, raise AppError if not found."""
-    return _scout(host_id).agent_url
 
 def _safe_path_seg(value, fallback="_"):
     """Sanitize one path segment (host id / GPU model) for use as a folder name."""
@@ -346,93 +318,6 @@ def topology_client_add_agent(body: dict) -> dict:
     return agent
 
 
-def restore_hand_agents() -> dict:
-    """Give back to hand-made clients the agents their records lost.
-
-    Until 2026-09-24 a report could remove a hand-made client's agent: a scout
-    whose fleet registry did not answer reported only its static agent, and
-    nine agents vanished from the board while their proxy ports and routes
-    stayed — the traffic panel listed fifteen ports, the lane showed six cards.
-    Reports can no longer do that (FleetClient.keep_record_agents); this puts
-    back what they already did.
-
-    The controller's own record says who they were: an agent row in the
-    client's assignments that still carries a route. An agent the operator
-    deleted stays deleted — its tombstone wins. Every agent of a hand-made
-    client is marked the operator's while at it, so adoption before this rule
-    and after it leave the same record. Idempotent: a second run finds nothing.
-
-    Returns {"restored": [(clientId, agentId), ...], "marked": n}.
-    """
-    store = topology_store()
-    labels = {f"{PROXY_ID_PREFIX}{r.get('port')}": str(r.get("label") or "")
-              for r in (load_agent_proxy_config().get("routes") or []) if r.get("port")}
-    tombstones = store.get("deletedAgents") or {}
-    restored, marked = [], 0
-    for host_id, client in (store.get("clients") or {}).items():
-        if not isinstance(client, dict) or not client.get("manual"):
-            continue
-        agents = client.setdefault("agents", [])
-        have = {str(a.get("id") or "") for a in agents if isinstance(a, dict)}
-        gone = {str(x) for x in (tombstones.get(host_id) or [])}
-        for row in ((store.get("assignments") or {}).get(host_id) or {}).get("assignments") or []:
-            agent_id = str((row or {}).get("agentId") or "")
-            routes = [r for r in (row or {}).get("routes") or [] if isinstance(r, dict) and r.get("proxyId")]
-            if not agent_id or agent_id in have or agent_id in gone or not routes:
-                continue
-            primary = next((r for r in routes if (r.get("role") or "primary") == "primary"), routes[0])
-            agents.append(FleetClient.agent_from_port(agent_id, labels.get(str(primary["proxyId"]), "")))
-            have.add(agent_id)
-            restored.append((host_id, agent_id))
-        for agent in agents:
-            if isinstance(agent, dict) and not agent.get("manual"):
-                agent["manual"] = True
-                marked += 1
-    if restored or marked:
-        save_admin_state()
-    return {"restored": restored, "marked": marked}
-
-
-def adopt_scout_clients() -> dict:
-    """Make the board the owner of records that caravan-scout created.
-
-    Nothing is created or deleted: exactly one fact changes on each record —
-    who owns it. After that, provisioning leaves it alone, and the scout
-    stays the source of liveness info, same as before. The operation is
-    idempotent: a second call finds nothing, because there's nothing left to
-    find.
-
-    Reported as numbers, not "done": the operator needs to see exactly what
-    happened, especially when nothing happened at all.
-    """
-    store = topology_store()
-    clients = store.get("clients") or {}
-    assignments = store.get("assignments") or {}
-    touched_clients = 0
-    touched_agents = 0
-    for host_id, client in clients.items():
-        changed = FleetClient.adopt(client)
-        if str(host_id).casefold() in {r.casefold() for r in FleetClient.RESERVED_IDS}:
-            continue
-        rows = (assignments.get(host_id) or {}).get("assignments")
-        for index, raw in enumerate(rows if isinstance(rows, list) else []):
-            if not isinstance(raw, dict) or raw.get("manual"):
-                continue
-            # Through the carrying constructor, not built from scratch: the
-            # record carries the operator's settings, and adoption is no
-            # reason to rebuild them.
-            assignment = AgentAssignment.from_raw(raw)
-            assignment.manual = True
-            rows[index] = assignment.to_dict()
-            touched_agents += 1
-            changed = True
-        if changed:
-            touched_clients += 1
-    if touched_clients or touched_agents:
-        save_admin_state()
-    return {"clients": touched_clients, "agents": touched_agents}
-
-
 def topology_client_create(body: dict) -> dict:
     """Create a client by hand. It's an ordinary one — it just hasn't answered yet.
 
@@ -447,9 +332,8 @@ def topology_client_create(body: dict) -> dict:
     for; an agent nobody wanted is removed with a single ✕.
     """
     store = topology_store()
-    row = FleetClient.manual(body.get("hostId") or body.get("id"),
-                             name=body.get("name"), ip=body.get("ip"),
-                             agent_url=body.get("agentUrl"))
+    row = FleetClient.new(body.get("hostId") or body.get("id"),
+                          name=body.get("name"), ip=body.get("ip"))
     if row["id"] in store["clients"]:
         raise AppError(f'client already exists: {row["id"]}', 409)
     FleetClient.add_agent(row, row["id"], name=row.get("name") or row["id"])
@@ -466,46 +350,57 @@ def topology_client_delete(body: dict) -> dict:
     if client_id not in store["clients"]:
         raise AppError(f"client not found: {client_id}", 404)
     del store["clients"][client_id]
-    # Remove assignments so auto-provisioning doesn't recreate stale proxy entries.
+    # The assignment row goes with its client: left behind, it would claim the
+    # ports for agents nobody draws. The machine's host record is not touched —
+    # a client and a host share an id, never a record.
     store.get("assignments", {}).pop(client_id, None)
     save_admin_state()
     return {"ok": True, "clientId": client_id}
 
-def topology_discover_add(body: dict) -> dict:
-    """Register a discovered candidate into the fleet registry (the dashboard).
 
-    POSTs {id, name, host, port, ...} to <FLEET_REGISTRY_URL>/api/agents. After this the
-    agent is in the single source of truth and will appear via the normal registry path."""
-    agent_id = str(body.get("id") or body.get("suggestedId") or "").strip()
-    host = str(body.get("host") or body.get("ip") or "").strip()
-    try:
-        port = int(body.get("port"))
-    except (TypeError, ValueError):
-        port = 0
-    if not agent_id:
-        raise AppError("id is required", 400)
-    if not host or not port:
-        raise AppError("host and port are required", 400)
-    if not FLEET_REGISTRY_URL:
-        raise AppError("fleet registry is not configured (set FLEET_REGISTRY_URL)", 400)
-    entry = {
-        "id": agent_id,
-        "name": str(body.get("name") or agent_id).strip(),
-        "host": host,
-        "port": port,
-    }
-    for opt in ("emoji", "role", "dept", "placement"):
-        if body.get(opt):
-            entry[opt] = str(body.get(opt)).strip()
-    entry.setdefault("placement", f"VM agent-{agent_id}")
-    url = FLEET_REGISTRY_URL.rstrip("/") + "/api/agents"
-    try:
-        result = post_json(url, entry, timeout=8, headers=_scout_headers())
-    except Exception as exc:
-        raise AppError(f"registry POST failed ({url}): {exc}", 502)
-    return {"ok": True, "registered": entry, "registry": url, "result": result}
+def topology_host_delete(body: dict) -> dict:
+    """Forget a machine whose scout went silent: its host record, nothing else.
+
+    The cells configured on it stay in the store and come back with the
+    machine when its scout reports again; a client with the same id is the
+    operator's record and is not touched.
+
+    A scout that is still answering is refused rather than forgotten: its next
+    report, a minute later, would bring the card straight back, and a delete
+    that undoes itself reads as a delete that did not work.
+    """
+    host_id = str(body.get("hostId") or "").strip()
+    if not host_id:
+        raise AppError("hostId is required", 400)
+    store = topology_store()
+    host = store["hosts"].get(host_id)
+    if host is None:
+        raise AppError(f"host not found: {host_id}", 404)
+    state, _age = HostRecord.liveness(host, int(time.time()), HOST_REPORT_TTL)
+    if state == "online":
+        raise AppError(f"host {host_id} is online: its scout is still reporting; "
+                       f"stop the scout first", 409)
+    del store["hosts"][host_id]
+    save_admin_state()
+    return {"ok": True, "hostId": host_id}
 
 def topology_client_agent_delete(body: dict) -> dict:
+    """Remove an agent from its client: the record and its assignment row.
+
+    The ports it went through stay — unclaimed, on the kanban among the free
+    ones, ready to be bound to another agent or deleted in the port's window.
+    Deleting a port is its own decision: it takes the port's key and settings
+    with it. `freedPorts` names the ports no agent claims any more.
+
+    The row used to stay behind, and the agent's ports then showed up as an
+    orphan with a skull and a second delete of their own.
+
+    The last agent takes its client with it (`clientRemoved`). On the board a
+    client is its agents' cards; a client with none is a record no card
+    shows, and it used to surface as a bare name row with a delete of its own
+    — the row whose ✕ an operator took for a leftover and pressed, taking ten
+    agents with it (2026-09-24). A card's own ✕ now removes exactly that card.
+    """
     client_id = str(body.get("clientId") or "").strip()
     agent_id = str(body.get("agentId") or "").strip()
     if not client_id:
@@ -520,12 +415,30 @@ def topology_client_agent_delete(body: dict) -> dict:
     client["agents"] = [a for a in (client.get("agents") or []) if str(a.get("id") or "") != agent_id]
     if len(client.get("agents") or []) == before:
         raise AppError(f"agent not found: {agent_id}", 404)
-    # Record tombstone so refresh_topology_clients_from_agents() doesn't re-add it.
-    tombstones = store["deletedAgents"].setdefault(client_id, [])
-    if agent_id not in tombstones:
-        tombstones.append(agent_id)
+    claims = assignment_port_claims(store)
+    host_entry = (store.get("assignments") or {}).get(client_id) or {}
+    rows = host_entry.get("assignments") or []
+    held = set()
+    for row in rows:
+        if str(row.get("agentId") or "") != agent_id:
+            continue
+        for route in row.get("routes") or []:
+            pid = str(route.get("proxyId") or "")
+            if pid.startswith(PROXY_ID_PREFIX):
+                try:
+                    held.add(int(pid.removeprefix(PROXY_ID_PREFIX)))
+                except ValueError:
+                    pass
+    if rows:
+        host_entry["assignments"] = [r for r in rows if str(r.get("agentId") or "") != agent_id]
+    client_removed = not client.get("agents")
+    if client_removed:
+        del store["clients"][client_id]
+        store.get("assignments", {}).pop(client_id, None)
     save_admin_state()
-    return {"ok": True, "clientId": client_id, "agentId": agent_id}
+    freed = sorted(port for port in held if claims.get(port, 0) <= 1)
+    return {"ok": True, "clientId": client_id, "agentId": agent_id, "freedPorts": freed,
+            "clientRemoved": client_removed}
 
 def assignment_port_claims(store) -> dict:
     """port → how many assignment entries (any host, any agent) route through it.
@@ -548,54 +461,6 @@ def assignment_port_claims(store) -> dict:
                         claims[port] = claims.get(port, 0) + 1
     return claims
 
-
-def topology_orphan_assignment_delete(body: dict) -> dict:
-    """Delete a dead-agent assignment (agentId no longer reported by the host) and
-    free the proxy ports it held. Routes are removed from agent-proxies.json; the
-    proxy's listener_watcher unbinds them by mtime — no service restart needed."""
-    client_id = str(body.get("clientId") or "").strip()
-    agent_id = str(body.get("agentId") or "").strip()
-    if not client_id or not agent_id:
-        raise AppError("clientId and agentId are required", 400)
-    store = topology_store()
-    client = store["clients"].get(client_id)
-    # Safety: never delete the assignment of a currently-reported (live) agent.
-    reported = {str(a.get("id") or "") for a in (client.get("agents") or [])} if client else set()
-    if agent_id in reported:
-        raise AppError(f"agent '{agent_id}' is currently reported by {client_id} — not orphaned", 400)
-    host_entry = (store.get("assignments") or {}).get(client_id) or {}
-    assignments = host_entry.get("assignments") or []
-    target = next((a for a in assignments if str(a.get("agentId") or "") == agent_id), None)
-    if not target:
-        raise AppError(f"no assignment for agent '{agent_id}' on '{client_id}'", 404)
-    ports = set()
-    for route in (target.get("routes") or []):
-        pid = str(route.get("proxyId") or "")
-        if pid.startswith("skynet:proxy:"):
-            try:
-                ports.add(int(pid.split(":")[-1]))
-            except ValueError:
-                pass
-    # Only free ports whose SOLE claim is this dead assignment — a successor
-    # agent (VM rename) may have adopted the same ports, and dropping their
-    # routes would cut its live path.
-    claims = assignment_port_claims(store)
-    ports = {p for p in ports if claims.get(p, 0) <= 1}
-    # Drop the assignment entry.
-    host_entry["assignments"] = [a for a in assignments if str(a.get("agentId") or "") != agent_id]
-    save_admin_state()
-    # Free the ports by removing their routes; listener_watcher unbinds by mtime.
-    freed = []
-    if ports:
-        payload = read_agent_proxy_payload()
-        routes = payload.get("routes") or []
-        kept = [r for r in routes if int(r.get("port") or 0) not in ports]
-        if len(kept) != len(routes):
-            freed = sorted(int(r.get("port")) for r in routes if int(r.get("port") or 0) in ports)
-            payload["routes"] = kept
-            payload["routers"] = normalize_routers(payload.get("routers"), kept)
-            write_agent_proxy_payload(payload)
-    return {"ok": True, "clientId": client_id, "agentId": agent_id, "freedPorts": freed}
 
 def client_llama_purge_cache(body: dict) -> dict:
     """Ask a client to delete its downloaded model cache (keeps a running model)."""
@@ -628,18 +493,13 @@ def normalize_client_gpus(raw):
             gpus.append(row)
     return gpus
 
-def topology_client_from_heartbeat(payload):
+def host_from_report(payload):
     host = payload.get("host") if isinstance(payload.get("host"), dict) else {}
     # The id rule is one rule for both ways of creating a client, in
     # caravan/domain/client.py — the explanation of what happens to a client
     # under the controller's name lives there too. While there was only one
     # path, the rule lived here as a comment.
     host_id = FleetClient.validate_id(host.get("id") or host.get("name"))
-    agents = []
-    for agent in payload.get("agents") or []:
-        row = normalize_topology_agent(agent)
-        if row:
-            agents.append(row)
     gpus = normalize_client_gpus(payload.get("gpus"))
     compute_apps = []
     for app in (payload.get("computeApps") or [])[:64]:
@@ -699,21 +559,6 @@ def topology_client_from_heartbeat(payload):
     llama_node = _san_node(payload.get("llamaNode")) or (llama_nodes[0] if llama_nodes else {})
     if not llama_nodes and llama_node:
         llama_nodes = [llama_node]
-    candidates = []
-    for cand in (payload.get("candidates") or [])[:32]:
-        if not isinstance(cand, dict):
-            continue
-        machine = str(cand.get("machine") or "").strip()[:120]
-        if not machine:
-            continue
-        row = {
-            "machine": machine,
-            "suggestedId": str(cand.get("suggestedId") or "").strip()[:80],
-            "runtime": str(cand.get("runtime") or "").strip()[:20],
-        }
-        if cand.get("ip"):
-            row["ip"] = str(cand.get("ip")).strip()[:80]
-        candidates.append(row)
     now = int(time.time())
     return {
         "id": host_id,
@@ -721,8 +566,6 @@ def topology_client_from_heartbeat(payload):
         "hostname": str(host.get("hostname") or "").strip()[:160],
         "ip": str(host.get("ip") or "").strip()[:80],
         "agentUrl": str(payload.get("agentUrl") or "").strip()[:240],
-        "agents": agents,
-        "candidates": candidates,
         "gpus": gpus,
         "computeApps": compute_apps,
         "cpu": cpu,
@@ -732,213 +575,30 @@ def topology_client_from_heartbeat(payload):
         "llamaBinaryVersion": str(payload.get("llamaBinaryVersion") or "").strip()[:120],
         "llamaBinaryMtime": str(payload.get("llamaBinaryMtime") or "").strip()[:30],
         "llamaUpdate": payload.get("llamaUpdate") if isinstance(payload.get("llamaUpdate"), dict) else {},
-        "assignments": payload.get("assignments") if isinstance(payload.get("assignments"), list) else [],
-        "applyStatus": payload.get("applyStatus") if isinstance(payload.get("applyStatus"), dict) else {},
         "firstSeen": now,
         "lastSeen": now,
-        "state": "online",
     }
 
-def update_topology_client(payload):
-    client = topology_client_from_heartbeat(payload)
+def record_host_report(payload):
+    """Store what a scout says about its machine: the whole of its host record.
+
+    The scout owns that record and replaces it with each report; only when the
+    machine was first heard is carried over. No client is touched: a client
+    is the operator's record, in its own section, and a machine that is both
+    is two records under one id (HostRecord). Until 2026-09-24 one record held
+    both, the report replaced it wholesale, and every operator field had to be
+    carried back through it by hand — the agent list was lost that way. Old
+    scouts still send agents, candidates, assignments and applyStatus; they are
+    not read (host_from_report).
+    """
+    report = host_from_report(payload)
     store = topology_store()
-    previous = store["clients"].get(client["id"]) or {}
-    client["firstSeen"] = previous.get("firstSeen") or client["firstSeen"]
-    # A heartbeat replaces the record wholesale, so the "created by hand" mark
-    # has to be carried through it explicitly. Otherwise a client the operator
-    # created, which the scout later found, would silently turn into a found
-    # one — breaking the "a report may not overwrite a record" rule within
-    # the first minute of that record's life.
-    if previous.get("manual"):
-        client["manual"] = True
-        # A hand-made client's agents are the operator's records: the report
-        # refreshes what it knows about them and neither adds nor removes one
-        # (FleetClient.keep_record_agents).
-        client["agents"] = FleetClient.keep_record_agents(client.get("agents") or [],
-                                                          previous.get("agents") or [])
-    else:
-        # A scout's own client: the list is the scout's, except the agents the
-        # operator created by hand — the report doesn't know about them and
-        # can't cancel them.
-        client["agents"] = FleetClient.merge_manual_agents(client.get("agents") or [],
-                                                           previous.get("agents") or [])
-    # Suppress agents that were manually deleted (tombstone list).
-    deleted = store["deletedAgents"].get(client["id"]) or []
-    if deleted:
-        client["agents"] = [a for a in client["agents"] if str(a.get("id") or "") not in deleted]
-    store["clients"][client["id"]] = client
+    previous = store["hosts"].get(report["id"]) or {}
+    report["firstSeen"] = previous.get("firstSeen") or report["firstSeen"]
+    store["hosts"][report["id"]] = report
     save_admin_state()
-    try:
-        auto_provision_agent_proxies(client)
-        reconcile_proxy_metadata()   # keep proxy labels/clientId/role aligned to assignments
-    except Exception:
-        pass
-    return client
+    return report
 
-def _next_auto_proxy_primary_port(used_ports):
-    """Next port >= AGENT_PROXY_BASE_PORT where both port and port+1 are free
-    (the +1 hole is the fossil of the retired fallback pair — kept so a
-    rollback to a pair-allocating build cannot collide).
-
-    `used_ports` carries the routes; everything else the fleet has claimed comes
-    from the shared register. This allocator used to consult the routes file and
-    nothing else — not cells, not port exclusions, not the controller's own web
-    port, and not the kernel — while the bridge allocator next door consulted
-    all of them. The collision it could produce did not surface here: the port
-    was written, the bind failed, and the only trace was a line in a log.
-    """
-    from caravan.admin.proxies_config import _all_taken_ports, port_is_listening
-    claimed = set(used_ports)
-    try:
-        claimed |= _all_taken_ports()
-    except Exception:
-        pass
-    candidate = AGENT_PROXY_BASE_PORT
-    while (candidate in claimed or (candidate + 1) in claimed
-           or port_is_listening(candidate)):
-        candidate += 2
-        if candidate > 65535:
-            raise AppError("no free agent proxy port left", 500)
-    return candidate
-
-def _agent_is_manual(agent_id, host_entry):
-    """True when an operator has taken this agent's proxy wiring off automatic.
-
-    Without this, "wire it by hand" is not a thing the panel can offer: the
-    provisioner re-derives every agent on every heartbeat, so any hand-made
-    arrangement it disagrees with is replaced within seconds, and the operator
-    watches their choice evaporate with no message explaining why. The flag is
-    per agent, not per host, so one deliberately-placed agent does not switch
-    off provisioning for the rest of the machine.
-    """
-    for entry in (host_entry.get("assignments") or []):
-        if entry.get("agentId") == agent_id:
-            return bool(entry.get("manual"))
-    return False
-
-
-def _agent_has_full_assignments(agent_id, host_entry, existing_ports):
-    """True if the agent already has a primary route pointing to a real proxy port.
-
-    Fallback pairs are retired (2026-07-20): no agent config ever referenced its
-    fallback proxy — zero successful requests across the full log retention — so
-    the pair invariant only forced dead ports into existence. Demanding a
-    fallback here is also what made retiring them impossible: deleting the
-    fallback routes flipped every agent to "not provisioned" and the next
-    heartbeat re-provisioned complete NEW pairs (the 2026-07-20 proxy outage)."""
-    by_role = {
-        r.get("role"): r
-        for a in (host_entry.get("assignments") or []) if a.get("agentId") == agent_id
-        for r in (a.get("routes") or [])
-    }
-    for role in ("primary",):
-        proxy_id = str(by_role.get(role, {}).get("proxyId") or "")
-        if not proxy_id.startswith("skynet:proxy:"):
-            return False
-        port = int(proxy_id.removeprefix("skynet:proxy:"))
-        if port not in existing_ports:
-            return False
-    return True
-
-def auto_provision_agent_proxies(client):
-    """Give every un-provisioned agent ONE proxy port.
-
-    It used to mint a pair — an odd primary and an even fallback — and the
-    docstring went on saying so after the fallbacks were retired and the eleven
-    live ones deleted. That is the wrong thing for the next reader to believe
-    about the function whose pair invariant took the fleet down: they would look
-    for the partner route and conclude something had eaten it.
-
-    The odd/even stepping stays so primaries keep their odd ports across the
-    fleet; the even partner is simply left unused. `test_auto_provision.py` pins
-    the count — one port per pass, and the second pass a no-op.
-    """
-    store = topology_store()
-    proxy_config = load_agent_proxy_config()
-    existing_ports = set(int(r.get("port", 0)) for r in proxy_config.get("routes", []))
-    used_ports = set(existing_ports)
-
-    client_id = client["id"]
-    server_ip = TOPOLOGY_SERVER_IP
-    assignments_store = store.setdefault("assignments", {})
-    host_entry = assignments_store.get(client_id, {})
-
-    new_routes = []
-    new_agent_ports = {}
-
-    for agent in (client.get("agents") or []):
-        agent_id = agent.get("id") or ""
-        if not agent_id:
-            continue
-        if _agent_is_manual(agent_id, host_entry):
-            continue
-        if _agent_has_full_assignments(agent_id, host_entry, existing_ports):
-            continue
-
-        primary_port = _next_auto_proxy_primary_port(used_ports)
-        # Odd/even stepping is kept so primaries stay on odd ports; the even
-        # partner is simply left unused now that fallback pairs are retired.
-        used_ports.add(primary_port)
-        used_ports.add(primary_port + 1)
-
-        agent_name = str(agent.get("name") or agent_id).strip()
-        base = {
-            "upstreamHost": "127.0.0.1", "upstreamPort": 8080,
-            "upstreamType": "llama", "providerId": "",
-            "enabled": True, "mode": "open", "priority": 0, "preemptible": True,
-            # No key by default, by the operator's decision (2026-08-16): a
-            # provisioned port is open until a key is set on it deliberately,
-            # in the route form. Worth knowing what that means: the listener
-            # binds 0.0.0.0, so on this fleet it is reachable from the whole
-            # LAN. The form's "do not require a key" checkbox is where that
-            # choice now lives, rather than in a blank field nobody reads.
-            "clientTimeoutSeconds": 0, "cloudFallbackProviderId": "", "cloudFallbackEligible": False,
-            # Router redesign: new proxies feed the shared default router
-            # and carry explicit role/client links (no label-suffix guessing).
-            "routerId": DEFAULT_ROUTER_ID, "clientId": client_id,
-        }
-        new_routes.append({**base, "role": "primary", "label": f"{agent_name} primary", "port": primary_port})
-        new_agent_ports[agent_id] = {"primary": primary_port}
-
-    if not new_routes:
-        return
-
-    all_routes = sorted(
-        proxy_config.get("routes", []) + new_routes,
-        key=lambda r: int(r.get("port", 0)),
-    )
-    write_agent_proxy_payload({
-        "routes": all_routes,
-        "policy": proxy_config.get("policy") or normalize_agent_proxy_policy({}),
-        "routers": normalize_routers(proxy_config.get("routers"), all_routes),
-        "stopRequests": proxy_config.get("stopRequests") or [],
-    })
-    # No restart: the proxy's listener_watcher re-reads agent-proxies.json by
-    # mtime every 2s and binds the new port itself — the same path
-    # topology_orphan_assignment_delete already relies on. Restarting dropped
-    # every live connection on every other port (bridges included) for the sake
-    # of one new listener, and during the 2026-07-20 incident the restarts
-    # raced each other for the ports they were meant to be opening.
-
-    host_mut = assignments_store.setdefault(client_id, {
-        "agentUrl": client.get("agentUrl", ""), "assignments": [],
-    })
-    existing = host_mut.get("assignments") or []
-    for agent_id, ports in new_agent_ports.items():
-        ag = next((a for a in existing if a.get("agentId") == agent_id), None)
-        if ag is None:
-            ag = {"agentId": agent_id, "routes": []}
-            existing.append(ag)
-        # The route's shape and the "replace, don't skip" rule live in
-        # AgentAssignment.set_route — the explanation of the 2026-07-20
-        # incident this rule exists for lives there too.
-        assignment = AgentAssignment.from_raw(ag)
-        for role in ("primary",):
-            assignment.set_route(ProxyRoute.for_port(role, ports[role], server_ip))
-        ag.clear()
-        ag.update(assignment.to_dict())
-    host_mut["assignments"] = existing
-    save_admin_state()
 
 def reconcile_proxy_metadata():
     """Keep each proxy route's label / clientId / role in sync with the LIVE assignments
@@ -1052,51 +712,69 @@ def reconcile_proxy_metadata():
         write_agent_proxy_payload(payload)
     return changed
 
+def _aliased(row, aliases):
+    """A row with the operator's name for it applied on read, never stored."""
+    reported_name = row.get("name") or row.get("id") or ""
+    alias = str(aliases.get(row.get("id")) or "").strip()
+    row["reportedName"] = reported_name
+    row["alias"] = alias
+    if alias:
+        row["name"] = alias
+    return row
+
+
 def topology_clients():
-    now = int(time.time())
-    rows = []
-    changed = False
+    """The operator's client records as the board reads them: names with their
+    aliases, agents with theirs. A client has no liveness of its own — no
+    report speaks for it; its agents' traffic is what shows whether it works.
+    """
     store = topology_store()
     aliases = store.setdefault("clientAliases", {})
     agent_aliases = store.setdefault("agentAliases", {})
+    rows = []
     for client in store["clients"].values():
         row = dict(client)
         # An agent alias is applied HERE, on read, and never written into the
-        # record: the scout's report replaces the agent list wholesale, and
-        # an edit inside the record would only last until the next poll.
+        # record: renaming is the board's word about the block, not an edit of
+        # what the operator created.
         if row.get("agents"):
             row["agents"] = [dict(a, **({"reportedName": a.get("name"),
                                          "name": agent_aliases[f"{row.get('id')}::{a.get('id')}"]}
                                         if agent_aliases.get(f"{row.get('id')}::{a.get('id')}") else {}))
                              for a in row["agents"] if isinstance(a, dict)]
-        reported_name = row.get("name") or row.get("id") or ""
-        alias = str(aliases.get(row.get("id")) or "").strip()
-        row["reportedName"] = reported_name
-        row["alias"] = alias
-        if alias:
-            row["name"] = alias
-        last_seen = int(row.get("lastSeen") or 0)
-        row["ageSeconds"] = max(0, now - last_seen) if last_seen else None
-        row["state"] = "online" if last_seen and now - last_seen <= TOPOLOGY_CLIENT_TTL else "stale"
-        if row["state"] != client.get("state"):
-            client["state"] = row["state"]
-            changed = True
+        rows.append(_aliased(row, aliases))
+    return sorted(rows, key=lambda row: row.get("name") or row.get("id") or "")
+
+
+def topology_hosts():
+    """Machines with a scout as the board reads them: the report, its liveness
+    computed on read (HostRecord.liveness, never stored — a stored "online" is
+    stale the moment it is written), and the operator's name for the machine.
+    Online first, then by name.
+    """
+    now = int(time.time())
+    store = topology_store()
+    aliases = store.setdefault("clientAliases", {})
+    rows = []
+    for host in store["hosts"].values():
+        row = _aliased(dict(host), aliases)
+        row["state"], row["ageSeconds"] = HostRecord.liveness(row, now, HOST_REPORT_TTL)
         rows.append(row)
-    if changed:
-        save_admin_state()
     return sorted(rows, key=lambda row: (row.get("state") != "online", row.get("name") or row.get("id") or ""))
 
-def refresh_topology_clients_from_agents():
-    """Pull fresh state from each registered client route-agent.
 
-    Calls GET /api/state directly instead of triggering a round-trip heartbeat.
-    This means GPU inventory and platform info are always current the moment
-    the Topology view opens, without waiting for the client's heartbeat interval.
-    Falls back gracefully if the client is unreachable.
+def refresh_hosts_from_scouts():
+    """Pull fresh state from each machine's scout between its heartbeats.
+
+    GET /api/state rather than waiting for the next beat, so GPU inventory and
+    the cells' startup progress stay current while the board is open. It runs
+    in the background (SCOUT_POLLER, caravan/admin/scout_poll.py), never inside
+    a board read. An unreachable scout is skipped; its host record stays as its
+    last report left it.
     """
     store = topology_store()
-    for client in list(store["clients"].values()):
-        agent_url = str(client.get("agentUrl") or "").strip().rstrip("/")
+    for host in list(store["hosts"].values()):
+        agent_url = str(host.get("agentUrl") or "").strip().rstrip("/")
         if not agent_url:
             continue
         try:
@@ -1104,17 +782,13 @@ def refresh_topology_clients_from_agents():
             if not isinstance(state, dict):
                 continue
             # Map /api/state response into the heartbeat payload format so
-            # update_topology_client() can normalise and store it uniformly.
+            # record_host_report() can normalise and store it uniformly.
             payload = {
                 "host": state.get("host") or {},
-                "agents": state.get("agents") or [],
-                "candidates": state.get("candidates") or [],
-                "assignments": state.get("assignments") or [],
                 "gpus": state.get("gpus") or [],
                 "computeApps": state.get("computeApps") or [],
                 "cpu": state.get("cpu") or {},
                 "platform": state.get("platform") or "",
-                "applyStatus": state.get("applyStatus") or {},
                 # Carry llama-node status through, otherwise an active refresh
                 # between heartbeats would wipe the running remote server.
                 "llamaNode": state.get("llamaNode") or {},
@@ -1125,9 +799,14 @@ def refresh_topology_clients_from_agents():
                 "agentUrl": agent_url,
                 "time": state.get("time") or int(time.time()),
             }
-            update_topology_client(payload)
+            record_host_report(payload)
         except Exception:
             continue
+
+
+#: The one poller of the fleet: board reads kick it (topology_state), and it
+#: runs refresh_hosts_from_scouts in the background.
+SCOUT_POLLER = ScoutPoller(lambda: refresh_hosts_from_scouts())
 
 def set_topology_agent_alias(host_id, agent_id, name):
     """What an agent's block is named on the board. An alias, not a record edit.
