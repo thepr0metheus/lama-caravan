@@ -43,7 +43,7 @@ from caravan.admin.systemd_ctl import restart_agent_proxy
 from caravan.admin.telemetry import _normalize_modalities
 from caravan.common.errors import AppError
 from caravan.domain.client import FleetClient
-from caravan.domain.client_proxy import AgentAssignment, ProxyRoute
+from caravan.domain.client_proxy import PROXY_ID_PREFIX, AgentAssignment, ProxyRoute
 from caravan.common.fetch import fetch_json, post_json
 from caravan.service.scout import Scout
 
@@ -344,6 +344,53 @@ def topology_client_add_agent(body: dict) -> dict:
     agent = FleetClient.add_agent(client, body.get("agentId"), body.get("name"))
     save_admin_state()
     return agent
+
+
+def restore_hand_agents() -> dict:
+    """Give back to hand-made clients the agents their records lost.
+
+    Until 2026-09-24 a report could remove a hand-made client's agent: a scout
+    whose fleet registry did not answer reported only its static agent, and
+    nine agents vanished from the board while their proxy ports and routes
+    stayed — the traffic panel listed fifteen ports, the lane showed six cards.
+    Reports can no longer do that (FleetClient.keep_record_agents); this puts
+    back what they already did.
+
+    The controller's own record says who they were: an agent row in the
+    client's assignments that still carries a route. An agent the operator
+    deleted stays deleted — its tombstone wins. Every agent of a hand-made
+    client is marked the operator's while at it, so adoption before this rule
+    and after it leave the same record. Idempotent: a second run finds nothing.
+
+    Returns {"restored": [(clientId, agentId), ...], "marked": n}.
+    """
+    store = topology_store()
+    labels = {f"{PROXY_ID_PREFIX}{r.get('port')}": str(r.get("label") or "")
+              for r in (load_agent_proxy_config().get("routes") or []) if r.get("port")}
+    tombstones = store.get("deletedAgents") or {}
+    restored, marked = [], 0
+    for host_id, client in (store.get("clients") or {}).items():
+        if not isinstance(client, dict) or not client.get("manual"):
+            continue
+        agents = client.setdefault("agents", [])
+        have = {str(a.get("id") or "") for a in agents if isinstance(a, dict)}
+        gone = {str(x) for x in (tombstones.get(host_id) or [])}
+        for row in ((store.get("assignments") or {}).get(host_id) or {}).get("assignments") or []:
+            agent_id = str((row or {}).get("agentId") or "")
+            routes = [r for r in (row or {}).get("routes") or [] if isinstance(r, dict) and r.get("proxyId")]
+            if not agent_id or agent_id in have or agent_id in gone or not routes:
+                continue
+            primary = next((r for r in routes if (r.get("role") or "primary") == "primary"), routes[0])
+            agents.append(FleetClient.agent_from_port(agent_id, labels.get(str(primary["proxyId"]), "")))
+            have.add(agent_id)
+            restored.append((host_id, agent_id))
+        for agent in agents:
+            if isinstance(agent, dict) and not agent.get("manual"):
+                agent["manual"] = True
+                marked += 1
+    if restored or marked:
+        save_admin_state()
+    return {"restored": restored, "marked": marked}
 
 
 def adopt_scout_clients() -> dict:
@@ -704,11 +751,17 @@ def update_topology_client(payload):
     # the first minute of that record's life.
     if previous.get("manual"):
         client["manual"] = True
-    # A report never cancels agents the operator created by hand: it doesn't
-    # know about them and can't. Everything else in the list still belongs to
-    # the scout.
-    client["agents"] = FleetClient.merge_manual_agents(client.get("agents") or [],
-                                                       previous.get("agents") or [])
+        # A hand-made client's agents are the operator's records: the report
+        # refreshes what it knows about them and neither adds nor removes one
+        # (FleetClient.keep_record_agents).
+        client["agents"] = FleetClient.keep_record_agents(client.get("agents") or [],
+                                                          previous.get("agents") or [])
+    else:
+        # A scout's own client: the list is the scout's, except the agents the
+        # operator created by hand — the report doesn't know about them and
+        # can't cancel them.
+        client["agents"] = FleetClient.merge_manual_agents(client.get("agents") or [],
+                                                           previous.get("agents") or [])
     # Suppress agents that were manually deleted (tombstone list).
     deleted = store["deletedAgents"].get(client["id"]) or []
     if deleted:

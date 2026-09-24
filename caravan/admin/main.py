@@ -72,6 +72,18 @@ def main():
     except Exception as exc:
         print(f"cloud: contextAuto migration skipped ({exc})", flush=True)
 
+    # One-shot: hand-made clients get back the agents a report once removed
+    # while their proxy ports stayed (caravan/admin/fleet_clients.py:restore_hand_agents).
+    try:
+        from caravan.admin.fleet_clients import restore_hand_agents
+        _back = restore_hand_agents()
+        if _back["restored"] or _back["marked"]:
+            names = ", ".join(f"{h}/{a}" for h, a in _back["restored"])
+            print(f"clients: restored {len(_back['restored'])} agents from their proxy ports"
+                  f"{f' ({names})' if names else ''}; {_back['marked']} marked the operator's", flush=True)
+    except Exception as exc:
+        print(f"clients: agent restoration skipped ({exc})", flush=True)
+
     # Warm the OpenClaw config cache from disk so wait_timeout sync works even before
     # the agents respond (or while they're down).
     load_openclaw_cache()

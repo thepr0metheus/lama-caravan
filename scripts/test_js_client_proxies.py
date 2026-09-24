@@ -42,7 +42,7 @@ const m = await import(pathToFileURL(process.env.JS_ROOT + "/topology-proxies.js
 const cf = await import(pathToFileURL(process.env.JS_ROOT + "/card-fold.js").href);
 const reset = () => { st.setState({ config: {} });
   st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} });
-  cf.CARD_FOLD.pinned.clear(); cf.CARD_FOLD.densities = {}; cf.CARD_FOLD.peekKey = ""; st.ui.latestSystemMonitor = null; };
+  cf.CARD_FOLD.pinned.clear(); cf.CARD_FOLD.densities = {}; cf.CARD_FOLD.peekKey = ""; st.ui.latestSystemMonitor = null; globalThis.__stubReturns = {}; };
 // Один агент, две версии его маршрутов.
 const STORED = (extra = {}) => ({ c1: { agentUrl: "", assignments: [
   { agentId: "a1", routes: [{ role: "primary", proxyId: "skynet:proxy:23001",
@@ -427,15 +427,41 @@ PINS = [
      "\"line\"",
      "negative: «full» у ячеек не разворачивает клиентов"),
     ("agent_stale_stays_full",
-     "st.setTopology({ ...st.topology, proxies: PROXIES, clients: [{ id: \"c1\", manual: true, agents: [{ id: \"a1\", name: \"alive\", runtimeDetected: true }, { id: \"a2\", name: \"gone\" }] }] });",
+     "st.setTopology({ ...st.topology, proxies: PROXIES, clients: [{ id: \"c1\", manual: true, state: \"online\", agents: [{ id: \"a1\", name: \"alive\", runtimeDetected: true }, { id: \"a2\", name: \"gone\" }] }] });",
      "(cards => cards.map((c) => [c.agentId, (h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.trim().startsWith(\"<div class=\\\"topology-agent\") ? \"card\" : \"?\"))(c.html)]))(m.clientLaneAgentCards(st.topology.clients[0], [{ agentId: \"a1\", routes: [{ role: \"primary\", proxyId: \"skynet:proxy:23001\", endpoint: \"http://h:23001/v1\" }] }, { agentId: \"a2\", routes: [{ role: \"primary\", proxyId: \"skynet:proxy:23002\", endpoint: \"http://h:23002/v1\" }] }]))",
      "[[\"a1\",\"line\"],[\"a2\",\"card\"]]",
-     "negative: агент, чьей машины больше нет (скаут видит соседей, а его — нет), не сворачивается: полная карточка с ☠"),
+     "negative: машина отвечает, соседей видит, а этого агента — нет: он не сворачивается, полная карточка с ☠"),
     ("agent_incident_stays_full",
      "st.setTopology({ ...st.topology, proxies: PROXIES, clients: [{ id: \"c1\", manual: true, agents: [{ id: \"a1\", name: \"hermes\" }] }] }); st.ui.latestSystemMonitor = { latest: { correlatedActivity: { byProxy: { p1: { port: 23001, last: { status: \"500\", error: \"boom\", label: \"p1\", startedAt: 1700000000, durationMs: 1000 } } } } } };",
      "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.trim().startsWith(\"<div class=\\\"topology-agent\") ? \"card\" : \"?\"), h.includes(\"topology-incident-line\")])(m.clientLaneAgentCards(st.topology.clients[0], [{ agentId: \"a1\", routes: [{ role: \"primary\", proxyId: \"skynet:proxy:23001\", endpoint: \"http://h:23001/v1\" }] }])[0].html)",
      "[\"card\",true]",
      "negative: на маршруте инцидент (последний запрос упал 500) — карточка не сворачивается, строка инцидента видна"),
+    # ── a dead agent is a fact only a machine reporting now can state ──
+    ("agent_is_dead_only_when_its_machine_reports_now",
+     "",
+     "[m.agentLooksDead({ state: \"online\", agents: [{ id: \"a\", runtimeDetected: true }, { id: \"b\" }] }, { id: \"b\" }), m.agentLooksDead({ state: \"online\", agents: [{ id: \"a\", runtimeDetected: true }] }, { id: \"a\", runtimeDetected: true }), m.agentLooksDead({ state: \"stale\", lastSeen: 1, agents: [{ id: \"a\", runtimeDetected: true }, { id: \"b\" }] }, { id: \"b\" }), m.agentLooksDead({ state: \"online\", agents: [{ id: \"b\" }] }, { id: \"b\" }), m.agentLooksDead(null, { id: \"b\" }), m.agentLooksDead({ state: \"online\", agents: [{ id: \"a\", runtimeDetected: true }] }, null)]",
+     "[true,false,false,false,false,false]",
+     "positive: «мёртв» — только когда машина отвечает сейчас и агента запущенным не видит; молчащая машина, клиент без отметок живости и пустые входы — не мёртв"),
+    ("silent_machine_keeps_its_agents_quiet",
+     "st.setTopology({ ...st.topology, proxies: PROXIES, clients: [{ id: \"c1\", manual: true, state: \"stale\", lastSeen: 1, agents: [{ id: \"a1\", name: \"openclaw\", runtimeDetected: true }, { id: \"a2\", name: \"lyra\" }] }] });",
+     "(cards => cards.map((c) => [c.agentId, (h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.trim().startsWith(\"<div class=\\\"topology-agent\") ? \"card\" : \"?\"))(c.html), c.html.includes(\"agent-stale\")]).sort())(m.clientLaneAgentCards(st.topology.clients[0], [{ agentId: \"a1\", routes: [{ role: \"primary\", proxyId: \"skynet:proxy:23001\", endpoint: \"http://h:23001/v1\" }] }, { agentId: \"a2\", routes: [{ role: \"primary\", proxyId: \"skynet:proxy:23002\", endpoint: \"http://h:23002/v1\" }] }]))",
+     "[[\"a1\",\"line\",false],[\"a2\",\"line\",false]]",
+     "positive: машина молчит — её агенты стоят спокойными строками, без ☠ и без приглашения удалить: они не мертвы, они выключены вместе с ней"),
+    ("reporting_machine_marks_the_unseen_agent_dead",
+     "st.setTopology({ ...st.topology, proxies: PROXIES, clients: [{ id: \"c1\", manual: true, state: \"online\", lastSeen: 1, agents: [{ id: \"a1\", name: \"openclaw\", runtimeDetected: true }, { id: \"a2\", name: \"lyra\" }] }] });",
+     "(cards => cards.map((c) => [c.agentId, (h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.trim().startsWith(\"<div class=\\\"topology-agent\") ? \"card\" : \"?\"))(c.html), c.html.includes(\"agent-stale\")]).sort())(m.clientLaneAgentCards(st.topology.clients[0], [{ agentId: \"a1\", routes: [{ role: \"primary\", proxyId: \"skynet:proxy:23001\", endpoint: \"http://h:23001/v1\" }] }, { agentId: \"a2\", routes: [{ role: \"primary\", proxyId: \"skynet:proxy:23002\", endpoint: \"http://h:23002/v1\" }] }]))",
+     "[[\"a1\",\"line\",false],[\"a2\",\"card\",true]]",
+     "negative: машина отвечает и агента не видит — он помечен ☠ и не сворачивается: беда видна"),
+    ("kanban_uses_the_same_rule_silent",
+     "st.setTopology({ ...st.topology, proxies: PROXIES, clients: [{ id: \"c1\", manual: true, state: \"stale\", lastSeen: 1, agents: [{ id: \"a1\", name: \"openclaw\", runtimeDetected: true }, { id: \"a2\", name: \"lyra\" }] }] });",
+     "(globalThis.__stubReturns = { ...(globalThis.__stubReturns || {}), \"canvas._cvProxyToAgent\": () => new Map([[\"skynet:proxy:23002\", { agentId: \"a2\", hostId: \"c1\" }]]) }, m._cvProxyIsStale({ id: \"skynet:proxy:23002\" }))",
+     "false",
+     "positive: канбан решает по тому же правилу — у молчащей машины порт агента не мёртв"),
+    ("kanban_uses_the_same_rule_online",
+     "st.setTopology({ ...st.topology, proxies: PROXIES, clients: [{ id: \"c1\", manual: true, state: \"online\", lastSeen: 1, agents: [{ id: \"a1\", name: \"openclaw\", runtimeDetected: true }, { id: \"a2\", name: \"lyra\" }] }] });",
+     "(globalThis.__stubReturns = { ...(globalThis.__stubReturns || {}), \"canvas._cvProxyToAgent\": () => new Map([[\"skynet:proxy:23002\", { agentId: \"a2\", hostId: \"c1\" }]]) }, m._cvProxyIsStale({ id: \"skynet:proxy:23002\" }))",
+     "true",
+     "negative: у отвечающей машины невидимый агент на канбане мёртв, как и на доске"),
 ]
 
 _fail = []

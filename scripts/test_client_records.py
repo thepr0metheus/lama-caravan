@@ -296,9 +296,9 @@ def test_heartbeat_keeps_the_manual_mark():
         fc.auto_provision_agent_proxies, fc.reconcile_proxy_metadata = _prov, _rec
     check(after.get("manual") is True,
           "клиент, заведённый руками и найденный потом, остаётся ручным")
-    check(sorted(a["id"] for a in after.get("agents") or []) == ["ag", "box-a"],
-          "и при этом принимает то, что скаут о нём рассказал — а первый агент, заведённый вместе с клиентом, "
-          "остаётся как любой ручной (снимается ✕), отчёт его не стирает")
+    check(sorted(a["id"] for a in after.get("agents") or []) == ["box-a"],
+          "список агентов ручного клиента — его собственный: отчёт не добавил «ag» и не стёр первого агента "
+          "(с 2026-09-24 агенты заводятся руками, как ячейки)")
     fc.client_aliases = lambda: {}
     live = {r["id"]: r for r in fc.topology_clients()}
     check(live["box-a"]["state"] == "online",
@@ -425,8 +425,9 @@ def test_agent_added_by_hand():
     fc.update_topology_client({"host": {"id": "box-a", "name": "A"},
                                "agents": [{"id": "reported", "name": "R"}]})
     ids = sorted(a["id"] for a in store["clients"]["box-a"]["agents"])
-    check(ids == ["ag-1", "reported"],
-          f"ручной агент пережил отчёт, а не был заменён им (got {ids})")
+    check(ids == ["ag-1"],
+          f"ручной агент пережил отчёт, а названный отчётом «reported» не добавился — у ручного клиента "
+          f"агентов заводят руками (got {ids})")
     check(next(a for a in store["clients"]["box-a"]["agents"] if a["id"] == "ag-1")["manual"] is True,
           "и остался помеченным")
     # NEGATIVE: an agent the report stays silent about, and which is NOT
@@ -471,6 +472,8 @@ def test_adopting_the_scouts_clients():
           f"отчёт называет числа: один клиент, один агент (got {report!r})")
     check(store["clients"]["box-a"].get("manual") is True,
           "запись скаута помечена ручной")
+    check(store["clients"]["box-a"]["agents"][0].get("manual") is True,
+          "и её агенты тоже — с 2026-09-24 агенты ручного клиента его записи, отчёт их не снимет")
     check(store["assignments"]["box-a"]["assignments"][0].get("manual") is True,
           "и строка его агента тоже")
     route = store["assignments"]["box-a"]["assignments"][0]["routes"][0]
@@ -1086,6 +1089,98 @@ def test_the_board_is_told_who_holds_each_port():
     check((routed.get("resolvedUpstreamHost"), routed.get("resolvedUpstreamPort")) == ("10.0.0.2", 22003),
           "куда порт идёт на самом деле — по выходу роутера по умолчанию, как прежде")
 
+
+def test_report_never_changes_a_hand_made_clients_agents():
+    """A hand-made client's agents are the operator's records, like its cells.
+
+    Before 2026-09-24 a report could remove them: a scout whose fleet registry
+    did not answer fell back to its one static agent, and nine agents that
+    still held proxy ports vanished from the board. A report may now refresh
+    what it knows about a known agent, and nothing else.
+    """
+    print("отчёт не меняет список агентов ручного клиента:")
+    store, _routes = harness(clients={"host": {"id": "host", "name": "H", "manual": True, "lastSeen": 1,
+        "agents": [{"id": "openclaw", "name": "OpenClaw", "runtimeDetected": True},
+                   {"id": "lyra", "name": "lyra", "manual": True},
+                   {"id": "vega", "name": "Vega", "runtimeDetected": True, "runtime": "vm"}]}})
+    _prov, _rec = fc.auto_provision_agent_proxies, fc.reconcile_proxy_metadata
+    fc.auto_provision_agent_proxies = lambda *a, **kw: None
+    fc.reconcile_proxy_metadata = lambda *a, **kw: None
+    try:
+        after = fc.update_topology_client({"host": {"id": "host"}, "agents": [
+            {"id": "openclaw", "name": "OpenClaw 2", "kind": "openclaw", "runtimeDetected": True, "runtime": "host"},
+            {"id": "newvm", "name": "New VM", "runtimeDetected": True}]})
+        scout = fc.update_topology_client({"host": {"id": "box-s"}, "agents": [{"id": "a1"}]})
+        scout = fc.update_topology_client({"host": {"id": "box-s"}, "agents": []})
+    finally:
+        fc.auto_provision_agent_proxies, fc.reconcile_proxy_metadata = _prov, _rec
+    by_id = {a["id"]: a for a in after.get("agents") or []}
+    check([a["id"] for a in after.get("agents") or []] == ["openclaw", "lyra", "vega"],
+          "все три агента записи на месте, в своём порядке, — хотя отчёт назвал одного")
+    check("newvm" not in by_id, "агент, которого нет в записи, из отчёта не добавляется — заводится руками")
+    check(by_id["openclaw"].get("runtimeDetected") is True and by_id["openclaw"].get("runtime") == "host"
+          and by_id["openclaw"].get("name") == "OpenClaw 2" and by_id["openclaw"].get("kind") == "openclaw",
+          "про знакомого агента отчёт обновляет, что знает: запущен ли, где, как называется, что это")
+    check("runtimeDetected" not in by_id["vega"] and by_id["vega"].get("runtime") == "vm",
+          "про агента, о котором отчёт промолчал, старое «запущен» снято — не знаем; где он живёт, осталось")
+    check(by_id["lyra"].get("manual") is True and "runtimeDetected" not in by_id["lyra"],
+          "ручная пометка из записи не переписывается отчётом")
+    # The heartbeat's normalizer never passes `manual` through; the rule itself
+    # must not lean on that — whoever calls it with a raw row gets the same.
+    raw = fc.FleetClient.keep_record_agents([{"id": "lyra", "manual": False, "name": "L"}],
+                                            [{"id": "lyra", "manual": True}])
+    check(raw == [{"id": "lyra", "manual": True, "name": "L"}],
+          f"negative: строка отчёта с «manual: false» не отнимает агента у оператора (got {raw})")
+    check([a["id"] for a in scout.get("agents") or []] == [],
+          "negative: у клиента скаута правило прежнее — промолчал про агента, агент уходит")
+
+
+def test_lost_agents_come_back_from_their_ports():
+    """What reports already removed comes back from the controller's own record.
+
+    The assignment rows still name the agents and carry their routes; the
+    port labels still name them. An agent the operator deleted stays deleted.
+    """
+    print("потерянные агенты возвращаются из своих портов:")
+    store, _routes = harness(
+        clients={"forge": {"id": "forge", "manual": True, "agents": [{"id": "openclaw", "name": "OpenClaw"}]},
+                 "box-s": {"id": "box-s", "agents": []}},
+        assignments={
+            "forge": {"assignments": [
+                {"agentId": "openclaw", "routes": [{"role": "primary", "proxyId": "skynet:proxy:23103"}]},
+                {"agentId": "lyra", "routes": [{"role": "primary", "proxyId": "skynet:proxy:23113"}]},
+                {"agentId": "vega", "routes": [{"role": "primary", "proxyId": "skynet:proxy:23117"}]},
+                {"agentId": "gone", "routes": [{"role": "primary", "proxyId": "skynet:proxy:23130"}]},
+                {"agentId": "ghost", "routes": []},
+                {"agentId": "echo", "routes": [{"role": "fallback", "proxyId": "skynet:proxy:23140"}]},
+                {"agentId": "nolabel", "routes": [{"role": "primary", "proxyId": "skynet:proxy:23150"}]},
+            ]},
+            "box-s": {"assignments": [{"agentId": "vm1", "routes": [{"role": "primary", "proxyId": "skynet:proxy:23160"}]}]},
+        },
+        routes=[{"port": 23113, "label": "lyra primary"}, {"port": 23117, "label": "Vega primary"},
+                {"port": 23140, "label": "Echo fallback"}, {"port": 23150, "label": ""}])
+    store["deletedAgents"] = {"forge": ["gone"]}
+    saves = []
+    fc.save_admin_state = lambda: saves.append(1)
+    first = fc.restore_hand_agents()
+    check(first["restored"] == [("forge", "lyra"), ("forge", "vega"), ("forge", "echo"), ("forge", "nolabel")],
+          f"вернулись те, у кого в записи назначений есть маршрут (got {first['restored']})")
+    names = {a["id"]: a.get("name") for a in store["clients"]["forge"]["agents"]}
+    check(names == {"openclaw": "OpenClaw", "lyra": "lyra", "vega": "Vega", "echo": "Echo", "nolabel": "nolabel"},
+          f"имя — подпись порта без слова роли; пустая подпись — сам id, ничего не выдумано (got {names})")
+    check("gone" not in names, "удалённый оператором (надгробие) остаётся удалённым")
+    check("ghost" not in names, "строка без маршрута — не агент с портом, её не возвращаем")
+    check(store["clients"]["box-s"]["agents"] == [], "клиента скаута восстановление не трогает")
+    restored = [a for a in store["clients"]["forge"]["agents"] if a["id"] != "openclaw"]
+    check(all(a.get("manual") is True and "runtimeDetected" not in a for a in restored),
+          "вернувшиеся — записи оператора, и про то, запущены ли они, ничего не утверждается")
+    check(first["marked"] == 1 and store["clients"]["forge"]["agents"][0].get("manual") is True,
+          "агент, бывший в записи, тоже помечен оператора — как после нового усыновления")
+    check(saves == [1], "записано один раз")
+    again = fc.restore_hand_agents()
+    check(again == {"restored": [], "marked": 0} and saves == [1],
+          "второй проход не находит ничего и ничего не пишет — можно запускать на каждом старте")
+
 for fn in (test_provisioned_record_shape, test_route_can_be_removed,
            test_agent_alias_survives_the_report,
            test_model_name_is_per_role,
@@ -1094,6 +1189,8 @@ for fn in (test_provisioned_record_shape, test_route_can_be_removed,
            test_adopting_the_scouts_clients,
            test_bind_refuses_a_port_someone_else_holds,
            test_the_board_is_told_who_holds_each_port,
+           test_report_never_changes_a_hand_made_clients_agents,
+           test_lost_agents_come_back_from_their_ports,
            test_set_route_names_every_setting,
            test_saving_the_window_reaches_the_port_without_a_heartbeat,
            test_bridge_carries_the_window_to_the_route,
