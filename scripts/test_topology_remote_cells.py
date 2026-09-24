@@ -48,10 +48,11 @@ SLOTS = {
 WHISPER_HEALTH = {"status": "ok", "meta": {"source": "d1g3st"}, "targetLang": "en"}
 
 
-def served(nodes, parked=(), **host_fields):
+def served(nodes, parked=(), health="ok", **host_fields):
     """topology_server over one machine whose scout reports `nodes`. Only
     their slots are stored, and those of `parked` ports: a stored cell nobody
-    reports is a parked card, which another loop draws."""
+    reports is a parked card, which another loop draws. `health` is what a
+    llama cell's /health says ("loading" while its model loads)."""
     host = dict(HOST, llamaNodes=[dict(n) for n in nodes], **host_fields)
     reported = {n["port"] for n in nodes} | set(parked)
     patch = {
@@ -64,7 +65,7 @@ def served(nodes, parked=(), **host_fields):
                                    "serverSlots": {k: dict(v) for k, v in SLOTS.items()
                                                    if v["port"] in reported}},
         "command_cell_health": lambda _ip, port, _path: dict(WHISPER_HEALTH) if port == 22024 else None,
-        "remote_llama_health": lambda *_a: "ok",
+        "remote_llama_health": lambda *_a: health,
         "remote_llama_modalities": lambda *_a: None,
         "probe_remote_port": lambda *_a: True,
         "current_locations": lambda: Locations([]),
@@ -160,11 +161,48 @@ def test_crash_on_the_card():
           "сдался — так и сказано")
     check(crash(...) is None and crash({"count": 0}) is None and crash("oops") is None,
           "negative: скаут старше 2.5, ноль падений или мусор — нет 💥, а не «0 раз»")
+    tail = "I load_model: loading\nE ggml_cuda: CUDA error: out of memory"
+    got = crash({"count": 1, "at": at, "reason": "CUDA error: out of memory", "tail": tail})
+    check(got.get("tail") == tail, "скаут 2.6+ прислал последние строки лога — они на карточке, под 💥")
+    check(crash({"count": 1, "reason": "x", "tail": "a" * 1000 + "b" * 1000})["tail"] == "a" * 500 + "b" * 1000,
+          "boundary: строк больше 1500 символов — остаются последние 1500, где причина")
+    check("tail" not in crash({"count": 1, "at": at, "reason": "x", "tail": ""}),
+          "negative: строк нет — поля нет, а не пустая строка")
+
+
+def test_retry_on_the_card():
+    print("⚠ «прошлая попытка» у ячейки скаута, которую поднимает сторож:")
+    tail = "I load_model: loading\nE alloc: cudaMalloc failed: out of memory"
+    note = {"count": 1, "at": "2026-09-24T20:00:00+0400", "reason": "CUDA error: out of memory", "tail": tail}
+
+    def status(node, health="loading"):
+        answer = served([node], health=health)
+        return next(s for s in answer["llamaServers"] if s.get("isRemote"))["status"]
+    check(status(dict(LLAMA, crash=note)) == {"phase": "warming", "lastError": {
+              "kind": "oom", "detail": "CUDA error: out of memory", "tail": tail}},
+          "сторож поднял ячейку, она грузится — карточка говорит, от чего умерла прошлая попытка, теми же словами, "
+          "что у ячейки контроллера (вид — по тому же правилу, что её журнал), и её строки")
+    check(status(dict(LLAMA, crash=dict(note, tail=""))) == {"phase": "warming", "lastError": {
+              "kind": "oom", "detail": "CUDA error: out of memory", "tail": ""}},
+          "boundary: строк нет (скаут 2.5) — вид по одной причине, тем же правилом")
+    check(status(dict(LLAMA, crash=dict(note, tail="", reason="GGML_ASSERT(n > 0) failed"))) == {
+              "phase": "warming", "lastError": {"kind": "crash", "detail": "GGML_ASSERT(n > 0) failed", "tail": ""}},
+          "negative: слов из правила нет — «крэш», а не выдуманная причина")
+    check(status(dict(LLAMA, crash=dict(note, reason="exited (code 1)",
+                                         tail="E srv: bind: address already in use"))) == {
+              "phase": "warming", "lastError": {"kind": "port", "detail": "exited (code 1)",
+                                                "tail": "E srv: bind: address already in use"}},
+          "вид — по строкам лога, когда они есть: в них больше слов, чем в одной причине")
+    check(status(dict(LLAMA, crash=note), health="ok") == {"phase": "running"},
+          "negative: поднялась и работает — «прошлой попытки» нет, остаётся 💥")
+    check(status(dict(LLAMA, crash=dict(note, gaveUp=True)), health="loading") == {"phase": "warming"},
+          "negative: сторож сдался — он её не поднимает, и «прошлой попытки» нет")
+    check(status(LLAMA) == {"phase": "warming"}, "negative: не падала — ничего")
 
 
 if __name__ == "__main__":
     for fn in (test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell, test_autostart_on_the_card,
-               test_crash_on_the_card):
+               test_crash_on_the_card, test_retry_on_the_card):
         try:
             fn()
         except Exception as exc:  # noqa: BLE001

@@ -156,6 +156,18 @@ _CELL_ERR_PATTERNS = (
 )
 _cell_err_cache = {}
 
+
+def cell_failure_kind(text):
+    """Why a cell would not start, from the words of its log — exec, oom,
+    model, port — or "crash". One vocabulary for a cell of this controller
+    (its journal) and a scout's (the last lines its crash note carries)."""
+    low = str(text or "").lower()
+    for name, needles in _CELL_ERR_PATTERNS:
+        if any(n in low for n in needles):
+            return name
+    return "crash"
+
+
 _cell_progress_cache = {}
 
 # Ordered from latest phase to earliest: the LAST matching journal line wins,
@@ -203,7 +215,8 @@ _CELL_CRASH_PATTERNS = (
                   "xid")),
     ("gpu-oom", ("out of memory", "cudamalloc", "erroroutofdevicememory")),
     ("assert", ("ggml_assert", "ggml_abort", "assertion")),
-    ("killed", ("killed", "out of memory: killed process", "oom-killer")),
+    # A scout names the signal a process died of ("died of SIGKILL", 2.6+).
+    ("killed", ("killed", "out of memory: killed process", "oom-killer", "sigkill")),
 )
 _cell_crash_cache = {}
 
@@ -284,12 +297,7 @@ def cell_last_error(port, lines=60, ttl=10):
     text = res.get("stdout") or ""
     result = None
     if text.strip():
-        low = text.lower()
-        kind = "crash"
-        for name, needles in _CELL_ERR_PATTERNS:
-            if any(n in low for n in needles):
-                kind = name
-                break
+        kind = cell_failure_kind(text)
         tail_lines = [l for l in text.splitlines() if l.strip()][-8:]
         # The most telling line: last one matching the winning pattern, else the last line.
         detail = tail_lines[-1] if tail_lines else ""

@@ -42,7 +42,7 @@ from caravan.admin.router_dsl import normalize_agent_proxy_policy
 from caravan.admin.server_cells import server_slot_key
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.admin.state import topology as topo
-from caravan.admin.systemd_ctl import active_cell_unit_ports, cell_crash_note, cell_last_error, cell_progress_note, cell_service_name, cell_service_status, cell_unit_pids, service_status, systemd_ts_epoch, crash_kind
+from caravan.admin.systemd_ctl import active_cell_unit_ports, cell_crash_note, cell_last_error, cell_progress_note, cell_service_name, cell_service_status, cell_unit_pids, service_status, systemd_ts_epoch, crash_kind, cell_failure_kind
 from caravan.admin.telemetry import (
     _normalize_modalities,
     _record_cpu_history,
@@ -597,6 +597,8 @@ def topology_server(config=None):
             remote_mods = remote_llama_modalities(client_ip, remote_port)
         if remote_mods is None:
             remote_mods = _normalize_modalities(ln.get("modalities"))
+        _crash = _scout_crash_note(ln.get("crash"))
+        _shown_phase = effective_phase if running else (phase or "starting")
         llama_servers.append({
             "id": f"remote:{client.get('id')}:{remote_port}",
             "name": client_name,
@@ -616,7 +618,7 @@ def topology_server(config=None):
             "specType": str(ln.get("specType") or ""),
             "status": ({"phase": "broken", "error": str((_ch or {}).get("error") or "")}
                        if effective_phase == "broken" else
-                       {"phase": effective_phase if running else (phase or "starting")}),
+                       {"phase": _shown_phase, **_scout_retry_note(_crash, _shown_phase)}),
             "service": "",
             "gpuIndexes": [],
             "isRemote": True,
@@ -661,7 +663,7 @@ def topology_server(config=None):
             # How many times it crashed since it was last started by hand, and
             # why — its scout's watchdog keeps it (2.5+); the kind is ours to
             # tell, from the same words as a cell of this controller.
-            "crash": _scout_crash_note(ln.get("crash")),
+            "crash": _crash,
             "bootEnabled": _as_port(remote_port) in (client.get("autostart") or []),
             "bootSupported": isinstance(client.get("autostart"), list),
         })
@@ -1128,6 +1130,20 @@ def topology_nodes(config, server_obj, hosts):
 
     return nodes
 
+def host_suspects(hosts):
+    """Machines whose scout says a fresh llama.cpp build crashes their cells
+    (scout 2.6+): a row each in the board's banner, named as the board names
+    the machine, with the build it runs now for the rollback's confirmation."""
+    rows = []
+    for host in hosts:
+        verdict = host.get("llamaSuspect")
+        if isinstance(verdict, dict) and verdict.get("suspect") is True:
+            rows.append({**verdict, "hostId": str(host.get("id") or ""),
+                         "name": str(host.get("name") or host.get("id") or ""),
+                         "llamaBinaryVersion": str(host.get("llamaBinaryVersion") or "")})
+    return rows
+
+
 def _scout_crash_note(note):
     """A scout's crash note as the card reads it, or None."""
     if not isinstance(note, dict):
@@ -1139,8 +1155,23 @@ def _scout_crash_note(note):
     if count <= 0:
         return None
     reason = str(note.get("reason") or "")[:300]
+    # The last lines of the crashed run's log (2.6+), shown on hover as a
+    # cell of this controller shows its journal.
+    tail = str(note.get("tail") or "")[-1500:]
     return {"count": count, "at": str(note.get("at") or ""), "kind": crash_kind(reason), "reason": reason,
+            **({"tail": tail} if tail else {}),
             **({"gaveUp": True} if note.get("gaveUp") else {})}
+
+
+def _scout_retry_note(crash, phase):
+    """While a scout's watchdog brings a crashed cell back, what the attempt
+    before died of — the ⚠ a cell of this controller shows from its journal
+    while systemd retries it. Nothing when the cell is not coming back."""
+    if not crash or crash.get("gaveUp") or phase not in ("starting", "warming"):
+        return {}
+    tail = crash.get("tail") or ""
+    return {"lastError": {"kind": cell_failure_kind(tail or crash["reason"]), "detail": crash["reason"],
+                          "tail": tail}}
 
 
 def _as_port(value):
@@ -1395,6 +1426,8 @@ def topology_state(refresh_hosts=True):
     return {
         "server": server_obj,
         "llamaSuspect": llama_crash_suspect(),
+        # The same banner for the machines with a scout: a row each.
+        "hostSuspects": host_suspects(hosts),
         # Host-centric model: one node per machine — the controller and every
         # host with a scout — with its GPUs + servers + CPU/RAM, server↔GPU
         # bound via compute-apps.

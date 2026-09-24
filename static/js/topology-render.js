@@ -48,12 +48,12 @@ import {
 } from "./remote-cells.js";
 import { renderTopologyRouterCard, renderTopologyRouterDetail } from "./routers.js";
 import { setTopology, state, topology, ui } from "./state.js";
+import { SUSPECT_BANNER } from "./suspect-banner.js";
 import {
   checkLlamaCpp,
   renderCpu,
   renderGpu,
   renderKnownProblems,
-  openRestoreBuildModal,
   renderLlamaCpp,
   renderProjectGitBranch,
   renderRuntime,
@@ -606,57 +606,11 @@ export function topologyStructureFingerprint() {
   return [clients, hosts, classicSrv, nodeSrv, gpus, prox, cloud, llamaVer, view, pendingCells, modals].join("||");
 }
 
-// ── llama.cpp crash-watchdog banner ──────────────────────────────────────────
-// The backend flags "fresh build + crashing cells"; the banner offers a
-// rollback to the previous archived build. Restore fires only after a second,
-// explicit confirmation click — never automatically.
-let _suspectKey = "";
-let _suspectDismissed = "";
-function renderLlamaSuspectBanner() {
-  const el = $("llamaSuspectBanner");
-  if (!el) return;
-  const s = topology?.llamaSuspect || {};
-  const cand = s.restoreCandidate || null;
-  const key = s.suspect ? `${s.currentCommit}:${s.builtAt}:${cand?.id || ""}:${Math.floor((s.lastSeenAt || 0) / 60)}` : "";
-  if (!s.suspect || _suspectDismissed === key) {
-    el.hidden = true;
-    _suspectKey = "";
-    return;
-  }
-  if (key === _suspectKey && !el.hidden) return;   // already rendered
-  _suspectKey = key;
-  const candLabel = cand ? String(cand.version || cand.id).replace("version: ", "b") : "";
-  const lastSeen = s.lastSeenAt ? ` · ${new Date(s.lastSeenAt * 1000).toLocaleTimeString()}` : "";
-  el.innerHTML = `
-    <span class="llama-suspect-msg">⚠ ${escapeHtml(t("llamaSuspectMsg").replace("{n}", String(s.crashes15m || 0)))}${escapeHtml(lastSeen)}</span>
-    ${cand ? `<button type="button" class="llama-suspect-restore" data-suspect-restore="${escapeHtml(cand.id)}">${escapeHtml(t("llamaSuspectRestore"))} ${escapeHtml(candLabel)}</button>` : ""}
-    <button type="button" class="llama-suspect-dismiss" data-suspect-dismiss>${escapeHtml(t("llamaSuspectDismiss"))}</button>`;
-  el.hidden = false;
-  const restoreBtn = el.querySelector("[data-suspect-restore]");
-  if (restoreBtn) {
-    // The click opens the SAME informative confirmation the System builds
-    // list uses: what will happen (from → to, cells keep running) and the
-    // escape hatches if the restored build misbehaves too.
-    restoreBtn.addEventListener("click", () => {
-      _suspectDismissed = key;   // the banner did its job; the modal takes over
-      el.hidden = true;
-      openRestoreBuildModal(String(cand?.id || ""), cand);
-    });
-  }
-  el.querySelector("[data-suspect-dismiss]")?.addEventListener("click", () => {
-    _suspectDismissed = key;
-    el.hidden = true;
-    // Persist server-side: the dismissal survives reloads and admin restarts
-    // (per build — a new build starts with a clean slate).
-    api("/api/llamacpp/suspect-dismiss", { method: "POST", body: JSON.stringify({}) }).catch(() => {});
-  });
-}
-
 // Decide between a full structural rebuild and a cheap in-place live patch —
 // and never rebuild while the user is interacting (defer until they finish).
 export function applyTopologyUpdate() {
   if (!topology) return;
-  renderLlamaSuspectBanner();
+  SUSPECT_BANNER.render();
   if (topologyInteractionActive()) {
     _topologyRenderPending = true;
     return;

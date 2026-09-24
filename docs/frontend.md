@@ -481,6 +481,19 @@ lanes with raw `innerHTML`.
 - Owns: `activeView`, `_topologyRenderPending` (setter `markTopologyRenderPending`), `_lastStructureFingerprint`, `_lastRuntimePanelHtml`.
 - Key exports: `renderAll`, `renderTopology`, `refreshTopology`, `applyTopologyUpdate`, `syncTopologyLive`, `topologyStructureFingerprint`, `topologyInteractionActive`, `flushPendingTopologyRender`.
 
+## suspect-banner.js
+
+The banner over the board when a fresh llama.cpp build crashes cells: `LlamaSuspectBanner`,
+one row per machine — this controller's own verdict (`topology.llamaSuspect`) first, then a row
+per machine whose scout says the same (`topology.hostSuspects`, scout 2.6+). A row offers the
+newest archived build of another commit through the System page's confirmation
+(`openRestoreBuildModal(id, build, host)` — with `host`, the machine's scout restores it) and a
+dismissal the machine remembers for that build. A row the operator acted on goes at once and
+stays gone while its incident is the same (machine, build, candidate, minute of the last crash);
+the same rows are not redrawn on the next poll.
+
+- Owns: `SUSPECT_BANNER` (the one instance); `applyTopologyUpdate()` calls its `render()`.
+
 ## topology-activity.js
 
 Derives per-card activity/health classes from `topology` + `ui.latestSystemMonitor` and patches

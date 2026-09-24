@@ -123,6 +123,7 @@ from caravan.admin.fleet_clients import (
     client_llama_purge_cache,
     client_llama_builds,
     client_llama_restore,
+    client_llama_suspect_dismiss,
     client_llama_start,
     client_llama_stop,
     client_llama_update,
@@ -1607,6 +1608,11 @@ def _post_api_fleet_llama_update(h, parsed, body):
 @_route(POST_ROUTES, '/api/fleet/llama-restore')
 def _post_api_fleet_llama_restore(h, parsed, body):
         h.send_json(client_llama_restore(body))
+        return
+
+@_route(POST_ROUTES, '/api/fleet/llama-suspect-dismiss')
+def _post_api_fleet_llama_suspect_dismiss(h, parsed, body):
+        h.send_json(client_llama_suspect_dismiss(body))
         return
 
 @_route(POST_ROUTES, '/api/host/reboot')

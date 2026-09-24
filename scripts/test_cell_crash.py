@@ -115,6 +115,13 @@ def test_last_error_kinds():
     check(kind_of("cudaMalloc failed: out of memory\nllama_model_load: error loading model") == "oom",
           "negative: нехватка памяти по-прежнему важнее «модели» — такой лог всегда заканчивается и «error loading model»")
     check(kind_of("Segmentation fault (core dumped)") == "crash", "negative: незнакомые слова — крэш, а не выдуманная причина")
+    words = ["Model not found: /m/m.gguf", "cudaMalloc failed: out of memory\nerror loading model",
+             "bind: address already in use", "status=203/EXEC", "Segmentation fault", ""]
+    check([systemd_ctl.crash_kind(w) for w in ("died of SIGKILL", "died of SIGSEGV", "died of SIGABRT")]
+          == ["killed", "crash", "crash"],
+          "скаут 2.6 называет сигнал: SIGKILL — «убита», SIGSEGV/SIGABRT — «крэш»; negative: слово «died» само по себе не вид")
+    check([systemd_ctl.cell_failure_kind(w) for w in words] == ["model", "oom", "port", "exec", "crash", "crash"],
+          "одно правило вида: те же слова дают тот же вид и для строк, которые прислал скаут, — без журнала")
 
 
 test_crash_note()
