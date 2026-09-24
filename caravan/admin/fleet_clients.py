@@ -11,7 +11,8 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args, gpu_layers_int, model_paths
+from caravan.admin.config_builder import (CONFIG_FIELDS, build_remote_llama_args, gpu_layers_int, model_paths,
+                                          run_config)
 from caravan.admin.host_telemetry import HostTelemetry
 from caravan.admin.model_locator import current_locations
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
@@ -115,20 +116,34 @@ def scout_start_payload(body: dict) -> dict:
         # fallback for older agents that still rebuild the command themselves.
         "config": body.get("config") if isinstance(body.get("config"), dict) else {},
     }
+    # Where this controller reads each model file, keyed by the path the scout
+    # is sent. A scout that has the same file there — on this machine, or a
+    # library mounted at the same path — reads it in place instead of copying
+    # it into its cache; one that has not falls back to its cache and the
+    # download, or names the library it lacks.
+    command_path = uses_command_path(payload["config"])
+    model_cfg = dict(payload["config"])
+    if payload["modelPath"] and not command_path:
+        model_cfg["MODEL_FILE"] = payload["modelPath"]
+    found = model_paths(model_cfg, current_locations(wait=True))
     # Command-path cells run an arbitrary managed process — no llama args.
     # custom cells send their stored COMMAND; vllm cells compile their fields
     # into one bootstrap+serve line. The scout runs either via bash -lc, so no
     # agent-side knowledge of runners is needed.
-    if uses_command_path(payload["config"]):
+    if command_path:
         payload["cellKind"] = "command"
-        payload["command"] = effective_command(payload["config"])
+        # The line names the runner's model folder where it is now: a vLLM
+        # folder moved to a library is served from there (run_config); the
+        # config sent along stays the saved one.
+        run_cfg = run_config(payload["config"], found)
+        payload["command"] = effective_command(run_cfg)
         payload["healthPath"] = effective_health_path(payload["config"])
         # The whole start line, not just the command: exports, workdir and the
         # shell flags. The agent used to assemble this itself from `command` and
         # the config, mirroring render_command_cell_script() — and the mirror had
         # already lost `set -euo pipefail`, so one config behaved differently on a
         # client than on the controller. Now there is one sentence, written here.
-        payload["shellLine"] = render_command_cell_shell_line(payload["config"], payload["port"])
+        payload["shellLine"] = render_command_cell_shell_line(run_cfg, payload["port"])
         if not payload["command"]:
             raise AppError("command is required for a command cell", 400)
         # What it reserves on a card the moment it starts (vLLM: util×total of
@@ -139,22 +154,23 @@ def scout_start_payload(body: dict) -> dict:
         reservation = for_config(payload["config"]).vram_reservation(payload["config"], host.get("gpus"))
         if reservation:
             payload["vram"] = reservation
-    else:
+    if "cellKind" not in payload:
         # Variant 2: the controller is the single command builder. Send the resolved
         # argument list with path placeholders; the agent only substitutes the real
-        # downloaded paths and runs it — no flag logic on the client.
-        payload["args"] = build_remote_llama_args(payload["config"])
+        # downloaded paths and runs it — no flag logic on the client. A file in a
+        # library is read over the network there too, so it is loaded without the
+        # mapping, as this controller's own cell loads it.
+        # The YaRN recipe comes from the model's header, read where this
+        # controller has the file; and the engine's environment (a CPU-only
+        # cell sees no GPU) is the one this controller's start.sh exports.
+        model_at = found.get("MODEL_FILE")
+        payload["args"] = build_remote_llama_args(payload["config"],
+                                                  over_network=any(f.in_library for f in found.values()),
+                                                  header_path=model_at.path if model_at else "")
+        payload["env"] = for_config(payload["config"]).launch_env(payload["config"])
         if not payload["modelPath"]:
             raise AppError("modelPath is required", 400)
-    # Where this controller reads each model file, keyed by the path the scout
-    # is sent. A scout that has the same file there — on this machine, or a
-    # library mounted at the same path — reads it in place instead of copying
-    # it into its cache; one that has not falls back to its cache and the
-    # download, or names the library it lacks.
-    model_cfg = dict(payload["config"])
-    if payload["modelPath"] and "cellKind" not in payload:
-        model_cfg["MODEL_FILE"] = payload["modelPath"]
-    hints = {at.rel: at.hint() for at in model_paths(model_cfg, current_locations(wait=True)).values()}
+    hints = {at.rel: at.hint() for at in found.values()}
     payload["inPlace"] = {rel: hint for rel, hint in hints.items() if hint}
     return payload
 

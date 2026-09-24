@@ -2722,6 +2722,12 @@ PINS += [
      "h.includes('data-t=\"node-disconnect\"')])(m.nodesLaneHtml())",
      "[1,false,true]",
      "positive: у машины со скаутом ровно один ✕ — «отключить скаут», в шапке; negative: у контроллера его нет — он не скаут"),
+    ("incidents_button_left_the_controller_node",
+     f"st.setTopology({{ ...st.topology, nodes: [{HOST}, {{ id: \"controller\", role: \"controller\", name: \"Ctl\", online: true }}] }});",
+     "(h => [h.includes('data-ctrl-incidents'), h.includes('data-board-incidents'), h.includes('node-incidents-btn')])(m.nodesLaneHtml())",
+     "[false,false,false]",
+     "кнопки инцидентов в шапках узлов нет — она у всей доски, в строке Model servers: узел контроллера уходит, "
+     "когда ячейки его машины переезжают к её скауту"),
     ("disconnect_cross_only_for_hosts",
      "",
      "[m.scoutDisconnectBtnHtml({ id: \"controller\", role: \"controller\" }), m.scoutDisconnectBtnHtml({ id: \"c\", role: \"client\" }), m.scoutDisconnectBtnHtml(null)]",

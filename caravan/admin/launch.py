@@ -131,13 +131,19 @@ def shell_path_value(raw) -> str:
 def command_cell_env_exports(env_raw) -> list:
     """`export KEY="VALUE"` lines from the ENV field (newline- or comma-separated).
 
-    Double-quoted so paths and spaces survive while $VARS still expand. Shared by
-    both renderers below, because the agent used to reimplement this parser and
-    the two copies were already drifting apart.
+    Shared by both renderers below, because the agent used to reimplement this
+    parser and the two copies were already drifting apart.
     """
+    return export_lines(Runner.env_pairs(env_raw))
+
+
+def export_lines(pairs) -> list:
+    """`export KEY="VALUE"` for each (KEY, VALUE) pair — the one way a start
+    line exports anything. Double-quoted so paths and spaces survive while
+    $VARS still expand."""
     out = []
-    for k, v in Runner.env_pairs(env_raw):
-        v = v.replace("\\", "\\\\").replace('"', '\\"')
+    for k, v in pairs:
+        v = str(v).replace("\\", "\\\\").replace('"', '\\"')
         out.append(f'export {k}="{v}"')
     return out
 
@@ -257,15 +263,9 @@ def render_launch_script(config, locations=None):
     exec_line = ('exec "$LLAMA_HOME/build/bin/llama-server" '
                  + " ".join(shlex.quote(x) for x in cmd[1:]) + ' "$@"')
 
-    # CPU mode (n-gpu-layers 0): hide GPUs entirely. A CUDA-enabled llama.cpp build
-    # still initializes the CUDA backend and queries device memory even with -ngl 0
-    # (in common_params_print_info), which ABORTS with "CUDA error: out of memory"
-    # when the GPU is already full — e.g. an embeddings cell on CPU on a host whose
-    # GPU runs another model. Empty CUDA_VISIBLE_DEVICES makes CUDA report no devices,
-    # so it falls back to CPU cleanly. (--device none is NOT enough: it stops
-    # offloading but the backend still inits and OOMs.)
-    cpu_only_env = ['export CUDA_VISIBLE_DEVICES=""'] \
-        if str(merged.get("N_GPU_LAYERS") or "").strip() == "0" else []
+    # What the engine must start with (a CPU-only cell sees no GPU) — the
+    # runner's rule, which a scout's start carries too.
+    engine_env = export_lines(for_config(merged).launch_env(merged).items())
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
@@ -273,7 +273,7 @@ def render_launch_script(config, locations=None):
         'LLAMA_HOME="$HOME/llama.cpp"',
         'export LD_LIBRARY_PATH="$LLAMA_HOME/build/bin:$LLAMA_HOME/build/lib:${LD_LIBRARY_PATH:-}"',
         'export PATH="$LLAMA_HOME/build/bin:$PATH"',
-        *cpu_only_env,
+        *engine_env,
         "",
         config_block,
         "",

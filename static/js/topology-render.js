@@ -90,7 +90,6 @@ import {
   mountNodeTelemetry,
   nodesLaneHtml,
   nodeSparklineSvg,
-  openIncidentsModal,
   parkLaneStats,
   renderModelsBar,
   toggleCtrlServerStats,
@@ -364,10 +363,6 @@ export function renderTopology() {
   // Controller node: "Servers" header toggles the mounted Server telemetry slot.
   $("topologyLlamaServers")?.querySelectorAll("[data-ctrl-stats-toggle]").forEach((btn) => {
     btn.addEventListener("click", () => toggleCtrlServerStats(btn));
-  });
-  // Controller node: Incidents button opens the incidents modal.
-  $("topologyLlamaServers")?.querySelectorAll("[data-ctrl-incidents]").forEach((btn) => {
-    btn.addEventListener("click", openIncidentsModal);
   });
   // Controller node: llama.cpp version refresh button
   $("topologyLlamaServers")?.querySelectorAll("[data-check-llama-ver]").forEach((btn) => {

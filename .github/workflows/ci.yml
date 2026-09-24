@@ -38,6 +38,8 @@ jobs:
           python3 scripts/test_vllm_shell_line.py
           python3 scripts/test_vram_reservation.py
           python3 scripts/test_host_telemetry.py
+          python3 scripts/test_cell_to_scout.py
+          python3 scripts/test_scout_launch_parity.py
           python3 scripts/test_queue_thresholds.py
           python3 scripts/test_token_history.py
 

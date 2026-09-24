@@ -777,11 +777,11 @@ export function renderTopologyIncidents(samples = systemSamples(ui.latestSystemM
   if (!panel) return;
   const incidents = topologyIncidentItems(samples || []);
   if (meta) meta.textContent = incidents.length ? t("incidentsRecent", { n: incidents.length }) : t("incidentsClear");
-  // Reflect the count on the controller node's header button.
-  document.querySelectorAll("[data-ctrl-incidents-count]").forEach((el) => {
+  // Reflect the count on the board's incidents button (Model servers header).
+  document.querySelectorAll("[data-board-incidents-count]").forEach((el) => {
     el.textContent = String(incidents.length);
   });
-  document.querySelectorAll("[data-ctrl-incidents]").forEach((btn) => {
+  document.querySelectorAll("[data-board-incidents]").forEach((btn) => {
     btn.classList.toggle("has-incidents", incidents.length > 0);
   });
   if (!incidents.length) {

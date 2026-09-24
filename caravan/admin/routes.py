@@ -112,6 +112,7 @@ from caravan.admin.server_cells import (
     upsert_server_slot,
     used_server_cell_ports,
 )
+from caravan.admin.cell_move import CellToScout
 from caravan.admin.fleet_clients import (
     HOST_TELEMETRY,
     _backup_meta,
@@ -1615,6 +1616,12 @@ def _post_api_fleet_llama_update(h, parsed, body):
 @_route(POST_ROUTES, '/api/fleet/llama-restore')
 def _post_api_fleet_llama_restore(h, parsed, body):
         h.send_json(client_llama_restore(body))
+        return
+
+@_route(POST_ROUTES, '/api/topology/cell/move-to-scout')
+def _post_api_topology_cell_move_to_scout(h, parsed, body):
+        # Step 6.8: one cell of this controller to the scout of its machine.
+        h.send_json(CellToScout((body or {}).get("port"), (body or {}).get("hostId")).run())
         return
 
 @_route(POST_ROUTES, '/api/fleet/llama-suspect-dismiss')

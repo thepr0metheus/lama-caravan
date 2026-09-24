@@ -294,7 +294,7 @@ The built-in HuggingFace GGUF browser:
 ## Tested versions
 
 The exact versions the development fleet runs — re-verified and updated here
-whenever a component is upgraded (last verified: **2026-09-24**):
+whenever a component is upgraded (last verified: **2026-09-25**):
 
 | Component | Verified version |
 |---|---|
@@ -307,8 +307,8 @@ whenever a component is upgraded (last verified: **2026-09-24**):
 | systemd | 255 (Ubuntu 24.04) |
 | Docker (container mode) | 29.1 |
 | faster-whisper | 1.2.1 (CTranslate2 4.8.0, cuDNN 9.26 from the `nvidia-cudnn-cu12` wheel) — whisper command cells; a transcription verified on the Linux host 2026-09-24 |
-| vLLM | 0.24.0, pinned provisioning — controller cell `:8012` |
-| caravan-scout | 2.8.0 on the Linux host (2026-09-24) — installed with `./install.sh` and added from the board (Model servers → ＋ Add scout); knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, brings a crashed cell back, runs each cell under the memory limits of the controller's cells, says when a fresh llama.cpp build crashes them, refuses a vLLM start its card cannot hold, reports a vLLM cell's queue and speed, and samples the machine every second for the board's charts |
+| vLLM | 0.24.0, pinned provisioning — a cell on the controller's machine (`:22026`, through its scout, model folder read from the NAS library), verified 2026-09-25 |
+| caravan-scout | 2.8.2 on both Linux machines (2026-09-25) — on the controller's own machine it runs every cell (22, one trial start per runner); installed with `./install.sh` and added from the board (Model servers → ＋ Add scout); knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, brings a crashed cell back, runs each cell under the memory limits of the controller's cells, says when a fresh llama.cpp build crashes them, refuses a vLLM start its card cannot hold, reports a vLLM cell's queue and speed, and samples the machine every second for the board's charts |
 | moonshine-voice | 0.0.69 — moonshine STT command cells (CPU-only) |
 | transcribe.cpp | 0.2.0 (commit `b6a6aca`, 2026-07-22), CUDA build — transcribe cells; verified with `gigaam-v3-e2e-rnnt-Q8_0.gguf` |
 | CosyVoice (TTS cells) | upstream checkout + torch **2.7.1+cu128** in the engine venv — the cu128 wheels carry `sm_75…sm_120`, so the same cell runs on the RTX 3090 and the RTX 5090; CosyVoice's own pin (2.3.1+cu121) stops at `sm_90` and dies on Blackwell with "no kernel image" |

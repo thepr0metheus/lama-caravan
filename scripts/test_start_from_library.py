@@ -234,6 +234,86 @@ def section_scout_told_where():
         check(told[2:] == [{"seam/FP32": {"path": str(models / "seam" / "FP32"), "dir": True}}],
               f"модель-папка (seamless) — сказано, что это папка: её не скачать, только прочесть на месте "
               f"(got {told[2:]})")
+        args = [payload.get("args") or [] for _path, payload in sent]
+        check("--no-mmap" in args[0] and "--no-mmap" in args[1],
+              "файл ячейки в библиотеке (mmproj ячейки 22021, модель 22022) — скауту уходят аргументы без "
+              "отображения, как у ячейки контроллера: карта по сети, мигнувшая шара роняет работающую ячейку")
+        fleet_clients._scout = lambda host_id: FakeScout()
+        fleet_clients.current_locations = lambda wait=False: Locations([LIB], exists=os.path.isfile)
+        try:
+            for k in ("assert_server_cell_port_available", "upsert_server_slot", "move_server_cell"):
+                setattr(fleet_clients, k, lambda *a, **kw: None)
+            fleet_clients.client_llama_start({"hostId": "box-a", "port": 22024, "modelPath": "l/local.gguf",
+                                              "config": {**base, "PORT": "22024"}})
+            fleet_clients.client_llama_start({"hostId": "box-a", "port": 22025, "modelPath": "q/Qwen/Q8/q.gguf",
+                                              "config": {**base, "PORT": "22025", "LOAD_MODE": "mmap+mlock"}})
+        finally:
+            for k, v in saved.items():
+                setattr(fleet_clients, k, v)
+        local_args, lib_args = sent[3][1].get("args") or [], sent[4][1].get("args") or []
+        check("--no-mmap" not in local_args and "--load-mode" not in local_args,
+              "negative: всё на диске машины — режим загрузки оператора, отображения никто не отнимает")
+        check(lib_args[lib_args.index("--load-mode") + 1:][:1] == ["mlock"] and "--no-mmap" not in lib_args,
+              "режим оператора сохраняется, уходит только отображение: mmap+mlock из библиотеки — mlock")
+
+
+def section_vllm_folder():
+    print("папка модели vLLM — там, где она сейчас:")
+    import tempfile
+    from caravan.admin import fleet_clients
+    from caravan.admin.config_builder import run_config
+    with tempfile.TemporaryDirectory() as tmp:
+        models = Path(tmp) / "models"
+        models.mkdir()
+        rel = "Qwen3-0.6B/Qwen/BF16"
+        saved_path = f"{models}/{rel}"
+        shelf = {"id": "lib-b", "name": "NAS", "state": "ok", "path": "/mnt/lib",
+                 "files": [{"path": rel, "size": 1519}]}
+        away = Locations([shelf], exists=os.path.isfile)
+        vllm = {"RUNNER": "vllm", "VLLM_MODEL": saved_path, "LLAMA_MODELS_DIR": str(models), "PORT": "22026",
+                "ALIAS": "qwen3-0.6b", "MAX_MODEL_LEN": "8192", "GPU_MEMORY_UTILIZATION": "0.30"}
+        got = model_paths(vllm, away).get("VLLM_MODEL")
+        check(got is not None and (got.where, got.path, got.rel) == ("library", f"/mnt/lib/{rel}", rel),
+              "папку увезли в библиотеку — она там: VLLM_MODEL, абсолютный путь под корнем моделей, найден как "
+              "модель этой машины (раньше старт называл старый путь, и vLLM умирал, приняв его за repo id)")
+        got = model_paths(vllm).get("VLLM_MODEL")
+        check(got is not None and (got.where, got.path) == ("local", saved_path),
+              "без снимка — на диске моделей, по сохранённому пути (команду только показывают)")
+        for why, cfg in (("HF repo id", {**vllm, "VLLM_MODEL": "Qwen/Qwen3-0.6B"}),
+                         ("путь вне корня моделей", {**vllm, "VLLM_MODEL": "/data/other/model"}),
+                         ("сам корень моделей", {**vllm, "VLLM_MODEL": f"{models}/"}),
+                         ("остаток общего пикера в ячейке другого раннера",
+                          {"RUNNER": "transcribe", "MODEL_FILE": "a/b.gguf", "VLLM_MODEL": saved_path,
+                           "LLAMA_MODELS_DIR": str(models)})):
+            check("VLLM_MODEL" not in model_paths(cfg, away), f"negative: {why} — не модель корня моделей")
+        # The start line, as the scout gets it.
+        def payload(cfg, where):
+            keep = fleet_clients.topology_store, fleet_clients.current_locations
+            fleet_clients.topology_store = lambda: {"hosts": {"box-a": {"id": "box-a"}}}
+            fleet_clients.current_locations = lambda wait=False: where
+            try:
+                return fleet_clients.scout_start_payload({"hostId": "box-a", "port": 22026, "config": dict(cfg)})
+            finally:
+                fleet_clients.topology_store, fleet_clients.current_locations = keep
+        sent = payload(vllm, away)
+        check(f"serve /mnt/lib/{rel} --host 0.0.0.0" in sent["shellLine"] and saved_path not in sent["shellLine"]
+              and f"serve /mnt/lib/{rel} " in sent["command"],
+              "строка запуска скаута называет папку в библиотеке — не старый путь")
+        check("--served-model-name qwen3-0.6b" in sent["shellLine"] and sent["config"]["VLLM_MODEL"] == saved_path,
+              "имя модели для клиентов то же, и сохранённый конфиг уходит как был: путь меняет только старт")
+        check(sent["inPlace"].get(rel) == {"path": f"/mnt/lib/{rel}", "library": "NAS", "size": 1519},
+              "скауту сказано, что папка в библиотеке NAS")
+        before = dict(vllm)
+        ran = run_config(vllm, model_paths(vllm, away))
+        check(ran["VLLM_MODEL"] == f"/mnt/lib/{rel}" and vllm == before,
+              "run_config: копия конфига с папкой там, где она сейчас; сам конфиг не тронут")
+        (models / rel).mkdir(parents=True)
+        got = model_paths(vllm, away).get("VLLM_MODEL")
+        check(got is not None and (got.where, got.path) == ("local", saved_path),
+              "negative: папка на диске (и в библиотеке тоже) — читаем свой диск, а не сеть")
+        check(f"serve {saved_path} --host" in payload(vllm, away)["shellLine"]
+              and run_config(vllm, model_paths(vllm, away)) is vllm,
+              "negative: папка на диске — строка и конфиг прежние")
 
 
 def section_every_start():
@@ -403,6 +483,7 @@ def main():
     section_script()
     section_every_start()
     section_scout_told_where()
+    section_vllm_folder()
     section_choice()
     section_prefetch()
     print()

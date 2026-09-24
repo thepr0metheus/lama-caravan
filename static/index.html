@@ -392,6 +392,10 @@
             <div class="topology-lane-head">
               <h2 class="title-with-tip"><span id="boardNodesHead" data-i18n="topologyLlamaServersSection">Model servers</span><span id="topologyLlamaServersTip"></span></h2>
               <div class="topology-head-actions">
+                <!-- The fleet's incidents: routes that failed, fell back or were slow.
+                     It lived on the controller machine's node, which goes away when
+                     that machine's cells move to its scout; it is the whole board's. -->
+                <button id="boardIncidentsBtn" type="button" class="icon-action prominent board-incidents-btn" data-board-incidents data-t="board-incidents-open" data-title-i18n="topologyIncidentsOpen" title="Incidents">⚠ <span data-board-incidents-count>0</span></button>
                 <button id="topologyCellsDensityBtn" type="button" class="icon-action prominent" data-board-density="cells" data-t="board-density" data-t-id="cells" aria-pressed="true">⊟</button>
                 <button id="usageStatsBtn" type="button" class="icon-action prominent" data-title-i18n="usageStatsBtn" aria-label="Usage &amp; spend statistics">📊</button>
                 <button id="topologyRequestHistoryBtn" type="button" class="icon-action prominent" data-title-i18n="requestHistoryTitle" title="Request history">

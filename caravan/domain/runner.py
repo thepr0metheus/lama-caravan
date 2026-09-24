@@ -172,6 +172,12 @@ class Runner:
         as its report or nvidia-smi names them (index, memoryTotalMiB)."""
         return None
 
+    def launch_env(self, config) -> dict:
+        """The environment the engine itself must start with, NAME -> value:
+        what this controller's start.sh exports before the exec, and what a
+        scout sets on the process it starts without a shell. Usually none."""
+        return {}
+
     @staticmethod
     def env_pairs(env_raw):
         """(KEY, VALUE) pairs of a cell's ENV field — newline- or
@@ -237,6 +243,20 @@ class LlamaServerRunner(Runner):
     shared_picker = "source"
     token_context = True
     command_path = False
+
+    def launch_env(self, config):
+        # CPU mode (n-gpu-layers 0): hide GPUs entirely. A CUDA-enabled llama.cpp build
+        # still initializes the CUDA backend and queries device memory even with -ngl 0
+        # (in common_params_print_info), which ABORTS with "CUDA error: out of memory"
+        # when the GPU is already full — e.g. an embeddings cell on CPU on a host whose
+        # GPU runs another model. Empty CUDA_VISIBLE_DEVICES makes CUDA report no devices,
+        # so it falls back to CPU cleanly. (--device none is NOT enough: it stops
+        # offloading but the backend still inits and OOMs.) A scout's cell needs it
+        # as much as this controller's: the scout used to start the same cell
+        # without it.
+        if str((config or {}).get("N_GPU_LAYERS", "")).strip() == "0":
+            return {"CUDA_VISIBLE_DEVICES": ""}
+        return {}
 
 
 class VllmRunner(Runner):
