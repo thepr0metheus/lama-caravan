@@ -1836,6 +1836,21 @@ export function bindMenuHtml({ hostId, agentId, role, current = "", neighbour = 
   `;
 }
 
+// After a new port is made: hand over the address the agent will use, and say
+// only what happened. The port is born open (no key required, the fleet
+// default), so there is nothing secret to hand over — the message used to say
+// "the key copied" in all twenty languages, about a key that does not exist.
+// The copy itself can fail (no clipboard on a plain-http page, a refused
+// permission); then the message says so, rather than let the operator paste
+// whatever the clipboard held before, believing it is the address.
+// `copy` and `say` are parameters so both outcomes can be checked by value.
+export async function announceNewPort(port, { copy = copyText, say = toast } = {}) {
+  const copied = await copy(`http://${location.hostname}:${port}/v1`);
+  const text = t(copied ? "taBindNewPortMade" : "taBindNewPortMadeNoCopy", { port: String(port) });
+  say(text);
+  return text;
+}
+
 function openBindMenu(chip) {
   closeBindMenu();
   const hostId = chip.dataset.bindHost;
@@ -1871,10 +1886,7 @@ function openBindMenu(chip) {
         });
         if (res.topology) setTopology(res.topology);
         renderTopology();
-        // The port is born open (no key required, the fleet default), so there
-        // is nothing secret to hand over — just the address the agent will use.
-        await copyText(`http://${location.hostname}:${res.route.port}/v1`);
-        toast(t("taBindNewPortMade", { port: String(res.route.port) }));
+        await announceNewPort(res.route.port);
       } catch (err) {
         toast(`${t("taBindFailed")}: ${err.message || err}`, true);
       }

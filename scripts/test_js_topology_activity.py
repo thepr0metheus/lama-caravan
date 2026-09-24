@@ -3417,6 +3417,22 @@ PINS = [
      "(h => [h.includes(\"<b>x\"), h.includes(\"&lt;b&gt;x\"), h.includes(\"<i>\")])(m.bindMenuHtml({ hostId: \"c1\", agentId: \"<b>x\", role: \"primary\", proxies: [{port:23005,label:\"<i>l\"}] }))",
      "[false,true,false]",
      "positive: имя агента и подпись порта экранируются"),
+    # ── after a new port: say only what happened ──
+    ("new_port_announced_when_the_address_is_copied",
+     "",
+     "await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + \"/i18n/en.js\").href)).default; const was = location.hostname; location.hostname = \"caravan.test\"; try { let asked = null, said = null; const text = await m.announceNewPort(23111, { copy: async (a) => { asked = a; return true; }, say: (x) => { said = x; } }); return [asked, said === text, text === en.taBindNewPortMade.replace(\"{port}\", \"23111\"), text === en.taBindNewPortMadeNoCopy.replace(\"{port}\", \"23111\")]; } finally { location.hostname = was; } })()",
+     "[\"http://caravan.test:23111/v1\",true,true,false]",
+     "positive: в буфер уходит адрес порта (http://хост:порт/v1), и сообщение говорит, что скопирован адрес"),
+    ("new_port_announced_when_the_copy_failed",
+     "",
+     "await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + \"/i18n/en.js\").href)).default; const was = location.hostname; location.hostname = \"caravan.test\"; try { let asked = null, said = null; const text = await m.announceNewPort(23111, { copy: async (a) => { asked = a; return false; }, say: (x) => { said = x; } }); return [asked, said === text, text === en.taBindNewPortMade.replace(\"{port}\", \"23111\"), text === en.taBindNewPortMadeNoCopy.replace(\"{port}\", \"23111\")]; } finally { location.hostname = was; } })()",
+     "[\"http://caravan.test:23111/v1\",true,false,true]",
+     "negative: копирование не удалось — сообщение так и говорит, а не уверяет, что в буфере адрес"),
+    ("new_port_words_name_the_address_not_a_key",
+     "",
+     "await (async () => { const en = (await import(pathToFileURL(process.env.JS_ROOT + \"/i18n/en.js\").href)).default; return [/address/i.test(en.taBindNewPortMade), /key/i.test(en.taBindNewPortMade), /could not/i.test(en.taBindNewPortMadeNoCopy), /key/i.test(en.taBindNewPortMadeNoCopy)]; })()",
+     "[true,false,true,false]",
+     "defect-history: сообщение говорило «the key copied» про ключ, которого у порта нет — теперь про адрес, и про ключ ни слова"),
 ]
 
 _fail = []

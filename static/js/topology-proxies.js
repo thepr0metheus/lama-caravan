@@ -44,6 +44,19 @@ export function clientSupportsRuntimeDetect(client) {
   return (client.agents || []).some((a) => a.runtimeDetected === true);
 }
 
+// Whether an agent is KNOWN not to be running — the ☠ with a delete button.
+// Only a machine that reports now can say so: its scout answered within the
+// TTL and did not see the agent running. A silent machine says nothing about
+// its agents — they are offline with it, which its own card already says — and
+// a client no scout ever reported has no liveness to speak of. Before, a
+// machine switched off left every agent it had marked dead on a days-old
+// report, inviting the operator to delete records that were merely asleep.
+export function agentLooksDead(client, agent) {
+  if (!client || !agent || !clientSupportsRuntimeDetect(client)) return false;
+  if (client.state !== "online") return false;
+  return agent.runtimeDetected !== true;
+}
+
 // True if the proxy's agent was manually deleted (tombstoned) — not in client.agents anymore.
 export function _cvProxyIsTombstoned(p) {
   const info = _cvProxyToAgent().get(String(p.id));
@@ -59,9 +72,8 @@ export function _cvProxyIsStale(p) {
   const info = _cvProxyToAgent().get(String(p.id));
   if (!info?.agentId || !info?.hostId) return false;
   const client = (topology?.clients || []).find((c) => c.id === info.hostId);
-  if (!client || !clientSupportsRuntimeDetect(client)) return false;
-  const agent = (client.agents || []).find((a) => a.id === info.agentId);
-  return agent ? agent.runtimeDetected !== true : false;
+  const agent = (client?.agents || []).find((a) => a.id === info.agentId);
+  return agentLooksDead(client, agent);
 }
 
 // `fold` asks for the lane's folding (card-fold.js): a quiet agent becomes its
@@ -91,10 +103,10 @@ export function topologyAgentCard(client, agent, routeMap, ownsClient = false, {
         title="${escapeHtml(t("tpTitleShowRaw"))}">{ }</button>
     </div>` : "";
 
-  // Stale: prefer runtimeDetected field if this client's route-agent supports it.
-  // Fall back to sub-client state lookup for agents that have their own client entry.
+  // Stale: a machine reporting now does not see the agent running
+  // (agentLooksDead). An agent with a client entry of its own is stale with it.
   const supportsRD = clientSupportsRuntimeDetect(client);
-  const rdStale = supportsRD && agent.runtimeDetected !== true;
+  const rdStale = agentLooksDead(client, agent);
   const subClient = topologyAgentSubClient(agent);
   const subClientStale = subClient?.state === "stale";
   const agentIsStale = rdStale || subClientStale;

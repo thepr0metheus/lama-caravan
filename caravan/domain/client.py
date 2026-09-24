@@ -13,6 +13,8 @@ comment. Once a client could be created two different ways, it had to move to
 one place: otherwise the second path lets through what the first one rejects
 — and the consequence is spelled out in the rule itself.
 """
+import re
+
 from caravan.admin.paths import CONTROLLER_HOST_ID, LEGACY_CONTROLLER_HOST_IDS
 from caravan.common.errors import AppError
 
@@ -84,15 +86,58 @@ class FleetClient:
         return list(reported) + kept
 
     @classmethod
+    def keep_record_agents(cls, reported, previous):
+        """The agent list of a hand-made client after a report: the record's own.
+
+        A hand-made client's agents are the operator's records, like its cells
+        (decided 2026-09-24 — the scouts are on their way out). A report may
+        refresh what it knows about an agent the record has — what it is, where
+        and whether it runs — but it neither adds an agent nor takes one away.
+        Before, silence removed: a scout whose fleet registry did not answer
+        fell back to its one static agent, and nine agents that still held
+        proxy ports vanished from the board.
+
+        Whether an agent runs (`runtimeDetected`) is only ever this report's
+        word: an agent the report does not mention loses the old answer rather
+        than keep a days-old "running". Its name may be refreshed too — the
+        operator's own name for an agent lives apart, in agentAliases, and wins
+        on the board.
+        """
+        by_id = {str(a.get("id") or ""): a for a in (reported or []) if isinstance(a, dict)}
+        kept = []
+        for agent in previous or []:
+            if not isinstance(agent, dict):
+                continue
+            row = {k: v for k, v in agent.items() if k != "runtimeDetected"}
+            seen = by_id.get(str(agent.get("id") or ""))
+            if seen:
+                row.update({k: v for k, v in seen.items() if k not in ("id", "manual")})
+            kept.append(row)
+        return kept
+
+    @classmethod
+    def agent_from_port(cls, agent_id, label=""):
+        """An agent a hand-made client's record lost while a proxy port still
+        carries its route. Its name is the port's label without the role word
+        ("Vega primary" → "Vega"), or its id when the label says
+        nothing; what it is and whether it runs are not known, so not claimed.
+        """
+        name = re.sub(r"\s+(primary|fallback)$", "", str(label or "").strip(), flags=re.I).strip()
+        return {"id": str(agent_id), "name": (name or str(agent_id))[:120],
+                "kind": "manual", "status": "configured", "manual": True}
+
+    @classmethod
     def adopt(cls, row):
         """Mark an EXISTING record manual. True if anything changed.
 
         Adoption happens in place, not "create new and delete old": the
         registry is live, its routes carry traffic, and in the gap between
-        create and delete they would exist twice or not at all. Exactly one
-        fact changes here — who owns the record — and everything else about
-        it is none of our business: not liveness, not the name, not the
-        agents. Which is also why a repeat call is harmless.
+        create and delete they would exist twice or not at all. What changes
+        is who owns the record — and with it its agents, marked the operator's
+        too: since 2026-09-24 a hand-made client's agents are permanent
+        records, and a report can no longer remove them (keep_record_agents).
+        Liveness and names are none of adoption's business. Which is also why
+        a repeat call is harmless.
         """
         if not isinstance(row, dict) or row.get("manual"):
             return False
@@ -102,6 +147,9 @@ class FleetClient:
         if any(str(row.get("id") or "").casefold() == r.casefold() for r in cls.RESERVED_IDS):
             return False
         row["manual"] = True
+        for agent in row.get("agents") or []:
+            if isinstance(agent, dict):
+                agent["manual"] = True
         return True
 
     @classmethod

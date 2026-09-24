@@ -500,6 +500,10 @@ Stateless — its open/editing flags live in `ui` (`topologyProxyFormOpen`, `top
 
 - Owns: nothing mutable.
 - Key exports: `topologyAgentCard`, `topologyGroupedAgents`, `topologyAssignmentsForHost`, `renderTopologyProxyForm`, `saveTopologyProxyForm`, `sortedTopologyRoutes`.
+- An agent is drawn dead (☠, `agent-stale`, the delete button titled "No link") only by
+  `agentLooksDead`: its machine reports now (`state: "online"`) and does not see it running. A
+  silent machine's agents stay quiet rows — the machine's own card says it is offline, and its
+  agents are records, not liveness. The kanban's `_cvProxyIsStale` asks the same function.
 
 ## topology-nodes.js
 
