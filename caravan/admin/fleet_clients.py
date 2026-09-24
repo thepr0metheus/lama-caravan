@@ -556,6 +556,10 @@ def host_from_report(payload):
             "ctxUsed": raw.get("ctxUsed"),
             "modalities": _normalize_modalities(raw.get("modalities")),
             "firewall": raw.get("firewall") if isinstance(raw.get("firewall"), dict) else None,
+            # Its scout's watchdog: crashes since the last start by hand (2.5+).
+            # Dropped here, the 💥 never reached the card although the scout
+            # kept it (2026-09-24).
+            "crash": raw.get("crash") if isinstance(raw.get("crash"), dict) else None,
         }
     _raw_nodes = payload.get("llamaNodes")
     llama_nodes = [_san_node(n) for n in _raw_nodes if isinstance(n, dict)] \

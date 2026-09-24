@@ -208,6 +208,17 @@ _CELL_CRASH_PATTERNS = (
 _cell_crash_cache = {}
 
 
+def crash_kind(text):
+    """What kind of death a log line tells of — gpu-hang, gpu-oom, assert,
+    killed — or "crash". One vocabulary for the controller's cells (read from
+    the journal) and a scout's (its crash note carries only the reason)."""
+    low = str(text or "").lower()
+    for name, needles in _CELL_CRASH_PATTERNS:
+        if any(n in low for n in needles):
+            return name
+    return "crash"
+
+
 def cell_crash_note(port, restarts=0, ttl=60):
     """Whether a cell has crashed, how many times, and with what words — or None.
 
@@ -247,12 +258,8 @@ def cell_crash_note(port, restarts=0, ttl=60):
         # reason yet.
         for back in range(index, max(-1, index - 40), -1):
             text = lines[back]
-            low_back = text.lower()
-            for name, needles in _CELL_CRASH_PATTERNS:
-                if any(n in low_back for n in needles):
-                    kind, reason = name, text.split("]: ", 1)[-1].strip()
-                    break
-            if reason:
+            if crash_kind(text) != "crash":
+                kind, reason = crash_kind(text), text.split("]: ", 1)[-1].strip()
                 break
         if not reason:
             reason = lines[index].split("]: ", 1)[-1].strip()

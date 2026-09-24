@@ -38,8 +38,6 @@ DECLARED = {
     "artifact": "slot: launch files are recorded at Apply — the live branch has none on hand",
     "modelSizeBytes": "slot: the model file's size, from disk",
     "pids": "slot: the unit's process list",
-    "crash": "slot: cell crashes come from the controller's systemd — the live "
-             "branch (client cells and the scout's report) has no such source",
     "vllmStats": "slot: vLLM statistics from its own endpoint",
     "modelDiskNewer": "slot: a file's mtime against the unit's start time — both "
                        "numbers exist only for a controller cell; a client "

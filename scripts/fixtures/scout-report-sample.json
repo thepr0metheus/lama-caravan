@@ -1,7 +1,9 @@
 {
   "heartbeat": {
     "agentUrl": "http://10.0.0.5:8092",
-    "autostart": [],
+    "autostart": [
+      22001
+    ],
     "computeApps": [
       {
         "gpuUuid": "GPU-00000000-0000-0000-0000-000000000000",
@@ -46,6 +48,11 @@
     "llamaBinaryVersion": "version: 9947 (abc1234)",
     "llamaNode": {
       "adopted": true,
+      "crash": {
+        "at": "2026-09-24T09:00:00+0000",
+        "count": 1,
+        "reason": "CUDA error: out of memory"
+      },
       "ctxMax": 8192,
       "ctxSize": 8192,
       "ctxUsed": 2048,
@@ -71,6 +78,11 @@
     "llamaNodes": [
       {
         "adopted": true,
+        "crash": {
+          "at": "2026-09-24T09:00:00+0000",
+          "count": 1,
+          "reason": "CUDA error: out of memory"
+        },
         "ctxMax": 8192,
         "ctxSize": 8192,
         "ctxUsed": 2048,
@@ -117,7 +129,9 @@
     "time": 1790000000
   },
   "state": {
-    "autostart": [],
+    "autostart": [
+      22001
+    ],
     "computeApps": [
       {
         "gpuUuid": "GPU-00000000-0000-0000-0000-000000000000",
@@ -167,6 +181,11 @@
     "llamaBinaryVersion": "version: 9947 (abc1234)",
     "llamaNode": {
       "adopted": true,
+      "crash": {
+        "at": "2026-09-24T09:00:00+0000",
+        "count": 1,
+        "reason": "CUDA error: out of memory"
+      },
       "ctxMax": 8192,
       "ctxSize": 8192,
       "ctxUsed": 2048,
@@ -192,6 +211,11 @@
     "llamaNodes": [
       {
         "adopted": true,
+        "crash": {
+          "at": "2026-09-24T09:00:00+0000",
+          "count": 1,
+          "reason": "CUDA error: out of memory"
+        },
         "ctxMax": 8192,
         "ctxSize": 8192,
         "ctxUsed": 2048,
