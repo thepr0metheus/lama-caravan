@@ -594,9 +594,8 @@ turns what it reads into the shape of a heartbeat. Which fields a report carries
 repos: the scout's `docs/report-sample.json`, copied byte for byte to `scripts/fixtures/`, where
 `test_scout_report_sample.py` requires every field to reach the host record (or be listed as not read,
 with the reason) and the pull and the beat to make the same record. Agents and their ports are made by hand; removing an agent takes its
-assignment row and leaves its ports free. Deleting a client leaves the host record alone, and
-`topology_host_delete` forgets a silent machine's host record and nothing else — refused (409) while
-its scout answers, since the next report would bring it back. The controller also hosts every node's
+assignment row and leaves its ports free. Deleting a client leaves the host record alone. A machine
+joins and leaves through `SCOUT_PAIRING` (`scout_pairing.py`, below). The controller also hosts every node's
 named launch-config backups under `var/server-backups/<host>/<gpu-model-or-CPU>/<stamp>-<name>.json`
 (path-safety enforced) so a client's backups survive the client.
 Owns: the `clients`/`hosts`/`assignments` sections of admin state; the `var/server-backups/`
@@ -604,7 +603,20 @@ store.
 Key functions: `client_llama_start`, `client_llama_stop`, `client_monitor`,
 `client_llama_configs`/`_save`/`_delete`, `client_llama_list_cache`/`client_llama_purge_cache`,
 `record_host_report`, `topology_hosts`, `topology_clients`, `refresh_hosts_from_scouts`,
-`topology_client_delete`/`topology_client_agent_delete`, `topology_host_delete`, `set_topology_client_alias`.
+`topology_client_delete`/`topology_client_agent_delete`, `set_topology_client_alias`; `SCOUT_PAIRING`.
+
+## `scout_pairing.py`
+
+`ScoutPairing` — the one way a machine joins the fleet as a scout host. The machine only installs
+its scout (caravan-scout `./install.sh`); the operator enters its address on the board, and
+`connect` reads the scout's open `/api/pairing`, hands it the controller's address and the fleet
+token (`POST /api/controller-url`) and returns once the scout's first heartbeat has made the host
+record. `controller_url_for` picks the address the scout will reach: 127.0.0.1 for a scout on the
+controller's machine, else `LLAMA_TOPOLOGY_SERVER_IP`, else the interface that routes towards it.
+`disconnect` asks the scout to let go (`/api/unpair`) and forgets the host record — a silent scout's
+machine only forgotten, a refusing scout's kept. Every failure is worded with what to do. The network
+comes in through `http_get`/`http_post` parameters, which the snapshot (`test_scout_pairing.py`)
+replaces with a fake scout.
 
 ## `topology.py`
 

@@ -131,11 +131,10 @@ export function hostAgeText(node) {
   return t("nodeScoutLastReport", { ago: _ageShort(age) });
 }
 
-// The banner of a host whose scout stopped answering, with the one action that
-// is the operator's to take: forget the machine. It lives on the node — the
-// machine — and not in the clients lane, since the scout reports the machine
-// and nothing about the clients on it (docs/scout-split.md). A live scout gets
-// no banner and no ✕: forgetting it would last until its next report.
+// The banner of a host whose scout stopped answering. It lives on the node —
+// the machine — and not in the clients lane, since the scout reports the
+// machine and nothing about the clients on it (docs/scout-split.md). What the
+// operator can do about it is the machine's one ✕, in the node's header.
 // A 1.x scout names no version. It still reports the agents on its machine,
 // which the controller stopped reading — the chip says the scout is due for an
 // update rather than leaving an old one to look current. The controller and a
@@ -152,9 +151,19 @@ export function hostSilenceHtml(node) {
   return `
         <div class="node-scout-silent" data-t="node-scout-silent" data-t-id="${id}">
           <span>⚠ ${escapeHtml(t("nodeScoutSilent"))} · <span data-live-hostage>${escapeHtml(hostAgeText(node))}</span></span>
-          <button class="node-forget-btn" type="button" data-t="node-forget" data-t-id="${id}"
-            data-host-forget="${id}" title="${escapeHtml(t("nodeForgetHost"))}">✕ ${escapeHtml(t("nodeForgetHost"))}</button>
         </div>`;
+}
+
+// A machine's one ✕: let go of its scout — it forgets this controller and the
+// machine leaves the board — or, when the scout is silent, forget the machine
+// here. One button for both; its dialog says which of the two will happen.
+// The controller's own node has none: it is not a scout.
+export function scoutDisconnectBtnHtml(node) {
+  if (!node || node.role !== "host") return "";
+  const id = escapeHtml(String(node.id || ""));
+  return `<button class="node-disconnect-btn" type="button" data-t="node-disconnect" data-t-id="${id}"
+      data-scout-disconnect="${id}" title="${escapeHtml(t("nodeDisconnectScoutTitle"))}"
+      aria-label="${escapeHtml(t("nodeDisconnectScoutTitle"))}">✕</button>`;
 }
 
 export const topologyNodesViewOn = true;  // node view is the only mode (flat list retired)
@@ -1435,6 +1444,7 @@ export function nodesLaneHtml() {
           ${(n.role === "controller")
             ? `<button class="node-incidents-btn" type="button" data-ctrl-incidents title="${escapeHtml(t("topologyIncidentsOpen"))}">⚠ <span data-ctrl-incidents-count>0</span></button>` : ""}
           <span class="node-meta" data-live-nodemeta>${escapeHtml(n.platform || "")}</span>
+          ${scoutDisconnectBtnHtml(n)}
         </header>
         ${hostSilenceHtml(n)}
         ${bodyHtml}

@@ -40,7 +40,7 @@ import {
   renderNvidiaSmiSourceButtons,
   startRemoteStartWatch,
   submitLlamaStop,
-  forgetTopologyHost,
+  disconnectScout,
   editRouteModel,
   editRouteWait,
   setRouteContextPrefer,
@@ -360,9 +360,9 @@ export function renderTopology() {
   $("topologyLlamaServers")?.querySelectorAll("[data-node-collapse]").forEach((btn) => {
     btn.addEventListener("click", () => toggleNodeCollapsed(btn.dataset.nodeCollapse));
   });
-  // A silent scout's machine: forget it (the banner's ✕).
-  $("topologyLlamaServers")?.querySelectorAll("[data-host-forget]").forEach((btn) => {
-    btn.addEventListener("click", () => forgetTopologyHost(btn.dataset.hostForget));
+  // A machine's one ✕: let go of its scout, or forget a silent one.
+  $("topologyLlamaServers")?.querySelectorAll("[data-scout-disconnect]").forEach((btn) => {
+    btn.addEventListener("click", () => disconnectScout(btn.dataset.scoutDisconnect));
   });
   // Controller node: "Servers" header toggles the mounted Server telemetry slot.
   $("topologyLlamaServers")?.querySelectorAll("[data-ctrl-stats-toggle]").forEach((btn) => {
@@ -519,9 +519,14 @@ export function topologyInteractionActive() {
   // closing an open dropdown mid-choice (bridge model select, port-registry
   // router select) or stealing the caret from a text field (cell note).
   // The deferred render lands via flushPendingTopologyRender on focusout.
+  // A field in a block the render never replaces (data-survives-render: the
+  // "+ Add scout" address) does not defer it — nothing is rebuilt under it.
+  // It did: while the address had the focus the board stood still, and a
+  // scout added with Enter did not appear until the focus moved on.
   const ae = document.activeElement;
   return !!(ae && ae.matches
-            && ae.matches("select, textarea, input:not([type=checkbox]):not([type=radio])"));
+            && ae.matches("select, textarea, input:not([type=checkbox]):not([type=radio])")
+            && !(ae.closest && ae.closest("[data-survives-render]")));
 }
 
 // Exact phase string — used as a structural key. The fast-moving bits inside a

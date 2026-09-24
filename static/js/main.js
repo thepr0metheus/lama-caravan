@@ -35,6 +35,7 @@ import { action, bindMonitorDrawer, loadState, startTopologyMonitor } from "./po
 import { refreshRouteErrBadges } from "./topology-activity.js";
 import { purgeRemoteModelCache, submitRemoteLlamaStart } from "./remote-cells.js";
 import { rebindProxyRouter } from "./routers.js";
+import { mountScoutAdd } from "./scout-add.js";
 import { topology, ui } from "./state.js";
 import { renderRuntime, revertLatest } from "./system-panels.js";
 import {
@@ -169,6 +170,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   onLangChange(renderAll);
 
   bindUserChip();
+  // ＋ Add scout under Model servers: the one way a machine joins as a scout host.
+  mountScoutAdd();
   // Folded board cards float open on hover and pin on a click (card-fold.js).
   // Bound once, on the document: the lanes are repainted wholesale. No card
   // floats up while a cable is being dragged across the lane.

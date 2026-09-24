@@ -29,6 +29,8 @@ jobs:
           python3 scripts/test_client_records.py
           python3 scripts/test_scout_poll.py
           python3 scripts/test_scout_report_sample.py
+          python3 scripts/test_scout_pairing.py
+          python3 scripts/test_topology_remote_cells.py
           python3 scripts/test_queue_thresholds.py
           python3 scripts/test_token_history.py
 
@@ -122,6 +124,7 @@ jobs:
           python3 scripts/test_js_cell_load.py
           python3 scripts/test_js_llama_edit.py
           python3 scripts/test_js_remote_cells.py
+          python3 scripts/test_js_scout_add.py
           python3 scripts/test_js_client_proxies.py
           python3 scripts/test_js_routers.py
           python3 scripts/test_js_cloud.py

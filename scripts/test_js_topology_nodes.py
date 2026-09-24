@@ -2676,18 +2676,29 @@ PINS += [
      "negative: без узла, без возраста, с мусором вместо числа — «не отвечал», а не «NaNs»"),
     ("silent_host_says_so",
      "",
-     f"(h => [h.includes('data-t=\"node-scout-silent\"'), h.includes('data-host-forget=\"h2\"'), "
+     f"(h => [h.includes('data-t=\"node-scout-silent\"'), h.includes('data-scout-disconnect'), "
      f"h.includes('data-live-hostage>' + m.hostAgeText({{ ageSeconds: 600 }}) + '<')])"
      f"(norm(m.hostSilenceHtml({{ ...{HOST}, online: false, ageSeconds: 600 }})))",
-     "[true,true,true]",
-     "positive: скаут молчит — у узла баннер с возрастом отчёта и ✕ «забыть машину»; клиентов на машине это не касается"),
+     "[true,false,true]",
+     "positive: скаут молчит — у узла баннер с возрастом отчёта; negative: ✕ в баннере больше нет — он один, в шапке узла"),
+    ("host_node_has_one_disconnect_cross",
+     f"st.setTopology({{ ...st.topology, nodes: [{HOST}, {{ id: \"controller\", role: \"controller\", name: \"Ctl\", online: true }}] }});",
+     "(h => [(h.match(/data-scout-disconnect=\"h2\"/g) || []).length, h.includes('data-scout-disconnect=\"controller\"'), "
+     "h.includes('data-t=\"node-disconnect\"')])(m.nodesLaneHtml())",
+     "[1,false,true]",
+     "positive: у машины со скаутом ровно один ✕ — «отключить скаут», в шапке; negative: у контроллера его нет — он не скаут"),
+    ("disconnect_cross_only_for_hosts",
+     "",
+     "[m.scoutDisconnectBtnHtml({ id: \"controller\", role: \"controller\" }), m.scoutDisconnectBtnHtml({ id: \"c\", role: \"client\" }), m.scoutDisconnectBtnHtml(null)]",
+     '["","",""]',
+     "negative: контроллер, старое слово роли и пустота — без ✕"),
     ("live_host_has_no_banner",
      "",
      f"[m.hostSilenceHtml({{ ...{HOST}, online: true, ageSeconds: 30 }}), "
      f"m.hostSilenceHtml({{ id: \"skynet\", role: \"controller\", online: false }}), "
      f"m.hostSilenceHtml({{ id: \"x\", role: \"client\", online: false }}), m.hostSilenceHtml(null)]",
      '["","","",""]',
-     "negative: живой скаут — ни баннера, ни ✕ (забытый вернулся бы со следующим отчётом); контроллер не хост; старое слово роли не хост"),
+     "negative: живой скаут — баннера нет; контроллер не хост; старое слово роли не хост"),
     ("gpuless_host_is_on_the_board",
      f"st.setTopology({{ ...st.topology, nodes: [{HOST}] }});",
      "(h => [h.includes('data-node-id=\"h2\"'), (h.match(/<span class=\"node-role\">([^<]*)</) || [])[1]])(m.nodesLaneHtml())",

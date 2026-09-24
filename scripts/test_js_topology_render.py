@@ -40,6 +40,10 @@ const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
 st.setState({ config: {} });
 st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} });
 Date.now = () => 1_700_000_100_000;
+// No drag is under way: a stubbed non-function export is a (truthy) stub, and
+// topologyInteractionActive() read every board as mid-drag.
+globalThis.__stubValues = { ...(globalThis.__stubValues || {}),
+  "topology-dnd.topologyPointerDrag": null, "canvas._cvDrag": null };
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/topology-render.js").href);
 const reset = () => { st.setState({ config: {} });
   st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} }); };
@@ -196,6 +200,21 @@ PINS += [
      json.dumps(_en("nodeScoutLastReport").replace("{ago}", "15m")),
      "positive: живой патчер двигает возраст молчащего скаута тем же текстом, что и узел (hostAgeText), — "
      "иначе починка текста держалась бы один тик опроса"),
+    ("a_field_that_survives_render_does_not_hold_the_board",
+     'globalThis.__ae = document.activeElement;'
+     ' document.activeElement = { matches: () => true,'
+     ' closest: (sel) => (sel === "[data-survives-render]" ? {} : null) };',
+     '(() => { try { return m.topologyInteractionActive(); } finally { document.activeElement = globalThis.__ae; } })()',
+     'false',
+     "defect-history: фокус в поле «＋ Add scout» держал перерисовку доски — скаут, добавленный по Enter, "
+     "не появлялся на доске, пока фокус не ушёл"),
+    ("a_field_inside_the_board_holds_it",
+     'globalThis.__ae = document.activeElement;'
+     ' document.activeElement = { matches: () => true, closest: () => null };',
+     '(() => { try { return m.topologyInteractionActive(); } finally { document.activeElement = globalThis.__ae; } })()',
+     'true',
+     "negative: поле внутри перестраиваемой доски (заметка ячейки, селект роутера) по-прежнему откладывает "
+     "перерисовку — иначе она вырвала бы каретку из-под пальцев"),
 ]
 
 _fail = []
@@ -211,8 +230,9 @@ def main():
     # The floor catches a list cut short by accident, so it follows the list: 16
     # since the host card's seven pins went with the card (2026-09-24), the
     # host's liveness came to the fingerprint and the live patch as three, and
-    # the scout's version as one more.
-    if len(PINS) < 16:
+    # the scout's version as one more; 18 since a field that survives the
+    # render stopped holding it back.
+    if len(PINS) < 18:
         print(f"js topology-render FAILED: всего {len(PINS)} пинов — снимок урезан")
         return 1
     node = find_node()

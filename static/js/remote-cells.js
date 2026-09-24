@@ -601,18 +601,22 @@ export async function addTopologyAgent(clientId) {
   } catch (e) { toast(String(e)); }
 }
 
-// Forget a machine whose scout went silent: its host record, and only that.
-// The cells configured on it are kept and come back with the machine when its
-// scout reports again; a client with the same id is not touched. The server
-// refuses a scout that still answers — its next report would undo this.
-export async function forgetTopologyHost(hostId) {
+// Let go of a machine: when its scout answers, it forgets this controller and
+// stops reporting; either way the machine's record goes. The dialog says which
+// of the two will happen — a silent scout can only be forgotten here, and
+// comes back with its next report if it returns still paired. The cells
+// running there keep running: stopping them is a decision of its own.
+export async function disconnectScout(hostId) {
   const host = topologyHost(hostId);
   const name = host?.name || hostId;
-  const ago = hostAgeText(host || {});
-  if (!(await appConfirm(t("dlgForgetHost", { name, ago }), { confirmLabel: t("nodeForgetHost") }))) return;
+  const silent = !!host && host.state !== "online";
+  const question = silent
+    ? t("dlgForgetSilentScout", { name, ago: hostAgeText(host) })
+    : t("dlgDisconnectScout", { name });
+  if (!(await appConfirm(question, { confirmLabel: t("nodeDisconnectScout") }))) return;
   try {
-    await api("/api/topology/host/delete", { method: "POST", body: JSON.stringify({ hostId }) });
-    toast(t("hostForgotten", { name }));
+    const res = await api("/api/topology/scout/disconnect", { method: "POST", body: JSON.stringify({ hostId }) });
+    toast(res?.unpaired ? t("scoutDisconnected", { name }) : t("scoutForgottenSilent", { name }));
     refreshTopology().catch(() => {});
   } catch (e) { toast(String(e)); }
 }
