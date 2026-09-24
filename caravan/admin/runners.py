@@ -73,9 +73,10 @@ def build_vllm_command(config) -> str:
     return _Vllm().command(config)
 
 
-def effective_command(config, with_bootstrap=False) -> str:
-    """Shell command a command-path cell actually runs."""
-    return for_config(config).command(config, with_bootstrap)
+def effective_command(config) -> str:
+    """Shell command a command-path cell actually runs — without its runner's
+    bootstrap, which both launchers put in front of it (launch.py)."""
+    return for_config(config).command(config)
 
 
 def effective_health_path(config) -> str:

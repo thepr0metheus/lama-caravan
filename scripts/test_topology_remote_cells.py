@@ -44,6 +44,8 @@ SLOTS = {
                     "config": {"RUNNER": "whisper", "HEALTH_PATH": "/health"}},
     "box-a:22023": {"id": "box-a:22023", "hostId": "box-a", "port": 22023,
                     "config": {"RUNNER": "whisper", "HEALTH_PATH": "/health"}},
+    "box-a:22012": {"id": "box-a:22012", "hostId": "box-a", "port": 22012,
+                    "config": {"RUNNER": "vllm", "VLLM_MODEL": "org/model", "HEALTH_PATH": "/v1/models"}},
 }
 WHISPER_HEALTH = {"status": "ok", "meta": {"source": "d1g3st"}, "targetLang": "en"}
 
@@ -170,6 +172,50 @@ def test_crash_on_the_card():
           "negative: строк нет — поля нет, а не пустая строка")
 
 
+def test_vllm_stats_on_the_card():
+    print("очередь и скорость vLLM-ячейки скаута:")
+    VLLM = {"port": 22012, "running": True, "phase": "running", "ctxMax": 1, "ctxTrained": 1}
+
+    def stats(node, *also):
+        answer = served([node, *also])
+        return {s["port"]: s.get("vllmStats") for s in answer["llamaServers"] if s.get("isRemote")}
+    got = stats(dict(VLLM, requestsProcessing=2, requestsWaiting=1, genTps=40.0, promptTps=150.0),
+                dict(LLAMA, requestsProcessing=1, genTps=33.0))
+    check(got == {22012: {"ok": True, "requestsRunning": 2, "requestsWaiting": 1, "genTps": 40.0, "promptTps": 150.0},
+                  22021: None},
+          f"скаут 2.7 сказал очередь и скорости — карточка получает те же vllmStats, что у vLLM-ячейки контроллера "
+          f"(▶ идут ⏳ ждут, t/s); negative: у llama-ячейки их нет (got {got})")
+    check(stats(dict(VLLM)) == {22012: None},
+          "negative: скаут старше 2.7 очереди не говорит — чипов нет, а не «▶ 0»")
+    check(stats(dict(VLLM, requestsProcessing=0, genTps=None)) == {22012: {
+              "ok": True, "requestsRunning": 0, "requestsWaiting": 0, "genTps": None, "promptTps": None}},
+          "boundary: первое чтение — очередь есть, скорости ещё нет: t/s не рисуется")
+
+
+def test_starting_on_its_machine():
+    print("ячейка скаута, чей порт ещё не слушает:")
+    VLLM = {"port": 22012, "running": True, "phase": "running", "ctxMax": 1, "ctxTrained": 1}
+
+    def shown(node):
+        answer = served([node])
+        s = next(x for x in answer["llamaServers"] if x.get("isRemote"))
+        return s["phase"], s["status"]
+    tail = "[caravan] provisioning vLLM venv at $HOME/vllm-venv (first start on this host, several minutes)…\nCollecting vllm"
+    check(shown(dict(VLLM, listening=False, startingTail=tail)) == ("starting", {"phase": "starting",
+                                                                                "progressNote": "provisioning venv"}),
+          "процесс жив, порт не слушает (скаут 2.7) — «starting», а не «running»; где старт — теми же словами, что "
+          "журнал ячейки контроллера (provisioning venv)")
+    check(shown(dict(VLLM, listening=False, startingTail="Loading safetensors checkpoint shards: 40%")) == (
+              "starting", {"phase": "starting", "progressNote": "loading weights"}),
+          "веса грузятся — «loading weights»")
+    check(shown(dict(VLLM, listening=False)) == ("starting", {"phase": "starting"}),
+          "boundary: строк нет — «starting» без заметки, а не выдуманная стадия")
+    check(shown(dict(VLLM, listening=True))[0] == "running",
+          "negative: слушает у себя — «running»; если отсюда порт не виден, это файрвол, и карточка говорит о нём")
+    check(shown(dict(VLLM))[0] == "running",
+          "negative: скаут старше 2.7 не говорит — как было")
+
+
 def test_retry_on_the_card():
     print("⚠ «прошлая попытка» у ячейки скаута, которую поднимает сторож:")
     tail = "I load_model: loading\nE alloc: cudaMalloc failed: out of memory"
@@ -202,7 +248,8 @@ def test_retry_on_the_card():
 
 if __name__ == "__main__":
     for fn in (test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell, test_autostart_on_the_card,
-               test_crash_on_the_card, test_retry_on_the_card):
+               test_crash_on_the_card, test_retry_on_the_card, test_vllm_stats_on_the_card,
+               test_starting_on_its_machine):
         try:
             fn()
         except Exception as exc:  # noqa: BLE001

@@ -14,6 +14,7 @@ from pathlib import Path
 from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args, gpu_layers_int, model_paths
 from caravan.admin.model_locator import current_locations
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
+from caravan.domain.runner import for_config
 from caravan.admin.launch import render_command_cell_shell_line, _sanitize_snapshot_name
 from caravan.admin.paths import (
     CONTROLLER_HOST_ID,
@@ -119,7 +120,7 @@ def scout_start_payload(body: dict) -> dict:
     # agent-side knowledge of runners is needed.
     if uses_command_path(payload["config"]):
         payload["cellKind"] = "command"
-        payload["command"] = effective_command(payload["config"], with_bootstrap=True)
+        payload["command"] = effective_command(payload["config"])
         payload["healthPath"] = effective_health_path(payload["config"])
         # The whole start line, not just the command: exports, workdir and the
         # shell flags. The agent used to assemble this itself from `command` and
@@ -129,6 +130,14 @@ def scout_start_payload(body: dict) -> dict:
         payload["shellLine"] = render_command_cell_shell_line(payload["config"], payload["port"])
         if not payload["command"]:
             raise AppError("command is required for a command cell", 400)
+        # What it reserves on a card the moment it starts (vLLM: util×total of
+        # the card): the scout checks its free memory at launch, as this
+        # controller does for its own cells, and refuses rather than let the
+        # cell crash-loop. The card's size is in the machine's report.
+        host = topology_store().get("hosts", {}).get(str(body.get("hostId") or ""), {})
+        reservation = for_config(payload["config"]).vram_reservation(payload["config"], host.get("gpus"))
+        if reservation:
+            payload["vram"] = reservation
     else:
         # Variant 2: the controller is the single command builder. Send the resolved
         # argument list with path placeholders; the agent only substitutes the real
@@ -589,6 +598,8 @@ def host_from_report(payload):
             "promptTps": raw.get("promptTps"),
             "genTps": raw.get("genTps"),
             "requestsProcessing": raw.get("requestsProcessing"),
+            # A vLLM cell's queue (scout 2.7+): the card's ⏳.
+            "requestsWaiting": raw.get("requestsWaiting"),
             "ctxMax": raw.get("ctxMax") or raw.get("nCtx"),
             "ctxUsed": raw.get("ctxUsed"),
             "modalities": _normalize_modalities(raw.get("modalities")),
@@ -597,6 +608,10 @@ def host_from_report(payload):
             # Dropped here, the 💥 never reached the card although the scout
             # kept it (2026-09-24).
             "crash": raw.get("crash") if isinstance(raw.get("crash"), dict) else None,
+            # Whether its port answers on its machine yet, and, when it does
+            # not, the last lines of its log (scout 2.7+): a starting cell.
+            "listening": raw.get("listening") if isinstance(raw.get("listening"), bool) else None,
+            "startingTail": str(raw.get("startingTail") or "")[-1500:],
         }
     _raw_nodes = payload.get("llamaNodes")
     llama_nodes = [_san_node(n) for n in _raw_nodes if isinstance(n, dict)] \

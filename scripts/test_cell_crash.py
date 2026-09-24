@@ -120,6 +120,9 @@ def test_last_error_kinds():
     check([systemd_ctl.crash_kind(w) for w in ("died of SIGKILL", "died of SIGSEGV", "died of SIGABRT")]
           == ["killed", "crash", "crash"],
           "скаут 2.6 называет сигнал: SIGKILL — «убита», SIGSEGV/SIGABRT — «крэш»; negative: слово «died» само по себе не вид")
+    check(systemd_ctl.progress_note_of("Loading safetensors checkpoint shards\nstarting vLLM API server") == "starting API"
+          and systemd_ctl.progress_note_of("nothing here") == "" and systemd_ctl.progress_note_of(None) == "",
+          "стадия старта — по последней строке, где она названа; нет слов — пусто; одно правило для журнала и строк скаута")
     check([systemd_ctl.cell_failure_kind(w) for w in words] == ["model", "oom", "port", "exec", "crash", "crash"],
           "одно правило вида: те же слова дают тот же вид и для строк, которые прислал скаут, — без журнала")
 

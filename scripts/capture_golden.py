@@ -10,7 +10,9 @@ later. Eighty thousand lines against six tests is not a position from which
 So this takes the picture first. Two kinds:
 
   COMMANDS — the real launch line for every cell that exists on the controller,
-  generated from that cell's own saved config. This is the highest-value
+  generated from that cell's own saved config. A command cell also gets the
+  one-line form a scout runs it with (SHELL_LINES): the same cell started on
+  a machine with a scout. This is the highest-value
   snapshot in the project: it pins every flag, for every runner, for every
   configuration an operator actually arrived at. A rewrite that changes one of
   them has to say so out loud.
@@ -37,6 +39,7 @@ ROOT = Path(__file__).resolve().parent.parent
 GOLDEN = ROOT / "tests/golden"
 FIXTURES = GOLDEN / "cells"
 COMMANDS = GOLDEN / "commands"
+SHELL_LINES = GOLDEN / "shell-lines"
 HOST = os.environ.get("CARAVAN_DEPLOY_HOST", "skynet")
 REMOTE = os.environ.get("CARAVAN_REMOTE_PATH", "~/projects/lama-caravan")
 
@@ -250,6 +253,25 @@ def render_all(configs):
     return out
 
 
+def render_shell_lines(configs):
+    """The one line a scout runs each command cell with, with today's code —
+    the same cell as its start.sh, started on a machine with a scout."""
+    pin_env()
+    sys.path.insert(0, str(ROOT))
+    from caravan.admin.launch import render_command_cell_shell_line   # after pin_env
+    from caravan.admin.runners import uses_command_path
+    from caravan.common.errors import AppError
+    out = {}
+    for port, config in sorted(configs.items()):
+        if not uses_command_path(config):
+            continue
+        try:
+            out[port] = neutralize(render_command_cell_shell_line(config)) + "\n"
+        except AppError as exc:
+            out[port] = neutralize(f"__REFUSED__ {exc}") + "\n"
+    return out
+
+
 def main():
     local = "--local" in sys.argv
     FIXTURES.mkdir(parents=True, exist_ok=True)
@@ -282,11 +304,15 @@ def main():
     rendered = render_all(configs)
     for port, script in rendered.items():
         (COMMANDS / f"{port}.sh").write_text(script, encoding="utf-8")
+    SHELL_LINES.mkdir(parents=True, exist_ok=True)
+    lines = render_shell_lines(configs)
+    for port, line in lines.items():
+        (SHELL_LINES / f"{port}.txt").write_text(line, encoding="utf-8")
     runners = {}
     for port, config in configs.items():
         runners[config.get("RUNNER") or "llama-server"] = runners.get(
             config.get("RUNNER") or "llama-server", 0) + 1
-    print(f"  снято команд: {len(rendered)}")
+    print(f"  снято команд: {len(rendered)}, строк запуска на скауте: {len(lines)}")
     print("  по раннерам: " + ", ".join(f"{k}×{v}" for k, v in sorted(runners.items())))
     print(f"\n  фикстуры: {FIXTURES.relative_to(ROOT)}")
     print(f"  эталоны:  {COMMANDS.relative_to(ROOT)}")

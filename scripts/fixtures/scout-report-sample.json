@@ -63,6 +63,7 @@
       },
       "genTps": 41.3,
       "gpuLayers": 999,
+      "listening": true,
       "mmprojPath": "",
       "modelPath": "/models/org/model-q4.gguf",
       "phase": "running",
@@ -94,6 +95,7 @@
         },
         "genTps": 41.3,
         "gpuLayers": 999,
+        "listening": true,
         "mmprojPath": "",
         "modelPath": "/models/org/model-q4.gguf",
         "phase": "running",
@@ -106,6 +108,45 @@
         "specType": "",
         "startedAt": 1789999400,
         "uptimeSec": 600
+      },
+      {
+        "adopted": true,
+        "cellKind": "command",
+        "command": "$HOME/vllm-venv/bin/vllm serve org/model --port \"$PORT\"",
+        "firewall": {
+          "allowedFrom": [],
+          "state": "open"
+        },
+        "genTps": 40.0,
+        "listening": true,
+        "modelPath": "",
+        "phase": "running",
+        "pid": 4343,
+        "port": 22012,
+        "promptTps": 150.0,
+        "requestsProcessing": 2,
+        "requestsWaiting": 1,
+        "running": true,
+        "startedAt": 1789999700,
+        "uptimeSec": 300
+      },
+      {
+        "adopted": true,
+        "cellKind": "command",
+        "command": "$HOME/vllm-venv/bin/vllm serve org/other",
+        "firewall": {
+          "allowedFrom": [],
+          "state": "open"
+        },
+        "listening": false,
+        "modelPath": "",
+        "phase": "running",
+        "pid": 4444,
+        "port": 22013,
+        "running": true,
+        "startedAt": 1789999940,
+        "startingTail": "[caravan] provisioning vLLM venv at $HOME/vllm-venv (first start on this host, several minutes)…\nCollecting vllm==0.24.0",
+        "uptimeSec": 60
       },
       {
         "downloadedBytes": 1000000,
@@ -213,6 +254,7 @@
       },
       "genTps": 41.3,
       "gpuLayers": 999,
+      "listening": true,
       "mmprojPath": "",
       "modelPath": "/models/org/model-q4.gguf",
       "phase": "running",
@@ -244,6 +286,7 @@
         },
         "genTps": 41.3,
         "gpuLayers": 999,
+        "listening": true,
         "mmprojPath": "",
         "modelPath": "/models/org/model-q4.gguf",
         "phase": "running",
@@ -256,6 +299,45 @@
         "specType": "",
         "startedAt": 1789999400,
         "uptimeSec": 600
+      },
+      {
+        "adopted": true,
+        "cellKind": "command",
+        "command": "$HOME/vllm-venv/bin/vllm serve org/model --port \"$PORT\"",
+        "firewall": {
+          "allowedFrom": [],
+          "state": "open"
+        },
+        "genTps": 40.0,
+        "listening": true,
+        "modelPath": "",
+        "phase": "running",
+        "pid": 4343,
+        "port": 22012,
+        "promptTps": 150.0,
+        "requestsProcessing": 2,
+        "requestsWaiting": 1,
+        "running": true,
+        "startedAt": 1789999700,
+        "uptimeSec": 300
+      },
+      {
+        "adopted": true,
+        "cellKind": "command",
+        "command": "$HOME/vllm-venv/bin/vllm serve org/other",
+        "firewall": {
+          "allowedFrom": [],
+          "state": "open"
+        },
+        "listening": false,
+        "modelPath": "",
+        "phase": "running",
+        "pid": 4444,
+        "port": 22013,
+        "running": true,
+        "startedAt": 1789999940,
+        "startingTail": "[caravan] provisioning vLLM venv at $HOME/vllm-venv (first start on this host, several minutes)…\nCollecting vllm==0.24.0",
+        "uptimeSec": 60
       },
       {
         "downloadedBytes": 1000000,

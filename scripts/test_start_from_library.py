@@ -254,7 +254,7 @@ def section_every_start():
             slot.update(value)
 
     cell_ops.is_controller_host = lambda host: True
-    cell_ops.for_config = lambda cfg: type("R", (), {"vram_gated": False})()
+    cell_ops.for_config = lambda cfg: type("R", (), {"vram_reservation": lambda self, cfg, gpus: None})()
     cell_ops.cell_service_status = lambda port: {"ActiveState": "inactive"}
     cell_ops.listening_pid = lambda port: (0, "")
     cell_ops.cell_service_action = lambda port, action: {"ok": True}
