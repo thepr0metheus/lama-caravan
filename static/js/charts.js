@@ -396,8 +396,25 @@ export function miniSparklineSvg(values, color, max) {
 // Per-node pseudo-samples shaped like the system-monitor samples the chart
 // renderers expect, so client nodes reuse the EXACT same canvas renderers (and
 // modal) as the controller — guaranteeing identical look + behaviour.
+//
+// A machine whose scout samples it second by second (2.8+) is drawn from those
+// rows (the monitor's `hosts`), a second apart and ten minutes deep, like this
+// controller's own machine. An older scout's machine keeps the coarse history
+// its reports built.
 export function _nodeGpuSamples(node) {
   const g0 = (node.gpus || [])[0] || {};
+  const rows = ui.latestSystemMonitor?.hosts?.[String(node.id)] || [];
+  if (rows.length) {
+    const index = g0.index ?? 0;
+    return rows.map((r) => {
+      const g = (r.gpus || []).find((x) => x.index === index) || {};
+      const total = Number(g.memTotalMiB || g0.memoryTotalMiB || 0);
+      return { time: r.t, gpu: {
+        utilPct: g.utilPct, memoryUsedMiB: g.memUsedMiB, memoryTotalMiB: total,
+        memoryPct: total && g.memUsedMiB != null ? (g.memUsedMiB / total * 100) : 0, powerW: g.powerW,
+      } };
+    });
+  }
   const total = Number(g0.memoryTotalMiB || 0);
   return (g0.history || []).map((r) => ({ gpu: {
     utilPct: r[2], memoryUsedMiB: r[1], memoryTotalMiB: total,

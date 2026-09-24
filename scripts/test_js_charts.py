@@ -157,6 +157,17 @@ PINS = [
     ("node_pseudo_samples", '', '[m._nodeGpuSamples({ gpus: [{ memoryTotalMiB: 1000, history: [[0, 250, 50, 120]] }] }), m._nodeTokenSamples({ servers: [{ tpsHistory: [] }, { tpsHistory: [[0, 30, 70]] }] }), m._nodeGpuSamples({})]',
      '[[{"gpu":{"utilPct":50,"memoryUsedMiB":250,"memoryTotalMiB":1000,"memoryPct":25,"powerW":120}}],[{"tokens":{"promptTokensPerSecond":30,"predictedTokensPerSecond":70}}],[]]',
      "псевдосэмплы узла в форме сэмплов монитора; сервер с историей выбирается первый непустой"),
+    ("node_samples_from_its_scout",
+     'st.ui.latestSystemMonitor = { hosts: { "box-a": [{ t: 1001, gpus: [{ index: 0, memUsedMiB: 100, memTotalMiB: 1000, utilPct: 10, powerW: 50 }, { index: 1, memUsedMiB: 900, memTotalMiB: 2000, utilPct: 99, powerW: 300 }] }, { t: 1002, gpus: [{ index: 1, memUsedMiB: 1000, utilPct: 90, powerW: 280 }] }] } };',
+     '[m._nodeGpuSamples({ id: "box-a", gpus: [{ index: 1, memoryTotalMiB: 2000, history: [[0, 1, 2, 3]] }] }), m._nodeGpuSamples({ id: "box-b", gpus: [{ memoryTotalMiB: 1000, history: [[0, 250, 50, 120]] }] }).length]',
+     '[[{"time":1001,"gpu":{"utilPct":99,"memoryUsedMiB":900,"memoryTotalMiB":2000,"memoryPct":45,"powerW":300}},{"time":1002,"gpu":{"utilPct":90,"memoryUsedMiB":1000,"memoryTotalMiB":2000,"memoryPct":50,"powerW":280}}],1]',
+     "машину, чей скаут снимает посекундно (2.8), рисуют его строки — секунда в секунду, та же карта, что на карточке; размер карты — из строки, иначе из отчёта; negative: у машины без строк — прежняя история отчётов"),
+    ("node_samples_missing_card_in_a_row",
+     'st.ui.latestSystemMonitor = { hosts: { "box-a": [{ t: 5, gpus: [] }] } };',
+     'm._nodeGpuSamples({ id: "box-a", gpus: [{ index: 0, memoryTotalMiB: 1000 }] })',
+     '[{"time":5,"gpu":{"memoryTotalMiB":1000,"memoryPct":0}}]',
+     "boundary: в строке карты нет (nvidia-smi не ответил) — значения не выдумываются (нет, а не 0); как рисовать пропуск, "
+     "решают графики — так же, как для замеров самого контроллера"),
     ("controller_token_samples", 'st.ui.latestSystemMonitor = { tokenGenSamples: [{ time: 1 }] };', '[m.controllerTokenGenSamples(), (st.ui.latestSystemMonitor = null, m.controllerTokenGenSamples())]', '[[{"time":1}],[]]', "серия генерации контроллера из монитора; без монитора — пусто"),
 ]
 

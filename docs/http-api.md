@@ -83,7 +83,7 @@ fails at import time.
 | Method & path | Purpose |
 |---|---|
 | `GET /api/monitor/<kind>` | Terminal-style snapshot: `nvidia-smi`, `btop`, service logs… |
-| `GET /api/system-monitor` | CPU/RAM/disk/net/GPU sample history + llama activity. |
+| `GET /api/system-monitor` | CPU/RAM/disk/net/GPU sample history + llama activity. `?since=` sends only newer samples. `hosts` — the machines whose scout samples them second by second (scout 2.8+): `{hostId: [{t, gpus: [{index, memUsedMiB, memTotalMiB, utilPct, powerW, tempC}], cpuPct, ram}]}`, ten minutes by each scout's own clock, pulled in the background at most once a second while boards read this (HostTelemetry); `?hostsSince=id:t,id:t` names the newest row the board holds of each, and a machine it does not name comes back whole. |
 | `POST /api/system-monitor/settings` | Set monitor retention seconds. |
 | `POST /api/system-monitor/client-label` | Label a client IP in the monitors. |
 | `GET /api/token-history?client=&range=` | Token-rate history (14 d ring). |

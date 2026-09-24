@@ -440,6 +440,32 @@ export function renderSystemMonitor(data) {
 // load, or a server that predates this) and replaces what we have.
 let _monitorSince = 0;
 
+// The machines with a scout, second by second (the payload's `hosts`, rows
+// stamped by each scout's own clock): topped up per machine like the samples,
+// and trimmed by that machine's own newest row.
+export function mergeHostRows(old, add, retention = 600) {
+  const out = { ...(old || {}) };
+  for (const [id, rows] of Object.entries(add || {})) {
+    const have = out[id] || [];
+    const last = have.length ? have[have.length - 1].t : 0;
+    const joined = have.concat((rows || []).filter((r) => r && r.t > last));
+    const newest = joined.length ? joined[joined.length - 1].t : 0;
+    const start = joined.findIndex((r) => r.t >= newest - retention);
+    out[id] = start > 0 ? joined.slice(start) : joined;
+  }
+  return out;
+}
+
+// What the board holds of each machine — "id:t,id:t", the newest row of each.
+// A machine it does not name comes back whole: one that appeared later keeps
+// its ten minutes.
+export function hostsHeld(hosts) {
+  return Object.entries(hosts || {})
+    .filter(([, rows]) => rows && rows.length)
+    .map(([id, rows]) => `${id}:${rows[rows.length - 1].t}`)
+    .join(",");
+}
+
 function mergeMonitor(payload) {
   const prev = ui.latestSystemMonitor;
   if (!payload?.partial || !prev) {
@@ -468,13 +494,16 @@ function mergeMonitor(payload) {
     // Incidents keep their own retention, which is far longer than the sample
     // window — trimming them on the sample cutoff would erase the log.
     incidents: joinIncidents(prev.incidents, payload.incidents),
+    hosts: mergeHostRows(prev.hosts, payload.hosts),
   };
   _monitorSince = payload.newestSample || _monitorSince;
   return merged;
 }
 
 function monitorUrl() {
-  return _monitorSince ? `/api/system-monitor?since=${_monitorSince}` : "/api/system-monitor";
+  if (!_monitorSince) return "/api/system-monitor";
+  const held = hostsHeld(ui.latestSystemMonitor?.hosts);
+  return `/api/system-monitor?since=${_monitorSince}${held ? `&hostsSince=${encodeURIComponent(held)}` : ""}`;
 }
 
 export async function refreshSystemMonitor() {

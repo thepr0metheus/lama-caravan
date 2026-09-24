@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args, gpu_layers_int, model_paths
+from caravan.admin.host_telemetry import HostTelemetry
 from caravan.admin.model_locator import current_locations
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
 from caravan.domain.runner import for_config
@@ -646,6 +647,12 @@ def host_from_report(payload):
         # Cells crashing after a fresh llama.cpp build on that machine: the
         # board's banner offers a rollback (scout 2.6+).
         "llamaSuspect": scout_suspect(payload.get("llamaSuspect")),
+        # That its scout samples the machine second by second (2.8+): the
+        # board's charts are pulled from it (HostTelemetry). None: an older
+        # scout, not asked.
+        "telemetry": ({k: payload["telemetry"][k] for k in ("watchedSeconds", "idleSeconds", "retentionSeconds")
+                       if k in payload["telemetry"]}
+                      if isinstance(payload.get("telemetry"), dict) else None),
         "firstSeen": now,
         "lastSeen": now,
     }
@@ -882,10 +889,14 @@ def scout_payload_from_state(state, agent_url):
         "scoutVersion": state.get("scoutVersion") or "",
         "autostart": state.get("autostart") if isinstance(state.get("autostart"), list) else None,
         "llamaSuspect": state.get("llamaSuspect") if isinstance(state.get("llamaSuspect"), dict) else None,
+        "telemetry": state.get("telemetry") if isinstance(state.get("telemetry"), dict) else None,
         "agentUrl": agent_url,
         "time": state.get("time") or int(time.time()),
     }
 
+
+#: The machines with a scout, second by second, pulled while a board is open.
+HOST_TELEMETRY = HostTelemetry(lambda: topology_hosts(), lambda host_id: _scout(host_id))
 
 #: Adding a machine's scout from the board and letting it go (scout_pairing.py).
 SCOUT_PAIRING = ScoutPairing(topology_store, save_admin_state, _scout_headers, ADMIN_PORT, TOPOLOGY_SERVER_IP)
