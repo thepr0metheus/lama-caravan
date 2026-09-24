@@ -320,6 +320,8 @@ export default {
   nodeForgetHost: "マシンを忘れる",
   dlgForgetHost: "マシン「{name}」を忘れますか？\n\nスカウトが応答していません（{ago}）。カードはボードから消え、スカウトが再びレポートを送ると戻ります。このマシンに設定されたセルは保持され、クライアントには影響しません。",
   hostForgotten: "マシン「{name}」を忘れました",
+  nodeScoutOld: "スカウト 1.x — 更新してください",
+  nodeScoutOldTitle: "このマシンのスカウトは 2.0 より古く、コントローラーがもう読まないマシン上のエージェントをまだ報告しています。更新するには、そのフォルダーで git pull を実行し、caravan-scout を再起動してください。",
   subtitle: "Caravan モデルサーバー",
   themeDark: "ダーク",
   themeLlm: "LLM ブラック",

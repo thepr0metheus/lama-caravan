@@ -28,6 +28,7 @@ jobs:
           set -e
           python3 scripts/test_client_records.py
           python3 scripts/test_scout_poll.py
+          python3 scripts/test_scout_report_sample.py
           python3 scripts/test_queue_thresholds.py
           python3 scripts/test_token_history.py
 

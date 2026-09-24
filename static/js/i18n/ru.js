@@ -87,6 +87,8 @@ export default {
   nodeForgetHost: "Забыть машину",
   dlgForgetHost: "Забыть машину «{name}»?\n\nЕё скаут не отвечает ({ago}). Карточка уйдёт с доски и вернётся, когда скаут снова пришлёт отчёт. Ячейки, настроенные на ней, сохранятся; клиентов это не касается.",
   hostForgotten: "Машина «{name}» забыта",
+  nodeScoutOld: "скаут 1.x — обновите",
+  nodeScoutOldTitle: "Скаут этой машины старше 2.0: он ещё сообщает об агентах на машине, а контроллер их больше не читает. Обновите его: git pull в его папке и перезапуск caravan-scout.",
   appTitle: "LAMA CARAVAN",
   appAcronym: "Local And Multi-backend Adaptive Computation And Routing Across Various AI Nodes",
   subtitle: "Сервер моделей Caravan",

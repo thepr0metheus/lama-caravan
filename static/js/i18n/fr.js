@@ -320,6 +320,8 @@ export default {
   nodeForgetHost: "Oublier la machine",
   dlgForgetHost: "Oublier la machine « {name} » ?\n\nSon scout ne répond pas ({ago}). La carte quitte le tableau et revient quand le scout envoie un nouveau rapport. Les cellules configurées dessus sont conservées ; les clients ne sont pas touchés.",
   hostForgotten: "Machine « {name} » oubliée",
+  nodeScoutOld: "scout 1.x — à mettre à jour",
+  nodeScoutOldTitle: "Le scout de cette machine est antérieur à 2.0 : il signale encore les agents de la machine, que le contrôleur ne lit plus. Mettez-le à jour : git pull dans son dossier, puis redémarrez caravan-scout.",
   subtitle: "Serveur de modèles Caravan",
   themeDark: "Sombre",
   themeLlm: "LLM Noir",

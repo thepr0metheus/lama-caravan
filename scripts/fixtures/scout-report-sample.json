@@ -1,0 +1,239 @@
+{
+  "heartbeat": {
+    "agentUrl": "http://10.0.0.5:8092",
+    "computeApps": [
+      {
+        "gpuUuid": "GPU-00000000-0000-0000-0000-000000000000",
+        "pid": 4242,
+        "usedMiB": 20000
+      }
+    ],
+    "cpu": {
+      "availableCores": 12,
+      "load1": 1.5,
+      "loadPct": 12.5,
+      "logicalCores": 12,
+      "ncpu": 12,
+      "physicalCores": 6,
+      "ram": {
+        "totalGb": 62.7,
+        "usedGb": 18.2
+      }
+    },
+    "gpus": [
+      {
+        "driverStatus": "ok",
+        "index": "0",
+        "memoryFreeMiB": "4096",
+        "memoryTotalMiB": "24576",
+        "memoryUsedMiB": "20480",
+        "name": "NVIDIA GeForce RTX 3090",
+        "powerDrawW": "212.40",
+        "temperatureC": "61",
+        "utilizationGpuPct": "37",
+        "uuid": "GPU-00000000-0000-0000-0000-000000000000",
+        "vendor": "nvidia"
+      }
+    ],
+    "host": {
+      "hostname": "box-a.lan",
+      "id": "box-a",
+      "ip": "10.0.0.5",
+      "name": "Box A"
+    },
+    "llamaBinaryMtime": "2026-09-01T10:00:00",
+    "llamaBinaryVersion": "version: 9947 (abc1234)",
+    "llamaNode": {
+      "adopted": true,
+      "ctxMax": 8192,
+      "ctxSize": 8192,
+      "ctxUsed": 2048,
+      "firewall": {
+        "allowedFrom": [],
+        "state": "open"
+      },
+      "genTps": 41.3,
+      "gpuLayers": 999,
+      "mmprojPath": "",
+      "modelPath": "/models/org/model-q4.gguf",
+      "phase": "running",
+      "pid": 4242,
+      "port": 22001,
+      "promptTps": 812.5,
+      "requestsProcessing": 1,
+      "running": true,
+      "specPath": "",
+      "specType": "",
+      "startedAt": 1789999400,
+      "uptimeSec": 600
+    },
+    "llamaNodes": [
+      {
+        "adopted": true,
+        "ctxMax": 8192,
+        "ctxSize": 8192,
+        "ctxUsed": 2048,
+        "firewall": {
+          "allowedFrom": [],
+          "state": "open"
+        },
+        "genTps": 41.3,
+        "gpuLayers": 999,
+        "mmprojPath": "",
+        "modelPath": "/models/org/model-q4.gguf",
+        "phase": "running",
+        "pid": 4242,
+        "port": 22001,
+        "promptTps": 812.5,
+        "requestsProcessing": 1,
+        "running": true,
+        "specPath": "",
+        "specType": "",
+        "startedAt": 1789999400,
+        "uptimeSec": 600
+      },
+      {
+        "downloadedBytes": 1000000,
+        "downloadingFile": "other-q8.gguf",
+        "modelPath": "models/org/other-q8.gguf",
+        "phase": "downloading",
+        "port": 22002,
+        "running": false,
+        "startedAt": 1789999970,
+        "totalBytes": 4000000
+      }
+    ],
+    "llamaUpdate": {
+      "done": true,
+      "lastLine": "llama.cpp b9947 installed",
+      "rc": 0,
+      "running": false,
+      "startedAt": 1789913600,
+      "tag": "b9947"
+    },
+    "platform": "linux",
+    "scoutVersion": "X.Y.Z",
+    "time": 1790000000
+  },
+  "state": {
+    "computeApps": [
+      {
+        "gpuUuid": "GPU-00000000-0000-0000-0000-000000000000",
+        "pid": 4242,
+        "usedMiB": 20000
+      }
+    ],
+    "controllerUrl": "http://10.0.0.1:7990",
+    "cpu": {
+      "availableCores": 12,
+      "load1": 1.5,
+      "loadPct": 12.5,
+      "logicalCores": 12,
+      "ncpu": 12,
+      "physicalCores": 6,
+      "ram": {
+        "totalGb": 62.7,
+        "usedGb": 18.2
+      }
+    },
+    "gpus": [
+      {
+        "driverStatus": "ok",
+        "index": "0",
+        "memoryFreeMiB": "4096",
+        "memoryTotalMiB": "24576",
+        "memoryUsedMiB": "20480",
+        "name": "NVIDIA GeForce RTX 3090",
+        "powerDrawW": "212.40",
+        "temperatureC": "61",
+        "utilizationGpuPct": "37",
+        "uuid": "GPU-00000000-0000-0000-0000-000000000000",
+        "vendor": "nvidia"
+      }
+    ],
+    "heartbeat": {
+      "lastAt": 1789999940,
+      "state": "ok"
+    },
+    "host": {
+      "hostname": "box-a.lan",
+      "id": "box-a",
+      "ip": "10.0.0.5",
+      "name": "Box A"
+    },
+    "llamaBinaryMtime": "2026-09-01T10:00:00",
+    "llamaBinaryVersion": "version: 9947 (abc1234)",
+    "llamaNode": {
+      "adopted": true,
+      "ctxMax": 8192,
+      "ctxSize": 8192,
+      "ctxUsed": 2048,
+      "firewall": {
+        "allowedFrom": [],
+        "state": "open"
+      },
+      "genTps": 41.3,
+      "gpuLayers": 999,
+      "mmprojPath": "",
+      "modelPath": "/models/org/model-q4.gguf",
+      "phase": "running",
+      "pid": 4242,
+      "port": 22001,
+      "promptTps": 812.5,
+      "requestsProcessing": 1,
+      "running": true,
+      "specPath": "",
+      "specType": "",
+      "startedAt": 1789999400,
+      "uptimeSec": 600
+    },
+    "llamaNodes": [
+      {
+        "adopted": true,
+        "ctxMax": 8192,
+        "ctxSize": 8192,
+        "ctxUsed": 2048,
+        "firewall": {
+          "allowedFrom": [],
+          "state": "open"
+        },
+        "genTps": 41.3,
+        "gpuLayers": 999,
+        "mmprojPath": "",
+        "modelPath": "/models/org/model-q4.gguf",
+        "phase": "running",
+        "pid": 4242,
+        "port": 22001,
+        "promptTps": 812.5,
+        "requestsProcessing": 1,
+        "running": true,
+        "specPath": "",
+        "specType": "",
+        "startedAt": 1789999400,
+        "uptimeSec": 600
+      },
+      {
+        "downloadedBytes": 1000000,
+        "downloadingFile": "other-q8.gguf",
+        "modelPath": "models/org/other-q8.gguf",
+        "phase": "downloading",
+        "port": 22002,
+        "running": false,
+        "startedAt": 1789999970,
+        "totalBytes": 4000000
+      }
+    ],
+    "llamaUpdate": {
+      "done": true,
+      "lastLine": "llama.cpp b9947 installed",
+      "rc": 0,
+      "running": false,
+      "startedAt": 1789913600,
+      "tag": "b9947"
+    },
+    "platform": "linux",
+    "scoutVersion": "X.Y.Z",
+    "service": "caravan-scout",
+    "time": 1790000000
+  }
+}

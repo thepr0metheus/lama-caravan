@@ -93,6 +93,8 @@ export default {
   nodeForgetHost: "Forget machine",
   dlgForgetHost: "Forget machine “{name}”?\n\nIts scout is not responding ({ago}). The card leaves the board and comes back when the scout reports again. The cells configured on it are kept; clients are not touched.",
   hostForgotten: "Machine “{name}” forgotten",
+  nodeScoutOld: "scout 1.x — update",
+  nodeScoutOldTitle: "This machine's scout is older than 2.0: it still reports the agents on the machine, which the controller no longer reads. Update it: git pull in its checkout, then restart caravan-scout.",
   appTitle: "LAMA CARAVAN",
   appAcronym: "Local And Multi-backend Adaptive Computation And Routing Across Various AI Nodes",
   subtitle: "Caravan model server",

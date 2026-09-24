@@ -117,28 +117,32 @@ The long version of that day — with the kanban that implements it — lives in
 
 ## Deployment model: a scout only where there is hardware to share
 
-**We are moving away from the model where every client machine has to run
-caravan-scout.** The scout is the sidecar of a host that *shares hardware*: a
-box with a GPU (or spare CPU) you want in the pool installs it, and from then
-on its GPUs, its cells and their memory appear on the board and are launched
-from it. A machine that merely *runs agents* installs nothing. Its client card
-and its agents' proxy cards are created **by hand on the board** (Clients lane
-→ add client → add agent → port), the controller owns those records, and the
-agent simply points at its port on the controller — that is the whole
-integration.
+**[caravan-scout](https://github.com/thepr0metheus/caravan-scout) runs only on
+machines that share hardware.** It is the sidecar of a box with a GPU (or
+spare CPU) you want in the pool: it reports the machine — GPUs and what runs
+on them, CPU/RAM, cells, the llama.cpp build — runs the cells the controller
+configures, and keeps llama.cpp current. From then on the box is a machine
+node on the board, and its cells are launched from there.
+
+A machine that merely *runs agents* installs nothing. Its client card and its
+agents' proxy cards are created **by hand on the board** (Clients lane → add
+client → add agent → port), the controller owns those records, and the agent
+simply points at its port on the controller — that is the whole integration.
+A machine that does both shows up twice: as a node with its hardware and as a
+client card.
 
 Why: fewer moving parts on machines that gain nothing from a sidecar, a
 clearer support boundary ("what do I need to install?" — nothing, unless you
 are sharing a GPU), and expectations that match what the feature does: the
-scout is a hardware donor's agent, not a registry of everything that runs on
+scout is a hardware donor's sidecar, not a registry of everything that runs on
 your network.
 
-The last releases moved the architecture onto this decision: client and agent
-cards are made and edited on the board and are the source of truth; a scout's
-report can no longer create, rewrite or delete them (it stays one of the
-liveness sources); a new client gets its first agent card immediately; the
-kanban lists the same clients as the board, in the same order; a dead scout's
-leftovers are cleaned from the board without touching hand-made records.
+Since scout 2.0 (controller 1.3.353+) this is the whole architecture: a scout
+says nothing about agents; client and agent cards are the operator's records,
+and no report creates, rewrites or deletes them; a client's liveness is its
+agents' traffic — idle after 12 hours without a request, the same on the
+board and the kanban; a machine whose scout went silent is marked on its
+node, and "Forget machine" removes its record without touching any client.
 
 ## One GPU, many agents
 
@@ -276,7 +280,7 @@ The built-in HuggingFace GGUF browser:
 | Python | **3.10+**, standard library only — no pip packages (tested on 3.12) |
 | llama.cpp | a `llama-server` build **b400+** (needs `--chat-template-file`; see [Tested versions](#tested-versions)) |
 | GPU serving | NVIDIA driver + `nvidia-smi` for telemetry; CUDA build of llama.cpp (CPU-only also works) |
-| Scout hosts (share a GPU/CPU) | Linux (systemd --user) or macOS (launchd), Python 3.10+, [caravan-scout](https://github.com/thepr0metheus/caravan-scout) |
+| Scout hosts (share a GPU/CPU) | Linux (systemd --user) or macOS (launchd), Python 3.9+, [caravan-scout](https://github.com/thepr0metheus/caravan-scout) |
 | Agent-only machines | nothing to install — the agent points at its proxy port on the controller |
 | Browser | any modern browser — native ES modules, no build step |
 | Storage | plain JSON files + an embedded SQLite file (accounts/sessions); no database server required |
@@ -284,7 +288,7 @@ The built-in HuggingFace GGUF browser:
 ## Tested versions
 
 The exact versions the development fleet runs — re-verified and updated here
-whenever a component is upgraded (last verified: **2026-09-07**):
+whenever a component is upgraded (last verified: **2026-09-24**):
 
 | Component | Verified version |
 |---|---|
@@ -298,7 +302,7 @@ whenever a component is upgraded (last verified: **2026-09-07**):
 | Docker (container mode) | 29.1 |
 | faster-whisper | 1.2.1 (CTranslate2 4.8.0) — whisper command cells |
 | vLLM | 0.24.0, pinned provisioning — controller cell `:8012` |
-| caravan-scout | v1.2.6 |
+| caravan-scout | 2.0.1 on the Linux host (2026-09-24) — rewritten into classes, knows its machine only |
 | moonshine-voice | 0.0.69 — moonshine STT command cells (CPU-only) |
 | transcribe.cpp | 0.2.0 (commit `b6a6aca`, 2026-07-22), CUDA build — transcribe cells; verified with `gigaam-v3-e2e-rnnt-Q8_0.gguf` |
 | CosyVoice (TTS cells) | upstream checkout + torch **2.7.1+cu128** in the engine venv — the cu128 wheels carry `sm_75…sm_120`, so the same cell runs on the RTX 3090 and the RTX 5090; CosyVoice's own pin (2.3.1+cu121) stops at `sm_90` and dies on Blackwell with "no kernel image" |
@@ -416,7 +420,7 @@ rebinds them.
 Source changes are deployed through git only:
 
 ```text
-local commit -> push to your remote -> git pull on the controller/client hosts
+local commit -> push to your remote -> git pull on the controller/scout hosts
 ```
 
 Do not deploy project code by direct `scp` or hand-copying files, except for an
@@ -447,15 +451,16 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 - Memory estimate against BOTH pools (RAM and VRAM) of the target host; a
   running cell shows its **measured** usage (per-process `nvidia-smi`) carved
   out of the used bar instead of a double-counted estimate.
-- Cells run on the controller or on any scout host — client GPUs and CPUs are
-  first-class; models are cached and shipped from the controller.
+- Cells run on the controller or on any scout host — the GPUs and CPUs of
+  scout hosts are first-class; models are cached and shipped from the
+  controller.
 - Reserve globally numbered cells from port `22001` (CARAVAN_CELL_BASE_PORT; proxies get
   their own block at `23001+` via CARAVAN_PROXY_BASE_PORT) — the controller's own web
   port (`LLAMACPP_ADMIN_PORT`, default `7990`) sits inside that numbering and is
   held out of the pool automatically; generated `cell.json` +
   `start.sh` artifacts; `systemd --user` template units
   (`lama-cell@<port>.service`) on the controller, scout-managed processes on
-  clients (they survive scout restarts).
+  scout hosts (they survive scout restarts).
 - Per-cell schedule windows (start/stop by time of day and weekday), autostart,
   a port picker with a fleet-wide grid, and port swap between stopped cells.
 - llama.cpp lifecycle: fleet-wide update button, build archive with informed
@@ -506,9 +511,9 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 - System page: controller services, cells, git/python versions, models-disk
   usage with a cleanup modal; a models page for the library on disk.
 - Orphaned cells — running units the config no longer knows about — surface
-  as a red ☠ strip with a Stop button, and their ports stay guarded; a dead
-  scout's leftovers are cleaned from the board with only its solely-claimed
-  ports freed.
+  as a red ☠ strip with a Stop button, and their ports stay guarded; a
+  machine whose scout went silent says so on its node, and "Forget machine"
+  removes its record without touching any client.
 
 **Platform**
 
@@ -629,9 +634,9 @@ The full endpoint reference (the admin surface and the proxy surface) lives in
 - `GET /api/agent-proxy-logs?port=&errors=1&slim=1` — per-request diagnostics
   for a route (timings, error kinds) without touching ssh.
 - `POST /api/topology/client-heartbeat` — heartbeat receiver for
-  `caravan-scout` on client hosts.
-- `POST /api/topology/assignments` — store desired `agent -> proxy` routes and
-  push them to the client's scout, when the client has one.
+  `caravan-scout` on the hosts that share hardware.
+- `POST /api/topology/assignments` — store the `agent -> proxy` routes made on
+  the board.
 - `GET /metrics` — Prometheus metrics: clients, cells, GPU, routes.
 
 ## Topology GUI
@@ -670,13 +675,12 @@ client -> agent -> proxy route -> llama-server instance -> GPU(s)
 ```
 
 Clients, agents and assignments are owned by the admin server and made on the
-board; a scout, where there is one, acts as a local executor and reports
-applied state and liveness — it never creates or deletes those records.
+board. Scouts report machines — never clients or agents — and run the cells
+the controller configures.
 
 On the board, set the connection role to `Primary` or `Fallback`, then drag a
 client agent card onto a proxy port card. The UI stores the desired assignment
-in the admin state; if that client runs a scout, the assignment is pushed to
-it, otherwise the card is the record and the agent uses its port. Holding
+in the admin state; the card is the record, and the agent uses its port. Holding
 Shift while dropping forces the dropped route to `Fallback`.
 
 ## Install llama.cpp

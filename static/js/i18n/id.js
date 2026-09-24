@@ -320,6 +320,8 @@ export default {
   nodeForgetHost: "Lupakan mesin",
   dlgForgetHost: "Lupakan mesin “{name}”?\n\nScout-nya tidak merespons ({ago}). Kartu hilang dari papan dan kembali saat scout mengirim laporan lagi. Sel yang dikonfigurasi di dalamnya tetap disimpan; klien tidak tersentuh.",
   hostForgotten: "Mesin “{name}” dilupakan",
+  nodeScoutOld: "scout 1.x — perbarui",
+  nodeScoutOldTitle: "Scout mesin ini lebih lama dari 2.0: masih melaporkan agen di mesin, yang tidak lagi dibaca pengendali. Perbarui: git pull di foldernya, lalu mulai ulang caravan-scout.",
   subtitle: "Server model Caravan",
   themeDark: "Gelap",
   themeLlm: "LLM Hitam",

@@ -320,6 +320,8 @@ export default {
   nodeForgetHost: "머신 잊기",
   dlgForgetHost: "머신 “{name}”을(를) 잊으시겠습니까?\n\n스카우트가 응답하지 않습니다({ago}). 카드는 보드에서 사라지고, 스카우트가 다시 보고하면 돌아옵니다. 이 머신에 구성된 셀은 유지되며 클라이언트에는 영향이 없습니다.",
   hostForgotten: "머신 “{name}”을(를) 잊었습니다",
+  nodeScoutOld: "스카우트 1.x — 업데이트 필요",
+  nodeScoutOldTitle: "이 머신의 스카우트는 2.0보다 오래되어, 컨트롤러가 더 이상 읽지 않는 머신의 에이전트를 아직 보고합니다. 업데이트하려면 해당 폴더에서 git pull 후 caravan-scout를 다시 시작하세요.",
   subtitle: "Caravan 모델 서버",
   themeDark: "다크",
   themeLlm: "LLM 블랙",

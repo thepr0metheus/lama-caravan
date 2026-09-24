@@ -320,6 +320,8 @@ export default {
   nodeForgetHost: "Maschine vergessen",
   dlgForgetHost: "Maschine „{name}“ vergessen?\n\nIhr Scout antwortet nicht ({ago}). Die Karte verschwindet vom Board und kehrt zurück, sobald der Scout wieder berichtet. Die darauf eingerichteten Zellen bleiben erhalten; Clients sind nicht betroffen.",
   hostForgotten: "Maschine „{name}“ vergessen",
+  nodeScoutOld: "Scout 1.x — aktualisieren",
+  nodeScoutOldTitle: "Der Scout dieser Maschine ist älter als 2.0: Er meldet noch die Agenten auf der Maschine, die der Controller nicht mehr liest. Aktualisieren: git pull in seinem Verzeichnis, dann caravan-scout neu starten.",
   subtitle: "Caravan-Modellserver",
   themeDark: "Dunkel",
   themeLlm: "LLM Schwarz",

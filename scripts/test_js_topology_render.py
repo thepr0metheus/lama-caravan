@@ -141,6 +141,13 @@ PINS = [
      'm.topologyStructureFingerprint() !== globalThis.__fpH',
      'true',
      "positive: появилась машина без видеокарт и ячеек — структура: её id несут строка хостов и строка сборок llama.cpp"),
+    ("fingerprint_sees_a_scout_name_its_version",
+     'st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true }] });'
+     ' globalThis.__fpV = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, scoutVersion: "2.0.0" }] });',
+     'm.topologyStructureFingerprint() !== globalThis.__fpV',
+     'true',
+     "positive: скаут обновился и назвал версию — плашка «обновите» уходит без перезагрузки"),
     ("fingerprint_ignores_a_client_rows_liveness",
      'st.setTopology({ ...st.topology, clients: [CLIENT({ state: "stale", gpus: [] })] });'
      ' globalThis.__fpC = m.topologyStructureFingerprint();'
@@ -201,10 +208,11 @@ def check(cond, msg):
 
 
 def main():
-    # The floor catches a list cut short by accident, so it follows the list: 15
-    # since the host card's seven pins went with the card (2026-09-24), and
-    # the host's liveness came to the fingerprint and the live patch as three.
-    if len(PINS) < 15:
+    # The floor catches a list cut short by accident, so it follows the list: 16
+    # since the host card's seven pins went with the card (2026-09-24), the
+    # host's liveness came to the fingerprint and the live patch as three, and
+    # the scout's version as one more.
+    if len(PINS) < 16:
         print(f"js topology-render FAILED: всего {len(PINS)} пинов — снимок урезан")
         return 1
     node = find_node()

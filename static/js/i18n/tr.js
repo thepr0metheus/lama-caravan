@@ -320,6 +320,8 @@ export default {
   nodeForgetHost: "Makineyi unut",
   dlgForgetHost: "“{name}” makinesi unutulsun mu?\n\nScout'u yanıt vermiyor ({ago}). Kart panodan kalkar ve scout yeniden rapor gönderdiğinde geri gelir. Üzerinde yapılandırılmış hücreler korunur; istemcilere dokunulmaz.",
   hostForgotten: "“{name}” makinesi unutuldu",
+  nodeScoutOld: "scout 1.x — güncelleyin",
+  nodeScoutOldTitle: "Bu makinenin scout'u 2.0'dan eski: makinedeki ajanları hâlâ bildiriyor, denetleyici ise artık bunları okumuyor. Güncelleyin: klasöründe git pull yapın, ardından caravan-scout'u yeniden başlatın.",
   subtitle: "Caravan model sunucusu",
   themeDark: "Koyu",
   themeLlm: "LLM Siyah",

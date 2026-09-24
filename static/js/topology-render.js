@@ -567,7 +567,7 @@ export function topologyStructureFingerprint() {
   // appearing, or going silent, adds or removes a node's banner — structure.
   // Its age is not; the live patcher moves that.
   const hosts = (topology.nodes || [])
-    .map((n) => `${n.id}:${n.online ? 1 : 0}`)
+    .map((n) => `${n.id}:${n.online ? 1 : 0}:${n.scoutVersion ? 1 : 0}`)
     .sort().join(",");
   const classicSrv = (server.llamaServers || [])
     .map((s) => `${s.id}:${s.port}:${s.model || ""}:${topologyServerPhase(s)}:${s.reachable === false ? 0 : 1}`)
