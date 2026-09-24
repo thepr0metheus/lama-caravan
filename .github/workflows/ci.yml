@@ -31,6 +31,8 @@ jobs:
           python3 scripts/test_scout_report_sample.py
           python3 scripts/test_scout_pairing.py
           python3 scripts/test_topology_remote_cells.py
+          python3 scripts/test_install_llama_lock.py
+          python3 scripts/test_deploy_same_commit.py
           python3 scripts/test_queue_thresholds.py
           python3 scripts/test_token_history.py
 

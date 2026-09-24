@@ -31,12 +31,15 @@ What is pinned, each claim together with its opposite:
   its "no-room" refusal IS the fallback.
 * The schedule brings a model home before its window opens, once per window,
   and does NOT start the cell then: the window has not come.
-* A client cell downloads its model from THIS controller, so one that lives
-  only in a library is refused here, by name, instead of dying on a 404
-  halfway through a download on another machine.
+* A client cell is told where this controller reads each of its files — on
+  this disk, in a library, a folder — so a scout that has the same file there
+  (the one on the controller's own machine, a library mounted at the same
+  path) reads it in place instead of copying it. A library model is no longer
+  refused: the scout that lacks the library names it itself.
 
 Run: python3 scripts/test_start_from_library.py
 """
+import os
 import sys
 import time
 from pathlib import Path
@@ -183,6 +186,56 @@ def section_script():
           "negative: свой файл проверяется как свой, метка — только за тот, что в библиотеке")
 
 
+def section_scout_told_where():
+    print("скауту сказано, где контроллер читает каждый файл:")
+    import tempfile
+    from caravan.admin import fleet_clients
+    with tempfile.TemporaryDirectory() as tmp:
+        models = Path(tmp) / "models"
+        (models / "l").mkdir(parents=True)
+        (models / "l" / "local.gguf").write_bytes(b"x" * 5)
+        (models / "seam" / "FP32").mkdir(parents=True)
+        sent = []
+
+        class FakeScout:
+            def post(self, path, payload, timeout=0):
+                sent.append((path, payload))
+                return {"ok": True}
+
+        saved = {k: getattr(fleet_clients, k) for k in
+                 ("_scout", "current_locations", "assert_server_cell_port_available", "upsert_server_slot",
+                  "move_server_cell")}
+        fleet_clients._scout = lambda host_id: FakeScout()
+        fleet_clients.current_locations = lambda wait=False: Locations([LIB], exists=os.path.isfile)
+        fleet_clients.assert_server_cell_port_available = lambda *a, **k: None
+        fleet_clients.upsert_server_slot = lambda *a, **k: None
+        fleet_clients.move_server_cell = lambda *a, **k: None
+        try:
+            base = {"LLAMA_MODELS_DIR": str(models), "PORT": "22021"}
+            fleet_clients.client_llama_start({"hostId": "box-a", "port": 22021, "modelPath": "l/local.gguf",
+                                              "config": {**base, "MMPROJ_FILE": "m/mm.gguf",
+                                                         "SPEC_DRAFT_MODEL_FILE": "gone/draft.gguf"}})
+            fleet_clients.client_llama_start({"hostId": "box-a", "port": 22022, "modelPath": "q/Qwen/Q8/q.gguf",
+                                              "config": {**base, "PORT": "22022"}})
+            fleet_clients.client_llama_start({"hostId": "box-a", "port": 22023,
+                                              "config": {**base, "PORT": "22023", "RUNNER": "seamless",
+                                                         "MODEL_FILE": "seam/FP32", "SEAMLESS_TGT_LANG": "rus"}})
+        finally:
+            for k, v in saved.items():
+                setattr(fleet_clients, k, v)
+        told = [payload.get("inPlace") for _path, payload in sent]
+        check(told[:1] == [{"l/local.gguf": {"path": str(models / "l" / "local.gguf"), "size": 5},
+                            "m/mm.gguf": {"path": "/mnt/lib/m/mm.gguf", "library": "NAS", "size": 2}}],
+              f"файл на диске контроллера — путь и настоящий размер; файл в библиотеке — путь, имя библиотеки и "
+              f"размер из её списка; negative: файла нет нигде — подсказки нет (got {told[:1]})")
+        check(told[1:2] == [{"q/Qwen/Q8/q.gguf": {"path": "/mnt/lib/q/Qwen/Q8/q.gguf", "library": "NAS",
+                                                   "size": 8}}],
+              f"модель только в библиотеке — уходит скауту с путём библиотеки, а не отказом (got {told[1:2]})")
+        check(told[2:] == [{"seam/FP32": {"path": str(models / "seam" / "FP32"), "dir": True}}],
+              f"модель-папка (seamless) — сказано, что это папка: её не скачать, только прочесть на месте "
+              f"(got {told[2:]})")
+
+
 def section_every_start():
     print("скрипт пишется заново на каждом старте:")
     from caravan.admin import cell_ops
@@ -231,9 +284,9 @@ def section_every_start():
     finally:
         for k, v in saved.items():
             setattr(cell_ops, k, v)
-    check("NAS" in str(client[0]) and "library" in str(client[0]),
-          f"клиентской ячейке — отказ с причиной и именем библиотеки: иначе она умрёт на 404 посреди закачки, "
-          f"и причина останется на другой машине (got {client[0]})")
+    check(client[0] is None,
+          f"defect-history: клиентская ячейка с моделью в библиотеке больше не отказана — скаут прочтёт её на "
+          f"месте, если у него та же библиотека по тому же пути, а если нет — сам назовёт её (got {client[0]})")
     check(client[1] is True,
           f"negative: модель на диске контроллера — клиентская ячейка стартует как раньше (got {client[1]})")
     check(wrote == [snapshot, snapshot],
@@ -349,6 +402,7 @@ def main():
     section_mmap()
     section_script()
     section_every_start()
+    section_scout_told_where()
     section_choice()
     section_prefetch()
     print()

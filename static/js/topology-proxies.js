@@ -39,7 +39,7 @@ export function _cvProxyIsTombstoned(p) {
 // `fold` asks for the lane's folding (card-fold.js): a quiet agent becomes its
 // header and one line per route, and the full card floats open on hover.
 // Without it the card is drawn exactly as it always was.
-export function topologyAgentCard(client, agent, routeMap, ownsClient = false, { fold = false } = {}) {
+export function topologyAgentCard(client, agent, routeMap, { fold = false } = {}) {
   const routes = routeMap.get(agent.id) || new Map();
   const primary = routes.get("primary");
   const fallback = routes.get("fallback");
@@ -81,15 +81,10 @@ export function topologyAgentCard(client, agent, routeMap, ownsClient = false, {
             data-agent-rename="${escapeHtml(agent.id || "")}"
             data-agent-rename-client="${escapeHtml(client?.id || "")}"
             data-agent-rename-name="${escapeHtml(agent.name || agent.id || "")}">✎</button>
-          ${ownsClient ? `<!-- The client's own control lives on its only
-               agent's card: ＋ adds a second agent to the same client. There is
-               no "delete client" here: the card's own × removes the card, and
-               the client goes with its last agent. A second, red ✕ next to it
-               removed the whole client — and on a client that held ten agents,
-               one press took all ten (2026-09-24). -->
-          <button class="client-rename-btn" type="button" data-t="client-agent-add"
-            title="${escapeHtml(t("topologyAgentAdd"))}"
-            data-client-agent-add="${escapeHtml(client?.id || "")}">＋</button>` : ""}
+          <!-- A client is one card: no ＋ for a second agent here — a card
+               per client, made with the lane's ＋ — and no "delete client":
+               the card's own × removes it. A red ✕ that removed the whole
+               client took ten agents with one press (2026-09-24). -->
           <!-- The agent's kind sits on the same line as its name, pushed to
                the right: on its own line it took up a whole row for two
                words and stretched the header out vertically. -->
@@ -143,12 +138,9 @@ export function topologyAgentCard(client, agent, routeMap, ownsClient = false, {
 export function clientLaneAgentCards(client, assignments) {
   const routeMap = topologyAssignmentsByAgent(assignments);
   const agents = sortedTopologyAgents(client.agents || []);
-  // The sole agent also takes over managing the client itself: with no
-  // caption next to it, its card carries the client's ✎ and ✕.
-  const owns = !clientNeedsCaption(agents.length);
   return agents.map((agent) => {
     const routes = [...(routeMap.get(agent.id) || new Map()).values()];
-    return { agentId: agent.id, name: agent.name || agent.id || "", html: topologyAgentCard(client, agent, routeMap, owns, { fold: true }),
+    return { agentId: agent.id, name: agent.name || agent.id || "", html: topologyAgentCard(client, agent, routeMap, { fold: true }),
              idle: agentIsIdle(routes) };
   });
 }

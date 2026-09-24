@@ -11,7 +11,8 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args, gpu_layers_int
+from caravan.admin.config_builder import CONFIG_FIELDS, build_remote_llama_args, gpu_layers_int, model_paths
+from caravan.admin.model_locator import current_locations
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
 from caravan.admin.launch import render_command_cell_shell_line, _sanitize_snapshot_name
 from caravan.admin.paths import (
@@ -127,6 +128,16 @@ def client_llama_start(body: dict) -> dict:
         payload["args"] = build_remote_llama_args(payload["config"])
         if not payload["modelPath"]:
             raise AppError("modelPath is required", 400)
+    # Where this controller reads each model file, keyed by the path the scout
+    # is sent. A scout that has the same file there — on this machine, or a
+    # library mounted at the same path — reads it in place instead of copying
+    # it into its cache; one that has not falls back to its cache and the
+    # download, or names the library it lacks.
+    model_cfg = dict(payload["config"])
+    if payload["modelPath"] and "cellKind" not in payload:
+        model_cfg["MODEL_FILE"] = payload["modelPath"]
+    hints = {at.rel: at.hint() for at in model_paths(model_cfg, current_locations(wait=True)).values()}
+    payload["inPlace"] = {rel: hint for rel, hint in hints.items() if hint}
     old_cell_port = body.get("cellPort")
     if old_cell_port not in (None, ""):
         old_cell_port = int(old_cell_port)
@@ -302,23 +313,6 @@ def fallback_port_for(assignment) -> int | None:
                 if str(route.get("proxyId") or "").rsplit(":", 1)[-1] == str(candidate):
                     return None
     return candidate
-
-
-def topology_client_add_agent(body: dict) -> dict:
-    """Add an agent to a client by hand.
-
-    Without this a manual client was a record that couldn't be configured: a
-    proxy is assigned to an AGENT, and there was no way to create one — the
-    card only offered "rename" and "delete".
-    """
-    host_id = str(body.get("hostId") or "").strip()
-    store = topology_store()
-    client = (store.get("clients") or {}).get(host_id)
-    if not isinstance(client, dict):
-        raise AppError(f"no such client: {host_id or '(empty)'}", 404)
-    agent = FleetClient.add_agent(client, body.get("agentId"), body.get("name"))
-    save_admin_state()
-    return agent
 
 
 def topology_client_create(body: dict) -> dict:

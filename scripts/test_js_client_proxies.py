@@ -173,26 +173,27 @@ PINS = [
     ("sole_agent_owns_a_client_that_shares_a_scout_machine",
      'st.setTopology({ ...st.topology, proxies: PROXIES,'
      ' clients: [{ id: "c1", agentUrl: "http://h:8092", lastSeen: 111, agents: [{ id: "a1" }] }] });',
-     '(cards => [cards.length, cards[0].html.includes("data-client-agent-add")])'
+     '(cards => [cards.length, cards[0].html.includes("data-agent-rename"), cards[0].html.includes("data-client-agent-add")])'
      '(m.clientLaneAgentCards(st.topology.clients[0], []))',
-     '[1,true]',
+     '[1,true,false]',
      'defect-history: у клиента с тем же id, что у машины со скаутом, управление держала карточка хоста — '
-     'её нет (docs/scout-split.md), и единственный агент забирает ＋ клиента так же, как у любого клиента'),
+     'её нет (docs/scout-split.md): одна карточка с ✎, как у любого клиента, и без ＋'),
     ("single_agent_card_takes_the_client_controls",
      'st.setTopology({ ...st.topology, proxies: PROXIES,'
      ' clients: [{ id: "c1", manual: true, agents: [{ id: "a1" }] }] });',
      '(cards => [cards.length, cards[0].html.includes("data-client-agent-add"), cards[0].html.includes("data-client-delete"),'
      ' (cards[0].html.match(/data-t="agent-remove"/g) || []).length])'
      '(m.clientLaneAgentCards(st.topology.clients[0], []))',
-     '[1,true,false,1]',
-     'defect-history: у карточки единственного агента был второй, красный ✕ «удалить клиента» рядом со своим × — '
+     '[1,false,false,1]',
+     'defect-history: у карточки нет ＋ «добавить агента» (второй агент того же клиента — пережиток: клиент — одна карточка, 2026-09-24); был и второй, красный ✕ «удалить клиента» рядом со своим × — '
      'на клиенте с десятью агентами одно нажатие унесло всех десятерых; теперь у карточки один × — её собственный'),
     ("several_agent_cards_do_not_repeat_the_client_controls",
      'st.setTopology({ ...st.topology, proxies: PROXIES,'
      ' clients: [{ id: "c1", manual: true, agents: [{ id: "a1" }, { id: "a2" }] }] });',
      'm.clientLaneAgentCards(st.topology.clients[0], []).filter((c) => c.html.includes("data-client-agent-add")).length',
      '0',
-     'negative: агентов несколько — «удалить клиента» не повторяется на каждом, оно уходит в строку-заголовок'),
+     'negative: агентов несколько — ни на одной карточке нет ＋ «добавить агента»: клиент — одна карточка, новая '
+     'делается ＋ ленты'),
     ("manual_client_gets_a_card_per_agent",
      'st.setTopology({ ...st.topology, proxies: PROXIES,'
      ' clients: [{ id: "c1", manual: true, agents: [{ id: "a1" }, { id: "a2" }, { id: "a3" }] }] });',

@@ -266,17 +266,10 @@ def server_cell_action(body: dict) -> dict:
             for_config(cfg).preflight_start(cfg, model)
         elif not model:
             raise AppError("cell has no saved model — configure it first", 400)
-        # A client downloads its model FROM THIS CONTROLLER, and the controller
-        # serves what is on its own disk. A model that lives only in a library
-        # would answer that request with "not found" — a client cell that dies
-        # on a 404 halfway through a download, with the reason on the other
-        # machine. Refuse here instead, and name the library it is in.
-        # (A client mounts the same library, but it does not read it yet: that
-        # is its own step, and pretending otherwise would break the download.)
-        at = model_paths({**cfg, "MODEL_FILE": model}, current_locations(wait=True)).get("MODEL_FILE")
-        if at is not None and at.in_library:
-            raise AppError(f"its model is in the library {at.store['name'] or at.store['id']}, not on this "
-                           f"controller's disk — bring it back here first: {model}", 409)
+        # A model in a library is no reason to refuse: client_llama_start tells
+        # the scout where this controller reads it, and a scout that mounts the
+        # library at the same path reads it there. One that does not says which
+        # library it lacks — a download from here could only answer 404.
         result = client_llama_start({
             "hostId": host_id,
             "modelPath": model,

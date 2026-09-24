@@ -103,28 +103,6 @@ PINS = [
      'await (async () => { await rc.addTopologyClient(); return toastText(); })()',
      '"Error: client already exists: dup"',
      'as-is: отказ сервера доходит до оператора с приставкой «Error:» — так его печатает toast(String(e))'),
-    # ── an agent created by hand ──
-    ('add_agent_wire',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "  ag-1  ";',
-     'await (async () => { await rc.addTopologyAgent("box-a"); return calls(); })()',
-     '[{"path": "/api/topology/client/agent", "method": "POST", "body": "{\\"hostId\\":\\"box-a\\",\\"agentId\\":\\"ag-1\\"}"}]',
-     'positive: на провод уходит обрезанный id и клиент, без выдуманных полей'),
-    ('add_agent_blank',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "   ";',
-     'await (async () => { await rc.addTopologyAgent("box-a"); return calls(); })()',
-     '[]',
-     'negative: имя из пробелов — отмена, а не агент без имени'),
-    ('add_agent_cancelled',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => null;',
-     'await (async () => { await rc.addTopologyAgent("box-a"); return calls(); })()',
-     '[]',
-     'negative: отменённый диалог не шлёт ничего'),
-    ('add_agent_refusal_shown',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "dup";'
-     ' globalThis.__fetchReply["/api/topology/client/agent"] = { __status: 409, error: "agent \\"dup\\" already exists on this client" };',
-     'await (async () => { await rc.addTopologyAgent("box-a"); return toastText(); })()',
-     '"Error: agent \\"dup\\" already exists on this client"',
-     'as-is: отказ сервера доходит до оператора'),
     # ── moving scout clients under the board's ownership ──
     # ── a route's context window ──
     ('route_ctx_number',

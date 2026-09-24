@@ -24,7 +24,7 @@ import {
   startCloudOauthLogin,
   topologyCloudBlockForm,
 } from "./cloud.js";
-import { addTopologyAgent, renameTopologyAgent } from "./remote-cells.js";
+import { renameTopologyAgent } from "./remote-cells.js";
 import { openRequestHistory } from "./history.js";
 import { t } from "./i18n.js";
 import { closeConfirmModal } from "./llama-edit.js";
@@ -955,9 +955,6 @@ export function bindTopologyDragAndDrop() {
       renameTopologyAgent(btn.dataset.agentRenameClient, btn.dataset.agentRename,
                           btn.dataset.agentRenameName);
     });
-  });
-  document.querySelectorAll("[data-client-agent-add]").forEach((btn) => {
-    btn.addEventListener("click", () => addTopologyAgent(btn.dataset.clientAgentAdd));
   });
   document.querySelectorAll("[data-client-rename]").forEach((btn) => {
     btn.addEventListener("click", () => {
