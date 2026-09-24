@@ -136,6 +136,16 @@ export function hostAgeText(node) {
 // machine — and not in the clients lane, since the scout reports the machine
 // and nothing about the clients on it (docs/scout-split.md). A live scout gets
 // no banner and no ✕: forgetting it would last until its next report.
+// A 1.x scout names no version. It still reports the agents on its machine,
+// which the controller stopped reading — the chip says the scout is due for an
+// update rather than leaving an old one to look current. The controller and a
+// scout that names its version get nothing.
+export function scoutOldChipHtml(node) {
+  if (!node || node.role !== "host" || String(node.scoutVersion || "").trim()) return "";
+  return `<span class="node-scout-old" data-t="node-scout-old" data-t-id="${escapeHtml(String(node.id || ""))}"
+      title="${escapeHtml(t("nodeScoutOldTitle"))}">⚠ ${escapeHtml(t("nodeScoutOld"))}</span>`;
+}
+
 export function hostSilenceHtml(node) {
   if (!node || node.role !== "host" || node.online) return "";
   const id = escapeHtml(String(node.id || ""));
@@ -1418,6 +1428,7 @@ export function nodesLaneHtml() {
           <strong>${escapeHtml(n.name || n.id)}</strong>
           <span class="node-role">${escapeHtml(_roleWord)}</span>
           ${n.ip ? `<span class="topology-muted">${escapeHtml(n.ip)}</span>` : ""}
+          ${scoutOldChipHtml(n)}
           ${verChip}
           ${collapsed ? `<span class="node-meta">${servers.length} srv · ${(n.gpus||[]).length} GPU</span>` : ""}
           <span style="flex:1"></span>

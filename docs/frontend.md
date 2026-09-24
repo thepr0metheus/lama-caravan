@@ -520,6 +520,8 @@ survive. Collapsed nodes persist to localStorage.
 
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
 - Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`.
+- A host whose scout names no version (1.x) carries «scout 1.x — update» in its header
+  (`scoutOldChipHtml`, `node-scout-old`).
 - Every machine with a scout is a node (role `host`), with or without GPUs — the ＋ that reserves a
   first cell lives here. A host whose scout stopped answering is dimmed and gets a banner under its
   header: the age of the last report (`hostAgeText`, the same text the live patcher writes) and

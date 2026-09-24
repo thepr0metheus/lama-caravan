@@ -320,6 +320,8 @@ export default {
   nodeForgetHost: "मशीन भूलें",
   dlgForgetHost: "मशीन “{name}” को भूलें?\n\nइसका scout जवाब नहीं दे रहा ({ago})। कार्ड बोर्ड से हट जाएगा और scout के फिर से रिपोर्ट भेजने पर लौट आएगा। इस पर कॉन्फ़िगर की गई सेल बनी रहेंगी; क्लाइंट पर कोई असर नहीं पड़ेगा।",
   hostForgotten: "मशीन “{name}” भुला दी गई",
+  nodeScoutOld: "scout 1.x — अपडेट करें",
+  nodeScoutOldTitle: "इस मशीन का scout 2.0 से पुराना है: यह अब भी मशीन के एजेंटों की जानकारी भेजता है, जिन्हें कंट्रोलर अब नहीं पढ़ता। अपडेट करें: उसके फ़ोल्डर में git pull चलाएँ, फिर caravan-scout को फिर से शुरू करें।",
   subtitle: "Caravan मॉडल सर्वर",
   themeDark: "डार्क",
   themeLlm: "LLM ब्लैक",

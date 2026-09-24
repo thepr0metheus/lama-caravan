@@ -229,6 +229,11 @@ def test_report_changes_only_the_machine():
           and host["name"] == "hostname-says",
           "запись хоста — то, что сказал отчёт")
     check(host["firstSeen"] == 5, "первое появление машины не сдвинуто отчётом")
+    check(host.get("scoutVersion") == "",
+          "negative: скаут 1.x версию не называет — в записи пусто, а не выдуманный номер")
+    after2 = fc.record_host_report({"host": {"id": "box", "name": "h"}, "scoutVersion": " 2.0.0 ", "agentUrl": "u"})
+    check(store["hosts"]["box"].get("scoutVersion") == "2.0.0" and after2.get("scoutVersion") == "2.0.0",
+          "скаут 2.0 называет свою версию — запись хоста её хранит")
     check(all(k not in host for k in ("agents", "candidates", "assignments", "applyStatus", "state")),
           f"ни агентов, ни находок, ни назначений, ни статуса применения, ни записанной живости (got {sorted(host)})")
     check(routes == [{"port": 23001, "label": "A primary"}] and store["assignments"] == {},
@@ -1064,6 +1069,24 @@ def test_the_payload_keeps_machines_and_clients_apart():
     check(len(kicks) == 1, "negative: ответы на действия (refresh_hosts=False) опрос не пинают")
 
 
+def test_the_pull_keeps_the_scout_version():
+    """The background pull maps /api/state into the same record the heartbeat
+    writes; a field one of them carries and the other does not would be erased
+    every minute by the other. The scout's version travels both ways."""
+    print("опрос скаута тоже несёт его версию:")
+    store, _r = harness(hosts={"m": {"id": "m", "name": "M", "agentUrl": "http://10.0.0.9:8092", "lastSeen": 1}})
+    saved = fc.fetch_json
+    try:
+        fc.fetch_json = lambda url, timeout=None, headers=None: {
+            "host": {"id": "m", "name": "M"}, "scoutVersion": "2.0.0", "llamaUpdate": {"running": True}}
+        fc.refresh_hosts_from_scouts()
+    finally:
+        fc.fetch_json = saved
+    host = store["hosts"]["m"]
+    check(host.get("scoutVersion") == "2.0.0" and host.get("llamaUpdate") == {"running": True},
+          "версия скаута и статус обновления из /api/state — в записи хоста, как из пульса")
+
+
 def test_bind_refuses_an_agent_the_record_does_not_have():
     """A bind names an agent of the operator's record, or it is refused.
 
@@ -1230,7 +1253,7 @@ def test_a_machine_node_is_a_host():
         T._record_cpu_history = T._record_gpu_history = T._record_tps_history = lambda *a, **kw: []
         T.IS_CONTAINER = True
         hosts = [{"id": "m", "name": "M", "ip": "10.0.0.9", "state": "stale", "ageSeconds": 900, "gpus": []},
-                 {"id": "n", "name": "N", "state": "online", "ageSeconds": 0}]
+                 {"id": "n", "name": "N", "state": "online", "ageSeconds": 0, "scoutVersion": "2.0.0"}]
         nodes = {n["id"]: n for n in T.topology_nodes({}, {"id": "controller", "name": "Ctl"}, hosts)}
     finally:
         for k, v in saved.items():
@@ -1242,9 +1265,11 @@ def test_a_machine_node_is_a_host():
     check((nodes["n"].get("online"), nodes["n"].get("ageSeconds", "missing")) == (True, 0),
           "boundary: возраст ноль — отчёт прямо сейчас, а не отсутствие")
     check("ageSeconds" not in nodes["controller"], "negative: у контроллера нет скаута — и возраста отчёта нет")
+    check((nodes["n"].get("scoutVersion"), nodes["m"].get("scoutVersion")) == ("2.0.0", ""),
+          "узел несёт версию скаута; скаут 1.x — пустая строка, по ней доска просит обновить")
 
 
-for fn in (test_bind_refuses_an_agent_the_record_does_not_have, test_a_cell_of_an_unknown_machine_has_no_address, test_metrics_read_the_boards_liveness, test_forgetting_a_machine_touches_nothing_else, test_a_machine_node_is_a_host,
+for fn in (test_the_pull_keeps_the_scout_version, test_bind_refuses_an_agent_the_record_does_not_have, test_a_cell_of_an_unknown_machine_has_no_address, test_metrics_read_the_boards_liveness, test_forgetting_a_machine_touches_nothing_else, test_a_machine_node_is_a_host,
            test_a_scouts_address_lives_on_its_host, test_the_payload_keeps_machines_and_clients_apart, test_apply_stores_and_calls_no_scout, test_route_can_be_removed,
            test_agent_delete_takes_its_row_and_leaves_its_ports,
            test_agent_alias_survives_the_report,

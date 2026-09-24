@@ -142,11 +142,24 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A cell that is not running reads like its port: grey, at the weight of a
+   reserved one. Parked names were as bright as the serving ones, and in a lane
+   of twenty the eye could not find what actually runs. */
+.cell-row.parked .fr-name,
 .cell-row.reserved .fr-name { font-weight: 500; color: var(--muted); }
 .fr-warn { flex-shrink: 0; color: var(--warn); font-size: 12px; }
 .fr-tps { flex-shrink: 0; font: 600 11px/1 ui-monospace, "SF Mono", Menlo, monospace; color: color-mix(in srgb, var(--accent) 60%, var(--text)); }
 .fr-tps:empty { display: none; }
 .cell-row .mbadge { flex-shrink: 0; }
+/* Its memory estimate goes grey with it. The dashed chip kept the cell's
+   accent — green on a GPU cell — so a lane of parked cells still read as a lane
+   of green; the only green left on the lane is what runs. The chip's colour
+   never said "fits": it was the accent, and the row's border still carries it. */
+.cell-row.parked .mbadge-vram-est {
+  color: var(--muted);
+  border-color: color-mix(in srgb, var(--muted) 45%, transparent);
+  background: transparent;
+}
 
 /* ── an agent's line ─────────────────────────────────────────────────────── */
 /* The same box as the full card (cards.css .topology-agent), so each route's

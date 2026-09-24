@@ -320,6 +320,8 @@ export default {
   nodeForgetHost: "忘记机器",
   dlgForgetHost: "忘记机器“{name}”？\n\n它的 scout 无响应（{ago}）。卡片将从看板移除，scout 再次报告时会重新出现。其上配置的单元会保留；客户端不受影响。",
   hostForgotten: "已忘记机器“{name}”",
+  nodeScoutOld: "scout 1.x — 请更新",
+  nodeScoutOldTitle: "这台机器的 scout 早于 2.0：它仍在报告机器上的代理，而控制器已不再读取。请更新：在其目录中执行 git pull，然后重启 caravan-scout。",
   subtitle: "Caravan 模型服务器",
   themeDark: "深色",
   themeLlm: "LLM 黑",

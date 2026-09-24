@@ -320,6 +320,8 @@ export default {
   nodeForgetHost: "Quên máy",
   dlgForgetHost: "Quên máy “{name}”?\n\nScout của máy không phản hồi ({ago}). Thẻ rời khỏi bảng và quay lại khi scout gửi báo cáo lần nữa. Các ô đã cấu hình trên máy được giữ lại; client không bị ảnh hưởng.",
   hostForgotten: "Đã quên máy “{name}”",
+  nodeScoutOld: "scout 1.x — hãy cập nhật",
+  nodeScoutOldTitle: "Scout của máy này cũ hơn 2.0: nó vẫn báo các tác nhân trên máy, mà bộ điều khiển không còn đọc nữa. Hãy cập nhật: git pull trong thư mục của nó, rồi khởi động lại caravan-scout.",
   subtitle: "Máy chủ mô hình Caravan",
   themeDark: "Tối",
   themeLlm: "LLM Đen",

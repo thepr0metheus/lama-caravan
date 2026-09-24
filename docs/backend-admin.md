@@ -589,7 +589,11 @@ read). `topology_hosts` computes a host's liveness on read (`online` within `HOS
 180 s — three scout heartbeats — else `stale`; never stored); `topology_clients` has none — a
 client's agents' traffic shows whether it works. `refresh_hosts_from_scouts` pulls each scout's
 `/api/state` so the board stays current between heartbeats; it runs in the background
-(`SCOUT_POLLER`, see `scout_poll.py`), never inside a board read. Agents and their ports are made by hand; removing an agent takes its
+(`SCOUT_POLLER`, see `scout_poll.py`), never inside a board read, and `scout_payload_from_state`
+turns what it reads into the shape of a heartbeat. Which fields a report carries is one sample for both
+repos: the scout's `docs/report-sample.json`, copied byte for byte to `scripts/fixtures/`, where
+`test_scout_report_sample.py` requires every field to reach the host record (or be listed as not read,
+with the reason) and the pull and the beat to make the same record. Agents and their ports are made by hand; removing an agent takes its
 assignment row and leaves its ports free. Deleting a client leaves the host record alone, and
 `topology_host_delete` forgets a silent machine's host record and nothing else — refused (409) while
 its scout answers, since the next report would bring it back. The controller also hosts every node's

@@ -1108,6 +1108,7 @@ def topology_nodes(config, server_obj, hosts):
             "llamaBinaryVersion": host.get("llamaBinaryVersion") or "",
             "llamaBinaryMtime": host.get("llamaBinaryMtime") or "",
             "llamaUpdate": host.get("llamaUpdate") or {},
+            "scoutVersion": host.get("scoutVersion") or "",
             "powerSchedule": _power_scheds.get(cid) or {},
         })
 

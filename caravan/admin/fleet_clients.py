@@ -545,6 +545,10 @@ def host_from_report(payload):
             "phase": str(raw.get("phase") or "")[:20],
             "downloadedBytes": int(raw.get("downloadedBytes") or 0),
             "totalBytes": int(raw.get("totalBytes") or 0),
+            # Which file a download is on ("model-q4.gguf (1/2)"). The scout
+            # always said it; this record dropped it, and a client's card
+            # showed the generic "downloading…" through a multi-file fetch.
+            "downloadingFile": str(raw.get("downloadingFile") or "")[:200],
             "promptTps": raw.get("promptTps"),
             "genTps": raw.get("genTps"),
             "requestsProcessing": raw.get("requestsProcessing"),
@@ -575,6 +579,9 @@ def host_from_report(payload):
         "llamaBinaryVersion": str(payload.get("llamaBinaryVersion") or "").strip()[:120],
         "llamaBinaryMtime": str(payload.get("llamaBinaryMtime") or "").strip()[:30],
         "llamaUpdate": payload.get("llamaUpdate") if isinstance(payload.get("llamaUpdate"), dict) else {},
+        # Named by scouts since 2.0, in the heartbeat and /api/state alike.
+        # Empty is a 1.x scout, which still reports agents nobody reads.
+        "scoutVersion": str(payload.get("scoutVersion") or "").strip()[:40],
         "firstSeen": now,
         "lastSeen": now,
     }
@@ -781,27 +788,37 @@ def refresh_hosts_from_scouts():
             state = fetch_json(f"{agent_url}/api/state", timeout=2, headers=_scout_headers())
             if not isinstance(state, dict):
                 continue
-            # Map /api/state response into the heartbeat payload format so
-            # record_host_report() can normalise and store it uniformly.
-            payload = {
-                "host": state.get("host") or {},
-                "gpus": state.get("gpus") or [],
-                "computeApps": state.get("computeApps") or [],
-                "cpu": state.get("cpu") or {},
-                "platform": state.get("platform") or "",
-                # Carry llama-node status through, otherwise an active refresh
-                # between heartbeats would wipe the running remote server.
-                "llamaNode": state.get("llamaNode") or {},
-                "llamaNodes": state.get("llamaNodes") or [],
-                "llamaBinaryVersion": state.get("llamaBinaryVersion") or "",
-                "llamaBinaryMtime": state.get("llamaBinaryMtime") or "",
-                "llamaUpdate": state.get("llamaUpdate") if isinstance(state.get("llamaUpdate"), dict) else {},
-                "agentUrl": agent_url,
-                "time": state.get("time") or int(time.time()),
-            }
-            record_host_report(payload)
+            record_host_report(scout_payload_from_state(state, agent_url))
         except Exception:
             continue
+
+
+def scout_payload_from_state(state, agent_url):
+    """A scout's /api/state in the shape of its heartbeat, so record_host_report
+    stores the pull and the beat alike.
+
+    Whichever of the two arrives last replaces the host record, so they must
+    carry the same fields under the same names: a field only one carries
+    blinks in and out every minute. Checked against the scout's own report
+    sample (scripts/test_scout_report_sample.py).
+    """
+    return {
+        "host": state.get("host") or {},
+        "gpus": state.get("gpus") or [],
+        "computeApps": state.get("computeApps") or [],
+        "cpu": state.get("cpu") or {},
+        "platform": state.get("platform") or "",
+        # Carry llama-node status through, otherwise an active refresh
+        # between heartbeats would wipe the running remote server.
+        "llamaNode": state.get("llamaNode") or {},
+        "llamaNodes": state.get("llamaNodes") or [],
+        "llamaBinaryVersion": state.get("llamaBinaryVersion") or "",
+        "llamaBinaryMtime": state.get("llamaBinaryMtime") or "",
+        "llamaUpdate": state.get("llamaUpdate") if isinstance(state.get("llamaUpdate"), dict) else {},
+        "scoutVersion": state.get("scoutVersion") or "",
+        "agentUrl": agent_url,
+        "time": state.get("time") or int(time.time()),
+    }
 
 
 #: The one poller of the fleet: board reads kick it (topology_state), and it

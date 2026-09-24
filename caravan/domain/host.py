@@ -104,7 +104,7 @@ class HostRecord:
     #: client's calls come from, here where the machine's cells are reached.
     FIELDS = ("hostname", "ip", "agentUrl", "gpus", "computeApps", "cpu", "platform",
               "llamaNode", "llamaNodes", "llamaBinaryVersion", "llamaBinaryMtime",
-              "llamaUpdate", "firstSeen", "lastSeen")
+              "llamaUpdate", "scoutVersion", "firstSeen", "lastSeen")
 
     #: Computed on every read and never stored: a stored "online" is a claim
     #: that goes stale the moment it is written.
