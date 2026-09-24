@@ -28,29 +28,28 @@ from caravan.admin.systemd_ctl import cell_service_action, cell_service_name, ce
 from caravan.common.errors import AppError
 
 
-def _vllm_vram_gate(port, cfg):
-    """Fail a vLLM start FAST when the GPU cannot host its reservation.
-    vLLM pre-allocates util×total VRAM and otherwise dies in a minute-long
-    crash loop (live incident: :8010 and :8012 both wanting the one 5090).
-    Best-effort: single-GPU cells only, silent when nvidia-smi is absent."""
-    tp = str(cfg.get("TENSOR_PARALLEL") or "").strip()
-    if tp not in ("", "0", "1"):
-        return  # multi-GPU placement is vLLM's own business
-    try:
-        util = float(str(cfg.get("GPU_MEMORY_UTILIZATION") or "").strip() or 0.9)
-    except ValueError:
-        util = 0.9
+def _vram_gate(port, cfg):
+    """Fail a start FAST when the card cannot host what it reserves up front
+    (Runner.vram_reservation — vLLM's util×total), which otherwise dies in a
+    minute-long crash loop (live incident: :8010 and :8012 both wanting the
+    one 5090). Best-effort: silent when nvidia-smi is absent. A scout checks
+    the same reservation on its own machine at launch (the start's `vram`)."""
+    runner = for_config(cfg)
+    probe = getattr(runner, "vram_reservation", None)
+    if probe is None:
+        return
     gs = gpu_state()
     if not gs.get("ok") or not gs.get("gpus"):
         return
-    g = gs["gpus"][0]
+    want = probe(cfg, gs["gpus"])
+    if not want:
+        return
+    card = next((g for g in gs["gpus"] if str(g.get("index")) == str(want["device"])), {})
     try:
-        total = float(g.get("memoryTotalMiB") or 0)
-        free = float(g.get("memoryFreeMiB") or 0)
+        free = float(card.get("memoryFreeMiB") or 0)
     except (TypeError, ValueError):
         return
-    want = util * total
-    if not total or free >= want:
+    if free >= want["reserveMiB"]:
         return
     holders = []
     for slot in topo.slots().values():
@@ -62,11 +61,11 @@ def _vllm_vram_gate(port, cfg):
                 holders.append(f":{s_port}")
         except Exception:
             pass
-    hint = (f" — stop {', '.join(sorted(holders))} or lower GPU_MEMORY_UTILIZATION"
-            if holders else " — lower GPU_MEMORY_UTILIZATION")
+    hint = (f" — stop {', '.join(sorted(holders))} or lower {want['lower']}"
+            if holders else f" — lower {want['lower']}")
     raise AppError(
-        f"vLLM wants {want / 1024:.1f} GiB reserved (utilization {util:.2f} × {total / 1024:.1f} GiB) "
-        f"but only {free / 1024:.1f} GiB VRAM is free{hint}", 409)
+        f"{want['who']} wants {want['reserveMiB'] / 1024:.1f} GiB reserved ({want['why']}) "
+        f"but only {free / 1024:.1f} GiB VRAM is free on GPU {want['device']}{hint}", 409)
 
 
 def client_server_slot_add(body: dict) -> dict:
@@ -219,8 +218,8 @@ def server_cell_action(body: dict) -> dict:
     if is_controller_host(host_id):
         slot = topo.slot(host_id, port)
         cfg = slot.get("config") if isinstance(slot.get("config"), dict) else {}
-        if action_name in {"start", "restart"} and for_config(cfg).vram_gated:
-            _vllm_vram_gate(port, cfg)
+        if action_name in {"start", "restart"}:
+            _vram_gate(port, cfg)
         # Preflight: llama.cpp reports a taken port as a bind error buried deep
         # in its log. Say it up front, with WHO holds it — unless the holder is
         # this cell's own unit (then start is a no-op / restart is the point).

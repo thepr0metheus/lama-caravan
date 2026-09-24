@@ -42,7 +42,7 @@ from caravan.admin.router_dsl import normalize_agent_proxy_policy
 from caravan.admin.server_cells import server_slot_key
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.admin.state import topology as topo
-from caravan.admin.systemd_ctl import active_cell_unit_ports, cell_crash_note, cell_last_error, cell_progress_note, cell_service_name, cell_service_status, cell_unit_pids, service_status, systemd_ts_epoch, crash_kind, cell_failure_kind
+from caravan.admin.systemd_ctl import active_cell_unit_ports, cell_crash_note, cell_last_error, cell_progress_note, cell_service_name, cell_service_status, cell_unit_pids, service_status, systemd_ts_epoch, crash_kind, cell_failure_kind, progress_note_of
 from caravan.admin.telemetry import (
     _normalize_modalities,
     _record_cpu_history,
@@ -107,9 +107,10 @@ def _saved_command(slot, config, on_controller):
 
     A client cell has no start.sh on the controller — the controller BUILDS the
     line and hands it to the scout at start (fleet_clients sends
-    effective_command(config, with_bootstrap=True), one builder for both hosts so
-    the two cannot drift). Rendering it here is therefore not a guess: it is the
-    same string the client is given.
+    effective_command(config), one builder for both hosts so the two cannot
+    drift). Rendering it here is therefore not a guess: it is the same command
+    the client is given, and the same part of it a controller cell shows — the
+    command its start.sh execs, without the runner's bootstrap in front.
 
     Empty means we genuinely do not know — a controller slot that has never been
     applied. It must never be confused with "this cell has no command": the board
@@ -126,7 +127,7 @@ def _saved_command(slot, config, on_controller):
         # TopologyStore._section, and as the sibling read 450 lines below.
         return _start_script_command(((slot or {}).get("artifact") or {}).get("startScript"))
     try:
-        return effective_command(config or {}, with_bootstrap=True)
+        return effective_command(config or {})
     except Exception:  # noqa: BLE001
         # A misconfigured cell cannot render a command; that is a fact about the
         # config, not a reason to fail the whole board.
@@ -590,6 +591,15 @@ def topology_server(config=None):
         # engine — running as far as the OS cares, broken for every caller.
         if running and slot_is_command and _cmd_phase == "broken":
             effective_phase = "broken"
+        # Its scout says the port does not listen yet (2.7+): a process still
+        # starting — vLLM installs and loads for minutes before it listens,
+        # and from here a silent port looked like a running cell. Where the
+        # start is comes from its last lines, by the words a cell of this
+        # controller's journal is read with.
+        _starting_note = ""
+        if running and ln.get("listening") is False:
+            effective_phase = "starting"
+            _starting_note = progress_note_of(ln.get("startingTail"))
         # Authoritative input modalities: probe the remote /props once the model
         # is loaded (cached); fall back to whatever the heartbeat carried.
         remote_mods = None
@@ -599,6 +609,7 @@ def topology_server(config=None):
             remote_mods = _normalize_modalities(ln.get("modalities"))
         _crash = _scout_crash_note(ln.get("crash"))
         _shown_phase = effective_phase if running else (phase or "starting")
+        _progress = {"progressNote": _starting_note} if _starting_note else {}
         llama_servers.append({
             "id": f"remote:{client.get('id')}:{remote_port}",
             "name": client_name,
@@ -618,7 +629,7 @@ def topology_server(config=None):
             "specType": str(ln.get("specType") or ""),
             "status": ({"phase": "broken", "error": str((_ch or {}).get("error") or "")}
                        if effective_phase == "broken" else
-                       {"phase": _shown_phase, **_scout_retry_note(_crash, _shown_phase)}),
+                       {"phase": _shown_phase, **_progress, **_scout_retry_note(_crash, _shown_phase)}),
             "service": "",
             "gpuIndexes": [],
             "isRemote": True,
@@ -664,6 +675,9 @@ def topology_server(config=None):
             # why — its scout's watchdog keeps it (2.5+); the kind is ours to
             # tell, from the same words as a cell of this controller.
             "crash": _crash,
+            # A vLLM cell's queue and rates, as a cell of this controller has
+            # them from its own /metrics — its scout reads them (2.7+).
+            "vllmStats": (_scout_vllm_stats(ln) if running and runner_id(_r_cfg) == "vllm" else None),
             "bootEnabled": _as_port(remote_port) in (client.get("autostart") or []),
             "bootSupported": isinstance(client.get("autostart"), list),
         })
@@ -1172,6 +1186,17 @@ def _scout_retry_note(crash, phase):
     tail = crash.get("tail") or ""
     return {"lastError": {"kind": cell_failure_kind(tail or crash["reason"]), "detail": crash["reason"],
                           "tail": tail}}
+
+
+def _scout_vllm_stats(ln):
+    """A scout's vLLM cell's queue and rates in the shape the card reads for a
+    vLLM cell of this controller (llama_metrics.vllm_metrics_sample), or None
+    when its scout does not say them (older than 2.7)."""
+    if ln.get("requestsProcessing") is None:
+        return None
+    return {"ok": True, "requestsRunning": int(ln.get("requestsProcessing") or 0),
+            "requestsWaiting": int(ln.get("requestsWaiting") or 0),
+            "genTps": ln.get("genTps"), "promptTps": ln.get("promptTps")}
 
 
 def _as_port(value):

@@ -121,7 +121,7 @@ class Runner:
         return ""
 
     # ── how a cell of this kind is launched ──────────────────────────────────
-    def command(self, config, with_bootstrap=False) -> str:
+    def command(self, config) -> str:
         """The shell command this cell runs, without `exec`.
 
         The base answers with the stored COMMAND, which is right for the two
@@ -162,10 +162,32 @@ class Runner:
         """
         return None
 
-    #: True when a start must be gated on free VRAM before it is attempted.
-    #: vLLM pre-allocates util×total VRAM and otherwise dies in a minute-long
-    #: crash loop; llama.cpp fails fast with a legible message instead.
-    vram_gated = False
+    def vram_reservation(self, config, gpus):
+        """What a start reserves on a card the moment it runs — {device,
+        reserveMiB, who, why, lower} — so a start the card cannot hold is
+        refused before it is attempted; None when it reserves nothing up
+        front. vLLM pre-allocates util×total VRAM and otherwise dies in a
+        minute-long crash loop; llama.cpp fails fast with a legible message
+        instead, so the base reserves nothing. `gpus` are the machine's cards
+        as its report or nvidia-smi names them (index, memoryTotalMiB)."""
+        return None
+
+    @staticmethod
+    def env_pairs(env_raw):
+        """(KEY, VALUE) pairs of a cell's ENV field — newline- or
+        comma-separated; a malformed name is skipped, and so is a `#` comment,
+        since `#` cannot begin a name. One parser for the exports both
+        launchers write and for whatever reads ENV."""
+        pairs = []
+        for raw in re.split(r"[\n,]", str(env_raw or "")):
+            item = raw.strip()
+            if "=" not in item:
+                continue
+            k, v = item.split("=", 1)
+            k = k.strip()
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
+                pairs.append((k, v.strip()))
+        return pairs
 
     def health_path(self, config) -> str:
         explicit = str((config or {}).get("HEALTH_PATH") or "").strip()
@@ -231,7 +253,6 @@ class VllmRunner(Runner):
     model_field = "VLLM_MODEL"
     shared_picker = "aim"
     token_context = True
-    vram_gated = True
     default_health_path = "/v1/models"
     format_requirements = {"nvfp4": 10.0, "fp8": 8.9}
 
@@ -277,6 +298,32 @@ class VllmRunner(Runner):
     def bootstrap_lines(self, config):
         return list(self.bootstrap)
 
+    def vram_reservation(self, config, gpus):
+        """vLLM takes GPU_MEMORY_UTILIZATION (0.9 by default) × the card at
+        start. The card is the one CUDA_VISIBLE_DEVICES in the cell's ENV pins
+        (a single index), else the first. None when vLLM places itself — tensor
+        parallel over several cards, several pinned — or the card is unknown."""
+        cfg = config or {}
+        if str(cfg.get("TENSOR_PARALLEL") or "").strip() not in ("", "0", "1"):
+            return None
+        pinned = [v for k, v in self.env_pairs(cfg.get("ENV")) if k == "CUDA_VISIBLE_DEVICES"]
+        device = pinned[-1].strip().strip('"') if pinned else "0"
+        if not device.isdigit():
+            return None
+        try:
+            util = float(str(cfg.get("GPU_MEMORY_UTILIZATION") or "").strip() or 0.9)
+        except ValueError:
+            util = 0.9
+        card = next((g for g in gpus or [] if str(g.get("index")) == device), None)
+        try:
+            total = float((card or {}).get("memoryTotalMiB") or 0)
+        except (TypeError, ValueError):
+            total = 0.0
+        if not total:
+            return None
+        return {"device": int(device), "reserveMiB": int(util * total), "who": "vLLM",
+                "why": f"utilization {util:.2f} × {total / 1024:.1f} GiB", "lower": "GPU_MEMORY_UTILIZATION"}
+
     def artifact_label(self, config):
         from caravan.admin.models import _ST_FORMAT_HINTS   # local: models imports config_builder
         parts = [p for p in str((config or {}).get("VLLM_MODEL") or "").strip().split("/") if p]
@@ -289,10 +336,10 @@ class VllmRunner(Runner):
             return f"{parts[-3]} {parts[-1].upper()}"
         return parts[-1]
 
-    def command(self, config, with_bootstrap=False) -> str:
-        """The `vllm serve …` line (no bootstrap, no exec) — or, with
-        `with_bootstrap`, the single-line provisioning chain in front of it for
-        the scout's `bash -lc`."""
+    def command(self, config) -> str:
+        """The `vllm serve …` line (no bootstrap, no exec). The provisioning in
+        front of it is `bootstrap`, one list of lines for start.sh and for the
+        one line a scout runs (launch.render_command_cell_shell_line)."""
         cfg = config or {}
         model = str(cfg.get("VLLM_MODEL") or "").strip()
         parts = [f"{self.venv}/bin/vllm", "serve", shlex.quote(model),
@@ -313,18 +360,7 @@ class VllmRunner(Runner):
         tp = str(cfg.get("TENSOR_PARALLEL") or "").strip()
         if tp and tp not in ("0", "1"):
             parts += ["--tensor-parallel-size", tp]
-        cmd = " ".join(parts)
-        if not with_bootstrap:
-            return cmd
-        venv = self.venv
-        one_liner = (f'[ -x {venv}/bin/vllm ] || (python3 -m venv {venv}'
-                     f' && {venv}/bin/pip install --quiet --upgrade pip'
-                     f' && {venv}/bin/pip install --quiet vllm)')
-        ninja = f'[ -x {venv}/bin/ninja ] || {venv}/bin/pip install --quiet ninja'
-        path = f'export PATH="{venv}/bin:$PATH"'
-        jobs = "export MAX_JOBS=4"
-        alloc = "export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True"
-        return f"{one_liner}; {ninja}; {path}; {jobs}; {alloc}; exec {cmd}"
+        return " ".join(parts)
 
     def prepare(self, merged) -> str:
         if not merged.get("VLLM_MODEL"):
@@ -360,7 +396,7 @@ class WhisperRunner(Runner):
     def artifact_label(self, config):
         return str((config or {}).get("WHISPER_MODEL") or "").strip() or "whisper"
 
-    def command(self, config, with_bootstrap=False) -> str:
+    def command(self, config) -> str:
         """The run_whisper.sh line (no exec). The script and its ~/wsr venv are
         provisioned by the agent installer on every GPU host; it self-carries
         its env (venv python + cuDNN LD paths), so there is no bootstrap chain
@@ -402,7 +438,7 @@ class MoonshineRunner(Runner):
     def artifact_label(self, config):
         return f"moonshine {str((config or {}).get('MOONSHINE_MODEL') or 'en').strip().lower()}"
 
-    def command(self, config, with_bootstrap=False) -> str:
+    def command(self, config) -> str:
         """The run_moonshine.sh line. The script and its ~/moonshine-venv are
         provisioned by scripts/install-moonshine.sh; the model downloads itself
         on first start, keyed by the LANGUAGE argument. Like whisper the
@@ -445,7 +481,7 @@ class TranscribeRunner(Runner):
         name = os.path.basename(str((config or {}).get("MODEL_FILE") or "").strip())
         return name.removesuffix(".gguf") or "transcribe"
 
-    def command(self, config, with_bootstrap=False) -> str:
+    def command(self, config) -> str:
         """The run_transcribe.sh line. The path is resolved against
         LLAMA_MODELS_DIR when it is relative, which is how the picker stores it.
         The venv and libtranscribe come from scripts/install-transcribe.sh."""
@@ -499,7 +535,7 @@ class SeamlessRunner(Runner):
     #: carry a concrete LLAMA_MODELS_DIR the same way transcribe does.
     needs_models_dir = True
 
-    def command(self, config, with_bootstrap=False) -> str:
+    def command(self, config) -> str:
         """The run_seamless.sh line. Takes a DIRECTORY (the downloaded HF
         folder), not a file: the model is a sharded safetensors checkpoint plus
         its processor config, and transformers wants the folder. Resolved
@@ -555,7 +591,7 @@ class TranslateRunner(Runner):
     shared_picker = "carrier"
     default_health_path = "/health"
 
-    def command(self, config, with_bootstrap=False) -> str:
+    def command(self, config) -> str:
         """The run_translate.sh line.
 
         The model is an HF repo id by default — the weights download themselves

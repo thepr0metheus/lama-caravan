@@ -22,7 +22,7 @@ from caravan.admin.config_builder import (
 from caravan.admin.model_stores import MARKER_NAME
 from caravan.admin.paths import DEFAULT_MODELS_DIR, SERVER_CELLS_DIR, START_SCRIPT
 from caravan.common.errors import AppError
-from caravan.domain.runner import for_config
+from caravan.domain.runner import Runner, for_config
 from caravan.admin.runners import (
     effective_command,
     runner_id,
@@ -136,17 +136,26 @@ def command_cell_env_exports(env_raw) -> list:
     the two copies were already drifting apart.
     """
     out = []
-    for raw in re.split(r"[\n,]", str(env_raw or "")):
-        item = raw.strip()
-        if not item or item.startswith("#") or "=" not in item:
-            continue
-        k, v = item.split("=", 1)
-        k = k.strip()
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k):
-            continue
-        v = v.strip().replace("\\", "\\\\").replace('"', '\\"')
+    for k, v in Runner.env_pairs(env_raw):
+        v = v.replace("\\", "\\\\").replace('"', '\\"')
         out.append(f'export {k}="{v}"')
     return out
+
+
+def one_line_statements(lines):
+    """Script lines as the statements of one `;`-joined line. A line that
+    opens a block (`… then`, `… do`, `else`) runs on into the next without a
+    `;` — `then;` is a syntax error in bash. Blank lines drop out."""
+    statements = []
+    for raw in lines:
+        line = str(raw).strip()
+        if not line:
+            continue
+        if statements and re.search(r"(^|[\s;])(then|do|else)$", statements[-1]):
+            statements[-1] += " " + line
+        else:
+            statements.append(line)
+    return statements
 
 
 def render_command_cell_shell_line(config, port=None) -> str:
@@ -158,6 +167,12 @@ def render_command_cell_shell_line(config, port=None) -> str:
     config behaved differently depending on which host ran it. The controller is
     the one place that knows how a cell starts; it now says so in full and the
     agent only executes the sentence.
+
+    The runner's bootstrap comes from the same lines as the script's, joined
+    into one line. It had a one-line copy of its own, and the copy drifted: it
+    installed an unpinned vLLM, and the `exec` in front of the command landed
+    in front of the whole chain — bash was replaced by `[`, and a vLLM cell on
+    a scout never served.
     """
     merged = {key: str(config.get(key, "")).strip() for key in CONFIG_FIELDS}
     if port is not None:
@@ -165,7 +180,7 @@ def render_command_cell_shell_line(config, port=None) -> str:
     resolved_port = merged.get("PORT") or ""
     if not resolved_port.isdigit():
         raise AppError("PORT must be a number")
-    command = effective_command(merged, with_bootstrap=True)
+    command = effective_command(merged)
     if not command:
         raise AppError("command is required for a command cell")
     parts = ["set -euo pipefail", f"export PORT={shlex.quote(resolved_port)}"]
@@ -180,6 +195,7 @@ def render_command_cell_shell_line(config, port=None) -> str:
     workdir = shell_path_value(merged.get("WORKDIR"))
     if workdir:
         parts.append(f'cd "{workdir}"')
+    parts += one_line_statements(for_config(merged).bootstrap_lines(merged))
     parts.append(f"exec {command}")
     return "; ".join(parts)
 

@@ -50,6 +50,8 @@ NOT_READ = {
     "llamaNodes[].startedAt": "the start of a download or a process; the board counts from uptimeSec",
     "llamaNodes[].gpuLayers": "bookkeeping of the scout's — the controller built the arguments",
     "llamaNodes[].ctxSize": "what was asked; the window kept is ctxMax, what the server says it runs",
+    "llamaNodes[].cellKind": "a command cell's kind — the controller keeps the cell's config and knows it from RUNNER",
+    "llamaNodes[].command": "the command the controller built and sent; the board shows the saved one",
 }
 
 

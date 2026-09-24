@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 GOLDEN = ROOT / "tests/golden"
 FIXTURES = GOLDEN / "cells"
 COMMANDS = GOLDEN / "commands"
+SHELL_LINES = GOLDEN / "shell-lines"
 
 # The same pinning the capture used. Without it every path differs and the test
 # says everything changed, which is the same as saying nothing.
@@ -33,7 +34,8 @@ for _k, _v in (("LLAMA_HOME", f"{HOME}/llama.cpp"),
 
 sys.path.insert(0, str(ROOT))
 
-from caravan.admin.launch import render_server_cell_script   # noqa: E402
+from caravan.admin.launch import render_command_cell_shell_line, render_server_cell_script   # noqa: E402
+from caravan.admin.runners import uses_command_path          # noqa: E402
 from caravan.common.errors import AppError                   # noqa: E402
 
 PASS, FAIL = [], []
@@ -86,6 +88,19 @@ def main():
             continue
         check(f"cell {port} ({config.get('RUNNER') or 'llama-server'})",
               got == want, first_difference(want, got))
+        # The same cell as a scout starts it: one line for `bash -lc`.
+        if uses_command_path(config):
+            line_file = SHELL_LINES / f"{port}.txt"
+            if not line_file.is_file():
+                check(f"cell {port} on a scout", False, "       нет эталона строки запуска на скауте")
+                continue
+            try:
+                line = render_command_cell_shell_line(config) + "\n"
+            except AppError as exc:
+                line = f"__REFUSED__ {exc}\n"
+            want_line = line_file.read_text(encoding="utf-8")
+            check(f"cell {port} on a scout ({config.get('RUNNER')})", line == want_line,
+                  first_difference(want_line, line))
 
     shapes_file = GOLDEN / "api-shapes.json"
     if shapes_file.is_file():

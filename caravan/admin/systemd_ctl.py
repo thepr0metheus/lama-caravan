@@ -194,17 +194,22 @@ def cell_progress_note(port, lines=25, ttl=8):
         return cached[1]
     res = run(["journalctl", "--user", "-u", cell_service_name(port), "-n", str(lines),
                "--no-pager", "-o", "cat"], timeout=6, env=user_systemd_env())
-    note = ""
-    for line in reversed((res.get("stdout") or "").splitlines()):
+    note = progress_note_of(res.get("stdout") or "")
+    _cell_progress_cache[port] = (now, note)
+    return note
+
+
+def progress_note_of(text):
+    """Where a starting cell is, from the last lines it wrote: the latest
+    line that names a stage wins; "" when none does. One vocabulary for a
+    cell of this controller (its journal) and a scout's (the lines its
+    report carries while its port does not listen yet)."""
+    for line in reversed(str(text or "").splitlines()):
         low = line.lower()
         for label, needles in _CELL_PROGRESS_PATTERNS:
             if any(n in low for n in needles):
-                note = label
-                break
-        if note:
-            break
-    _cell_progress_cache[port] = (now, note)
-    return note
+                return label
+    return ""
 
 
 # How a cell CRASHED, if it crashed. The driver's and llama.cpp's own words,

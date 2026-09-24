@@ -139,7 +139,13 @@ process, `exec`'d so systemd/the agent tracks the real PID; `ENV` rendered as ex
 WORKDIR`), and `render_command_cell_shell_line` renders that same cell as one `bash -lc` sentence
 for a host that runs it as a child process instead of a unit — shipped to clients as
 `payload["shellLine"]`. The two share `command_cell_env_exports`: the agent used to parse `ENV`
-itself and had already lost `set -euo pipefail`, so one config behaved differently per host.
+itself and had already lost `set -euo pipefail`, so one config behaved differently per host. They
+share the runner's bootstrap too (`runner.bootstrap_lines`, vLLM's venv provisioning): the script
+has it as lines, the sentence as the same lines joined by `one_line_statements`. vLLM once had a
+one-line copy of its own — it installed an unpinned vLLM, and the `exec` meant for the command stood
+in front of the whole chain, so bash was replaced by `[` and a vLLM cell on a scout never served
+(`scripts/test_vllm_shell_line.py` now runs the sentence in bash). Both are pinned by the goldens:
+`tests/golden/commands/*.sh` and, for command cells, `tests/golden/shell-lines/*.txt`.
 `write_server_cell_artifacts` writes `var/server-cells/<port>/start.sh` + `cell.json`
 (temp+replace) — again at every start, not only when the script is missing, because where a model
 lives can change between two starts. A file in a library brings one guard more, before the file
