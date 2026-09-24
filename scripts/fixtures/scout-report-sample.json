@@ -184,6 +184,11 @@
     },
     "platform": "linux",
     "scoutVersion": "X.Y.Z",
+    "telemetry": {
+      "idleSeconds": 10.0,
+      "retentionSeconds": 600,
+      "watchedSeconds": 1.0
+    },
     "time": 1790000000
   },
   "state": {
@@ -376,6 +381,11 @@
     "platform": "linux",
     "scoutVersion": "X.Y.Z",
     "service": "caravan-scout",
+    "telemetry": {
+      "idleSeconds": 10.0,
+      "retentionSeconds": 600,
+      "watchedSeconds": 1.0
+    },
     "time": 1790000000
   }
 }

@@ -113,6 +113,7 @@ from caravan.admin.server_cells import (
     used_server_cell_ports,
 )
 from caravan.admin.fleet_clients import (
+    HOST_TELEMETRY,
     _backup_meta,
     _backup_target_seg,
     _safe_path_seg,
@@ -431,8 +432,14 @@ def _get_api_monitor(h, parsed):
 def _get_api_system_monitor(h, parsed):
         # ?since=<epoch> — send only samples newer than the caller already has.
         # Omitted, the whole series comes back exactly as before.
-        since = (urllib.parse.parse_qs(parsed.query or "").get("since") or ["0"])[0]
-        h.send_json(system_monitor_state(since))
+        _q = urllib.parse.parse_qs(parsed.query or "")
+        since = (_q.get("since") or ["0"])[0]
+        payload = system_monitor_state(since)
+        # The machines with a scout, second by second: what is here now, and
+        # a pull kicked for the next read (HostTelemetry). ?hostsSince=id:t,…
+        # is the newest row the board holds of each, by that scout's clock.
+        payload["hosts"] = HOST_TELEMETRY.watch((_q.get("hostsSince") or ["0"])[0])
+        h.send_json(payload)
         return
 
 @_route(GET_ROUTES, '/api/topology')
