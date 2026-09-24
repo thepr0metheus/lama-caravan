@@ -34,6 +34,7 @@ jobs:
           python3 scripts/test_install_llama_lock.py
           python3 scripts/test_deploy_same_commit.py
           python3 scripts/test_cell_autostart.py
+          python3 scripts/test_llama_suspect_hosts.py
           python3 scripts/test_queue_thresholds.py
           python3 scripts/test_token_history.py
 
@@ -128,6 +129,7 @@ jobs:
           python3 scripts/test_js_llama_edit.py
           python3 scripts/test_js_remote_cells.py
           python3 scripts/test_js_scout_add.py
+          python3 scripts/test_js_suspect_banner.py
           python3 scripts/test_js_client_proxies.py
           python3 scripts/test_js_routers.py
           python3 scripts/test_js_cloud.py

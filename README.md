@@ -308,7 +308,7 @@ whenever a component is upgraded (last verified: **2026-09-24**):
 | Docker (container mode) | 29.1 |
 | faster-whisper | 1.2.1 (CTranslate2 4.8.0, cuDNN 9.26 from the `nvidia-cudnn-cu12` wheel) — whisper command cells; a transcription verified on the Linux host 2026-09-24 |
 | vLLM | 0.24.0, pinned provisioning — controller cell `:8012` |
-| caravan-scout | 2.5.0 on the Linux host (2026-09-24) — installed with `./install.sh` and added from the board (Model servers → ＋ Add scout); knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, and brings a crashed cell back |
+| caravan-scout | 2.6.0 on the Linux host (2026-09-24) — installed with `./install.sh` and added from the board (Model servers → ＋ Add scout); knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, brings a crashed cell back, runs each cell under the memory limits of the controller's cells, and says when a fresh llama.cpp build crashes them |
 | moonshine-voice | 0.0.69 — moonshine STT command cells (CPU-only) |
 | transcribe.cpp | 0.2.0 (commit `b6a6aca`, 2026-07-22), CUDA build — transcribe cells; verified with `gigaam-v3-e2e-rnnt-Q8_0.gguf` |
 | CosyVoice (TTS cells) | upstream checkout + torch **2.7.1+cu128** in the engine venv — the cu128 wheels carry `sm_75…sm_120`, so the same cell runs on the RTX 3090 and the RTX 5090; CosyVoice's own pin (2.3.1+cu121) stops at `sm_90` and dies on Blackwell with "no kernel image" |

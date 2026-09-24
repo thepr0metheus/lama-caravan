@@ -83,6 +83,19 @@ def client_llama_restore(body: dict) -> dict:
     payload = {"id": str((body or {}).get("id") or "").strip()}
     return scout.post("/api/llama-node/restore", payload, timeout=15)
 
+
+def client_llama_suspect_dismiss(body: dict) -> dict:
+    """Hide a machine's "fresh build, crashing cells" banner — for that
+    build; its scout remembers (2.6+). The host record says so at once, so
+    the banner does not come back until the next report."""
+    host_id = str((body or {}).get("hostId") or "")
+    result = _scout(host_id).post("/api/llama-node/suspect-dismiss", {}, timeout=10)
+    host = topology_store().get("hosts", {}).get(host_id)
+    if result.get("ok") and isinstance(host, dict):
+        host["llamaSuspect"] = {"suspect": False}
+        save_admin_state()
+    return result
+
 def scout_start_payload(body: dict) -> dict:
     """The request that starts a cell on a scout's machine — sent by a start,
     and kept by the scout for a cell that starts with the machine
@@ -493,6 +506,30 @@ def normalize_client_gpus(raw):
             gpus.append(row)
     return gpus
 
+def scout_suspect(raw):
+    """A scout's word on its fresh llama.cpp build (2.6+) as the host record
+    keeps it: {"suspect": False}, or the incident — how many crashes, which
+    build, since when, and the archived build to offer. None when the scout
+    does not say: an older one cannot tell, and "no" would draw that as a
+    machine that was watched and is fine."""
+    if not isinstance(raw, dict):
+        return None
+    if raw.get("suspect") is not True:
+        return {"suspect": False}
+
+    def number(key):
+        try:
+            return int(raw.get(key) or 0)
+        except (TypeError, ValueError):
+            return 0
+    cand = raw.get("restoreCandidate")
+    return {"suspect": True, "crashes15m": number("crashes15m"), "builtAt": number("builtAt"),
+            "currentCommit": str(raw.get("currentCommit") or "")[:40],
+            "firstSeenAt": number("firstSeenAt"), "lastSeenAt": number("lastSeenAt"),
+            "restoreCandidate": ({k: cand[k] for k in ("id", "commit", "version", "builtAt", "sizeMb") if k in cand}
+                                 if isinstance(cand, dict) and cand.get("id") else None)}
+
+
 def host_from_report(payload):
     host = payload.get("host") if isinstance(payload.get("host"), dict) else {}
     # The id rule is one rule for both ways of creating a client, in
@@ -591,6 +628,9 @@ def host_from_report(payload):
         # them, and "none" would draw that as a machine that simply has none.
         "autostart": (sorted({int(p) for p in payload["autostart"] if str(p).isdigit()})
                       if isinstance(payload.get("autostart"), list) else None),
+        # Cells crashing after a fresh llama.cpp build on that machine: the
+        # board's banner offers a rollback (scout 2.6+).
+        "llamaSuspect": scout_suspect(payload.get("llamaSuspect")),
         "firstSeen": now,
         "lastSeen": now,
     }
@@ -826,6 +866,7 @@ def scout_payload_from_state(state, agent_url):
         "llamaUpdate": state.get("llamaUpdate") if isinstance(state.get("llamaUpdate"), dict) else {},
         "scoutVersion": state.get("scoutVersion") or "",
         "autostart": state.get("autostart") if isinstance(state.get("autostart"), list) else None,
+        "llamaSuspect": state.get("llamaSuspect") if isinstance(state.get("llamaSuspect"), dict) else None,
         "agentUrl": agent_url,
         "time": state.get("time") or int(time.time()),
     }

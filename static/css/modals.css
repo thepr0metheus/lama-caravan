@@ -2135,12 +2135,14 @@ button.topology-detail-action.danger:focus {
 .llama-builds-empty { font-size: 11px; opacity: .55; margin: 2px 0 8px; }
 /* llama.cpp crash-watchdog banner (board top) */
 .llama-suspect-banner {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  display: flex; flex-direction: column; gap: 8px;
   margin: 8px 14px 0; padding: 9px 14px; border-radius: 8px;
   background: color-mix(in srgb, #f87171 16%, transparent);
   border: 1px solid color-mix(in srgb, #f87171 45%, transparent);
   color: #fecaca; font-size: 12.5px;
 }
+/* One row per machine whose fresh build crashes its cells. */
+.llama-suspect-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .llama-suspect-msg { flex: 1; min-width: 240px; }
 .llama-suspect-restore {
   padding: 4px 12px; border-radius: 6px; cursor: pointer; font-size: 12px;

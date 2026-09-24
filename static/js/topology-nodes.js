@@ -262,6 +262,12 @@ export function formatUptime(sec) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
+// How a scout words a process's end when the log gave no reason (its
+// Watchdog.how): by a signal, an exit code, or a code it cannot know. That is
+// a death with no reason in the log — "Model loading failed" said of a cell
+// that had served for hours.
+const SCOUT_EXIT_WORDS = /^(died of SIG[A-Z0-9]+|exited \(code -?\d+\)|ended with an unknown exit code)/;
+
 // Parse lastError string from llama-server log into a friendly human-readable message.
 // Returns { friendly, hint, raw } where friendly is the short translated reason.
 export function classifyLlamaError(raw) {
@@ -271,6 +277,7 @@ export function classifyLlamaError(raw) {
   // panel, which reads as "we know something and won't say". Say "unknown" and
   // point at the log instead.
   if (!raw) return { friendly: t("llamaErrUnknown"), hint: t("llamaErrUnknownHint"), raw: "" };
+  if (SCOUT_EXIT_WORDS.test(raw)) return { friendly: t("llamaErrUnknown"), hint: t("llamaErrUnknownHint"), raw };
   const r = raw.toLowerCase();
   // Corrupted / incomplete file
   if (r.includes("not within the file bounds") || r.includes("corrupted or incomplete") || r.includes("unexpected end of file")) {
@@ -290,6 +297,14 @@ export function classifyLlamaError(raw) {
   }
   // Generic
   return { friendly: t("llamaErrGeneric"), hint: "", raw };
+}
+
+// What the error block says on hover: the reason, then the last lines of the
+// crashed run's log when the cell's scout sent them (scout 2.6+) — the lines
+// a cell of this controller shows from its journal. No lines, no change.
+function errorBlockTitle(s) {
+  const tail = s.crash?.tail || "";
+  return tail ? `${s.lastError || ""}\n\n${tail}`.trim() : s.lastError;
 }
 
 // Shared lifecycle breadcrumb bar used by real server cards and the ghost "no server" card.
@@ -543,7 +558,8 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
     ? mbadge("crashed", `💥 ${escapeHtml(t("cellCrashedChip", { count: String(crash.count) }))}`,
              t("cellCrashedTip", { count: String(crash.count),
                                    at: String(crash.at || "?"),
-                                   reason: String(crash.reason || "?") }), "cell-crashed")
+                                   reason: String(crash.reason || "?") })
+               + (crash.tail ? `\n\n${crash.tail}` : ""), "cell-crashed")
     : "";
   const staleSrcChip = (s.cellMeta || {}).sourceState === "stale"
     ? mbadge("stale-src", `⇪ ${escapeHtml(t("cellSourceStaleChip"))}`,
@@ -853,7 +869,7 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
         })()}
         ${isError ? (() => {
           const err = classifyLlamaError(s.lastError);
-          return `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(s.lastError)}">
+          return `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(errorBlockTitle(s))}">
             <span class="llama-err-icon">⚠</span>
             <span class="llama-err-body">
               <span class="llama-err-friendly">${escapeHtml(err.friendly)}</span>

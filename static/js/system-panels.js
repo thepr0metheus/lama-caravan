@@ -682,16 +682,18 @@ function openVllmUpdateModal(version, currentVersion) {
 
 // Shared by the System builds list AND the board's crash-watchdog banner: one
 // confirmation that says what will happen (from → to, cells keep running) and
-// what the escape hatches are if the restored build misbehaves too.
-export function openRestoreBuildModal(buildId, buildMeta = null) {
+// what the escape hatches are if the restored build misbehaves too. `host` —
+// a machine with a scout ({hostId, name, version}): its scout restores the
+// build, and the escape hatches are that machine's.
+export function openRestoreBuildModal(buildId, buildMeta = null, host = null) {
   const fmtVer = (v) => String(v || "").replace("version: ", "b").split("\n")[0];
-  const currentVer = fmtVer(state.llamaCpp?.version) || "?";
+  const currentVer = fmtVer(host ? host.version : state.llamaCpp?.version) || "?";
   const targetVer = fmtVer(buildMeta?.version || buildMeta?.commit || buildId);
   $("confirmTitle").textContent = t("restoreBuildTitle");
-  $("confirmText").textContent = `${t("restoreBuildText")} ${t("restoreBuildRecovery")}`;
+  $("confirmText").textContent = `${t("restoreBuildText")} ${t(host ? "restoreBuildRecoveryHost" : "restoreBuildRecovery")}`;
   $("confirmMeta").hidden = false;
   $("confirmMeta").innerHTML = [
-    [t("restoreFrom"), currentVer],
+    [t("restoreFrom"), host ? `${currentVer} · ${host.name || host.hostId}` : currentVer],
     [t("restoreTo"), targetVer],
   ].map(([label, value]) => `
     <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>
@@ -701,6 +703,17 @@ export function openRestoreBuildModal(buildId, buildMeta = null) {
   $("confirmDelete").classList.add("danger");
   ui.pendingConfirm = async () => {
     closeConfirmModal();
+    if (host) {
+      // The machine's scout runs it as its update job: the card's "building…"
+      // chip follows it, and the next report says which build runs.
+      try {
+        await api("/api/fleet/llama-restore", { method: "POST", body: JSON.stringify({ hostId: host.hostId, id: buildId }) });
+        toast(t("llamaSuspectRestoring"));
+      } catch (err) {
+        toast(err.message);
+      }
+      return;
+    }
     const log = $("llamaUpdateLog");   // absent on the board page — toasts carry it
     if (log) log.textContent = `Restoring ${buildId}...`;
     try {

@@ -51,7 +51,8 @@
       "crash": {
         "at": "2026-09-24T09:00:00+0000",
         "count": 1,
-        "reason": "CUDA error: out of memory"
+        "reason": "CUDA error: out of memory",
+        "tail": "0.01.200.000 I srv  load_model: loading model\n0.01.900.000 E ggml_cuda: CUDA error: out of memory"
       },
       "ctxMax": 8192,
       "ctxSize": 8192,
@@ -81,7 +82,8 @@
         "crash": {
           "at": "2026-09-24T09:00:00+0000",
           "count": 1,
-          "reason": "CUDA error: out of memory"
+          "reason": "CUDA error: out of memory",
+          "tail": "0.01.200.000 I srv  load_model: loading model\n0.01.900.000 E ggml_cuda: CUDA error: out of memory"
         },
         "ctxMax": 8192,
         "ctxSize": 8192,
@@ -116,6 +118,21 @@
         "totalBytes": 4000000
       }
     ],
+    "llamaSuspect": {
+      "builtAt": 1789996400,
+      "crashes15m": 3,
+      "currentCommit": "abc1234",
+      "firstSeenAt": 1789999100,
+      "lastSeenAt": 1789999880,
+      "restoreCandidate": {
+        "builtAt": 1789600000,
+        "commit": "def5678",
+        "id": "20260920-090000-def5678",
+        "sizeMb": 87,
+        "version": "version: 9900 (def5678)"
+      },
+      "suspect": true
+    },
     "llamaUpdate": {
       "done": true,
       "lastLine": "llama.cpp b9947 installed",
@@ -184,7 +201,8 @@
       "crash": {
         "at": "2026-09-24T09:00:00+0000",
         "count": 1,
-        "reason": "CUDA error: out of memory"
+        "reason": "CUDA error: out of memory",
+        "tail": "0.01.200.000 I srv  load_model: loading model\n0.01.900.000 E ggml_cuda: CUDA error: out of memory"
       },
       "ctxMax": 8192,
       "ctxSize": 8192,
@@ -214,7 +232,8 @@
         "crash": {
           "at": "2026-09-24T09:00:00+0000",
           "count": 1,
-          "reason": "CUDA error: out of memory"
+          "reason": "CUDA error: out of memory",
+          "tail": "0.01.200.000 I srv  load_model: loading model\n0.01.900.000 E ggml_cuda: CUDA error: out of memory"
         },
         "ctxMax": 8192,
         "ctxSize": 8192,
@@ -249,6 +268,21 @@
         "totalBytes": 4000000
       }
     ],
+    "llamaSuspect": {
+      "builtAt": 1789996400,
+      "crashes15m": 3,
+      "currentCommit": "abc1234",
+      "firstSeenAt": 1789999100,
+      "lastSeenAt": 1789999880,
+      "restoreCandidate": {
+        "builtAt": 1789600000,
+        "commit": "def5678",
+        "id": "20260920-090000-def5678",
+        "sizeMb": 87,
+        "version": "version: 9900 (def5678)"
+      },
+      "suspect": true
+    },
     "llamaUpdate": {
       "done": true,
       "lastLine": "llama.cpp b9947 installed",

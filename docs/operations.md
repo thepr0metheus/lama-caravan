@@ -273,8 +273,12 @@ seconds, up to ~20 s on huge prompts).
 - **Route edits look "stuck"** — check the proxy journal: the listener watcher
   logs every rebind; a malformed `agent-proxies.json` keeps the last good
   config in memory.
-- **Client cell crashed** — the root cause is on the client, in
-  `~/llama-model-cache/llama-server.log` (the route-agent rotates it).
+- **A scout's cell crashed** — its card says why: 💥 with the reason, and on
+  hover the last 8 lines of the crashed run's log (scout 2.6+, keys scrubbed
+  by the scout); while the scout's watchdog brings it back, the ⚠ "previous
+  attempt" says the same as for a cell of the controller. The whole log is on
+  that machine: `<modelsBasePath>/llama-server.<port>.log`
+  (`command-cell.<port>.log` for command cells), earlier runs kept aside.
 - **Ghost proxy processes** — if ports stay bound after a unit stop, look for
   an orphaned `python agent-proxies.py` (historic gotcha: a manually started
   copy fighting the unit) and kill it before restarting the service.
