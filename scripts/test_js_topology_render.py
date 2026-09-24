@@ -187,6 +187,26 @@ def _en(key):
 
 
 PINS += [
+    ("fingerprint_sees_autostart",
+     'st.setTopology({ ...st.topology, server: { llamaServers: [{ id: "s", port: 22021, model: "m", phase: "stopped",'
+     ' bootSupported: true, bootEnabled: false }] } }); globalThis.__fpA = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, server: { llamaServers: [{ id: "s", port: 22021, model: "m", phase: "stopped",'
+     ' bootSupported: true, bootEnabled: true }] } });',
+     'm.topologyStructureFingerprint() !== globalThis.__fpA',
+     'true',
+     "defect-history: ↟ нажат, сервер включил автозапуск — отпечаток видит это, доска перерисовывается; без этого "
+     "кнопка крутилась, пока не изменится что-то ещё"),
+    ("fingerprint_sees_autostart_support",
+     'st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: [{ port: 22021, model: "m",'
+     ' phase: "stopped" }] }] }); globalThis.__fpB = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", servers: [{ port: 22021, model: "m",'
+     ' phase: "stopped", bootSupported: true }] }] });',
+     'm.topologyStructureFingerprint() !== globalThis.__fpB',
+     'true',
+     "скаут обновился до 2.4 — ↟ на его ячейках становится доступным без перезагрузки страницы"),
+]
+
+PINS += [
     ("live_patch_moves_a_silent_hosts_age",
      'globalThis.CSS = { escape: (x) => x };'
      ' const age = { textContent: "" };'
@@ -231,8 +251,8 @@ def main():
     # since the host card's seven pins went with the card (2026-09-24), the
     # host's liveness came to the fingerprint and the live patch as three, and
     # the scout's version as one more; 18 since a field that survives the
-    # render stopped holding it back.
-    if len(PINS) < 18:
+    # render stopped holding it back; 20 since autostart came to the print.
+    if len(PINS) < 20:
         print(f"js topology-render FAILED: всего {len(PINS)} пинов — снимок урезан")
         return 1
     node = find_node()

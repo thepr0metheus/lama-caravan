@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ Adicionar provedor de nuvem",
   tnBootEnable: "Ativar autostart na inicialização",
   tnBootDisable: "Desativar autostart na inicialização",
-  tnBootUnsupported: "Autostart não suportado para hosts remotos",
+  tnBootUnsupported: "Autostart precisa do scout desta máquina na versão 2.4 ou mais recente",
   updateClientLlama: "Atualizar o llama.cpp neste cliente para a build do controlador",
   hostRebootTitle: "Reiniciar este host",
   hostRebootConfirmClient: "Reiniciar {host}? Suas células cairão com a máquina e voltarão só se o autostart estiver ligado.",

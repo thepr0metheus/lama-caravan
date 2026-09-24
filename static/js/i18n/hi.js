@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ क्लाउड प्रदाता जोड़ें",
   tnBootEnable: "बूट पर ऑटोस्टार्ट सक्षम करें",
   tnBootDisable: "बूट पर ऑटोस्टार्ट अक्षम करें",
-  tnBootUnsupported: "रिमोट होस्ट के लिए ऑटोस्टार्ट समर्थित नहीं",
+  tnBootUnsupported: "ऑटोस्टार्ट को इस मशीन के scout वर्शन 2.4 या नया चाहिए",
   updateClientLlama: "इस क्लाइंट पर llama.cpp को कंट्रोलर के बिल्ड में अपडेट करें",
   hostRebootTitle: "इस होस्ट को रीबूट करें",
   hostRebootConfirmClient: "{host} रीबूट करें? इसके सेल मशीन के साथ बंद हो जाएंगे और केवल ऑटोस्टार्ट चालू होने पर लौटेंगे।",

@@ -20,6 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import caravan.admin.topology as T  # noqa: E402
+from caravan.admin.model_locator import Locations  # noqa: E402
 
 _fail = []
 
@@ -47,12 +48,12 @@ SLOTS = {
 WHISPER_HEALTH = {"status": "ok", "meta": {"source": "d1g3st"}, "targetLang": "en"}
 
 
-def served(nodes):
+def served(nodes, parked=(), **host_fields):
     """topology_server over one machine whose scout reports `nodes`. Only
-    their slots are stored: a stored cell nobody reports is a parked card,
-    which another loop draws."""
-    host = dict(HOST, llamaNodes=[dict(n) for n in nodes])
-    reported = {n["port"] for n in nodes}
+    their slots are stored, and those of `parked` ports: a stored cell nobody
+    reports is a parked card, which another loop draws."""
+    host = dict(HOST, llamaNodes=[dict(n) for n in nodes], **host_fields)
+    reported = {n["port"] for n in nodes} | set(parked)
     patch = {
         "service_status": lambda: {"ActiveState": "inactive"},
         "runtime_api": lambda _config: {},
@@ -66,7 +67,7 @@ def served(nodes):
         "remote_llama_health": lambda *_a: "ok",
         "remote_llama_modalities": lambda *_a: None,
         "probe_remote_port": lambda *_a: True,
-        "current_locations": lambda: {},
+        "current_locations": lambda: Locations([]),
         "_saved_command": lambda *_a: "",
     }
     saved = {k: getattr(T, k) for k in patch}
@@ -120,8 +121,31 @@ def test_silent_command_cell():
           f"boundary: молчащий health — у обеих пусто, без исключения (ответ: {got!r})")
 
 
+def test_autostart_on_the_card():
+    print("↟ ячейки скаута:")
+
+    def boot(**host_fields):
+        answer = served([LLAMA], **host_fields)
+        cell = next(s for s in answer["llamaServers"] if s.get("isRemote"))
+        return cell["bootEnabled"], cell["bootSupported"]
+    check(boot(autostart=[22021]) == (True, True),
+          "скаут 2.4+ назвал порт в списке автозапуска — ↟ включён и доступен")
+    check(boot(autostart=[]) == (False, True), "в списке нет — ↟ выключен, но доступен")
+    check(boot() == (False, False) and boot(autostart=None) == (False, False),
+          "negative: скаут списка не прислал (старше 2.4) — «не умеет», а не «выключено»")
+
+    def parked(**host_fields):
+        answer = served([], parked=[22021], **host_fields)
+        cell = next((s for s in answer["llamaServers"] if s.get("port") == 22021), {})
+        return cell.get("phase"), cell.get("bootEnabled"), cell.get("bootSupported")
+    check(parked(autostart=[22021]) == ("stopped", True, True) and parked(autostart=[]) == ("stopped", False, True),
+          "остановленная ячейка скаута тоже: ↟ по списку скаута — «Автозапуск есть, но стоит»")
+    check(parked() == ("stopped", False, False),
+          "negative: остановленная ячейка скаута без списка — «не умеет»")
+
+
 if __name__ == "__main__":
-    for fn in (test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell):
+    for fn in (test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell, test_autostart_on_the_card):
         try:
             fn()
         except Exception as exc:  # noqa: BLE001

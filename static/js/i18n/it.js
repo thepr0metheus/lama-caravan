@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ Aggiungi provider cloud",
   tnBootEnable: "Attiva l'avvio automatico al boot",
   tnBootDisable: "Disattiva l'avvio automatico al boot",
-  tnBootUnsupported: "Avvio automatico non supportato per host remoti",
+  tnBootUnsupported: "Avvio automatico richiede lo scout di questa macchina in versione 2.4 o successiva",
   updateClientLlama: "Aggiorna llama.cpp su questo client alla build del controller",
   hostRebootTitle: "Riavvia questo host",
   hostRebootConfirmClient: "Riavviare {host}? Le sue celle si spengono con la macchina e tornano solo se l'avvio automatico è attivo.",

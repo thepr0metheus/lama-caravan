@@ -83,15 +83,10 @@ def client_llama_restore(body: dict) -> dict:
     payload = {"id": str((body or {}).get("id") or "").strip()}
     return scout.post("/api/llama-node/restore", payload, timeout=15)
 
-def client_llama_start(body: dict) -> dict:
-    """Forward a llama-node start request to the named client route-agent."""
-    host_id = str(body.get("hostId") or "").strip()
-    if not host_id:
-        raise AppError("hostId is required", 400)
-    # Refuses an unknown host or one without a scout address before anything
-    # is moved or reserved below.
-    scout = _scout(host_id)
-
+def scout_start_payload(body: dict) -> dict:
+    """The request that starts a cell on a scout's machine — sent by a start,
+    and kept by the scout for a cell that starts with the machine
+    (client_llama_autostart): one sentence, written here."""
     payload = {
         "modelPath": str(body.get("modelPath") or "").strip(),
         "port": int(body.get("port") or 8180),
@@ -138,6 +133,18 @@ def client_llama_start(body: dict) -> dict:
         model_cfg["MODEL_FILE"] = payload["modelPath"]
     hints = {at.rel: at.hint() for at in model_paths(model_cfg, current_locations(wait=True)).values()}
     payload["inPlace"] = {rel: hint for rel, hint in hints.items() if hint}
+    return payload
+
+
+def client_llama_start(body: dict) -> dict:
+    """Forward a llama-node start request to the named client route-agent."""
+    host_id = str(body.get("hostId") or "").strip()
+    if not host_id:
+        raise AppError("hostId is required", 400)
+    # Refuses an unknown host or one without a scout address before anything
+    # is moved or reserved below.
+    scout = _scout(host_id)
+    payload = scout_start_payload(body)
     old_cell_port = body.get("cellPort")
     if old_cell_port not in (None, ""):
         old_cell_port = int(old_cell_port)
@@ -161,6 +168,28 @@ def client_llama_start(body: dict) -> dict:
         except Exception:
             pass
     return {"ok": result.get("ok", False), "hostId": host_id, "result": result}
+
+def client_llama_autostart(body: dict, enabled: bool) -> dict:
+    """Turn a scout cell's autostart on or off. On, the scout keeps the very
+    request a start sends (scout_start_payload), so it starts the cell when
+    its machine boots, with no controller at hand. The host record takes the
+    scout's answer at once — the next report says the same — so ↟ does not
+    wait a report to show what was pressed."""
+    host_id = str(body.get("hostId") or "").strip()
+    if not host_id:
+        raise AppError("hostId is required", 400)
+    scout = _scout(host_id)
+    port = int(body.get("port") or 0)
+    payload = scout_start_payload(body) if enabled else None
+    result = scout.post("/api/llama-node/autostart",
+                        {"port": port, "enabled": bool(enabled), "payload": payload}, timeout=10)
+    ports = result.get("autostart") if isinstance(result, dict) else None
+    host = topology_store().get("hosts", {}).get(host_id)
+    if isinstance(ports, list) and isinstance(host, dict):
+        host["autostart"] = ports
+        save_admin_state()
+    return {"ok": bool(isinstance(result, dict) and result.get("ok")), "hostId": host_id, "port": port,
+            "result": result}
 
 def _scout(host_id):
     """The scout of a machine that reported, ready to be called."""
@@ -553,6 +582,11 @@ def host_from_report(payload):
         # Named by scouts since 2.0, in the heartbeat and /api/state alike.
         # Empty is a 1.x scout, which still reports agents nobody reads.
         "scoutVersion": str(payload.get("scoutVersion") or "").strip()[:40],
+        # The ports that start with the machine (scout 2.4+). None, not an
+        # empty list, when the scout does not say: an older scout cannot keep
+        # them, and "none" would draw that as a machine that simply has none.
+        "autostart": (sorted({int(p) for p in payload["autostart"] if str(p).isdigit()})
+                      if isinstance(payload.get("autostart"), list) else None),
         "firstSeen": now,
         "lastSeen": now,
     }
@@ -787,6 +821,7 @@ def scout_payload_from_state(state, agent_url):
         "llamaBinaryMtime": state.get("llamaBinaryMtime") or "",
         "llamaUpdate": state.get("llamaUpdate") if isinstance(state.get("llamaUpdate"), dict) else {},
         "scoutVersion": state.get("scoutVersion") or "",
+        "autostart": state.get("autostart") if isinstance(state.get("autostart"), list) else None,
         "agentUrl": agent_url,
         "time": state.get("time") or int(time.time()),
     }

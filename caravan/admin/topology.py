@@ -656,7 +656,10 @@ def topology_server(config=None):
             # the operator "not saved yet" about a cell that was serving traffic.
             "savedCommand": (_saved_command(_r_slot, _r_cfg, False)
                              if slot_is_command else ""),
-            "bootEnabled": False,
+            # Its scout keeps it and starts it when the machine boots (2.4+);
+            # an older scout cannot, and says nothing — not "no".
+            "bootEnabled": _as_port(remote_port) in (client.get("autostart") or []),
+            "bootSupported": isinstance(client.get("autostart"), list),
         })
 
     # Persistent server slots not currently live → render as stopped servers so
@@ -895,7 +898,9 @@ def topology_server(config=None):
             # else "not saved yet" about cells running for hours.)
             "savedCommand": (_saved_command(slot, slot_cfg, is_controller_slot)
                              if slot_is_command else ""),
-            "bootEnabled": cell_boot == "enabled",
+            "bootEnabled": (cell_boot == "enabled") if is_controller_slot
+                           else _as_port(port) in (client.get("autostart") or []),
+            "bootSupported": is_controller_slot or isinstance(client.get("autostart"), list),
             "pid": cell_pid,
             # All unit PIDs — vLLM holds the GPU in a forked worker, and the
             # GPU binder must see it or the cell lands in the CPU section.
@@ -1118,6 +1123,14 @@ def topology_nodes(config, server_obj, hosts):
         })
 
     return nodes
+
+def _as_port(value):
+    """A port as the number a scout's autostart list holds, or None."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
 
 def _positive_int(value):
     """A size, or None: zero, rubbish and booleans are absences, not sizes."""

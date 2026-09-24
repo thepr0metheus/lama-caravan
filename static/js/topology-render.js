@@ -571,12 +571,17 @@ export function topologyStructureFingerprint() {
   const hosts = (topology.nodes || [])
     .map((n) => `${n.id}:${n.online ? 1 : 0}:${n.scoutVersion ? 1 : 0}`)
     .sort().join(",");
+  // Autostart is a setting of the card like the model: while ↟ was not here,
+  // pressing it left the button spinning until something else changed — the
+  // server had done it, the board still said "working" (2026-09-24).
   const classicSrv = (server.llamaServers || [])
-    .map((s) => `${s.id}:${s.port}:${s.model || ""}:${topologyServerPhase(s)}:${s.reachable === false ? 0 : 1}`)
+    .map((s) => `${s.id}:${s.port}:${s.model || ""}:${topologyServerPhase(s)}:${s.reachable === false ? 0 : 1}`
+                + `:${s.bootEnabled ? 1 : 0}${s.bootSupported ? 1 : 0}`)
     .sort().join(",");
   const nodeSrv = (topology.nodes || [])
     .flatMap((n) => (n.servers || []).map((s) =>
-      `${n.id}/${s.port}:${s.model || ""}:${topologyServerPhase(s)}:${s.isController ? 1 : 0}:${s.reachable === false ? 0 : 1}`))
+      `${n.id}/${s.port}:${s.model || ""}:${topologyServerPhase(s)}:${s.isController ? 1 : 0}:${s.reachable === false ? 0 : 1}`
+      + `:${s.bootEnabled ? 1 : 0}${s.bootSupported ? 1 : 0}`))
     .sort().join(",");
   const gpus = (topology.nodes || [])
     .flatMap((n) => (n.gpus || []).map((g) => `${n.id}/${g.index}`))

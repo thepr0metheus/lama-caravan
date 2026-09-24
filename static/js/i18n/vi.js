@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ Thêm nhà cung cấp đám mây",
   tnBootEnable: "Bật tự khởi động khi boot",
   tnBootDisable: "Tắt tự khởi động khi boot",
-  tnBootUnsupported: "Không hỗ trợ tự khởi động cho máy chủ từ xa",
+  tnBootUnsupported: "Tự khởi động cần scout của máy này từ phiên bản 2.4 trở lên",
   updateClientLlama: "Cập nhật llama.cpp trên máy khách này lên bản dựng của bộ điều khiển",
   hostRebootTitle: "Khởi động lại máy chủ này",
   hostRebootConfirmClient: "Khởi động lại {host}? Các ô sẽ tắt cùng máy và chỉ trở lại nếu bật tự khởi động.",

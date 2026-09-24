@@ -267,7 +267,7 @@ export default {
   clAddProvider: "+ Add Cloud Provider",
   tnBootEnable: "Enable autostart on boot",
   tnBootDisable: "Disable autostart on boot",
-  tnBootUnsupported: "Autostart not supported for remote hosts",
+  tnBootUnsupported: "Autostart needs scout 2.4 or newer on this machine",
   close: "Close",
   cvFailedLoad: "failed to load",
   cvTitleCloudOverflow: "cloud overflow",

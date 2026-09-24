@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ Cloud-Anbieter hinzufügen",
   tnBootEnable: "Autostart beim Booten aktivieren",
   tnBootDisable: "Autostart beim Booten deaktivieren",
-  tnBootUnsupported: "Autostart wird für Remote-Hosts nicht unterstützt",
+  tnBootUnsupported: "Autostart benötigt den Scout dieser Maschine in Version 2.4 oder neuer",
   updateClientLlama: "llama.cpp auf diesem Client auf den Build des Controllers aktualisieren",
   hostRebootTitle: "Diesen Host neu starten",
   hostRebootConfirmClient: "{host} neu starten? Die Zellen gehen mit der Maschine herunter und kehren nur bei aktiviertem Autostart zurück.",

@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ Bulut sağlayıcısı ekle",
   tnBootEnable: "Açılışta otomatik başlatmayı etkinleştir",
   tnBootDisable: "Açılışta otomatik başlatmayı devre dışı bırak",
-  tnBootUnsupported: "Uzak ana bilgisayarlarda otomatik başlatma desteklenmiyor",
+  tnBootUnsupported: "Otomatik başlatma için bu makinenin scout'unun 2.4 veya daha yeni olması gerekir",
   updateClientLlama: "Bu istemcideki llama.cpp'yi denetleyicinin derlemesine güncelle",
   hostRebootTitle: "Bu ana makineyi yeniden başlat",
   hostRebootConfirmClient: "{host} yeniden başlatılsın mı? Hücreleri makineyle birlikte kapanır ve yalnızca otomatik başlatma açıksa geri gelir.",

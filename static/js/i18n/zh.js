@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ 添加云服务商",
   tnBootEnable: "启用开机自启动",
   tnBootDisable: "禁用开机自启动",
-  tnBootUnsupported: "远程主机不支持自启动",
+  tnBootUnsupported: "自启动需要此机器的 scout 2.4 或更新版本",
   updateClientLlama: "将此客户端的 llama.cpp 更新到控制器的构建版本",
   hostRebootTitle: "重启此主机",
   hostRebootConfirmClient: "重启 {host}？其单元将随机器一起关闭，仅在启用自动启动时恢复。",
