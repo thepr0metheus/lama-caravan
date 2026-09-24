@@ -131,7 +131,6 @@ from caravan.admin.fleet_clients import (
     set_topology_client_alias,
     topology_client_agent_delete,
     fallback_port_for,
-    topology_client_add_agent,
     set_topology_agent_alias,
     topology_client_create,
     topology_client_delete,
@@ -1722,10 +1721,6 @@ def _post_api_topology_agent_route_context(h, parsed, body):
 @_route(POST_ROUTES, '/api/topology/client/agent-alias')
 def _post_api_topology_client_agent_alias(h, parsed, body):
         h.send_json(set_topology_agent_alias(body.get("hostId"), body.get("agentId"), body.get("name")))
-
-@_route(POST_ROUTES, '/api/topology/client/agent')
-def _post_api_topology_client_agent(h, parsed, body):
-        h.send_json(topology_client_add_agent(body))
 
 @_route(POST_ROUTES, '/api/topology/agent-route/remove')
 def _post_api_topology_agent_route_remove(h, parsed, body):

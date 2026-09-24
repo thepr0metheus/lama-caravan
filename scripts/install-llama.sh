@@ -40,6 +40,22 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+# ── one build at a time in this tree ──────────────────────────────────────────
+# The controller's install-llama.sh and the scout's update-llama.sh build into
+# the same checkout on a machine that runs both, each guarded only inside its
+# own process. Two at once leave a binary half from one commit and half from
+# the other — the franken-build every crash was once traced to. Both take this
+# lock, next to the tree (inside it a fresh git clone would refuse the folder);
+# the second one says so and stops. Listing builds changes nothing and waits
+# for nobody. No flock (macOS) — no lock.
+if [[ "$ACTION" != "list-builds" ]] && command -v flock >/dev/null 2>&1; then
+  exec 9>"${LLAMA_DIR%/}.caravan-build.lock"
+  if ! flock -n 9; then
+    err "another llama.cpp build or restore is running in ${LLAMA_DIR} — wait for it to finish"
+    exit 75
+  fi
+fi
+
 # ── platform checks ───────────────────────────────────────────────────────────
 # ── build archive: every successful build is snapshotted, so a bad release is
 #    a one-click restore instead of an ssh session. Keep = LLAMA_BUILDS_KEEP

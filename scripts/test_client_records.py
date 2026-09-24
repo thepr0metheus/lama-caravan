@@ -319,60 +319,35 @@ def test_bind_writes_the_role_it_was_given():
           "и отказ ничего не тронул: обе роли на месте")
 
 
-def test_agent_added_by_hand():
-    """Агента клиенту можно добавить руками — и он это переживает.
+def test_a_client_is_one_card():
+    """Клиент — одна карточка: его агент заводится вместе с ним, второго с доски
+    не добавить, и отчёт скаута его не трогает.
 
-    Клиента завести было можно, а агента ему — нечем: в карточке ручного
-    клиента жили только «переименовать» и «удалить», поэтому назначить прокси
-    было некому. Запись существовала и настраиваться не могла.
-
-    Отчёт скаута агентов больше не несёт (2026-09-24), поэтому добавленный
-    руками живёт, пока его не удалят: ни пометки, ни защиты от отчёта ему не
-    нужно.
+    На карточке жил ＋ «добавить агента» — второй агент того же клиента.
+    Им не пользовались (у всех клиентов по одному агенту с тем же id), а
+    оператор спросил, что это: новые карточки делает ＋ ленты, и только он
+    (2026-09-24). Кнопка ушла вместе со своим маршрутом.
     """
-    print("агент, добавленный руками:")
-    from caravan.domain.client import FleetClient
-    store, _routes = harness(clients={"box-a": FleetClient.new("box-a", name="A")})
-    fc.topology_store = lambda: store
-
-    row = fc.topology_client_add_agent({"hostId": "box-a", "agentId": "  ag-1  ", "name": " Один "})
-    agents = store["clients"]["box-a"]["agents"]
-    check([a["id"] for a in agents] == ["ag-1"], f"агент добавлен, id обрезан (got {agents!r})")
-    check("manual" not in agents[0], "пометки «ручной» нет — отчёт агентов не трогает, защищать не от чего")
-    check(agents[0].get("name") == "Один", f"имя обрезано (got {agents[0].get('name')!r})")
-    check(row.get("id") == "ag-1", f"ответ называет заведённого агента (got {row!r})")
-
-    # NEGATIVE: an empty id and a duplicate are refusals, not silent no-ops.
-    for bad in ("", "   "):
-        try:
-            fc.topology_client_add_agent({"hostId": "box-a", "agentId": bad})
-            check(False, f"пустой id ({bad!r}) должен быть отказом")
-        except Exception as exc:
-            check(getattr(exc, "status", None) == 400, f"пустой id — 400 (got {exc!r})")
-    try:
-        fc.topology_client_add_agent({"hostId": "box-a", "agentId": "ag-1"})
-        check(False, "дубль должен быть отказом")
-    except Exception as exc:
-        check(getattr(exc, "status", None) == 409, f"дубль — 409 (got {exc!r})")
-    try:
-        fc.topology_client_add_agent({"hostId": "nobody", "agentId": "x"})
-        check(False, "клиента нет — отказ")
-    except Exception as exc:
-        check(getattr(exc, "status", None) == 404, f"неизвестный клиент — 404 (got {exc!r})")
-    check(len(store["clients"]["box-a"]["agents"]) == 1, "ни один отказ ничего не записал")
+    print("клиент — одна карточка:")
+    import caravan.admin.routes as routes
+    check("/api/topology/client/agent" not in routes.POST_ROUTES
+          and "/api/topology/client/agent/delete" in routes.POST_ROUTES,
+          "negative: маршрута «добавить агента» нет; удаление карточки (агента) осталось")
+    store, _routes = harness()
+    fc.topology_client_create({"hostId": "box-a", "name": "A"})
 
     # And the main point: the scout's report doesn't erase it.
     fc.client_aliases = lambda: {}
     fc.record_host_report({"host": {"id": "box-a", "name": "A"},
                                "agents": [{"id": "reported", "name": "R"}]})
     ids = sorted(a["id"] for a in store["clients"]["box-a"]["agents"])
-    check(ids == ["ag-1"],
-          f"ручной агент пережил отчёт, а названный отчётом «reported» не добавился — у ручного клиента "
-          f"агентов заводят руками (got {ids})")
+    check(ids == ["box-a"],
+          f"агент клиента пережил отчёт, а названный отчётом «reported» не добавился — агентов отчёт не "
+          f"несёт (got {ids})")
     # NEGATIVE: a report that names no agents at all takes none away.
     fc.record_host_report({"host": {"id": "box-a", "name": "A"}, "agents": []})
     ids = sorted(a["id"] for a in store["clients"]["box-a"]["agents"])
-    check(ids == ["ag-1"], f"отчёт без агентов никого не убирает (got {ids})")
+    check(ids == ["box-a"], f"отчёт без агентов никого не убирает (got {ids})")
 
 
 def test_new_port_for_a_fallback_is_the_neighbour():
@@ -1239,7 +1214,7 @@ for fn in (test_the_pull_keeps_the_scout_version, test_bind_refuses_an_agent_the
            test_agent_alias_survives_the_report,
            test_model_name_is_per_role,
            test_new_port_for_a_fallback_is_the_neighbour,
-           test_agent_added_by_hand,
+           test_a_client_is_one_card,
                       test_bind_refuses_a_port_someone_else_holds,
            test_the_board_is_told_who_holds_each_port,
                                  test_set_route_names_every_setting,

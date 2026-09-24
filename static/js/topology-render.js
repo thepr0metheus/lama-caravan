@@ -186,9 +186,6 @@ export function renderTopology() {
         <strong>${escapeHtml(displayName)}</strong>
         <button class="client-rename-btn" type="button" title="${escapeHtml(t("trTitleSetName"))}"
           data-client-rename="${escapeHtml(client.id)}" data-client-name="${escapeHtml(displayName)}">✎</button>
-        <button class="client-rename-btn" type="button" data-t="client-agent-add"
-          title="${escapeHtml(t("topologyAgentAdd"))}"
-          data-client-agent-add="${escapeHtml(client.id)}">＋</button>
       </div>` : "";
     if (caption) laneCards.push({ live: clientIsLive(client), name: displayName, html: caption });
     clientLaneAgentCards(client, assignments).forEach((card) => laneCards.push({ live: !card.idle, name: card.name, html: `

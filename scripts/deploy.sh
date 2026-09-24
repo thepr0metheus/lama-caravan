@@ -109,16 +109,28 @@ fi
 # Poll, don't peek once: a restart takes a second or three to bind the port, and
 # a single early check reports the old version (or none) and cries MISMATCH on a
 # deploy that is merely mid-restart. Six tries over ~15s covers the startup.
+# The same commit, abbreviated by two repositories: git lengthens a short hash
+# where the 7-character one is ambiguous in THAT repository, so the controller
+# may answer c64d7fee for a local c64d7fe. Compared as strings, a good deploy
+# cried MISMATCH, stopped, and never told CI (2026-09-24). Either one a prefix
+# of the other is the same commit; an empty one is none.
+same_commit() {
+  [ -n "$1" ] && [ -n "$2" ] || return 1
+  case "$1" in "$2"*) return 0 ;; esac
+  case "$2" in "$1"*) return 0 ;; esac
+  return 1
+}
+
 LIVE_V=""; LIVE_C=""
 for _try in 1 2 3 4 5 6; do
   sleep 3
   LIVE=$(ssh "$HOST" "curl -s --max-time 5 localhost:${CARAVAN_DEPLOY_PORT:-7990}/health") || LIVE=""
   LIVE_V=$(printf '%s' "$LIVE" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("version",""))' 2>/dev/null || echo "")
   LIVE_C=$(printf '%s' "$LIVE" | python3 -c 'import sys,json;print(json.load(sys.stdin).get("commit",""))' 2>/dev/null || echo "")
-  [ "$LIVE_V" = "$VERSION" ] && [ "$LIVE_C" = "$COMMIT" ] && break
+  [ "$LIVE_V" = "$VERSION" ] && same_commit "$LIVE_C" "$COMMIT" && break
 done
 
-if [ "$LIVE_V" != "$VERSION" ] || [ "$LIVE_C" != "$COMMIT" ]; then
+if [ "$LIVE_V" != "$VERSION" ] || ! same_commit "$LIVE_C" "$COMMIT"; then
   echo "deploy: MISMATCH — shipped $VERSION ($COMMIT), serving ${LIVE_V:-?} (${LIVE_C:-?})" >&2
   echo "        the old process is probably still alive" >&2
   exit 1

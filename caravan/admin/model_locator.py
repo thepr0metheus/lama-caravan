@@ -58,6 +58,36 @@ class Located:
             doc["store"] = {"id": self.store["id"], "name": self.store["name"]}
         return doc
 
+    def hint(self):
+        """This file as offered to a scout: where the controller reads it.
+
+        A scout that has the same file at the same path — the one on the
+        controller's own machine, or one that mounts the library there too —
+        reads it in place instead of copying it into its cache. The size tells
+        the same file from another at that path; a folder (a seamless model)
+        says so, since a folder cannot be downloaded. A library file is not
+        looked at here — a dead NFS server makes stat() wait — its size comes
+        from the library's last listing. None for a file the controller does
+        not have.
+        """
+        if not self.path:
+            return None
+        doc = {"path": self.path}
+        if self.in_library:
+            doc["library"] = str((self.store or {}).get("name") or "")
+            if self.size:
+                doc["size"] = self.size
+            return doc
+        # A folder reads as "missing" — the locator asks about files — and a
+        # seamless model IS a folder; it is here all the same.
+        if os.path.isdir(self.path):
+            doc["dir"] = True
+        elif self.where == "local" and os.path.isfile(self.path):
+            doc["size"] = os.path.getsize(self.path)
+        else:
+            return None
+        return doc
+
 
 class Locations:
     """A snapshot of the libraries' files, taken once and asked many times: the

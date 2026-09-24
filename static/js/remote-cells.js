@@ -589,18 +589,6 @@ export async function addTopologyClient() {
   } catch (e) { toast(String(e)); }
 }
 
-// Create an agent for a client by hand. A proxy is assigned to an agent, so
-// without this move a manual client was a record that couldn't be configured.
-export async function addTopologyAgent(clientId) {
-  const name = await appPrompt(t("dlgAddAgent"), { confirmLabel: t("topologyAgentAdd") });
-  const agentId = String(name || "").trim();
-  if (!agentId) return;
-  try {
-    await api("/api/topology/client/agent", { method: "POST", body: { hostId: clientId, agentId } });
-    refreshTopology().catch(() => {});
-  } catch (e) { toast(String(e)); }
-}
-
 // Let go of a machine: when its scout answers, it forgets this controller and
 // stops reporting; either way the machine's record goes. The dialog says which
 // of the two will happen — a silent scout can only be forgotten here, and

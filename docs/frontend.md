@@ -504,11 +504,13 @@ Stateless — its open/editing flags live in `ui` (`topologyProxyFormOpen`, `top
 - An agent card makes no claim about whether the agent runs: no report says so any more (the
   scout knows hardware only). Every agent carries its ✕ (`agent-remove`); the dialog names the
   ports it leaves free (`savedAgentPorts` in remote-cells.js).
-- The clients lane holds clients only — the operator's records. A client with one agent is drawn
-  as that agent's card, which also carries the client's ＋ (a second agent); with several, a caption
-  row carries ✎ ＋ (`clientNeedsCaption`). There is no "delete client" on the board: a card's own ×
-  removes that card, and the client goes with its last agent. The machine a scout reports is a node,
-  not a card here.
+- The clients lane holds clients only — the operator's records. A client is one card: the lane's
+  ＋ creates the client with its one agent under the same name, and the card is that agent's. No
+  ＋ adds a second agent — it did, nobody used it, and the operator asked what it was (2026-09-24).
+  A client with several agents from older data still shows a caption row with ✎
+  (`clientNeedsCaption`). There is no "delete client" on the board: a card's own × removes that
+  card, and the client goes with its last agent. The machine a scout reports is a node, not a
+  card here.
 
 ## topology-nodes.js
 
