@@ -1459,8 +1459,6 @@ export function nodesLaneHtml() {
           ${verChip}
           ${collapsed ? `<span class="node-meta">${servers.length} srv · ${(n.gpus||[]).length} GPU</span>` : ""}
           <span style="flex:1"></span>
-          ${(n.role === "controller")
-            ? `<button class="node-incidents-btn" type="button" data-ctrl-incidents title="${escapeHtml(t("topologyIncidentsOpen"))}">⚠ <span data-ctrl-incidents-count>0</span></button>` : ""}
           <span class="node-meta" data-live-nodemeta>${escapeHtml(n.platform || "")}</span>
           ${scoutDisconnectBtnHtml(n)}
         </header>

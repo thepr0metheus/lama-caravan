@@ -110,15 +110,10 @@
 /* GPU mini-summary is redundant with the node's own GPU rows — hide it, keep charts. */
 .node-ctrl-gpu-telemetry .topology-gpu-inline { display:none; }
 
-/* Incidents button in the controller node header. */
-.node-incidents-btn {
-  display:inline-flex; align-items:center; gap:4px;
-  background:color-mix(in srgb,var(--panel) 70%, var(--bg,#111) 30%);
-  border:1px solid var(--line); border-radius:6px; cursor:pointer;
-  color:var(--muted,#888); font-size:11px; padding:2px 7px; line-height:1.4;
-}
-.node-incidents-btn:hover { color:var(--text,#ddd); border-color:color-mix(in srgb,var(--accent,#6ea8fe) 50%, var(--line)); }
-.node-incidents-btn.has-incidents { color:#f0a44a; border-color:color-mix(in srgb,#f0a44a 50%, var(--line)); }
+/* The board's incidents button in the Model servers header: an icon button
+   wide enough for its count, amber while there are incidents. */
+.icon-action.board-incidents-btn { width:auto; min-width:34px; padding:0 8px; display:inline-flex; gap:4px; font-size:12px; }
+.icon-action.board-incidents-btn.has-incidents { color:#f0a44a; border-color:color-mix(in srgb,#f0a44a 60%, var(--line)); background:color-mix(in srgb,#f0a44a 14%, transparent); }
 
 /* Incidents modal */
 .incidents-modal { width:min(680px, 92vw); max-height:82vh; display:flex; flex-direction:column; }

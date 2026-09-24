@@ -36,6 +36,7 @@ import { refreshRouteErrBadges } from "./topology-activity.js";
 import { purgeRemoteModelCache, submitRemoteLlamaStart } from "./remote-cells.js";
 import { rebindProxyRouter } from "./routers.js";
 import { mountScoutAdd } from "./scout-add.js";
+import { openIncidentsModal } from "./topology-nodes.js";
 import { topology, ui } from "./state.js";
 import { renderRuntime, revertLatest } from "./system-panels.js";
 import {
@@ -198,6 +199,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Security, Diagnostics tabs) — the header button just navigates.
   $("systemInfoBtn")?.addEventListener("click", () => { window.location.href = "/system"; });
   $("usageStatsBtn")?.addEventListener("click", openUsageStatsModal);
+  $("boardIncidentsBtn")?.addEventListener("click", openIncidentsModal);
   $("gemmaTextBoostBtn").addEventListener("click", () => setGemma4Mode("text").catch((err) => toast(err.message)));
   $("gemmaVisionBtn").addEventListener("click", () => setGemma4Mode("vision").catch((err) => toast(err.message)));
   $("textOnlyBtn").addEventListener("click", () => {

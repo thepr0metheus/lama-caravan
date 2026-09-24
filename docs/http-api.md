@@ -118,6 +118,7 @@ fails at import time.
 | `POST /api/topology/server-cell/reassign-port` | Move a parked cell to a free port (fleet-wide check; router refs remapped `srv:old→srv:new`). |
 | `POST /api/topology/server-slot/note` | Save the free-text note on a cell card. |
 | `POST /api/fleet/llama-update` / `…/llama-restore` | Build/update llama.cpp on a client host via its scout / restore an archived client build. |
+| `POST /api/topology/cell/move-to-scout` | `{port, hostId}` — one cell of this controller handed to the scout of the machine it runs on (step 6.8 of the scout split): the slot is re-keyed with its config, model, label, note, schedule and command history; an enabled unit becomes the scout's autostart (the cell stays stopped) and is disabled; start.sh and cell.json go to `var/server-cells-moved/<port>-<stamp>`. Refused, changing nothing: a running cell (409), a scout of another machine (400), a port that machine already has (409). A scout that does not take the autostart, or a unit that does not disable, puts the slot back. |
 | `POST /api/fleet/llama-suspect-dismiss` | `{hostId}` — hide a machine's "fresh build, crashing cells" banner row for its current build; its scout remembers (scout 2.6+). The host record says "not suspect" at once. |
 | `GET /api/fleet/llama-update-status?hostId=` / `GET /api/fleet/llama-builds?hostId=` | Client build-job progress / archived builds on a client. |
 | `GET /api/queue-thresholds` / `POST /api/queue-thresholds/recalc` | Computed queue wait thresholds / force resync from OpenClaw. |

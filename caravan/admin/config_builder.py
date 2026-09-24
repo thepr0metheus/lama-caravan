@@ -7,6 +7,7 @@ scripts/start-server.sh — never rename them here alone.
 import difflib
 import json
 import math
+import os
 import re
 import shlex
 from pathlib import Path
@@ -555,7 +556,7 @@ _BUILDER_PAIRS = [
 ]
 
 def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
-                     include_local_paths=True, over_network=False):
+                     include_local_paths=True, over_network=False, header_path=""):
     """Return the full llama-server argument list (everything AFTER the binary).
 
     `model_path` / `mmproj_path` / `spec_path` are the values emitted for the
@@ -571,6 +572,9 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
     layer on the CPU and reads it from the file for every token, so a mapped
     model on a share that blinks takes the running cell down with it. The model
     is read into memory instead — see `no_mmap_mode`.
+
+    `header_path` is the model file this controller reads the header from when
+    `model_path` is a placeholder — the copy it has of a scout's model.
     """
     c = config if isinstance(config, dict) else {}
 
@@ -769,17 +773,20 @@ def build_llama_args(config, *, model_path, mmproj_path="", spec_path="",
     # the UI, measured live: without it 300000 silently became 262144.
     # Explicit ROPE_* fields and EXTRA_ARGS spellings always win: this block
     # only fills flags the operator did not state.
-    args += _auto_yarn_args(c, model_path, args_present=args, extra_raw=extra_raw)
+    args += _auto_yarn_args(c, header_path or model_path, args_present=args, extra_raw=extra_raw)
     return args
 
 
 def _auto_yarn_args(c, model_path, *, args_present, extra_raw):
     """The YaRN flags implied by CTX_SIZE exceeding the model's native window.
 
-    Local builds only: the header must be readable to know the native window
-    and the architecture (the --override-kv key is '<arch>.context_length').
-    A remote cell's model file lives on its client, so there the recipe stays
-    manual via EXTRA_ARGS — documented in the CTX_SIZE help.
+    Only where this controller can read the model's header: it names the
+    native window and the architecture (the --override-kv key is
+    '<arch>.context_length'). That is its own cell's file, and a scout's file
+    when the controller has it too — the one the scout reads in place or
+    downloads from here. A scout's cell used to get none of it, and a cell
+    moved to the scout of the controller's own machine lost its window
+    without a word. A model only its client has stays manual, via EXTRA_ARGS.
     """
     try:
         ctx = int(str(c.get("CTX_SIZE") or "0").strip() or "0")
@@ -978,15 +985,22 @@ def parse_extra_args(text):
     )
     return {"recognized": recognized, "remaining": remaining_str}
 
-def build_remote_llama_args(config):
+def build_remote_llama_args(config, over_network=False, header_path=""):
     """Argument list for a remote client: host-local paths become placeholders
-    the route-agent substitutes after it downloads the files locally."""
+    the route-agent substitutes after it downloads the files locally.
+
+    `over_network`: a file of the cell is in a library, which a scout reads
+    where it is mounted — over the network, as this controller's own cell
+    does, and loaded the same way (build_llama_args). `header_path`: where
+    this controller reads the model's header (see _auto_yarn_args)."""
     return build_llama_args(
         config,
         model_path=LLAMA_PATH_PLACEHOLDER_MODEL,
         mmproj_path=LLAMA_PATH_PLACEHOLDER_MMPROJ,
         spec_path=LLAMA_PATH_PLACEHOLDER_SPEC,
         include_local_paths=False,
+        over_network=over_network,
+        header_path=header_path,
     )
 
 def no_mmap_mode(load_mode):
@@ -1077,9 +1091,13 @@ def command_token_owners(config, builder=None):
     return owners
 
 
+MODEL_FILE_FIELDS = ("MODEL_FILE", "MMPROJ_FILE", "SPEC_DRAFT_MODEL_FILE")
+
+
 def model_paths(config, locations=None):
-    """Where this host reads the cell's three model files, as `Located` answers
-    keyed by their config field.
+    """Where this host reads the cell's model files, as `Located` answers
+    keyed by their config field: the three files, and the folder a runner
+    names in a field of its own (vLLM's VLLM_MODEL).
 
     Without `locations` every file is taken to be on the models disk — the
     answer the controller gave before libraries existed, and the right one for a
@@ -1093,13 +1111,42 @@ def model_paths(config, locations=None):
     # "$HOME" reaches llama-server as four literal characters.
     root = home_path(merged.get("LLAMA_MODELS_DIR") or str(DEFAULT_MODELS_DIR))
     out = {}
-    for key in ("MODEL_FILE", "MMPROJ_FILE", "SPEC_DRAFT_MODEL_FILE"):
+    for key in MODEL_FILE_FIELDS:
         rel = merged.get(key)
         if not rel:
             continue
         found = locations.locate(rel, root) if locations is not None else None
         out[key] = found or Located(rel, "local", _join_models_path(root, rel))
+    # vLLM names its model folder by its absolute path (the picker writes it
+    # so) or by an HF repo id. A folder under the models root is a model of
+    # this machine like any other: the models page lets it travel to a library
+    # while its cell is stopped, since a start brings it back — and a vLLM
+    # start used to name the old path and die calling it a repo id. A repo id,
+    # or a path anywhere else, is none of the models root's business. Only the
+    # runner's own field counts: other runners' configs carry a leftover
+    # VLLM_MODEL from the shared picker.
+    field = for_config(merged).model_field
+    folder = merged.get(field, "").rstrip("/") if field and field not in MODEL_FILE_FIELDS else ""
+    top = root.rstrip("/") + "/"
+    if folder.startswith(top):
+        rel = folder[len(top):]
+        if os.path.isdir(folder) or locations is None:
+            out[field] = Located(rel, "local", folder)
+        else:
+            out[field] = locations.locate(rel, root)
     return out
+
+
+def run_config(config, found):
+    """`config` as a start runs it: the runner's own model folder at the path
+    where it is now (`found`, from model_paths) — a library's, after a move.
+    The saved config is not touched; a folder on the models disk, or not in a
+    library, keeps its path."""
+    field = for_config(config).model_field
+    at = found.get(field) if field and field not in MODEL_FILE_FIELDS else None
+    if at is None or not at.in_library:
+        return config
+    return {**config, field: at.path}
 
 
 def build_local_llama_command(config, *, llama_home=None, locations=None):

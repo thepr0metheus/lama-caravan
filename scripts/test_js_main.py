@@ -86,7 +86,7 @@ const reset = () => { st.setState({ config: {} }); st.setTopology({ proxies: [],
   globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = { "/api/auth/me": { enabled: false } };
   globalThis.__stubReturns = {
     "dialog-llamas.initDialogLlamas": rec("initDialogLlamas"), "i18n.initLanguage": arec("initLanguage", "en"), "onboarding-tours.initOnboarding": rec("initOnboarding"),
-    "scout-add.mountScoutAdd": rec("mountScoutAdd"),
+    "scout-add.mountScoutAdd": rec("mountScoutAdd"), "topology-nodes.openIncidentsModal": rec("openIncidentsModal"),
     "polling.loadState": arec("loadState"), "polling.bindMonitorDrawer": rec("bindMonitorDrawer"), "polling.startTopologyMonitor": rec("startTopologyMonitor"),
     "topology-render.renderAll": rec("renderAll"), "topology-render.renderTopology": rec("renderTopology"), "topology-render.setActiveView": rec("setActiveView"), "topology-render.refreshTopology": arec("refreshTopology"), "topology-render.flushPendingTopologyRender": rec("flushPendingTopologyRender"),
     "model-meta.fetchProxyDailyStats": arec("fetchProxyDailyStats"), "model-meta.fetchModelPricing": arec("fetchModelPricing"), "topology-activity.refreshRouteErrBadges": arec("refreshRouteErrBadges"),
@@ -115,6 +115,9 @@ PINS = [
     ("board_header_buttons", '', 'await (async () => { await bootBoard(); fire("systemInfoBtn", "click"); fire("usageStatsBtn", "click"); await fire("gemmaTextBoostBtn", "click"); await fire("gemmaVisionBtn", "click"); fire("textOnlyBtn", "click"); await fire("revertBtn", "click"); await settle(); return [globalThis.location.href, names().filter((x) => ["openUsageStatsModal", "setGemma4Mode", "renderModelInsight", "renderRuntime", "renderCommandPreview", "revertLatest"].includes(x)), E("MMPROJ_FILE").value, E("toast").textContent]; })()',
      '["/system",["openUsageStatsModal","setGemma4Mode","setGemma4Mode","renderModelInsight","renderRuntime","renderCommandPreview","revertLatest"],"","MMPROJ cleared. Save to apply."]',
      "кнопки заголовка: System — переход, статистика, gemma text/vision, «без mmproj» чистит поле и перерисовывает три панели, откат"),
+    ("board_incidents_button", '', 'await (async () => { await bootBoard(); fire("boardIncidentsBtn", "click"); await settle(); return names().filter((x) => x === "openIncidentsModal").length; })()',
+     '1',
+     "⚠ в строке Model servers открывает окно инцидентов — привязан один раз при загрузке, а не при каждой перерисовке узла контроллера"),
     ("board_confirm_trio", '', 'await (async () => { await bootBoard(); fire("confirmCancel", "click"); let ran = 0; st.ui.pendingConfirm = () => ran++; fire("confirmDelete", "click"); fire("confirmOverlay", "click", { target: { id: "confirmOverlay" } }); fire("confirmOverlay", "click", { target: { id: "inner" } }); return [names().filter((x) => x === "closeConfirmModal").length, ran]; })()', '[2,1]', "общий confirm: отмена и подложка закрывают, содержимое — нет, подтверждение зовёт pendingConfirm"),
     ("escape_priority_confirm_then_remote_then_editor", '', 'await (async () => { await bootBoard(); E("confirmOverlay").hidden = false; E("llamaRemoteEditOverlay").hidden = false; E("topologyLlamaEditOverlay").hidden = false; docFire("keydown", { key: "Escape" }); const a = names().slice(-1)[0]; E("confirmOverlay").hidden = true; docFire("keydown", { key: "Escape" }); const b = [E("llamaRemoteEditOverlay").hidden, names().slice(-1)[0]]; docFire("keydown", { key: "Escape" }); const c = names().slice(-1)[0]; return [a, ...b, c]; })()',
      '["closeConfirmModal",true,"closeConfirmModal","closeTopologyLlamaEdit"]', "Escape: сначала confirm, потом удалённый редактор (прячется), потом редактор ячейки"),

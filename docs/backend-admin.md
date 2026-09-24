@@ -110,8 +110,9 @@ mmap+mlock → mlock, mmap → none, dio and mlock untouched). One file over the
 Owns: `CONFIG_FIELDS`/`FIELD_HELP` and the config-block markers.
 Key functions: `parse_config` (read start-server.sh), `parse_config_from_text`/`split_config`,
 `build_config_block` (validates MODEL_FILE/PORT/numerics), `build_llama_args`,
-`build_remote_llama_args` (placeholders, no host-local flags), `build_local_llama_command` (absolute
-paths + binary), `model_paths`, `no_mmap_mode`, `parse_extra_args`, `is_command_cell`,
+`build_remote_llama_args` (placeholders, no host-local flags; the auto-YaRN recipe from the header
+of the copy this controller has — `header_path`), `build_local_llama_command` (absolute
+paths + binary), `model_paths` (the three files and a runner's own model folder — vLLM's `VLLM_MODEL` under the models root), `run_config` (a start's config with that folder where it is now), `no_mmap_mode`, `parse_extra_args`, `is_command_cell`,
 `models_dir_from_config`.
 
 ## `runners.py`
@@ -132,9 +133,10 @@ Key functions: `runner_id`, `uses_command_path`, `build_vllm_command`, `build_wh
 Renders launch artifacts from configs. `render_launch_script` produces a complete start script: env
 header, the config block (so the GUI can reload values via `parse_config`), file-existence guards,
 and a generated `# BEGIN/END LLAMA COMMAND` `exec llama-server …` block — regenerated from the
-config so block and command never drift. CPU-only configs (`N_GPU_LAYERS=0`) export
-`CUDA_VISIBLE_DEVICES=""` because a CUDA build still initializes the backend at `-ngl 0` and can
-abort on a full GPU. `render_command_cell_script` does the same for command cells (arbitrary managed
+config so block and command never drift. The engine's environment is the runner's
+(`Runner.launch_env`): CPU-only llama configs (`N_GPU_LAYERS=0`) export `CUDA_VISIBLE_DEVICES=""`
+because a CUDA build still initializes the backend at `-ngl 0` and can abort on a full GPU; a
+scout's start carries the same environment (`env`, since scout 2.8.1). `render_command_cell_script` does the same for command cells (arbitrary managed
 process, `exec`'d so systemd/the agent tracks the real PID; `ENV` rendered as exports, optional `cd
 WORKDIR`), and `render_command_cell_shell_line` renders that same cell as one `bash -lc` sentence
 for a host that runs it as a child process instead of a unit — shipped to clients as
@@ -585,7 +587,8 @@ Key functions: `normalize_schedule`, `set_cell_schedule`, `in_window`, `minutes_
 
 Client fleet management over the route-agent HTTP API. `client_llama_start` implements Variant 2 —
 the controller is the single command builder: it ships the resolved `build_remote_llama_args` list
-(path placeholders substituted by the agent after download) or, for command cells, the raw command +
+(path placeholders substituted by the agent after download; YaRN flags when the controller can read
+the model's header) with the engine's environment (`env`), or, for command cells, the raw command +
 health path; slot moves/reservations happen first. A machine is two records under one id
 (`HostRecord`, since 2026-09-24): its HOST record in `topology.hosts` is what its scout reports —
 GPUs, compute apps, CPU/RAM, cells, build versions, address — and `record_host_report` /
