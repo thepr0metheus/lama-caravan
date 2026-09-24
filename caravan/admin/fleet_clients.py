@@ -18,7 +18,9 @@ from caravan.admin.paths import (
     CONTROLLER_HOST_ID,
     LEGACY_CONTROLLER_HOST_IDS,
     HOST_REPORT_TTL,
+    PORT as ADMIN_PORT,
     SERVER_BACKUPS_DIR,
+    TOPOLOGY_SERVER_IP,
     is_controller_host,
 )
 from caravan.admin.proxies_config import (
@@ -38,6 +40,7 @@ from caravan.admin.telemetry import _normalize_modalities
 from caravan.common.errors import AppError
 from caravan.domain.client import FleetClient
 from caravan.domain.host import HostRecord
+from caravan.admin.scout_pairing import ScoutPairing
 from caravan.admin.scout_poll import ScoutPoller
 from caravan.domain.client_proxy import PROXY_ID_PREFIX
 from caravan.common.fetch import fetch_json, post_json
@@ -357,32 +360,6 @@ def topology_client_delete(body: dict) -> dict:
     save_admin_state()
     return {"ok": True, "clientId": client_id}
 
-
-def topology_host_delete(body: dict) -> dict:
-    """Forget a machine whose scout went silent: its host record, nothing else.
-
-    The cells configured on it stay in the store and come back with the
-    machine when its scout reports again; a client with the same id is the
-    operator's record and is not touched.
-
-    A scout that is still answering is refused rather than forgotten: its next
-    report, a minute later, would bring the card straight back, and a delete
-    that undoes itself reads as a delete that did not work.
-    """
-    host_id = str(body.get("hostId") or "").strip()
-    if not host_id:
-        raise AppError("hostId is required", 400)
-    store = topology_store()
-    host = store["hosts"].get(host_id)
-    if host is None:
-        raise AppError(f"host not found: {host_id}", 404)
-    state, _age = HostRecord.liveness(host, int(time.time()), HOST_REPORT_TTL)
-    if state == "online":
-        raise AppError(f"host {host_id} is online: its scout is still reporting; "
-                       f"stop the scout first", 409)
-    del store["hosts"][host_id]
-    save_admin_state()
-    return {"ok": True, "hostId": host_id}
 
 def topology_client_agent_delete(body: dict) -> dict:
     """Remove an agent from its client: the record and its assignment row.
@@ -820,6 +797,9 @@ def scout_payload_from_state(state, agent_url):
         "time": state.get("time") or int(time.time()),
     }
 
+
+#: Adding a machine's scout from the board and letting it go (scout_pairing.py).
+SCOUT_PAIRING = ScoutPairing(topology_store, save_admin_state, _scout_headers, ADMIN_PORT, TOPOLOGY_SERVER_IP)
 
 #: The one poller of the fleet: board reads kick it (topology_state), and it
 #: runs refresh_hosts_from_scouts in the background.

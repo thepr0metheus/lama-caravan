@@ -559,6 +559,11 @@ def topology_server(config=None):
         slot_is_command = uses_command_path(_r_cfg)
         _cmd_dl = _cmd_tot = 0
         _cmd_phase = ""
+        # Only a running command cell gets one; read for every cell below. Set
+        # per cell: while it was not, a llama cell read the one its neighbour
+        # left (another cell's version and language on its card), or — with no
+        # command cell before it — none, and /api/topology answered 500.
+        _ch = None
         if slot_is_command:
             # Command cells have no llama /health — probe HEALTH_PATH (whisper_server.py
             # reports download/load progress there) or the port.

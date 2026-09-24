@@ -40,7 +40,8 @@ from _node import find_node, node_search_paths  # noqa: E402
 
 STUBS = ("dialogs,dialog-llamas,cables,canvas,charts,cloud,command-preview,form,llama-edit,memory,model-meta,"
          "onboarding-tours,polling,topology-activity,remote-cells,routers,system-panels,topology-dnd,topology-render,"
-         "usage-stats,history,favorites,config-locator,onboarding,models-page,system-page,topology-nodes,topology-modals,topology-proxies")
+         "usage-stats,history,favorites,config-locator,onboarding,models-page,system-page,topology-nodes,topology-modals,topology-proxies,"
+         "scout-add")
 
 PREAMBLE = r"""
 import "./_js_globals.mjs";
@@ -85,6 +86,7 @@ const reset = () => { st.setState({ config: {} }); st.setTopology({ proxies: [],
   globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = { "/api/auth/me": { enabled: false } };
   globalThis.__stubReturns = {
     "dialog-llamas.initDialogLlamas": rec("initDialogLlamas"), "i18n.initLanguage": arec("initLanguage", "en"), "onboarding-tours.initOnboarding": rec("initOnboarding"),
+    "scout-add.mountScoutAdd": rec("mountScoutAdd"),
     "polling.loadState": arec("loadState"), "polling.bindMonitorDrawer": rec("bindMonitorDrawer"), "polling.startTopologyMonitor": rec("startTopologyMonitor"),
     "topology-render.renderAll": rec("renderAll"), "topology-render.renderTopology": rec("renderTopology"), "topology-render.setActiveView": rec("setActiveView"), "topology-render.refreshTopology": arec("refreshTopology"), "topology-render.flushPendingTopologyRender": rec("flushPendingTopologyRender"),
     "model-meta.fetchProxyDailyStats": arec("fetchProxyDailyStats"), "model-meta.fetchModelPricing": arec("fetchModelPricing"), "topology-activity.refreshRouteErrBadges": arec("refreshRouteErrBadges"),
@@ -100,9 +102,9 @@ const out = {};
 """
 
 PINS = [
-    ("board_boot_order", '', 'await (async () => { await bootBoard(); const n = names(); const pos = (x) => n.indexOf(x); return [n.slice(0, 4), document.documentElement.lang === "en", pos("bindMonitorDrawer") >= 0, pos("loadState") < pos("setActiveView"), n.filter((x) => x === "renderAll").length, calls(), timers.map((t) => t.every).filter(Boolean), n.slice(-3)]; })()',
-     '[["initDialogLlamas","initOnboarding","bindMonitorDrawer","loadState"],true,true,true,0,["/api/auth/me"],[60000,86400000,60000],["fetchProxyDailyStats","fetchModelPricing","refreshRouteErrBadges"]]',
-     "доска (i18n настоящий, initLanguage не записывается): онбординг после ламы, монитор-ящик привязан, loadState → setActiveView, renderAll не зовётся сам (только хук языка), чип пользователя спрошен, три интервала: 60 с / сутки / 60 с"),
+    ("board_boot_order", '', 'await (async () => { await bootBoard(); const n = names(); const pos = (x) => n.indexOf(x); return [n.slice(0, 5), document.documentElement.lang === "en", pos("bindMonitorDrawer") >= 0, pos("loadState") < pos("setActiveView"), n.filter((x) => x === "renderAll").length, calls(), timers.map((t) => t.every).filter(Boolean), n.slice(-3), n.filter((x) => x === "mountScoutAdd").length]; })()',
+     '[["initDialogLlamas","initOnboarding","mountScoutAdd","bindMonitorDrawer","loadState"],true,true,true,0,["/api/auth/me"],[60000,86400000,60000],["fetchProxyDailyStats","fetchModelPricing","refreshRouteErrBadges"],1]',
+     "доска (i18n настоящий, initLanguage не записывается): онбординг после ламы, поле «＋ Добавить скаута» связано один раз и до загрузки состояния, монитор-ящик привязан, loadState → setActiveView, renderAll не зовётся сам (только хук языка), чип пользователя спрошен, три интервала: 60 с / сутки / 60 с"),
     ("board_ready_hides_loader_when_filled", '', 'await (async () => { await bootBoard(); tick(500); const early = globalThis.__hidden; E("topologyClients").children = [1]; globalThis.__q["[data-node-cell-port]"] = {}; tick(200); await settle(); return [early, globalThis.__hidden, timers.some((t) => !t.every && t.at > now)]; })()', '[0,1,false]',
      "лоадер прячется, когда лейна клиентов заполнена И есть порт ячейки; опрос прекращается"),
     ("board_ready_gives_up_after_15s", '', 'await (async () => { await bootBoard(); tick(15200); await settle(); return globalThis.__hidden; })()', '1', "boundary: доска так и не заполнилась — лоадер всё равно прячется через 15 с"),

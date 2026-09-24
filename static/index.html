@@ -402,6 +402,22 @@
             </div>
             <div id="topologyModelsBar" class="topology-models-bar" data-t="board-models-bar"></div>
             <div id="topologyLlamaServers" class="topology-stack nodes-mode" data-t="board-nodes-lane" role="region" aria-labelledby="boardNodesHead"></div>
+            <!-- Static, next to the lane and not in it: the lane is repainted every few
+                 seconds, and an address typed into it would be wiped mid-word. -->
+            <div id="scoutAdd" class="scout-add" data-t="board-scout-add" data-t-state="idle" data-survives-render>
+              <div class="scout-add-row">
+                <span class="scout-add-title" data-i18n="scoutAddTitle" data-title-i18n="scoutAddHint">＋ Add scout</span>
+                <input class="scout-add-address" type="text" data-scout-add-address data-t="scout-add-address"
+                       autocomplete="off" spellcheck="false" data-i18n-placeholder="scoutAddAddressPh"
+                       data-i18n-aria="scoutAddAddressPh" placeholder="machine address — IP or name">
+                <span class="scout-add-colon" aria-hidden="true">:</span>
+                <input class="scout-add-port" type="text" inputmode="numeric" value="8092" size="5"
+                       data-scout-add-port data-t="scout-add-port" data-title-i18n="scoutAddPortTitle">
+                <button type="button" class="scout-add-connect" data-scout-add-connect data-t="scout-add-connect"
+                        data-i18n="scoutAddConnect">Connect</button>
+              </div>
+              <div class="scout-add-status" data-scout-add-status data-t="scout-add-status" role="status" aria-live="polite"></div>
+            </div>
             <div class="topology-lane-head topology-cloud-head">
               <h2 class="title-with-tip"><span id="boardCloudHead" data-i18n="topologyCloudSection">Cloud providers</span><span id="topologyCloudTip"></span></h2>
             </div>

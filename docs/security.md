@@ -43,20 +43,18 @@ shared **fleet token** instead (generated when the first account is created):
 | scout → controller | heartbeats (`POST /api/topology/client-heartbeat`) and model downloads (`GET /api/models/download`) send `X-Caravan-Token` |
 | controller → scout | every cell/routing/monitor call sends the same header |
 
-Distribute it to each scout — pairing page (`http://host:8092/`, the token
-field) or `config.json`:
+Nobody copies it to a scout by hand: adding the scout on the board (Model
+servers → ＋ Add scout) hands it over, together with the controller's address
+(`POST /api/controller-url` on the scout, `controllerToken` in its
+`config.json`). A scout nobody has added yet is open on the LAN, like a fresh
+install; once it holds the token, its own API requires the same header too
+(its page, `/api/pairing` and `/api/health` stay open), including letting go
+(`/api/unpair`, the ✕ on its node) — only its controller can do that.
 
-```json
-{ "controllerUrl": "http://controller:7990", "controllerToken": "caravan-…" }
-```
-
-Until a scout has the token, its heartbeats are rejected (401) and the client
-shows offline on the board. On the scout side, once `controllerToken` is set
-its own API requires the same header too (the pairing page and `/api/health`
-stay open).
-
-Regenerating (Security panel) invalidates the old token immediately — update
-every scout after.
+Regenerating (Security panel) invalidates the old token immediately: every
+scout's heartbeats are rejected (401) and its machine shows silent. Add each
+scout again on the board — the scout takes the new token once the controller
+accepts a heartbeat carrying it.
 
 ## Prometheus
 

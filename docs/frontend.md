@@ -524,8 +524,10 @@ survive. Collapsed nodes persist to localStorage.
   (`scoutOldChipHtml`, `node-scout-old`).
 - Every machine with a scout is a node (role `host`), with or without GPUs — the ＋ that reserves a
   first cell lives here. A host whose scout stopped answering is dimmed and gets a banner under its
-  header: the age of the last report (`hostAgeText`, the same text the live patcher writes) and
-  ✕ «Forget machine» (`node-forget` → `POST /api/topology/host/delete`). Hardware readers —
+  header: the age of the last report (`hostAgeText`, the same text the live patcher writes). A host
+  node's one ✕ is in its header (`scoutDisconnectBtnHtml`, `node-disconnect` →
+  `disconnectScout` → `POST /api/topology/scout/disconnect`); its dialog says «disconnect» for a
+  scout that answers and «forget» for a silent one. Hardware readers —
   the remote cell form, stop, the nvidia-smi sources, the GPU lane — take the machine from
   `topology.hosts` (`topologyHost` in remote-cells.js), never from a client row.
 - A controller cell whose launch files only a library holds wears `📚 <library>`

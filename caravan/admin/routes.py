@@ -103,6 +103,7 @@ from caravan.admin.telemetry import (
 from caravan.admin.server_cells import (
     assert_server_cell_port_available,
     delete_server_slot,
+    move_host_cells,
     move_server_cell,
     next_server_cell_port,
     reserve_server_cell,
@@ -135,7 +136,7 @@ from caravan.admin.fleet_clients import (
     topology_client_create,
     topology_client_delete,
     topology_clients,
-    topology_host_delete,
+    SCOUT_PAIRING,
     record_host_report,
 )
 from caravan.admin.topology import (
@@ -1754,9 +1755,19 @@ def _post_api_topology_client_delete(h, parsed, body):
         h.send_json(topology_client_delete(body))
         return
 
-@_route(POST_ROUTES, '/api/topology/host/delete')
-def _post_api_topology_host_delete(h, parsed, body):
-        h.send_json(topology_host_delete(body))
+@_route(POST_ROUTES, '/api/topology/scout/connect')
+def _post_api_topology_scout_connect(h, parsed, body):
+        h.send_json(SCOUT_PAIRING.connect(body.get("address"), body.get("port")))
+        return
+
+@_route(POST_ROUTES, '/api/topology/host/move-cells')
+def _post_api_topology_host_move_cells(h, parsed, body):
+        h.send_json(move_host_cells(body))
+        return
+
+@_route(POST_ROUTES, '/api/topology/scout/disconnect')
+def _post_api_topology_scout_disconnect(h, parsed, body):
+        h.send_json(SCOUT_PAIRING.disconnect(body.get("hostId")))
         return
 
 @_route(POST_ROUTES, '/api/topology/client/agent/delete')

@@ -121,8 +121,14 @@ The long version of that day — with the kanban that implements it — lives in
 machines that share hardware.** It is the sidecar of a box with a GPU (or
 spare CPU) you want in the pool: it reports the machine — GPUs and what runs
 on them, CPU/RAM, cells, the llama.cpp build — runs the cells the controller
-configures, and keeps llama.cpp current. From then on the box is a machine
-node on the board, and its cells are launched from there.
+configures, and keeps llama.cpp current.
+
+Adding such a box takes two steps. On the box, from a clone of caravan-scout:
+`./install.sh` — it installs what the machine needs, starts the scout and
+prints its address and port. On the board: **Model servers → ＋ Add scout**,
+that address, Connect — the controller pairs the scout itself and hands it
+the fleet token. From then on the box is a machine node, and its cells are
+launched from there; its ✕ lets go again.
 
 A machine that merely *runs agents* installs nothing. Its client card and its
 agents' proxy cards are created **by hand on the board** (Clients lane → add
@@ -142,7 +148,7 @@ says nothing about agents; client and agent cards are the operator's records,
 and no report creates, rewrites or deletes them; a client's liveness is its
 agents' traffic — idle after 12 hours without a request, the same on the
 board and the kanban; a machine whose scout went silent is marked on its
-node, and "Forget machine" removes its record without touching any client.
+node, and its ✕ lets go of the scout and removes the machine without touching any client.
 
 ## One GPU, many agents
 
@@ -221,10 +227,10 @@ LLAMA_TOPOLOGY_SERVER_IP=<this-machine-LAN-IP> docker compose up -d --build
 ```
 
 Models are **not** served from inside the container (it has no systemd and, by
-design, no GPU): attach each GPU machine — including the Docker host itself —
-with [caravan-scout](https://github.com/thepr0metheus/caravan-scout), and its
-cells appear on the board. The `?` tour and System → Security (fleet token)
-walk you through pairing. All state lives in the `caravan-data` volume
+design, no GPU): on each GPU machine — the Docker host itself included — run
+[caravan-scout](https://github.com/thepr0metheus/caravan-scout)'s
+`./install.sh`, then enter the address it prints under **Model servers → ＋ Add
+scout**: the controller pairs the scout, and its cells appear on the board. All state lives in the `caravan-data` volume
 (`/data`): config, accounts, token history, logs and downloaded models.
 
 Notes:
@@ -300,9 +306,9 @@ whenever a component is upgraded (last verified: **2026-09-24**):
 | Python | 3.12.3 (controller, Linux client); the macOS scout runs on stock 3.9.6 |
 | systemd | 255 (Ubuntu 24.04) |
 | Docker (container mode) | 29.1 |
-| faster-whisper | 1.2.1 (CTranslate2 4.8.0) — whisper command cells |
+| faster-whisper | 1.2.1 (CTranslate2 4.8.0, cuDNN 9.26 from the `nvidia-cudnn-cu12` wheel) — whisper command cells; a transcription verified on the Linux host 2026-09-24 |
 | vLLM | 0.24.0, pinned provisioning — controller cell `:8012` |
-| caravan-scout | 2.0.1 on the Linux host (2026-09-24) — rewritten into classes, knows its machine only |
+| caravan-scout | 2.1.1 on the Linux host (2026-09-24) — installed with `./install.sh` and added from the board (Model servers → ＋ Add scout); knows its machine only |
 | moonshine-voice | 0.0.69 — moonshine STT command cells (CPU-only) |
 | transcribe.cpp | 0.2.0 (commit `b6a6aca`, 2026-07-22), CUDA build — transcribe cells; verified with `gigaam-v3-e2e-rnnt-Q8_0.gguf` |
 | CosyVoice (TTS cells) | upstream checkout + torch **2.7.1+cu128** in the engine venv — the cu128 wheels carry `sm_75…sm_120`, so the same cell runs on the RTX 3090 and the RTX 5090; CosyVoice's own pin (2.3.1+cu121) stops at `sm_90` and dies on Blackwell with "no kernel image" |
@@ -512,8 +518,8 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
   usage with a cleanup modal; a models page for the library on disk.
 - Orphaned cells — running units the config no longer knows about — surface
   as a red ☠ strip with a Stop button, and their ports stay guarded; a
-  machine whose scout went silent says so on its node, and "Forget machine"
-  removes its record without touching any client.
+  machine whose scout went silent says so on its node, and its ✕ removes the
+  machine without touching any client.
 
 **Platform**
 

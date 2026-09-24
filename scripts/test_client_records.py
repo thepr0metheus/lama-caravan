@@ -1201,42 +1201,6 @@ def test_metrics_read_the_boards_liveness():
           "negative: окно, заданное оператором короче (60 с), двигает и метрику, и доску — своего числа у метрики нет")
 
 
-def test_forgetting_a_machine_touches_nothing_else():
-    """A silent scout's machine is forgotten by hand: its host record, only.
-
-    The client with the same id is the operator's record, and the cells
-    configured on the machine come back with it — neither is touched. A scout
-    that still answers is refused: its next report would undo the delete.
-    """
-    print("забыть машину — только её запись хоста:")
-    now = int(time.time())
-    silent = {"id": "m", "name": "M", "agentUrl": "http://10.0.0.9:8092",
-              "lastSeen": now - fc.HOST_REPORT_TTL - 60}
-    store, _r = harness(hosts={"m": dict(silent)},
-                        clients={"m": {"id": "m", "name": "Client M", "agents": [{"id": "a"}]}},
-                        assignments={"m": {"assignments": [{"agentId": "a", "routes": []}]}})
-    out = fc.topology_host_delete({"hostId": " m "})
-    check(out == {"ok": True, "hostId": "m"} and "m" not in store["hosts"],
-          "молчащая машина забыта — её записи хоста больше нет")
-    check((store["clients"].get("m") or {}).get("agents") == [{"id": "a"}] and "m" in store["assignments"],
-          "negative: клиент с тем же id и его назначения не тронуты — это запись оператора")
-
-    def refused(body, hosts):
-        harness(hosts=hosts)
-        try:
-            fc.topology_host_delete(body)
-            return None
-        except fc.AppError as exc:
-            return exc.status
-    check(refused({"hostId": "m"}, {"m": dict(silent, lastSeen=now)}) == 409,
-          "negative: скаут отвечает — 409: следующий отчёт вернул бы машину, и удаление выглядело бы несработавшим")
-    check(refused({"hostId": "nope"}, {"m": dict(silent)}) == 404, "negative: такой машины нет — 404, а не тихий успех")
-    check(refused({"hostId": "  "}, {}) == 400, "negative: без hostId — 400")
-    store, _r = harness(hosts={"m": {"id": "m", "name": "M"}})
-    fc.topology_host_delete({"hostId": "m"})
-    check("m" not in store["hosts"], "boundary: запись без единого отчёта (возраст неизвестен) — молчащая, её можно забыть")
-
-
 def test_a_machine_node_is_a_host():
     """The node the board draws for a scout's machine: role "host", with the
     age of its last report — the banner on a silent machine reads it."""
@@ -1269,7 +1233,7 @@ def test_a_machine_node_is_a_host():
           "узел несёт версию скаута; скаут 1.x — пустая строка, по ней доска просит обновить")
 
 
-for fn in (test_the_pull_keeps_the_scout_version, test_bind_refuses_an_agent_the_record_does_not_have, test_a_cell_of_an_unknown_machine_has_no_address, test_metrics_read_the_boards_liveness, test_forgetting_a_machine_touches_nothing_else, test_a_machine_node_is_a_host,
+for fn in (test_the_pull_keeps_the_scout_version, test_bind_refuses_an_agent_the_record_does_not_have, test_a_cell_of_an_unknown_machine_has_no_address, test_metrics_read_the_boards_liveness, test_a_machine_node_is_a_host,
            test_a_scouts_address_lives_on_its_host, test_the_payload_keeps_machines_and_clients_apart, test_apply_stores_and_calls_no_scout, test_route_can_be_removed,
            test_agent_delete_takes_its_row_and_leaves_its_ports,
            test_agent_alias_survives_the_report,

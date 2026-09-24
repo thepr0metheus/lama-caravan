@@ -301,6 +301,46 @@ def move_server_cell(host_id, old_port, new_port, config=None, model=None):
     save_admin_state()
     return slot
 
+def move_host_cells(body):
+    """Every cell configured on machine `from` goes to machine `to`.
+
+    For a machine that comes back under another name: a scout names itself
+    after its machine, so a reinstalled scout on a machine once configured by
+    hand as "box" reports "box-pc", and a renamed machine reports its new
+    name. Without this its cells stayed under the old name — on no node,
+    with nothing to start them.
+
+    Ports are global, so routes and kanban edges (srv:<port>) are untouched;
+    each cell keeps its config, model, label, note and command history. The
+    controller's own cells never move (they are not a scout's). Refused when
+    the new machine already holds one of those ports; a scout's cell cannot
+    run under a name no scout reports, so nothing here can be running.
+    """
+    src = canonical_host_id(str(body.get("from") or "").strip())
+    dst = canonical_host_id(str(body.get("to") or "").strip())
+    if not src or not dst:
+        raise AppError("both machines are required: from and to", 400)
+    if src == dst:
+        raise AppError("from and to are the same machine", 400)
+    if is_controller_host(src) or is_controller_host(dst):
+        raise AppError("the controller's own cells stay with the controller", 400)
+    store = topology_store()
+    slots = store["serverSlots"]
+    moving = sorted((slot for slot in slots.values() if slot.get("hostId") == src),
+                    key=lambda slot: int(slot.get("port") or 0))
+    if not moving:
+        raise AppError(f"no cells are configured on {src}", 404)
+    taken = [int(slot["port"]) for slot in moving if server_slot_key(dst, slot["port"]) in slots]
+    if taken:
+        raise AppError(f"{dst} already has cells on {', '.join(f':{p}' for p in taken)}", 409)
+    for slot in moving:
+        del slots[server_slot_key(src, slot["port"])]
+        key = server_slot_key(dst, slot["port"])
+        slot.update({"id": key, "hostId": dst, "updatedAt": int(time.time())})
+        slots[key] = slot
+    save_admin_state()
+    return {"ok": True, "from": src, "to": dst, "ports": [int(slot["port"]) for slot in moving]}
+
 def delete_server_slot(host_id, port):
     store = topology_store()
     removed = store["serverSlots"].pop(server_slot_key(host_id, port), None)

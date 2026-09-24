@@ -912,3 +912,18 @@ details.topology-server-stats-card > .topology-processes-details {
 body:has(.topology-view) .topbar {
   min-width: calc(var(--board-min) + 48px);   /* 48 = main's 24px padding, both sides */
 }
+
+/* ＋ Add scout, under Model servers: the one way a machine that lends its GPU
+   or CPU joins the fleet. Quiet at rest (a dashed outline, the title muted),
+   so the lane's machines stay what the eye reads first. */
+.scout-add { margin: 10px 0 4px; padding: 9px 12px; border: 1px dashed var(--line); border-radius: 10px; display: grid; gap: 6px; }
+.scout-add-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.scout-add-title { font-weight: 600; font-size: 13px; color: var(--muted); cursor: help; white-space: nowrap; }
+.scout-add-address { flex: 1 1 180px; min-width: 0; }
+.scout-add-port { width: 64px; flex: 0 0 auto; text-align: center; }
+.scout-add-colon { color: var(--muted); }
+.scout-add-status { font-size: 12px; line-height: 1.4; }
+.scout-add-status:empty { display: none; }
+.scout-add[data-t-state="working"] .scout-add-status { color: var(--muted); }
+.scout-add[data-t-state="ok"] .scout-add-status { color: var(--ok); }
+.scout-add[data-t-state="error"] .scout-add-status { color: var(--bad); }
