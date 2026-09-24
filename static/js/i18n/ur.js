@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ کلاؤڈ فراہم کنندہ شامل کریں",
   tnBootEnable: "بوٹ پر آٹو اسٹارٹ فعال کریں",
   tnBootDisable: "بوٹ پر آٹو اسٹارٹ غیر فعال کریں",
-  tnBootUnsupported: "ریموٹ ہوسٹس کے لیے آٹو اسٹارٹ معاون نہیں",
+  tnBootUnsupported: "آٹو اسٹارٹ کے لیے اس مشین کا اسکاؤٹ 2.4 یا نیا درکار ہے",
   updateClientLlama: "اس کلائنٹ پر llama.cpp کو کنٹرولر کے بلڈ پر اپ ڈیٹ کریں",
   hostRebootTitle: "اس ہوسٹ کو ری بوٹ کریں",
   hostRebootConfirmClient: "{host} کو ری بوٹ کریں؟ اس کے سیلز مشین کے ساتھ بند ہوں گے اور صرف آٹو اسٹارٹ آن ہونے پر واپس آئیں گے۔",

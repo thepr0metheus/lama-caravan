@@ -815,10 +815,12 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
            ${canStop ? `data-t="cell-stop" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-stop="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"` : "disabled"}
            title="${escapeHtml(canStop ? t("nodeStopServer") : t("nodeNotRunning"))}">⏹<span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`;
 
-    // ↑ autostart — controller only for now; shown on both but disabled on client.
-    // Three looks: ok = enabled, off = disabled but CLICKABLE (it's a toggle —
-    // muted here read as dead chrome), muted = genuinely unavailable (client/busy).
-    const bootSupported = s.isController;
+    // ↑ autostart — a cell of this controller (systemd enable) or of a scout
+    // that keeps it and starts it when its machine boots (2.4+; the server
+    // says which, bootSupported). Three looks: ok = enabled, off = disabled
+    // but CLICKABLE (it's a toggle — muted here read as dead chrome), muted =
+    // genuinely unavailable (an older scout, or busy).
+    const bootSupported = s.bootSupported ?? !!s.isController;
     const canBoot = bootSupported && (phase === "stopped" || running) && !isDeleting && !isCellBusy;
     const bootBtn = `<button class="node-action-btn${bootSupported && s.bootEnabled ? " ok" : (canBoot ? " off" : " muted")}" type="button"
         ${canBoot ? `data-node-cell-boot="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-boot-action="${s.bootEnabled ? "disable" : "enable"}"` : "disabled"}

@@ -7,7 +7,7 @@ import shutil
 from caravan.admin.config_builder import is_command_cell, gpu_layers_int
 from caravan.admin.runners import runner_id, uses_command_path
 from caravan.domain.runner import for_config
-from caravan.admin.fleet_clients import client_llama_start, client_llama_stop
+from caravan.admin.fleet_clients import client_llama_autostart, client_llama_start, client_llama_stop
 from caravan.admin.cell_assets import assets_for_runner, materialize_local_assets
 from caravan.admin.launch import server_cell_dir, write_server_cell_artifacts
 from caravan.admin.config_builder import model_paths
@@ -148,11 +148,24 @@ def server_cell_save_config(body: dict) -> dict:
                 systemctl("reset-failed", cell_service_name(port), timeout=5)
         except Exception:
             pass
+    autostart = None
     if not is_controller_host(host_id):
         slot["cacheModels"] = bool(body.get("cacheModels", False))
         topo.put_slot(host_id, port, slot)
         save_admin_state()
-    return {"ok": True, "hostId": host_id, "port": port, "state": state()}
+        # A cell that starts with its machine starts from the request its
+        # scout keeps; new settings go there too, or the next boot brings back
+        # the old ones. Said in the answer when the scout would not take them.
+        host = (topology_store().get("hosts") or {}).get(host_id) or {}
+        if port in (host.get("autostart") or []):
+            try:
+                autostart = client_llama_autostart(scout_start_body(host_id, port, slot), enabled=True)
+            except Exception as exc:  # noqa: BLE001 — the settings are saved either way
+                autostart = {"ok": False, "error": str(exc)}
+    doc = {"ok": True, "hostId": host_id, "port": port, "state": state()}
+    if autostart is not None:
+        doc["autostart"] = {"ok": bool(autostart.get("ok")), **({"error": autostart["error"]} if autostart.get("error") else {})}
+    return doc
 
 def bring_home(host_id, port, config, choice, locations, then_start=True):
     """Decide where this cell reads its model from, and act on it.
@@ -254,10 +267,32 @@ def server_cell_action(body: dict) -> dict:
     if action_name == "stop":
         result = client_llama_stop({"hostId": host_id, "port": port})
         return {"ok": result.get("ok", False), "hostId": host_id, "port": port, "action": action_name, "result": result}
-    if action_name in {"start", "restart"}:
+    if action_name in {"start", "restart", "enable", "disable"}:
         slot = topo.slot(host_id, port)
-        cfg = slot.get("config") if isinstance(slot.get("config"), dict) else {}
-        model = str(slot.get("model") or cfg.get("MODEL_FILE") or "").strip()
+        body = scout_start_body(host_id, port, slot, check=action_name != "disable")
+        if action_name in {"enable", "disable"}:
+            # The scout keeps the request that starts the cell and starts it
+            # when its machine boots — what `systemctl enable` does for a cell
+            # of this controller.
+            result = client_llama_autostart(body, enabled=action_name == "enable")
+        else:
+            # A model in a library is no reason to refuse: client_llama_start
+            # tells the scout where this controller reads it, and a scout that
+            # mounts the library at the same path reads it there. One that does
+            # not says which library it lacks — a download from here could only
+            # answer 404.
+            result = client_llama_start(body)
+        return {"ok": result.get("ok", False), "hostId": host_id, "port": port, "action": action_name, "result": result}
+    raise AppError(f"action '{action_name}' not supported for remote host", 400)
+
+
+def scout_start_body(host_id, port, slot, check=True):
+    """What starts a scout's cell, from its saved slot — for a start and for
+    its autostart alike. `check` refuses a cell that could not start: one
+    without a model, or one its runner refuses."""
+    cfg = slot.get("config") if isinstance(slot.get("config"), dict) else {}
+    model = str(slot.get("model") or cfg.get("MODEL_FILE") or "").strip()
+    if check:
         if uses_command_path(cfg):
             # Each runner refuses for its own reason, or does not refuse at all
             # (whisper and moonshine have a default size and language). The chain
@@ -266,22 +301,16 @@ def server_cell_action(body: dict) -> dict:
             for_config(cfg).preflight_start(cfg, model)
         elif not model:
             raise AppError("cell has no saved model — configure it first", 400)
-        # A model in a library is no reason to refuse: client_llama_start tells
-        # the scout where this controller reads it, and a scout that mounts the
-        # library at the same path reads it there. One that does not says which
-        # library it lacks — a download from here could only answer 404.
-        result = client_llama_start({
-            "hostId": host_id,
-            "modelPath": model,
-            "port": port,
-            "gpuLayers": gpu_layers_int(cfg.get("N_GPU_LAYERS")),
-            "ctxSize": int(cfg.get("CTX_SIZE") or 4096),
-            "cacheModels": bool(slot.get("cacheModels", False)),
-            "config": cfg,
-            "cellPort": port,
-        })
-        return {"ok": result.get("ok", False), "hostId": host_id, "port": port, "action": action_name, "result": result}
-    raise AppError(f"action '{action_name}' not supported for remote host", 400)
+    return {
+        "hostId": host_id,
+        "modelPath": model,
+        "port": port,
+        "gpuLayers": gpu_layers_int(cfg.get("N_GPU_LAYERS")),
+        "ctxSize": int(cfg.get("CTX_SIZE") or 4096),
+        "cacheModels": bool(slot.get("cacheModels", False)),
+        "config": cfg,
+        "cellPort": port,
+    }
 
 _SCRIPT_PREVIEW_EXT = {".sh", ".bash", ".py"}
 _SCRIPT_PREVIEW_MAX = 64 * 1024

@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ Tambah penyedia cloud",
   tnBootEnable: "Aktifkan autostart saat boot",
   tnBootDisable: "Nonaktifkan autostart saat boot",
-  tnBootUnsupported: "Autostart tidak didukung untuk host jarak jauh",
+  tnBootUnsupported: "Autostart memerlukan scout mesin ini versi 2.4 atau lebih baru",
   updateClientLlama: "Perbarui llama.cpp di klien ini ke build controller",
   hostRebootTitle: "Mulai ulang host ini",
   hostRebootConfirmClient: "Mulai ulang {host}? Selnya mati bersama mesin dan kembali hanya jika autostart aktif.",

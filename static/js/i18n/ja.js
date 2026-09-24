@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ クラウドプロバイダーを追加",
   tnBootEnable: "起動時の自動開始を有効化",
   tnBootDisable: "起動時の自動開始を無効化",
-  tnBootUnsupported: "リモートホストでは自動開始は未対応",
+  tnBootUnsupported: "自動開始にはこのマシンのスカウト 2.4 以降が必要です",
   updateClientLlama: "このクライアントの llama.cpp をコントローラーのビルドに更新",
   hostRebootTitle: "このホストを再起動",
   hostRebootConfirmClient: "{host} を再起動しますか？セルはマシンと共に停止し、自動起動が有効な場合のみ復帰します。",

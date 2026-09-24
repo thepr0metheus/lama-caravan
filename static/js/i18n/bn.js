@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ ক্লাউড প্রোভাইডার যোগ করুন",
   tnBootEnable: "বুটে অটোস্টার্ট চালু করুন",
   tnBootDisable: "বুটে অটোস্টার্ট বন্ধ করুন",
-  tnBootUnsupported: "রিমোট হোস্টে অটোস্টার্ট সমর্থিত নয়",
+  tnBootUnsupported: "অটোস্টার্টের জন্য এই মেশিনের স্কাউট 2.4 বা তার পরের সংস্করণ প্রয়োজন",
   updateClientLlama: "এই ক্লায়েন্টে llama.cpp কন্ট্রোলারের বিল্ডে আপডেট করুন",
   hostRebootTitle: "এই হোস্ট রিবুট করুন",
   hostRebootConfirmClient: "{host} রিবুট করবেন? এর সেলগুলি মেশিনের সাথে বন্ধ হবে এবং কেবল অটোস্টার্ট চালু থাকলে ফিরবে।",

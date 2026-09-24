@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ Ajouter un fournisseur cloud",
   tnBootEnable: "Activer le démarrage automatique au boot",
   tnBootDisable: "Désactiver le démarrage automatique au boot",
-  tnBootUnsupported: "Démarrage automatique non pris en charge pour les hôtes distants",
+  tnBootUnsupported: "Le démarrage automatique nécessite le scout de cette machine, version 2.4 ou ultérieure",
   updateClientLlama: "Mettre à jour llama.cpp sur ce client vers la version du contrôleur",
   hostRebootTitle: "Redémarrer cet hôte",
   hostRebootConfirmClient: "Redémarrer {host} ? Ses cellules s'arrêteront avec la machine et ne reviendront que si le démarrage automatique est activé.",

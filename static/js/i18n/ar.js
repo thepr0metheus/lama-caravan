@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ إضافة مزوّد سحابي",
   tnBootEnable: "تفعيل التشغيل التلقائي عند الإقلاع",
   tnBootDisable: "تعطيل التشغيل التلقائي عند الإقلاع",
-  tnBootUnsupported: "التشغيل التلقائي غير مدعوم للمضيفات البعيدة",
+  tnBootUnsupported: "التشغيل التلقائي يحتاج إلى سكاوت هذا الجهاز بإصدار 2.4 أو أحدث",
   updateClientLlama: "تحديث llama.cpp على هذا العميل إلى إصدار وحدة التحكم",
   hostRebootTitle: "إعادة تشغيل هذا المضيف",
   hostRebootConfirmClient: "إعادة تشغيل {host}؟ ستتوقف خلاياه مع الجهاز ولن تعود إلا إذا كان التشغيل التلقائي مفعّلاً.",

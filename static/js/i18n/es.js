@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ Añadir proveedor cloud",
   tnBootEnable: "Activar autoarranque al iniciar",
   tnBootDisable: "Desactivar autoarranque al iniciar",
-  tnBootUnsupported: "Autoarranque no compatible con hosts remotos",
+  tnBootUnsupported: "Autoarranque necesita el scout de esta máquina en la versión 2.4 o posterior",
   updateClientLlama: "Actualizar llama.cpp en este cliente a la compilación del controlador",
   hostRebootTitle: "Reiniciar este host",
   hostRebootConfirmClient: "¿Reiniciar {host}? Sus celdas caerán con la máquina y volverán solo si el autoarranque está activo.",

@@ -843,7 +843,7 @@ export default {
   clAddProvider: "+ 클라우드 제공업체 추가",
   tnBootEnable: "부팅 시 자동 시작 켜기",
   tnBootDisable: "부팅 시 자동 시작 끄기",
-  tnBootUnsupported: "원격 호스트에서는 자동 시작이 지원되지 않음",
+  tnBootUnsupported: "자동 시작에는 이 머신의 스카우트 2.4 이상이 필요합니다",
   updateClientLlama: "이 클라이언트의 llama.cpp를 컨트롤러 빌드로 업데이트",
   hostRebootTitle: "이 호스트 재부팅",
   hostRebootConfirmClient: "{host}을(를) 재부팅할까요? 셀은 머신과 함께 종료되며 자동 시작이 켜진 경우에만 돌아옵니다.",
