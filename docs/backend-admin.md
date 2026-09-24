@@ -46,9 +46,8 @@ derive paths from its own `__file__` — it would point into `caravan/`. Covers 
 (`LLAMA_HOME`, `START_SCRIPT`, `DEFAULT_MODELS_DIR`), the two service names, cell/backup dirs
 (`var/server-cells`, `var/server-backups`), the shared JSON files (`agent-proxies.json`,
 `agent-proxy-state.json`, `cloud-providers.json`, `token-history.json`), per-user state
-(`admin.json`, monitor history, incident log), secrets (`provider-secrets.json` and the OpenClaw
-config cache — outside the repo, 0600), the OpenClaw config-manager URLs (OPENCLAW_CONFIG_MANAGERS), the
-fleet-registry URL, and tunables (monitor interval/retention, token-history caps,
+(`admin.json`, monitor history, incident log), secrets (`provider-secrets.json` — outside the repo,
+0600), and tunables (monitor interval/retention, token-history caps,
 `SERVER_CELL_BASE_PORT`, default 22001 via `CARAVAN_CELL_BASE_PORT`). NOTE: `PORT` was once inside the cell numbering
 that starts at `SERVER_CELL_BASE_PORT`, so `used_server_cell_ports()` adds it to
 the taken set — otherwise a cell could be assigned the controller's own port and
@@ -64,7 +63,8 @@ sub-maps, `localPricing`/`apiPricing`, `hfToken`, `hfFavorites`, `favFields`); e
 imports the object, mutates it in place, then calls `save_admin_state()` — never rebinds it.
 `topology_store()` returns `admin_state["topology"]` after ensuring its sub-keys exist (`clients`,
 `assignments`, `clientAliases`, `layout`, `serverSlots` — the persistent host:port declarations that
-keep proxy cables attached across restarts — and `deletedAgents` tombstones).
+keep proxy cables attached across restarts). On load it drops, once, what scout reports and
+adoption left in the document (`AdminStore.SCOUT_WORDS`, the `deletedAgents` tombstones).
 Owns: `admin_state` (in-memory), `admin.json` on disk.
 Key functions: `load_admin_state` (tolerant read), `save_admin_state` (atomic write of the live
 object), `topology_store` (defaults-ensured topology sub-store).
@@ -427,31 +427,35 @@ Key functions: `monitor_sampler_loop`, `collect_monitor_sample`, `system_monitor
 
 Prometheus text exposition for `GET /metrics` — cheap reads only, no probes: the proxy daemon's
 live state file (route activity/queues), today's proxy log (request counters), the topology store
-(clients, cells), the cached `gpu_state()` and models-disk usage. When sign-in is enabled the
+(hosts, cells), the cached `gpu_state()` and models-disk usage. A machine's online gauge uses the
+board's own rule (`HostRecord.liveness` over `HOST_REPORT_TTL`), so the two cannot disagree. When sign-in is enabled the
 endpoint authenticates with the **fleet token** (`X-Caravan-Token` or `Authorization: Bearer`), so
 an external Prometheus can scrape without a browser session.
 Owns: —.
 Key functions: `build_metrics_text`.
 
-## `openclaw.py`
+## `queue_thresholds.py`
 
-Sync with the configured OpenClaw config managers. `fetch_openclaw_config_for` pulls an agent
-host's config (300s TTL); on failure it keeps serving the last-known-good copy marked `stale`, and
-good fetches persist 0600 to a cache file outside the repo (configs can carry provider credentials)
-that `load_openclaw_cache` warms at startup. `sync_wait_timeouts_from_openclaw` builds a proxy-port
-→ timeoutSeconds map (per-provider timeouts by baseUrl port, falling back to each host's
-`agents.defaults` across its topology assignments) and updates `clientTimeoutSeconds` on routes when
-changed. `compute_queue_thresholds` turns policy percentages (with per-route overrides) ×
-`clientTimeoutSeconds` into per-proxy queue-abort / priority-preempt / cloud-fallback seconds,
-cached and mirrored into the file as `computedThresholds` — a readable mirror, not the source of
-truth. `_queue_thresholds_refresh_loop` re-syncs both every **6 hours** in a background thread;
-`notify_openclaw_config_managers` POSTs the configured model to both managers' auto-apply endpoint
-after a service start/restart.
-Owns: `_openclaw_config_cache` (+lock), `_queue_thresholds_cache` (+lock), the on-disk OpenClaw
-config cache.
-Key functions: `fetch_openclaw_config_for`, `openclaw_configs_snapshot`,
-`load_openclaw_cache`/`save_openclaw_cache`, `sync_wait_timeouts_from_openclaw`,
-`compute_queue_thresholds`, `notify_openclaw_config_managers`, `openclaw_config_manager_state`.
+Queue-wait thresholds per proxy port. `QueueThresholds.compute` turns the policy percentages (with
+per-route overrides) × each route's `clientTimeoutSeconds` — the operator's wait budget on the port
+— into queue-abort / priority-preempt / cloud-fallback seconds, keeps them, and mirrors them into
+`agent-proxies.json` as `computedThresholds` (a readable mirror, not the source of truth).
+`refresh_forever` recomputes every **6 hours**; `latest()` is the one reader. The budget used to be
+synced first from each agent's own OpenClaw config, fetched from OpenClaw config managers on the
+client machines (`openclaw.py`); the managers went on 2026-09-24.
+Owns: the `QUEUE_THRESHOLDS` object (last result + its lock).
+Key functions: `QueueThresholds.compute`, `latest`, `refresh_forever`; `compute_queue_thresholds`
+(the callers' name).
+
+## `scout_poll.py`
+
+`ScoutPoller` pulls the scouts' state off the board's request path. `GET /api/topology` only kicks
+it: at most one pull runs at a time, at most one starts per `MIN_INTERVAL` (5 s), and the read
+returns what the store already holds — the next read sees what the pull brought. It used to be a
+synchronous loop inside the read, two seconds of timeout per scout, so one machine switched off
+added two seconds to every board poll.
+Owns: the `SCOUT_POLLER` instance (in `fleet_clients.py`) — its running flag and last start.
+Key functions: `ScoutPoller.kick`.
 
 ## `oauth.py`
 
@@ -555,8 +559,7 @@ Owns: the `serverSlots` records inside admin state.
 Key functions: `server_slot_key`, `next_server_cell_port`, `used_server_cell_ports`,
 `assert_server_cell_port_available`, `upsert_server_slot`, `reserve_server_cell`,
 `move_server_cell`, `delete_server_slot`, `reassign_server_slot_port` (fleet-wide free check,
-refuses a running controller cell, remaps router refs `srv:old→srv:new`),
-`normalize_topology_agent`.
+refuses a running controller cell, remaps router refs `srv:old→srv:new`).
 
 ## `cell_schedule.py`
 
@@ -577,23 +580,27 @@ Key functions: `normalize_schedule`, `set_cell_schedule`, `in_window`, `minutes_
 Client fleet management over the route-agent HTTP API. `client_llama_start` implements Variant 2 —
 the controller is the single command builder: it ships the resolved `build_remote_llama_args` list
 (path placeholders substituted by the agent after download) or, for command cells, the raw command +
-health path; slot moves/reservations happen first. `update_topology_client` /
-`topology_client_from_heartbeat` normalize incoming heartbeats into the topology store;
-`refresh_topology_clients_from_agents` pulls each agent's `/api/state` on demand so the Topology
-view is current without waiting for a heartbeat (clients are `online` within `TOPOLOGY_CLIENT_TTL`,
-45s, else `stale`). `auto_provision_agent_proxies` creates proxy port pairs (odd primary / even
-fallback) for unprovisioned agents, wires them to the default router, writes the config and restarts
-the proxy daemon. The controller also hosts every node's named launch-config backups under
-`var/server-backups/<host>/<gpu-model-or-CPU>/<stamp>-<name>.json` (path-safety enforced) so a
-client's backups survive the client; deletion uses `deletedAgents` tombstones so heartbeats don't
-resurrect removed agents.
-Owns: the `clients`/`assignments`/`deletedAgents` sections of admin state; the `var/server-backups/`
+health path; slot moves/reservations happen first. A machine is two records under one id
+(`HostRecord`, since 2026-09-24): its HOST record in `topology.hosts` is what its scout reports —
+GPUs, compute apps, CPU/RAM, cells, build versions, address — and `record_host_report` /
+`host_from_report` replace it with each report; its CLIENT record in `topology.clients` is the
+operator's — name, agents — and no report touches it (old scouts still send agents; they are not
+read). `topology_hosts` computes a host's liveness on read (`online` within `HOST_REPORT_TTL`,
+180 s — three scout heartbeats — else `stale`; never stored); `topology_clients` has none — a
+client's agents' traffic shows whether it works. `refresh_hosts_from_scouts` pulls each scout's
+`/api/state` so the board stays current between heartbeats; it runs in the background
+(`SCOUT_POLLER`, see `scout_poll.py`), never inside a board read. Agents and their ports are made by hand; removing an agent takes its
+assignment row and leaves its ports free. Deleting a client leaves the host record alone, and
+`topology_host_delete` forgets a silent machine's host record and nothing else — refused (409) while
+its scout answers, since the next report would bring it back. The controller also hosts every node's
+named launch-config backups under `var/server-backups/<host>/<gpu-model-or-CPU>/<stamp>-<name>.json`
+(path-safety enforced) so a client's backups survive the client.
+Owns: the `clients`/`hosts`/`assignments` sections of admin state; the `var/server-backups/`
 store.
 Key functions: `client_llama_start`, `client_llama_stop`, `client_monitor`,
 `client_llama_configs`/`_save`/`_delete`, `client_llama_list_cache`/`client_llama_purge_cache`,
-`update_topology_client`, `topology_clients`, `refresh_topology_clients_from_agents`,
-`auto_provision_agent_proxies`, `topology_discover_add` (fleet-registry registration),
-`topology_client_delete`/`topology_client_agent_delete`, `set_topology_client_alias`.
+`record_host_report`, `topology_hosts`, `topology_clients`, `refresh_hosts_from_scouts`,
+`topology_client_delete`/`topology_client_agent_delete`, `topology_host_delete`, `set_topology_client_alias`.
 
 ## `topology.py`
 
@@ -606,27 +613,25 @@ auto-syncs the policy's `maxSlots` to the fleet's total llama slots, resolves ea
 upstream through its router's default output (the route's own upstreamPort is a legacy placeholder),
 auto-syncs router outputs to the available providers (persisting once, via a fresh read-modify-write
 to avoid clobbering concurrent edits), and returns servers, nodes, proxies, routers, policy,
-clients, assignments, orphaned agents, aliases, layout, OpenClaw configs and cloud state.
+clients, assignments, aliases, layout and cloud state.
 A controller cell that is starting or warming carries `loadProgress` when its load can be measured
 (`_cell_load` → `load_progress.py`, sizes by `_load_file_size`: a library's file by the library's
 last look, never a `stat()` on the share).
-`apply_topology_assignments` validates and stores agent→proxy assignments and pushes them to the
-client agents.
+`apply_topology_assignments` validates and stores agent→proxy assignments; nothing is sent to the
+machine (the scout's apply went with its word about agents — an agent is pointed at its port by hand).
 Owns: — (aggregates; writes only via `proxies_config`/`state`).
 Key functions: `topology_state`, `topology_server`, `topology_nodes`,
 `normalize_topology_assignment`, `apply_topology_assignments`.
 
 ## `proxy_ops.py`
 
-Cross-domain proxy actions sitting above the domain modules. `reconcile_agent_proxies` cleans up
-drift after re-provisioning: for every **online** agent it rewrites the stored assignment to the
-proxy the agent live-reports (+ the contiguous P+1 fallback when that port exists), leaves offline
-agents untouched (except tombstoned ones), then deletes proxy routes no assignment references
-anymore — via `save_agent_proxy_config`, which also restarts the daemon. `stop_agent_proxy_route`
-appends `stopRequests` entries (by request id, or every active request on a port) to
-`agent-proxies.json`; the proxy daemon's stop-watcher kills the in-flight requests.
+Cross-domain proxy actions sitting above the domain modules. `stop_agent_proxy_route` appends
+`stopRequests` entries (by request id, or every active request on a port) to `agent-proxies.json`;
+the proxy daemon's stop-watcher kills the in-flight requests. (Reconciling the stored assignments
+with the scouts' live reports went with the reports, 2026-09-24: the stored rows are the truth, and
+a port no row claims stays until the operator deletes it.)
 Owns: —.
-Key functions: `reconcile_agent_proxies`, `stop_agent_proxy_route`.
+Key functions: `stop_agent_proxy_route`.
 
 ## `proxy_supervisor.py`
 
@@ -653,9 +658,8 @@ Key functions: `backups`, `resolve_backup_path`, `backup_config` (parsed + raw t
 
 The composite dashboard state and service actions. `state()` is the `/api/state` payload: parsed
 config + field metadata, paths, model catalog, chat templates, service status, runtime (with phase),
-diagnostics, CPU/GPU/memory, llama.cpp build info, journal logs, backups, OpenClaw manager state,
-and the project's own git info. `do_action` starts/stops/restarts `llamacpp-current.service` and
-notifies the OpenClaw config managers after start/restart. `llama_cpp_info` reports the binary
+diagnostics, CPU/GPU/memory, llama.cpp build info, journal logs, backups, and the project's own
+git info. `do_action` starts/stops/restarts `llamacpp-current.service`. `llama_cpp_info` reports the binary
 version and feature support plus the llama.cpp checkout's git state (optionally checking upstream
 for the newest `bNNNN` build tag); `update_llama_cpp` refuses when tracked files are dirty, then
 fetch + ff-only merge + cmake-builds `llama-server`.

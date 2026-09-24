@@ -102,15 +102,10 @@ PINS = [
     ("point_for_board_offset_and_missing", '', '(() => { globalThis.__q[SEL.board] = R(10, 20, 500, 500); const a = m.topologyPointFor(R(100, 100, 40, 20), "left"); delete globalThis.__q[SEL.board]; return [a, m.topologyPointFor(R(1, 1), "left"), m.topologyPointFor(null)]; })()',
      '[{"x":90,"y":90},null,null]', "смещение доски вычитается; без доски или элемента — null"),
     # ── classes ──
-    ("status_class", '', '["error", "failed", "stale", "pending", "applied", "", undefined].map(m.topologyCableStatusClass)', '["status-error","status-error","status-warn","status-warn","status-ok","status-ok","status-ok"]',
-     "статус кабеля: ошибка / предупреждение / ок по умолчанию"),
     ("proxy_and_route_class", '', '[m.topologyProxyClass("ctl:proxy:23001"), m.topologyProxyClass(""), m.topologyRouteClass("box a", "hermes", undefined)]', '["proxy-ctl-proxy-23001","proxy-","route-box-a-hermes-"]',
      "классы: всё, кроме [A-Za-z0-9_-], — в дефис"),
     ("accent_deterministic", '', '[m.topologyAccentStyle("hermes") === m.topologyAccentStyle("hermes"), m.topologyAccentStyle("hermes") !== m.topologyAccentStyle("scout"), m.topologyAccentColor("hermes", 0.5).endsWith("/ 0.5)"), m.topologyAccentStyle("") === m.topologyAccentStyle("item"), /^--topology-accent: hsl\\(\\d+ 70% 62%\\); --topology-accent-soft: hsl\\(\\d+ 70% 62% \\/ 0\\.13\\);$/.test(m.topologyAccentStyle("x"))]',
      '[true,true,true,true,true]', "акцент по ключу: детерминирован, разный для разных ключей, пустой ключ = item, формат стиля"),
-    ("apply_state_precedence", 'st.setTopology(TOPO({ assignments: { "box-a": { assignments: [], applyStatus: { state: "pending" } } }, clients: [{ id: "box-a", applyStatus: { state: "error" } }, { id: "box-b", applyStatus: { state: "error" } }, { id: "box-c" }] }));',
-     '[m.topologyApplyStateForHost("box-a"), m.topologyApplyStateForHost("box-b"), m.topologyApplyStateForHost("box-c"), m.topologyApplyStateForHost("ghost")]',
-     '["pending","error","stored","stored"]', "статус применения: назначение > клиент > stored"),
     # ── drawTopologyCables ──
     ("draw_paths_and_viewbox", '', '(() => { m.drawTopologyCables(); return [svg().attrs.viewBox, paths().length]; })()',
      '["0 0 1000 600",4]', "viewBox из доски; нарисованы 2 кабеля клиента + 2 выхода роутера, 2 пропущены"),
@@ -131,9 +126,9 @@ PINS = [
     ("draw_drops_rebuilt_each_draw", '', '(() => { m.drawTopologyCables(); globalThis.__q[SEL.rin("router:default")] = null; st.topology.proxies[2].routerId = "router:default"; m.drawTopologyCables(); return [m.cableDrops.length, m.cableDrops.map((d) => d.what)]; })()',
      '[4,["box-a/hermes primary -> router","box-a/hermes fallback -> router","box-a/hermes embeddings -> router","router router:default -> srv:22077"]]',
      "список пропусков пересобирается на каждой отрисовке: пропал вход роутера — пропали все три кабеля клиента"),
-    ("draw_muted_when_live_report_says_unused", 'st.setTopology(TOPO({ clients: [{ id: "box-a", agents: [{ id: "hermes" }], assignments: [{ agentId: "hermes", routes: [{ role: "primary", proxyId: "ctl:proxy:23001" }] }] }] }));',
+    ("draw_ignores_an_old_live_report", 'st.setTopology(TOPO({ clients: [{ id: "box-a", agents: [{ id: "hermes" }], assignments: [{ agentId: "hermes", routes: [{ role: "primary", proxyId: "ctl:proxy:23001" }] }] }] }));',
      '(() => { m.drawTopologyCables(); return paths().slice(0, 2); })()',
-     '["topology-cable primary idle priority proxy-ctl-proxy-23001 route-box-a-hermes-primary","topology-cable fallback muted proxy-ctl-proxy-23002 route-box-a-hermes-fallback"]', "живой отчёт агента: роль вне отчёта — muted (и не idle), подтверждённая — без unverified"),
+     '["topology-cable primary idle priority proxy-ctl-proxy-23001 route-box-a-hermes-primary","topology-cable fallback unverified idle proxy-ctl-proxy-23002 route-box-a-hermes-fallback"]', "negative: живой отчёт, оставшийся в записи от старого скаута, ничего не решает — фолбэк без трафика нарисован как любой другой (unverified), а не «приглушён»"),
     ("draw_without_svg_or_board", '', '(() => { delete globalThis.__fields.topologyCables; m.drawTopologyCables(); globalThis.__fields = { topologyCables: svgEl() }; delete globalThis.__q[SEL.board]; m.drawTopologyCables(); return [svg().innerHTML, m.cableDrops.length]; })()',
      '["",0]', "negative: без svg или без доски — ничего не рисуется и не отмечается"),
     ("live_cable_replaces_previous", '', '(() => { const prev = { removed: 0, remove() { this.removed += 1; } }; svg().live = prev; m.drawLiveTopologyCable(300, 250); return [prev.removed, paths(), svg().innerHTML.includes("M 140 110 C")]; })()',
@@ -152,7 +147,9 @@ def check(cond, msg):
 
 
 def main():
-    if len(PINS) < 22:
+    # The floor catches a list cut short by accident, so it follows the list: 20
+    # since the apply-state and cable-status helpers went (2026-09-24).
+    if len(PINS) < 20:
         print(f"js cables FAILED: всего {len(PINS)} пинов — снимок урезан")
         return 1
     node = find_node()

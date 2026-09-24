@@ -4,14 +4,13 @@ import { option } from "./form.js";
 import { helpTip, t } from "./i18n.js";
 import { closeConfirmModal } from "./llama-edit.js";
 import { action } from "./polling.js";
-import { deleteOrphanAgent } from "./remote-cells.js";
 import {
   renderServersBlockHtml,
   routerById,
   saveRouters,
   topologyRouterOutputLabel,
 } from "./routers.js";
-import { state, topology, ui, setTopology } from "./state.js";
+import { state, topology, ui } from "./state.js";
 import {
   _proxyUpstreamStr,
   ensureStickyBarTicker,
@@ -24,15 +23,13 @@ import {
   topologyRuntimeOverview,
 } from "./topology-activity.js";
 import {
-  _cvProxyIsStale,
   _cvProxyIsTombstoned,
   editTopologyProxy,
-  topologyMutedProxyIds,
   topologyProxyOwner,
   canvasBoardClients,
 } from "./topology-proxies.js";
 import { refreshTopology, renderTopology, topologyStructureFingerprint } from "./topology-render.js";
-import { $, api, copyText, escapeHtml, toast } from "./utils.js";
+import { $, copyText, escapeHtml, toast } from "./utils.js";
 
 export let _cvQueueHistOpen = {};                 // nodeId -> bool: history pane open?
 export let _cvQueueHistData = {};                 // nodeId -> { rows, ts } cached log data
@@ -1099,7 +1096,6 @@ export class InputsBlock {
     // edge) count as routed; everything unwired falls through to the default output.
     this.wiredProxyIds = new Set((graph.edges || []).map((e) => String(e.from)).filter((r) => r.startsWith("in:")).map((r) => r.slice(3)));
     this.graphInputs = graph.inputs || {};
-    this.muted = topologyMutedProxyIds();
   }
   // A port row of a client. Port dots are NOT inline — syncPortDots() creates them as
   // direct children of the block so they straddle the RIGHT border correctly even
@@ -1128,10 +1124,9 @@ export class InputsBlock {
   clientRow(c) {
     const wired = this.wiredProxyIds;
     const prim = c.proxies.find((p) => InputsBlock.roleOf(p) === "primary") || c.proxies[0];
-    const fb = c.proxies.find((p) => InputsBlock.roleOf(p) === "fallback" && p !== prim && !this.muted.has(p.id));
+    const fb = c.proxies.find((p) => InputsBlock.roleOf(p) === "fallback" && p !== prim);
     const anyWired = c.proxies.some((p) => wired.has(p.id));
-    const isStale = c.proxies.some((p) => _cvProxyIsStale(p));
-    const cls = `${anyWired ? "routed" : "unrouted"}${isStale ? " stale" : ""}`;
+    const cls = anyWired ? "routed" : "unrouted";
     return `<div class="cv-inputs-client ${cls}">`
       + `<span class="cv-in-name">${escapeHtml(InputsBlock.clientName(c.proxies[0]))}</span>`
       // Two lines, not three: name, P port and wait budget on the first, the
@@ -1168,32 +1163,6 @@ export class InputsBlock {
   // Ports are no longer created here: the kanban is about routing, not about the
   // existence of inputs. A port is created where its owner lives — on the client
   // card of the main board; otherwise a port appears that no card shows.
-  // Reconcile deletes routes. It had no button at all — it ran only from curl,
-  // and the first time it ran after service bridges existed it deleted three
-  // live ones. Here it asks first, and shows exactly what it would remove.
-  toolsHtml() {
-    return `<div class="cv-app-port-row">`
-      + `<button class="cv-app-port-btn reconcile" type="button" data-cv-reconcile title="${escapeHtml(t("cvReconcileHint"))}">⟳ ${escapeHtml(t("cvReconcileBtn"))}</button>`
-      + `</div>`;
-  }
-  // Dead agents — assignments whose agent the host no longer reports. Their
-  // delete (which frees the ports they still hold) lived in the retired
-  // Proxy-ports registry modal; this strip is its new home. Renders only when
-  // there is something to clean up.
-  orphansHtml() {
-    const orphanAgents = topology?.orphanedAgents || [];
-    return !orphanAgents.length ? "" : `<div class="cv-orphan-agents">`
-      + `<div class="cv-orphan-head" title="${escapeHtml(t("deadAgentsHint"))}">☠ ${escapeHtml(t("cvOrphanAgentsHead"))}</div>`
-      + orphanAgents.map((o) => {
-          const ports = (o.ports && o.ports.length) ? o.ports.map((p) => ":" + p).join(" ") : "—";
-          return `<div class="cv-orphan-row" title="${escapeHtml(t("deadAgentTitle"))}">`
-            + `<span class="cv-orphan-name">${escapeHtml(o.agentId)} · ${escapeHtml(o.clientName || o.clientId)}</span>`
-            + `<span class="cv-orphan-ports">${escapeHtml(ports)}</span>`
-            + `<button class="cv-orphan-del" type="button" data-cv-orphan-agent="${escapeHtml(o.agentId)}" data-cv-orphan-client="${escapeHtml(o.clientId)}" title="${escapeHtml(t("deleteDeadAgent"))}">✕</button>`
-            + `</div>`;
-        }).join("")
-      + `</div>`;
-  }
   descriptor() {
     const body = this.bodyHtml();
     return {
@@ -1201,7 +1170,7 @@ export class InputsBlock {
       // The empty message was a single-quoted string inside the template, so a
       // router without ports printed the literal "${escapeHtml(...)}" instead of
       // the sentence — absence rendered as garbage. A nested template renders it.
-      html: `<div class="cv-inputs-head">${escapeHtml(t("cvLabelClients"))} ${helpTip("cvTipClients")}</div><div class="cv-inputs-body">${body || `<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>`}</div>${this.orphansHtml()}${this.embedSlotHtml()}${this.toolsHtml()}`,
+      html: `<div class="cv-inputs-head">${escapeHtml(t("cvLabelClients"))} ${helpTip("cvTipClients")}</div><div class="cv-inputs-body">${body || `<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>`}</div>${this.embedSlotHtml()}`,
     };
   }
   // Sync port dots on the block (mirror of ServersBlock.syncPortDots). Dots are
@@ -2410,42 +2379,6 @@ document.addEventListener("click", (e) => {
   e.stopPropagation();
   editTopologyProxy(btn.dataset.cvPortEdit);
 });
-// ✕ on a dead-agent row (CLIENTS block strip): delete the orphaned assignment
-// and free its ports. Same document-level home as the other strip controls.
-document.addEventListener("click", (e) => {
-  const btn = e.target.closest && e.target.closest("[data-cv-orphan-agent]");
-  if (!btn) return;
-  e.stopPropagation();
-  deleteOrphanAgent(btn.dataset.cvOrphanClient, btn.dataset.cvOrphanAgent);
-});
-// ⟳ Reconcile — dry-run first, show what it would remove, then ask.
-document.addEventListener("click", async (e) => {
-  const btn = e.target.closest && e.target.closest("[data-cv-reconcile]");
-  if (!btn || btn.disabled) return;
-  e.stopPropagation();
-  btn.disabled = true;
-  try {
-    const plan = await api("/api/agent-proxies/reconcile", {
-      method: "POST", body: JSON.stringify({ dryRun: true }),
-    });
-    const changes = plan.result?.changes || [];
-    if (!changes.length) { toast(t("cvReconcileNothing")); btn.disabled = false; return; }
-    const lines = changes.map((c) => c.kind === "delete"
-      ? `✕ :${c.port} ${c.label || ""} — ${c.why}`
-      : `→ ${c.agentId}: ${c.from || "—"} ⇒ ${c.to || "—"} — ${c.why}`);
-    const ok = await appConfirm(t("cvReconcileConfirm", { count: String(changes.length) }),
-      { detail: lines.join("\n"), danger: changes.some((c) => c.kind === "delete") });
-    if (!ok) { btn.disabled = false; return; }
-    const res = await api("/api/agent-proxies/reconcile", {
-      method: "POST", body: JSON.stringify({}),
-    });
-    if (res.topology) setTopology(res.topology);
-    renderTopology();
-    toast(t("cvReconcileDone", { count: String((res.result?.deletedPorts || []).length) }));
-  } catch (err) { toast(err.message); }
-  btn.disabled = false;
-});
-
 // ── Function faces: the old names, kept for the callers and the snapshot ───────
 export function _cvQHistFmt(ms) { return History.fmt(ms); }
 export function _cvQHistModel(item) { return History.model(item); }

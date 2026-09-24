@@ -85,3 +85,60 @@ def host_for(host_id):
     id it has not seen before is a client it has not seen before.
     """
     return ControllerHost(host_id) if is_controller_host(host_id) else ClientHost(host_id)
+
+
+class HostRecord:
+    """What the controller keeps about a machine with a scout — and only that.
+
+    Until 2026-09-24 one record per machine held both this and a client's
+    agents, and a heartbeat replaced it wholesale: the operator's fields had to
+    be carried back through every report, and a field nobody carried was lost
+    on every beat. Now a scout's report is the whole of its host record — the
+    scout owns it and may replace it — and a client is the operator's record
+    in its own section, which no report touches. A machine that is both is two
+    records under one id.
+    """
+
+    #: The fields a report writes, plus when the machine was first and last
+    #: heard. `ip` is the one a client may carry too: there it is where the
+    #: client's calls come from, here where the machine's cells are reached.
+    FIELDS = ("hostname", "ip", "agentUrl", "gpus", "computeApps", "cpu", "platform",
+              "llamaNode", "llamaNodes", "llamaBinaryVersion", "llamaBinaryMtime",
+              "llamaUpdate", "firstSeen", "lastSeen")
+
+    #: Computed on every read and never stored: a stored "online" is a claim
+    #: that goes stale the moment it is written.
+    COMPUTED = ("state", "ageSeconds")
+
+    @classmethod
+    def liveness(cls, record, now, ttl):
+        """("online" | "stale", age in seconds or None). Never heard is stale
+        with an unknown age — not zero, which would read as "just now"."""
+        last_seen = int((record or {}).get("lastSeen") or 0)
+        age = now - last_seen if last_seen else None
+        return ("online" if last_seen and now - last_seen <= ttl else "stale"), age
+
+    @classmethod
+    def split(cls, row):
+        """One old combined record → (host record or None, client record or None).
+
+        A record carries a host when any report field is on it. The client
+        keeps its id, name, agents and anything else the operator set, and
+        also `ip`; it is dropped when it came from a report and has no agents —
+        a machine that only lends its GPU, which the old record showed as a
+        client because there was nowhere else to show it.
+        """
+        if not isinstance(row, dict):
+            return None, None
+        reported = [key for key in cls.FIELDS if key in row and key != "ip"]
+        if not reported:
+            return None, dict(row)
+        host = {"id": row.get("id"), "name": row.get("name") or row.get("id")}
+        host.update({key: row[key] for key in cls.FIELDS if key in row})
+        client = {key: value for key, value in row.items()
+                  if key not in cls.FIELDS or key == "ip"}
+        for key in cls.COMPUTED:
+            client.pop(key, None)
+        if not client.get("agents"):
+            return host, None
+        return host, client

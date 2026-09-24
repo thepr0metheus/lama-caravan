@@ -120,23 +120,24 @@ BREAKAGES = {
         # The live patcher restates a fact the builder already owns — the
         # shape that let a fixed line last exactly one poll tick.
         ([], "static/js/topology-render.js",
-         '_liveSet(card, "[data-live-age]", clientAgeText(client));',
-         '_liveSet(card, "[data-live-age]", `${client.ageSeconds ?? "?"}s ago`);'),
+         '_liveSet(nodeEl, "[data-live-hostage]", hostAgeText(n));',
+         '_liveSet(nodeEl, "[data-live-hostage]", t("nodeScoutLastReport", { ago: `${n.ageSeconds}s` }));'),
         # The single source stops building it — nothing left to protect.
-        ([], "static/js/topology-activity.js",
-         '`${age}s ago`', 't("clientAnsweredAgo", { age })'),
+        ([], "static/js/topology-nodes.js",
+         't("nodeScoutLastReport", { ago: _ageShort(age) })', '`${_ageShort(age)} ago`'),
     ],
     "check_carried_fields": [
         # A boundary stops naming a carried field — the classic silent drop.
         ([], "caravan/proxy/config.py",
          '"contextLength": int(route["contextLength"])', '"ctxLen": int(route["ctxLen"])'),
-        # A rebuild goes back to building an assignment from the live report
-        # alone. This is the fifth boundary the hand-written list never saw.
-        ([], "caravan/admin/proxy_ops.py",
-         "AgentAssignment.rewired(\n                aid, existing.get(aid),\n"
-         "                ProxyRoute.for_port(\"primary\", port, server_ip)).to_dict())",
-         "AgentAssignment(\n                aid,\n"
-         "                [ProxyRoute.for_port(\"primary\", port, server_ip)]).to_dict())"),
+        # A writer goes back to building an assignment from scratch. The rebuild
+        # from a live report did exactly that (the fifth boundary the list never
+        # saw); it is gone, and the bind is the writer left to break.
+        ([], "caravan/admin/topology.py",
+         "    assignment = AgentAssignment.from_raw(entry)\n"
+         "    assignment.set_route(ProxyRoute.for_port(role, port, TOPOLOGY_SERVER_IP))",
+         "    assignment = AgentAssignment(agent_id)\n"
+         "    assignment.set_route(ProxyRoute.for_port(role, port, TOPOLOGY_SERVER_IP))"),
     ],
     "check_proxy_id_namespace": (
         # Building the id moved to caravan/domain/client_proxy.py: three

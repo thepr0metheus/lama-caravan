@@ -143,25 +143,6 @@ export function renderRuntime() {
   `;
 }
 
-export function renderOpenClawLinks() {
-  const target = $("openclawLinksSummary");
-  if (!target) return;
-  const links = state.openclawConfigManagers || {};
-  const last = links.lastNotify || {};
-  const results = new Map((last.results || []).map((row) => [row.name, row]));
-  const rows = (links.targets || []).map((link) => {
-    const result = results.get(link.name);
-    const status = result ? (result.ok ? "connected" : "error") : "configured";
-    const kind = result ? (result.ok ? "good" : "bad") : "";
-    const detail = result?.response?.status || result?.error || result?.response?.profile || "";
-    return `<div>${pill(status, kind)} <b>${escapeHtml(link.name)}</b> <span class="muted">${escapeHtml(link.url)}</span>${detail ? `<br><span class="muted">${escapeHtml(String(detail))}</span>` : ""}</div>`;
-  }).join("");
-  target.innerHTML = rows || `<div>${pill("not configured", "bad")}</div>`;
-  if (last.modelHint) {
-    target.innerHTML += `<div class="muted">Last model: ${escapeHtml(last.modelHint)}</div>`;
-  }
-}
-
 export function renderCpu() {
   if (!$("cpuSummary")) return;
   const cpu = state.cpu || {};

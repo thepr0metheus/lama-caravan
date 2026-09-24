@@ -19,14 +19,16 @@ jobs:
       - name: queue node unit test
         run: python3 scripts/test_queue_node.py
 
-      # Guards the port-minting loop that caused the 2026-07-20 outage: the
-      # symptom is only visible across two provisioning passes, so it needs a
-      # test rather than review.
-      - name: auto-provisioning unit test
+      # The records a scout report and the operator write, and how the board
+      # reads them: hosts and clients apart, the scout pull off the request
+      # path. Auto-provisioning, which this step was first written for, is gone
+      # (2026-09-24); the port it minted is made by hand now.
+      - name: host and client records
         run: |
           set -e
-          python3 scripts/test_auto_provision.py
           python3 scripts/test_client_records.py
+          python3 scripts/test_scout_poll.py
+          python3 scripts/test_queue_thresholds.py
           python3 scripts/test_token_history.py
 
       # These were one `run:` scalar with the second line indented under it,

@@ -97,7 +97,7 @@ DOMAIN_DIR = "caravan/domain/"
 
 #: Constructors that CARRY OVER what's already saved. Everything else builds
 #: an assignment from scratch and drops whatever wasn't named.
-CARRYING_CONSTRUCTORS = ("from_raw", "rewired")
+CARRYING_CONSTRUCTORS = ("from_raw",)
 
 
 def _bare_assignment_builds():

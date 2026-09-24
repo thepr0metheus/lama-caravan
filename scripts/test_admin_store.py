@@ -84,6 +84,12 @@ print(json.dumps(sorted(slots), ensure_ascii=False))
 print(json.dumps(slots.get("controller:22001"), sort_keys=True))
 '''
 
+TOPO_DUMP = '''
+import json
+from caravan.admin.state import admin_state
+print(json.dumps(admin_state["topology"], ensure_ascii=False))
+'''
+
 TOPOLOGY = '''
 import json
 from caravan.admin.state import topology_store
@@ -179,8 +185,96 @@ def main():
     if out.returncode == 0:
         check("topology_store seeds every section it promises",
               set(json.loads(out.stdout)) == {"assignments", "clientAliases", "clients",
-                                              "deletedAgents", "layout", "serverSlots"},
+                                              "hosts", "layout", "serverSlots"},
               out.stdout.strip())
+
+    # ── what scout reports and adoption left goes, once ──────────────────────
+    scout_era = {"topology": {
+        "clients": {"box": {"id": "box", "name": "Box", "manual": True, "lastSeen": 5,
+                            "candidates": [{"machine": "agent-x"}], "applyStatus": {"state": "ok"},
+                            "assignments": [{"agentId": "a1"}],
+                            "agents": [{"id": "a1", "name": "A", "kind": "openclaw", "manual": True,
+                                        "runtimeDetected": True, "runtime": "vm"}]}},
+        "assignments": {"box": {"hostId": "box", "agentUrl": "http://10.0.0.9:8092",
+                                "applyStatus": {"state": "stored"}, "desiredAt": 7,
+                                "assignments": [{"agentId": "a1", "manual": True, "routes": [
+                                    {"role": "primary", "proxyId": "skynet:proxy:23001",
+                                     "endpoint": "http://h:23001/v1", "contextLength": 8192}]}]}},
+        "deletedAgents": {"box": ["gone1", "gone2"]},
+    }}
+    # A client made by hand that an older controller stamped with liveness.
+    scout_era["topology"]["clients"]["hand"] = {"id": "hand", "name": "Hand", "state": "stale",
+                                                "ageSeconds": None, "agents": [{"id": "b1", "name": "B"}]}
+    out, text = in_fresh_process(TOPO_DUMP, initial=scout_era)
+    if out.returncode == 0:
+        topo = json.loads(out.stdout.strip().splitlines()[-1])
+        box = topo["clients"]["box"]
+        check("the client keeps what it is and loses what reports said",
+              box == {"id": "box", "name": "Box",
+                      "agents": [{"id": "a1", "name": "A", "kind": "openclaw", "runtime": "vm"}]},
+              json.dumps(box, ensure_ascii=False))
+        check("a client keeps no liveness of its own — the stamped state goes",
+              topo["clients"].get("hand") == {"id": "hand", "name": "Hand", "agents": [{"id": "b1", "name": "B"}]}
+              and "hand" not in topo.get("hosts", {}),
+              json.dumps(topo["clients"].get("hand"), ensure_ascii=False))
+        check("and what its machine's scout reported became the machine's host record",
+              topo.get("hosts", {}).get("box") == {"id": "box", "name": "Box", "lastSeen": 5},
+              json.dumps(topo.get("hosts"), ensure_ascii=False))
+        entry = topo["assignments"]["box"]
+        check("an assignment entry keeps its rows and routes, whole",
+              entry == {"hostId": "box", "assignments": [{"agentId": "a1", "routes": [
+                  {"role": "primary", "proxyId": "skynet:proxy:23001",
+                   "endpoint": "http://h:23001/v1", "contextLength": 8192}]}]},
+              json.dumps(entry, ensure_ascii=False))
+        check("tombstones go: nothing brings a deleted agent back", "deletedAgents" not in topo)
+        check("the migration says what went, in the log",
+              "store: dropped what scout reports and adoption left:" in out.stdout
+              and "2 tombstones" in out.stdout and "1 client manual" in out.stdout
+              and "1 assignment row manual" in out.stdout and "1 client state" in out.stdout
+              and "1 client ageSeconds" in out.stdout, out.stdout.strip()[:300])
+        check("and persists itself", text is not None and '"manual"' not in text and "deletedAgents" not in text)
+        again, text2 = in_fresh_process(TOPO_DUMP, initial=json.loads(text))
+        check("negative: a second start finds nothing and says nothing",
+              again.returncode == 0 and "store: dropped" not in again.stdout
+              and json.loads(again.stdout.strip().splitlines()[-1]) == topo, again.stdout.strip()[:200])
+    else:
+        check("scout-era migration runs", False, out.stderr.strip()[-300:])
+
+    # ── one machine, two records: the host a scout reports, the client made by hand ──
+    combined = {"topology": {"clients": {
+        "both": {"id": "both", "name": "Both", "ip": "10.0.0.5", "agentUrl": "http://10.0.0.5:8092",
+                 "gpus": [{"name": "GPU"}], "lastSeen": 9, "firstSeen": 1, "state": "online",
+                 "agents": [{"id": "a1", "name": "A"}]},
+        "donor": {"id": "donor", "name": "Donor", "agentUrl": "http://10.0.0.6:8092", "gpus": [{"name": "GPU"}],
+                  "agents": []},
+        "hand": {"id": "hand", "name": "Hand", "ip": "10.0.0.7", "agents": [{"id": "b1", "name": "B"}]},
+    }, "hosts": {"donor": {"id": "donor", "name": "Newer", "lastSeen": 99}}}}
+    out, text = in_fresh_process(TOPO_DUMP, initial=combined)
+    if out.returncode == 0:
+        topo = json.loads(out.stdout.strip().splitlines()[-1])
+        check("a machine that is both becomes two records under one id",
+              topo["clients"]["both"] == {"id": "both", "name": "Both", "ip": "10.0.0.5",
+                                          "agents": [{"id": "a1", "name": "A"}]}
+              and topo["hosts"]["both"] == {"id": "both", "name": "Both", "ip": "10.0.0.5",
+                                            "agentUrl": "http://10.0.0.5:8092", "gpus": [{"name": "GPU"}],
+                                            "firstSeen": 1, "lastSeen": 9},
+              json.dumps([topo["clients"].get("both"), topo["hosts"].get("both")], ensure_ascii=False))
+        check("a machine that only lends its GPU keeps no client record",
+              "donor" not in topo["clients"], json.dumps(sorted(topo["clients"])))
+        check("negative: a host already on record is not overwritten by an old combined one",
+              topo["hosts"]["donor"] == {"id": "donor", "name": "Newer", "lastSeen": 99},
+              json.dumps(topo["hosts"].get("donor")))
+        check("negative: a client nobody's scout reported stays a client, and no host appears for it",
+              topo["clients"]["hand"] == {"id": "hand", "name": "Hand", "ip": "10.0.0.7",
+                                          "agents": [{"id": "b1", "name": "B"}]} and "hand" not in topo["hosts"])
+        check("the split says what it did, in the log",
+              "store: machines split into host and client records: both (host+client), donor (host only)"
+              in out.stdout, out.stdout.strip()[:300])
+        again, _ = in_fresh_process(TOPO_DUMP, initial=json.loads(text))
+        check("negative: a second start splits nothing and says nothing",
+              again.returncode == 0 and "store: machines split" not in again.stdout)
+    else:
+        check("host split runs", False, out.stderr.strip()[-300:])
 
     print(f"\n  {len(PASS)} passed, {len(FAIL)} failed")
     return 1 if FAIL else 0

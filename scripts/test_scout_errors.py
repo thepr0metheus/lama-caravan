@@ -109,17 +109,12 @@ def main():
     srv, url = serving()
 
     # Every entry point that forwards to a scout, driven against a scout that
-    # answers 409 with a reason. `_client_agent_url` is stubbed so the test does
-    # not need a registered client — the question here is error handling, not
-    # registry lookup.
-    fc._client_agent_url = lambda host_id: url
+    # answers 409 with a reason. The host is registered the way a report
+    # registers it — every entry point reads its address through the one
+    # lookup (Scout.for_host); a stubbed helper once missed a second copy of it.
     fc._scout_headers = lambda: {}
-    # client_llama_stop does NOT go through _client_agent_url — it repeats the
-    # whole lookup inline, which is why stubbing the helper does not reach it.
-    # Registering a client is what drives the real path; discovering that was
-    # the test being wrong, and it found a second copy of the resolution.
     from caravan.admin.state import topology as topo
-    topo.clients()["h"] = {"id": "h", "agentUrl": url}
+    topo.hosts()["h"] = {"id": "h", "agentUrl": url}
 
     cases = [
         ("update",      lambda: fc.client_llama_update({"hostId": "h"})),
@@ -190,7 +185,6 @@ def main():
 
     srv.shutdown()
     dead = url
-    fc._client_agent_url = lambda host_id: dead
     # A dead server means every call waits out its own timeout; the real ones are
     # 10-30s and four of them make this file take minutes. The question here is
     # WHAT is reported, not how long we waited for it.
@@ -204,8 +198,7 @@ def main():
     srv3 = HTTPServer(("127.0.0.1", 0), Truncated)
     threading.Thread(target=srv3.serve_forever, daemon=True).start()
     url3 = f"http://127.0.0.1:{srv3.server_port}"
-    fc._client_agent_url = lambda host_id: url3
-    topo.clients()["h"] = {"id": "h", "agentUrl": url3}
+    topo.hosts()["h"] = {"id": "h", "agentUrl": url3}
     print("\n  ── что видит оператор, когда ответ ПРИШЁЛ, но его не разобрать:")
     unusable = []
     for name, fn in cases:
@@ -219,8 +212,7 @@ def main():
     named = [n for n, _, u, _ in unusable if not u]
     check("и называется собой, а не «недоступен»", not named, f"не называют: {named}")
     srv3.shutdown()
-    fc._client_agent_url = lambda host_id: url
-    topo.clients()["h"] = {"id": "h", "agentUrl": url}
+    topo.hosts()["h"] = {"id": "h", "agentUrl": url}
 
     # The other half, and the half that caught the fix's own regression: a host
     # that never answered must still read as unreachable, and must NOT surface a

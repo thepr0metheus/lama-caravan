@@ -1,13 +1,14 @@
 """An agent's assignment and its routes — a class, not a three-key dict.
 
-Three places build this record's shape: the normalizer in `admin/topology.py`,
-the rebuild in `admin/proxy_ops.py`, and provisioning in
-`admin/fleet_clients.py`. The count of three isn't the problem by itself — the
-problem is that the normalizer REBUILDS the record from scratch, so a field it
-doesn't name quietly disappears on the next save. This already happened: the
-`manual` flag had to be named separately, and right next to it sits a comment
-saying "leave this agent alone", silently reverted to automatic — the worst
-failure this flag can have.
+Several places build this record's shape: the normalizer and the bind in
+`admin/topology.py` (the rebuild from a live report in `admin/proxy_ops.py` and
+provisioning in `admin/fleet_clients.py` went with the scout's word about
+agents, 2026-09-24). The count
+isn't the problem by itself — the problem is that the normalizer REBUILDS the
+record from scratch, so a field it doesn't name quietly disappears on the next
+save. This already happened: the `manual` flag (retired with provisioning) had
+to be named separately, and an agent marked "leave this alone" was silently
+reverted to automatic — the worst failure that flag could have.
 
 So "don't forget to name the field" must not be something that can be
 forgotten. The field list lives here, in one place, and all three go through
@@ -116,21 +117,20 @@ class ProxyRoute:
 
 
 class AgentAssignment:
-    """Where one agent goes — and what the operator decided about it by hand.
+    """Where one agent goes: its routes, one per role.
 
-    `manual` means "provisioning stays out of this". The flag is stored only
-    when it's set: a made-up False on a record nobody ever touched would read
-    as an operator decision.
+    Every assignment is the operator's now — ports are bound by hand — so the
+    `manual` mark that told provisioning to stay away is gone with
+    provisioning (2026-09-24); a stored one is dropped on the next save.
     """
 
-    __slots__ = ("agent_id", "routes", "manual")
+    __slots__ = ("agent_id", "routes")
 
-    def __init__(self, agent_id, routes=None, manual=None):
+    def __init__(self, agent_id, routes=None):
         self.agent_id = str(agent_id or "").strip()
         if not self.agent_id:
             raise AppError("assignment.agentId is required", 400)
         self.routes = list(routes or [])
-        self.manual = None if manual is None else bool(manual)
 
     @classmethod
     def from_raw(cls, raw):
@@ -146,39 +146,7 @@ class AgentAssignment:
                 raise AppError(f"duplicate route role: {route.role}", 400)
             seen.add(route.role)
             routes.append(route)
-        return cls(agent_id=raw.get("agentId"), routes=routes, manual=raw.get("manual"))
-
-    @classmethod
-    def rewired(cls, agent_id, previous_raw, route):
-        """A record rebuilt from a client's LIVE report.
-
-        The report knows one thing: which port the agent uses right now. It
-        doesn't know what the operator decided about this route — and has no
-        right to erase that. The proxy reconcile used to build the record
-        from the report alone, so the context window and the "manual" flag
-        disappeared for EVERY online agent, even when the port hadn't
-        changed; the preview meanwhile showed a rewire "from port X to port
-        X" and said nothing about the settings it was dropping.
-
-        Liveness comes from `route`; settings come from the previous record
-        of the same role. The record keeps a single route: fallback pairs
-        have been retired, and a rebuild must not resurrect them.
-        """
-        prev = previous_raw if isinstance(previous_raw, dict) else {}
-        prev_routes = prev.get("routes")
-        same_role = next((r for r in (prev_routes if isinstance(prev_routes, list) else [])
-                          if isinstance(r, dict)
-                          and str(r.get("role") or "primary").strip() == route.role), None)
-        if same_role is not None:
-            if route.context_length is None:
-                route.context_length = ProxyRoute._positive_int(same_role.get("contextLength"))
-            if route.context_auto is None and same_role.get("contextAuto") is not None:
-                route.context_auto = bool(same_role.get("contextAuto"))
-            if route.model_name is None and same_role.get("modelName"):
-                route.model_name = str(same_role.get("modelName")).strip()[:120] or None
-            if route.model_name_auto is None and same_role.get("modelNameAuto") is not None:
-                route.model_name_auto = bool(same_role.get("modelNameAuto"))
-        return cls(agent_id, [route], manual=prev.get("manual"))
+        return cls(agent_id=raw.get("agentId"), routes=routes)
 
     def route(self, role):
         return next((r for r in self.routes if r.role == role), None)
@@ -211,7 +179,4 @@ class AgentAssignment:
         return route
 
     def to_dict(self):
-        out = {"agentId": self.agent_id, "routes": [r.to_dict() for r in self.routes]}
-        if self.manual is not None:
-            out["manual"] = self.manual
-        return out
+        return {"agentId": self.agent_id, "routes": [r.to_dict() for r in self.routes]}

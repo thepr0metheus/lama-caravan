@@ -95,14 +95,14 @@ fails at import time.
 
 | Method & path | Purpose |
 |---|---|
-| `GET /api/topology` | The full fleet tree: clients, agents, servers, GPUs, proxies, routers, cloud. A controller cell that is starting from files it reads carries `loadProgress`: `{stage: starting\|reading\|stalled\|setup, read, total, speed?, left?, idle?, files: [{role, name, size, read, state: done\|reading\|waiting, library?}]}` — bytes, bytes per second, seconds; absent when the load cannot be measured (a mapped load, an unknown size). Every proxy carries `holders: [{hostId, agentId, role}]` — who holds the port, read by the same function `POST /api/topology/agent-proxy-bind` refuses by (one port, one owner, 409); empty when nobody holds it. |
-| `POST /api/topology/client-heartbeat` | Route-agent heartbeat: llama nodes, GPUs, cache state. |
+| `GET /api/topology` | The full fleet tree: hosts (machines with a scout, liveness computed on read), clients (made by hand) and their agents, servers, GPUs, proxies, routers, cloud. A machine's node has `role: "host"` and `ageSeconds` — seconds since its scout's last report (`null` when there was none). A client row is the operator's record only: a machine's report and liveness are in `hosts`, never merged into it. A controller cell that is starting from files it reads carries `loadProgress`: `{stage: starting\|reading\|stalled\|setup, read, total, speed?, left?, idle?, files: [{role, name, size, read, state: done\|reading\|waiting, library?}]}` — bytes, bytes per second, seconds; absent when the load cannot be measured (a mapped load, an unknown size). Every proxy carries `holders: [{hostId, agentId, role}]` — who holds the port, read by the same function `POST /api/topology/agent-proxy-bind` refuses by (one port, one owner, 409); empty when nobody holds it. |
+| `POST /api/topology/client-heartbeat` | Scout heartbeat: the machine only — GPUs, compute apps, CPU/RAM, llama nodes, build versions. Replaces the machine's host record (`topology.hosts`) and touches no client; agent fields from old scouts are not read. Replies `{ok, host}`. |
 | `POST /api/topology/assignments` | Store client→router assignments (cable drops). |
+| `POST /api/topology/agent-proxy-bind` | Point an agent at a proxy port for one role: `{hostId, agentId, port, role: primary\|fallback}`. 404 for a client or an agent the operator's record does not have, 400 without a port or for a port with no route, 409 when another agent holds the port. |
 | `POST /api/topology/client-alias` | Rename a client in the UI. |
-| `POST /api/topology/discover/add` | Register a discovered candidate into the fleet registry. |
-| `POST /api/topology/client/delete` | Unregister a client. |
-| `POST /api/topology/client/agent/delete` | Remove one agent under a client (suppressed on refresh). |
-| `POST /api/topology/orphan-assignment/delete` | Clean a stale assignment. |
+| `POST /api/topology/client/delete` | Delete a client — the operator's record — with its agents and assignment row. The machine's host record, if one shares the id, is not touched. |
+| `POST /api/topology/host/delete` | Forget a machine whose scout went silent: its host record only (`{hostId}` → `{ok, hostId}`). Cells configured on it and a client with the same id are kept; the machine returns with its scout's next report. 409 while the scout still answers, 404 for an unknown id. |
+| `POST /api/topology/client/agent/delete` | Remove one agent: its record and its assignment row. Its ports stay (`freedPorts` names those no agent claims now). The last agent takes its client with it (`clientRemoved: true`). |
 | `GET /api/topology/client-monitor?hostId=&kind=` | Proxy a client's monitor snapshot through its route-agent. |
 | `GET /api/topology/client-llama/configs?hostId=` | Remote llama-node config list. |
 | `POST /api/topology/client-llama/configs/save` / `…/delete` | Manage remote configs. |
@@ -117,8 +117,6 @@ fails at import time.
 | `POST /api/topology/server-slot/note` | Save the free-text note on a cell card. |
 | `POST /api/fleet/llama-update` / `…/llama-restore` | Build/update llama.cpp on a client host via its scout / restore an archived client build. |
 | `GET /api/fleet/llama-update-status?hostId=` / `GET /api/fleet/llama-builds?hostId=` | Client build-job progress / archived builds on a client. |
-| `GET /api/topology/agent-openclaw?client=&agent=` | Fetch one agent's OpenClaw state through the route-agent. |
-| `GET /api/openclaw-config?client=&refresh=` | Cached OpenClaw config snapshot per manager. |
 | `GET /api/queue-thresholds` / `POST /api/queue-thresholds/recalc` | Computed queue wait thresholds / force resync from OpenClaw. |
 
 ## Agent proxies & routers
@@ -130,7 +128,6 @@ fails at import time.
 | `POST /api/agent-proxies/policy` | Save the global queue/preemption policy. |
 | `POST /api/agent-proxies/route-policy` | Patch one route's policy overrides. |
 | `POST /api/agent-proxies/routers` (alias `…/switchboards`) | Save routers incl. the kanban graph (nodes/edges). |
-| `POST /api/agent-proxies/reconcile` | Pull proxy-daemon runtime metadata back into the config. |
 | `POST /api/agent-proxies/stop` | Stop a route's in-flight request (writes a stopRequest). |
 
 ## Cloud accounts & pricing

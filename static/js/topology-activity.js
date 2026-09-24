@@ -9,7 +9,7 @@ import { action, formatTps } from "./polling.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { topologyRouteDetail } from "./topology-dnd.js";
 import { queueThresholds } from "./topology-modals.js";
-import { topologyAssignmentsForHost, topologyProxyOwner } from "./topology-proxies.js";
+import { topologyProxyOwner } from "./topology-proxies.js";
 import { _lastRuntimePanelHtml, refreshTopology, renderTopology } from "./topology-render.js";
 import { $, api, copyText, escapeHtml, formatMemoryMiB, pill, toast } from "./utils.js";
 
@@ -22,28 +22,6 @@ export function topologyStatusPill(value) {
     : value === "stale" || value === "loading" || value === "pending" || value === "stored" || value === "warming" ? "warn"
     : value === "error" || value === "failed" ? "bad" : "";
   return pill(value || "unknown", kind);
-}
-
-// A client's liveness line: a status pill and when it last answered.
-//
-// "Never answered" and "answered at an unknown time" are DIFFERENT things,
-// and the first used to print as the second: age arrives as null, and the
-// card showed "?s ago" — claiming an answer had happened, just at an unknown
-// time. A client the operator had just created looked like one that had gone
-// silent — absence drawn as normal (docs/why.md). Now it says so plainly:
-// never answered. Only the age TEXT, without the pill: it's written not just
-// by the card builder but also by the board's live patcher on every poll
-// tick. As long as the text was assembled in two places, the fix held for
-// exactly one frame — the card would say "never answered", and the very next
-// tick brought back "?s ago" and claimed an answer again.
-export function clientAgeText(client) {
-  const age = client?.ageSeconds;
-  return (age === null || age === undefined) ? t("clientNeverAnswered") : `${age}s ago`;
-}
-
-export function clientLivenessLineHtml(client) {
-  return `${topologyStatusPill(client?.state)}`
-    + `<span data-live-age>${escapeHtml(clientAgeText(client))}</span>`;
 }
 
 export function topologyAgentMeta(agent) {
@@ -78,11 +56,6 @@ export function topologyAgentGroup(agent) {
   return "other";
 }
 
-export function topologyGroupLabel(group) {
-  const keys = { host: "topologyHostGroup", vm: "topologyVmGroup", docker: "topologyDockerGroup", other: "topologyOtherGroup" };
-  return t(keys[group] || "topologyOtherGroup");
-}
-
 export function topologyAgentSortPort(agent) {
   const explicit = Number(agent.port || 0);
   if (explicit) return explicit;
@@ -111,11 +84,12 @@ export function sortedTopologyClients(clients) {
 }
 
 // Lane order for cards: the live ones first, the quiet ones after, by name inside
-// each group. A card is whatever the lane draws as one block — an agent, a scout
-// host, a caption — with `live` decided by its owner (an agent: traffic within
-// twelve hours, the rule that frames a quiet card yellow; a host: its scout
-// answers). The board lane and the kanban rows both order through this, so a
-// card here is a row there. Stable: ties keep the caller's order.
+// each group. A card is whatever the lane draws as one block — an agent or a
+// client's caption — with `live` decided by traffic: within twelve hours, the
+// rule that frames a quiet card yellow (an agent: its own routes; a caption:
+// any of its client's agents). The board lane and the kanban rows both order
+// through this, so a card here is a row there. Stable: ties keep the caller's
+// order.
 export function sortedLaneCards(cards) {
   return (cards || []).slice().sort((left, right) =>
     (left?.live ? 0 : 1) - (right?.live ? 0 : 1)
@@ -379,7 +353,7 @@ export function topologyFormatDuration(ms) {
 export function topologyQueueRuntime(item) {
   const queue = item?.queue || {};
   const queuedMs = Number(queue.queuedMs || topologyDurationMs(item?.startedAt));
-  // Use the full clientTimeoutSeconds (from backend thresholds or OpenClaw config).
+  // Use the full clientTimeoutSeconds (from backend thresholds or the port's own number).
   // No more abort% — we wait until the client's own timeout runs out.
   const proxyPort = Number(item?.port || 0);
   const proxy = proxyPort ? (topology?.proxies || []).find((p) => Number(p.port || 0) === proxyPort) : null;
@@ -1354,55 +1328,28 @@ export function topologyGpuActivity() {
   return { state: "idle", label: "", summary: "" };
 }
 
+// The wait budget a port's client allows: the operator's number on the port
+// (the route form). It used to fall back to the agent's own OpenClaw config,
+// fetched from the config managers on the client machines; they went
+// (2026-09-24), and a port with no number has no budget — nothing is guessed.
 export function proxyEffectiveWaitTimeout(proxy) {
-  const direct = Number(proxy?.clientTimeoutSeconds || 0);
-  if (direct > 0) return direct;
-  // Scan all client routes for one pointing at this proxy port, then use
-  // topologyRouteTimeoutSec (which reads OpenClaw provider config) to get real timeout
-  const port = String(proxy?.port || "");
-  if (!port) return 0;
-  const portStr = `:${port}`;
-  for (const client of (topology?.clients || [])) {
-    for (const assignment of topologyAssignmentsForHost(client.id)) {
-      for (const route of (assignment.routes || [])) {
-        if (String(route.endpoint || "").includes(portStr)) {
-          const agent = (client.agents || []).find((a) => a.id === assignment.agentId);
-          const t = topologyRouteTimeoutSec(client, agent, route);
-          if (t > 0) return t;
-        }
-      }
-    }
-  }
-  return 0;
+  const own = Number(proxy?.clientTimeoutSeconds || 0);
+  return own > 0 ? own : 0;
 }
 
-export function topologyRouteTimeoutSec(client, agent, route) {
-  const cfg = topology?.openclawConfigs?.[client?.id]?.data;
-  if (!cfg || !route) return 0;
-  const defaults = cfg.agents?.defaults || {};
-  let timeout = Number(defaults.timeoutSeconds || 0);
-  const port = String(route.endpoint || "").match(/:(\d+)/)?.[1];
-  if (port) {
-    const providers = cfg.models?.providers || {};
-    for (const prov of Object.values(providers)) {
-      if (String(prov?.baseUrl || "").includes(`:${port}`)) {
-        if (prov.timeoutSeconds) timeout = Number(prov.timeoutSeconds);
-        break;
-      }
-    }
-  }
-  return timeout || 0;
-}
-
-export function topologyRouteTimeoutHtml(client, agent, route, activity) {
-  const timeoutSec = topologyRouteTimeoutSec(client, agent, route);
+// The countdown while a request waits or runs, against the route's wait budget
+// (routeWaitSec — the number its chip shows). At rest the chip alone says the
+// budget: an idle line under it said the same number twice on one row. The
+// budget used to be read from the agent's OpenClaw config instead, so the chip
+// and this line could name two different numbers for one route.
+export function topologyRouteTimeoutHtml(route, activity) {
+  const timeoutSec = routeWaitSec(route).sec;
   if (!timeoutSec) return "";
   const item = activity?.item;
   const totalMs = timeoutSec * 1000;
   if (item && topologyIsQueuedItem(item)) {
     // Queued: show remaining client budget as a depleting bar (same style as running).
     const rt = topologyQueueRuntime(item);
-    // rt.leftMs is time until abort (abortPct% of clientTimeout). Scale back to full budget.
     const queuedMs = rt.queuedMs;
     const leftMs = Math.max(0, totalMs - queuedMs);
     const leftPct = Math.max(0, Math.min(100, (leftMs / totalMs) * 100));
@@ -1417,7 +1364,7 @@ export function topologyRouteTimeoutHtml(client, agent, route, activity) {
     const label = t("topologyTimeoutWaiting", { left: topologyFormatDuration(leftMs), total: timeoutSec });
     return `<div class="topology-route-timeout waiting"><span>${escapeHtml(label)}</span><span class="topology-wait-bar" aria-hidden="true"><i style="animation-duration:${Math.round(leftMs)}ms;--queue-start:${leftPct.toFixed(2)}%"></i></span></div>`;
   }
-  return `<div class="topology-route-timeout"><span>${escapeHtml(t("topologyTimeoutIdle", { total: timeoutSec }))}</span></div>`;
+  return "";
 }
 
 // ── Per-hour error badge on route rows ───────────────────────────────────────
@@ -1461,8 +1408,8 @@ export async function refreshRouteErrBadges() {
   });
 }
 
-// usage: "confirmed" | "unused" | "unverified" (see topologyRouteUsage). It used
-// to be a boolean, which had no room for "the agent never told us".
+// usage: "confirmed" | "unverified" (see topologyRouteUsage). It used to be a
+// boolean, which had no room for "no traffic tells us".
 // The context window for THIS consumer — on its route's row, because that's
 // where it's set. Three states, and they're different: the operator's own
 // number, "take it from the model", and NOT SET. The last one is drawn as a
@@ -1618,10 +1565,6 @@ export function routeModelWindowTip(source, model) {
 // (caravan/common/context_window.py); the board never re-derives the figure,
 // so the operator and the client cannot read two different numbers for one
 // port. The limit and the switch are the assignment's own fields.
-//
-// The setting lives on the port the RECORD names, while the row shows the
-// port from the live report. When they diverge the limit is not in force here,
-// and that cannot go unsaid: the chip would look exactly like a working one.
 export function routeContextLineHtml(client, agent, role, route) {
   if (!route) return "";
   const own = Number(route.contextLength || 0);
@@ -1629,13 +1572,10 @@ export function routeContextLineHtml(client, agent, role, route) {
   const proxy = (topology?.proxies || []).find((p) => p && p.id === route.proxyId) || null;
   const model = Number(proxy?.modelWindow || 0);
   const gives = Number(proxy?.effectiveWindow || 0);
-  const elsewhere = !!route.settingsProxyId && (own > 0 || prefer);
   const address = `data-ctx-host="${escapeHtml(client?.id || "")}" data-ctx-agent="${escapeHtml(agent?.id || "")}"`
     + ` data-ctx-role="${escapeHtml(role)}" data-ctx-value="${escapeHtml(own > 0 ? String(own) : "")}"`
     + ` data-ctx-prefer="${prefer ? "1" : ""}"`;
-  const limitTip = elsewhere
-    ? t("routeContextElsewhereTip", { port: String(route.settingsProxyId).split(":").pop() })
-    : (own > 0 ? t("routeContextOwnTip") : t("routeContextUnsetTip"));
+  const limitTip = own > 0 ? t("routeContextOwnTip") : t("routeContextUnsetTip");
   // Which of the two numbers is CURRENTLY in force isn't computed by the
   // board: it checks them against what the controller has already published
   // (`effectiveWindow`, computed by the same rule the proxy applies). There's
@@ -1648,7 +1588,7 @@ export function routeContextLineHtml(client, agent, role, route) {
   const modelInForce = model > 0 && gives > 0 && gives === model;
   const inForceTip = ` · ${t("routeCtxInForce")}`;
   return `<div class="route-ctx-line" data-t="route-context-line">
-    <button type="button" class="route-ctx-chip${own > 0 ? " set" : ""}${elsewhere ? " elsewhere" : ""}${limitInForce ? " in-force" : ""}"
+    <button type="button" class="route-ctx-chip${own > 0 ? " set" : ""}${limitInForce ? " in-force" : ""}"
       data-route-ctx="1" ${address} data-t="route-context" title="${escapeHtml(limitTip + (limitInForce ? inForceTip : ""))}"
       >${escapeHtml(t("routeCtxLimit", { value: own > 0 ? String(own) : "—" }))}</button>
     <span class="route-ctx-model-pill${model > 0 ? " set" : ""}${prefer ? " on" : ""}${modelInForce ? " in-force" : ""}"
@@ -1671,16 +1611,17 @@ export function routeContextLineHtml(client, agent, role, route) {
 // doubtful case, "nothing written" meant two different things at once —
 // "checked" and "hasn't been looked at yet"; now each one has its own face.
 // One face per route state: the card's badge and a folded agent's line wear
-// the same glyph, from here. Anything that is not muted or unverified is
-// confirmed — the old three-way branch said the same.
+// the same glyph, from here. Anything that is not unverified is confirmed.
+// The third face, ⏸ "inactive", was the agent's own word that it did not use
+// a role; it came through the scout and went with the scout's word about
+// agents (2026-09-24).
 export const ROUTE_STATE_FACE = {
-  unused: { cls: "route-muted-tag", glyph: "⏸", tip: "taTitleMutedRoute" },
   unverified: { cls: "route-unverified-tag", glyph: "?", tip: "taTitleUnverifiedRoute" },
   confirmed: { cls: "route-confirmed-tag", glyph: "✓", tip: "taTitleConfirmedRoute" },
 };
 
 export function routeStateFace(usage) {
-  return ROUTE_STATE_FACE[usage === "unused" || usage === "unverified" ? usage : "confirmed"];
+  return ROUTE_STATE_FACE[usage === "unverified" ? usage : "confirmed"];
 }
 
 export function routeStateBadgeHtml(route, usage) {
@@ -1695,16 +1636,15 @@ export function routeStateBadgeHtml(route, usage) {
 // the card (card-rows.js), which is why it is built here, once.
 export function routeHandleHtml(client, agent, role, route, usage = "confirmed") {
   if (!route) return "";
-  const muted = usage === "unused";
   const unverified = usage === "unverified";
   return `
-    <span class="topology-handle output ${escapeHtml(role)} ${muted ? "muted" : ""}"
+    <span class="topology-handle output ${escapeHtml(role)}"
       data-topology-route-handle="1"
       data-host-id="${escapeHtml(client.id || "")}"
       data-agent-id="${escapeHtml(agent.id || "")}"
       data-route-role="${escapeHtml(role)}"
       data-proxy-id="${escapeHtml(route.proxyId || "")}"
-      title="${escapeHtml(muted ? `${role} (inactive)` : unverified ? `${role} — ${t("taTitleUnverifiedRoute")}` : role)}"></span>
+      title="${escapeHtml(unverified ? `${role} — ${t("taTitleUnverifiedRoute")}` : role)}"></span>
   `;
 }
 
@@ -1720,25 +1660,15 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
   const activity = route ? topologyProxyActivity(route.proxyId || "") : null;
   const incident = activity?.incident || topologyIncidentForItem(activity?.item);
   // The proxy port is now shown ON this route row (no separate proxy column). The
-  // handle is just the cable anchor for the proxy's entry point. A role
-  // the agent doesn't currently use is "muted": still wired + provisioned, but faint.
+  // handle is just the cable anchor for the proxy's entry point.
   const proxy = route ? (topology?.proxies || []).find((p) => p.id === route.proxyId) : null;
   const port = proxy?.port || (route?.proxyId || "").split(":").pop() || "";
-  const muted = !!route && usage === "unused";
-  // Whether an operator pinned this agent's port by hand. Provisioning skips
-  // such agents, so the padlock is the only place the panel says why this one
-  // is not being re-derived like the rest.
-  // The padlock means "this role is bound by hand". While it depended only
-  // on the agent, it also hung on a role WITHOUT a port — right next to the
-  // "bind" plus, claiming something that didn't exist yet.
-  const manualBound = !!port && ((topology?.assignments?.[client?.id]?.assignments) || [])
-    .some((a) => a.agentId === agent?.id && a.manual);
   const unverified = !!route && usage === "unverified";
   const handle = anchor ? routeHandleHtml(client, agent, role, route, usage) : "";
   const detailAttrs = route ? ` data-topology-route-detail="${escapeHtml(route.proxyId || "")}" data-client-ip="${escapeHtml(client?.ip || "")}" data-client-name="${escapeHtml(client?.name || client?.id || "")}" tabindex="0" role="button"` : "";
-  const timeoutHtml = route ? topologyRouteTimeoutHtml(client, agent, route, activity) : "";
+  const timeoutHtml = route ? topologyRouteTimeoutHtml(route, activity) : "";
   return `
-    <div class="topology-agent-route ${escapeHtml(role)} ${route ? "" : "empty"} ${muted ? "muted" : ""} ${unverified ? "unverified" : ""} ${escapeHtml(topologyStateHealthClasses(activity))}"${detailAttrs}>
+    <div class="topology-agent-route ${escapeHtml(role)} ${route ? "" : "empty"} ${unverified ? "unverified" : ""} ${escapeHtml(topologyStateHealthClasses(activity))}"${detailAttrs}>
       ${handle}
       <span class="route-role-label">${routeStateBadgeHtml(route, usage)}${escapeHtml(role)}${
         // The chip is drawn WITHOUT a port too, and on BOTH real roles: while
@@ -1751,12 +1681,12 @@ export function topologyAgentRouteRow(client, agent, role, route, usage = "confi
         // land on primary and overwrite the working one. An empty current
         // port means "not chosen yet" to it, not zero.
         BINDABLE_ROLES.has(role)
-        ? `<button type="button" class="route-port-chip bindable${port ? "" : " unbound"}${manualBound ? " manual" : ""}"
+        ? `<button type="button" class="route-port-chip bindable${port ? "" : " unbound"}"
              data-agent-bind="1" data-bind-host="${escapeHtml(client?.id || "")}"
              data-bind-agent="${escapeHtml(agent?.id || "")}" data-bind-port="${escapeHtml(port ? String(port) : "")}"
              data-bind-role="${escapeHtml(role)}"
              data-t="agent-proxy-bind"
-             title="${escapeHtml(manualBound ? t("taTitleBoundManual") : t("taTitleBindProxy"))}">${escapeHtml(port ? routeAddress(route, port) : "＋")}${manualBound ? "&#128274;" : ""}</button>`
+             title="${escapeHtml(t("taTitleBindProxy"))}">${escapeHtml(port ? routeAddress(route, port) : "＋")}</button>`
         : (port ? `<span class="route-port-chip" title="${escapeHtml(t("taTitleProxyPort"))}">${escapeHtml(routeAddress(route, port))}</span>` : "")
       }${routeErrBadgeHtml(port)}</span>
       <div class="route-settings">${routeModelChipHtml(client, agent, role, route)}${
@@ -1821,7 +1751,6 @@ export function bindMenuHtml({ hostId, agentId, role, current = "", neighbour = 
   const takenTip = taken.map((p) => `${p.port} — ${p.others.map((h) => `${h.agentId} · ${h.role}`).join(", ")}`).join("\n");
   return `
     <div class="agent-bind-head">${escapeHtml(t("taBindHead"))} <b>${escapeHtml(agentId)}</b> · ${escapeHtml(role)}</div>
-    <button type="button" class="agent-bind-row auto" data-bind-choice="">${escapeHtml(t("taBindAutomatic"))}</button>
     ${current ? `<button type="button" class="agent-bind-row remove" data-bind-remove="1">${escapeHtml(t("taBindRemoveRoute"))}</button>` : ""}
     <button type="button" class="agent-bind-row make" data-bind-new="1">${escapeHtml(t("taBindNewPort"))}</button>
     ${neighbour ? `<button type="button" class="agent-bind-row make neighbour" data-bind-new="1"
@@ -1917,18 +1846,18 @@ function openBindMenu(chip) {
     try {
       const res = await api("/api/topology/agent-proxy-bind", {
         method: "POST",
-        body: JSON.stringify({ hostId, agentId, role, port: port ? Number(port) : null }),
+        body: JSON.stringify({ hostId, agentId, role, port: Number(port) }),
       });
       // Repaint from the response rather than waiting for the next poll: the
-      // agent cards are cached between renders, so without this the padlock —
-      // the only sign the binding took — appears no earlier than the next full
-      // page load, and the operator sees their own action do nothing.
+      // agent cards are cached between renders, so without this the new port
+      // appears no earlier than the next full page load, and the operator sees
+      // their own action do nothing.
       if (res.topology) setTopology(res.topology);
       renderTopology();
-      const state = res.result?.applyStatus?.state;
-      toast(port
-        ? t(state === "ok" ? "taBindApplied" : "taBindStored")
-        : t("taBindCleared"));
+      // Bound on the controller only: nothing reaches the agent's own settings
+      // any more (the scout's apply went with its word about agents), so the
+      // toast says where the operator points it.
+      toast(t("taBindStored", { port: String(port) }));
     } catch (err) {
       toast(`${t("taBindFailed")}: ${err.message || err}`, true);
     }

@@ -15,7 +15,7 @@ from caravan.admin.runners import (cell_artifact_label, cell_model_ref,
                                    effective_command, effective_health_path,
                                    runner_id, uses_command_path,
                                    uses_token_context)
-from caravan.admin.fleet_clients import assignment_port_claims, refresh_topology_clients_from_agents, topology_clients
+from caravan.admin.fleet_clients import SCOUT_POLLER, topology_clients, topology_hosts
 from caravan.admin.llama_metrics import runtime_metrics_sample, runtime_phase, vllm_metrics_sample
 from caravan.admin.models import display_model_name
 from caravan.admin.load_progress import LOAD_WATCH
@@ -30,7 +30,6 @@ from caravan.admin.monitoring import (
     memory_state,
     runtime_api,
 )
-from caravan.admin.openclaw import openclaw_configs_snapshot
 from caravan.admin.paths import AGENT_PROXY_STATE_FILE, CONTROLLER_HOST_ID, IS_CONTAINER, SERVICE_NAME, TOPOLOGY_SERVER_IP, is_controller_host, AGENT_PROXY_BASE_PORT, SERVER_CELL_BASE_PORT, SERVER_CELL_UPPER_PORT
 from caravan.admin.proxies_config import (
     load_agent_proxy_config,
@@ -513,7 +512,8 @@ def topology_server(config=None):
     # reported as one entry in llamaNodes. Flatten to (client, node) pairs and
     # render one server cell per node. Fall back to the legacy single llamaNode.
     _client_nodes = []
-    for client in _tstore.get("clients", {}).values():
+    # A machine's cells are what its scout reports: its host record, not a client.
+    for client in _tstore.get("hosts", {}).values():
         _nodes = client.get("llamaNodes")
         if not isinstance(_nodes, list) or not _nodes:
             _nodes = [client.get("llamaNode") or {}]
@@ -661,7 +661,7 @@ def topology_server(config=None):
         (s.get("clientId") if s.get("isRemote") else CONTROLLER_HOST_ID, s.get("port"))
         for s in llama_servers
     }
-    clients_by_id = store.get("clients", {})
+    hosts_by_id = store.get("hosts", {})
     # What the libraries hold, as last measured — once for all the cards, and
     # without waiting for a NAS that may not answer.
     model_locations = current_locations()
@@ -671,7 +671,7 @@ def topology_server(config=None):
         if (host_id, port) in live_keys:
             continue
         is_controller_slot = is_controller_host(host_id)
-        client = {} if is_controller_slot else (clients_by_id.get(host_id) or {})
+        client = {} if is_controller_slot else (hosts_by_id.get(host_id) or {})
         client_ip = str(client.get("ip") or "").strip()
         gpu_name = ""
         if client.get("gpus"):
@@ -979,7 +979,7 @@ def _server_port_key(s):
         return 0
 
 
-def topology_nodes(config, server_obj, clients):
+def topology_nodes(config, server_obj, hosts):
     """Host-centric view: one node per machine, each with its GPUs + the
     llama-servers running/declared on it + CPU/RAM. Server↔GPU is bound via
     per-process GPU memory (compute-apps)."""
@@ -1066,87 +1066,52 @@ def topology_nodes(config, server_obj, clients):
         "powerSchedule": _power_scheds.get(server_obj.get("id") or CONTROLLER_HOST_ID) or {},
     })
 
-    # ── client nodes ─────────────────────────────────────────────────────────
-    # Servers (running/startup/stopped-slot) already assembled in
-    # server_obj.llamaServers — group them by client.
-    remote_by_client: dict = {}
+    # ── host nodes ───────────────────────────────────────────────────────────
+    # One per machine whose scout reported. Servers (running/startup/
+    # stopped-slot) are already assembled in server_obj.llamaServers, keyed by
+    # the machine's id — group them by it.
+    remote_by_host: dict = {}
     for s in (server_obj.get("llamaServers") or []):
         if s.get("isRemote") and s.get("clientId"):
-            remote_by_client.setdefault(str(s["clientId"]), []).append(dict(s))
+            remote_by_host.setdefault(str(s["clientId"]), []).append(dict(s))
 
-    for client in clients:
-        cid = str(client.get("id") or "")
-        cgpus = [dict(g) for g in (client.get("gpus") or []) if g.get("name")]
-        for g in cgpus:
+    for host in hosts:
+        cid = str(host.get("id") or "")
+        hgpus = [dict(g) for g in (host.get("gpus") or []) if g.get("name")]
+        for g in hgpus:
             try:
                 g["index"] = int(g.get("index")) if g.get("index") is not None else None
             except (TypeError, ValueError):
                 g["index"] = None
-        servers = remote_by_client.get(cid, [])
+        servers = remote_by_host.get(cid, [])
         servers.sort(key=_server_port_key)
-        _bind_servers_to_gpus(cgpus, client.get("computeApps"), servers)
-        _record_gpu_history(cid, cgpus)
+        _bind_servers_to_gpus(hgpus, host.get("computeApps"), servers)
+        _record_gpu_history(cid, hgpus)
         for s in servers:
             s["tpsHistory"] = _record_tps_history(
                 f"{cid}:{s.get('port')}", s.get("promptTps"), s.get("genTps"))
-        client_cpu = dict(client.get("cpu") or {})
-        client_cpu["history"] = _record_cpu_history(cid, client_cpu)
+        host_cpu = dict(host.get("cpu") or {})
+        host_cpu["history"] = _record_cpu_history(cid, host_cpu)
         nodes.append({
             "id": cid,
-            "name": client.get("name") or cid,
-            "ip": client.get("ip"),
-            "role": "client",
-            "online": client.get("state") == "online",
-            "platform": client.get("platform") or "",
-            "cpu": client_cpu,
-            "gpus": cgpus,
+            "name": host.get("name") or cid,
+            "ip": host.get("ip"),
+            "role": "host",
+            "online": host.get("state") == "online",
+            # How long the scout has been silent — the node says it when the
+            # scout stops answering; None only for a record with no report.
+            "ageSeconds": host.get("ageSeconds"),
+            "platform": host.get("platform") or "",
+            "cpu": host_cpu,
+            "gpus": hgpus,
             "servers": servers,
-            "llamaBinaryVersion": client.get("llamaBinaryVersion") or "",
-            "llamaBinaryMtime": client.get("llamaBinaryMtime") or "",
-            "llamaUpdate": client.get("llamaUpdate") or {},
+            "llamaBinaryVersion": host.get("llamaBinaryVersion") or "",
+            "llamaBinaryMtime": host.get("llamaBinaryMtime") or "",
+            "llamaUpdate": host.get("llamaUpdate") or {},
             "powerSchedule": _power_scheds.get(cid) or {},
         })
 
     return nodes
-
-def _compute_orphaned_agents(clients, store):
-    """Dead agents to surface in the UI: assignment entries whose agentId is no
-    longer reported by an ONLINE host (left behind after a rename/removal). We
-    only flag online hosts — an offline/unknown host may just be silent, not dead.
-    Each carries the proxy ports it still holds so deleting it frees them."""
-    assignments_store = store.get("assignments") or {}
-    by_id = {c.get("id"): c for c in clients}
-    # Deleting an orphan only frees ports it is the SOLE claimant of (a rename
-    # successor may share them) — show exactly those, so the strip's port list
-    # matches what the ✕ will actually free.
-    claims = assignment_port_claims(store)
-    orphaned = []
-    for host_id, host_entry in assignments_store.items():
-        client = by_id.get(host_id)
-        if not client or client.get("state") != "online":
-            continue
-        reported = {str(a.get("id") or "") for a in (client.get("agents") or [])}
-        for assignment in (host_entry.get("assignments") or []):
-            agent_id = str(assignment.get("agentId") or "")
-            if not agent_id or agent_id in reported:
-                continue
-            ports = []
-            for route in (assignment.get("routes") or []):
-                pid = str(route.get("proxyId") or "")
-                if pid.startswith("skynet:proxy:"):
-                    try:
-                        port = int(pid.split(":")[-1])
-                    except ValueError:
-                        continue
-                    if claims.get(port, 0) <= 1:
-                        ports.append(port)
-            orphaned.append({
-                "clientId": host_id,
-                "clientName": client.get("name") or host_id,
-                "agentId": agent_id,
-                "ports": sorted(set(ports)),
-            })
-    return orphaned
 
 def _positive_int(value):
     """A size, or None: zero, rubbish and booleans are absences, not sizes."""
@@ -1179,8 +1144,10 @@ def _served_windows_by_address(server_obj):
         if port is None or window is None:
             continue
         hosts = {str(row.get("clientIp") or "").strip()} - {""}
-        if not hosts or row.get("isController"):
+        if row.get("isController"):
             hosts |= {"127.0.0.1", "localhost", str(TOPOLOGY_SERVER_IP or "")} - {""}
+        # A client cell with no address answers under no name: keyed as the
+        # controller's, it lent the controller's port a window it does not have.
         for host in hosts:
             found[(host, port)] = window
     return found
@@ -1326,9 +1293,12 @@ def _board_proxy(route, *, holders, last_seen, routers_by_id):
     return proxy
 
 
-def topology_state(refresh_clients=True):
-    if refresh_clients:
-        refresh_topology_clients_from_agents()
+def topology_state(refresh_hosts=True):
+    if refresh_hosts:
+        # A board read asks for fresher scout reports and never waits for them:
+        # the pull runs in the background, and the next read sees what it
+        # brought (caravan/admin/scout_poll.py).
+        SCOUT_POLLER.kick()
     config = parse_config()
     store = topology_store()
     proxy_config = load_agent_proxy_config()
@@ -1364,6 +1334,7 @@ def topology_state(refresh_clients=True):
     except Exception:
         pass
     clients = topology_clients()
+    hosts = topology_hosts()
     # Cloud state + catalog annotation: unlisted marks on blocks, background
     # model-list refreshes, endpoint-health report. Annotation must never sink
     # the board — degrade to plain state on any failure.
@@ -1386,10 +1357,10 @@ def topology_state(refresh_clients=True):
     return {
         "server": server_obj,
         "llamaSuspect": llama_crash_suspect(),
-        # Host-centric model (Stage 1): one node per machine with its GPUs +
-        # servers + CPU/RAM, server↔GPU bound via compute-apps. The UI still
-        # reads server/clients for now; `nodes` is the new spine.
-        "nodes": topology_nodes(config, server_obj, clients),
+        # Host-centric model: one node per machine — the controller and every
+        # host with a scout — with its GPUs + servers + CPU/RAM, server↔GPU
+        # bound via compute-apps.
+        "nodes": topology_nodes(config, server_obj, hosts),
         "proxies": proxies,
         # The fleet's port ranges, so the picker grid and the front-side port
         # preview draw the REAL window instead of a hardcoded copy of it — the
@@ -1401,11 +1372,13 @@ def topology_state(refresh_clients=True):
         "routers": proxy_config.get("routers") or [],
         "proxyPolicy": policy,
         "effectiveSlots": total_slots or int(policy.get("maxSlots") or 1),
+        # Two records under one id, never one merged row: a machine's report
+        # and liveness are in `hosts`, the operator's clients in `clients`
+        # (docs/scout-split.md). The merged rows the board read until it read
+        # `hosts` are gone with that reading.
+        "hosts": hosts,
         "clients": clients,
         "assignments": store.get("assignments", {}),
-        # Dead agents (assignment exists but agent no longer reported by an online
-        # host) — surfaced so the user can delete them and free their proxy ports.
-        "orphanedAgents": _compute_orphaned_agents(clients, store),
         # User notes on cell slots, keyed "hostId:port" — shown on the board
         # cards and edited in the cell detail modal.
         "cellNotes": {key: str(slot.get("note") or "")
@@ -1413,7 +1386,6 @@ def topology_state(refresh_clients=True):
                       if isinstance(slot, dict) and str(slot.get("note") or "").strip()},
         "clientAliases": store.get("clientAliases", {}),
         "layout": store.get("layout", {}),
-        "openclawConfigs": openclaw_configs_snapshot(),
         "cloudAccounts": cloud_accounts,
         "cloudProviders": cloud_blocks,
         # Tripped upstream endpoints + effective codex client_version — the
@@ -1495,10 +1467,12 @@ def bind_agent_to_proxy(payload):
     apply path, the port list — but no caller ever put them together, so the
     only way an agent got a port was for the provisioner to choose one. That
     made the arrangement unexplainable ("why is this agent on 23117?") and
-    unchangeable. Binding sets `manual`, which is what stops provisioning from
-    re-deriving it on the next heartbeat.
+    unchangeable.
 
-    Passing no port unbinds: the flag clears and the agent returns to automatic.
+    A port is required. Passing none used to mean "back to automatic" — the
+    manual mark cleared and provisioning chose on the next heartbeat. With
+    ports made by hand only (2026-09-24) there is nothing to go back to; a
+    role is removed with remove_agent_route.
     """
     host_id = str(payload.get("hostId") or "").strip()
     agent_id = str(payload.get("agentId") or "").strip()
@@ -1506,6 +1480,14 @@ def bind_agent_to_proxy(payload):
         raise AppError("hostId and agentId are required", 400)
 
     store = topology_store()
+    # Only an agent the operator's record has. A bind for any other id wrote a
+    # row nobody draws: its port read as held, by an agent no screen showed
+    # and no ✕ could remove.
+    client = (store.get("clients") or {}).get(host_id)
+    if client is None:
+        raise AppError(f"client not found: {host_id}", 404)
+    if not any(str(a.get("id") or "") == agent_id for a in (client.get("agents") or [])):
+        raise AppError(f"agent not found: {agent_id}", 404)
     row = dict(store.get("assignments", {}).get(host_id) or {})
     rows = [dict(a) for a in (row.get("assignments") or [])]
     entry = next((a for a in rows if a.get("agentId") == agent_id), None)
@@ -1521,34 +1503,32 @@ def bind_agent_to_proxy(payload):
 
     port = payload.get("port")
     if port in (None, "", 0):
-        entry.pop("manual", None)
-    else:
-        try:
-            port = int(port)
-        except (TypeError, ValueError):
-            raise AppError("port must be a number", 400)
-        known = {int(r.get("port", 0)) for r in load_agent_proxy_config().get("routes", [])}
-        if port not in known:
-            # Binding to a port with no route would leave the agent pointing at
-            # a closed socket while the panel showed a tidy assignment.
-            raise AppError(f"no proxy route on port {port}", 400)
-        # One port, one owner. The settings copy rides the route BY PORT, so
-        # two agents on the same port can't both work: whichever wrote last
-        # erases the other's settings, silently and without a trace. The
-        # whole fleet is checked, not just one client: the port grid is shared.
-        holder = _port_holder(port, exclude=(host_id, agent_id))
-        if holder:
-            raise AppError(f"port {port} is already bound to agent "
-                           f"{holder[1]} ({holder[2]})", 409)
-        # The fourth place that builds a route record — missed by grep during
-        # the phase 1 audit because of a line wrap. Now it goes through the
-        # class too: one field list for every writer, otherwise a new field
-        # survives a save at three writers out of four.
-        assignment = AgentAssignment.from_raw(entry)
-        assignment.manual = True
-        assignment.set_route(ProxyRoute.for_port(role, port, TOPOLOGY_SERVER_IP))
-        entry.clear()
-        entry.update(assignment.to_dict())
+        raise AppError("port is required — a role is removed with its own action", 400)
+    try:
+        port = int(port)
+    except (TypeError, ValueError):
+        raise AppError("port must be a number", 400)
+    known = {int(r.get("port", 0)) for r in load_agent_proxy_config().get("routes", [])}
+    if port not in known:
+        # Binding to a port with no route would leave the agent pointing at
+        # a closed socket while the panel showed a tidy assignment.
+        raise AppError(f"no proxy route on port {port}", 400)
+    # One port, one owner. The settings copy rides the route BY PORT, so
+    # two agents on the same port can't both work: whichever wrote last
+    # erases the other's settings, silently and without a trace. The
+    # whole fleet is checked, not just one client: the port grid is shared.
+    holder = _port_holder(port, exclude=(host_id, agent_id))
+    if holder:
+        raise AppError(f"port {port} is already bound to agent "
+                       f"{holder[1]} ({holder[2]})", 409)
+    # The fourth place that builds a route record — missed by grep during
+    # the phase 1 audit because of a line wrap. Now it goes through the
+    # class too: one field list for every writer, otherwise a new field
+    # survives a save at three writers out of four.
+    assignment = AgentAssignment.from_raw(entry)
+    assignment.set_route(ProxyRoute.for_port(role, port, TOPOLOGY_SERVER_IP))
+    entry.clear()
+    entry.update(assignment.to_dict())
 
     return apply_topology_assignments({"hostId": host_id, "assignments": rows})
 
@@ -1597,7 +1577,7 @@ def set_agent_route_context(payload):
 def remove_agent_route(payload):
     """Remove an agent's role: it stops using this port.
 
-    "Unbind" used to mean only clearing the "manual" mark — the route stayed,
+    "Unbind" used to mean only clearing a "manual" mark — the route stayed,
     the port still counted as taken, and there was no way at all to remove a
     fallback created by mistake. Now the role disappears from the record
     entirely.
@@ -1676,29 +1656,12 @@ def apply_topology_assignments(payload):
         raise AppError("assignments must be a list", 400)
     normalized = [normalize_topology_assignment(row) for row in assignments]
     store = topology_store()
-    row = {
-        "hostId": host_id,
-        "assignments": normalized,
-        "desiredAt": int(time.time()),
-        "applyStatus": {"state": "pending"},
-    }
-    client = store["clients"].get(host_id)
-    if client and client.get("agentUrl"):
-        try:
-            from caravan.admin.fleet_clients import _scout_headers
-            # 45s, not the 5s default: applying a host means one SSH round trip
-            # per VM agent — read, write, restart — and this fleet has nine on
-            # one host. The scout already allows its script 30s, so a 5s ceiling
-            # here reported "timed out" over work that was proceeding normally,
-            # and the operator saw a failure where the routes did land.
-            result = post_json(client["agentUrl"].rstrip("/") + "/api/routing/apply",
-                               {"assignments": normalized}, headers=_scout_headers(),
-                               timeout=45)
-            row["applyStatus"] = {"state": "ok" if result.get("ok") else "error", "result": result, "appliedAt": int(time.time())}
-        except Exception as exc:
-            row["applyStatus"] = {"state": "error", "error": str(exc), "appliedAt": int(time.time())}
-    else:
-        row["applyStatus"] = {"state": "stored", "detail": "client is not registered or has no agentUrl"}
+    # Stored, not pushed. The row used to be POSTed to the scout's
+    # /api/routing/apply, which rewrote each agent's own config — over SSH for
+    # the VMs — and restarted it. The scout knows nothing of agents any more
+    # (2026-09-24): an agent is pointed at its port by hand, in its own
+    # settings, and the bind's toast says so.
+    row = {"hostId": host_id, "assignments": normalized}
     store["assignments"][host_id] = row
     save_admin_state()
     # The settings copy rides the route HERE, not at some later point. The

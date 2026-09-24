@@ -41,24 +41,17 @@ import { drawRouteTokenHistory, loadRouteModelCard, loadRouteTokenHistory,
 import {
   _fmtSec,
   _queuePctExampleText,
-  closeAgentConfigModal,
-  closeClientDetail,
   closePriorityModal,
   closeQueuePriorityModal,
   closeRawConfigViewer,
   editTopologyClientAlias,
-  openAgentConfigModal,
-  openClientDetail,
   openQueuePriorityModal,
   openRawConfigViewer,
-  refreshClientDetail,
   savePriorityModal,
   saveQueuePriorityModal,
   scheduleGridToRules,
   scheduleRulesToGrid,
   setTopologyProxyRoutePolicy,
-  topologyAgentConfigAgentId,
-  topologyAgentConfigClientId,
   topologyPriorityOrder,
   topologyQueuePriorityEdits,
 } from "./topology-modals.js";
@@ -118,32 +111,6 @@ async function deleteProxyPort(port) {
 
 export let topologyRouteDetail = null;
 export function bindTopologyDragAndDrop() {
-  // ── Agent openclaw config viewer ─────────────────────────────────────────
-  document.querySelectorAll("[data-agent-config-open]").forEach((btn) => {
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const mode = btn.dataset.agentConfigOpen;
-      const clientId = btn.dataset.clientId;
-      const agentId = btn.dataset.agentId;
-      openAgentConfigModal(clientId, agentId, mode).catch((err) => toast(err.message));
-    });
-  });
-  document.querySelector("[data-agent-config-close]")?.addEventListener("click", closeAgentConfigModal);
-  document.querySelector("[data-agent-config-overlay]")?.addEventListener("click", (event) => {
-    if (event.target?.dataset?.agentConfigOverlay !== undefined) closeAgentConfigModal();
-  });
-  document.querySelector("[data-agent-config-refresh]")?.addEventListener("click", () => {
-    if (ui.topologyAgentConfigMode) {
-      openAgentConfigModal(topologyAgentConfigClientId, topologyAgentConfigAgentId, ui.topologyAgentConfigMode)
-        .catch((err) => toast(err.message));
-    }
-  });
-  document.querySelectorAll("[data-agent-config-mode]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      ui.topologyAgentConfigMode = btn.dataset.agentConfigMode;
-      renderTopology();
-    });
-  });
   const logsButton = $("topologyLogsBtn");
   // topologyLogsBtn removed — no longer used
   document.querySelector("[data-topology-proxy-save]")?.addEventListener("click", () => {
@@ -326,25 +293,6 @@ export function bindTopologyDragAndDrop() {
     ui.topologyCloudForm = null;
     renderTopology();
   });
-  document.querySelectorAll("[data-topology-client-detail]").forEach((trigger) => {
-    const open = () => {
-      const clientId = trigger.dataset.topologyClientDetail;
-      const agentId = trigger.dataset.agentId || "";
-      const agentName = agentId
-        ? ((topology?.clients || []).find((c) => c.id === clientId)?.agents || []).find((a) => a.id === agentId)?.name || agentId
-        : "";
-      openClientDetail(clientId, agentName);
-    };
-    trigger.addEventListener("click", open);
-    if (trigger.tagName !== "BUTTON") {
-      trigger.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          open();
-        }
-      });
-    }
-  });
   document.querySelectorAll("[data-topology-gpu-modal]").forEach((el) => {
     const open = () => { topologyGpuModalOpen = true; renderTopology(); };
     el.addEventListener("click", open);
@@ -430,13 +378,6 @@ export function bindTopologyDragAndDrop() {
   });
   document.querySelector("[data-topology-llama-detail-overlay]")?.addEventListener("click", (event) => {
     if (event.target?.dataset?.topologyLlamaDetailOverlay !== undefined) { topologyLlamaDetailOpen = false; renderTopology(); }
-  });
-  document.querySelector("[data-topology-client-detail-close]")?.addEventListener("click", closeClientDetail);
-  document.querySelector("[data-topology-client-detail-overlay]")?.addEventListener("click", (event) => {
-    if (event.target?.dataset?.topologyClientDetailOverlay !== undefined) closeClientDetail();
-  });
-  document.querySelector("[data-topology-client-detail-refresh]")?.addEventListener("click", () => {
-    refreshClientDetail().catch((err) => toast(err.message));
   });
   // Queue & Priority unified modal
   document.querySelectorAll("[data-topology-queue-priority-open]").forEach((element) => {

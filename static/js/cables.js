@@ -32,18 +32,6 @@ export function topologySvgPath(from, to, className, title = "") {
   return `<path class="${className}" d="${topologyCablePath(from, to)}">${title ? `<title>${escapeHtml(title)}</title>` : ""}</path>`;
 }
 
-export function topologyApplyStateForHost(hostId) {
-  const desired = topology?.assignments?.[hostId]?.applyStatus?.state;
-  const client = (topology?.clients || []).find((row) => row.id === hostId);
-  return desired || client?.applyStatus?.state || "stored";
-}
-
-export function topologyCableStatusClass(state) {
-  if (state === "error" || state === "failed") return "status-error";
-  if (state === "stale" || state === "pending") return "status-warn";
-  return "status-ok";
-}
-
 export function topologyProxyClass(proxyId) {
   return `proxy-${String(proxyId || "").replace(/[^A-Za-z0-9_-]/g, "-")}`;
 }
@@ -156,20 +144,18 @@ export function drawTopologyCables() {
         const proxy = (topology?.proxies || []).find((row) => row.id === route.proxyId);
         const routerId = proxy?.routerId || "";
         const target = document.querySelector(`[data-topology-router-input][data-router-id="${CSS.escape(routerId)}"]`);
-        // "unverified" is NOT "in use": an agent that never reports its config
-        // used to be drawn exactly like a confirmed one, so a silent agent and a
-        // healthy one were indistinguishable.
-        const usage = topologyRouteUsage(client, assignment.agentId, role, route);
-        const muted = usage === "unused";
-        const unverified = usage === "unverified";
+        // "unverified" is NOT "in use": a route with no traffic in the log's
+        // window used to be drawn exactly like a confirmed one, so a silent
+        // agent and a healthy one were indistinguishable.
+        const unverified = topologyRouteUsage(route) === "unverified";
         const activity = topologyProxyActivity(route.proxyId || "");
         // Dim idle client→router cables (32 converge on one input) so the one
         // actually carrying a request stands out + animates — mirrors segment 3.
-        const idle = !muted && activity.state === "idle";
+        const idle = activity.state === "idle";
         const cable = topologySvgPath(
           topologyPointFor(source, "right"),
           topologyPointFor(target, "left"),
-          `topology-cable ${escapeHtml(role)} ${muted ? "muted" : ""} ${unverified ? "unverified" : ""} ${idle ? "idle" : ""} ${Number(proxy?.priority || 0) > 0 ? "priority" : ""} ${topologyStateHealthClasses(activity)} ${topologyProxyClass(route.proxyId)} ${topologyRouteClass(client.id, assignment.agentId, role)}`,
+          `topology-cable ${escapeHtml(role)} ${unverified ? "unverified" : ""} ${idle ? "idle" : ""} ${Number(proxy?.priority || 0) > 0 ? "priority" : ""} ${topologyStateHealthClasses(activity)} ${topologyProxyClass(route.proxyId)} ${topologyRouteClass(client.id, assignment.agentId, role)}`,
           unverified ? t("taTitleUnverifiedRoute") : "",
         );
         if (!cable) {

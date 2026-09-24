@@ -3,7 +3,6 @@
 Every repo-relative anchor lives here, computed from PROJECT_ROOT — no other
 module may derive paths from its own __file__ (they'd point into caravan/).
 """
-import json
 import os
 from pathlib import Path
 
@@ -78,24 +77,16 @@ AGENT_PROXY_LOG_DIR = Path(os.environ.get("AGENT_PROXY_LOG_DIR")
     or _default("logs/proxy-events", PROJECT_ROOT / "logs" / "proxy-events"))
 AGENT_PROXY_SERVICE_NAME = os.environ.get("AGENT_PROXY_SERVICE_NAME", "lama-caravan-proxies.service")
 ADMIN_SERVICE_NAME = os.environ.get("LLAMA_ADMIN_SERVICE_NAME", "lama-caravan.service")
-TOPOLOGY_CLIENT_TTL = int(os.environ.get("LLAMA_TOPOLOGY_CLIENT_TTL", "45"))
+# A machine is online while its scout's last report is at most this old: three
+# heartbeats, as the scout reports every 60 s (heartbeatIntervalSeconds). A
+# window shorter than one interval read every quiet stretch between two
+# heartbeats as an outage — which is why the board used to pull every scout on
+# every poll. The metrics' online gauge reads the same number.
+HOST_REPORT_TTL = int(os.environ.get("CARAVAN_HOST_REPORT_TTL", "180"))
 MODEL_PRICING_CACHE_PATH = Path(_default("logs/model-pricing-cache.json",
     PROJECT_ROOT / "logs" / "model-pricing-cache.json"))
 MODEL_PRICING_URL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 MODEL_PRICING_TTL = 24 * 3600  # cache for 24 hours
-# OpenClaw config managers to poll for agent wait-timeouts: a JSON list of
-# {"name": ..., "url": ...} in the OPENCLAW_CONFIG_MANAGERS env var. Empty by
-# default — queue thresholds then fall back to per-route settings.
-try:
-    OPENCLAW_CONFIG_MANAGERS = json.loads(os.environ.get("OPENCLAW_CONFIG_MANAGERS", "[]"))
-except ValueError:
-    OPENCLAW_CONFIG_MANAGERS = []
-if not isinstance(OPENCLAW_CONFIG_MANAGERS, list):
-    OPENCLAW_CONFIG_MANAGERS = []
-# Fleet registry (single source of truth for agent identity), if you run one.
-# Discovered candidates are registered by POSTing to <FLEET_REGISTRY_URL>/api/agents.
-# Empty (default) disables the discovery "add to fleet" flow.
-FLEET_REGISTRY_URL = os.environ.get("FLEET_REGISTRY_URL", "")
 # The controller's address as seen by clients — used to build the proxy
 # endpoints handed to agents (http://<this>:<port>/v1).
 TOPOLOGY_SERVER_IP = os.environ.get("LLAMA_TOPOLOGY_SERVER_IP", "127.0.0.1")
@@ -152,13 +143,6 @@ def validate_port_ranges():
     if problems:
         raise SystemExit("port range misconfiguration:\n  - " + "\n  - ".join(problems))
 _BENCH_CACHE_DIR = Path(_default("state/bench-cache", PROJECT_ROOT / ".bench_cache"))
-# OpenClaw configs (fetched from the configured managers) are the source of each
-# agent's wait_timeout. They can contain provider credentials, so the on-disk
-# last-known-good cache lives next to provider-secrets.json with 0600 perms and is
-# NOT inside the repo tree.
-OPENCLAW_CONFIG_CACHE_FILE = Path(os.environ.get("OPENCLAW_CONFIG_CACHE_FILE")
-    or _default("secrets/openclaw-config-cache.json",
-                Path.home() / ".config" / "llamacpp-easy-admin" / "openclaw-config-cache.json"))
 
 # ── Controller identity ─────────────────────────────────────────────────────
 # The controller's host id in STORED state — a role name, not a hostname. Slot

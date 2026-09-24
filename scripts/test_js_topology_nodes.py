@@ -28,6 +28,7 @@ Run: python3 scripts/test_js_topology_nodes.py
 
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -57,7 +58,7 @@ const reset = () => { st.setState({ config: {}, runners: [], artifacts: [], mode
   ui.latestSystemMonitor = null;
   cf.CARD_FOLD.pinned.clear(); cf.CARD_FOLD.densities = {}; cf.CARD_FOLD.peekKey = "";
   for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingRemoteStarts, rc._pendingCellActions, rc._reservingCells]) c.clear(); };
-const node = { id: "h1", name: "Host", ip: "10.0.0.5", role: "client", gpus: [{ index: 0, name: "RTX", memoryTotalMiB: 24576 }] };
+const node = { id: "h1", name: "Host", ip: "10.0.0.5", role: "host", gpus: [{ index: 0, name: "RTX", memoryTotalMiB: 24576 }] };
 const mk = (extra) => ({ port: 22001, isSlot: true, model: "a.gguf", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "a.gguf" }, ...extra });
 const out = {};
 """
@@ -69,12 +70,12 @@ PINS = [
     ('card_anchor_stopped_configured_full',
      '',
      'norm(m.nodeServerCardHtml(node, mk({ phase: "stopped" })))',
-     '"<article class=\\"node-server configured-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"topology-handle server-input \\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn ok\\" type=\\"button\\" data-t=\\"cell-start\\" data-t-id=\\"h1:22001\\" data-node-cell-launch=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-runner=\\"llama-server\\" title=\\"Start server\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart not supported for remote hosts\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn del\\" type=\\"button\\" data-t=\\"cell-delete\\" data-t-id=\\"h1:22001\\" data-node-slot-del=\\"h1:22001\\" title=\\"Remove cell\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><button class=\\"lc-node lc-port-btn done lc-done\\" type=\\"button\\" data-cell-port-reassign=\\"h1:22001\\" title=\\"Change the cell&#39;s port\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></button><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn active lc-configured\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"client\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
+     '"<article class=\\"node-server configured-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"topology-handle server-input \\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn ok\\" type=\\"button\\" data-t=\\"cell-start\\" data-t-id=\\"h1:22001\\" data-node-cell-launch=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-cell-runner=\\"llama-server\\" title=\\"Start server\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not running\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart not supported for remote hosts\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn del\\" type=\\"button\\" data-t=\\"cell-delete\\" data-t-id=\\"h1:22001\\" data-node-slot-del=\\"h1:22001\\" title=\\"Remove cell\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><button class=\\"lc-node lc-port-btn done lc-done\\" type=\\"button\\" data-cell-port-reassign=\\"h1:22001\\" title=\\"Change the cell&#39;s port\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></button><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn active lc-configured\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"host\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail future\\"></span><span class=\\"lc-node future lc-future\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-gpu\\" title=\\"Configured to launch on the GPU — the actual device shows once running.\\">⚡ GPU</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
      'positive: Якорь: полная карточка остановленной сконфигурированной ячейки (Start активен, кнопка смены порта, ⚙ configure активна)'),
     ('card_anchor_running_full',
      '',
      'norm(m.nodeServerCardHtml(node, mk({ phase: "running" })))',
-     '"<article class=\\"node-server running cpu-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"cell-beam\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-handle server-input running\\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn warn\\" type=\\"button\\" data-t=\\"cell-stop\\" data-t-id=\\"h1:22001\\" data-node-cell-stop=\\"h1\\" data-node-cell-port=\\"22001\\" title=\\"Stop server\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart not supported for remote hosts\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><span class=\\"lc-node done lc-done\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></span><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn done lc-done lc-cfg-live\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"client\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail done\\"></span><span class=\\"lc-node done lc-done\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail done\\"></span><span class=\\"lc-node active lc-running\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
+     '"<article class=\\"node-server running cpu-cell\\" data-t=\\"cell-card\\" data-t-id=\\"h1:22001\\" aria-label=\\"Cell h1:22001\\" data-topology-llama=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" > <span class=\\"cell-beam\\" aria-hidden=\\"true\\"></span> <span class=\\"topology-handle server-input running\\" data-topology-llama-input=\\"1\\" data-llama-port=\\"22001\\" data-llama-host=\\"10.0.0.5\\" title=\\"Proxy upstream target\\"></span> <div class=\\"node-ctrl-row\\"> <button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Server not stopped\\">▶<span class=\\"nab-lbl\\">Start</span></button><button class=\\"node-action-btn warn\\" type=\\"button\\" data-t=\\"cell-stop\\" data-t-id=\\"h1:22001\\" data-node-cell-stop=\\"h1\\" data-node-cell-port=\\"22001\\" title=\\"Stop server\\">⏹<span class=\\"nab-lbl\\">Stop</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Autostart not supported for remote hosts\\">↥<span class=\\"nab-lbl\\">Autostart</span></button><button class=\\"node-action-btn muted\\" type=\\"button\\" disabled title=\\"Cannot remove while active\\">✕<span class=\\"nab-lbl\\">Delete</span></button> </div> <div class=\\"node-server-lc\\"><span class=\\"lc-node done lc-done\\"><span class=\\"lc-lbl\\">reserved<span class=\\"lc-port\\">:22001</span></span></span><span class=\\"lc-rail done\\"></span><button class=\\"lc-node lc-cfg-btn done lc-done lc-cfg-live\\" type=\\"button\\" data-t=\\"cell-configure\\" data-t-id=\\"h1:22001\\" aria-label=\\"Configure: h1:22001\\" data-node-cell-start=\\"h1\\" data-node-cell-port=\\"22001\\" data-node-role=\\"host\\" title=\\"Configure\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">configured</span></button><span class=\\"lc-rail done\\"></span><span class=\\"lc-node done lc-done\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">starting</span></span><span class=\\"lc-rail done\\"></span><span class=\\"lc-node active lc-running\\"><span class=\\"lc-dot\\"></span><span class=\\"lc-lbl\\">running</span></span></div> <div class=\\"node-server-body\\"> <div class=\\"node-model-block\\" role=\\"button\\" tabindex=\\"0\\" data-node-detail=\\"h1:22001\\" title=\\"Open full model info\\"> <div class=\\"node-model-ident\\"> <strong class=\\"node-model-name\\" title=\\"a.gguf\\"><span>a</span></strong> </div> <div class=\\"node-model-row2\\"><span class=\\"model-chips\\"><span class=\\"mbadge mbadge-job node-job-chip\\" data-t=\\"cell-job-llm\\">💬 LLM</span><span class=\\"mbadge mbadge-cmd node-runner-chip\\">🦙 llama.cpp</span><span class=\\"mbadge mbadge-cpu\\" title=\\"These cells compute on the CPU — no VRAM used, so they never appear next to a GPU.\\">🧮 CPU</span></span></div> </div> <div class=\\"topology-runtime-panel llama\\" data-topology-runtime-panel=\\"__srv__:22001\\"> <div class=\\"topology-runtime-slots-head\\"> <strong>Slots <span class=\\"topology-muted\\">1</span></strong> </div> <div class=\\"topology-runtime-slots slot-chips-row\\"><span class=\\"slot-chip idle\\" title=\\"Slot 1\\"></span></div> </div> </div> </article>"',
      'as-is: Якорь: полная карточка running без gpuIndexes — as-is получает класс cpu-cell и чип 🧮 CPU; uptime в lifecycle-баре не передаётся никогда'),
     ('card_cls_stopped_configured',
      'const CLS = (h) => norm(h).match(/<article class="([^"]*)"/)[1];',
@@ -530,11 +531,11 @@ PINS = [
      'norm(m.nodeServerCardHtml({ id: "h1", ip: "10.0.0.5" }, mk({ phase: "stopped" }))).match(/data-node-role="([^"]*)"/)[1]',
      '"undefined"',
      'as-is: as-is: узел без role → data-node-role="undefined" (escapeHtml(undefined) даёт строку «undefined»)'),
-    ('card_ctrl_role_client',
+    ('card_ctrl_role_host',
      '',
      'norm(m.nodeServerCardHtml(node, mk({ phase: "stopped" }))).match(/data-node-role="([^"]*)"/)[1]',
-     '"client"',
-     'negative: узел с role client → data-node-role="client"'),
+     '"host"',
+     'negative: узел хоста (role host) → data-node-role="host", не controller'),
     ('card_ctrl_controller_ids',
      'const h = norm(m.nodeServerCardHtml(node, mk({ phase: "stopped", isController: true })));',
      '[h.match(/data-t="cell-card" data-t-id="([^"]*)"/)[1], h.match(/data-node-cell-launch="([^"]*)"/)[1], h.match(/data-node-cell-start="([^"]*)"/)[1], h.match(/data-llama-host="([^"]*)"/)[1], cst.CONTROLLER_HOST_ID]',
@@ -1572,8 +1573,8 @@ PINS = [
     ('ugly_role_present',
      'const h = norm(m.nodeServerCardHtml(node, mk({})));',
      '(h.match(/data-node-role="([^"]*)"/) || [])[1] ?? null',
-     '"client"',
-     'positive: role задан → data-node-role=client'),
+     '"host"',
+     'positive: role задан → data-node-role=host'),
     ('ugly_error_title_undefined',
      'const h = norm(m.nodeServerCardHtml(node, mk({ phase: "error" })));',
      '(h.match(/<div class="topology-remote-unreachable llama-err-block" title="([^"]*)">/) || [])[1] ?? null',
@@ -2205,11 +2206,11 @@ PINS = [
      'norm(m.nodeServerCardHtml({ id: "h1", name: "Host", ip: "10.0.0.5", gpus: [] }, mk({ phase: "stopped" }))).match(/data-node-role="([^"]*)"/)[1]',
      '"undefined"',
      'as-is: карточка без node.role → data-node-role="undefined" (escapeHtml(undefined) печатает слово)'),
-    ('card_role_client',
+    ('card_role_host',
      '',
      'norm(m.nodeServerCardHtml(node, mk({ phase: "stopped" }))).match(/data-node-role="([^"]*)"/)[1]',
-     '"client"',
-     'positive: карточка с node.role=client → data-node-role="client"'),
+     '"host"',
+     'positive: карточка с node.role=host → data-node-role="host"'),
     ('card_errblock_title_undefined',
      '',
      'norm(m.nodeServerCardHtml(node, mk({ phase: "error" }))).match(/<div class="topology-remote-unreachable llama-err-block" title="([^"]*)">/)[1]',
@@ -2642,6 +2643,62 @@ PINS = [
      "[(m.nodesLaneHtml().match(/data-fold-mode=\"line\"/g) || []).length, (cf.CARD_FOLD.densities = { cells: \"full\" }, (m.nodesLaneHtml().match(/data-fold-mode=/g) || []).length), (m.nodesLaneHtml().match(/data-t=\"cell-card\"/g) || []).length]",
      "[2,0,2]",
      "positive: лента ячеек просит сворачивание — две тихие ячейки стоят строками; лента «full» — ни одной строки, те же две карточки"),
+]
+
+
+
+def _en(key):
+    """A string the pins expect, read out of static/js/i18n/en.js."""
+    text = (ROOT / "static" / "js" / "i18n" / "en.js").read_text(encoding="utf-8")
+    m = re.search(r'^\s*' + re.escape(key) + r':\s*(".*"),\s*$', text, re.M)
+    return json.loads(m.group(1))
+
+
+def _ago(age):
+    return _en("nodeScoutLastReport").replace("{ago}", age)
+
+
+# The machine a scout reports is a node of its own (docs/scout-split.md): it
+# is drawn with or without GPUs, called a host, and says when its scout went
+# silent — with the one action that is the operator's, forgetting it.
+HOST = '{ id: "h2", name: "Box", ip: "10.0.0.6", role: "host", gpus: [], servers: [] }'
+PINS += [
+    ("host_age_text",
+     "",
+     "[null, undefined, 0, 45, 600, 7200, 200000].map((a) => m.hostAgeText({ ageSeconds: a }))",
+     json.dumps([_en("nodeScoutNeverReported"), _en("nodeScoutNeverReported"), _ago("0s"), _ago("45s"),
+                 _ago("10m"), _ago("2h"), _ago("2d")]),
+     "boundary: нет отчёта — так и сказано; ноль секунд — настоящий отчёт прямо сейчас, а не отсутствие; дальше 45s / 10m / 2h / 2d"),
+    ("host_age_text_without_a_node",
+     "",
+     "[m.hostAgeText(null), m.hostAgeText({}), m.hostAgeText({ ageSeconds: \"x\" })]",
+     json.dumps([_en("nodeScoutNeverReported")] * 3),
+     "negative: без узла, без возраста, с мусором вместо числа — «не отвечал», а не «NaNs»"),
+    ("silent_host_says_so",
+     "",
+     f"(h => [h.includes('data-t=\"node-scout-silent\"'), h.includes('data-host-forget=\"h2\"'), "
+     f"h.includes('data-live-hostage>' + m.hostAgeText({{ ageSeconds: 600 }}) + '<')])"
+     f"(norm(m.hostSilenceHtml({{ ...{HOST}, online: false, ageSeconds: 600 }})))",
+     "[true,true,true]",
+     "positive: скаут молчит — у узла баннер с возрастом отчёта и ✕ «забыть машину»; клиентов на машине это не касается"),
+    ("live_host_has_no_banner",
+     "",
+     f"[m.hostSilenceHtml({{ ...{HOST}, online: true, ageSeconds: 30 }}), "
+     f"m.hostSilenceHtml({{ id: \"skynet\", role: \"controller\", online: false }}), "
+     f"m.hostSilenceHtml({{ id: \"x\", role: \"client\", online: false }}), m.hostSilenceHtml(null)]",
+     '["","","",""]',
+     "negative: живой скаут — ни баннера, ни ✕ (забытый вернулся бы со следующим отчётом); контроллер не хост; старое слово роли не хост"),
+    ("gpuless_host_is_on_the_board",
+     f"st.setTopology({{ ...st.topology, nodes: [{HOST}] }});",
+     "(h => [h.includes('data-node-id=\"h2\"'), (h.match(/<span class=\"node-role\">([^<]*)</) || [])[1]])(m.nodesLaneHtml())",
+     json.dumps([True, _en("nodeRoleHost")]),
+     "defect-history: машину без видеокарт и ячеек лента пропускала — её показывала карточка хоста у клиентов, "
+     "а та ушла; без узла машины не было бы ни на одном экране, и первую ячейку на ней не заказать"),
+    ("silent_host_node_is_dimmed_and_says_why",
+     f"st.setTopology({{ ...st.topology, nodes: [{{ ...{HOST}, gpus: [{{ index: 0, name: \"RTX\", memoryTotalMiB: 24576 }}], online: false, ageSeconds: 90 }}] }});",
+     "(h => [/class=\"node-card offline/.test(h), h.includes('node-scout-silent'), h.indexOf('node-scout-silent') > h.indexOf('</header>')])(norm(m.nodesLaneHtml()))",
+     "[true,true,true]",
+     "positive: молчащий хост приглушён, и баннер стоит сразу под его шапкой"),
 ]
 
 _fail = []

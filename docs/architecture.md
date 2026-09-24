@@ -67,8 +67,6 @@ mtime, files diff cleanly in git, and a backup is a copy.)
 | Route-agent (`caravan-scout`, formerly `llm-easy-route-agent`, separate repo) | each client `:8092` | Publishes the host's llama nodes/GPUs to the admin (heartbeat) and executes start/stop/config/cache commands on behalf of the admin. |
 | Cell servers (moonshine, whisper, TTS — `cells/` in THIS repo) | controller + any client | The programs a "command cell" actually runs: ordinary servers managed like llama cells, with a health endpoint reporting download/load progress. The controller owns them and serves them over `/api/cell-assets`; every host materializes them into `$HOME`, where the generated cell command looks for them — the controller before starting a local cell, a scout before starting a client one. They used to live in the scout repo and were copied by hand into the controller, which is how the two copies drifted for months. |
 | Frontend (`static/`) | served by admin | Topology board, standalone kanban/router canvas, HF browser, models-disk and System pages. Native ES modules. See [frontend.md](frontend.md). |
-| OpenClaw config managers | your hosts `:5005` | External agents' config source; the admin syncs per-agent `wait_timeout` from them and computes queue thresholds. |
-| Fleet registry | `:8011` (optional) | Single source of truth for agent identity; discovered clients are registered by POSTing there. |
 
 ## Processes and entry points
 
@@ -108,7 +106,6 @@ and concurrent writers cannot clobber each other.
 | `state/model-catalog.json` | admin | admin | Provider model lists (1 h TTL), endpoint circuit-breaker state, cached codex client version. Legacy installs keep it at the repo root. |
 | `~/.local/state/llamacpp-easy-admin/auth.db` | admin | admin | Accounts, sessions and the fleet token (stdlib SQLite, 0600). Auth is off until the first user exists. |
 | `var/vllm-versions.json` | admin | admin | vLLM venv pip history — the rollback points for `/api/vllm/update`. |
-| `~/.config/llamacpp-easy-admin/openclaw-config-cache.json` | admin | admin | Last-known-good OpenClaw configs (may contain credentials → 0600, outside repo). |
 | `var/server-cells/<port>/{cell.json,start.sh}` | admin | `lama-cell@.service` | Generated launch artifacts; `cell.json` is the source of truth, `start.sh` the runnable. |
 | `var/server-backups/<host>/<gpu-or-CPU>/…` | admin | admin | Named launch-config snapshots for every node, kept on the controller so they survive the client. |
 | `.bench_cache/`, `logs/model-pricing-cache.json` | admin | admin | HF benchmark and LiteLLM pricing caches. |

@@ -27,7 +27,6 @@ export const ui = {
   usageStatsExpanded: "",
   usageStatsRateEdit: null,
   usageStatsDays: 30,
-  topologyAgentConfigMode: "",
   pendingConfirm: null,
   latestSystemMonitor: null,
   routeErrHour: null,

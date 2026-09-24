@@ -240,36 +240,6 @@
   background: color-mix(in srgb, var(--bad) 12%, var(--field));
 }
 
-.client-card {
-  padding: 10px;
-}
-
-.client-head {
-  align-items: flex-start;
-}
-
-.client-title-line,
-.client-state-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.client-title-line {
-  flex-wrap: wrap;
-}
-
-.client-title-line > span,
-.client-state-line > span {
-  color: var(--muted);
-  font-size: 12px;
-}
-
-.client-title-line .mini-link {
-  padding: 0;
-  min-height: 0;
-}
 .client-rename-btn {
   background: none; border: none; cursor: pointer; padding: 0 2px;
   color: var(--muted); font-size: 12px; opacity: .5; line-height: 1;
@@ -277,88 +247,6 @@
 }
 .client-rename-btn:hover { opacity: 1; color: var(--accent); }
 
-
-/* Stale client card — red accent stripe + faded body */
-.topology-card.client-card.client-stale {
-  border-color: color-mix(in srgb, var(--bad) 60%, var(--line));
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--bad) 10%, transparent), transparent 34%),
-    var(--panel);
-  opacity: .85;
-}
-.topology-card.client-card.client-stale::before {
-  background: var(--bad);
-}
-.client-stale-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin: 6px -10px -4px;
-  padding: 5px 10px;
-  background: color-mix(in srgb, var(--bad) 14%, var(--field));
-  border-top: 1px solid color-mix(in srgb, var(--bad) 30%, var(--line));
-  border-radius: 0 0 6px 6px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--bad);
-  letter-spacing: .04em;
-  text-transform: uppercase;
-}
-.client-stale-banner span { flex: 1; }
-.client-delete-btn {
-  background: none;
-  border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line));
-  border-radius: 4px;
-  color: var(--bad);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  padding: 3px 8px;
-  transition: background .15s, border-color .15s;
-}
-.client-delete-btn:hover {
-  background: color-mix(in srgb, var(--bad) 18%, transparent);
-  border-color: var(--bad);
-}
-/* Discovery hint: a running agent-* not yet in the fleet registry. */
-.client-discovery-banner {
-  margin: 6px -10px -4px;
-  padding: 5px 10px;
-  background: color-mix(in srgb, var(--accent) 12%, var(--field));
-  border-top: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
-  border-radius: 0 0 6px 6px;
-}
-.discovery-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--accent);
-  letter-spacing: .03em;
-}
-.discovery-row + .discovery-row { margin-top: 4px; }
-.discovery-row span { flex: 1; }
-.client-discovery-btn {
-  background: none;
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
-  border-radius: 4px;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-  line-height: 1;
-  padding: 3px 8px;
-  white-space: nowrap;
-  transition: background .15s, border-color .15s;
-}
-.client-discovery-btn:hover {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  border-color: var(--accent);
-}
 
 .topology-card-head {
   display: flex;
@@ -551,11 +439,6 @@ button.llama-edit-head:hover .llama-edit-pencil {
   color: var(--muted);
 }
 
-.topology-agents {
-  display: grid;
-  gap: 9px;
-  margin-top: 8px;
-}
 
 .topology-agent {
   display: grid;
@@ -572,15 +455,6 @@ button.llama-edit-head:hover .llama-edit-pencil {
   background: color-mix(in srgb, var(--panel) 72%, var(--field));
 }
 
-/* Agent with no heartbeat — its own sub-client is stale */
-.topology-agent.agent-stale {
-  border-color: color-mix(in srgb, var(--bad) 55%, var(--line));
-  background: color-mix(in srgb, var(--bad) 7%, var(--field));
-}
-.topology-agent.agent-stale .topology-port-dot {
-  background: var(--bad);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bad) 25%, transparent);
-}
 .topology-agent.has-remove { position: relative; }
 .agent-remove-btn {
   position: absolute; top: 4px; right: 6px; z-index: 2;
@@ -589,34 +463,6 @@ button.llama-edit-head:hover .llama-edit-pencil {
   transition: opacity .15s, color .15s;
 }
 .agent-remove-btn:hover { opacity: 1; color: var(--bad); }
-.agent-remove-btn.stale { opacity: .75; color: var(--bad); }
-
-.topology-agent-group {
-  display: grid;
-  gap: 6px;
-}
-
-.topology-agent-group h3 {
-  margin: 0;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.topology-agent-list {
-  display: grid;
-  gap: 6px;
-}
-
-.topology-empty-group {
-  padding: 7px;
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  color: var(--muted);
-  background: color-mix(in srgb, var(--field) 60%, transparent);
-  font-size: 12px;
-}
 
 .topology-agent-summary {
   display: flex;
@@ -676,22 +522,14 @@ button.llama-edit-head:hover .llama-edit-pencil {
   flex: 0 0 auto;
 }
 
-/* A client created by hand is silent by right: that's a note, not an alarm —
-   no red, and no delete button next to it. A red banner with "Delete" under
-   a record that hasn't done anything wrong read as "remove this error", and
-   records got lost that way. */
-/* A scout-less client's header is a row, not a card: there's nothing left to
-   report about the host, but the group still needs a name and its three actions. */
+/* A client's header is a row, not a card: the client is the operator's record,
+   with nothing to report about a machine, but the group still needs a name and
+   its three actions. */
 .client-caption {
   display: flex; align-items: center; gap: 6px;
   padding: 2px 2px 4px; font-size: 12px; color: var(--muted);
 }
 .client-caption > strong { color: var(--text); }
-
-.client-quiet-note {
-  font-size: 10px; color: var(--muted); opacity: .7;
-  padding: 4px 2px 0; font-style: italic;
-}
 
 .topology-agent-routes {
   display: grid;

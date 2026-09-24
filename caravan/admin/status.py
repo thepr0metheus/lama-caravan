@@ -22,7 +22,6 @@ from caravan.admin.settings_bundle import passphrase_available
 from caravan.admin.models import (list_chat_templates, list_models, list_st_artifacts,
                                   list_translate_models, list_whisper_sizes)
 from caravan.admin.monitoring import cpu_state, gpu_state, memory_state, runtime_api
-from caravan.admin.openclaw import notify_openclaw_config_managers, openclaw_config_manager_state
 from caravan.admin.paths import ADMIN_SERVICE_NAME, AGENT_PROXY_SERVICE_NAME, IS_CONTAINER, LLAMA_HOME, PROJECT_ROOT, SERVER_CELLS_DIR, SERVICE_NAME, START_SCRIPT
 from caravan.admin.state import admin_state
 from caravan.admin.systemd_ctl import logs, service_status, systemctl, user_service_diagnostics
@@ -191,7 +190,6 @@ def state():
         "llamaCpp": llama_cpp_info(fetch_remote=False),
         "logs": logs(),
         "backups": backups(),
-        "openclawConfigManagers": openclaw_config_manager_state(),
         "projectGit": project_git_info(),
         "time": int(time.time()),
     }
@@ -205,8 +203,6 @@ def do_action(action):
     result = systemctl(action, SERVICE_NAME, timeout=30)
     if not result["ok"]:
         raise AppError(result["stderr"] or f"systemctl {action} failed", 500)
-    if action in {"start", "restart"}:
-        result["openclawConfigManagers"] = notify_openclaw_config_managers()
     return result
 
 def llama_server_path():

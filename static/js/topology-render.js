@@ -34,16 +34,13 @@ import {
   _stoppingCells,
   bindServerSlotControls,
   clearPendingRemoteStart,
-  deleteTopologyClient,
   deleteTopologyClientAgent,
-  discoveryAddCandidate,
   openHostPowerScheduleModal,
   remoteStartupInFlight,
   renderNvidiaSmiSourceButtons,
   startRemoteStartWatch,
   submitLlamaStop,
-  topologyClientGpusHtml,
-  adoptScoutClients,
+  forgetTopologyHost,
   editRouteModel,
   editRouteWait,
   setRouteContextPrefer,
@@ -58,21 +55,18 @@ import {
   renderKnownProblems,
   openRestoreBuildModal,
   renderLlamaCpp,
-  renderOpenClawLinks,
   renderProjectGitBranch,
   renderRuntime,
   renderSectionTips,
   renderService,
 } from "./system-panels.js";
 import {
-  clientLivenessLineHtml,
   drawRouteTokenHistory,
   refreshTopologyActivityState,
   topologyGpuActivity,
   topologyRouteDetailHtml,
   topologyStateHealthClasses,
   topologyStatusPill,
-  clientAgeText,
   sortedLaneCards,
   sortedTopologyClients,
 } from "./topology-activity.js";
@@ -83,8 +77,6 @@ import {
 } from "./topology-dnd.js";
 import {
   recalcQueueThresholds,
-  renderTopologyAgentConfigModal,
-  renderTopologyClientDetail,
   renderTopologyGpuModal,
   renderTopologyLlamaDetail,
   renderTopologyRawConfigModal,
@@ -94,6 +86,7 @@ import {
 import {
   _collapsedNodes,
   applyNodesViewMode,
+  hostAgeText,
   mountNodeTelemetry,
   nodesLaneHtml,
   nodeSparklineSvg,
@@ -106,14 +99,9 @@ import {
 } from "./topology-nodes.js";
 import {
   renderTopologyProxyForm,
-  topologyAssignmentsForHost,
   topologyBoardAssignmentsForHost,
-  topologyGroupedAgents,
-  scoutOwnedCounts,
   clientLaneAgentCards,
-  clientCardIsRedundant,
   clientNeedsCaption,
-  clientHasScout,
   AGENT_IDLE_HOURS,
   clientIsLive,
 } from "./topology-proxies.js";
@@ -163,69 +151,6 @@ export function setActiveView(view) {
   }
 }
 
-// What the scout found and nobody has registered yet is an offer to register
-// it from here. It belongs to a client whose records the SCOUT keeps: on a
-// client the board keeps, agents are added with the ＋ button on the card
-// itself, and a second, foreign way next to it is not help but the question
-// "which one is right". A separate function, because otherwise the rule cannot
-// be pinned: the card is built inside one large DOM procedure.
-// Silence of a client registered BY HAND is not a fault: such a client owes no
-// answer — decision 3 of the clients-page journal (private). The board used to
-// shout "agent not responding" in red at it and put a delete button right
-// there, so "dismiss this alarm" and "delete the record" looked like one
-// gesture — and that gesture lost a record nobody meant to touch. A separate
-// function for the same reason: the card is built inside one large DOM
-// procedure.
-// The host card of a hand-made client that never answered said "I don't know"
-// FOUR ways at once: "ip n/a", the state badge, "never answered" and a note
-// under them. Four lines about the same absence — and behind them the only
-// thing the card is for got lost: rename, add an agent, delete the client.
-//
-// What stays is the heading with those three actions and one honest line at
-// the bottom. As soon as the client answers or gets an address, everything
-// comes back: this is a rule about silence, not about the client being manual.
-export function clientHasNothingToReport(client) {
-  if (clientHasScout(client)) return false;
-  const age = client?.ageSeconds;
-  return (age === null || age === undefined) && !client?.ip;
-}
-
-
-export function clientStaleBannerHtml(client, isStale) {
-  if (!isStale) return "";
-  // The sign is NOT "made by hand" but "has a scout". Adoption set `manual` on
-  // every client of the fleet, and a scout host that went silent started to get
-  // the "owes no answer" note — about a machine that does owe one. Silence there
-  // is a real fault, and the alarm must stay.
-  if (!clientHasScout(client)) {
-    return `
-      <div class="client-quiet-note">
-        <span>${escapeHtml(t("topologyClientQuiet"))}</span>
-      </div>`;
-  }
-  return `
-      <div class="client-stale-banner">
-        <span>${escapeHtml(t("topologyAgentNoContact"))}</span>
-        <button class="client-delete-btn" type="button"
-          data-client-delete="${escapeHtml(client?.id || "")}">${escapeHtml(t("deleteAction"))}</button>
-      </div>`;
-}
-
-export function clientDiscoveryBannerHtml(client, candidates) {
-  const rows = Array.isArray(candidates) ? candidates : [];
-  if (client?.manual || !rows.length) return "";
-  return `
-      <div class="client-discovery-banner">
-        ${rows.map((c) => `
-          <div class="discovery-row">
-            <span>🔍 ${escapeHtml(c.machine || "")} (${escapeHtml(c.runtime || "")}${c.ip ? ", " + escapeHtml(c.ip) : ""}) — not in registry</span>
-            <button class="client-discovery-btn" type="button"
-              data-discover-add="${escapeHtml(c.suggestedId || "")}"
-              data-discover-host="${escapeHtml(c.ip || "")}">Add to fleet</button>
-          </div>`).join("")}
-      </div>`;
-}
-
 export function renderTopology() {
   if (!topology) return;
   // The lane switches live in the page's static header, outside the lanes this
@@ -243,33 +168,20 @@ export function renderTopology() {
 
   const clients = sortedTopologyClients(topology.clients || []);
   const clientsEl = $("topologyClients");
-  // The lane is one flat list of cards — an agent, a scout host, a caption —
+  // The lane is one flat list of cards — an agent or a client's caption —
   // ordered live-first and by name (sortedLaneCards), not client by client: a
-  // host with ten agents would otherwise keep its quiet ones among the live
+  // client with ten agents would otherwise keep its quiet ones among the live
   // ones. A card still shows its client by the accent colour it carries.
+  //
+  // Only clients: the operator's records. The machine a scout reports is a
+  // node in the model-servers lane (docs/scout-split.md); the host card that
+  // stood here, with the machine's CPU, GPUs and silence, told about the
+  // machine and was read as the client.
   const laneCards = [];
   clients.forEach((client) => {
     const assignments = topologyBoardAssignmentsForHost(client.id);
     const displayName = client.name || client.id;
-    const ccpu = client.cpu || {}, cram = ccpu.ram || {};
-    const clientMeta = [
-      ccpu.loadPct != null ? `CPU ${ccpu.loadPct}%` : "",
-      cram.usedGb != null ? `RAM ${cram.usedGb}/${cram.totalGb} GB`
-        : (cram.totalGb != null ? `RAM ${cram.totalGb} GB` : ""),
-      client.platform || "",
-    ].filter(Boolean).join(" · ");
-    const isStale = client.state === "stale";
-    const staleBanner = clientStaleBannerHtml(client, isStale);
-    const silent = clientHasNothingToReport(client);
-    // Discovery hints: running agent-* machines on this host that aren't in the fleet registry.
-    const candidates = Array.isArray(client.candidates) ? client.candidates : [];
-    const discoveryBanner = clientDiscoveryBannerHtml(client, candidates);
-    // A host card exists only where a scout does: it's entirely about what
-    // the scout reported. Without one, its place is taken either by the sole
-    // agent's card (which also takes over managing the client) or by a thin
-    // caption row.
-    const hostCard = !clientCardIsRedundant(client, (client.agents || []).length);
-    const caption = clientNeedsCaption(client, (client.agents || []).length) ? `
+    const caption = clientNeedsCaption((client.agents || []).length) ? `
       <div class="client-caption" data-t="board-client-caption" data-t-id="${escapeHtml(client.id || "")}">
         <strong>${escapeHtml(displayName)}</strong>
         <button class="client-rename-btn" type="button" title="${escapeHtml(t("trTitleSetName"))}"
@@ -277,49 +189,8 @@ export function renderTopology() {
         <button class="client-rename-btn" type="button" data-t="client-agent-add"
           title="${escapeHtml(t("topologyAgentAdd"))}"
           data-client-agent-add="${escapeHtml(client.id)}">＋</button>
-        <button class="client-rename-btn danger" type="button" data-t="client-delete"
-          title="${escapeHtml(t("topologyClientDelete"))}"
-          data-client-delete="${escapeHtml(client.id)}">✕</button>
       </div>` : "";
     if (caption) laneCards.push({ live: clientIsLive(client), name: displayName, html: caption });
-    if (hostCard) laneCards.push({ live: !isStale, name: displayName, html: `
-      <!-- data-t-id is the HOST ID, which is what cell-card ids are built from
-           (client-a:8004), while the heading shows the display NAME (Alice).
-           Without the id here the two cannot be joined from outside, and the
-           lane looks unrelated to the cards — see docs/testability.md. -->
-      <article class="topology-card client-card${isStale ? " client-stale" : ""}" data-t="board-client-card" data-t-id="${escapeHtml(client.id || "")}" data-client-id="${escapeHtml(client.id || "")}" style="${escapeHtml(topologyAccentStyle(client.id || displayName))}">
-        <div class="topology-card-head client-head">
-          <div class="client-title-line">
-            <strong>${escapeHtml(displayName)}</strong>
-            <button class="client-rename-btn" type="button" title="${escapeHtml(t("trTitleSetName"))}"
-              data-client-rename="${escapeHtml(client.id)}" data-client-name="${escapeHtml(displayName)}">✎</button>
-            <!-- A proxy is assigned to an AGENT, and there was no way to
-                 create one by hand: a manual client's card only offered
-                 "rename" and "delete", so the record existed but couldn't be
-                 configured. -->
-            <button class="client-rename-btn" type="button" data-t="client-agent-add"
-              title="${escapeHtml(t("topologyAgentAdd"))}"
-              data-client-agent-add="${escapeHtml(client.id)}">＋</button>
-            <!-- Deletion lives in the header now, as a calm button. It used
-                 to sit INSIDE the red "agent not answering" banner, and
-                 removing that banner for a client that's simply silent by
-                 design would have meant deleting the record. When the banner
-                 was removed for manual clients, I nearly took away their only
-                 way to be deleted along with it — which would have been a
-                 trap of its own making. -->
-            <button class="client-rename-btn danger" type="button" data-t="client-delete"
-              title="${escapeHtml(t("topologyClientDelete"))}"
-              data-client-delete="${escapeHtml(client.id)}">✕</button>
-            ${silent ? "" : `<span>${escapeHtml(client.ip || "ip n/a")}</span>`}
-          </div>
-          ${silent ? "" : `<div class="client-state-line">${clientLivenessLineHtml(client)}</div>`}
-        </div>
-        <div class="client-meta-line" data-live-meta${clientMeta ? "" : ' style="display:none"'}>${escapeHtml(clientMeta)}</div>
-        ${topologyClientGpusHtml(client)}
-        <div class="topology-agents">${client.manual ? "" : topologyGroupedAgents(client, assignments)}</div>
-        ${discoveryBanner}
-        ${staleBanner}
-      </article>` });
     clientLaneAgentCards(client, assignments).forEach((card) => laneCards.push({ live: !card.idle, name: card.name, html: `
       <article class="topology-card agent-card${card.idle ? " idle" : ""}" data-t="board-agent-card"
                data-t-id="${escapeHtml(client.id || "")}"
@@ -335,8 +206,6 @@ export function renderTopology() {
     renderUsageStatsModal(),
     renderTopologyGpuModal(),
     renderTopologyRawConfigModal(),
-    renderTopologyAgentConfigModal(),
-    renderTopologyClientDetail(),
     renderTopologyLlamaDetail(),
     renderTopologyCloudPicker(),
     renderTopologyCloudAccountModal(),
@@ -411,32 +280,7 @@ export function renderTopology() {
     addClientBtn.dataset.bound = "1";
     addClientBtn.addEventListener("click", () => addTopologyClient());
   }
-  // Moving the scout's records under the board's ownership. The button shows
-  // ONLY when there's something to move and disappears once there's
-  // nothing left: an offer that does nothing reads as broken — and teaches
-  // people to stop trusting buttons at all.
-  const adoptBtn = document.getElementById("topologyAdoptBtn");
-  if (adoptBtn) {
-    if (!adoptBtn.dataset.bound) {
-      adoptBtn.dataset.bound = "1";
-      adoptBtn.addEventListener("click", () => adoptScoutClients());
-    }
-    const owned = scoutOwnedCounts();
-    adoptBtn.hidden = !(owned.clients || owned.agents);
-  }
-  // Delete stale client buttons (whole-client cards)
-  document.querySelectorAll("[data-client-delete]").forEach((btn) => {
-    btn.addEventListener("click", () => deleteTopologyClient(btn.dataset.clientDelete));
-  });
-  // Discovery: register a detected-but-unregistered agent into the fleet registry.
-  document.querySelectorAll("[data-discover-add]").forEach((btn) => {
-    btn.addEventListener("click", () => discoveryAddCandidate(btn.dataset.discoverAdd, btn.dataset.discoverHost));
-  });
-  // Delete individual agent sub-client buttons (within a host card, legacy path)
-  document.querySelectorAll("[data-agent-client-delete]").forEach((btn) => {
-    btn.addEventListener("click", (e) => { e.stopPropagation(); deleteTopologyClient(btn.dataset.agentClientDelete); });
-  });
-  // Delete agent from client agent list (runtimeDetected path)
+  // Delete an agent: the record, its route settings; its ports stay free.
   document.querySelectorAll("[data-agent-delete-client]").forEach((btn) => {
     btn.addEventListener("click", (e) => { e.stopPropagation();
       deleteTopologyClientAgent(btn.dataset.agentDeleteClient, btn.dataset.agentDeleteId); });
@@ -469,17 +313,19 @@ export function renderTopology() {
       </article>`;
   });
 
-  // Remote client GPUs — shown alongside controller GPUs
+  // The GPUs of the machines whose scouts answer — shown alongside the
+  // controller's. They are the hosts' (topology.hosts), not the clients':
+  // a client is the operator's record and has no hardware of its own.
   const remoteGpuCards = [];
-  for (const client of (topology?.clients || [])) {
-    if (client.state !== "online") continue;
-    for (const gpu of (client.gpus || [])) {
+  for (const host of (topology?.hosts || [])) {
+    if (host.state !== "online") continue;
+    for (const gpu of (host.gpus || [])) {
       if (!gpu.name) continue;
       const used  = formatMemoryMiB(gpu.memoryUsedMiB);
       const total = formatMemoryMiB(gpu.memoryTotalMiB);
       const util  = gpu.utilizationGpuPct ?? 0;
       const temp  = gpu.temperatureC ?? "n/a";
-      const cname = escapeHtml(client.name || client.id || "");
+      const cname = escapeHtml(host.name || host.id || "");
       remoteGpuCards.push(`
         <article class="topology-card gpu-card" style="opacity:.9">
           <div class="topology-card-head">
@@ -513,6 +359,10 @@ export function renderTopology() {
   // Node collapse/expand
   $("topologyLlamaServers")?.querySelectorAll("[data-node-collapse]").forEach((btn) => {
     btn.addEventListener("click", () => toggleNodeCollapsed(btn.dataset.nodeCollapse));
+  });
+  // A silent scout's machine: forget it (the banner's ✕).
+  $("topologyLlamaServers")?.querySelectorAll("[data-host-forget]").forEach((btn) => {
+    btn.addEventListener("click", () => forgetTopologyHost(btn.dataset.hostForget));
   });
   // Controller node: "Servers" header toggles the mounted Server telemetry slot.
   $("topologyLlamaServers")?.querySelectorAll("[data-ctrl-stats-toggle]").forEach((btn) => {
@@ -698,20 +548,26 @@ export function topologyStructureFingerprint() {
   // reload — which is exactly "didn't save".
   const clients = (topology.clients || [])
     .map((c) => {
-      // Takes what the board actually DRAWS — the merge of the live report
-      // and the stored record. While topologyAssignmentsForHost stood here
-      // instead, a client with a live report had the report win, and an edit
-      // to the stored side (context window, the "manual" flag) never reached
-      // the fingerprint: the board stayed silent until a reload.
+      // Takes what the board actually DRAWS. While a reader that preferred
+      // the scout's live report stood here, an edit to the stored record (the
+      // context window) never reached the fingerprint: the board stayed
+      // silent until a reload. The live report is gone (2026-09-24); the
+      // stored rows are what is drawn.
       const routes = topologyBoardAssignmentsForHost(c.id)
-        .map((row) => `${row.agentId}${row.manual ? "!" : ""}=` + (row.routes || [])
+        .map((row) => `${row.agentId}=` + (row.routes || [])
           .map((r) => `${r.role}@${r.proxyId || ""}#${r.contextLength || ""}${r.contextAuto ? "A" : ""}`
                        + `~${r.modelName || ""}${r.modelNameAuto ? "O" : ""}`)
           .sort().join("+"))
         .sort().join(";");
-      return `${c.id}:${c.name || ""}:${c.state}:${(c.gpus || []).length}:`
+      return `${c.id}:${c.name || ""}:`
         + `${(c.agents || []).map((a) => a.id).sort().join("|")}:${routes}`;
     })
+    .sort().join(",");
+  // Which machines are on the board and whether their scouts answer: a host
+  // appearing, or going silent, adds or removes a node's banner — structure.
+  // Its age is not; the live patcher moves that.
+  const hosts = (topology.nodes || [])
+    .map((n) => `${n.id}:${n.online ? 1 : 0}`)
     .sort().join(",");
   const classicSrv = (server.llamaServers || [])
     .map((s) => `${s.id}:${s.port}:${s.model || ""}:${topologyServerPhase(s)}:${s.reachable === false ? 0 : 1}`)
@@ -740,12 +596,7 @@ export function topologyStructureFingerprint() {
   // the card even when the server-side topology has not moved yet.
   const pendingCells = `${[..._pendingCellActions.keys()].sort().join("+")}:${[..._stoppingCells].sort().join("+")}`;
   const modals = `${ui.topologyProxyFormOpen ? 1 : 0}:${topologyQueuePriorityModalOpen ? 1 : 0}:${topologyRouteDetail?.proxyId || ""}`;
-  // Dead-agent assignments render as a strip in the kanban CLIENTS block —
-  // one appearing or being deleted must trigger a full rebuild.
-  const orphans = (topology.orphanedAgents || [])
-    .map((o) => `${o.clientId}/${o.agentId}:${(o.ports || []).join(".")}`)
-    .sort().join(",");
-  return [clients, classicSrv, nodeSrv, gpus, prox, cloud, llamaVer, view, pendingCells, modals, orphans].join("||");
+  return [clients, hosts, classicSrv, nodeSrv, gpus, prox, cloud, llamaVer, view, pendingCells, modals].join("||");
 }
 
 // ── llama.cpp crash-watchdog banner ──────────────────────────────────────────
@@ -850,38 +701,16 @@ export function syncTopologyLive() {
     updatedEl.textContent = `${t("topologyUpdatedLabel")} ${new Date(topology.time * 1000).toLocaleTimeString()}`;
   }
 
-  // Clients column (present in both views): heartbeat age + CPU/RAM line.
-  (topology.clients || []).forEach((client) => {
-    const card = document.querySelector(`.client-card[data-client-id="${CSS.escape(client.id || "")}"]`);
-    if (!card) return;
-    _liveSet(card, "[data-live-age]", clientAgeText(client));
-    const ccpu = client.cpu || {}, cram = ccpu.ram || {};
-    const meta = [
-      ccpu.loadPct != null ? `CPU ${ccpu.loadPct}%` : "",
-      cram.usedGb != null ? `RAM ${cram.usedGb}/${cram.totalGb} GB`
-        : (cram.totalGb != null ? `RAM ${cram.totalGb} GB` : ""),
-      client.platform || "",
-    ].filter(Boolean).join(" · ");
-    const metaEl = _liveSet(card, "[data-live-meta]", meta);
-    _liveShow(metaEl, !!meta);
-    // The client GPU summary (VRAM/util/temp/uptime) is pure display — no bound
-    // listeners or animation inside — so we can safely rebuild just that block
-    // from its own builder (keeps it live without drift, leaves cables intact).
-    const gpuBlock = card.querySelector(".client-gpus");
-    if (gpuBlock) {
-      const tmpl = document.createElement("template");
-      tmpl.innerHTML = topologyClientGpusHtml(client);
-      const fresh = tmpl.content.firstElementChild;
-      if (fresh) gpuBlock.replaceWith(fresh);
-    }
-  });
-
   // Node view is the only place we live-patch servers/GPUs (classic re-renders).
   if (!topologyNodesViewOn) return;
 
   (topology.nodes || []).forEach((n) => {
     const nodeEl = document.querySelector(`.node-card[data-node-id="${CSS.escape(n.id)}"]`);
     if (!nodeEl) return;
+
+    // A silent scout's age grows every tick; the banner itself comes and goes
+    // with a full render (the host's state is in the fingerprint).
+    _liveSet(nodeEl, "[data-live-hostage]", hostAgeText(n));
 
     // Header now carries only the platform. Live CPU load% and RAM moved into
     // the CPU block below the GPUs, mirroring a GPU row's util/VRAM.
@@ -989,7 +818,6 @@ export function renderAll() {
   renderSectionTips();
   renderService();
   renderRuntime();
-  renderOpenClawLinks();
   renderCpu();
   renderGpu();
   renderLlamaCpp();

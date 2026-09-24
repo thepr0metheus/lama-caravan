@@ -92,8 +92,18 @@ def _router_local_outputs(server_obj):
         if not port or port in seen:
             continue
         seen.add(port)
-        host = "127.0.0.1" if s.get("isController") else (s.get("clientIp") or "127.0.0.1")
-        node = CONTROLLER_HOST_ID if s.get("isController") else (s.get("clientIp") or "node")
+        if s.get("isController"):
+            host, node = "127.0.0.1", CONTROLLER_HOST_ID
+        else:
+            host = node = str(s.get("clientIp") or "").strip()
+            if not host:
+                # A cell on a machine whose address nobody knows — forgotten on
+                # the board, or never reported — is no output. It used to get
+                # 127.0.0.1, which sends its traffic to whatever the controller
+                # runs on that port. The router treats a missing srv: output as
+                # a server that is down: its edges stay and come back with the
+                # machine's next report.
+                continue
         model = str(s.get("model") or "").split("/")[-1]
         # A command cell has no MODEL_FILE, so it used to render as a bare
         # `:8018` in the router's server list — its own artifact label stands in.
@@ -443,7 +453,7 @@ def save_agent_proxy_config(routes, routers=None):
 # An OpenAI-compatible entry point for an EXTERNAL consumer (a voice app etc.):
 # route-level cloud upstream pinned to one model block, routerId explicitly ""
 # so it feeds no router and never shows up in the kanban graph; the agent
-# machinery (OpenClaw sync, ↑☁ eligibility, assignments) skips kind="service".
+# machinery (↑☁ eligibility, assignments) skips kind="service".
 
 def _all_taken_ports(routes=None):
     """Every number the fleet must not hand out, from ALL of its own registers.
@@ -481,6 +491,34 @@ def port_is_listening(port):
         return bool(pid or comm)
     except Exception:
         return False
+
+
+def _next_agent_port(used_ports):
+    """The next odd port from AGENT_PROXY_BASE_PORT whose +1 neighbour is free too.
+
+    The +1 hole is the fossil of the retired fallback pair: primaries stay on
+    odd ports, and "New port" for a fallback takes the neighbour
+    (fleet_clients.fallback_port_for). `used_ports` carries the routes;
+    everything else the fleet has claimed comes from the shared register, and
+    the kernel is asked last. This allocator used to consult the routes file
+    and nothing else, while the bridge allocator next door consulted all of
+    them; the collision it could produce surfaced only as a failed bind in a
+    log. Its other caller, the provisioner that minted a port for every agent a
+    scout reported, is gone (2026-09-24): agent ports are made by hand.
+    """
+    from caravan.admin.paths import AGENT_PROXY_BASE_PORT
+    claimed = set(used_ports)
+    try:
+        claimed |= _all_taken_ports()
+    except Exception:
+        pass
+    candidate = AGENT_PROXY_BASE_PORT
+    while (candidate in claimed or (candidate + 1) in claimed
+           or port_is_listening(candidate)):
+        candidate += 2
+        if candidate > 65535:
+            raise AppError("no free agent proxy port left", 500)
+    return candidate
 
 
 def _next_free_proxy_port(routes):
@@ -606,9 +644,7 @@ def mint_agent_port(client_id, agent_id, label="", port=None):
         # from SERVER_CELL_BASE_PORT because bridges deliberately share the cell
         # numbering; an agent port does not, and handing one out at 22026 puts a
         # proxy inside the range the cell picker draws from.
-        from caravan.admin.fleet_clients import _next_auto_proxy_primary_port
-        port = _next_auto_proxy_primary_port(
-            {int(r.get("port") or 0) for r in routes if isinstance(r, dict)})
+        port = _next_agent_port({int(r.get("port") or 0) for r in routes if isinstance(r, dict)})
     else:
         try:
             port = int(port)

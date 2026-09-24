@@ -117,7 +117,7 @@ def normalize_route(route):
         "apiKey": str(route.get("apiKey") or "").strip(),
         "priority": int(route.get("priority") or 0),
         "preemptible": bool(route.get("preemptible", True)),
-        # Client wait timeout (seconds) — synced from OpenClaw config by admin.
+        # Client wait timeout (seconds) — the operator's number on the port.
         # Used as the base for percentage-based queue thresholds.
         "clientTimeoutSeconds": max(0, int(route.get("clientTimeoutSeconds") or 0)),
         # Context window for THIS consumer — a copy of the setting on the

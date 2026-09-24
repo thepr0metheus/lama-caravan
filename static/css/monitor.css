@@ -1174,7 +1174,12 @@
 .fleet-overview { display:flex; gap:18px; flex-wrap:wrap; padding:10px 14px; border:1px solid var(--line); border-radius:8px; background:var(--panel); font-size:13px; color:var(--muted,#888); }
 .fleet-overview b { color: var(--text, #e6e6e6); font-size:15px; }
 .node-card { border:1px solid var(--line); border-radius:10px; background:var(--panel); overflow:visible; }
-.node-card.offline { opacity:.6; }
+/* A host whose scout stopped answering is dimmed — all of it but the banner
+   that says so: that is the part to read. */
+.node-card.offline > :not(.node-scout-silent) { opacity:.6; }
+.node-scout-silent { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:6px 14px; font-size:12px; font-weight:600; color:var(--bad); background:color-mix(in srgb, var(--bad) 12%, var(--panel)); border-bottom:1px solid color-mix(in srgb, var(--bad) 30%, var(--line)); }
+.node-forget-btn { background:none; border:1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); border-radius:4px; color:var(--bad); cursor:pointer; font-size:11px; font-weight:600; line-height:1; padding:3px 8px; min-height:0; transition:background .15s, border-color .15s; }
+.node-forget-btn:hover, .node-forget-btn:focus-visible { background:color-mix(in srgb, var(--bad) 18%, transparent); border-color:var(--bad); }
 .node-head { display:flex; align-items:center; gap:10px; padding:10px 14px; border-bottom:1px solid var(--line); background:color-mix(in srgb,var(--panel) 85%, var(--bg,#111) 15%); border-radius:10px 10px 0 0; }
 .node-head strong { font-size:15px; }
 .node-dot { width:9px; height:9px; border-radius:50%; flex-shrink:0; }

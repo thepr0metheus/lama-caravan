@@ -42,24 +42,23 @@ class Scout:
 
     @classmethod
     def for_host(cls, host_id, topology, headers=None):
-        """The scout for a registered client.
+        """The scout of a machine that reported, at the address it reported.
 
-        The address comes from the assignment first, if there is one, and
-        only then from the client record: the assignment is where it's been
-        rewired to, and that outranks what it announced at registration.
+        The one reading of a scout's address. There were four — this, reboot
+        and power-off, the listeners scan, and two pre-checks — and one of
+        them skipped the address an assignment row could override it with.
+        That override went with the scout's word about agents (2026-09-24):
+        a machine's host record is the only place the address lives.
         """
         host_id = str(host_id or "").strip()
         if not host_id:
             raise AppError("hostId is required", 400)
-        client = topology.clients().get(host_id)
-        if not client:
-            raise AppError(f"client not registered: {host_id}", 404)
-        agent_url = str(
-            (topology.assignments().get(host_id) or {}).get("agentUrl")
-            or client.get("agentUrl") or ""
-        ).rstrip("/")
+        host = topology.hosts().get(host_id)
+        if not host:
+            raise AppError(f"no scout has reported for host {host_id}", 404)
+        agent_url = str(host.get("agentUrl") or "").rstrip("/")
         if not agent_url:
-            raise AppError(f"no agentUrl for client {host_id}", 400)
+            raise AppError(f"host {host_id} reported no scout address", 400)
         return cls(host_id, agent_url, headers)
 
     def post(self, path, payload=None, timeout=10):

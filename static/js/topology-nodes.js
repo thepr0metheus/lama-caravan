@@ -107,7 +107,11 @@ function cellPinnedToGpu(srv) {
 
 // Compact age for status lines: 45s / 12m / 5h / 3d.
 function _agoShort(epoch) {
-  const s = Math.max(0, Math.floor(Date.now() / 1000 - Number(epoch)));
+  return _ageShort(Date.now() / 1000 - Number(epoch));
+}
+
+function _ageShort(seconds) {
+  const s = Math.max(0, Math.floor(Number(seconds)));
   if (s < 90) return s + "s";
   const m = Math.floor(s / 60);
   if (m < 90) return m + "m";
@@ -115,6 +119,34 @@ function _agoShort(epoch) {
   if (h < 36) return h + "h";
   return Math.floor(h / 24) + "d";
 }
+// What a host's banner says about its scout's silence. ONE function for the
+// node builder and the board's live patcher: the same fact spelled in two
+// places drifts apart, and a fix in one of them lasts a single poll tick
+// (check_board_live_patch.py). The age is the controller's — time since the
+// last report it received — and a record with no report at all says so rather
+// than "0s ago".
+export function hostAgeText(node) {
+  const age = node?.ageSeconds;
+  if (age === null || age === undefined || !Number.isFinite(Number(age))) return t("nodeScoutNeverReported");
+  return t("nodeScoutLastReport", { ago: _ageShort(age) });
+}
+
+// The banner of a host whose scout stopped answering, with the one action that
+// is the operator's to take: forget the machine. It lives on the node — the
+// machine — and not in the clients lane, since the scout reports the machine
+// and nothing about the clients on it (docs/scout-split.md). A live scout gets
+// no banner and no ✕: forgetting it would last until its next report.
+export function hostSilenceHtml(node) {
+  if (!node || node.role !== "host" || node.online) return "";
+  const id = escapeHtml(String(node.id || ""));
+  return `
+        <div class="node-scout-silent" data-t="node-scout-silent" data-t-id="${id}">
+          <span>⚠ ${escapeHtml(t("nodeScoutSilent"))} · <span data-live-hostage>${escapeHtml(hostAgeText(node))}</span></span>
+          <button class="node-forget-btn" type="button" data-t="node-forget" data-t-id="${id}"
+            data-host-forget="${id}" title="${escapeHtml(t("nodeForgetHost"))}">✕ ${escapeHtml(t("nodeForgetHost"))}</button>
+        </div>`;
+}
+
 export const topologyNodesViewOn = true;  // node view is the only mode (flat list retired)
 export const _collapsedNodes = new Set(
   (() => { try { return JSON.parse(localStorage.getItem("topologyCollapsedNodes") || "[]"); } catch { return []; } })()
@@ -1158,10 +1190,12 @@ export function parseLlamaBuildVersion(vstr) {
 // Returns the node-grouped HTML for the Llama Servers lane.
 export function nodesLaneHtml() {
   if (!topology) return "";
-  // Only show the controller and client nodes that actually have a GPU (or a
-  // declared server). GPU-less clients live in the Clients column instead.
-  const nodes = (topology.nodes || []).filter((n) =>
-    n.role === "controller" || (n.gpus || []).length > 0 || (n.servers || []).length > 0);
+  // Every machine with a scout, GPU or not. A GPU-less host used to be left to
+  // the clients column, where the scout's card showed it; that card is gone
+  // with the scout's word about clients (docs/scout-split.md), and a machine
+  // this lane skipped would be on no screen at all — nor could its first cell
+  // be reserved, the ＋ lives here.
+  const nodes = topology.nodes || [];
   // Determine controller build number for "outdated" comparison
   const ctrlVersionStr = state.llamaCpp?.version || "";
   const ctrlBuild = parseLlamaBuildVersion(ctrlVersionStr);
@@ -1372,7 +1406,7 @@ export function nodesLaneHtml() {
     // (translated), the machine's own name, and its address. Capitalised
     // because it opens a phrase; harmless where a script has no case.
     const _roleWord = n.role === "controller" ? t("nodeRoleController")
-      : n.role === "client" ? t("nodeRoleClient") : String(n.role || "");
+      : n.role === "host" ? t("nodeRoleHost") : String(n.role || "");
     const _groupName = `${_roleWord.charAt(0).toUpperCase()}${_roleWord.slice(1)} ${n.name || n.id}`
       + (n.ip ? ` · ${n.ip}` : "");
     return `
@@ -1382,7 +1416,7 @@ export function nodesLaneHtml() {
           <button class="node-collapse" type="button" data-node-collapse="${escapeHtml(n.id)}" title="${escapeHtml(collapsed ? t("expand") : t("collapse"))}" aria-expanded="${collapsed ? "false" : "true"}">${collapsed ? "▸" : "▾"}</button>
           <span class="node-dot ${n.online ? "on" : "off"}"></span>
           <strong>${escapeHtml(n.name || n.id)}</strong>
-          <span class="node-role">${escapeHtml(n.role === "controller" ? t("nodeRoleController") : n.role === "client" ? t("nodeRoleClient") : n.role)}</span>
+          <span class="node-role">${escapeHtml(_roleWord)}</span>
           ${n.ip ? `<span class="topology-muted">${escapeHtml(n.ip)}</span>` : ""}
           ${verChip}
           ${collapsed ? `<span class="node-meta">${servers.length} srv · ${(n.gpus||[]).length} GPU</span>` : ""}
@@ -1391,6 +1425,7 @@ export function nodesLaneHtml() {
             ? `<button class="node-incidents-btn" type="button" data-ctrl-incidents title="${escapeHtml(t("topologyIncidentsOpen"))}">⚠ <span data-ctrl-incidents-count>0</span></button>` : ""}
           <span class="node-meta" data-live-nodemeta>${escapeHtml(n.platform || "")}</span>
         </header>
+        ${hostSilenceHtml(n)}
         ${bodyHtml}
       </section>`;
   }).join("");

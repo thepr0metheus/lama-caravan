@@ -6,12 +6,7 @@ from http.server import ThreadingHTTPServer
 from caravan.admin.cell_schedule import start_scheduler_thread
 from caravan.admin.monitoring import monitor_sampler_loop
 from caravan.admin.gpu_driver import start_watch_thread as start_driver_watch
-from caravan.admin.openclaw import (
-    _queue_thresholds_refresh_loop,
-    compute_queue_thresholds,
-    load_openclaw_cache,
-    sync_wait_timeouts_from_openclaw,
-)
+from caravan.admin.queue_thresholds import QUEUE_THRESHOLDS
 from caravan.admin.paths import DATA_DIR, HOST, IS_CONTAINER, PORT, PROJECT_ROOT, validate_port_ranges
 from caravan.admin.proxies_config import read_agent_proxy_payload, write_agent_proxy_payload
 from caravan.admin.router_dsl import recompute_cloud_fallback_eligibility
@@ -72,22 +67,6 @@ def main():
     except Exception as exc:
         print(f"cloud: contextAuto migration skipped ({exc})", flush=True)
 
-    # One-shot: hand-made clients get back the agents a report once removed
-    # while their proxy ports stayed (caravan/admin/fleet_clients.py:restore_hand_agents).
-    try:
-        from caravan.admin.fleet_clients import restore_hand_agents
-        _back = restore_hand_agents()
-        if _back["restored"] or _back["marked"]:
-            names = ", ".join(f"{h}/{a}" for h, a in _back["restored"])
-            print(f"clients: restored {len(_back['restored'])} agents from their proxy ports"
-                  f"{f' ({names})' if names else ''}; {_back['marked']} marked the operator's", flush=True)
-    except Exception as exc:
-        print(f"clients: agent restoration skipped ({exc})", flush=True)
-
-    # Warm the OpenClaw config cache from disk so wait_timeout sync works even before
-    # the agents respond (or while they're down).
-    load_openclaw_cache()
-
     sampler = threading.Thread(target=monitor_sampler_loop, daemon=True)
     sampler.start()
 
@@ -106,10 +85,9 @@ def main():
             pass
     threading.Thread(target=_bootstrap_cloud_fallback, daemon=True).start()
 
-    # Compute queue thresholds on startup (after OpenClaw configs are cached)
-    threading.Thread(target=lambda: (sync_wait_timeouts_from_openclaw(), compute_queue_thresholds()), daemon=True).start()
-    # Background refresh every 6 hours
-    threading.Thread(target=_queue_thresholds_refresh_loop, daemon=True).start()
+    # Queue thresholds: once on startup, then every 6 hours.
+    threading.Thread(target=QUEUE_THRESHOLDS.compute, daemon=True).start()
+    threading.Thread(target=QUEUE_THRESHOLDS.refresh_forever, daemon=True).start()
     # Driver watch: stays silent while both checkboxes are off (see gpu_driver.py).
     start_driver_watch()
     # Schedules: cell start/stop windows, the planned host shutdown, and the

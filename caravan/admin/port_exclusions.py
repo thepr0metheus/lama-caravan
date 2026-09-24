@@ -175,8 +175,7 @@ def _caravan_owned_ports() -> set:
     # it on — the scout is a caravan process like any other.
     try:
         store = topology_store()
-        urls = [str((c or {}).get("agentUrl") or "") for c in (store.get("clients") or {}).values()]
-        urls += [str((a or {}).get("agentUrl") or "") for a in (store.get("assignments") or {}).values()]
+        urls = [str((h or {}).get("agentUrl") or "") for h in (store.get("hosts") or {}).values()]
         for url in urls:
             match = re.search(r":(\d+)", url.split("//")[-1])
             if match:
@@ -196,10 +195,8 @@ def _client_scans(ours: set) -> list:
     except Exception:
         return out
     store = topology_store()
-    assignments = store.get("assignments", {}) or {}
-    for host_id, client in (store.get("clients") or {}).items():
-        base = str((assignments.get(host_id) or {}).get("agentUrl")
-                   or (client or {}).get("agentUrl") or "").rstrip("/")
+    for host_id, host in (store.get("hosts") or {}).items():
+        base = str((host or {}).get("agentUrl") or "").rstrip("/")
         if not host_id or not base:
             continue
         try:

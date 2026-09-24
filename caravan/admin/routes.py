@@ -48,7 +48,6 @@ from caravan.admin.paths import (
     CLIENT_LABELS_FILE,
     CLOUD_PROVIDERS_FILE,
     DEFAULT_MODELS_DIR,
-    FLEET_REGISTRY_URL,
     HOST,
     INCIDENT_LOG_FILE,
     INCIDENT_RETENTION_SECONDS,
@@ -59,8 +58,6 @@ from caravan.admin.paths import (
     MONITOR_HISTORY_FILE,
     MONITOR_RETENTION_DEFAULT,
     MONITOR_SAMPLE_INTERVAL,
-    OPENCLAW_CONFIG_CACHE_FILE,
-    OPENCLAW_CONFIG_MANAGERS,
     PORT,
     PROJECT_ROOT,
     PROVIDER_SECRETS_FILE,
@@ -73,7 +70,6 @@ from caravan.admin.paths import (
     TOKEN_HISTORY_FILE,
     TOKEN_HISTORY_MAX,
     TOKEN_HISTORY_RETENTION_SEC,
-    TOPOLOGY_CLIENT_TTL,
     _BENCH_CACHE_DIR,
 )
 from caravan.admin.state import admin_state, load_admin_state, save_admin_state, topology_store
@@ -109,7 +105,6 @@ from caravan.admin.server_cells import (
     delete_server_slot,
     move_server_cell,
     next_server_cell_port,
-    normalize_topology_agent,
     reserve_server_cell,
     server_slot_key,
     set_server_slot_note,
@@ -119,9 +114,7 @@ from caravan.admin.server_cells import (
 from caravan.admin.fleet_clients import (
     _backup_meta,
     _backup_target_seg,
-    _client_agent_url,
     _safe_path_seg,
-    auto_provision_agent_proxies,
     client_llama_configs,
     client_llama_configs_delete,
     client_llama_configs_save,
@@ -134,19 +127,16 @@ from caravan.admin.fleet_clients import (
     client_llama_update,
     client_llama_update_status,
     client_monitor,
-    refresh_topology_clients_from_agents,
     set_topology_client_alias,
     topology_client_agent_delete,
-    adopt_scout_clients,
     fallback_port_for,
     topology_client_add_agent,
     set_topology_agent_alias,
     topology_client_create,
     topology_client_delete,
     topology_clients,
-    topology_discover_add,
-    topology_orphan_assignment_delete,
-    update_topology_client,
+    topology_host_delete,
+    record_host_report,
 )
 from caravan.admin.topology import (
     apply_topology_assignments,
@@ -159,7 +149,7 @@ from caravan.admin.topology import (
     topology_server,
     topology_state,
 )
-from caravan.admin.proxy_ops import reconcile_agent_proxies, stop_agent_proxy_route
+from caravan.admin.proxy_ops import stop_agent_proxy_route
 from caravan.admin.llama_metrics import runtime_phase
 from caravan.admin.pricing import fetch_model_pricing
 from caravan.admin.oauth import oauth_login_status, refresh_oauth_token, start_oauth_login
@@ -175,18 +165,7 @@ from caravan.admin.cloud_api import (
     test_account_key,
     usage_stats,
 )
-from caravan.admin.openclaw import (
-    _queue_thresholds_cache,
-    _queue_thresholds_lock,
-    _queue_thresholds_refresh_loop,
-    compute_queue_thresholds,
-    fetch_openclaw_config_for,
-    load_openclaw_cache,
-    notify_openclaw_config_managers,
-    openclaw_config_manager_state,
-    openclaw_configs_snapshot,
-    sync_wait_timeouts_from_openclaw,
-)
+from caravan.admin.queue_thresholds import QUEUE_THRESHOLDS, compute_queue_thresholds
 from caravan.admin.llama_metrics import parse_llamacpp_metrics, runtime_metrics_sample
 from caravan.admin.token_history import (
     controller_gen_tps_samples,
@@ -653,9 +632,7 @@ def _get_api_topology_client_llama_list_cache(h, parsed):
 
 @_route(GET_ROUTES, '/api/queue-thresholds')
 def _get_api_queue_thresholds(h, parsed):
-        with _queue_thresholds_lock:
-            data = _queue_thresholds_cache.get("data")
-        h.send_json({"ok": True, "thresholds": data})
+        h.send_json({"ok": True, "thresholds": QUEUE_THRESHOLDS.latest()})
         return
 
 @_route(GET_ROUTES, '/api/agent-proxies/raw')
@@ -672,7 +649,7 @@ def _get_api_cloud_accounts_oauth_status(h, parsed):
         query = urllib.parse.parse_qs(parsed.query or "")
         status = oauth_login_status((query.get("state") or [""])[0])
         if status.get("state") == "done":
-            status["topology"] = topology_state(refresh_clients=False)
+            status["topology"] = topology_state(refresh_hosts=False)
         h.send_json(status)
         return
 
@@ -749,38 +726,6 @@ def _get_api_token_history(h, parsed):
                 port=(query.get("port") or [""])[0].strip() or None,
             ),
         })
-        return
-
-@_route(GET_ROUTES, '/api/openclaw-config')
-def _get_api_openclaw_config(h, parsed):
-        query = urllib.parse.parse_qs(parsed.query or "")
-        force = _flag(query, "refresh")
-        client = (query.get("client") or [""])[0].strip()
-        snapshot = openclaw_configs_snapshot(force=force)
-        if client:
-            h.send_json(snapshot.get(client) or {"ok": False, "error": "unknown client"})
-        else:
-            h.send_json(snapshot)
-        return
-
-@_route(GET_ROUTES, '/api/topology/agent-openclaw')
-def _get_api_topology_agent_openclaw(h, parsed):
-        query = urllib.parse.parse_qs(parsed.query or "")
-        client_id = (query.get("client") or [""])[0].strip()
-        agent_id = (query.get("agent") or [""])[0].strip()
-        if not client_id or not agent_id:
-            h.send_json({"ok": False, "error": "client and agent params required"}, 400)
-            return
-        assignments = admin_state.get("topology", {}).get("assignments", {})
-        agent_url = str((assignments.get(client_id) or {}).get("agentUrl") or "").rstrip("/")
-        if not agent_url:
-            h.send_json({"ok": False, "error": f"no agentUrl registered for client '{client_id}'"})
-            return
-        try:
-            result = fetch_json(f"{agent_url}/api/agent-config?id={urllib.parse.quote(agent_id)}", timeout=5)
-            h.send_json(result)
-        except Exception as exc:
-            h.send_json({"ok": False, "error": str(exc)})
         return
 
 @_route(GET_ROUTES, '/api/gpu-driver')
@@ -1438,16 +1383,10 @@ def _post_api_agent_proxies_route_delete(h, parsed, body):
         h.send_json({"ok": True, "result": result, "topology": topology_state()})
         return
 
-@_route(POST_ROUTES, '/api/agent-proxies/reconcile')
-def _post_api_agent_proxies_reconcile(h, parsed, body):
-        result = reconcile_agent_proxies(dry_run=bool((body or {}).get("dryRun")))
-        h.send_json({"ok": True, "result": result, "topology": topology_state(refresh_clients=False)})
-        return
-
 @_route(POST_ROUTES, '/api/agent-proxies/routers', '/api/agent-proxies/switchboards')
 def _post_api_agent_proxies_routers(h, parsed, body):
         result = set_routers(body.get("routers") or body.get("switchboards") or [])
-        h.send_json({"ok": True, "config": result, "topology": topology_state(refresh_clients=False)})
+        h.send_json({"ok": True, "config": result, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/agent-proxies/stop')
@@ -1478,32 +1417,32 @@ def _post_api_cloud_bridge_port_delete(h, parsed, body):
 def _post_api_cloud_accounts_auto_create_blocks(h, parsed, body):
         account_id = str(body.get("id") or "").strip()
         result = auto_create_blocks(account_id)
-        h.send_json({"ok": True, **result, "topology": topology_state(refresh_clients=False)})
+        h.send_json({"ok": True, **result, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-accounts/save')
 def _post_api_cloud_accounts_save(h, parsed, body):
         account = upsert_cloud_account(body.get("account") or {})
-        h.send_json({"ok": True, "account": account, "topology": topology_state(refresh_clients=False)})
+        h.send_json({"ok": True, "account": account, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-accounts/delete')
 def _post_api_cloud_accounts_delete(h, parsed, body):
         delete_cloud_account(body.get("id"))
-        h.send_json({"ok": True, "topology": topology_state(refresh_clients=False)})
+        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-accounts/key')
 def _post_api_cloud_accounts_key(h, parsed, body):
         result = set_account_key(body.get("id"), body.get("apiKey"))
-        result["topology"] = topology_state(refresh_clients=False)
+        result["topology"] = topology_state(refresh_hosts=False)
         h.send_json(result)
         return
 
 @_route(POST_ROUTES, '/api/cloud-accounts/key-delete')
 def _post_api_cloud_accounts_key_delete(h, parsed, body):
         delete_account_credential(body.get("id"))
-        h.send_json({"ok": True, "topology": topology_state(refresh_clients=False)})
+        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-accounts/oauth/start')
@@ -1574,39 +1513,37 @@ def _get_api_cloud_blocks_refs(h, parsed):
 def _post_api_cloud_api_health_retry(h, parsed, body):
         from caravan.admin import model_catalog
         model_catalog.retry_endpoint(str(body.get("key") or ""))
-        h.send_json({"ok": True, "topology": topology_state(refresh_clients=False)})
+        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-blocks/save')
 def _post_api_cloud_blocks_save(h, parsed, body):
         block = upsert_cloud_block(body.get("block") or {})
-        h.send_json({"ok": True, "block": block, "topology": topology_state(refresh_clients=False)})
+        h.send_json({"ok": True, "block": block, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-blocks/delete')
 def _post_api_cloud_blocks_delete(h, parsed, body):
         delete_cloud_block(body.get("id"))
-        h.send_json({"ok": True, "topology": topology_state(refresh_clients=False)})
+        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-blocks/expose')
 def _post_api_cloud_blocks_expose(h, parsed, body):
         set_cloud_block_exposed(body.get("id"), bool(body.get("exposed")))
-        h.send_json({"ok": True, "topology": topology_state(refresh_clients=False)})
+        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/queue-thresholds/recalc')
 def _post_api_queue_thresholds_recalc(h, parsed, body):
-        threading.Thread(target=lambda: (sync_wait_timeouts_from_openclaw(), compute_queue_thresholds()), daemon=True).start()
-        with _queue_thresholds_lock:
-            data = _queue_thresholds_cache.get("data")
-        h.send_json({"ok": True, "thresholds": data})
+        threading.Thread(target=compute_queue_thresholds, daemon=True).start()
+        h.send_json({"ok": True, "thresholds": QUEUE_THRESHOLDS.latest()})
         return
 
 @_route(POST_ROUTES, '/api/topology/client-heartbeat')
 def _post_api_topology_client_heartbeat(h, parsed, body):
-        client = update_topology_client(body)
-        h.send_json({"ok": True, "client": client})
+        host = record_host_report(body)
+        h.send_json({"ok": True, "host": host})
         return
 
 @_route(POST_ROUTES, '/api/topology/assignments')
@@ -1654,7 +1591,7 @@ def _post_api_topology_agent_proxy_bind(h, parsed, body):
 @_route(POST_ROUTES, '/api/topology/client-alias')
 def _post_api_topology_client_alias(h, parsed, body):
         result = set_topology_client_alias(body.get("hostId"), body.get("name"))
-        h.send_json({"ok": True, "result": result, "topology": topology_state(refresh_clients=False)})
+        h.send_json({"ok": True, "result": result, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/topology/client-llama/start')
@@ -1749,7 +1686,7 @@ def _post_api_topology_server_cell_schedule(h, parsed, body):
 def _post_api_topology_server_cell_reassign_port(h, parsed, body):
         from caravan.admin.server_cells import reassign_server_slot_port
         result = reassign_server_slot_port(body)
-        result["topology"] = topology_state(refresh_clients=False)
+        result["topology"] = topology_state(refresh_hosts=False)
         h.send_json(result)
         return
 
@@ -1757,7 +1694,7 @@ def _post_api_topology_server_cell_reassign_port(h, parsed, body):
 def _post_api_topology_server_cell_swap_port(h, parsed, body):
         from caravan.admin.server_cells import swap_server_slot_ports
         result = swap_server_slot_ports(body)
-        result["topology"] = topology_state(refresh_clients=False)
+        result["topology"] = topology_state(refresh_hosts=False)
         h.send_json(result)
         return
 
@@ -1789,10 +1726,6 @@ def _post_api_topology_client_agent_alias(h, parsed, body):
 def _post_api_topology_client_agent(h, parsed, body):
         h.send_json(topology_client_add_agent(body))
 
-@_route(POST_ROUTES, '/api/topology/clients/adopt')
-def _post_api_topology_clients_adopt(h, parsed, body):
-        h.send_json(adopt_scout_clients())
-
 @_route(POST_ROUTES, '/api/topology/agent-route/remove')
 def _post_api_topology_agent_route_remove(h, parsed, body):
         h.send_json(remove_agent_route(body))
@@ -1821,19 +1754,14 @@ def _post_api_topology_client_delete(h, parsed, body):
         h.send_json(topology_client_delete(body))
         return
 
+@_route(POST_ROUTES, '/api/topology/host/delete')
+def _post_api_topology_host_delete(h, parsed, body):
+        h.send_json(topology_host_delete(body))
+        return
+
 @_route(POST_ROUTES, '/api/topology/client/agent/delete')
 def _post_api_topology_client_agent_delete(h, parsed, body):
         h.send_json(topology_client_agent_delete(body))
-        return
-
-@_route(POST_ROUTES, '/api/topology/orphan-assignment/delete')
-def _post_api_topology_orphan_assignment_delete(h, parsed, body):
-        h.send_json(topology_orphan_assignment_delete(body))
-        return
-
-@_route(POST_ROUTES, '/api/topology/discover/add')
-def _post_api_topology_discover_add(h, parsed, body):
-        h.send_json(topology_discover_add(body))
         return
 
 

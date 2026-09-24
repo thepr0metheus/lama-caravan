@@ -358,7 +358,7 @@ def normalize_agent_proxy_route(route):
     provider_id = str(route.get("providerId") or "").strip()
     # "" = an agent port (default). "service" = a bridge port for an external
     # consumer (e.g. a voice app): route-level cloud upstream, no router, no agent
-    # semantics — the kanban, OpenClaw sync and ↑☁ eligibility all skip it.
+    # semantics — the kanban and ↑☁ eligibility skip it.
     kind = str(route.get("kind") or "").strip().lower()
     if kind not in ("", "service"):
         kind = ""
@@ -377,7 +377,7 @@ def normalize_agent_proxy_route(route):
         "apiKey": str(route.get("apiKey") or "").strip()[:128],
         "priority": int(route.get("priority") or 0),
         "preemptible": bool(route.get("preemptible", True)),
-        # Client wait timeout (seconds) — synced from OpenClaw config by admin.
+        # Client wait timeout (seconds) — the operator's number on the port.
         # Used as base for percentage-based queue thresholds.
         "clientTimeoutSeconds": max(0, int(route.get("clientTimeoutSeconds") or 0)),
         # Context window for THIS consumer — a copy of the setting on the

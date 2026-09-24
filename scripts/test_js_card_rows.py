@@ -72,7 +72,7 @@ const ok = { cls: "route-confirmed-tag", glyph: "✓", tip: "taTitleConfirmedRou
 const q = { cls: "route-unverified-tag", glyph: "?", tip: "taTitleUnverifiedRoute" };
 const hermes = new AgentRow({ key: "agent:c1:hermes", name: "hermes", kind: "manual", routes: [
   { role: "primary", port: "23001", address: "http://10.0.0.20:23001/v1", face: ok, model: "hemi-proxy", locked: true, waitSec: 1800, limit: 256000, anchor: H("primary") },
-  { role: "fallback", port: "23002", face: q, anchor: H("fallback"), muted: true },
+  { role: "fallback", port: "23002", face: q, anchor: H("fallback"), muted: true },  // an old field: ignored
 ] }).html();
 const bare = new AgentRow({ key: "agent:c1:scribe", name: "scribe", kind: "manual", routes: [
   { role: "primary", port: "23101", face: ok, anchor: H("primary") }, null, { role: "fallback", port: "" },
@@ -89,7 +89,7 @@ const agent = {
   faces: [hermes.includes(`<span class="route-confirmed-tag" title="${en.taTitleConfirmedRoute}">✓</span>`),
           hermes.includes(`<span class="route-unverified-tag" title="${en.taTitleUnverifiedRoute}">?</span>`)],
   noStateHook: !hermes.includes('data-t="route-state"'),
-  muted: hermes.includes('class="ar-route fallback muted"'),
+  muted: hermes.includes("muted"),
   kind: hermes.includes('<span class="ar-kind">manual</span>'),
   bareRoutes: (bare.match(/class="ar-route /g) || []).length,
   bareEmpty: [bare.includes("ar-model"), bare.includes("ar-meta"), bare.includes("—")],
@@ -166,7 +166,8 @@ check(a["model"], "заданная модель с закрытым замко�
 check(a["wait"] and a["limit"], "таймаут и лимит — теми же словами, что чипы карточки (routeWaitLabel, routeCtxLimit)")
 check(a["faces"] == [True, True], "значки ✓ и ? — те же лица, что у карточки, с подсказками из en.js")
 check(a["noStateHook"], "хука route-state у строки нет — он один, у карточки")
-check(a["muted"], "неиспользуемый маршрут приглушён")
+check(not a["muted"], "negative: «приглушённого» маршрута больше нет — это было слово агента через скаута; "
+      "старое поле muted на входе ничего не рисует")
 check(a["kind"], "вид агента («manual») виден и в свёрнутом")
 check(a["bareRoutes"] == 1, "несуществующий маршрут и маршрут без порта не рисуются вовсе")
 check(a["bareEmpty"] == [False, False, False],
