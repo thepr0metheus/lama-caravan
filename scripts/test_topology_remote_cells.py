@@ -340,6 +340,17 @@ def test_the_launch_on_the_card():
           "«не сказано», а не «ничего не изменилось»; без этого поле терялось по дороге к карточке")
 
 
+def test_the_controller_names_its_computer():
+    print("контроллер называет свой компьютер, а не себя:")
+    from caravan.admin.controller_machine import ControllerMachine
+    answer = served([LLAMA])
+    check(answer.get("hostname") == ControllerMachine.name() and "name" not in answer,
+          f"topology.server несёт имя компьютера контроллера (для его машины без скаута); negative: своего "
+          f"отображаемого имени (LLAMA_TOPOLOGY_SERVER_NAME) больше нет — им называли машину (got {sorted(answer)})")
+    check([ControllerMachine.name("Box-PC.lan.example"), ControllerMachine.name("box")] == ["Box-PC", "box"],
+          "имя компьютера — короткое, регистр как есть (так его и называет скаут)")
+
+
 def test_the_model_name_rule():
     print("правило имени модели (display_model_name):")
     from caravan.admin.models import display_model_name as name
@@ -355,7 +366,7 @@ def test_the_model_name_rule():
 
 
 if __name__ == "__main__":
-    for fn in (test_the_launch_on_the_card, test_a_checkpoint_cell_is_named_by_its_model, test_the_model_name_rule,
+    for fn in (test_the_controller_names_its_computer, test_the_launch_on_the_card, test_a_checkpoint_cell_is_named_by_its_model, test_the_model_name_rule,
                test_library_on_the_card, test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell, test_autostart_on_the_card,
                test_crash_on_the_card, test_retry_on_the_card, test_vllm_stats_on_the_card,
                test_starting_on_its_machine):

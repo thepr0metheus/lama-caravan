@@ -689,7 +689,11 @@ Key functions: `start`, `restart`, `status`, `tail`.
 `ControllerMachine` — which scout's machine is the one this controller runs on: its scout reports
 the machine's hostname, and the controller knows its own (short name, any case). Since step 6.8
 that machine's cells run through its scout like any other's; it is still the machine to show
-first and the one whose panels the controller fills from its own monitor.
+first and the one whose panels the controller fills from its own monitor. `name()` is the computer's
+short hostname, case kept — `topology.server.hostname`, the name the board gives the controller's
+machine when no scout reports from it (a scout reports the same name). It replaced the
+controller's own display name (`LLAMA_TOPOLOGY_SERVER_NAME`, no longer read), which the kanban
+had put over that machine's cells.
 
 ## `status.py`
 

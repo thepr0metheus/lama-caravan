@@ -27,7 +27,7 @@ import { refreshComputeTarget } from "./memory.js";
 import { startMonitor } from "./polling.js";
 import { setTopology, state, topology } from "./state.js";
 import { topologyAssignmentsByAgent, topologyStatusPill } from "./topology-activity.js";
-import { hostAgeText, hostPowerTextKey, isControllerMachine, openNodeServerDetail } from "./topology-nodes.js";
+import { hostAgeText, hostPowerTextKey, isControllerMachine, machineAt, openNodeServerDetail } from "./topology-nodes.js";
 import { markTopologyRenderPending, refreshTopology, renderTopology, topologyInteractionActive, topologyServerPhase } from "./topology-render.js";
 import { $, api, escapeHtml, toast } from "./utils.js";
 
@@ -825,14 +825,18 @@ export function renderNvidiaSmiSourceButtons() {
   const container = $("nvidiaSmiSources");
   if (!container) return;
 
-  // Build list: the controller first, then the machines whose scouts answer
-  // and report a GPU.
+  // Build list: the controller's own machine first (it runs nvidia-smi
+  // itself), then the other machines whose scouts answer and report a GPU. The
+  // controller's machine is named as the board names it, by its node
+  // (machineAt) — not by the controller's old display name — and its scout is
+  // not listed again: the same machine, twice, under two names.
   const sources = [
-    { id: "local", label: topology?.server?.name || "Controller" },
+    { id: "local", label: machineAt("127.0.0.1").name },
   ];
   for (const host of (topology?.hosts || [])) {
     if (host.state !== "online") continue;
     if (!(host.gpus || []).length) continue;
+    if (isControllerMachine(host.id)) continue;
     const gpu = host.gpus[0] || {};
     sources.push({
       id: host.id,

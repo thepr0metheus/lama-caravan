@@ -12,6 +12,7 @@ import {
 import { setTopology, state, topology, ui } from "./state.js";
 import { topologyProxyActivity, topologyStateHealthClasses } from "./topology-activity.js";
 import { bindTopologyDragAndDrop } from "./topology-dnd.js";
+import { machineAt } from "./topology-nodes.js";
 import { topologyProxyOwner } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
 import { $, api, escapeHtml, pill, toast } from "./utils.js";
@@ -181,6 +182,34 @@ export function routerById(routers, id) { return routers.find((s) => s.id === id
 // cloud provider is a collapsible header: click it to reveal a checklist of ALL its
 // models; ticked models (block.exposed) become routable cloud outputs (cb:<blockId>)
 // and show as radio rows beneath the provider.
+// A router's local outputs by the machine that serves them: [{ key, name, address, outs }].
+// One grouping for the router's panel and the kanban's servers block, which
+// each held a copy. The machine is machineAt(the output's address) — two
+// addresses of one machine (loopback and its LAN address) are one group; the
+// groups go in the order of their lowest port, each group's outputs by port.
+export function localOutputGroups(outputs) {
+  const byMachine = new Map();
+  (outputs || []).filter((o) => String(o.upstreamType || "llama") !== "cloud").forEach((o) => {
+    const machine = machineAt(o.upstreamHost || "127.0.0.1");
+    if (!byMachine.has(machine.key)) {
+      byMachine.set(machine.key, { key: machine.key, name: machine.name, address: machine.address, outs: [] });
+    }
+    byMachine.get(machine.key).outs.push(o);
+  });
+  const port = (o) => Number(o.upstreamPort || 0);
+  return [...byMachine.values()]
+    .map((g) => ({ ...g, outs: [...g.outs].sort((a, b) => port(a) - port(b)) }))
+    .sort((a, b) => port(a.outs[0]) - port(b.outs[0]));
+}
+
+// A machine group's head: its name, and its address beside it, muted — the
+// address once only, when no name was known for it.
+export function machineLabelHtml(group) {
+  const address = group.address && group.address !== group.name
+    ? ` <span class="router-out-host-addr">${escapeHtml(group.address)}</span>` : "";
+  return `${escapeHtml(group.name)}${address}`;
+}
+
 export function renderRouterOutputsPanel(router) {
   const outputs = router.outputs || [];
   const defaultId = router.rules?.default || "";
@@ -210,26 +239,13 @@ export function renderRouterOutputsPanel(router) {
     </label>`;
   };
 
-  // LOCAL llama servers — grouped by upstream host.
-  const localOuts = outputs.filter((o) => String(o.upstreamType || "llama") !== "cloud");
-  const adminIp = topology?.server?.ip || null;
-  const adminName = topology?.server?.name || "local";
-  const hostMap = new Map();
-  localOuts.forEach((o) => {
-    const h = o.upstreamHost || "127.0.0.1";
-    if (!hostMap.has(h)) hostMap.set(h, []);
-    hostMap.get(h).push(o);
-  });
-  const localHtml = hostMap.size
-    ? [...hostMap.entries()]
-        .sort(([, a], [, b]) => Math.min(...a.map((o) => Number(o.upstreamPort || 0))) - Math.min(...b.map((o) => Number(o.upstreamPort || 0))))
-        .map(([host, outs]) => {
-          const isAdmin = !host || host === "127.0.0.1" || host === "localhost" || (adminIp && host === adminIp);
-          const label = isAdmin ? adminName : host;
-          const hdr = hostMap.size > 1 ? `<div class="router-out-host-label">${escapeHtml(label)}</div>` : "";
-          const sorted = [...outs].sort((a, b) => Number(a.upstreamPort || 0) - Number(b.upstreamPort || 0));
-          return `<div class="router-out-host-group">${hdr}${sorted.map((o) => outputRow(o)).join("")}</div>`;
-        }).join("")
+  // LOCAL llama servers — grouped by the machine that serves them.
+  const groups = localOutputGroups(outputs);
+  const localHtml = groups.length
+    ? groups.map((g) => {
+        const hdr = groups.length > 1 ? `<div class="router-out-host-label">${machineLabelHtml(g)}</div>` : "";
+        return `<div class="router-out-host-group">${hdr}${g.outs.map((o) => outputRow(o)).join("")}</div>`;
+      }).join("")
     : `<div class="router-cfg-muted">${t("rtNoLocalServers")}</div>`;
 
   // CLOUD: group exposed outputs by account; the header expands a checklist of all blocks.
@@ -316,32 +332,19 @@ export function renderServersBlockHtml(router) {
     </label>`;
   };
 
-  // Local servers — group by host.
-  const localOuts = outputs.filter((o) => String(o.upstreamType || "llama") !== "cloud");
-  const adminIp = topology?.server?.ip || null;
-  const adminName = topology?.server?.name || "local";
-  const hostMap = new Map();
-  localOuts.forEach((o) => {
-    const h = o.upstreamHost || "127.0.0.1";
-    if (!hostMap.has(h)) hostMap.set(h, []);
-    hostMap.get(h).push(o);
-  });
-  const localHtml = hostMap.size
-    ? [...hostMap.entries()]
-        .sort(([, a], [, b]) => Math.min(...a.map((o) => Number(o.upstreamPort || 0))) - Math.min(...b.map((o) => Number(o.upstreamPort || 0))))
-        .map(([host, outs]) => {
-          const isAdmin = !host || host === "127.0.0.1" || host === "localhost" || (adminIp && host === adminIp);
-          const label = isAdmin ? adminName : host;
-          const foldKey = `host:${host}`;
-          const folded = !!topologyOutputsFolded[foldKey];
-          const hdr = `<div class="router-out-host-head" data-router-group-fold="${escapeHtml(foldKey)}" role="button" tabindex="0" title="${escapeHtml(folded ? t("expand") : t("collapse"))}">
+  // Local servers — grouped by the machine that serves them.
+  const groups = localOutputGroups(outputs);
+  const localHtml = groups.length
+    ? groups.map((g) => {
+        const foldKey = `host:${g.key}`;
+        const folded = !!topologyOutputsFolded[foldKey];
+        const hdr = `<div class="router-out-host-head" data-router-group-fold="${escapeHtml(foldKey)}" role="button" tabindex="0" title="${escapeHtml(folded ? t("expand") : t("collapse"))}">
             <span class="router-prov-caret">${folded ? "▸" : "▾"}</span>
-            <span class="router-out-host-label">${escapeHtml(label)}</span>
-            <span class="router-prov-count">${outs.length}</span>
+            <span class="router-out-host-label">${machineLabelHtml(g)}</span>
+            <span class="router-prov-count">${g.outs.length}</span>
           </div>`;
-          const sorted = [...outs].sort((a, b) => Number(a.upstreamPort || 0) - Number(b.upstreamPort || 0));
-          return `<div class="router-out-host-group${folded ? " folded" : ""}" data-cv-group-outs="${escapeHtml(outs.map((o) => o.id).join(","))}">${hdr}${folded ? "" : sorted.map((o) => outputRow(o)).join("")}</div>`;
-        }).join("")
+        return `<div class="router-out-host-group${folded ? " folded" : ""}" data-cv-group-outs="${escapeHtml(g.outs.map((o) => o.id).join(","))}">${hdr}${folded ? "" : g.outs.map((o) => outputRow(o)).join("")}</div>`;
+      }).join("")
     : `<div class="router-cfg-muted router-prov-empty">${t("rtNoLocalServers")}</div>`;
 
   // Cloud providers — collapsible with model checklist.

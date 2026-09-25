@@ -2385,6 +2385,23 @@ PINS += [
      '["hostRebootConfirmController","hostRebootConfirmClient","hostPowerOffConfirmController","hostPowerOffConfirmClient","hostPowerSchedWarnController","hostPowerSchedWarnClient"]',
      "перезагрузка, выключение и его расписание машины контроллера — со словами «доска уйдёт вместе с ней»; "
      "negative: у чужой машины — обычные слова (раньше решало имя хоста controller|skynet, которого у узла больше нет)"),
+    ("machine_at_an_address",
+     'st.setTopology({ ...st.topology, server: { name: "Ctl-Display", ip: "10.0.0.5", hostname: "ctl-host" }, nodes: [{ id: "box-a", name: "box-a", ip: "10.0.0.5", controllerMachine: true }, { id: "box-b", name: "Box B", ip: "10.0.0.9" }] });',
+     '["127.0.0.1", "localhost", "", "10.0.0.5", "10.0.0.9", "10.0.0.77"].map((a) => m.machineAt(a))',
+     '[{"key":"box-a","name":"box-a","address":"10.0.0.5"},{"key":"box-a","name":"box-a","address":"10.0.0.5"},{"key":"box-a","name":"box-a","address":"10.0.0.5"},{"key":"box-a","name":"box-a","address":"10.0.0.5"},{"key":"box-b","name":"Box B","address":"10.0.0.9"},{"key":"10.0.0.77","name":"10.0.0.77","address":"10.0.0.77"}]',
+     "машина по адресу — её узел и его имя (как называет её скаут): петля, пустой адрес и адрес контроллера — машина контроллера; "
+     "адрес другой машины — её узел; незнакомый адрес — сам адрес, имя не придумывается; адрес — узла (где её ячейки), и у петли тоже; "
+     "negative: старое имя контроллера «Ctl-Display» — нигде"),
+    ("machine_at_without_its_scout",
+     'st.setTopology({ ...st.topology, server: { name: "Ctl-Display", ip: "10.0.0.5", hostname: "ctl-host" }, nodes: [{ id: "box-b", name: "Box B", ip: "10.0.0.9" }] });',
+     '[m.machineAt("127.0.0.1"), m.machineAt("10.0.0.5")]',
+     '[{"key":"controller","name":"ctl-host","address":"10.0.0.5"},{"key":"controller","name":"ctl-host","address":"10.0.0.5"}]',
+     "у машины контроллера нет скаута — имя компьютера, на котором работает контроллер (topology.server.hostname), а не его старое отображаемое имя"),
+    ("machine_at_with_nothing_known",
+     'st.setTopology({ ...st.topology, server: undefined, nodes: undefined });',
+     '[m.machineAt("127.0.0.1"), m.machineAt("10.0.0.9")]',
+     '[{"key":"controller","name":"127.0.0.1","address":"127.0.0.1"},{"key":"10.0.0.9","name":"10.0.0.9","address":"10.0.0.9"}]',
+     "boundary: доски и имени ещё нет — адрес, без догадок"),
     ("controller_machine_without_a_board",
      "st.setTopology({ ...st.topology, nodes: undefined });",
      "[m.isControllerMachine(\"h3\"), m.hostPowerTextKey(\"h3\", \"reboot\")]",

@@ -20,6 +20,12 @@ class ControllerMachine:
     def short(name):
         return str(name or "").split(".")[0].strip().lower()
 
+    @staticmethod
+    def name(hostname=None):
+        """This computer's name as the board shows it: the short hostname,
+        its case kept — what a scout on this machine reports as its name."""
+        return str(hostname or socket.gethostname()).split(".")[0].strip()
+
     def is_host(self, host):
         """True when `host` (a host record) is this controller's machine."""
         return bool(self.hostname) and isinstance(host, dict) and self.short(host.get("hostname")) == self.hostname

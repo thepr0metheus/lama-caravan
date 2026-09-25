@@ -144,8 +144,9 @@ _BENCH_CACHE_DIR = Path(_default("state/bench-cache", PROJECT_ROOT / ".bench_cac
 # The controller's host id in STORED state — a role name, not a hostname. Slot
 # keys ("<hostId>:<port>"), and with them cell notes and schedules, are
 # persisted under it; state.py migrates legacy keys to this value on load. The
-# controller's DISPLAY name is a separate, configurable thing
-# (LLAMA_TOPOLOGY_SERVER_NAME).
+# machine the controller runs on is named like any machine — by its node, which
+# its scout reports (the computer's hostname); the controller's own display name
+# (LLAMA_TOPOLOGY_SERVER_NAME) is no longer read.
 CONTROLLER_HOST_ID = "controller"
 
 # Ids that meant the controller in older stores and older cached frontends.
