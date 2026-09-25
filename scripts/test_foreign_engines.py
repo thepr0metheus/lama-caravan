@@ -47,7 +47,8 @@ ENGINE = {"kind": "ollama", "label": "Ollama", "port": 11434, "listen": "network
 def test_engine_report():
     print("что контроллер хранит о движке:")
     kept = EngineReport.engines([copy.deepcopy(ENGINE)])
-    same(kept, [{**ENGINE, "api": ""}], "движок как сказал скаут — все поля, api пустой, когда не сказан")
+    same(kept, [{**ENGINE, "api": "", "firewall": None}],
+         "движок как сказал скаут — все поля; api и файрвол пусты, когда не сказаны")
     same(EngineReport.engines(None), None, "negative: скаут не сказал (старый) — None, а не [] («смотрел — нет»)")
     same(EngineReport.engines([]), [], "смотрел, никого — []")
     same(EngineReport.engines("x"), None, "negative: не список — тоже «не сказал»")
@@ -79,6 +80,14 @@ def test_engine_report():
          "список установленных не ответил — пометка есть только тогда")
     same(one(label="")["label"], "ollama", "boundary: без названия — вид")
 
+    same(one(firewall={"state": "restricted", "allowedFrom": ["10.0.0.0/24", "", 7, "x" * 90]})["firewall"],
+         {"state": "restricted", "allowedFrom": ["10.0.0.0/24", "7", "x" * 60]},
+         "файрвол порта (скаут 2.13): состояние и источники — строками до 60 знаков, пустые выброшены")
+    same([one(firewall=f)["firewall"] for f in (None, {"state": "weird"}, {"allowedFrom": []}, "blocked")],
+         [None, None, None, None],
+         "negative: не сказан, чужое состояние, без состояния, не словарь — None (не знаю), а не «открыт»")
+    same(len(one(firewall={"state": "restricted", "allowedFrom": [f"10.0.{i}.0/24" for i in range(20)]})
+             ["firewall"]["allowedFrom"]), 8, "boundary: не больше 8 источников")
     m = EngineReport.model({"name": "a", "loaded": "yes", "memBytes": "12", "vramBytes": None, "remote": "true",
                             "contextLength": True})
     same((m["loaded"], m["memBytes"], m["vramBytes"], m["remote"], m["contextLength"]), (None, 12, None, False, None),
@@ -117,7 +126,7 @@ def test_report_to_record():
     rec = fc.host_from_report(copy.deepcopy(payload))
     same([a["name"] for a in rec["computeApps"]], ["ollama", ""],
          "имя процесса на карте хранится; скаут без него — «»")
-    same(rec["engines"], [{**ENGINE, "api": ""}], "движки — в записи машины")
+    same(rec["engines"], [{**ENGINE, "api": "", "firewall": None}], "движки — в записи машины")
     older = fc.host_from_report({"host": {"id": "box-a"}})
     same(older["engines"], None, "negative: скаут до 2.12 — None, доска ничего не рисует")
     pulled = fc.scout_payload_from_state({"host": {"id": "box-a"}}, "http://10.0.0.5:8092")
@@ -152,15 +161,22 @@ def test_node_carries_engines():
     host = {"id": "box-a", "name": "Box A", "ip": "10.0.0.5", "state": "online", "cpu": {},
             "gpus": [{"index": "0", "uuid": "u0", "name": "G", "memoryTotalMiB": "24576"}],
             "computeApps": [{"gpuUuid": "u0", "pid": 5151, "name": "ollama", "usedMiB": 3500}],
-            "engines": [{**ENGINE, "api": ""}]}
-    saved = T.topo.power_schedules
+            "engines": [{**ENGINE, "api": "", "firewall": None}]}
+    import caravan.admin.engine_outputs as EO
+    exposed_id = EO.EngineOutputs.output_id("box-a", "ollama", "qwen3:8b")
+    saved = (T.topo.power_schedules, EO.topology_store)
     T.topo.power_schedules = lambda: {}
+    EO.topology_store = lambda: {"engineOutputs": {exposed_id: {"hostId": "box-a", "kind": "ollama",
+                                                                "model": "qwen3:8b", "port": 11434}}}
     try:
         nodes = T.topology_nodes({}, {"llamaServers": []}, [host, {**host, "id": "box-b", "engines": None}])
     finally:
-        T.topo.power_schedules = saved
-    same([n["engines"] for n in nodes], [[{**ENGINE, "api": ""}], None],
-         "движки — как в записи; у машины со старым скаутом — None (не [])")
+        T.topo.power_schedules, EO.topology_store = saved
+    same([n["engines"] for n in nodes],
+         [[{**ENGINE, "api": "", "firewall": None, "blockedBy": "", "reachable": True,
+            "models": [{**MODEL, "outputId": exposed_id, "exposed": True}]}], None],
+         "движки — как в записи, и у каждой модели — id её выхода и сделана ли она выходом; у машины "
+         "со старым скаутом — None (не [])")
     same([n["gpus"][0]["outside"] for n in nodes],
          [[{"name": "Ollama", "engine": "ollama", "mib": 3500}], [{"name": "ollama", "engine": "", "mib": 3500}]],
          "память карты названа движком машины — узел отдаёт его отчёт в разбивку; без отчёта — имя процесса")

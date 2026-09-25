@@ -126,6 +126,22 @@ PINS = [
      'm.topologyStructureFingerprint() !== globalThis.__fpE2',
      'true',
      "positive: движок стал просить токен — структура"),
+    ("fingerprint_sees_a_model_made_an_output",
+     'const E = (models, extra = {}) => ({ kind: "ollama", label: "Ollama", port: 11434, listen: "network", state: "ok", version: "0.12.3", models, pids: [5100], ramBytes: 100, ...extra });'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "a", exposed: false }])] }] });'
+     ' globalThis.__fpE4 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "a", exposed: true }])] }] });',
+     'm.topologyStructureFingerprint() !== globalThis.__fpE4',
+     'true',
+     "positive: модель стала выходом роутера — структура: у строки появляется якорь кабеля и нажатый переключатель"),
+    ("fingerprint_sees_a_firewall_close",
+     'const E = (models, extra = {}) => ({ kind: "ollama", label: "Ollama", port: 11434, listen: "network", state: "ok", version: "0.12.3", models, pids: [5100], ramBytes: 100, ...extra });'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([], { firewall: { state: "open", allowedFrom: [] }, blockedBy: "", reachable: true })] }] });'
+     ' globalThis.__fpE5 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([], { firewall: { state: "restricted", allowedFrom: ["10.0.0.0/24"] }, blockedBy: "", reachable: true })] }] });',
+     'm.topologyStructureFingerprint() !== globalThis.__fpE5',
+     'true',
+     "positive: файрвол порта движка сменился (открыт → только сеть контроллера) при той же достижимости — структура: бейдж перерисовывается (скаут 2.13)"),
     ("fingerprint_ignores_engine_memory",
      'const E = (models, extra = {}) => ({ kind: "ollama", label: "Ollama", port: 11434, listen: "network", state: "ok", version: "0.12.3", models, pids: [5100], ramBytes: 100, ...extra });'
      ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "a", loaded: true }])] }] });'

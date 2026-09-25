@@ -122,6 +122,38 @@ def _probe_cell(output, timeout):
     return (False, status, f"http {status}", _failure_text(status, body))
 
 
+def _probe_engine(output, timeout):
+    """An engine next to the cells answers for its models: alive when its
+    /v1/models lists the model this output routes to. A GET, like a cell's
+    /health — a probe that asked for a completion would load the model into
+    the engine's memory on every pass."""
+    host = str(output.get("upstreamHost") or "")
+    port = int(output.get("upstreamPort") or 0)
+    model = str(output.get("upstreamModel") or "")
+    if not host or not port or not model:
+        return (False, None, "config", "no engine address or model")
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=timeout)
+        try:
+            conn.request("GET", "/v1/models", headers={"Host": f"{host}:{port}", "Connection": "close"})
+            resp = conn.getresponse()
+            body = resp.read(1024 * 1024)
+            status = resp.status
+        finally:
+            conn.close()
+    except Exception as exc:
+        return (False, None, "connect", f"connect failed: {exc}"[:200])
+    if status != 200:
+        return (False, status, f"http {status}", _failure_text(status, body))
+    try:
+        listed = {str(e.get("id")) for e in json.loads(body.decode("utf-8")).get("data") or [] if isinstance(e, dict)}
+    except Exception:
+        return (False, status, "http 200", "the engine's /v1/models is not a model list")
+    if model not in listed:
+        return (False, 404, "model", f"the engine does not list {model}")
+    return (True, 200, "", "")
+
+
 def _probe_cloud(output, timeout):
     """One-token completion through the same headers and translations real traffic uses."""
     provider_id = str(output.get("providerId") or "")
@@ -189,9 +221,9 @@ def probe_output(output, timeout=PROBE_TIMEOUT_SECONDS):
     """(ok, status, kind, message) for one output; ok=None when nothing can be proved."""
     if not isinstance(output, dict):
         return (False, None, "config", "unknown output")
-    if str(output.get("upstreamType") or "llama") == "cloud":
-        return _probe_cloud(output, timeout)
-    return _probe_cell(output, timeout)
+    probe = {"cloud": _probe_cloud, "engine": _probe_engine}.get(str(output.get("upstreamType") or "llama"),
+                                                                 _probe_cell)
+    return probe(output, timeout)
 
 
 def probe_pass(config=None, now=None, timeout=PROBE_TIMEOUT_SECONDS):

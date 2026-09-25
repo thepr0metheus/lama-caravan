@@ -18,6 +18,26 @@ def rewrite_model_in_body(body, model):
         pass
     return body
 
+def model_named(body, model):
+    """The request with an engine's own model name in it.
+
+    One engine next to the cells (Ollama, LM Studio) serves many models
+    behind one port and picks the one a request names; the router's output
+    names the model it routes to. Set whenever the body is a JSON object —
+    added when the client sent none, replaced when it named another (its own
+    name for the port is not the engine's). Any other body goes as it came:
+    the same bytes, so the caller can tell nothing changed."""
+    if not body or not model:
+        return body
+    try:
+        payload = json.loads(body)
+    except Exception:
+        return body
+    if not isinstance(payload, dict) or payload.get("model") == model:
+        return body
+    payload["model"] = model
+    return json.dumps(payload).encode("utf-8")
+
 def _extract_chatgpt_account_id(token):
     """Extract chatgpt_account_id claim from an OpenAI JWT access token."""
     try:

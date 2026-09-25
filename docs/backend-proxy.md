@@ -253,7 +253,10 @@ items so the admin can group requests per server. `upstream_slot_total` asks
 the upstream's `/slots` for its true `--parallel` count with a 5s TTL cache
 and last-known-good semantics (a flapping probe never clobbers a discovered
 count back to "auto"). `active_count` counts requests occupying a slot: those
-in `admitted_requests` or past the `queued` phase.
+in `admitted_requests` or past the `queued` phase. An engine next to the cells
+(an output of kind `engine`: Ollama, LM Studio) has no `/slots` — it is not
+asked, neither on admission nor by the background probe, and its queue group
+takes the policy's slot count.
 
 - Owns: `slot_total_cache` contents (the cache object itself lives in
   runtime), the has-capacity predicate.
@@ -272,7 +275,10 @@ cache) and `queue` nodes; the first queue node crossed has its spec + resolved
 spill ref recorded for the handler. `apply_router` overlays the chosen output
 onto the route (marking `unrouted` when unassigned/missing/no-output) after
 short-circuiting audio and embeddings outputs; `apply_router_spill`
-re-resolves from a queue node's spill edge. It sits *below* `state` because
+re-resolves from a queue node's spill edge. An output of kind `engine` (a
+model of an engine next to the cells) overlays `upstreamModel`, the model's
+name in the engine; the overlay drops it first, so a route re-resolved onto a
+cell never carries an engine's name. It sits *below* `state` because
 `sync_agents_state` calls `apply_router`. Unit-tested by
 `scripts/test_queue_node.py`, which loads `agent-proxies.py` by path and uses
 the launcher's re-exports.
@@ -326,7 +332,11 @@ exceptions into `client_disconnected` / `upstream_timeout` / `proxy_error`
 kinds for events and incidents.
 
 - Owns: request/response format conversion, the error taxonomy.
-- Key functions: `rewrite_model_in_body`, `classify_proxy_error`,
+`model_named` puts an engine's own model name into a request (added when the
+client sent none), since one engine serves many models behind one port; any
+body that is not a JSON object goes as the same bytes.
+
+- Key functions: `rewrite_model_in_body`, `model_named`, `classify_proxy_error`,
   `_chat_to_responses_body`, `_iter_responses_as_completions_sse`,
   `is_responses_request`, `_responses_passthrough_body`, `iter_responses_passthrough`,
   `_chat_to_anthropic_body`, `_iter_anthropic_as_completions_sse`,
@@ -381,7 +391,15 @@ resolution and protocol translation), streaming relay with keepalives and
 stop checks, error encoding (JSON or in-band SSE `error` event depending on
 whether headers already went out), and the always-run `finally` bookkeeping.
 It also implements the "Loading model" 503 retry window, the idle-forwarding
-heartbeat thread, and the `GET /v1/models` fast path.
+heartbeat thread, and the `GET /v1/models` fast path. A request routed to an
+engine's model (`upstreamType` `engine`) goes to the engine like a cell's, with
+the model's name in the body (`model_named`) and without the client's
+`Authorization` / `X-Api-Key` — the key a client presents to the caravan stays
+with the caravan; `/v1/models` on such a port is the engine's list narrowed to
+that one model (`_engine_model_entry`), or a 503 naming the model the engine
+no longer lists. `output_probe.py` probes such an output with `GET /v1/models`
+and the model in the list — a completion would load the model into the
+engine's memory on every pass.
 
 - Owns: the request lifecycle, per-request phase transitions
   (`queued → received → upstream → streaming/reading → finished`), spend/

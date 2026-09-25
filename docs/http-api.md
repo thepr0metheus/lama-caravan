@@ -146,6 +146,7 @@ that called them.
 | `GET /api/cloud-accounts/proxy-spend` | Spend summary accumulated by the proxy per account. |
 | `POST /api/cloud-blocks/save` / `…/delete` / `…/expose` | Manage model blocks; `expose` toggles routability as a router output. |
 | `GET /api/cloud-blocks/refs?id=` | Everything referencing a block (bridges, queue roles, rules, cables) — the delete-confirm preflight. |
+| `POST /api/engine-outputs/expose` | `{hostId, kind, model, exposed}` — a model of an engine next to a machine's cells (Ollama, LM Studio, as its scout reports it) becomes a router output `eng:<hash>`, or stops being one. Refuses a model the machine's report does not list (404) and a model the engine runs on its own cloud (400). Answers `{ok, id, exposed, topology}`. |
 | `POST /api/cloud-accounts/auto-create-blocks` | Discover models and create blocks in bulk (non-chat artifacts filtered). |
 | `POST /api/cloud-accounts/bridge-port` / `…/bridge-port-delete` | Mint / remove a `kind=service` bridge port that pins one cloud block for an external consumer. |
 | `POST /api/app-port` | Mint a router-routed entry port with its own data-plane API key for an external app (`{name}` → `{port, key}`). |

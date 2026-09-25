@@ -45,6 +45,7 @@ from caravan.admin.telemetry import (
 )
 from caravan.common.errors import AppError
 from caravan.domain.engine import GpuOwners
+from caravan.admin.engine_outputs import EngineOutputs
 from caravan.common.context_window import block_window, effective_window, route_window_inputs
 from caravan.domain.client_proxy import AgentAssignment, PROXY_ID_PREFIX, ProxyRoute
 from caravan.proxy.graph import PLAIN_REQUEST_CTX, apply_router
@@ -682,8 +683,9 @@ def topology_nodes(config, server_obj, hosts):
             "scoutVersion": host.get("scoutVersion") or "",
             "powerSchedule": _power_scheds.get(cid) or {},
             # Ollama, LM Studio on the machine (scout 2.12+): None when its
-            # scout cannot look — the board then draws no block at all.
-            "engines": host.get("engines"),
+            # scout cannot look — the board then draws no block at all. Each
+            # model says whether the operator made it a router output.
+            "engines": EngineOutputs().annotate(host),
             # The machine this controller runs on: its node carries the
             # controller's own Server stats panel.
             "controllerMachine": own,
@@ -856,6 +858,12 @@ def _route_window_facts(route, proxy_config, served, resolve_block):
                         "model": str(block.get("model") or "")}
     host = str(resolved.get("upstreamHost") or "127.0.0.1")
     port = _positive_int(resolved.get("upstreamPort")) or 0
+    if upstream_type == "engine":
+        # An engine next to the cells tells the proxy no window, so the port
+        # advertises the operator's limit only — said as an engine's model,
+        # not as a cell that went silent.
+        return None, {"kind": "engine", "model": str(resolved.get("upstreamModel") or ""),
+                      "host": host, "port": port}
     return served.get((host, port)), {"kind": "cell", "host": host, "port": port}
 
 
@@ -956,11 +964,14 @@ def topology_state(refresh_hosts=True):
     for route in proxy_config.get("routes", []):
         proxies.append(_board_proxy(route, holders=_holders, last_seen=_last_seen, routers_by_id=_routers_by_id))
     server_obj = topology_server(config)
-    # Auto-sync router outputs to the available providers (local llama servers
-    # now; cloud later). Persist once when they change so agent-proxies.py routes.
+    hosts = topology_hosts()
+    # Auto-sync router outputs to the available providers: the cells, the
+    # engine models the operator made outputs, the exposed cloud blocks.
+    # Persist once when they change so agent-proxies.py routes.
     try:
         routers = proxy_config.get("routers") or []
-        if sync_router_outputs(routers, server_obj, cloud_accounts_state(), cloud_blocks_state()):
+        if sync_router_outputs(routers, server_obj, cloud_accounts_state(), cloud_blocks_state(),
+                               EngineOutputs().outputs(hosts)):
             # Re-read fresh payload before writing to avoid overwriting concurrent
             # label/policy changes that happened since proxy_config was loaded above.
             fresh = read_agent_proxy_payload()
@@ -970,7 +981,6 @@ def topology_state(refresh_hosts=True):
     except Exception:
         pass
     clients = topology_clients()
-    hosts = topology_hosts()
     # Cloud state + catalog annotation: unlisted marks on blocks, background
     # model-list refreshes, endpoint-health report. Annotation must never sink
     # the board — degrade to plain state on any failure.

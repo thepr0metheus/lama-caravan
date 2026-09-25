@@ -137,6 +137,7 @@ from caravan.admin.fleet_clients import (
     topology_client_create,
     topology_client_delete,
     topology_clients,
+    topology_hosts,
     SCOUT_PAIRING,
     record_host_report,
 )
@@ -1455,6 +1456,16 @@ def _post_api_cloud_blocks_delete(h, parsed, body):
 def _post_api_cloud_blocks_expose(h, parsed, body):
         set_cloud_block_exposed(body.get("id"), bool(body.get("exposed")))
         h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
+        return
+
+@_route(POST_ROUTES, '/api/engine-outputs/expose')
+def _post_api_engine_outputs_expose(h, parsed, body):
+        # A model of an engine next to the cells (Ollama, LM Studio) becomes a
+        # router output, or stops being one (docs/foreign-engines.md, step 2).
+        from caravan.admin.engine_outputs import EngineOutputs
+        result = EngineOutputs().set(topology_hosts(), body.get("hostId"), body.get("kind"), body.get("model"),
+                                     bool(body.get("exposed")))
+        h.send_json({"ok": True, **result, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/queue-thresholds/recalc')

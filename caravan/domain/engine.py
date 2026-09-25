@@ -25,6 +25,8 @@ class EngineReport:
     STATES = ("ok", "auth", "unreachable")
     #: Where it takes connections from; "" when the scout's OS did not say.
     LISTEN = ("loopback", "network")
+    #: Who ufw lets reach its port, as a cell's port says it (scout 2.13+).
+    FIREWALL = ("open", "all", "restricted", "blocked", "unknown")
 
     @staticmethod
     def text(value, limit=120):
@@ -77,12 +79,22 @@ class EngineReport:
                        if isinstance(models, list) else None),
             "pids": sorted({p for p in (cls.number(x) for x in pids[:cls.MAX_PIDS]) if p and p > 0}),
             "ramBytes": cls.number(raw.get("ramBytes")),
+            "firewall": cls.firewall(raw.get("firewall")),
         }
         # Only when the list of installed models did not answer: the models
         # shown are the loaded ones, and "that is all it has" would be a guess.
         if raw.get("installedKnown") is False:
             row["installedKnown"] = False
         return row
+
+    @classmethod
+    def firewall(cls, raw):
+        """{state, allowedFrom} as the scout's ufw reading says it, or None —
+        an engine on 127.0.0.1 only, or a scout before 2.13."""
+        if not isinstance(raw, dict) or raw.get("state") not in cls.FIREWALL:
+            return None
+        allowed = raw.get("allowedFrom") if isinstance(raw.get("allowedFrom"), list) else []
+        return {"state": raw["state"], "allowedFrom": [cls.text(a, 60) for a in allowed[:8] if cls.text(a, 60)]}
 
     @classmethod
     def model(cls, raw):
