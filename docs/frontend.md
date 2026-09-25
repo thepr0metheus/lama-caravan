@@ -544,7 +544,20 @@ and `isControllerMachine` / `hostPowerTextKey` give that node's reboot, poweroff
 words for the machine the board runs on. Collapsed nodes persist to localStorage.
 
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
-- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`.
+- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeEnginesHtml`, `nodeEngineCardHtml`, `engineRamText`.
+- A GPU row names who holds the memory that is no cell's (`outside` from the backend): an engine of
+  the machine («Ollama 5.9 GB»), else the process's name, else «outside»; each owner from 64 MiB is a
+  hatched band laid after the fleet's share of the bar, and the «who» line lists the cells' ports AND
+  the owners (the ports used to hide an outside job). The first render and the live patcher write
+  both from one function each (`gpuWhoHtml`, `gpuOutsideBar` — the latter with a key, so the bands are
+  rewritten only when they change).
+- The engines next to a machine's cells (Ollama, LM Studio — scout 2.12+) are read-only cards under
+  its cells (`nodeEnginesHtml`, `node-engines` / `node-engine`): version, port, «this machine only»
+  with how to open it when it listens on 127.0.0.1, the RAM its processes hold (patched live),
+  loaded models with their VRAM, RAM part, window and when keep_alive unloads them (a clock time),
+  then up to six installed ones and «+N more installed»; «wants a token» and «does not answer»
+  instead of a list. None (an older scout) and [] (none found) draw no block. An engine's state and
+  what it has loaded are in the board's structure fingerprint; its memory is not.
 - `machineAt(address)` — the machine behind an address its cells answer at, `{ key, name }`: its node and
   the node's name (the computer's hostname, from its scout); loopback and the controller's own address
   are the controller's machine (its node, else `topology.server.hostname`); an unknown address is said

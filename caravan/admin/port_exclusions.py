@@ -202,6 +202,14 @@ def _client_scans(ours: set) -> list:
         try:
             data = fetch_json(f"{base}/api/host/listeners", timeout=6,
                               headers=_scout_headers())
+            # A scout that answers but cannot tell (its ss/lsof failed) says
+            # ok false: that is an unscanned host too, not a clean one. It
+            # was read as "nothing listens" until 2026-09-25.
+            if not isinstance(data, dict) or data.get("ok") is False:
+                error = str((data or {}).get("error") or "the scout could not list its listeners") \
+                    if isinstance(data, dict) else "the scout's answer is not a listener list"
+                out.append({"hostId": host_id, "ok": False, "error": error[:160], "ports": []})
+                continue
             rows = [r for r in (data.get("ports") or [])
                     if isinstance(r, dict)
                     and SERVER_CELL_BASE_PORT <= int(r.get("port") or 0) <= SCAN_UPPER

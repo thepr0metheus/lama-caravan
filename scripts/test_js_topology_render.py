@@ -110,6 +110,30 @@ PINS = [
      'm.topologyStructureFingerprint() === globalThis.__fp3',
      'true',
      "negative: ничего не менялось — отпечаток тот же, иначе доска перерисовывалась бы на каждом тике"),
+    ("fingerprint_sees_an_engine_model_loading",
+     'const E = (models, extra = {}) => ({ kind: "ollama", label: "Ollama", port: 11434, listen: "network", state: "ok", version: "0.12.3", models, pids: [5100], ramBytes: 100, ...extra });'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "qwen3:8b", loaded: false }])] }] });'
+     ' globalThis.__fpE1 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "qwen3:8b", loaded: true, contextLength: 4096 }])] }] });',
+     'm.topologyStructureFingerprint() !== globalThis.__fpE1',
+     'true',
+     "positive: модель движка рядом с ячейками загрузилась — структура: его карточка перестраивается (scout 2.12+)"),
+    ("fingerprint_sees_an_engine_state",
+     'const E = (models, extra = {}) => ({ kind: "ollama", label: "Ollama", port: 11434, listen: "network", state: "ok", version: "0.12.3", models, pids: [5100], ramBytes: 100, ...extra });'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([])] }] });'
+     ' globalThis.__fpE2 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E(null, { state: "auth" })] }] });',
+     'm.topologyStructureFingerprint() !== globalThis.__fpE2',
+     'true',
+     "positive: движок стал просить токен — структура"),
+    ("fingerprint_ignores_engine_memory",
+     'const E = (models, extra = {}) => ({ kind: "ollama", label: "Ollama", port: 11434, listen: "network", state: "ok", version: "0.12.3", models, pids: [5100], ramBytes: 100, ...extra });'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "a", loaded: true }])] }] });'
+     ' globalThis.__fpE3 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "a", loaded: true }], { ramBytes: 999999 })] }] });',
+     'm.topologyStructureFingerprint() === globalThis.__fpE3',
+     'true',
+     "negative: память процессов движка — не структура, её пишет живой патчер; иначе перестройка на каждом отчёте"),
     ("fingerprint_ignores_liveness_age",
      'st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: false, ageSeconds: 5 }] });'
      ' globalThis.__fp4 = m.topologyStructureFingerprint();'

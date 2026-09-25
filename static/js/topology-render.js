@@ -69,6 +69,9 @@ import {
 import {
   _collapsedNodes,
   applyNodesViewMode,
+  engineRamText,
+  gpuOutsideBar,
+  gpuWhoHtml,
   hostAgeText,
   hostPowerTextKey,
   isControllerMachine,
@@ -532,6 +535,16 @@ export function topologyStructureFingerprint() {
   const gpus = (topology.nodes || [])
     .flatMap((n) => (n.gpus || []).map((g) => `${n.id}/${g.index}`))
     .sort().join(",");
+  // The engines next to the cells (scout 2.12+): one coming or going, a
+  // model loading or unloading, its window or its keep_alive moving — the
+  // card says each, so each rebuilds it. Its memory is live (the patcher).
+  const engines = (topology.nodes || [])
+    .flatMap((n) => (Array.isArray(n.engines) ? n.engines : []).map((e) =>
+      `${n.id}/${e.kind}:${e.port}:${e.state}:${e.listen}:${e.version}:${e.installedKnown === false ? 0 : 1}:`
+      + (Array.isArray(e.models) ? e.models : [])
+        .map((m) => `${m.name}${m.loaded === true ? "+" : m.loaded === false ? "-" : "?"}${m.contextLength ?? ""}@${m.expiresAt || ""}`)
+        .join("|")))
+    .sort().join(",");
   const prox = (topology.proxies || [])
     .map((p) => `${p.port}:${p.label || ""}>${p.upstreamHost}:${p.upstreamPort}:${p.upstreamType}:${p.providerId || ""}:${p.enabled !== false ? 1 : 0}:${p.mode || ""}:${p.priority || 0}`)
     .sort().join(",");
@@ -549,7 +562,7 @@ export function topologyStructureFingerprint() {
   // the card even when the server-side topology has not moved yet.
   const pendingCells = `${[..._pendingCellActions.keys()].sort().join("+")}:${[..._stoppingCells].sort().join("+")}`;
   const modals = `${ui.topologyProxyFormOpen ? 1 : 0}:${topologyQueuePriorityModalOpen ? 1 : 0}:${topologyRouteDetail?.proxyId || ""}`;
-  return [clients, hosts, classicSrv, nodeSrv, gpus, prox, cloud, llamaVer, view, pendingCells, modals].join("||");
+  return [clients, hosts, classicSrv, nodeSrv, gpus, engines, prox, cloud, llamaVer, view, pendingCells, modals].join("||");
 }
 
 // Decide between a full structural rebuild and a cheap in-place live patch —
@@ -629,6 +642,12 @@ export function syncTopologyLive() {
       const sp = ramBar.querySelector("span");
       if (sp) sp.style.width = `${rp}%`;
     }
+    // An engine's memory moves between reports; what it has loaded and how
+    // it answers are structure (the fingerprint) and rebuild its card.
+    (Array.isArray(n.engines) ? n.engines : []).forEach((e) => {
+      const card = nodeEl.querySelector(`[data-t="node-engine"][data-t-id="${CSS.escape(`${n.id}:${e.kind}:${e.port}`)}"]`);
+      if (card) _liveSet(card, "[data-live-engine-ram]", engineRamText(e));
+    });
 
     // Server cards: token speed, context usage, download progress.
     (n.servers || []).forEach((s) => {
@@ -675,28 +694,23 @@ export function syncTopologyLive() {
       const util = g.utilizationGpuPct ?? "?", temp = g.temperatureC ?? "?", power = g.powerDrawW ?? "?";
       _liveSet(row, "[data-live-gpuutil]", `${util}% · ${temp}°C · ${power}W`);
       _liveSet(row, "[data-live-gpuvram]", `VRAM ${usedGb} / ${totalGb} GB`);
-      const nonFleet = Number(g.nonFleetUsedMiB || 0);
-      const hasOutside = nonFleet >= 64;   // MiB floor: below is driver overhead
       const barWrap = row.querySelector("[data-live-gpuvrambar]");
       if (barWrap) {
         barWrap.title = `${usedGb} / ${totalGb} GB`;
         const bar = barWrap.querySelector("span");
         if (bar) bar.style.width = `${pct}%`;
-        const outBar = barWrap.querySelector("[data-live-gpuoutsidebar]");
-        if (outBar) {
-          outBar.style.width = `${total > 0 ? Math.min(100, Math.round((nonFleet / total) * 100)) : 0}%`;
-          outBar.hidden = !hasOutside;
+        // The outside owners' bands — the same function as the first render.
+        const outsides = barWrap.querySelector("[data-live-gpuoutside]");
+        const [outsideHtml, outsideKey] = gpuOutsideBar(g);
+        if (outsides && outsides.dataset.key !== outsideKey) {
+          outsides.innerHTML = outsideHtml;
+          outsides.dataset.key = outsideKey;
         }
       }
-      // Who holds the card: fleet ports, else an outside job, else really idle.
+      // Who holds the card: fleet ports and everyone else by name, or idle.
       const whoEl = row.querySelector("[data-live-gpuwho]");
       if (whoEl) {
-        const ports = (g.serverPorts || []).filter((p) => p != null);
-        const html = ports.length
-          ? `<span class="node-gpu-ports">▶ ${ports.map((p) => escapeHtml(String(p))).join(", ")}</span>`
-          : hasOutside
-            ? `<span class="node-gpu-outside" title="${escapeHtml(t("topologyGpuOutsideHint"))}">▶ ${escapeHtml(t("topologyGpuOutside"))} · ${(nonFleet / 1024).toFixed(1)} GB</span>`
-            : `<span class="topology-muted">${escapeHtml(t("topologyGpuIdle"))}</span>`;
+        const html = gpuWhoHtml(g);
         if (whoEl.innerHTML !== html) whoEl.innerHTML = html;
       }
       const sparkEl = row.querySelector("[data-live-gpuspark]");

@@ -44,6 +44,7 @@ from caravan.admin.systemd_ctl import restart_agent_proxy
 from caravan.admin.telemetry import _normalize_modalities
 from caravan.common.errors import AppError
 from caravan.domain.client import FleetClient
+from caravan.domain.engine import EngineReport
 from caravan.admin.launch_files import LaunchFiles
 from caravan.domain.host import HostRecord
 from caravan.admin.scout_pairing import ScoutPairing
@@ -626,6 +627,9 @@ def host_from_report(payload):
             compute_apps.append({
                 "gpuUuid": str(app.get("gpuUuid") or "")[:80],
                 "pid": int(app.get("pid") or 0),
+                # The process's executable (scout 2.12+): memory that is no
+                # cell's is named by it on the board. "" when not said.
+                "name": str(app.get("name") or "").strip()[:60],
                 "usedMiB": int(app.get("usedMiB") or 0),
             })
         except (TypeError, ValueError):
@@ -704,6 +708,10 @@ def host_from_report(payload):
         "agentUrl": str(payload.get("agentUrl") or "").strip()[:240],
         "gpus": gpus,
         "computeApps": compute_apps,
+        # Ollama, LM Studio on that machine (scout 2.12+). None when the scout
+        # does not say — an older one cannot look, and [] would draw that as
+        # a machine where it looked and found none.
+        "engines": EngineReport.engines(payload.get("engines")),
         "cpu": cpu,
         "platform": platform,
         "llamaNode": llama_node,
@@ -952,6 +960,7 @@ def scout_payload_from_state(state, agent_url):
         "host": state.get("host") or {},
         "gpus": state.get("gpus") or [],
         "computeApps": state.get("computeApps") or [],
+        "engines": state.get("engines"),
         "cpu": state.get("cpu") or {},
         "platform": state.get("platform") or "",
         # Carry llama-node status through, otherwise an active refresh
