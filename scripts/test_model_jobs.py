@@ -152,6 +152,8 @@ def main():
           "negative: kinds отсутствуют или пусты — пустой ответ, а не падение")
     check(jobs_from_kinds(["STT.Whisper", " ASR "]) == ("asr",),
           "регистр и пробелы в kinds не мешают: одна работа, одно слово")
+    check((jobs_from_kinds(["embedding"]), jobs_from_kinds(["vlm"]), jobs_from_kinds(["llm"])) == (("embed",), ("llm",), ("llm",)),
+          "слова движков рядом с ячейками (LM Studio: embedding, vlm, llm) — тот же словарь работ")
     check(tuple(JOBS) == ("llm", "embed", "asr", "tts", "translate", "speech-translate"),
           "словарь — ровно шесть работ, и его порядок и есть порядок чипов")
 
@@ -175,6 +177,7 @@ def main():
         'out.__extraMarks = Object.keys(m.JOB_MARKS).filter((k) => !m.JOBS.includes(k));\n'
         'out.__empty = [m.jobsFromKinds(null), m.jobsFromKinds([])];\n'
         'out.__case = m.jobsFromKinds(["STT.Whisper", " ASR "]);\n'
+        'out.__engine = [m.jobsFromKinds(["embedding"]), m.jobsFromKinds(["vlm"]), m.jobsFromKinds(["llm"])];\n'
         'console.log(JSON.stringify(out));\n'
     )
     try:
@@ -210,6 +213,7 @@ def main():
           f"negative: значка без работы нет — осиротевшая запись пережила бы удаление работы (got {js['__extraMarks']})")
     check(js["__empty"] == [[], []], "js: пустые kinds — пустой ответ")
     check(js["__case"] == ["asr"], f"js: регистр и пробелы так же (got {js['__case']})")
+    check(js["__engine"] == [["embed"], ["llm"], ["llm"]], f"js: слова движков — так же (got {js['__engine']})")
     return _verdict()
 
 

@@ -34,7 +34,7 @@ import {
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
 import { runnerRegistry } from "./llama-edit.js";
-import { JOB_LABELS, JOB_MARKS, jobsForCell } from "./model-jobs.js";
+import { JOB_LABELS, JOB_MARKS, jobsForCell, jobsFromKinds } from "./model-jobs.js";
 import { $, api, copyText, escapeHtml, inferSpecType, toast } from "./utils.js";
 
 // ── Host-centric node view (Stage 3a) ────────────────────────────────────────
@@ -294,6 +294,24 @@ export function engineRamText(e) {
   return e?.ramBytes != null ? `RAM ${engineSizeText(e.ramBytes)}` : "";
 }
 
+// What an engine holds on its machine's cards: the owners the GPU bars name
+// (the controller joins nvidia-smi with the engine's processes), summed over
+// the cards — LM Studio says nothing of it per model, so its card showed
+// "RAM" alone while the bar said "LM Studio · 1.2 GB". "" when no card names it.
+export function engineVramText(n, e) {
+  const mib = (Array.isArray(n?.gpus) ? n.gpus : []).flatMap((g) => gpuOutsideOwners(g))
+    .filter((o) => o.engine === e?.kind).reduce((sum, o) => sum + o.mib, 0);
+  return mib > 0 ? `VRAM ${engineSizeText(mib * 1024 ** 2)}` : "";
+}
+
+// What an engine's model DOES, as the engine types it (LM Studio: llm, vlm,
+// embedding) — the cells' job chip, in the same words. An engine that does not
+// type its models (Ollama) draws none rather than a guessed one.
+function engineJobChipsHtml(m) {
+  return jobsFromKinds(m?.type ? [m.type] : []).map((job) => `<span class="mbadge mbadge-job node-job-chip"
+      data-t="node-engine-job" data-t-id="${escapeHtml(job)}">${JOB_MARKS[job] || ""} ${escapeHtml(t(JOB_LABELS[job]))}</span>`).join("");
+}
+
 // A download into the engine (step 3д, scout 2.17+), as its card and the live
 // patch write it: how much has come of how much, once the engine says; "" when
 // nothing downloads.
@@ -461,7 +479,7 @@ function engineModelRowHtml(m, n = {}, e = {}) {
   return `<li class="node-engine-model${m.loaded === true ? " loaded" : ""}${m.exposed === true ? " exposed" : ""}">
       ${anchor}<span class="node-engine-dot" aria-hidden="true"></span>
       <span class="node-engine-model-name" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}</span>${cloud}
-      ${meta ? `<span class="node-engine-model-meta">${escapeHtml(meta)}</span>` : ""}
+      ${engineJobChipsHtml(m)}${meta ? `<span class="node-engine-model-meta">${escapeHtml(meta)}</span>` : ""}
       ${bits.length ? `<span class="node-engine-model-mem">${bits.map((b) => escapeHtml(b)).join(" · ")}</span>` : ""}
       ${engineActHtml(n, e, m)}${engineDeleteHtml(n, e, m)}${engineExposeBtnHtml(n, e, m)}
       ${engineActErrorHtml(m)}
@@ -474,6 +492,9 @@ export function nodeEngineCardHtml(n, e) {
     ? `<span class="node-engine-listen" title="${escapeHtml(t("nodeEngineLoopbackHint", { how: ENGINE_OPEN_HOW[kind] || "" }))}">${escapeHtml(t("nodeEngineLoopback"))}</span>` : "";
   const ram = e.ramBytes != null
     ? `<span class="node-engine-ram" data-live-engine-ram title="${escapeHtml(t("nodeEngineRamTitle"))}">${escapeHtml(engineRamText(e))}</span>` : "";
+  // Always the slot, so the live patch can fill it when the engine takes the
+  // card and empty it when it lets go — without rebuilding the card.
+  const vram = `<span class="node-engine-ram" data-t="node-engine-vram" data-live-engine-vram title="${escapeHtml(t("nodeEngineVramTitle"))}">${escapeHtml(engineVramText(n, e))}</span>`;
   let body = "";
   if (e.state === "stopped") body = `<div class="node-engine-state">${escapeHtml(t("nodeEngineStopped"))}</div>`;
   else if (e.state === "auth") body = `<div class="node-engine-state warn">${escapeHtml(t("nodeEngineAuth"))}</div>`;
@@ -503,7 +524,7 @@ export function nodeEngineCardHtml(n, e) {
         <code>:${escapeHtml(String(e.port))}</code>
         ${loopback}${e.listen === "network" ? firewallBadge(e.firewall) : ""}
         <span style="flex:1"></span>
-        ${ram}${enginePullHtml(n, e)}${engineServerHtml(n, e)}
+        ${vram}${ram}${enginePullHtml(n, e)}${engineServerHtml(n, e)}
       </header>
       ${engineServerNotesHtml(e)}
       ${body}

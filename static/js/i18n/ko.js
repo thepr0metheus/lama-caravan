@@ -448,6 +448,7 @@ export default {
   nodeEngineCloudModel: "클라우드",
   nodeEngineCloudModelHint: "이 머신이 아니라 Ollama의 서버에서 실행됩니다",
   nodeEngineRamTitle: "엔진 프로세스가 차지한 메모리",
+  nodeEngineVramTitle: "이 머신의 카드에서 엔진 프로세스가 차지한 비디오 메모리 (nvidia-smi 기준)",
   nodeEngineOnDemandHint: "요청 시 모델을 로드합니다: 셀이 시작된 뒤에 메모리를 차지할 수 있습니다",
   topologyGpuOutsideEngineHint: "Caravan 셀이 아닌 이 머신의 엔진 — 모델은 «기타 엔진»에 있습니다",
   nodeEngineExpose: "출력으로",

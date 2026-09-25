@@ -448,6 +448,7 @@ export default {
   nodeEngineCloudModel: "கிளவுட்",
   nodeEngineCloudModelHint: "இந்த கணினியில் அல்ல, Ollama சேவையகங்களில் இயங்குகிறது",
   nodeEngineRamTitle: "எஞ்சின் செயல்முறைகள் பிடித்துள்ள நினைவகம்",
+  nodeEngineVramTitle: "இந்தக் கணினியின் கார்டுகளில் எஞ்சின் செயல்முறைகளின் வீடியோ நினைவகம் (nvidia-smi படி)",
   nodeEngineOnDemandHint: "தேவைக்கேற்ப மாதிரிகளை ஏற்றுகிறது: ஒரு செல் தொடங்கிய பின்னரும் நினைவகத்தை எடுக்கலாம்",
   topologyGpuOutsideEngineHint: "Caravan செல் அல்லாத, இந்த கணினியிலுள்ள எஞ்சின் — இதன் மாதிரிகள் «பிற எஞ்சின்கள்» பகுதியில்",
   nodeEngineExpose: "வெளியீடாக்கு",

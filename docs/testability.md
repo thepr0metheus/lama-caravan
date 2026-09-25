@@ -206,7 +206,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 345 values. Regenerate with
+Generated from the source, not from memory — 347 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Fifty of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -234,7 +234,7 @@ that is why there is a script and not a one-liner.
 **model** — `model-file-stale`, `model-in-library`, `model-job-asr`, `model-job-embed`, `model-job-llm`, `model-job-speech-translate`, `model-job-translate`, `model-job-tts`
 
 **models** — `models-delete-selected`, `models-filter`, `models-filter-clear`, `models-filter-empty`, `models-filters`, `models-folder-item`, `models-fresh-at`, `models-fresh-auto`, `models-fresh-check`, `models-fresh-get`, `models-fresh-keep`, `models-fresh-stamp`, `models-hf-open`, `models-library-file`, `models-model-select`, `models-move-branch`, `models-move-dest`, `models-move-dismiss`, `models-move-menu`, `models-move-open`, `models-move-progress`, `models-move-selected`, `models-move-stayed`, `models-move-stop`, `models-move-target`, `models-moves-summary`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-place-all`, `models-place-card`, `models-place-open`, `models-search`, `models-selection`, `models-staged-download`, `models-staged-progress`, `models-staged-revert`, `models-store`, `models-store-add`, `models-store-add-cancel`, `models-store-add-open`, `models-store-add-path`, `models-store-add-row`, `models-store-files`, `models-store-meta`, `models-store-remove`, `models-store-repath`, `models-store-repath-cancel`, `models-store-repath-input`, `models-store-repath-row`, `models-store-repath-save`, `models-store-state`, `models-store-why`, `models-store-why-command`, `models-stores`, `models-stores-error`, `models-summary`, `models-summary-bar`, `models-summary-facts`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-tree-head`, `models-unused-select-all`, `models-unused-summary`
-**node** — `node-disconnect`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-downloading`, `node-engine-expose`, `node-engine-load`, `node-engine-pull`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engines`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
+**node** — `node-disconnect`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-downloading`, `node-engine-expose`, `node-engine-job`, `node-engine-load`, `node-engine-pull`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-engines`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
 **host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `cell-ctx-native`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
 **scout** — `scout-add-address`, `scout-add-connect`, `scout-add-port`, `scout-add-status`
 **setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
@@ -278,7 +278,10 @@ a stopped engine's card has `data-t-state="stopped"`. A model is downloaded
 into the engine from its header, `node-engine-pull` (scout 2.17+), and while it
 downloads the card carries `node-engine-downloading` with its progress; an
 Ollama model that is not loaded has `node-engine-delete` on its row (`data-t-id`
-`<node>:<kind>:<model>`), asked through a danger dialog.
+`<node>:<kind>:<model>`), asked through a danger dialog. The card's header says
+what the engine holds on the machine's cards, `node-engine-vram` (empty when
+nothing); a model the engine types has its job, `node-engine-job`, `data-t-id`
+the job (`embed`, `llm`).
 
 ## Hooks that carry a value but are never visible
 

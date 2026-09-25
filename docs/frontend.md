@@ -586,6 +586,11 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   (`engineDownloadText`) is patched live — the bytes do not rebuild the card, the download's start and
   end do. An Ollama model that is not loaded can be deleted from its row (`node-engine-delete`), through
   a danger dialog naming the model, the engine and the machine; LM Studio offers no delete.
+- An engine card's header says what the engine holds on the machine's cards (`engineVramText`: the
+  same owners the GPU bars name, summed over the cards, patched live) — LM Studio says no memory per
+  model. A model the engine types (LM Studio: llm, vlm, embedding) carries the cells' job chip in the
+  same words (`jobsFromKinds`); an embedding model stays offered as an output — the kanban's embeddings
+  slot takes any local output.
 - `machineAt(address)` — the machine behind an address its cells answer at, `{ key, name }`: its node and
   the node's name (the computer's hostname, from its scout); loopback and the controller's own address
   are the controller's machine (its node, else `topology.server.hostname`); an unknown address is said

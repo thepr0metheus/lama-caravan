@@ -50,6 +50,11 @@ const KIND_ALIASES = {
   "speech-translate": "speech-translate",
   llm: "llm",
   embed: "embed",
+  // How the engines next to the cells say it of their models: LM Studio types
+  // each one "llm", "vlm" (vision-language — text out, a chat model) or
+  // "embedding".
+  vlm: "llm",
+  embedding: "embed",
 };
 
 //: What each runner can be, when the cell itself has not said. A runner absent

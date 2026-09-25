@@ -448,6 +448,7 @@ export default {
   nodeEngineCloudModel: "cloud",
   nodeEngineCloudModelHint: "Berjalan di server Ollama, bukan di mesin ini",
   nodeEngineRamTitle: "Memori yang dipakai proses engine ini",
+  nodeEngineVramTitle: "Memori video proses engine pada kartu mesin ini (menurut nvidia-smi)",
   nodeEngineOnDemandHint: "Memuat model sesuai permintaan: bisa memakai memori setelah sebuah sel berjalan",
   topologyGpuOutsideEngineHint: "Engine di mesin ini yang bukan sel Caravan — modelnya ada di «Engine lain»",
   nodeEngineExpose: "jadikan keluaran",

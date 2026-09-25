@@ -448,6 +448,7 @@ export default {
   nodeEngineCloudModel: "bulut",
   nodeEngineCloudModelHint: "Bu makinede değil, Ollama'nın sunucularında çalışır",
   nodeEngineRamTitle: "Motorun süreçlerinin tuttuğu bellek",
+  nodeEngineVramTitle: "Motor süreçlerinin bu makinenin kartlarında tuttuğu video belleği (nvidia-smi'ye göre)",
   nodeEngineOnDemandHint: "Modelleri istek üzerine yükler: bir hücre başladıktan sonra bellek kaplayabilir",
   topologyGpuOutsideEngineHint: "Bu makinede Caravan hücresi olmayan bir motor — modelleri «Diğer motorlar» altında",
   nodeEngineExpose: "çıkış yap",

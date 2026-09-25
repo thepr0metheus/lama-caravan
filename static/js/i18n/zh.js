@@ -448,6 +448,7 @@ export default {
   nodeEngineCloudModel: "云端",
   nodeEngineCloudModelHint: "运行在 Ollama 的服务器上，而不是本机",
   nodeEngineRamTitle: "该引擎进程占用的内存",
+  nodeEngineVramTitle: "引擎进程在本机显卡上占用的显存（据 nvidia-smi）",
   nodeEngineOnDemandHint: "按需加载模型：可能在某个单元启动之后才占用内存",
   topologyGpuOutsideEngineHint: "本机上不属于 Caravan 单元的引擎 — 其模型见“其他引擎”",
   nodeEngineExpose: "设为输出",

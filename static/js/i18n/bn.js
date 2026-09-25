@@ -448,6 +448,7 @@ export default {
   nodeEngineCloudModel: "ক্লাউড",
   nodeEngineCloudModelHint: "এই মেশিনে নয়, Ollama-এর সার্ভারে চলে",
   nodeEngineRamTitle: "ইঞ্জিনের প্রসেসগুলোর দখলে থাকা মেমরি",
+  nodeEngineVramTitle: "এই মেশিনের কার্ডে ইঞ্জিনের প্রক্রিয়াগুলোর ভিডিও মেমরি (nvidia-smi অনুযায়ী)",
   nodeEngineOnDemandHint: "চাহিদা অনুযায়ী মডেল লোড করে: কোনো সেল চালু হওয়ার পরেও মেমরি নিতে পারে",
   topologyGpuOutsideEngineHint: "এই মেশিনের একটি ইঞ্জিন যা Caravan-এর সেল নয় — এর মডেলগুলো «অন্যান্য ইঞ্জিন»-এ",
   nodeEngineExpose: "আউটপুট করুন",

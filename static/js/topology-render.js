@@ -74,6 +74,7 @@ import {
   applyNodesViewMode,
   engineDownloadText,
   engineRamText,
+  engineVramText,
   gpuOutsideBar,
   gpuWhoHtml,
   hostAgeText,
@@ -686,6 +687,7 @@ export function syncTopologyLive() {
       const card = nodeEl.querySelector(`[data-t="node-engine"][data-t-id="${CSS.escape(`${n.id}:${e.kind}:${e.port}`)}"]`);
       if (card) {
         _liveSet(card, "[data-live-engine-ram]", engineRamText(e));
+        _liveSet(card, "[data-live-engine-vram]", engineVramText(n, e));
         _liveSet(card, "[data-live-engine-download]", engineDownloadText(e));
       }
     });

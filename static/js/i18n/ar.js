@@ -448,6 +448,7 @@ export default {
   nodeEngineCloudModel: "سحابة",
   nodeEngineCloudModelHint: "يعمل على خوادم Ollama، لا على هذا الجهاز",
   nodeEngineRamTitle: "الذاكرة التي تشغلها عمليات المحرك",
+  nodeEngineVramTitle: "ذاكرة الفيديو التي تشغلها عمليات المحرك على بطاقات هذا الجهاز (بحسب nvidia-smi)",
   nodeEngineOnDemandHint: "يحمّل النماذج عند الطلب: قد يشغل ذاكرة بعد بدء خلية",
   topologyGpuOutsideEngineHint: "محرك على هذا الجهاز ليس خلية من Caravan — نماذجه في «محركات أخرى»",
   nodeEngineExpose: "اجعله مخرجًا",
