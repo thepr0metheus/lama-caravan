@@ -1,7 +1,7 @@
 // Host-centric nodes view: server cards, telemetry mounts, incidents, models bar.
 import { drawTopologyCables } from "./cables.js";
 import { CARD_FOLD, CardFold } from "./card-fold.js";
-import { CellRow, FoldSlot } from "./card-rows.js";
+import { CellEye, CellRow, CellWindow, FoldSlot } from "./card-rows.js";
 import { nodeTelemetryRowsHtml, renderTopologyIncidents } from "./charts.js";
 import { badge, mbadge, modelsByPath } from "./form.js";
 import { t } from "./i18n.js";
@@ -1095,17 +1095,23 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
   // are the same start, and two copies of these attributes would drift. A
   // model in a library asks nothing more: the scout reads it where it is.
   const launchAttrs = `data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-runner="${escapeHtml(cellRunner)}"`;
+  // Why the start is on or off, once: the card's ▶ and the line's switch say it alike.
+  const playTitle = canPlay ? t("nodeStartServer") : (isReserved ? t("nodeConfigureFirst") : t("nodeNotStopped"));
   const playBtn = `<button class="node-action-btn ${canPlay ? "ok" : "muted"}" type="button"
       ${canPlay ? `data-t="cell-start" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" ${launchAttrs}` : "disabled"}
-      title="${escapeHtml(canPlay ? t("nodeStartServer") : (isReserved ? t("nodeConfigureFirst") : t("nodeNotStopped")))}">▶<span class="nab-lbl">${escapeHtml(t("start"))}</span></button>`;
+      title="${escapeHtml(playTitle)}">▶<span class="nab-lbl">${escapeHtml(t("start"))}</span></button>`;
 
   // ⏹ stop — active when starting or running; spinner while stopping
   const canStop = !isStopped && !isDeleting && !isCellBusy;
+  // What a stop needs to know, once — for the same reason as launchAttrs: the
+  // card's ⏹ and the line's switch are the same stop.
+  const stopAttrs = `data-node-cell-stop="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"`;
+  const stopTitle = canStop ? t("nodeStopServer") : t("nodeNotRunning");
   const stopBtn = isCtlStopping
     ? `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("nodeStoppingTitle"))}"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`
     : `<button class="node-action-btn ${canStop ? "warn" : "muted"}" type="button"
-         ${canStop ? `data-t="cell-stop" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-stop="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"` : "disabled"}
-         title="${escapeHtml(canStop ? t("nodeStopServer") : t("nodeNotRunning"))}">⏹<span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`;
+         ${canStop ? `data-t="cell-stop" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" ${stopAttrs}` : "disabled"}
+         title="${escapeHtml(stopTitle)}">⏹<span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`;
 
   // ↑ autostart — a scout keeps the cell's start and runs it when its machine
   // boots (2.4+; the server says whether it can, bootSupported). Three looks:
@@ -1163,34 +1169,46 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
         </div>`;
       })() : ""}
     </article>`;
-  const foldMode = fold
-    ? CARD_FOLD.mode("cells", slotKey, CardFold.cellQuiet({
-        phase,
-        transient: isDeleting || isStopping || isCtlStopping || !!pendingCellAction || !!statusRow,
-        crashed: !!crash,
-        unreachable: running && s.reachable === false,
-      }))
-    : "full";
-  if (foldMode === "full") return cardHtml(anchorHtml);
-  if (foldMode === "pinned") {
-    return new FoldSlot({ key: slotKey, lane: "cells", mode: "pinned", card: cardHtml(anchorHtml) }).html();
+  // How settled the cell is, once — the fold and the machine's eye both ask.
+  const settle = {
+    phase,
+    transient: isDeleting || isStopping || isCtlStopping || !!pendingCellAction || !!statusRow,
+    crashed: !!crash,
+    unreachable: running && s.reachable === false,
+  };
+  // The machine's eye hides what is not running. The cell being worked on
+  // stays: one just reserved, and the one whose window is open. A hidden cell
+  // leaves a mark, not nothing: a cable looks for its handle, and must learn
+  // the cell was put away, not lost (cables.js).
+  if (fold && CARD_FOLD.hidesIdle(node.id) && CardFold.cellIdle(settle)
+      && !isNewReserved && CARD_FOLD.openKey !== slotKey) {
+    return `<span hidden data-cell-hidden="${escapeHtml(slotKey)}" data-cell-hidden-port="${escapeHtml(String(port))}"></span>`;
   }
+  const foldMode = fold ? CARD_FOLD.mode("cells", slotKey, CardFold.cellQuiet(settle)) : "full";
+  if (foldMode === "full") return cardHtml(anchorHtml);
   // The same name the card's body shows, by the same precedence as its blocks.
   const rowName = s.model ? (parsed.label || s.model)
     : isVllmCell ? vllmName
       : isWhisperCell ? whisperSize
         : isMoonshineCell ? moonshineLang
           : isCmdCell ? (cmdText || t("commandCellFallback")) : "";
-  const line = new CellRow({
+  const row = new CellRow({
     key: slotKey, port, name: rowName, title: s.model ? (s.modelPath || s.model) : rowName,
     state: running ? "running" : (isReserved ? "reserved" : "parked"),
     cpu: isCpuCell, chip: memBadge || deviceChip, launch: canPlay ? launchAttrs : "",
+    stop: canStop ? stopAttrs : "", why: running ? stopTitle : playTitle,
     warn: !!(staleSrcChip || staleModelChip || diskNewerChip),
     tps: running && Number(s.genTps || 0) > 0 ? `${formatTps(s.genTps)} t/s` : "",
     busy: running && Number(s.genTps || 0) > 0, anchor: anchorHtml,
-  }).html();
-  return new FoldSlot({ key: slotKey, lane: "cells", mode: "line", line, card: cardHtml(""),
-                        peek: CARD_FOLD.peekKey === slotKey }).html();
+  });
+  // A click on the line opens the card as a window over the board. The window
+  // is titled with the line's own name, and the machine's address is named
+  // only when the report carries one — ":22007" alone would read as an address.
+  const cellWindow = new CellWindow({
+    key: slotKey, name: row.shownName(), port, address: (s.clientIp || node.ip) ? addr : "", card: cardHtml(""),
+  });
+  return new FoldSlot({ key: slotKey, lane: "cells", mode: "line", line: row.html(), card: cellWindow.html(),
+                        open: CARD_FOLD.openKey === slotKey }).html();
 }
 
 // Drill-in detail modal for a node server (full info that the compact card omits).
@@ -1651,8 +1669,14 @@ export function nodesLaneHtml() {
         ? `<button class="node-subtitle node-subtitle-toggle" type="button" data-ctrl-stats-toggle aria-expanded="${statsOpen ? "true" : "false"}">${escapeHtml(t("topologyServersHead"))} <span class="node-subtitle-caret">${statsOpen ? "▾" : "▸"}</span><span class="node-subtitle-hint">${escapeHtml(t("topologyNodeServerCharts"))}</span></button>`
         : `<div class="node-subtitle">${escapeHtml(t("topologyServersHead"))}</div>`;
       const serverStatsSlot = statsHere ? `<div class="node-ctrl-server-stats" data-ctrl-server-stats${statsOpen ? "" : " hidden"}></div>` : "";
+      // The machine's eye over its cells, beside the list's title. The count is
+      // read off the marks the cells left, so it is the rule's own answer.
+      const eye = new CellEye({
+        hostId: n.id, on: CARD_FOLD.hidesIdle(n.id), hidden: (serversHtml.match(/data-cell-hidden=/g) || []).length,
+      }).html();
+      const serversHead = `<div class="node-servers-head">${serversSubtitle}${eye}</div>`;
       bodyHtml = `<div class="node-body">
-          <div class="node-servers">${serversSubtitle}${serversHtml}${startingCard}${addBtn}${nodeEnginesHtml(n)}${serverStatsSlot}</div>
+          <div class="node-servers">${serversHead}${serversHtml}${startingCard}${addBtn}${nodeEnginesHtml(n)}${serverStatsSlot}</div>
           <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>
         </div>`;
     }

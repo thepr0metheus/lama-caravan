@@ -320,6 +320,13 @@ export function renderTopology() {
   $("topologyLlamaServers")?.querySelectorAll("[data-node-collapse]").forEach((btn) => {
     btn.addEventListener("click", () => toggleNodeCollapsed(btn.dataset.nodeCollapse));
   });
+  // A machine's eye: hide its cells that are not running, or show them again.
+  $("topologyLlamaServers")?.querySelectorAll("[data-cell-eye]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      CARD_FOLD.toggleHideIdle(btn.dataset.cellEye);
+      renderTopology();
+    });
+  });
   // An engine's model next to the cells: load it or unload it (step 3).
   $("topologyLlamaServers")?.querySelectorAll("[data-engine-act]").forEach((btn) => {
     btn.addEventListener("click", (event) => {

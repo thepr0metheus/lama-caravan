@@ -1,4 +1,4 @@
-// Which cards on the board fold into a line, and which one floats open now.
+// Which cards on the board fold into a line, and how a folded one opens.
 import { t } from "./i18n.js";
 
 /**
@@ -20,16 +20,28 @@ export class CardFold {
   static LANES = ["cells", "clients"];
   static KEY_DENSITY = "boardCardDensity";
   static KEY_PINNED = "boardCardPinned";
+  static KEY_HIDE_IDLE = "boardCellsHideIdle";
+  // How a folded card of each lane opens. A cell opens in a window on a click
+  // (2026-09-25, the operator's choice: the card that floated open on hover,
+  // and could be pinned in place, is gone for cells). An agent still floats
+  // over its lane on hover and pins with a click.
+  static OPENS = { cells: "window", clients: "float" };
 
   constructor({ storage = CardFold.defaultStorage(), automated = !!globalThis.navigator?.webdriver } = {}) {
     this.storage = storage;
     this.automated = automated;
     this.densities = this.read(CardFold.KEY_DENSITY, {});
     this.pinned = new Set(this.read(CardFold.KEY_PINNED, []));
+    // The machines whose eye hides the cells that are not running (2026-09-25):
+    // a choice per machine, as the eye sits on each machine's list of cells.
+    this.hideIdle = new Set(this.read(CardFold.KEY_HIDE_IDLE, []));
     // The card floating open now. Kept here, not only as a class on the DOM:
     // the board repaints its lanes wholesale, and a float that vanished with
     // every repaint would flicker shut under a resting pointer.
     this.peekKey = "";
+    // The cell whose window is open now — here for the same reason: the
+    // window is drawn inside its lane, and a repaint redraws the lane.
+    this.openKey = "";
   }
 
   static defaultStorage() {
@@ -69,6 +81,20 @@ export class CardFold {
 
   isPinned(key) { return this.pinned.has(String(key)); }
 
+  /** Whether the eye of machine `hostId` hides its cells that are not running. */
+  hidesIdle(hostId) { return this.hideIdle.has(String(hostId)); }
+
+  toggleHideIdle(hostId) {
+    const k = String(hostId);
+    if (this.hideIdle.has(k)) this.hideIdle.delete(k);
+    else this.hideIdle.add(k);
+    this.write(CardFold.KEY_HIDE_IDLE, [...this.hideIdle]);
+    return this.hideIdle.has(k);
+  }
+
+  /** Whether a folded card of `lane` opens in a window (not floating over the lane). */
+  opensInWindow(lane) { return CardFold.OPENS[lane] === "window"; }
+
   togglePin(key) {
     const k = String(key);
     if (this.pinned.has(k)) this.pinned.delete(k);
@@ -78,11 +104,15 @@ export class CardFold {
     return this.pinned.has(k);
   }
 
-  /** How a card is drawn: "line" (folded; the full card floats on hover),
-   *  "pinned" (the full card in place, with a control to fold it back) or
-   *  "full" (never folds — the lane shows full cards, or the card is not quiet). */
+  /** How a card is drawn: "line" (folded; the full card opens on hover or on
+   *  a click, by its lane), "pinned" (the full card in place, with a control to
+   *  fold it back) or "full" (never folds — the lane shows full cards, or the
+   *  card is not quiet). */
   mode(lane, key, quiet) {
     if (!quiet || !this.folds(lane)) return "full";
+    // A lane whose cards open in a window keeps none pinned in place: a pin this
+    // browser saved before the window came is ignored, not drawn.
+    if (this.opensInWindow(lane)) return "line";
     return this.isPinned(key) ? "pinned" : "line";
   }
 
@@ -90,9 +120,13 @@ export class CardFold {
    *  after every paint of the board, so a language change reaches them too. */
   syncSwitches(doc = globalThis.document) {
     for (const btn of doc?.querySelectorAll?.("[data-board-density]") || []) {
-      const compact = this.folds(btn.dataset.boardDensity);
+      const lane = btn.dataset.boardDensity;
+      const compact = this.folds(lane);
       btn.setAttribute("aria-pressed", String(compact));
-      btn.title = t(compact ? "densityCompactTitle" : "densityFullTitle");
+      // Each lane says how ITS lines open: telling the cells lane to rest the
+      // pointer on a line would describe a float that is no longer there.
+      const compactKey = this.opensInWindow(lane) ? "densityCompactWindowTitle" : "densityCompactTitle";
+      btn.title = t(compact ? compactKey : "densityFullTitle");
       btn.setAttribute("aria-label", btn.title);
       btn.textContent = compact ? "⊟" : "⊞";
     }
@@ -106,6 +140,13 @@ export class CardFold {
     return settled && !f.transient && !f.crashed && !f.unreachable;
   }
 
+  /** Whether a machine's eye may hide a cell: quiet, and not running — parked,
+   *  or reserved with no model yet. What moves or is in trouble never hides,
+   *  for the reason it never folds: gone from view, trouble reads as calm. */
+  static cellIdle(f = {}) {
+    return CardFold.cellQuiet(f) && f.phase !== "running";
+  }
+
   /** Whether an agent may fold: it goes somewhere, and its last request did
    *  not fail. An agent with no route at all is the loudest case of the lane —
    *  folded, it would read as one more quiet line. There is no "stale" here any
@@ -117,14 +158,16 @@ export class CardFold {
 }
 
 /**
- * The pointer and keyboard side of folding. A folded card floats open in full
- * after the pointer rests on its line, or at once when keyboard focus enters
- * it; a click on the line or on the 📌 keeps it open, ▴ folds it back.
+ * The pointer and keyboard side of folding. An agent's folded card floats open
+ * in full after the pointer rests on its line, or at once when keyboard focus
+ * enters it; a click on the line or on the 📌 keeps it open, ▴ folds it back.
+ * A cell's line opens its card as a window on a click (Enter, Space); ✕, a
+ * click on the dimmed board or Escape closes it.
  *
  * Delegated on the document, once: the board repaints its lanes wholesale, and
- * listeners on the cards themselves would die with every repaint. The float is
- * the card itself, not a copy — the card's buttons are bound to their own
- * elements at render, and a copy would carry none of that.
+ * listeners on the cards themselves would die with every repaint. The float and
+ * the window are the card itself, not a copy — the card's buttons are bound to
+ * their own elements at render, and a copy would carry none of that.
  */
 export class FoldPeek {
   /** How long the pointer rests on a line before its card floats open: long
@@ -141,6 +184,10 @@ export class FoldPeek {
   }
 
   slotOf(node) { return node?.closest?.('.fold-slot[data-fold-mode="line"]') || null; }
+
+  /** Whether a slot's card floats over its lane — as opposed to opening in a
+   *  window, which a resting pointer or a passing focus never does. */
+  floats(slot) { return !this.fold.opensInWindow(slot?.dataset?.foldLane); }
 
   open(slot) {
     clearTimeout(this.timer);
@@ -159,6 +206,33 @@ export class FoldPeek {
     this.fold.peekKey = "";
   }
 
+  /** A cell's card as a window over the board. The window is already in its
+   *  slot (card-rows.js CellWindow); opening it is a class, and openKey keeps
+   *  it open through a repaint of the lane. */
+  openWindow(slot) {
+    if (!slot || this.busy()) return;
+    this.closeWindow(slot.ownerDocument);
+    slot.classList.add("open");
+    this.fold.openKey = slot.dataset.foldKey || "";
+    // The keyboard lands in the window, on its way out: on the ✕ itself — the
+    // dimmed board carries the same close mark and cannot take focus.
+    slot.querySelector?.("button[data-cell-window-close]")?.focus?.();
+  }
+
+  /** The folded line of the card under `key`, in `doc`. */
+  lineOf(key, doc = globalThis.document) {
+    const k = String(key).replace(/["\\]/g, "\\$&");
+    return doc?.querySelector?.(`.fold-slot[data-fold-key="${k}"] > .fold-row`) || null;
+  }
+
+  /** Closes the open window, if any; returns the key it had. */
+  closeWindow(doc = globalThis.document) {
+    for (const s of doc?.querySelectorAll?.(".fold-slot.open") || []) s.classList.remove("open");
+    const was = this.fold.openKey;
+    this.fold.openKey = "";
+    return was;
+  }
+
   bind(doc = globalThis.document) {
     if (this.bound || !doc) return;
     this.bound = true;
@@ -174,13 +248,13 @@ export class FoldPeek {
   onOver(e) {
     const slot = this.slotOf(e.target);
     clearTimeout(this.timer);
-    if (!slot || slot.classList.contains("peek")) return;
+    if (!slot || !this.floats(slot) || slot.classList.contains("peek")) return;
     this.timer = setTimeout(() => this.open(slot), FoldPeek.DELAY_MS);
   }
 
   onOut(e) {
     const slot = this.slotOf(e.target);
-    if (!slot || slot.contains(e.relatedTarget)) return;
+    if (!slot || !this.floats(slot) || slot.contains(e.relatedTarget)) return;
     this.close(slot);
   }
 
@@ -188,12 +262,12 @@ export class FoldPeek {
   // card open under a pressed button would swallow the click it started.
   onFocusIn(e) {
     const slot = this.slotOf(e.target);
-    if (slot && e.target?.matches?.(":focus-visible")) this.open(slot);
+    if (slot && this.floats(slot) && e.target?.matches?.(":focus-visible")) this.open(slot);
   }
 
   onFocusOut(e) {
     const slot = this.slotOf(e.target);
-    if (slot && !slot.contains(e.relatedTarget)) this.close(slot);
+    if (slot && this.floats(slot) && !slot.contains(e.relatedTarget)) this.close(slot);
   }
 
   onClick(e) {
@@ -206,19 +280,36 @@ export class FoldPeek {
       this.changed();
       return;
     }
+    // ✕ and the dimmed board around a window close it.
+    if (target.closest("[data-cell-window-close]")) {
+      e.preventDefault();
+      this.closeWindow(target.ownerDocument);
+      return;
+    }
     const pin = target.closest?.("[data-fold-pin]");
     const line = pin ? null : target.closest?.(".fold-row");
     // The line's own controls (▶ start) and the cable's handle keep their jobs.
     if (!pin && (!line || target.closest("button, a, .topology-handle"))) return;
-    const key = (pin || line).closest(".fold-slot")?.dataset.foldKey;
+    const slot = (pin || line).closest(".fold-slot");
+    const key = slot?.dataset?.foldKey;
     if (!key) return;
     e.preventDefault();
+    if (line && !this.floats(slot)) {
+      this.openWindow(slot);
+      return;
+    }
     this.fold.togglePin(key);
     this.changed();
   }
 
   onKey(e) {
-    if (e.key === "Escape") { this.close(); return; }
+    if (e.key === "Escape") {
+      this.close();
+      const was = this.closeWindow();
+      // Back to the line whose window it was, not to the top of the page.
+      if (was) this.lineOf(was)?.focus?.();
+      return;
+    }
     if ((e.key === "Enter" || e.key === " ") && e.target?.matches?.(".fold-row")) {
       e.preventDefault();
       e.target.click();

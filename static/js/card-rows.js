@@ -1,4 +1,6 @@
-// The folded line of a board card, and the slot that holds the line and the card.
+// The folded line of a board card, the slot that holds the line and the card,
+// and the window a cell's card opens in.
+import { CardFold } from "./card-fold.js";
 import { t } from "./i18n.js";
 import { escapeHtml } from "./utils.js";
 
@@ -20,22 +22,35 @@ export class CellRow {
     this.cpu = !!f.cpu;
     this.chip = f.chip || "";          // the card's own memory/device chip, as built
     this.launch = f.launch || "";      // the card's ▶ attributes, empty when it cannot start
+    this.stop = f.stop || "";          // the card's ⏹ attributes, empty when it cannot stop
+    this.why = String(f.why || "");    // what flipping the switch does now, or why it cannot
     this.warn = !!f.warn;
     this.tps = String(f.tps || "");
     this.busy = !!f.busy;
     this.anchor = f.anchor || "";      // the cable's handle: the line owns it while folded
   }
 
+  /** The line's switch: on while the cell runs, off while it is parked. It is
+   *  the card's ▶ and ⏹ in one — flipping it carries their attributes, so the
+   *  same confirm starts or stops the same cell. A cell that cannot be flipped
+   *  now (no model yet, or nothing it may do) shows it disabled, saying why. */
   lead() {
-    if (this.state === "parked" && this.launch) {
-      return `<button type="button" class="fr-play" ${this.launch} data-t="cell-row-start"`
-        + ` data-t-id="${escapeHtml(this.key)}" title="${escapeHtml(t("nodeStartServer"))}">▶</button>`;
-    }
-    return '<span class="fr-dot" aria-hidden="true"></span>';
+    const on = this.state === "running";
+    const act = on ? this.stop : this.launch;
+    const hook = on ? "cell-row-stop" : "cell-row-start";
+    const attrs = act ? `${act} data-t="${hook}" data-t-id="${escapeHtml(this.key)}"` : "disabled";
+    const why = escapeHtml(this.why);
+    return `<button type="button" class="fr-switch" role="switch" aria-checked="${on}" ${attrs}`
+      + ` title="${why}" aria-label="${why}"><span class="fr-knob" aria-hidden="true"></span></button>`;
+  }
+
+  /** The name the line shows — and its window's title, from this one rule. */
+  shownName() {
+    return this.state === "reserved" ? t("topologyReservedCellLabel") : this.name;
   }
 
   html() {
-    const name = this.state === "reserved" ? t("topologyReservedCellLabel") : this.name;
+    const name = this.shownName();
     const warn = this.warn
       ? `<span class="fr-warn" title="${escapeHtml(t("cellRowWarnTitle"))}">⚠</span>` : "";
     const cls = ["fold-row", "cell-row", this.state, this.cpu ? "cpu" : "", this.busy ? "busy" : ""]
@@ -85,20 +100,82 @@ export class AgentRow {
 }
 
 /**
+ * A cell's card as a window over the board: the card itself with a title bar
+ * and a ✕ above it, over a dimmed board. Drawn inside the cell's slot and shown
+ * only while the slot is open (fold.css), so the card's buttons are bound where
+ * the lane binds them and a repaint redraws the window with the lane. The
+ * cable's handle stays on the line, which never moves.
+ */
+export class CellWindow {
+  constructor({ key, name, port, address = "", card = "" } = {}) {
+    this.key = String(key || "");
+    this.name = String(name || "");
+    this.port = String(port || "");
+    this.address = String(address || "");
+    this.card = card || "";
+  }
+
+  html() {
+    const k = escapeHtml(this.key);
+    const close = escapeHtml(t("close"));
+    const label = escapeHtml(`${t("a11yCell")} :${this.port} ${this.name}`.trim());
+    const address = this.address ? `<span class="cwh-addr">${escapeHtml(this.address)}</span>` : "";
+    return `<div class="cell-window-backdrop" data-cell-window-close="1" aria-hidden="true"></div>`
+      + `<div class="cell-window" role="dialog" aria-modal="true" aria-label="${label}"`
+      + ` data-t="cell-window" data-t-id="${k}"><div class="cell-window-head">`
+      + `<strong class="cwh-name">${escapeHtml(this.name)}</strong>`
+      + `<span class="cwh-port">:${escapeHtml(this.port)}</span>${address}`
+      + `<button type="button" class="cwh-close" data-cell-window-close="1" data-t="cell-window-close"`
+      + ` data-t-id="${k}" title="${close}" aria-label="${close}">✕</button></div>${this.card}</div>`;
+  }
+}
+
+/**
+ * A machine's eye over its list of cells: pressed, the cells that are not
+ * running are hidden, and it says how many — hidden is named, not silent.
+ */
+export class CellEye {
+  static OPEN = '<path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8s-2.5 4.5-6.5 4.5S1.5 8 1.5 8z"></path><circle cx="8" cy="8" r="2"></circle>';
+  static SHUT = `${CellEye.OPEN}<path d="M2.5 13.5l11-11"></path>`;
+
+  constructor({ hostId, on = false, hidden = 0 } = {}) {
+    this.hostId = String(hostId || "");
+    this.on = !!on;
+    this.hidden = Math.max(0, Number(hidden) || 0);
+  }
+
+  html() {
+    const words = escapeHtml(this.on ? t("cellsHideIdleOn", { count: String(this.hidden) }) : t("cellsHideIdleOff"));
+    const id = escapeHtml(this.hostId);
+    const count = this.on ? `<span class="node-eye-count">${this.hidden}</span>` : "";
+    return `<button type="button" class="node-eye" data-cell-eye="${id}" data-t="node-hide-idle" data-t-id="${id}"`
+      + ` aria-pressed="${this.on}" title="${words}" aria-label="${words}">`
+      + `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"`
+      + ` stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${this.on ? CellEye.SHUT : CellEye.OPEN}</svg>`
+      + `${count}</button>`;
+  }
+}
+
+/**
  * The place a folding card stands in its lane. While folded it holds the line,
- * which never moves, and the full card, which floats over the lane on hover —
- * so the lane never reflows under the pointer and no cable has to move. Pinned,
- * it holds the full card in place and the control that folds it back.
+ * which never moves, and the full card: an agent's floats over the lane on
+ * hover, a cell's opens as a window on a click — so the lane never reflows
+ * under the pointer and no cable has to move. Pinned (agents only), it holds
+ * the full card in place and the control that folds it back.
  */
 export class FoldSlot {
-  constructor({ key, lane, mode, line = "", card = "", peek = false } = {}) {
+  constructor({ key, lane, mode, line = "", card = "", peek = false, open = false } = {}) {
     this.key = String(key || "");
     this.lane = lane === "clients" ? "clients" : "cells";
     this.mode = mode === "pinned" ? "pinned" : "line";
     this.line = line;
     this.card = card;
     this.peek = !!peek && this.mode === "line";
+    this.open = !!open && this.mode === "line";
   }
+
+  /** Whether this lane pins cards in place — not one whose cards open in a window. */
+  pins() { return CardFold.OPENS[this.lane] !== "window"; }
 
   control() {
     const pinned = this.mode === "pinned";
@@ -108,8 +185,9 @@ export class FoldSlot {
   }
 
   html() {
-    return `<div class="fold-slot ${this.lane}-fold${this.peek ? " peek" : ""}"`
-      + ` data-fold-key="${escapeHtml(this.key)}" data-fold-mode="${this.mode}">`
-      + `${this.mode === "line" ? this.line : ""}${this.card}${this.control()}</div>`;
+    const marks = `${this.peek ? " peek" : ""}${this.open ? " open" : ""}`;
+    return `<div class="fold-slot ${this.lane}-fold${marks}"`
+      + ` data-fold-key="${escapeHtml(this.key)}" data-fold-lane="${this.lane}" data-fold-mode="${this.mode}">`
+      + `${this.mode === "line" ? this.line : ""}${this.card}${this.pins() ? this.control() : ""}</div>`;
   }
 }

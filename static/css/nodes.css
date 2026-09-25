@@ -27,6 +27,24 @@
 .node-subtitle-toggle .node-subtitle-hint {
   margin-left:auto; font-size:10px; opacity:.65; text-transform:none; letter-spacing:0;
 }
+/* The Servers head: the list's title (a charts toggle on the controller's
+   machine) and the machine's eye (card-rows.js CellEye). */
+.node-servers-head { display:flex; align-items:center; gap:6px; min-width:0; padding-right:4px; }
+.node-servers-head > .node-subtitle { flex:1; min-width:0; }
+/* Sized here in full: the board's buttons carry a 34px minimum height. */
+.node-eye {
+  flex-shrink:0; display:inline-flex; align-items:center; gap:4px;
+  box-sizing:border-box; height:22px; min-height:0; padding:0 6px;
+  border-radius:6px; border:1px solid transparent; background:transparent;
+  color:var(--muted,#888); font-size:11px; cursor:pointer;
+}
+.node-eye:hover { color:var(--text,#ddd); border-color:var(--line); }
+.node-eye[aria-pressed="true"] {
+  color:var(--accent-strong); border-color:color-mix(in srgb, var(--accent) 45%, var(--line));
+  background:color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.node-eye:focus-visible { outline:2px solid var(--accent-strong); outline-offset:2px; }
+.node-eye-count { font:600 10.5px/1 ui-monospace, "SF Mono", Menlo, monospace; }
 /* Mounted Server-stats + GPU-telemetry slots inside the node columns. */
 .node-ctrl-server-stats { padding:4px 10px 10px; }
 .node-ctrl-gpu-telemetry { padding:4px 10px 12px; min-width:0; }
