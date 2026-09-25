@@ -338,6 +338,16 @@ Key functions: `normalize_router`, `normalize_router_output`, `normalize_router_
 `normalize_agent_proxy_policy`, `recompute_cloud_fallback_eligibility` (keeps ↑☁ flags consistent
 with graph connections).
 
+## `engine_actions.py`
+
+`EngineActions` — a model of an engine next to a machine's cells loaded or
+unloaded from the board: the engine's port comes from the machine's host
+record, the act goes to its scout (`POST /api/engines/<op>`, 15 s — the scout
+answers before the engine does), and the engines the scout answers with,
+the model marked as being acted on, go into the host record at once. What the
+act came to arrives with the reports after it (`action`, `actionError`).
+Key functions: `EngineActions.act`; `POST /api/engines/load|unload`.
+
 ## `engine_outputs.py`
 
 The models of engines next to the cells (Ollama, LM Studio — found by the

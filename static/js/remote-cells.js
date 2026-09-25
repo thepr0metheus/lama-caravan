@@ -810,6 +810,39 @@ export async function submitLlamaStop(hostId) {
   }
 }
 
+// Load a model of an engine next to a machine's cells, or unload it (step 3):
+// the load asks for a window (empty keeps the engine's own), the unload is
+// confirmed like stopping a cell. The server answers with the board as it is
+// now — the model already marked as being acted on.
+export async function actOnEngineModel(hostId, kind, label, model, op) {
+  let contextLength = null;
+  if (op === "load") {
+    const answer = await appPrompt(t("nodeEngineLoadPrompt", { model }), {
+      value: "", confirmLabel: t("nodeEngineLoad"),
+    });
+    if (answer === null) return;
+    const text = String(answer).trim();
+    if (text !== "") {
+      // A typo is not "the engine's default": say it, and send nothing.
+      if (!/^[1-9]\d*$/.test(text)) { toast(t("nodeEngineContextNotANumber")); return; }
+      contextLength = Number(text);
+    }
+  } else if (!(await appConfirm(t("nodeEngineUnloadConfirm", { model, engine: label }),
+    { confirmLabel: t("nodeEngineUnload"), scene: "stop" }))) {
+    return;
+  }
+  try {
+    const res = await api(`/api/engines/${op}`, {
+      method: "POST",
+      body: JSON.stringify({ hostId, kind, model, ...(contextLength ? { contextLength } : {}) }),
+    });
+    if (res.topology) setTopology(res.topology);
+    renderTopology();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
 // ── nvidia-smi source selector (drawer panel) ────────────────────────────────
 export let _nvidiaSmiSource = "local"; // "local" = the controller, or a client hostId
 

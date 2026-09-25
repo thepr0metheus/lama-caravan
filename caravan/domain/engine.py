@@ -27,6 +27,8 @@ class EngineReport:
     LISTEN = ("loopback", "network")
     #: Who ufw lets reach its port, as a cell's port says it (scout 2.13+).
     FIREWALL = ("open", "all", "restricted", "blocked", "unknown")
+    #: What the board may do to an engine's model (scout 2.14+).
+    ACTIONS = ("load", "unload")
 
     @staticmethod
     def text(value, limit=120):
@@ -80,6 +82,9 @@ class EngineReport:
             "pids": sorted({p for p in (cls.number(x) for x in pids[:cls.MAX_PIDS]) if p and p > 0}),
             "ramBytes": cls.number(raw.get("ramBytes")),
             "firewall": cls.firewall(raw.get("firewall")),
+            # What the board may do to it — nothing for a scout before 2.14,
+            # an engine that did not answer, or LM Studio 0.3.
+            "controls": [a for a in cls.ACTIONS if isinstance(raw.get("controls"), list) and a in raw["controls"]],
         }
         # Only when the list of installed models did not answer: the models
         # shown are the loaded ones, and "that is all it has" would be a guess.
@@ -117,7 +122,21 @@ class EngineReport:
             "maxContextLength": cls.number(raw.get("maxContextLength")),
             "expiresAt": cls.text(raw.get("expiresAt"), 40),
             "instances": cls.number(raw.get("instances")),
+            # An act under way on it, and the last one the engine refused, in
+            # its own words (scout 2.14+); None when there is none.
+            "action": cls.act_mark(raw.get("action"), "since"),
+            "actionError": cls.act_mark(raw.get("actionError"), "at", with_error=True),
         }
+
+    @classmethod
+    def act_mark(cls, raw, when, with_error=False):
+        """{op, <when>[, error]} of a load or unload, or None."""
+        if not isinstance(raw, dict) or raw.get("op") not in cls.ACTIONS:
+            return None
+        mark = {"op": raw["op"], when: cls.number(raw.get(when))}
+        if with_error:
+            mark["error"] = cls.text(raw.get("error"), 300)
+        return mark
 
 
 class GpuOwners:

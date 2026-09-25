@@ -2604,6 +2604,35 @@ PINS += [
      "бейдж файрвола — у движка, открытого в сеть, как у порта ячейки; на 127.0.0.1 и без чтения ufw — нет бейджа"),
 ]
 
+# Driving an engine's model from the board (step 3, scout 2.14).
+PINS += [
+    ("engines_act_load_button",
+     "",
+     "(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: false })] }))).match(/<button class=\"node-engine-act[^>]*>[^<]*<\\/button>/) || [\"none\"])[0]",
+     "\"<button class=\\\"node-engine-act load\\\" type=\\\"button\\\" data-t=\\\"node-engine-load\\\" data-t-id=\\\"h1:ollama:qwen3:8b\\\" data-engine-act=\\\"load\\\" data-engine-host=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-label=\\\"Ollama\\\" data-engine-model=\\\"qwen3:8b\\\" title=\\\"Load this model into the engine&#39;s memory\\\">▶ load</button>\"",
+     "positive: незагруженная модель движка, который это умеет (скаут 2.14), — «▶ load» с id машины/движка/модели для клика"),
+    ("engines_act_unload_button",
+     "",
+     "(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: true })] }))).match(/<button class=\"node-engine-act[^>]*>[^<]*<\\/button>/) || [\"none\"])[0]",
+     "\"<button class=\\\"node-engine-act unload\\\" type=\\\"button\\\" data-t=\\\"node-engine-unload\\\" data-t-id=\\\"h1:ollama:qwen3:8b\\\" data-engine-act=\\\"unload\\\" data-engine-host=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-label=\\\"Ollama\\\" data-engine-model=\\\"qwen3:8b\\\" title=\\\"Unload this model from the engine&#39;s memory\\\">⏏ unload</button>\"",
+     "positive: загруженная — «⏏ unload»"),
+    ("engines_act_none",
+     "",
+     "[ENG({ controls: [], models: [MDL({ loaded: false })] }), ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: false, remote: true })] }), ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: null })] }), ENG({ controls: [\"unload\"], models: [MDL({ loaded: false })] }), ENG({ models: [MDL({ loaded: true })] })].map((e) => norm(m.nodeEngineCardHtml(node, e)).includes(\"node-engine-act \"))",
+     "[false, false, false, false, false]",
+     "negative: без кнопки — движок не умеет (controls пуст или нет нужного действия), облачная модель Ollama, «загружена ли» не сказано, скаут до 2.14"),
+    ("engines_act_busy",
+     "",
+     "(h => [[...h.matchAll(/<span class=\"node-engine-busy\"[^>]*>.*?<\\/span> ([^<]*)<\\/span>/g)].map((x) => x[1]), h.includes(\"data-engine-act\")])(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: false, action: { op: \"load\", since: 1 } }), MDL({ name: \"b\", loaded: true, action: { op: \"unload\", since: 1 } })] }))))",
+     "[[\"unloading…\", \"loading…\"], false]",
+     "пока действие идёт — «loading…»/«unloading…» вместо кнопки: второе действие над той же моделью не предлагается"),
+    ("engines_act_error",
+     "",
+     "(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: false, actionError: { op: \"load\", error: \"CUDA error: out of memory\", at: 1 } })] }))).match(/<span class=\"node-engine-act-error\"[^>]*>[^<]*<\\/span>/) || [\"none\"])[0]",
+     "\"<span class=\\\"node-engine-act-error\\\" title=\\\"CUDA error: out of memory\\\">⚠ could not load: CUDA error: out of memory</span>\"",
+     "отказ движка остаётся на строке его словами (в подсказке — целиком)"),
+]
+
 _fail = []
 
 

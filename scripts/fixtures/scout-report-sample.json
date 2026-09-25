@@ -32,6 +32,10 @@
     },
     "engines": [
       {
+        "controls": [
+          "load",
+          "unload"
+        ],
         "firewall": {
           "allowedFrom": [],
           "state": "open"
@@ -41,6 +45,10 @@
         "listen": "network",
         "models": [
           {
+            "action": {
+              "op": "unload",
+              "since": 1790000000
+            },
             "contextLength": 4096,
             "expiresAt": "2026-09-22T17:00:00+00:00",
             "family": "qwen3",
@@ -86,12 +94,21 @@
       },
       {
         "api": "v1",
+        "controls": [
+          "load",
+          "unload"
+        ],
         "firewall": null,
         "kind": "lmstudio",
         "label": "LM Studio",
         "listen": "loopback",
         "models": [
           {
+            "actionError": {
+              "at": 1790000000,
+              "error": "the instance is busy",
+              "op": "unload"
+            },
             "contextLength": 8192,
             "expiresAt": "",
             "family": "gemma3",
@@ -323,6 +340,10 @@
     },
     "engines": [
       {
+        "controls": [
+          "load",
+          "unload"
+        ],
         "firewall": {
           "allowedFrom": [],
           "state": "open"
@@ -332,6 +353,10 @@
         "listen": "network",
         "models": [
           {
+            "action": {
+              "op": "unload",
+              "since": 1790000000
+            },
             "contextLength": 4096,
             "expiresAt": "2026-09-22T17:00:00+00:00",
             "family": "qwen3",
@@ -377,12 +402,21 @@
       },
       {
         "api": "v1",
+        "controls": [
+          "load",
+          "unload"
+        ],
         "firewall": null,
         "kind": "lmstudio",
         "label": "LM Studio",
         "listen": "loopback",
         "models": [
           {
+            "actionError": {
+              "at": 1790000000,
+              "error": "the instance is busy",
+              "op": "unload"
+            },
             "contextLength": 8192,
             "expiresAt": "",
             "family": "gemma3",

@@ -319,6 +319,34 @@ function engineExposeBtnHtml(n, e, m) {
       title="${escapeHtml(title)}"${blocked ? " disabled" : ""}>⇄ ${escapeHtml(t(on ? "nodeEngineExposed" : "nodeEngineExpose"))}</button>`;
 }
 
+// Driving a model from the board (step 3): load it into the engine or unload
+// it — only what the engine's scout offers (`controls`, scout 2.14+), never an
+// Ollama cloud model. While an act runs the row says so instead of offering
+// another; what the engine refused last stays on the row in its own words.
+function engineActHtml(n, e, m) {
+  const id = escapeHtml(`${n.id}:${e.kind}:${m.name}`);
+  if (m.action?.op) {
+    const busy = t(m.action.op === "load" ? "nodeEngineLoading" : "nodeEngineUnloading");
+    return `<span class="node-engine-busy" data-t="node-engine-busy" data-t-id="${id}"><span class="topology-spinner" aria-hidden="true"></span> ${escapeHtml(busy)}</span>`;
+  }
+  const can = (op) => (Array.isArray(e.controls) ? e.controls : []).includes(op);
+  const op = m.loaded === true ? "unload" : (!m.remote && m.loaded === false ? "load" : "");
+  if (!op || !can(op)) return "";
+  const label = op === "load" ? `▶ ${t("nodeEngineLoad")}` : `⏏ ${t("nodeEngineUnload")}`;
+  const hook = op === "load" ? "node-engine-load" : "node-engine-unload";
+  return `<button class="node-engine-act ${op}" type="button" data-t="${hook}" data-t-id="${id}"
+      data-engine-act="${op}" data-engine-host="${escapeHtml(String(n.id))}" data-engine-kind="${escapeHtml(String(e.kind || ""))}"
+      data-engine-label="${escapeHtml(String(e.label || e.kind || ""))}" data-engine-model="${escapeHtml(m.name)}"
+      title="${escapeHtml(t(op === "load" ? "nodeEngineLoadTitle" : "nodeEngineUnloadTitle"))}">${escapeHtml(label)}</button>`;
+}
+
+function engineActErrorHtml(m) {
+  const err = m.actionError;
+  if (!err?.op) return "";
+  const text = t(err.op === "load" ? "nodeEngineLoadFailed" : "nodeEngineUnloadFailed", { error: err.error || "" });
+  return `<span class="node-engine-act-error" title="${escapeHtml(err.error || "")}">⚠ ${escapeHtml(text)}</span>`;
+}
+
 function engineModelRowHtml(m, n = {}, e = {}) {
   const meta = [m.params, m.quant].filter(Boolean).join(" · ");
   const bits = [];
@@ -348,7 +376,8 @@ function engineModelRowHtml(m, n = {}, e = {}) {
       <span class="node-engine-model-name" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}</span>${cloud}
       ${meta ? `<span class="node-engine-model-meta">${escapeHtml(meta)}</span>` : ""}
       ${bits.length ? `<span class="node-engine-model-mem">${bits.map((b) => escapeHtml(b)).join(" · ")}</span>` : ""}
-      ${engineExposeBtnHtml(n, e, m)}
+      ${engineActHtml(n, e, m)}${engineExposeBtnHtml(n, e, m)}
+      ${engineActErrorHtml(m)}
     </li>`;
 }
 
