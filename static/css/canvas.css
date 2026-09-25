@@ -527,9 +527,15 @@ select.cv-pin { width: 100%; }
 }
 /* Local servers grouped by host machine */
 .router-out-host-group { margin-bottom: 6px; }
+/* A machine's name, as its computer is called (machineAt) — not shouted in
+   capitals like the section heads around it: "box-pc", not "BOX-PC" —
+   and its address beside it, muted. */
 .router-out-host-label {
-  font-size: 9.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase;
+  font-size: 10.5px; font-weight: 700;
   color: color-mix(in srgb, var(--accent) 70%, var(--muted)); padding: 0 4px 2px;
+}
+.router-out-host-addr {
+  margin-left: 4px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums;
 }
 .router-out-row {
   display: flex; align-items: center; gap: 8px; padding: 5px 4px; margin: 0;

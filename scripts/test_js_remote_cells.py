@@ -640,6 +640,15 @@ PINS = [
      'await (async () => { await rc.disconnectScout("h9"); return globalThis.__msg; })()',
      json.dumps(en("dlgDisconnectScout", name="h9"), ensure_ascii=False),
      'boundary: записи нет — диалог называет id; «молчит» он сказать не может, и не говорит'),
+    ('smi_sources_name_the_controller_machine_once',
+     'F({ nvidiaSmiSources: { innerHTML: "", querySelectorAll: () => [] } });'
+     ' st.topology.server = { name: "Ctl-Display", ip: "10.0.0.5", hostname: "ctl-host" };'
+     ' st.topology.nodes = [{ id: "h0", name: "box-ctl", ip: "10.0.0.5", controllerMachine: true }, { id: "h1", name: "Box A", ip: "10.0.0.9" }];'
+     ' st.topology.hosts = [{ id: "h0", name: "box-ctl", state: "online", gpus: [{ name: "NVIDIA GeForce RTX 5090" }] },'
+     ' { id: "h1", name: "Box A", state: "online", gpus: [{ name: "NVIDIA GeForce RTX 3090" }] }];',
+     '(rc.renderNvidiaSmiSourceButtons(), [...globalThis.__fields.nvidiaSmiSources.innerHTML.matchAll(/data-smi-source="([^"]*)"[^>]*>\\s*([^<]*?)\\s*</g)].map((x) => [x[1], x[2]]))',
+     '[["local", "box-ctl"], ["h1", "Box A · RTX 3090"]]',
+     'positive: машина контроллера названа, как на доске (её узел); negative: не старым отображаемым именем «Ctl-Display», и её скаут не второй кнопкой — та же машина'),
     ('smi_sources_are_answering_hosts_with_a_gpu',
      'F({ nvidiaSmiSources: { innerHTML: "", querySelectorAll: () => [] } });'
      ' st.topology.server = { name: "Ctl" };'

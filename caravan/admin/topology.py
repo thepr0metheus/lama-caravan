@@ -540,7 +540,12 @@ def topology_server(config=None):
 
     return {
         "id": CONTROLLER_HOST_ID,
-        "name": os.environ.get("LLAMA_TOPOLOGY_SERVER_NAME", CONTROLLER_HOST_ID),
+        # The name of the computer the controller runs on — the board names
+        # its machine by its node (its scout's report) and falls back to this
+        # when no scout reports from it. It was a display name of its own
+        # (LLAMA_TOPOLOGY_SERVER_NAME), and the kanban named the machine by it:
+        # the controller's old name over its machine's cells (2026-09-25).
+        "hostname": ControllerMachine.name(),
         "ip": TOPOLOGY_SERVER_IP,
         "gpus": gpus,
         "gpuError": gpu_error,

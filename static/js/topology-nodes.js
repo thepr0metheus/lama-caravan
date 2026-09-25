@@ -1148,6 +1148,31 @@ export function isControllerMachine(hostId) {
   return !!(topology?.nodes || []).find((n) => String(n.id) === String(hostId))?.controllerMachine;
 }
 
+const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
+
+// The machine behind an address its cells answer at: { key, name, address }.
+// The name is its node's — what its scout reports, the computer's hostname — and
+// the address is the node's too (where its cells are reached); the one place
+// the board's node headers, the kanban's server groups and the nvidia-smi
+// sources name a machine from. The kanban named the controller's machine by the
+// controller's old display name (over its own machine's cells) and every
+// other machine by its bare address. Loopback and the controller's own address
+// are the controller's machine: its node, or the name of the computer the
+// controller runs on when no scout reports from it. An address no node has is
+// said as the address — a name is never guessed.
+export function machineAt(address) {
+  const addr = String(address || "").trim();
+  const nodes = topology?.nodes || [];
+  const own = !addr || LOOPBACK.has(addr) || addr === String(topology?.server?.ip || "");
+  const node = own ? nodes.find((n) => n.controllerMachine) : nodes.find((n) => String(n.ip || "") === addr);
+  if (node) return { key: String(node.id), name: String(node.name || node.id), address: String(node.ip || addr) };
+  if (own) {
+    const address = String(topology?.server?.ip || addr || "127.0.0.1");
+    return { key: "controller", name: String(topology?.server?.hostname || address), address };
+  }
+  return { key: addr, name: addr, address: addr };
+}
+
 // The words a reboot, a poweroff or its schedule are confirmed with, as an i18n
 // key: the controller's own machine takes the board down with it.
 const HOST_POWER_TEXT = {

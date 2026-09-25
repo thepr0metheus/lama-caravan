@@ -66,6 +66,14 @@ const ROUTER = (extra = {}) => ({ id: "router:default", name: "default", inputs:
 const CLOUD = () => ({ cloudAccounts: [{ id: "openai-subscription", type: "openai", name: "OpenAI (ChatGPT Plus)" }],
   cloudProviders: [{ id: "gpt-5-6-terra", accountId: "openai-subscription", model: "gpt-5.6-terra", exposed: true }] });
 const MON = (items, port = 23001) => ({ latest: { agentProxies: { agents: { [String(port)]: { port, active: items.active || [], recent: items.recent || [] } } } } });
+// machineAt is topology-nodes' (stubbed here; the real one is pinned in
+// test_js_topology_nodes): two addresses of one machine, one other, the rest unknown.
+const MACHINES = { "127.0.0.1": { key: "m-ctl", name: "ctl-box", address: "10.0.0.5" },
+                   "10.0.0.5": { key: "m-ctl", name: "ctl-box", address: "10.0.0.5" },
+                   "10.0.0.9": { key: "m-b", name: "box-b", address: "10.0.0.9" } };
+globalThis.__stubReturns = { ...(globalThis.__stubReturns || {}),
+  "topology-nodes.machineAt": (a) => MACHINES[a] || { key: String(a), name: String(a), address: String(a) } };
+const heads = (h) => [...h.matchAll(/router-out-host-label">([^<]*?)\s*(?:<span class="router-out-host-addr">([^<]*)<\/span>)?</g)].map((x) => [x[1], x[2] || ""]);
 const out = {};
 """
 
@@ -246,6 +254,28 @@ PINS = [
      'await (async () => { await m.rebindProxyRouter("skynet:proxy:23001", "router:default"); await m.rebindProxyRouter("skynet:proxy:29999", "router:b"); await m.rebindProxyRouter("skynet:proxy:23001", ""); return calls().length; })()',
      '0',
      "negative: тот же роутер, неизвестный прокси, пустой роутер — ни одного запроса"),
+    # ── the machines behind the local outputs (one grouping, one name source) ──
+    ('local_groups_by_machine',
+     '',
+     'm.localOutputGroups([{ id: "srv:22003", upstreamHost: "10.0.0.9", upstreamPort: 22003 }, { id: "srv:22001", upstreamHost: "127.0.0.1", upstreamPort: 22001 }, { id: "srv:22002", upstreamHost: "10.0.0.5", upstreamPort: 22002 }, { id: "cb:x", upstreamHost: "127.0.0.1", upstreamPort: 8080, upstreamType: "cloud" }, { id: "srv:22009", upstreamHost: "10.9.9.9", upstreamPort: 22009 }]).map((g) => [g.key, g.name, g.outs.map((o) => o.id)])',
+     '[["m-ctl","ctl-box",["srv:22001","srv:22002"]],["m-b","box-b",["srv:22003"]],["10.9.9.9","10.9.9.9",["srv:22009"]]]',
+     'positive: выходы — по машине (machineAt): петля и адрес сети одной машины — одна группа с её именем; облако не входит; незнакомый адрес — сам адрес; группы по наименьшему порту, выходы по порту'),
+    ('servers_block_names_machines_not_the_controller',
+     'st.setTopology({ ...st.topology, server: { name: "Ctl-Display", ip: "10.0.0.5" }, routers: [ROUTER({ outputs: [{ id: "srv:22001", label: "a", upstreamHost: "127.0.0.1", upstreamPort: 22001, upstreamType: "llama" }, { id: "srv:22003", label: "b", upstreamHost: "10.0.0.9", upstreamPort: 22003, upstreamType: "llama" }] })] });',
+     '(h => [heads(h), h.includes("Ctl-Display"), /data-router-group-fold="host:m-ctl"/.test(h)])(m.renderServersBlockHtml(st.topology.routers[0]))',
+     '[[["ctl-box","10.0.0.5"],["box-b","10.0.0.9"]],false,true]',
+     'positive: блок серверов канбана подписывает группы именем машины и её адресом рядом; negative: старое имя контроллера (topology.server.name) не пишется нигде; свёртка группы — по машине'),
+    ('outputs_panel_names_machines',
+     'st.setTopology({ ...st.topology, server: { name: "Ctl-Display", ip: "10.0.0.5" }, routers: [ROUTER({ outputs: [{ id: "srv:22001", label: "a", upstreamHost: "127.0.0.1", upstreamPort: 22001, upstreamType: "llama" }, { id: "srv:22003", label: "b", upstreamHost: "10.0.0.9", upstreamPort: 22003, upstreamType: "llama" }] })] });',
+     '(h => [heads(h), h.includes("Ctl-Display")])(m.renderRouterOutputsPanel(st.topology.routers[0]))',
+     '[[["ctl-box","10.0.0.5"],["box-b","10.0.0.9"]],false]',
+     'positive: панель выходов роутера — те же имена и адреса из того же места; negative: без старого имени контроллера'),
+    ('machine_label_once_when_the_address_is_the_name',
+     '',
+     '[m.machineLabelHtml({ name: "box-b", address: "10.0.0.9" }), m.machineLabelHtml({ name: "10.9.9.9", address: "10.9.9.9" }), m.machineLabelHtml({ name: "box-x", address: "" })]',
+     '["box-b <span class=\\"router-out-host-addr\\">10.0.0.9</span>","10.9.9.9","box-x"]',
+     'positive: имя и адрес рядом; negative: незнакомая машина — адрес один раз, без повтора; адреса нет — только имя'),
+
 ]
 
 

@@ -545,6 +545,11 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
 
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
 - Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`.
+- `machineAt(address)` — the machine behind an address its cells answer at, `{ key, name }`: its node and
+  the node's name (the computer's hostname, from its scout); loopback and the controller's own address
+  are the controller's machine (its node, else `topology.server.hostname`); an unknown address is said
+  as the address. The one place the kanban's server groups and the nvidia-smi sources take a
+  machine's name from.
 - A host whose scout names no version (1.x) carries «scout 1.x — update» in its header
   (`scoutOldChipHtml`, `node-scout-old`).
 - Every machine with a scout is a node (role `host`), with or without GPUs — the ＋ that reserves a
@@ -614,10 +619,14 @@ local llama servers plus cloud providers, each routable target carrying one shar
 `saveRouters(mutator)` deep-copies `topology.routers`, applies the mutation, POSTs to
 `/api/agent-proxies/routers`, applies the returned topology when present and re-renders — with a
 marching-ants "saving" indicator (`_setRoutersSaving`) since the workspace auto-persists.
-`rebindProxyRouter()` is the drop handler for dragging a proxy onto a router.
+`rebindProxyRouter()` is the drop handler for dragging a proxy onto a router. The local outputs
+are grouped by the machine that serves them — `localOutputGroups()`, one grouping for the outputs
+panel and the kanban's servers block, which each held a copy — and each group is named by
+`machineAt()` (topology-nodes.js): the kanban named the controller's machine by the controller's
+old display name and every other machine by its bare address.
 
 - Owns: `_routersSaving` counter, `topologyOutputsCloudExpanded`, the cloud-expose chain/timer.
-- Key exports: `saveRouters`, `renderTopologyRouterCard`, `renderTopologyRouterDetail`, `renderRouterOutputsPanel`, `rebindProxyRouter`, `routerById`.
+- Key exports: `saveRouters`, `renderTopologyRouterCard`, `renderTopologyRouterDetail`, `renderRouterOutputsPanel`, `localOutputGroups`, `rebindProxyRouter`, `routerById`.
 
 **Modals & panels**
 
