@@ -40,6 +40,7 @@
           "allowedFrom": [],
           "state": "open"
         },
+        "holds": true,
         "kind": "ollama",
         "label": "Ollama",
         "listen": "network",
@@ -62,6 +63,7 @@
             "params": "8.2B",
             "quant": "Q4_K_M",
             "remote": false,
+            "staysLoaded": null,
             "type": "",
             "vramBytes": 5333539264
           },
@@ -79,6 +81,7 @@
             "params": "116.8B",
             "quant": "MXFP4",
             "remote": true,
+            "staysLoaded": null,
             "type": "",
             "vramBytes": null
           }
@@ -99,6 +102,7 @@
           "unload"
         ],
         "firewall": null,
+        "holds": true,
         "kind": "lmstudio",
         "label": "LM Studio",
         "listen": "loopback",
@@ -110,7 +114,7 @@
               "op": "unload"
             },
             "contextLength": 8192,
-            "expiresAt": "",
+            "expiresAt": "2026-09-21T15:03:20+00:00",
             "family": "gemma3",
             "fileBytes": 3340000000,
             "format": "gguf",
@@ -122,6 +126,7 @@
             "params": "4B",
             "quant": "Q4_K_M",
             "remote": false,
+            "staysLoaded": false,
             "type": "llm",
             "vramBytes": null
           }
@@ -348,6 +353,7 @@
           "allowedFrom": [],
           "state": "open"
         },
+        "holds": true,
         "kind": "ollama",
         "label": "Ollama",
         "listen": "network",
@@ -370,6 +376,7 @@
             "params": "8.2B",
             "quant": "Q4_K_M",
             "remote": false,
+            "staysLoaded": null,
             "type": "",
             "vramBytes": 5333539264
           },
@@ -387,6 +394,7 @@
             "params": "116.8B",
             "quant": "MXFP4",
             "remote": true,
+            "staysLoaded": null,
             "type": "",
             "vramBytes": null
           }
@@ -407,6 +415,7 @@
           "unload"
         ],
         "firewall": null,
+        "holds": true,
         "kind": "lmstudio",
         "label": "LM Studio",
         "listen": "loopback",
@@ -418,7 +427,7 @@
               "op": "unload"
             },
             "contextLength": 8192,
-            "expiresAt": "",
+            "expiresAt": "2026-09-21T15:03:20+00:00",
             "family": "gemma3",
             "fileBytes": 3340000000,
             "format": "gguf",
@@ -430,6 +439,7 @@
             "params": "4B",
             "quant": "Q4_K_M",
             "remote": false,
+            "staysLoaded": false,
             "type": "llm",
             "vramBytes": null
           }

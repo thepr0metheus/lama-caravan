@@ -25,7 +25,7 @@ import {
   _pendingCellActions,
   _stoppingCells,
   bindServerSlotControls,
-  actOnEngineModel,
+  actOnEngineButton,
   clearPendingRemoteStart,
   deleteTopologyClientAgent,
   openHostPowerScheduleModal,
@@ -320,8 +320,7 @@ export function renderTopology() {
   $("topologyLlamaServers")?.querySelectorAll("[data-engine-act]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
       event.stopPropagation();
-      actOnEngineModel(btn.dataset.engineHost, btn.dataset.engineKind, btn.dataset.engineLabel,
-        btn.dataset.engineModel, btn.dataset.engineAct);
+      actOnEngineButton(btn);
     });
   });
   // An engine's model next to the cells: make it a router output, or stop.
@@ -559,10 +558,11 @@ export function topologyStructureFingerprint() {
   const engines = (topology.nodes || [])
     .flatMap((n) => (Array.isArray(n.engines) ? n.engines : []).map((e) =>
       `${n.id}/${e.kind}:${e.port}:${e.state}:${e.listen}:${e.version}:${e.installedKnown === false ? 0 : 1}:`
-      + `${e.reachable === false ? 0 : 1}${e.blockedBy || ""}:${e.firewall?.state || ""}:${(e.controls || []).join("+")}:`
+      + `${e.reachable === false ? 0 : 1}${e.blockedBy || ""}:${e.firewall?.state || ""}:${(e.controls || []).join("+")}`
+      + `${e.holds === true ? "~" : ""}:`
       + (Array.isArray(e.models) ? e.models : [])
         .map((m) => `${m.name}${m.loaded === true ? "+" : m.loaded === false ? "-" : "?"}${m.contextLength ?? ""}@${m.expiresAt || ""}${m.exposed === true ? "#" : ""}`
-          + `${m.action?.op || ""}${m.actionError?.at || ""}`)
+          + `${m.action?.op || ""}${m.actionError?.at || ""}${m.staysLoaded === true ? "∞" : ""}`)
         .join("|")))
     .sort().join(",");
   const prox = (topology.proxies || [])

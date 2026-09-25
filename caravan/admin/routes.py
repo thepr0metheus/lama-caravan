@@ -1476,7 +1476,8 @@ def _post_api_engines_act(h, parsed, body):
         from caravan.admin.fleet_clients import _scout
         op = parsed.path.rsplit("/", 1)[-1]
         result = EngineActions(_scout, topology_hosts).act(body.get("hostId"), op, body.get("kind"), body.get("model"),
-                                                           body.get("contextLength"))
+                                                           body.get("contextLength"), force=body.get("force") is True,
+                                                           hold=body.get("hold"))
         h.send_json({**result, "topology": topology_state(refresh_hosts=False)})
         return
 

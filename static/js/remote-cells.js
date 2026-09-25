@@ -1,5 +1,5 @@
 // Remote cell lifecycle: reserve/start/stop, tr- edit form, remote backups.
-import { appConfirm, appPrompt } from "./dialogs.js";
+import { appConfirm, appPrompt, appPromptChoice } from "./dialogs.js";
 import { renderCommandPreview } from "./command-preview.js";
 import { refreshFavoritesPanel } from "./favorites.js";
 import {
@@ -27,7 +27,9 @@ import { refreshComputeTarget } from "./memory.js";
 import { startMonitor } from "./polling.js";
 import { setTopology, state, topology } from "./state.js";
 import { topologyAssignmentsByAgent, topologyStatusPill } from "./topology-activity.js";
-import { hostAgeText, hostPowerTextKey, isControllerMachine, machineAt, openNodeServerDetail } from "./topology-nodes.js";
+import {
+  engineSizeText, hostAgeText, hostPowerTextKey, isControllerMachine, machineAt, openNodeServerDetail,
+} from "./topology-nodes.js";
 import { markTopologyRenderPending, refreshTopology, renderTopology, topologyInteractionActive, topologyServerPhase } from "./topology-render.js";
 import { $, api, escapeHtml, toast } from "./utils.js";
 
@@ -810,32 +812,72 @@ export async function submitLlamaStop(hostId) {
   }
 }
 
+// A load/unload button on an engine model's row, as its markup says it
+// (engineActHtml in topology-nodes.js): which machine, engine and model, the
+// act, and whether the engine can be told how long to hold the model.
+export function actOnEngineButton(btn) {
+  const d = btn.dataset;
+  return actOnEngineModel(d.engineHost, d.engineKind, d.engineLabel, d.engineModel, d.engineAct,
+    d.engineHolds === "1");
+}
+
+// How long a model loaded from the board stays unused before its engine lets
+// it go (docs/foreign-engines.md, 3б): seconds, -1 — until it is unloaded.
+// Offered only where the engine can be told (its `holds`, scout 2.15+).
+export const ENGINE_HOLDS = [
+  { value: 900, label: () => t("nodeEngineHoldMinutes", { n: 15 }) },
+  { value: 3600, label: () => t("nodeEngineHoldHours", { n: 1 }) },
+  { value: 14400, label: () => t("nodeEngineHoldHours", { n: 4 }) },
+  { value: -1, label: () => t("nodeEngineHoldUntilUnloaded") },
+];
+
 // Load a model of an engine next to a machine's cells, or unload it (step 3):
-// the load asks for a window (empty keeps the engine's own), the unload is
-// confirmed like stopping a cell. The server answers with the board as it is
-// now — the model already marked as being acted on.
-export async function actOnEngineModel(hostId, kind, label, model, op) {
+// the load asks for a window (empty keeps the engine's own) and, where the
+// engine can be told, how long the model stays unused; the unload is
+// confirmed like stopping a cell. A load that would not fit into the cards'
+// free memory is not started by the scout (2.15): it is asked about, and
+// loaded anyway only when the operator says so. The server answers with the
+// board as it is now — the model already marked as being acted on.
+export async function actOnEngineModel(hostId, kind, label, model, op, holds = false) {
   let contextLength = null;
+  let hold = null;
   if (op === "load") {
-    const answer = await appPrompt(t("nodeEngineLoadPrompt", { model }), {
-      value: "", confirmLabel: t("nodeEngineLoad"),
-    });
+    const opts = { value: "", confirmLabel: t("nodeEngineLoad") };
+    const answer = holds
+      ? await appPromptChoice(t("nodeEngineLoadPrompt", { model }), {
+        ...opts, choiceLabel: t("nodeEngineHoldLabel"), choice: "-1",
+        choices: ENGINE_HOLDS.map((h) => ({ value: String(h.value), label: h.label() })),
+      })
+      : await appPrompt(t("nodeEngineLoadPrompt", { model }), opts);
     if (answer === null) return;
-    const text = String(answer).trim();
+    const text = String(holds ? answer.value : answer).trim();
     if (text !== "") {
       // A typo is not "the engine's default": say it, and send nothing.
       if (!/^[1-9]\d*$/.test(text)) { toast(t("nodeEngineContextNotANumber")); return; }
       contextLength = Number(text);
     }
+    if (holds) hold = Number(answer.choice);
   } else if (!(await appConfirm(t("nodeEngineUnloadConfirm", { model, engine: label }),
     { confirmLabel: t("nodeEngineUnload"), scene: "stop" }))) {
     return;
   }
+  const send = (force) => api(`/api/engines/${op}`, {
+    method: "POST",
+    body: JSON.stringify({
+      hostId, kind, model, ...(contextLength ? { contextLength } : {}),
+      ...(Number.isFinite(hold) ? { hold } : {}), ...(force ? { force: true } : {}),
+    }),
+  });
   try {
-    const res = await api(`/api/engines/${op}`, {
-      method: "POST",
-      body: JSON.stringify({ hostId, kind, model, ...(contextLength ? { contextLength } : {}) }),
-    });
+    let res = await send(false);
+    if (res.short) {
+      const s = res.short;
+      const need = `${s.basis === "weights" ? "≥" : "≈"} ${engineSizeText(s.needBytes)}`;
+      const anyway = await appConfirm(t("nodeEngineShort", { model, need, free: engineSizeText(s.freeBytes) }),
+        { confirmLabel: t("nodeEngineLoadAnyway") });
+      if (!anyway) return;
+      res = await send(true);
+    }
     if (res.topology) setTopology(res.topology);
     renderTopology();
   } catch (err) {

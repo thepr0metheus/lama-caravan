@@ -155,6 +155,14 @@ PINS = [
      'new Set(globalThis.__fpA).size',
      '4',
      "positive: действие началось, упало, движок перестал его предлагать — каждое перестраивает карточку (кнопка, «loading…», ошибка)"),
+    ("fingerprint_sees_hold_and_stays",
+     'const E = (models, extra = {}) => ({ kind: "lmstudio", label: "LM Studio", port: 1234, listen: "loopback", state: "ok", version: "", models, pids: [7], ramBytes: 100, controls: ["load", "unload"], ...extra });'
+     ' const fp = (e) => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [e] }] }); return m.topologyStructureFingerprint(); };'
+     ' globalThis.__fpB = [fp(E([{ name: "a", loaded: true }])), fp(E([{ name: "a", loaded: true, staysLoaded: true }])),'
+     ' fp(E([{ name: "a", loaded: true }], { holds: true })), fp(E([{ name: "a", loaded: true, staysLoaded: false }]))];',
+     '[new Set(globalThis.__fpB).size, globalThis.__fpB[0] === globalThis.__fpB[3]]',
+     '[3, true]',
+     "positive: «держит, пока не выгрузят» и «можно сказать срок» (скаут 2.15) перестраивают карточку; negative: staysLoaded false — как не сказано: текст строки тот же"),
     ("fingerprint_ignores_engine_memory",
      'const E = (models, extra = {}) => ({ kind: "ollama", label: "Ollama", port: 11434, listen: "network", state: "ok", version: "0.12.3", models, pids: [5100], ramBytes: 100, ...extra });'
      ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "a", loaded: true }])] }] });'

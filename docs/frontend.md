@@ -570,7 +570,12 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   engine's `controls` offer, scout 2.14+): the load asks for a window — empty keeps the engine's own —
   and the unload is confirmed like stopping a cell (`actOnEngineModel` in remote-cells.js). While the
   act runs the row says «loading…» instead of offering another; what the engine refused last stays on
-  the row in its own words.
+  the row in its own words. Where the engine can be told how long to hold the model (`holds`, scout
+  2.15+) the same dialog offers 15 min / 1 h / 4 h / until unloaded (`appPromptChoice` in dialogs.js,
+  `ENGINE_HOLDS`). A load that would not fit into the cards' free memory comes back as `short` and is
+  asked about — «≥» when the need is the file alone, «≈» when it is an estimate — and loaded with
+  `force` only on «load anyway». LM Studio's «stays loaded» comes from the scout (`staysLoaded`),
+  Ollama's from an expiry centuries away.
 - `machineAt(address)` — the machine behind an address its cells answer at, `{ key, name }`: its node and
   the node's name (the computer's hostname, from its scout); loopback and the controller's own address
   are the controller's machine (its node, else `topology.server.hostname`); an unknown address is said
