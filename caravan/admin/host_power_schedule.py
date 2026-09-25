@@ -20,7 +20,11 @@ It is a MOMENT, not a window, and that shapes every decision here:
   schedule cannot resurrect on the next matching date.
 - This can schedule the CONTROLLER'S OWN poweroff. That is intentional — "turn
   my machine off at night" is the whole request — and it takes the admin
-  process down with it, exactly as the manual button does.
+  process down with it, exactly as the manual button does. Since step 6.9 the
+  board has no controller node: that machine is its scout's host node, and a
+  schedule keyed to the controller's own id moves there (see
+  `_adopt_controller_schedule`) — until it did, it powered the machine off
+  at night with nothing on the board saying it would.
 
 Setting a schedule is deliberately NOT gated behind typing the host name (the
 manual button is, because it acts NOW). Enabling a schedule is a considered act
@@ -29,6 +33,8 @@ operator can see and disable on the board any morning.
 """
 import time
 
+from caravan.admin.controller_machine import ControllerMachine
+from caravan.admin.paths import is_controller_host
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.admin.state import topology as topo
 from caravan.common.daytime import hhmm as _hhmm
@@ -76,6 +82,37 @@ def host_power_schedules():
     return dict(topo.power_schedules())
 
 
+def _adopt_controller_schedule(store, schedules):
+    """Move a schedule keyed to the controller's own id onto its machine's
+    node. Returns True when something moved.
+
+    The board drew that schedule on the controller's node, and the node left
+    the board in step 6.9 — its machine is its scout's host node now. The
+    schedule stayed armed and was drawn nowhere: an absence that looked like
+    "no schedule" while it powered the machine off at night. Under the
+    machine's id it is on the node again, where it can be seen and switched
+    off, and it fires through that machine's scout — the same machine.
+
+    When the machine's node already has a schedule of its own, that one wins:
+    it is the one the operator can see. While the machine's scout has not
+    reported, nothing moves, and the old key keeps firing on this machine.
+    """
+    keys = [key for key in schedules if is_controller_host(key)]
+    if not keys:
+        return False
+    target = ControllerMachine().host_id(store.get("hosts") or {})
+    if not target:
+        return False
+    for key in keys:
+        sched = schedules.pop(key)
+        if target in schedules:
+            print(f"[host-power-schedule] {key}: dropped — {target} has its own schedule")
+        else:
+            schedules[target] = sched
+            print(f"[host-power-schedule] {key}: moved to {target}, the controller's machine")
+    return True
+
+
 def power_schedule_tick(now=None):
     """Fire any host poweroff whose minute has arrived. Called once a minute by
     the shared scheduler thread."""
@@ -85,10 +122,10 @@ def power_schedule_tick(now=None):
     schedules = store.get("hostPowerSchedules") or {}
     if not schedules:
         return
+    changed = _adopt_controller_schedule(store, schedules)
     now = now or time.localtime()
     today = time.strftime("%Y-%m-%d", now)
     cur = now.tm_hour * 60 + now.tm_min
-    changed = False
     for host_id, sched in list(schedules.items()):
         if not isinstance(sched, dict) or not sched.get("enabled"):
             continue

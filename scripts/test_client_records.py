@@ -92,6 +92,28 @@ def test_staleness_is_a_display_state():
 
 
 
+def test_machines_stand_by_address():
+    print("порядок машин на доске — по адресу:")
+    now = int(time.time())
+    harness(hosts={
+        "zeta": {"id": "zeta", "name": "zeta", "ip": "10.0.30.9", "lastSeen": now - fc.HOST_REPORT_TTL - 60},
+        "alpha": {"id": "alpha", "name": "alpha", "ip": "10.0.30.23", "lastSeen": now},
+        "mid": {"id": "mid", "name": "mid", "ip": "10.0.30.20", "lastSeen": now},
+        "far": {"id": "far", "name": "far", "ip": "10.0.4.5", "lastSeen": now},
+        "noaddr": {"id": "noaddr", "name": "b-noaddr", "lastSeen": now},
+        "badaddr": {"id": "badaddr", "name": "a-badaddr", "ip": "not-an-ip", "lastSeen": now},
+    })
+    order = [r["id"] for r in fc.topology_hosts()]
+    check(order == ["far", "zeta", "mid", "alpha", "badaddr", "noaddr"],
+          f"по адресу как по числу: 10.0.4.5 < …30.9 < …30.20 < …30.23; без адреса и с не-IP — в конце, по имени (got {order})")
+    check(order.index("zeta") < order.index("mid"),
+          "negative: не строкой — «10.0.30.9» стоит раньше «10.0.30.20»")
+    check(order.index("zeta") < order.index("alpha"),
+          "negative: замолчавшая машина держит своё место, а не уходит в конец (было «сначала online»)")
+    check(order.index("mid") < order.index("alpha"),
+          "negative: не по имени — «mid» (…30.20) раньше «alpha» (…30.23)")
+
+
 def test_normalizer_rebuilds_the_row():
     """Куда бы ни легла новая настройка, её обязан НАЗВАТЬ нормализатор.
 
@@ -994,7 +1016,6 @@ def test_the_payload_keeps_machines_and_clients_apart():
         "parse_config": lambda: {},
         "topology_store": lambda: {"assignments": {}, "serverSlots": {}, "clientAliases": {}, "layout": {}},
         "load_agent_proxy_config": lambda: {"routes": [], "routers": [], "policy": {"maxSlots": 1}},
-        "_llama_total_slots": lambda: 0,
         "proxy_ports_last_seen": lambda: {},
         "_port_holders": lambda: {},
         "topology_server": lambda _config: {"id": "controller", "name": "Ctl", "llamaServers": []},
@@ -1009,13 +1030,12 @@ def test_the_payload_keeps_machines_and_clients_apart():
     }
     patch["SCOUT_POLLER"] = T.SCOUT_POLLER
     saved = {k: getattr(T, k) for k in patch}
-    saved_cloud, saved_suspect = cloud_api.annotate_cloud_topology, status.llama_crash_suspect
+    saved_cloud = cloud_api.annotate_cloud_topology
     saved_pull = fc.refresh_hosts_from_scouts
     try:
         for k, v in patch.items():
             setattr(T, k, v)
         cloud_api.annotate_cloud_topology = lambda *a: {"endpoints": {}, "codexClientVersion": {}}
-        status.llama_crash_suspect = lambda: None
         payload = T.topology_state(refresh_hosts=False)
         kicks = []
         T.SCOUT_POLLER = type("Poller", (), {"kick": lambda self: kicks.append(1)})()
@@ -1032,7 +1052,7 @@ def test_the_payload_keeps_machines_and_clients_apart():
     finally:
         for k, v in saved.items():
             setattr(T, k, v)
-        cloud_api.annotate_cloud_topology, status.llama_crash_suspect = saved_cloud, saved_suspect
+        cloud_api.annotate_cloud_topology = saved_cloud
         fc.refresh_hosts_from_scouts = saved_pull
     check(payload["clients"] == clients,
           "клиенты — записи оператора как есть: у строки с тем же id, что у машины, нет её карт, адреса скаута и живости")
@@ -1135,7 +1155,6 @@ def test_metrics_read_the_boards_liveness():
     # Everything the gauge text reads besides the hosts is pointed at values,
     # so the machine the test runs on (a GPU, logs, a config) cannot show up.
     fakes = {"topology_store": lambda: {"hosts": hosts, "serverSlots": {}},
-             "systemctl": lambda *a, **kw: {"ok": False},
              "parse_config": lambda: {},
              "models_dir_from_config": lambda _c: ROOT / "no-such-models-dir",
              "gpu_state": lambda: {},
@@ -1158,6 +1177,9 @@ def test_metrics_read_the_boards_liveness():
     ages = [line for line in text.splitlines() if line.startswith("caravan_client_last_seen_seconds{")]
     check(not any('"never"' in line for line in ages),
           "negative: у машины без единого отчёта нет строки возраста — ноль был бы враньём")
+    check("caravan_cells_total 0" in text and "caravan_cells_running_local" not in text,
+          "negative: счётчика запущенных юнитов lama-cell@ нет — своих ячеек у контроллера нет с шага 6.9; "
+          "объявленные ячейки считаются как прежде")
     # An operator's CARAVAN_HOST_REPORT_TTL moves both, since both read it.
     saved_ttl = (M.HOST_REPORT_TTL, fc.HOST_REPORT_TTL)
     saved = {k: getattr(M, k) for k in fakes}
@@ -1181,31 +1203,34 @@ def test_a_machine_node_is_a_host():
     age of its last report — the banner on a silent machine reads it."""
     print("узел машины — хост, с возрастом отчёта:")
     import caravan.admin.topology as T
-    saved = {k: getattr(T, k) for k in ("topo", "gpu_compute_apps", "cpu_snapshot", "memory_state",
-                                         "_record_cpu_history", "_record_gpu_history", "_record_tps_history",
-                                         "IS_CONTAINER")}
+    saved = {k: getattr(T, k) for k in ("topo", "_record_cpu_history", "_record_gpu_history", "_record_tps_history",
+                                         "ControllerMachine")}
     try:
+        from caravan.admin.controller_machine import ControllerMachine
+        T.ControllerMachine = lambda: ControllerMachine("m-box")
         T.topo = type("Topo", (), {"power_schedules": staticmethod(lambda: {})})()
-        T.gpu_compute_apps = lambda: []
-        T.cpu_snapshot = lambda: 1
-        T.memory_state = lambda: {"ok": False}
         T._record_cpu_history = T._record_gpu_history = T._record_tps_history = lambda *a, **kw: []
-        T.IS_CONTAINER = True
-        hosts = [{"id": "m", "name": "M", "ip": "10.0.0.9", "state": "stale", "ageSeconds": 900, "gpus": []},
-                 {"id": "n", "name": "N", "state": "online", "ageSeconds": 0, "scoutVersion": "2.0.0"}]
+        hosts = [{"id": "m", "name": "M", "ip": "10.0.0.9", "state": "stale", "ageSeconds": 900, "gpus": [],
+                  "hostname": "M-Box.lan"},
+                 {"id": "n", "name": "N", "state": "online", "ageSeconds": 0, "scoutVersion": "2.0.0",
+                  "hostname": "n-box"}]
         nodes = {n["id"]: n for n in T.topology_nodes({}, {"id": "controller", "name": "Ctl"}, hosts)}
     finally:
         for k, v in saved.items():
             setattr(T, k, v)
-    check([nodes["m"]["role"], nodes["n"]["role"], nodes["controller"]["role"]] == ["host", "host", "controller"],
+    check([nodes["m"]["role"], nodes["n"]["role"]] == ["host", "host"],
           "машина со скаутом — узел роли host, а не client: клиент — запись оператора и узлом не бывает")
+    check(sorted(nodes) == ["m", "n"],
+          "у контроллера узла нет: своих ячеек он не держит, его машина — узел её скаута (шаг 6.9)")
     check((nodes["m"].get("online"), nodes["m"].get("ageSeconds", "missing")) == (False, 900),
           "молчащая машина: online=false и возраст последнего отчёта")
     check((nodes["n"].get("online"), nodes["n"].get("ageSeconds", "missing")) == (True, 0),
           "boundary: возраст ноль — отчёт прямо сейчас, а не отсутствие")
-    check("ageSeconds" not in nodes["controller"], "negative: у контроллера нет скаута — и возраста отчёта нет")
     check((nodes["n"].get("scoutVersion"), nodes["m"].get("scoutVersion")) == ("2.0.0", ""),
           "узел несёт версию скаута; скаут 1.x — пустая строка, по ней доска просит обновить")
+    check((nodes["m"].get("controllerMachine"), nodes["n"].get("controllerMachine")) == (True, False),
+          "машина, на которой работает контроллер (имя хоста из отчёта скаута), помечена — её узел несёт "
+          "панель Server stats; negative: чужая машина — нет")
 
 
 for fn in (test_the_pull_keeps_the_scout_version, test_bind_refuses_an_agent_the_record_does_not_have, test_a_cell_of_an_unknown_machine_has_no_address, test_metrics_read_the_boards_liveness, test_a_machine_node_is_a_host,
@@ -1222,7 +1247,8 @@ for fn in (test_the_pull_keeps_the_scout_version, test_bind_refuses_an_agent_the
            test_bridge_carries_the_window_to_the_route,
                       test_route_context_is_per_consumer, test_manual_client_is_an_ordinary_client,
            test_manual_client_id_rules, test_report_changes_only_the_machine, test_new_port_comes_from_the_agent_base,
-           test_bind_writes_the_role_it_was_given, test_normalizer_rebuilds_the_row,            test_delete_is_explicit, test_staleness_is_a_display_state):
+           test_bind_writes_the_role_it_was_given, test_normalizer_rebuilds_the_row,            test_delete_is_explicit, test_staleness_is_a_display_state,
+           test_machines_stand_by_address):
     fn()
 
 print()

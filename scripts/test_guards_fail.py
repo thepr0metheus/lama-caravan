@@ -90,8 +90,8 @@ BREAKAGES = {
     ],
     "testability_names": (
         ["--check"], "static/index.html",
-        '<div id="te-offloadPlan"',
-        '<div data-t="hook-nobody-registered"></div>\n            <div id="te-offloadPlan"'),
+        '<div id="tr-offloadPlan"',
+        '<div data-t="hook-nobody-registered"></div>\n            <div id="tr-offloadPlan"'),
     "check_boot_guard": (
         [], "static/system.html",
         'data-t-state', 'data-t-state-DRIFTED'),
@@ -147,8 +147,7 @@ BREAKAGES = {
         'PROXY_ID_PREFIX = "skynet:proxy:"', 'PROXY_ID_PREFIX = "controller:proxy:"'),
     "check_cell_card_keys": (
         [], "caravan/admin/topology.py",
-        '            "savedCommand": (_saved_command(_r_slot, _r_cfg, False)\n'
-        '                             if slot_is_command else ""),\n', ''),
+        '            "savedCommand": _saved_command(_r_slot, _r_cfg) if slot_is_command else "",\n', ''),
     "check_cell_self_capture": (
         [], "cells/whisper_server.py",
         '                    state["downloaded"]', '                    self.state["downloaded"]'),
@@ -186,7 +185,7 @@ BREAKAGES = {
         'def runtime_api(config):\n    _trained = (config or {}).get("n_ctx_train")'),
     "check_why_refs": (
         [], "docs/why.md",
-        "`caravan/admin/cell_ops.py:105`", "`caravan/admin/gone.py:105`"),
+        "`caravan/admin/cell_ops.py` (`client_server_slot_delete`)", "`caravan/admin/gone.py` (`client_server_slot_delete`)"),
     "check_oop_contract": [
         # A cell forgets a member the base declares abstract: it starts fine and
         # dies on the first request. The guard must name the member.

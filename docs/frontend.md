@@ -80,8 +80,9 @@ history filters in history, the cloud-block modal flags in cloud.
 
 `topology-render.js` orchestrates everything:
 
-- `renderAll()` — language/theme + all classic panels + `renderTopology()`. Runs on load,
-  language switch, and config saves.
+- `renderAll()` — language/theme, the header git chip, the System sections this page has, and
+  `renderTopology()`. Runs on load and on a language switch. (The classic single-server view and
+  its panels went with the controller's own cells in step 6.9.)
 - `renderTopology()` — a **full `innerHTML` rebuild** of the board: the clients column, the router
   stack plus every modal shell, the nodes lane, GPU cards. It then re-binds all delegated handlers
   (`bindTopologyDragAndDrop()`) and per-render buttons. A full rebuild resets CSS animations and
@@ -138,11 +139,11 @@ system-monitor poll keeps the queue/schedule nodes live.
 
 ## constants.js
 
-Launch-form field definitions shared by the config form and both edit modals (`te-`/`tr-`
-prefixes): field lists, tab layouts, optional-toggle defaults and the Gemma-4 companion defaults.
-Pure data plus one mutable Set.
+Launch-form field definitions for the cell editor (the `tr-` form): field lists, tab layouts and
+optional-toggle defaults. Pure data plus one mutable Set. (The controller's host-id sentinel and the
+Gemma-4 companion defaults of the classic form went in step 6.9.)
 
-- Owns: the field taxonomy; `dirtyOptionalToggles` (cleared by `loadState`/`saveConfig`).
+- Owns: the field taxonomy; `dirtyOptionalToggles` (cleared by `loadState`).
 - Key exports: `numericFields`, `toggleFields`, `advancedGroups`, `advancedTabDefs`, `modelFields`, `memoryEstimateFields`.
 
 ## i18n-data.js
@@ -204,13 +205,11 @@ Styled in-app replacements for `window.confirm()`/`window.prompt()`: Promise wra
 shared `#confirmOverlay` dialog. Native dialogs block the renderer (they froze CDP evaluation
 during a live audit once) and look foreign — nothing in the app should call them directly.
 
-`appChoose` is the same dialog with more than two answers: the options are buttons in its meta row
-and the promise resolves the chosen value ("" when it was closed instead of answered). Two yes/no
-dialogs in a row would make the operator answer a question nobody asked — "no" to the first is not
-"yes" to the second.
+(`appChoose`, the same dialog with more than two answers, served one question — where a
+controller cell's start reads its model from — and went with it in step 6.9.)
 
 - Owns: the pending-dialog resolver.
-- Key exports: `appConfirm`, `appChoose`, `appPrompt`.
+- Key exports: `appConfirm`, `appPrompt`.
 
 ## dialog-llamas.js
 
@@ -235,8 +234,9 @@ The entry point for both board pages. On `DOMContentLoaded` it applies language/
 runs `initRouterStandalonePage()` (when `window.ROUTER_STANDALONE` is set) or wires the full
 board: modal buttons, the Escape/Ctrl+Enter keymap, the global `pointermove`/`pointerup` handlers
 that drive cable drags (hit-testing via topology-dnd), resize/scroll/ResizeObserver cable
-redraws, all launch-form input listeners (main and `te-` prefixed), then `loadState()` and the
-60 s / 24 h stats intervals.
+redraws, then `loadState()` and the 60 s / 24 h stats intervals. The cell editor's own form
+listeners are bound by remote-cells.js when it opens; the classic form's and the controller cell
+editor's went with the controller's own cells in step 6.9.
 
 - Owns: the DOMContentLoaded wiring only.
 - Key exports: none (side-effect module; both pages load it as the module entry).
@@ -370,8 +370,9 @@ renderers are shared with `system-panels.js` — this file only orchestrates the
 
 The launch-config form: renders field groups from the constants definitions, model comboboxes
 (`makeModelCombobox` + `mc*` helpers), chat-template options and hints, model insight with family
-recommendations, Gemma-4/Qwen autofill. `readConfigForm(pfx)` reads the DOM back into a config
-object and is the shared read path for the main form and the `te-`/`tr-` modals.
+recommendations, Qwen template autofill. `readConfigForm(pfx)` reads the DOM back into a config
+object — the read path of the cell editor (`tr-`). The prefix stays a parameter, so tests drive the
+same code with any prefix; the classic form's Gemma modes, raw view and static fields went in 6.9.
 
 - Owns: no cross-module state (form state lives in the DOM).
 - Key exports: `readConfigForm`, `renderFields`, `renderModelSelects`, `makeModelCombobox`, `modelsByPath`, `renderChatTemplateOptions`, `syncToggleLabel`.
@@ -463,9 +464,9 @@ dispatching its events. Drag-to-reorder included.
 Live llama-server command preview. The command is built by the single source of truth on the
 controller (`build_llama_args`): `renderCommandPreview(pfx)` debounces 160 ms, POSTs the current
 form to `/api/llama-command-preview`, discards stale responses via a per-prefix sequence counter,
-then LCS-diffs the returned tokens against a baseline — the running controller service's cmdline,
-or (for `te-`/`tr-` modals) the cell's own current command set through `setEditCurrentCommand()`.
-Changed tokens highlight, removed flags strike through, and save buttons get `cmd-dirty`.
+then LCS-diffs the returned tokens against a baseline — the cell's own current command set
+through `setEditCurrentCommand()`; a form that set none diffs against nothing. Changed tokens
+highlight, removed flags strike through, and the editor's Apply button gets `cmd-dirty`.
 
 - Owns: `_cmdPreviewTimers`, `_cmdPreviewSeq`, `_cmdBaselineTokens` (per-prefix).
 - Key exports: `renderCommandPreview`, `renderPreviewTokens`, `splitCommand`, `lcsPreviewIndexes`, `effectiveModelsDir`.
@@ -484,8 +485,9 @@ lanes with raw `innerHTML`.
 ## suspect-banner.js
 
 The banner over the board when a fresh llama.cpp build crashes cells: `LlamaSuspectBanner`,
-one row per machine — this controller's own verdict (`topology.llamaSuspect`) first, then a row
-per machine whose scout says the same (`topology.hostSuspects`, scout 2.6+). A row offers the
+one row per machine whose scout says so (`topology.hostSuspects`, scout 2.6+). The controller's
+own row went with its cells in step 6.9: its machine's verdict comes from that machine's scout,
+as one of these rows. A row offers the
 newest archived build of another commit through the System page's confirmation
 (`openRestoreBuildModal(id, build, host)` — with `host`, the machine's scout restores it) and a
 dismissal the machine remembers for that build. A row the operator acted on goes at once and
@@ -501,6 +503,11 @@ them onto the existing DOM. `refreshTopologyActivityState()` is fingerprinted
 (`buildActivityFingerprint()` against `ui._lastActivityFingerprint`) so the class walk only runs
 when something actually started/stopped/errored. Also renders the live runtime panels (cached per
 group in `_lastRuntimePanelHtml`), the sticky-bar slot animations, and queue/duration helpers.
+Everything here reads the proxy's own records: a server card lights from the routes pointing at its
+port, the GPU card from the requests in flight, slot pips fill in request order, and a request's
+one-line summary has no speed or context size (its exact speed is in the route's token history).
+Until step 6.9 the controller's own single server was read too — its busy slots, context, prompt
+cache and last timings — and drawn onto whichever card or request matched it by port or by time.
 
 - Owns: `stickySlotAnims`, `_stickyBarRaf`, the activity/health class lists.
 - Key exports: `refreshTopologyActivityState`, `setTopologyActivityClass`, `updateTopologyRuntimePanels`, `topologyStatusPill`, `sortedTopologyAgents`, `topologyQueueRuntime`.
@@ -529,12 +536,15 @@ Stateless — its open/editing flags live in `ui` (`topologyProxyFormOpen`, `top
 
 The host-centric nodes view: per-node cards with server cards (lifecycle bar, error
 classification, uptime), GPU rows with VRAM bars and sparklines, the incidents modal, and the
-models bar — two ways in, to `/models` and to `/hf`, both in a new tab. `parkLaneStats()` / `mountNodeTelemetry()` move the live chart
-elements out of and back into the controller node around `innerHTML` rebuilds so their canvases
-survive. Collapsed nodes persist to localStorage.
+models bar — two ways in, to `/models` and to `/hf`, both in a new tab. `parkLaneStats()` / `mountNodeTelemetry()` move the live Server
+stats card (CPU, RAM, network, disk, processes of the machine the controller runs on) out of and back
+into the node of that machine (`controllerMachine`) around `innerHTML` rebuilds so its canvases
+survive. The controller has no node of its own since step 6.9: its machine is its scout's host node,
+and `isControllerMachine` / `hostPowerTextKey` give that node's reboot, poweroff and schedule the
+words for the machine the board runs on. Collapsed nodes persist to localStorage.
 
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
-- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`.
+- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`.
 - A host whose scout names no version (1.x) carries «scout 1.x — update» in its header
   (`scoutOldChipHtml`, `node-scout-old`).
 - Every machine with a scout is a node (role `host`), with or without GPUs — the ＋ that reserves a
@@ -545,26 +555,21 @@ survive. Collapsed nodes persist to localStorage.
   scout that answers and «forget» for a silent one. Hardware readers —
   the remote cell form, stop, the nvidia-smi sources, the GPU lane — take the machine from
   `topology.hosts` (`topologyHost` in remote-cells.js), never from a client row.
-- A controller cell whose launch files only a library holds wears `📚 <library>`
-  (`cell-model-in-library`, from `modelStore`), naming the file when it is not the weights
-  (`· mmproj`); a parked cell's ≈VRAM badge counts moved weights by the library's measure.
-- A starting or warming cell with `loadProgress` shows the measured load (`cell-load.js`) in place of
-  the looping "loading model into VRAM…" line; without it the old line stays.
+- A cell whose files only a library holds wears `📚 <library>` (`cell-model-in-library`, from
+  `modelStore`), naming the file when it is not the weights (`· mmproj`); a parked cell's ≈VRAM
+  badge counts moved weights by the library's measure.
+- A starting cell shows a looping line with the stage its scout read from the cell's own lines
+  (`status.progressNote`), and ⚠ with what the previous attempt died of while the scout brings a
+  crashed cell back (`status.lastError`). The measured load of the controller's own cells
+  (`cell-load.js`, `loadProgress`) and their journal-classified start failure (`status.error`,
+  `errorAt`) went with those cells in step 6.9.
 
-## cell-load.js / pace.js
+## pace.js
 
-`CellLoad` draws a starting cell's measured load (`loadProgress`, from `load_progress.py`) as two
-rows: the bar with read of total, speed and time left — "no data for N s" with ⚠ instead of the
-spinner when the load stands, "setting up: context, warm-up" between files and after the last —
-and under it one step per file in reading order: ✓ done, ▸ reading with its bytes, ○ waiting with
-its size, 📚 for a file read from a library. The hover names every file, its size and where it is
-read from. A role or state the card has no word for is shown as sent (`?`), never guessed.
-`Pace` holds the one wording of speed and time left, shared with the moves on `/models`; the two
-sizes are one measure — `fmtGbPair` says the unit once ("14.1 / 20.3 GB"), because with it said
-twice the line was cut mid-word on a real load.
+`Pace` holds the one wording of speed and time left, used by the moves on `/models`.
 
 - Owns: nothing mutable.
-- Key exports: `CellLoad` (class; `html(cellId, tail)`), `Pace.speed`, `Pace.eta`.
+- Key exports: `Pace.speed`, `Pace.eta`.
 
 ## cables.js
 
@@ -585,7 +590,7 @@ hand-offs, and the cable drag start points. The hit-testing helpers (`topologyLl
 `topologyRouterInputAtPoint`, `topologyCloudAtPoint`) are consumed by `main.js`'s global
 pointermove/pointerup.
 
-- Owns: the drag state `topologyPointerDrag` (+ `clearTopologyPointerDrag`), the schedule-paint state (`topologyScheduleRouterId`, `topologySchedulePaintOutput`, `topologyScheduleGrid`, `_schedulePainting`), and several modal flags: `topologyProxySummaryOpen`, `topologyLlamaDetailOpen`, `topologyGpuModalOpen`, `topologyRouteDetail`.
+- Owns: the drag state `topologyPointerDrag` (+ `clearTopologyPointerDrag`), the schedule-paint state (`topologyScheduleRouterId`, `topologySchedulePaintOutput`, `topologyScheduleGrid`, `_schedulePainting`), and several modal flags: `topologyProxySummaryOpen`, `topologyRouteDetail`. (The flags of the controller's own server's detail and GPU-logs modals went in step 6.9.)
 - Key exports: `bindTopologyDragAndDrop`, `clearTopologyPointerDrag`, `topologyLlamaAtPoint`, `topologyRouterInputAtPoint`, `topologyCloudAtPoint`.
 
 **Router canvas**
@@ -618,26 +623,26 @@ marching-ants "saving" indicator (`_setRoutersSaving`) since the workspace auto-
 
 ## topology-modals.js
 
-The detail/config modal renderers: llama server detail, the GPU logs/raw-API modal, the
-raw-config viewer, the priority and
+The detail/config modal renderers: the client detail, the raw-config viewer, the priority and
 queue-priority modals (threshold timelines, per-proxy edits), and the weekly schedule modal with
 grid↔rules conversion. Renderers return HTML strings that `renderTopology()` injects;
 topology-dnd wires their buttons.
 
 - Owns: the modal flags and edit buffers: `topologyPriorityModalOpen`, `topologyQueuePriorityEdits`, `topologyRawConfig*`, `topologyAgentConfig*`, `queueThresholds`, `topologyClientDetailFor`.
-- Key exports: `renderTopologyLlamaDetail`, `renderTopologyClientDetail`, `openClientDetail`, `renderTopologyGpuModal`, `openQueuePriorityModal`, `openRawConfigViewer`.
+- Key exports: `renderTopologyClientDetail`, `openClientDetail`, `openQueuePriorityModal`, `openRawConfigViewer`. (The controller's own server's detail and GPU logs/raw-API modals went with its cells in step 6.9.)
 
 ## llama-edit.js
 
-The `te-` (controller cell) edit modal: applies the saved config to the `te-` form, command
-presets, the backups list (load/delete with confirmation), snapshots, the cell-kind overlay, and
-`saveTopologyLlamaConfig(restart)`. Sets the preview baseline via `setEditCurrentCommand()` so the
-diff compares against the cell's own command, not the controller service. Also owns the shared
-confirm modal (`openActionModal`, `openToolbarConfirm`, `closeConfirmModal`, resolving through
-`ui.pendingConfirm`).
+The cell editor's shared parts (the `tr-` form; its opening and saving live in remote-cells.js):
+applying a saved config to the form, the runner tabs and what each runner can launch, command
+presets, the command-cell preview and the script it names, the running-cell beam, and the
+preview baseline via `setEditCurrentCommand()` so the diff compares against the cell's own
+command. Also closes the shared confirm modal (`closeConfirmModal`, resolving through
+`ui.pendingConfirm`). The controller's own cell editor (`te-`), its start-server.sh backups and
+snapshots, and the classic single-server confirmations went with its cells in step 6.9.
 
-- Owns: `teLlamaFormReady`, `_teCellPort` (which cell the modal edits), `pendingBackupDelete`, `_editCmdSeq`, `COMMAND_PRESETS`.
-- Key exports: `openTopologyLlamaEdit`, `closeTopologyLlamaEdit`, `saveTopologyLlamaConfig`, `renderBackups`, `openActionModal`, `closeConfirmModal`, `setEditCurrentCommand`.
+- Owns: `_editCmdSeq`, `COMMAND_PRESETS`.
+- Key exports: `applyConfigToForm`, `applyCellKindUI`, `wireCellKindToggle`, `renderRunnerTabs`, `closeConfirmModal`, `setEditCurrentCommand`.
 
 ## remote-cells.js
 
@@ -646,9 +651,15 @@ the `tr-` remote edit form (per-host model caches, GPU pickers, nvidia-smi sourc
 backups and snapshots, model-cache purge, and client/agent/slot deletion. Optimistic
 pending-start placeholders drive `startRemoteStartWatch()` — a 2 s `refreshTopology()` loop that
 stops itself when nothing is starting, with a 240 s timeout turning placeholders terminal.
+`formOnControllerMachine(pfx)` says whether the cell form's machine is the controller's own (its
+node's `controllerMachine`), whose cells run through its scout since step 6.8: then its files are
+the controller's — the models tree it lists and the home it reads scripts from. Only there does the
+form offer what only that tree backs: a safetensors folder in the picker, the seamless runner and
+its language, a vLLM path derived from the picked folder, and the content of a script its command
+names; any other machine keeps them held back.
 
 - Owns: the pending-op collections — `_pendingRemoteStarts` (Map), `_stoppingHosts`, `_deletingSlots`, `_reservingCells`, `_newReservedCells`, `_stoppingCells`, `_expandedCellCfgs` — plus `_remoteStartWatchTimer`, `_nvidiaSmiSource`, the `_tr*` form state.
-- Key exports: `reserveServerCell`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`.
+- Key exports: `reserveServerCell`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.
 
 ## cloud.js
 
@@ -676,39 +687,54 @@ cost fetches — API costs, OpenRouter limits, proxy spend, subscription usage �
 The request-history modal over `/api/agent-proxy-logs`: a Requests tab (finished events) and an
 Events tab (raw), date selection, client/via/status filters, and a per-row detail popup.
 
+- A row's client cell is the address the proxy recorded. (The monitor's client labels are gone
+  since step 6.9 — both arms of the old "labelled?" choice drew the address anyway.)
 - Owns: `historyRows`, `historyEventRows`, `historyTab`, `historyCurrentDate`, the filter values.
 - Key exports: `openRequestHistory`, `closeRequestHistory`, `loadRequestHistory`, `renderHistoryTable`, `openHistoryDetailPopup`.
 
 ## system-panels.js
 
-Controller-level panels: service summary, runtime, CPU/GPU, section tips, project
-git branch, Known Problems, and the System info modal (where the llama.cpp build panel and Known
-Problems moved when the Classic view was retired), plus the llama.cpp check/update/revert and
-repair-user-service flows. Stateless.
+The System page's sections: section tips, project git branch, Known Problems, controller info,
+the llama.cpp check/update and archived builds, and the repair-user-service flow. (The
+controller's own service/runtime/CPU/GPU summaries and the start-server.sh revert went with its
+cells in step 6.9.) The vLLM section picks a machine (`#vllmHost` — its value is the machine
+shown; empty asks for the controller's own) and shows, updates and rolls back the vLLM in that
+machine's venv through its scout (`/api/fleet/vllm*`).
 
 - Owns: nothing mutable.
-- Key exports: `renderService`, `renderRuntime`, `renderCpu`, `renderGpu`, `openSystemInfoModal`, `checkLlamaCpp`, `openUpdateLlamaModal`, `revertLatest`.
+- Key exports: `openSystemInfoModal`, `checkLlamaCpp`, `openUpdateLlamaModal`, `loadVllmPanel`, `pollVllmUpdate`, `renderKnownProblems`, `renderProjectGitBranch`.
 
 ## polling.js
 
-State loading and every polling loop: `loadState()`/`saveConfig()`/`action()` against
-`/api/state`, `/api/config`, `/api/action`; the self-rescheduling live-refresh chain; the
+State loading and every polling loop: `loadState()` against `/api/state`; the self-rescheduling
+live-refresh chain (every `LIVE_REFRESH_MS`, 1.5 s — the git chip from `/api/project-git`, then
+the board; it fetched the whole `/api/state` for that chip until step 6.9); the
 hover-driven monitor drawer (nvidia-smi with a localStorage-persisted interval, routable to a
 remote client); and the 1 s system/topology monitors that feed `ui.latestSystemMonitor` (which in
-turn drives activity classes, runtime panels and the kanban queue nodes).
+turn drives activity classes, runtime panels and the kanban queue nodes). A partial monitor answer
+is appended to the samples, the incidents and the scouts' rows (`hosts`); the controller's own
+token-speed series (`tokenGenSamples`) went with its cells in step 6.9.
 
-- Owns: every timer and inflight guard — `liveRefreshTimer`, `liveRefreshInflight`, `monitorState`, `systemMonitorTimer`, `topologyMonitorTimer` — plus `tokenSpeedState`.
-- Key exports: `loadState`, `saveConfig`, `action`, `scheduleLiveRefresh`, `startTopologyMonitor`, `startSystemMonitor`, `bindMonitorDrawer`, `formatTps`, `formatCtxTokens`.
+- Owns: every timer and inflight guard — `liveRefreshTimer`, `liveRefreshInflight`, `monitorState`, `systemMonitorTimer`, `topologyMonitorTimer`.
+- Key exports: `loadState`, `scheduleLiveRefresh`, `LIVE_REFRESH_MS`, `startTopologyMonitor`, `startSystemMonitor`, `bindMonitorDrawer`, `formatTps`, `formatCtxTokens`.
 
 ## charts.js
 
-Canvas 2D chart rendering: metric charts, GPU/token-speed/VRAM/power history, node telemetry rows
-with mini sparklines, the chart expand modal, route-activity drawing and hover tooltips. Charts
-are redrawn by the monitor tick and once per full render (canvases have zero size while their
-`<details>` card is closed — the toggle handler in main.js redraws on open).
+Canvas 2D chart rendering: metric charts, GPU/token-speed/VRAM/power history drawn per node, node
+telemetry rows with mini sparklines, the chart expand modal (node charts), route-activity drawing
+and hover tooltips. Charts are redrawn by the monitor tick and once per full render (canvases have
+zero size while their `<details>` card is closed — the toggle handler in main.js redraws on
+open). A node's route activity counts the requests its cells served (`nodeEndpointSet`); the
+controller's own machine (`controllerMachine`) also answers on 127.0.0.1 — the proxy on it reaches
+its cells over loopback. The monitor's correlations (every local route with a request in flight,
+whichever machine serves it) belong to the fleet-wide picture only.
+The controller's own GPU/token/VRAM/power widget, its token series and the llama-clients panel went
+with its cells in step 6.9. A token-speed point is `{tokens: {promptTokensPerSecond,
+predictedTokensPerSecond}}` built from a cell's `tpsHistory` (`topologyPromptTps`/`topologyEvalTps`
+read nothing else).
 
 - Owns: `_routeActivityDrawState`, `CHART_EXPAND_CONFIGS`, `_chartExpandType`, hover-binding flags.
-- Key exports: `drawMetricChart`, `drawTopologyGpuHistory`, `drawTopologyTokenSpeedHistory`, `drawTopologyServerStats`, `miniSparklineSvg`, `systemSamples`.
+- Key exports: `drawMetricChart`, `drawTopologyGpuHistory` (the per-sample redraw of everything above), `drawTopologyTokenSpeedHistory`, `drawTopologyServerStats`, `nodeEndpointSet`, `nodeActivityFilter`, `miniSparklineSvg`, `systemSamples`.
 
 ## model-meta.js
 

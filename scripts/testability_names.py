@@ -4,8 +4,8 @@
 WHY THIS IS NOT A GREP. Most hooks are literals in the markup and a grep finds
 them. Some are composed at runtime and a grep finds NOTHING:
 
-    trigger.dataset.t = `${selectEl.dataset.t}-picker`   → cell-edit-model-picker
-    `data-t="${tHook}"`                                  → cell-edit-runner-tab
+    trigger.dataset.t = `${selectEl.dataset.t}-picker`   → cell-remote-model-picker
+    `data-t="${tHook}"`                                  → cell-remote-compute
     mbadge(type, text, title, "cell-source-stale")       → cell-source-stale
 
 Counting only the literals undercounts by eleven, and a reader who greps, gets a
@@ -28,31 +28,22 @@ SCAN = ("static", "caravan")
 # you add one — the guard below is what will otherwise catch you.
 COMPOSED = {
     # static/js/form.js — the visible widget above a hidden native <select>
-    "cell-edit-model-picker": "form.js: `${selectEl.dataset.t}-picker`",
-    "cell-edit-vllm-model-picker": "form.js: `${selectEl.dataset.t}-picker`",
-    "cell-edit-whisper-model-picker": "form.js: `${selectEl.dataset.t}-picker`",
-    "cell-edit-moonshine-model-picker": "form.js: `${selectEl.dataset.t}-picker`",
     "cell-remote-model-picker": "form.js: `${selectEl.dataset.t}-picker`",
     "cell-remote-vllm-model-picker": "form.js: `${selectEl.dataset.t}-picker`",
     "cell-remote-whisper-model-picker": "form.js: `${selectEl.dataset.t}-picker`",
     "cell-remote-moonshine-model-picker": "form.js: `${selectEl.dataset.t}-picker`",
     # static/js/llama-edit.js — one per runner, carrying data-t-id
-    "cell-edit-runner-tab": "llama-edit.js: tHook by prefix",
-    "cell-remote-runner-tab": "llama-edit.js: tHook by prefix",
+    "cell-remote-runner-tab": "llama-edit.js: data-t on each runner tab",
     # static/js/memory.js — the CPU/GPU/auto tiles, data-t-id cpu|gpu|auto
-    "cell-edit-compute": "memory.js: tHook by prefix",
-    "cell-remote-compute": "memory.js: tHook by prefix",
+    "cell-remote-compute": "memory.js: tHook",
     # static/js/card-rows.js — a folded card's control: 📌 keeps it open, ▴ folds it back
     "fold-pin": "card-rows.js: FoldSlot.control() by mode",
     "fold-unpin": "card-rows.js: FoldSlot.control() by mode",
     # static/js/split-mode.js — split across cards, data-t-id layer|row|tensor
-    "cell-edit-split": "memory.js: hook by prefix, SplitMode.html()",
-    "cell-remote-split": "memory.js: hook by prefix, SplitMode.html()",
+    "cell-remote-split": "memory.js: SplitMode.html(hook)",
     # static/js/memory.js — weights placement, data-t-id auto|all|manual (+slider)
-    "cell-edit-offload": "memory.js: tHook by prefix",
-    "cell-remote-offload": "memory.js: tHook by prefix",
-    "cell-edit-offload-slider": "memory.js: tSlider by prefix",
-    "cell-remote-offload-slider": "memory.js: tSlider by prefix",
+    "cell-remote-offload": "memory.js: tHook",
+    "cell-remote-offload-slider": "memory.js: tSlider",
     # static/js/topology-nodes.js — passed to mbadge() as its testId argument
     "cell-source-stale": "topology-nodes.js: mbadge(..., 'cell-source-stale')",
     "cell-crashed": "topology-nodes.js: mbadge(..., 'cell-crashed')",
@@ -75,13 +66,9 @@ COMPOSED = {
     "cell-config-tab": "form.js: renderFields sets data-t on each tab button",
     "agent-proxy-bind": "topology-activity.js: the clickable primary port chip",
     "agent-bind-menu": "topology-activity.js: the proxy-port picker it opens",
-    "cell-edit-translate-model": "index.html: NLLB model field (edit form)",
-    "cell-edit-translate-src": "index.html: NLLB source language (edit form)",
-    "cell-edit-translate-tgt": "index.html: NLLB target language (edit form)",
     "cell-remote-translate-model": "index.html: NLLB model field (remote form)",
     "cell-remote-translate-src": "index.html: NLLB source language (remote form)",
     "cell-remote-translate-tgt": "index.html: NLLB target language (remote form)",
-    "cell-edit-seamless-lang": "index.html: seamless target-language select (edit form)",
     "cell-remote-seamless-lang": "index.html: seamless target-language select (remote form)",
     # What the model DOES — one per job, on the picker row and on the cell card.
     # The suffix is the job id from caravan/common/model_jobs.py, so the two
@@ -123,7 +110,7 @@ def unbacked_composed():
     outside, exactly that way, on follow-up 5.
 
     A name is backed either by its literal appearing in the source
-    (`… ? "cell-remote-runner-tab" : "cell-edit-runner-tab"`) or by being the
+    (`const tHook = "cell-remote-compute"`) or by being the
     ONE derivation the code actually performs: `${selectEl.dataset.t}-picker`,
     over a base that is itself a literal hook.
 

@@ -2,7 +2,6 @@
 import { renderTopologyCloudProviders } from "./cloud.js";
 import { formatPricePer1M, modelPricing } from "./model-meta.js";
 import { t } from "./i18n.js";
-import { action } from "./polling.js";
 import { topology, ui } from "./state.js";
 import { renderTopology } from "./topology-render.js";
 import { $, api, escapeHtml } from "./utils.js";

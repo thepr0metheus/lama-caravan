@@ -1,44 +1,21 @@
 // Entry point: DOMContentLoaded wiring and the standalone kanban page init.
-import { appConfirm } from "./dialogs.js";
 import { initDialogLlamas } from "./dialog-llamas.js";
 import { CARD_FOLD, FoldPeek } from "./card-fold.js";
 import { drawLiveTopologyCable, drawTopologyCables } from "./cables.js";
 import { canvasLoadPositions, cvSetViewport, drawCanvasConnectors } from "./canvas.js";
 import { drawTopologyServerStats, systemSamples } from "./charts.js";
 import { openCloudProviderModal } from "./cloud.js";
-import { renderCommandPreview } from "./command-preview.js";
-import { memoryEstimateFields } from "./constants.js";
-import {
-  maybeAutofillModelHelpers,
-  maybeAutofillModelHelpersPfx,
-  modelsByPath,
-  renderChatTemplateHint,
-  renderChatTemplateOptions,
-  renderModelInsight,
-  renderStaticConfigFields,
-  setGemma4Mode,
-  syncCompanionMuting,
-  syncToggleLabel,
-} from "./form.js";
 import { applyLanguage, applyTheme, initLanguage, onLangChange, setupLangSelect, t } from "./i18n.js";
-import {
-  _teCellPort,
-  closeConfirmModal,
-  closeTopologyLlamaEdit,
-  openActionModal,
-  saveTopologyLlamaConfig,
-} from "./llama-edit.js";
-import { refreshComputeTarget } from "./memory.js";
+import { closeConfirmModal } from "./llama-edit.js";
 import { fetchModelPricing, fetchProxyDailyStats } from "./model-meta.js";
 import { initOnboarding } from "./onboarding-tours.js";
-import { action, bindMonitorDrawer, loadState, startTopologyMonitor } from "./polling.js";
+import { bindMonitorDrawer, loadState, startTopologyMonitor } from "./polling.js";
 import { refreshRouteErrBadges } from "./topology-activity.js";
 import { purgeRemoteModelCache, submitRemoteLlamaStart } from "./remote-cells.js";
 import { rebindProxyRouter } from "./routers.js";
 import { mountScoutAdd } from "./scout-add.js";
 import { openIncidentsModal } from "./topology-nodes.js";
 import { topology, ui } from "./state.js";
-import { renderRuntime, revertLatest } from "./system-panels.js";
 import {
   clearTopologyPointerDrag,
   topologyPointerDrag,
@@ -200,16 +177,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("systemInfoBtn")?.addEventListener("click", () => { window.location.href = "/system"; });
   $("usageStatsBtn")?.addEventListener("click", openUsageStatsModal);
   $("boardIncidentsBtn")?.addEventListener("click", openIncidentsModal);
-  $("gemmaTextBoostBtn").addEventListener("click", () => setGemma4Mode("text").catch((err) => toast(err.message)));
-  $("gemmaVisionBtn").addEventListener("click", () => setGemma4Mode("vision").catch((err) => toast(err.message)));
-  $("textOnlyBtn").addEventListener("click", () => {
-    $("MMPROJ_FILE").value = "";
-    renderModelInsight();
-    renderRuntime();
-    renderCommandPreview();
-    toast(t("mmprojCleared"));
-  });
-  $("revertBtn").addEventListener("click", () => revertLatest().catch((err) => toast(err.message)));
   $("confirmCancel").addEventListener("click", closeConfirmModal);
   $("confirmDelete").addEventListener("click", () => {
     if (ui.pendingConfirm) ui.pendingConfirm();
@@ -217,15 +184,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   $("confirmOverlay").addEventListener("click", (event) => {
     if (event.target.id === "confirmOverlay") closeConfirmModal();
   });
-  // Escape on the cell editors is bound to the OVERLAYS themselves, in the
-  // capture phase, and each one takes focus when it opens. The document-level
-  // version depended on where focus happened to be and on nothing upstream
-  // swallowing the key — and it lost that bet: measured against the live board,
-  // Escape closed neither editor, three runs out of three. A dialog that cannot
-  // be dismissed by keyboard is an accessibility defect before it is a testing
-  // one, and role="dialog" aria-modal="true" promises otherwise.
-  [["llamaRemoteEditOverlay", () => { $("llamaRemoteEditOverlay").hidden = true; }],
-   ["topologyLlamaEditOverlay", () => closeTopologyLlamaEdit()]].forEach(([id, close]) => {
+  // Escape on the cell editor is bound to the OVERLAY itself, in the capture
+  // phase, and it takes focus when it opens. The document-level version
+  // depended on where focus happened to be and on nothing upstream swallowing
+  // the key — and it lost that bet: measured against the live board, Escape
+  // closed neither editor, three runs out of three. A dialog that cannot be
+  // dismissed by keyboard is an accessibility defect before it is a testing
+  // one, and role="dialog" aria-modal="true" promises otherwise. (The
+  // controller's own cell editor went with its cells in step 6.9.)
+  [["llamaRemoteEditOverlay", () => { $("llamaRemoteEditOverlay").hidden = true; }]].forEach(([id, close]) => {
     const ov = $(id);
     if (!ov) return;
     if (!ov.hasAttribute("tabindex")) ov.tabIndex = -1;
@@ -238,14 +205,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !$("confirmOverlay").hidden) { closeConfirmModal(); return; }
     if (event.key === "Escape" && !$("llamaRemoteEditOverlay")?.hidden) { $("llamaRemoteEditOverlay").hidden = true; return; }
-    if (event.key === "Escape" && !$("topologyLlamaEditOverlay")?.hidden) { closeTopologyLlamaEdit(); return; }
-    // 6: Ctrl+Enter → Save & Restart (local) or Start (remote)
+    // 6: Ctrl+Enter → Start (the cell editor)
     if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
-      if (!$("topologyLlamaEditOverlay")?.hidden) {
-        event.preventDefault();
-        saveTopologyLlamaConfig(true).catch((err) => toast(err.message));
-        return;
-      }
       if (!$("llamaRemoteEditOverlay")?.hidden) {
         event.preventDefault();
         submitRemoteLlamaStart().catch((err) => toast(err.message));
@@ -299,138 +260,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       observer.observe(board);
     }
   }
-  $("MODEL_FILE").addEventListener("change", maybeAutofillModelHelpers);
-  $("MMPROJ_FILE").addEventListener("change", () => {
-    renderModelInsight();
-    renderRuntime();
-    renderCommandPreview();
-  });
-  $("OFFLOAD_MMPROJ")?.addEventListener("change", (e) => {
-    syncToggleLabel(e.target);
-    syncCompanionMuting();
-    renderCommandPreview();
-  });
-  $("SPEC_DRAFT_MODEL_FILE")?.addEventListener("change", () => {
-    renderModelInsight();
-    renderCommandPreview();
-  });
-  $("SPEC_ENABLED")?.addEventListener("change", (e) => {
-    const selected = modelsByPath().get($("MODEL_FILE")?.value || "");
-    const specTypeEl = $("SPEC_TYPE");
-    if (specTypeEl) specTypeEl.value = e.target.checked ? (selected?.familyDefaults?.SPEC_TYPE || "draft-mtp") : "";
-    syncToggleLabel(e.target);
-    syncCompanionMuting();
-    renderCommandPreview();
-  });
-  $("CHAT_TEMPLATE_FILE").addEventListener("input", () => {
-    renderChatTemplateOptions();
-    renderChatTemplateHint();
-    renderModelInsight();
-    renderCommandPreview();
-  });
-  $("LLAMA_MODELS_DIR").addEventListener("input", () => {
-    renderStaticConfigFields();
-    renderCommandPreview();
-  });
-  $("configForm").addEventListener("input", (event) => {
-    if (memoryEstimateFields.includes(event.target?.id)) {
-      renderModelInsight();
-      renderRuntime();
-    }
-    renderCommandPreview();
-  });
-  $("configForm").addEventListener("change", (event) => {
-    if (memoryEstimateFields.includes(event.target?.id)) {
-      renderModelInsight();
-      renderRuntime();
-    }
-    renderCommandPreview();
-  });
-
-  // Topology Llama Edit Modal + wide-button bindings
+  // Wide-button bindings.
   document.addEventListener("click", (event) => {
-    // Close port dropdown on outside click
-    if (!event.target.closest(".port-combo")) {
-      document.querySelectorAll(".port-dropdown:not([hidden])").forEach((dd) => { dd.hidden = true; });
-    }
     if (event.target.closest("[data-topo-add-cloud]")) {
       openCloudProviderModal(null);
-      return;
-    }
-    if (event.target.closest("[data-topo-edit-close]")) {
-      closeTopologyLlamaEdit();
-      return;
-    }
-    if (event.target.id === "topologyLlamaEditSaveRestart") {
-      if (_teCellPort) {
-        // Cell config — confirm before applying
-        appConfirm(t("dlgApplyCellConfig"), { danger: false, confirmLabel: "OK", scene: "start" })
-          .then((ok) => { if (ok) saveTopologyLlamaConfig(false).catch((err) => toast(err.message)); });
-        return;
-      } else {
-        saveTopologyLlamaConfig(true).catch((err) => toast(err.message));
-      }
-      return;
-    }
-    // Close on backdrop click
-    if (event.target.id === "topologyLlamaEditOverlay") {
-      closeTopologyLlamaEdit();
     }
   });
 
-  // Topology edit form live preview
-  $("topologyLlamaEditForm")?.addEventListener("input", (event) => {
-    const bareId = (event.target?.id || "").replace(/^te-/, "");
-    if (memoryEstimateFields.includes(bareId)) renderModelInsight("te-");
-    renderCommandPreview("te-");
-  });
-  $("topologyLlamaEditForm")?.addEventListener("change", (event) => {
-    const bareId = (event.target?.id || "").replace(/^te-/, "");
-    if (memoryEstimateFields.includes(bareId)) renderModelInsight("te-");
-    if (["N_GPU_LAYERS", "DEVICE", "THREADS"].includes(bareId)) refreshComputeTarget("te-");
-    renderCommandPreview("te-");
-  });
-  $("te-MODEL_FILE")?.addEventListener("change", () => {
-    maybeAutofillModelHelpersPfx("te-", { aliasFollow: true });
-    renderModelInsight("te-");
-    renderChatTemplateHint("te-");
-    renderCommandPreview("te-");
-  });
-  $("te-MMPROJ_FILE")?.addEventListener("change", () => {
-    renderModelInsight("te-");
-    renderCommandPreview("te-");
-  });
-  $("te-OFFLOAD_MMPROJ")?.addEventListener("change", (e) => {
-    syncToggleLabel(e.target);
-    syncCompanionMuting("te-");
-    renderCommandPreview("te-");
-  });
-  $("te-SPEC_DRAFT_MODEL_FILE")?.addEventListener("change", () => {
-    renderModelInsight("te-");
-    renderCommandPreview("te-");
-  });
-  $("te-SPEC_ENABLED")?.addEventListener("change", (e) => {
-    const selected = modelsByPath().get($("te-MODEL_FILE")?.value || "");
-    const specTypeEl = $("te-SPEC_TYPE");
-    if (specTypeEl) specTypeEl.value = e.target.checked ? (selected?.familyDefaults?.SPEC_TYPE || "draft-mtp") : "";
-    syncToggleLabel(e.target);
-    syncCompanionMuting("te-");
-    renderCommandPreview("te-");
-  });
-  $("te-CHAT_TEMPLATE_FILE")?.addEventListener("input", () => {
-    renderChatTemplateOptions("te-");
-    renderChatTemplateHint("te-");
-    renderCommandPreview("te-");
-  });
-
-  document.querySelectorAll("[data-action]").forEach((button) => {
-    button.addEventListener("click", () => openActionModal(button.dataset.action));
-  });
   bindMonitorDrawer();
   bindTooltips();
-  document.querySelectorAll("[data-view-tab]").forEach((button) => {
-    button.addEventListener("click", () => setActiveView(button.dataset.viewTab));
-  });
   // Board renders deferred while a select/text field held focus (see
   // topologyInteractionActive) land here once the focus moves on. The timeout
   // lets document.activeElement settle on the newly-focused element first.

@@ -3,7 +3,6 @@ import { appConfirm } from "./dialogs.js";
 import { _cvProxyToAgent } from "./canvas.js";
 import { option } from "./form.js";
 import { t } from "./i18n.js";
-import { action } from "./polling.js";
 import { state, topology, ui } from "./state.js";
 import { CARD_FOLD, CardFold } from "./card-fold.js";
 import { AgentRow, FoldSlot } from "./card-rows.js";
@@ -273,11 +272,12 @@ export function sortedTopologyRoutes(routes) {
   });
 }
 
-// The proxy runs on the controller, so controller-local servers are reached via
-// loopback; remote client servers must be addressed by their
-// LAN IP. Kept in sync with the data-llama-host stamped on server handles.
+// The proxy runs on the controller, so a server is addressed as its machine's
+// scout reported it: its LAN IP, or loopback for the controller's own machine
+// (its scout was paired at 127.0.0.1 — the controller's own cells, which were
+// loopback by a flag of their own, went in step 6.9). Kept in sync with the
+// data-llama-host stamped on server handles.
 export function topologyServerUpstreamHost(s, node) {
-  if (s && s.isController) return "127.0.0.1";
   return (s && s.clientIp) || (node && node.ip) || "127.0.0.1";
 }
 

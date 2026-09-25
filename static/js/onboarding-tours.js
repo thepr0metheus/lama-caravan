@@ -1,5 +1,5 @@
-// Tour definitions for the board (index), the llama.cpp config editor
-// (te-/tr- modals) and the standalone kanban page. Strings live in
+// Tour definitions for the board (index), the cell editor (the tr- modal)
+// and the standalone kanban page. Strings live in
 // i18n-data.js (en/ru; the rest falls back to English via t()).
 import { LANGS, messages, onLanguageLoaded } from "./i18n-data.js";
 import { lang, setLang, t } from "./i18n.js";
@@ -57,8 +57,8 @@ function indexSteps() {
 }
 
 function configSteps(pfx) {
-  const form = pfx === "te" ? "#topologyLlamaEditForm" : "#llamaRemoteEditForm";
-  const startBtn = pfx === "te" ? "#topologyLlamaEditSaveRestart" : "#llamaRemoteEditStart";
+  const form = "#llamaRemoteEditForm";
+  const startBtn = "#llamaRemoteEditStart";
   return [
     { anchor: `${form} .cell-kind-toggle`, title: t("tourCfgKindT"), body: t("tourCfgKindB") },
     { anchor: `#${pfx}-MODEL_FILE`, title: t("tourCfgModelT"), body: t("tourCfgModelB") },
@@ -85,9 +85,7 @@ function kanbanSteps() {
 }
 
 function currentSteps() {
-  const teOpen = document.getElementById("topologyLlamaEditOverlay")?.hidden === false;
   const trOpen = document.getElementById("llamaRemoteEditOverlay")?.hidden === false;
-  if (teOpen) return configSteps("te");
   if (trOpen) return configSteps("tr");
   if (window.ROUTER_STANDALONE) return kanbanSteps();
   return indexSteps();
@@ -112,12 +110,12 @@ export function initOnboarding() {
 }
 
 // The cell editor has its own detailed tour — auto-run it the FIRST time
-// either editor modal opens (the header ? button is hidden behind the modal,
+// the editor modal opens (the header ? button is hidden behind the modal,
 // so discoverability needs this nudge; afterwards the in-modal ? re-runs it).
 function watchEditorFirstOpen() {
   const KEY = "caravanTourSeen:config";
   if (localStorage.getItem(KEY)) return;
-  const overlays = ["topologyLlamaEditOverlay", "llamaRemoteEditOverlay"]
+  const overlays = ["llamaRemoteEditOverlay"]
     .map((id) => document.getElementById(id)).filter(Boolean);
   if (!overlays.length) return;
   const obs = new MutationObserver(() => {

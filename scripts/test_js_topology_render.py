@@ -53,6 +53,11 @@ const out = {};
 """
 
 PINS = [
+    ("phase_default_is_stopped_for_any_cell",
+     '',
+     '[m.topologyServerPhase({}), m.topologyServerPhase({ isController: true }), m.topologyServerPhase({ status: { phase: "loading" } }), m.topologyServerPhase({ phase: "running", status: { phase: "loading" } })]',
+     '["stopped","stopped","loading","running"]',
+     "фаза ячейки без поля — «stopped», и для флага isController тоже (раньше ячейка контроллера без фазы считалась работающей; её нет с шага 6.9); status.phase — запасной, собственная фаза важнее"),
     ("fingerprint_sees_a_new_agent",
      'st.setTopology({ ...st.topology, clients: [CLIENT({ agents: [] })] });'
      ' globalThis.__fp0 = m.topologyStructureFingerprint();'

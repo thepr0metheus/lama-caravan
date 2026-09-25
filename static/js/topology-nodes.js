@@ -2,8 +2,6 @@
 import { drawTopologyCables } from "./cables.js";
 import { CARD_FOLD, CardFold } from "./card-fold.js";
 import { CellRow, FoldSlot } from "./card-rows.js";
-import { CellLoad } from "./cell-load.js";
-import { CONTROLLER_HOST_ID } from "./constants.js";
 import { nodeTelemetryRowsHtml, renderTopologyIncidents } from "./charts.js";
 import { badge, mbadge, modelsByPath } from "./form.js";
 import { t } from "./i18n.js";
@@ -14,7 +12,7 @@ import {
   serverBenchCache,
   topologyModelIcon,
 } from "./model-meta.js";
-import { action, formatCtxTokens, formatTps } from "./polling.js";
+import { formatCtxTokens, formatTps } from "./polling.js";
 import {
   _deletingSlots,
   _newReservedCells,
@@ -33,7 +31,6 @@ import {
   topologyServerGroup,
   topologyStatusPill,
 } from "./topology-activity.js";
-import { topologyLlamaDetailOpen } from "./topology-dnd.js";
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
 import { runnerRegistry } from "./llama-edit.js";
@@ -106,10 +103,6 @@ function cellPinnedToGpu(srv) {
 }
 
 // Compact age for status lines: 45s / 12m / 5h / 3d.
-function _agoShort(epoch) {
-  return _ageShort(Date.now() / 1000 - Number(epoch));
-}
-
 function _ageShort(seconds) {
   const s = Math.max(0, Math.floor(Number(seconds)));
   if (s < 90) return s + "s";
@@ -300,8 +293,8 @@ export function classifyLlamaError(raw) {
 }
 
 // What the error block says on hover: the reason, then the last lines of the
-// crashed run's log when the cell's scout sent them (scout 2.6+) — the lines
-// a cell of this controller shows from its journal. No lines, no change.
+// crashed run's log when the cell's scout sent them (scout 2.6+). No lines, no
+// change.
 function errorBlockTitle(s) {
   const tail = s.crash?.tail || "";
   return tail ? `${s.lastError || ""}\n\n${tail}`.trim() : s.lastError;
@@ -366,9 +359,9 @@ function launchFilesSuffix(roles) {
 // card floats open on hover (card-fold.js). Without it — the tests, the
 // detail views — the card is drawn exactly as it always was.
 export function nodeServerCardHtml(node, s, { fold = false } = {}) {
-  const isStopping = !s.isController && _stoppingHosts.has(node.id);
+  const isStopping = _stoppingHosts.has(node.id);
   const port = s.port;
-  const slotHostId = s.isController ? CONTROLLER_HOST_ID : node.id;
+  const slotHostId = node.id;
   const slotKey = `${slotHostId}:${port}`;
   const cellKey = slotKey;  // alias used in controls + config block
   const isDeleting = _deletingSlots.has(slotKey);
@@ -380,8 +373,8 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
   // `remoteStartPending`, not `.has()`: a record that timed out is still in the
   // map, waiting to be dismissed, and asking only whether it EXISTS kept every
   // stopped cell of that host reading "starting" forever.
-  const hasPendingStart = (!s.isController && remoteStartPending(node.id)) || pendingCellAction === "start";
-  const rawPhase = isStopping ? "stopping" : (s.phase || (s.status && s.status.phase) || (s.isController ? "running" : "stopped"));
+  const hasPendingStart = remoteStartPending(node.id) || pendingCellAction === "start";
+  const rawPhase = isStopping ? "stopping" : (s.phase || (s.status && s.status.phase) || "stopped");
   const phase = (rawPhase === "stopped" && hasPendingStart) ? "starting" : rawPhase;
   const running = phase === "running";
   const isReserved = phase === "reserved";
@@ -395,23 +388,14 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
   const isDownloading = phase === "downloading";
   const isWarming = phase === "warming";  // process up, model still loading into VRAM
   const addr = `${s.clientIp || node.ip || ""}:${port}`;
-  const nodeGpus = node.gpus || [];
-  const gpuBadges = (s.gpuIndexes || []).map((i) => {
-    const usedMib = (s.gpuMem || {})[String(i)];
-    const usedGb = usedMib ? (usedMib / 1024).toFixed(1) : null;
-    const gpuMeta = nodeGpus.find((g) => g.index === i);
-    const totalMib = gpuMeta ? Number(gpuMeta.memoryTotalMiB || 0) : 0;
-    const totalGb = totalMib > 0 ? Math.round(totalMib / 1024) : null;
-    const memLabel = usedGb ? (totalGb ? `${usedGb}/${totalGb}G` : `${usedGb}G`) : "";
-    return `<span class="node-gpu-badge">GPU${escapeHtml(String(i))}${memLabel ? " " + escapeHtml(memLabel) : ""}</span>`;
-  }).join("");
   // Transient status (stopping / downloading / warming / starting) renders as a
   // compact line INSIDE the model block, replacing the chips row — the card
   // keeps its height instead of growing extra rows at the bottom.
   const _msl = (cls, inner) => `<div class="node-model-row2 model-status-line${cls ? " " + cls : ""}">${inner}</div>`;
   const _mslSpin = (stop) => `<span class="topology-spinner${stop ? " stopping-spinner" : ""}" aria-hidden="true"></span>`;
-  // While systemd retries a crashing cell the card mostly shows "loading …" —
-  // this ⚠ carries what the PREVIOUS attempt died of (hover for the journal).
+  // While a scout's watchdog brings a crashing cell back the card mostly shows
+  // "loading …" — this ⚠ carries what the PREVIOUS attempt died of (hover for
+  // its last lines).
   const _prevErrChip = (srv) => {
     const err = srv.status?.lastError;
     if (!err) return "";
@@ -429,11 +413,6 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
     const p = tot > 0 ? Math.round((done / tot) * 100) : null;
     const dlFile = s.downloadingFile ? escapeHtml(s.downloadingFile) : escapeHtml(t("topologyRemoteDownloading"));
     statusRow = _msl("", `<span class="msl-bar"><span style="width:${p ?? 0}%"></span></span><span class="msl-text" data-live-dl>${dlFile} · ${(done/1e9).toFixed(1)}/${(tot/1e9).toFixed(1)} GB${p!=null?` · ${p}%`:""}</span>`);
-  } else if (s.loadProgress && (isWarming || phase === "starting")) {
-    // Measured on the controller: bytes read, speed, time left and the files
-    // still to come (cell-load.js). A load it cannot measure sends nothing and
-    // gets the looping line below.
-    statusRow = new CellLoad(s.loadProgress).html(slotKey, _prevErrChip(s));
   } else if (isWarming) {
     // "into VRAM" is a lie on a CPU cell — it loads into RAM. The full isCpuCell
     // is derived further down (it needs the live GPU list), so the two cases
@@ -444,25 +423,16 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
     const _warmKey = _warmCpu ? "topologyRemoteWarmingRam" : "topologyRemoteWarming";
     statusRow = _msl("", `${_mslSpin(false)}<span class="msl-bar indeterminate"><span></span></span><span class="msl-text">${escapeHtml(t(_warmKey))}</span>${_prevErrChip(s)}`);
   } else if (isBroken) {
-    // The diagnosis is the cell's own health body — a string, not the
-    // journal-classified object the isError branch below reads.
+    // The diagnosis is the cell's own health body, a string.
     const bErr = String(s.status?.error || "");
     statusRow = _msl("msl-err", `<span class="msl-err-icon" aria-hidden="true">💔</span>`
       + `<span class="msl-text" data-t="cell-broken-error" data-t-id="${escapeHtml(`${slotHostId}:${port}`)}"`
       + ` title="${escapeHtml(bErr)}">${escapeHtml(t("failed"))}: ${escapeHtml(bErr.slice(0, 140))}${bErr.length > 140 ? "…" : ""}</span>`);
-  } else if (isError && (s.status?.error)) {
-    // The unit is failed or flapping — say WHY (classified from its journal)
-    // instead of leaving a silent stopped-looking card. WHEN it died matters
-    // just as much: an hours-old crash must not read as "it just fell again".
-    const err = s.status.error;
-    const kindKey = { oom: "cellErrOom", exec: "cellErrExec", model: "cellErrModel", port: "cellErrPort" }[err.kind] || "cellErrCrash";
-    const ago = s.status.errorAt ? ` · ${_agoShort(s.status.errorAt)}` : "";
-    const tip = [err.detail || "", "", err.tail || ""].join("\n").trim();
-    statusRow = _msl("msl-err", `<span class="msl-err-icon" aria-hidden="true">⚠</span><span class="msl-text" title="${escapeHtml(tip)}">${escapeHtml(t(kindKey) + ago)}</span>`);
   } else if (!running && !isStopped) {
-    // progressNote (from the cell journal) says WHERE a long start currently
-    // is — vLLM downloads/compiles for minutes and a bare spinner reads as a
-    // hang. Log-derived, so shown as-is (same policy as error details).
+    // progressNote (from the lines the cell wrote while starting, carried by
+    // its scout) says WHERE a long start currently is — vLLM downloads/compiles
+    // for minutes and a bare spinner reads as a hang. Log-derived, so shown
+    // as-is (same policy as error details).
     const note = s.status?.progressNote ? ` · ${s.status.progressNote}` : "";
     statusRow = _msl("", `${_mslSpin(false)}<span class="msl-text">${escapeHtml((phase === "loading" ? t("topologyRemoteLoading") : t("topologyRemoteStarting")) + note)}</span>${_prevErrChip(s)}`);
   }
@@ -776,178 +746,97 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
   const lcIdx = (running || isStopping || isBroken) ? 3 : (isReserved ? 0 : (isStopped || isError ? 1 : 2));
   const lcActiveStep = isStopping ? "stopping" : ((isError || isBroken) ? "error" : (running ? "running" : (isReserved ? "reserved" : (phase === "stopped" ? "configured" : "loading"))));
   let lifecycleBar = serverLifecycleBar(lcIdx, lcActiveStep, "", "", port);
-  // Controls differ by role/phase. Controller (controller) is read-only here.
-  let controls = "";
-  // Client cells (isRemote) render with the same unified card as controller
-  // slots so the two look identical. Their config lives on the route-agent,
-  // so the ▶ button opens the remote form instead of launching a
-  // controller-side slot directly (which they don't have).
-  if (s.isSlot || !s.isController) {
-    const cellHostId = slotHostId;
-    const isCellStopping = _stoppingCells.has(cellKey) || pendingCellAction === "stop";
-    const isCellBusy = isCellStopping || !!pendingCellAction;
-    const cfgAttrs = `data-t="cell-configure" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" aria-label="${escapeHtml(t("nodeConfigure"))}: ${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-start="${escapeHtml(s.isController ? CONTROLLER_HOST_ID : node.id)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-role="${escapeHtml(node.role)}"`;
+  // Every cell is a scout's machine's (the controller's own went in step
+  // 6.9): one card, the same for every machine. Its config lives with the
+  // cell's slot, so the ▶ button opens the cell form on its machine.
+  const cellHostId = slotHostId;
+  // The card's own controls count a live cell's stop too, not only a slot's.
+  const isCtlStopping = _stoppingCells.has(cellKey) || pendingCellAction === "stop";
+  const isCellBusy = isCtlStopping || !!pendingCellAction;
+  const cfgAttrs = `data-t="cell-configure" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" aria-label="${escapeHtml(t("nodeConfigure"))}: ${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-start="${escapeHtml(node.id)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-role="${escapeHtml(node.role)}"`;
 
-    // ✕ delete — active only when reserved / stopped / error
-    const canDelete = (isReserved || phase === "stopped" || isError) && !isDeleting && !isCellBusy;
-    const delBtn = isDeleting
-      ? `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("removingSlotLabel"))}"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("deleteAction"))}</span></button>`
-      : `<button class="node-action-btn ${canDelete ? "del" : "muted"}" type="button"
-           ${canDelete ? `data-t="cell-delete" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-slot-del="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}"` : "disabled"}
-           title="${escapeHtml(canDelete ? t("nodeRemoveCell") : t("nodeCannotRemoveActive"))}">✕<span class="nab-lbl">${escapeHtml(t("deleteAction"))}</span></button>`;
+  // ✕ delete — active only when reserved / stopped / error
+  const canDelete = (isReserved || phase === "stopped" || isError) && !isDeleting && !isCellBusy;
+  const delBtn = isDeleting
+    ? `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("removingSlotLabel"))}"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("deleteAction"))}</span></button>`
+    : `<button class="node-action-btn ${canDelete ? "del" : "muted"}" type="button"
+         ${canDelete ? `data-t="cell-delete" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-slot-del="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}"` : "disabled"}
+         title="${escapeHtml(canDelete ? t("nodeRemoveCell") : t("nodeCannotRemoveActive"))}">✕<span class="nab-lbl">${escapeHtml(t("deleteAction"))}</span></button>`;
 
-    // ⚙ Configure — disabled only during starting / stopping / deleting
-    const canConfigure = !isDeleting && !isCellBusy && phase !== "starting";
-    // ⇄ Reassign port — same window as delete: only a parked cell may move.
-    const canReassign = (isReserved || phase === "stopped" || isError) && !isDeleting && !isCellBusy;
-    const portAttrs = canReassign
-      ? `data-cell-port-reassign="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}"`
-      : "";
-    lifecycleBar = serverLifecycleBar(lcIdx, lcActiveStep, "", canConfigure ? cfgAttrs : "", port, portAttrs);
+  // ⚙ Configure — disabled only during starting / stopping / deleting
+  const canConfigure = !isDeleting && !isCellBusy && phase !== "starting";
+  // ⇄ Reassign port — same window as delete: only a parked cell may move.
+  const canReassign = (isReserved || phase === "stopped" || isError) && !isDeleting && !isCellBusy;
+  const portAttrs = canReassign
+    ? `data-cell-port-reassign="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}"`
+    : "";
+  lifecycleBar = serverLifecycleBar(lcIdx, lcActiveStep, "", canConfigure ? cfgAttrs : "", port, portAttrs);
 
-    // ▶ start — active when stopped or error (model already configured).
-    // Launches the saved slot directly; server-cell/action handles both
-    // controller and client hosts (for a client it forwards to the route-agent
-    // via client_llama_start). Reserved cells (no model yet) are configured via
-    // the lifecycle-bar ⚙ (cfgAttrs → remote form for clients), not this button.
-    const canPlay = (phase === "stopped" || isError) && !isCellBusy && !isDeleting;
-    // The confirm has to know what it is starting: a command-path cell runs a
-    // command, and its "model name" row holds that command line — only the
-    // render knows the runner, so hand it to the click handler.
-    const cellRunner = isCmdCell ? "custom"
-      : (String(_scfg.RUNNER || "").toLowerCase() || "llama-server");
-    // What a start needs to know, once: the card's ▶ and the folded line's ▶
-    // are the same start, and two copies of these attributes would drift.
-    const launchAttrs = `data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-runner="${escapeHtml(cellRunner)}"${libRoles.length ? ` data-node-cell-library="${escapeHtml(libName)}" data-node-cell-library-files="${escapeHtml(launchRoleNames(libRoles))}"` : ""}`;
-    const playBtn = `<button class="node-action-btn ${canPlay ? "ok" : "muted"}" type="button"
-        ${canPlay ? `data-t="cell-start" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" ${launchAttrs}` : "disabled"}
-        title="${escapeHtml(canPlay ? t("nodeStartServer") : (isReserved ? t("nodeConfigureFirst") : t("nodeNotStopped")))}">▶<span class="nab-lbl">${escapeHtml(t("start"))}</span></button>`;
+  // ▶ start — active when stopped or error (model already configured).
+  // Launches the saved slot directly; server-cell/action handles both
+  // controller and client hosts (for a client it forwards to the route-agent
+  // via client_llama_start). Reserved cells (no model yet) are configured via
+  // the lifecycle-bar ⚙ (cfgAttrs → remote form for clients), not this button.
+  const canPlay = (phase === "stopped" || isError) && !isCellBusy && !isDeleting;
+  // The confirm has to know what it is starting: a command-path cell runs a
+  // command, and its "model name" row holds that command line — only the
+  // render knows the runner, so hand it to the click handler.
+  const cellRunner = isCmdCell ? "custom"
+    : (String(_scfg.RUNNER || "").toLowerCase() || "llama-server");
+  // What a start needs to know, once: the card's ▶ and the folded line's ▶
+  // are the same start, and two copies of these attributes would drift. A
+  // model in a library asks nothing more: the scout reads it where it is.
+  const launchAttrs = `data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-runner="${escapeHtml(cellRunner)}"`;
+  const playBtn = `<button class="node-action-btn ${canPlay ? "ok" : "muted"}" type="button"
+      ${canPlay ? `data-t="cell-start" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" ${launchAttrs}` : "disabled"}
+      title="${escapeHtml(canPlay ? t("nodeStartServer") : (isReserved ? t("nodeConfigureFirst") : t("nodeNotStopped")))}">▶<span class="nab-lbl">${escapeHtml(t("start"))}</span></button>`;
 
-    // ⏹ stop — active when starting or running; spinner while stopping
-    const canStop = !isStopped && !isDeleting && !isCellBusy;
-    const stopBtn = isCellStopping
-      ? `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("nodeStoppingTitle"))}"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`
-      : `<button class="node-action-btn ${canStop ? "warn" : "muted"}" type="button"
-           ${canStop ? `data-t="cell-stop" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-stop="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"` : "disabled"}
-           title="${escapeHtml(canStop ? t("nodeStopServer") : t("nodeNotRunning"))}">⏹<span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`;
+  // ⏹ stop — active when starting or running; spinner while stopping
+  const canStop = !isStopped && !isDeleting && !isCellBusy;
+  const stopBtn = isCtlStopping
+    ? `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("nodeStoppingTitle"))}"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`
+    : `<button class="node-action-btn ${canStop ? "warn" : "muted"}" type="button"
+         ${canStop ? `data-t="cell-stop" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-cell-stop="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"` : "disabled"}
+         title="${escapeHtml(canStop ? t("nodeStopServer") : t("nodeNotRunning"))}">⏹<span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`;
 
-    // ↑ autostart — a cell of this controller (systemd enable) or of a scout
-    // that keeps it and starts it when its machine boots (2.4+; the server
-    // says which, bootSupported). Three looks: ok = enabled, off = disabled
-    // but CLICKABLE (it's a toggle — muted here read as dead chrome), muted =
-    // genuinely unavailable (an older scout, or busy).
-    const bootSupported = s.bootSupported ?? !!s.isController;
-    const canBoot = bootSupported && (phase === "stopped" || running) && !isDeleting && !isCellBusy;
-    const bootBtn = `<button class="node-action-btn${bootSupported && s.bootEnabled ? " ok" : (canBoot ? " off" : " muted")}" type="button"
-        ${canBoot ? `data-node-cell-boot="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-boot-action="${s.bootEnabled ? "disable" : "enable"}"` : "disabled"}
-        title="${escapeHtml(bootSupported ? (s.bootEnabled ? t("tnBootDisable") : t("tnBootEnable")) : t("tnBootUnsupported"))}">${bootSupported && s.bootEnabled ? "↟" : "↥"}<span class="nab-lbl">${escapeHtml(t("topologyAutostart"))}</span></button>`;
+  // ↑ autostart — a scout keeps the cell's start and runs it when its machine
+  // boots (2.4+; the server says whether it can, bootSupported). Three looks:
+  // ok = enabled, off = disabled but CLICKABLE (it's a toggle — muted here read
+  // as dead chrome), muted = genuinely unavailable (an older scout, or busy).
+  const bootSupported = !!s.bootSupported;
+  const canBoot = bootSupported && (phase === "stopped" || running) && !isDeleting && !isCellBusy;
+  const bootBtn = `<button class="node-action-btn${bootSupported && s.bootEnabled ? " ok" : (canBoot ? " off" : " muted")}" type="button"
+      ${canBoot ? `data-node-cell-boot="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-boot-action="${s.bootEnabled ? "disable" : "enable"}"` : "disabled"}
+      title="${escapeHtml(bootSupported ? (s.bootEnabled ? t("tnBootDisable") : t("tnBootEnable")) : t("tnBootUnsupported"))}">${bootSupported && s.bootEnabled ? "↟" : "↥"}<span class="nab-lbl">${escapeHtml(t("topologyAutostart"))}</span></button>`;
 
-    // The cable's handle. Exactly one element may carry it: cables and drops
-    // find it by querySelector and read its position, and a copy inside a
-    // hidden card would hand them a rectangle of zeros — a cable drawn to the
-    // board's corner. While the card is folded, the line owns it.
-    const anchorHtml = `<span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
-              data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>`;
-    const cardHtml = (anchor) => `
-      <article class="node-server ${cardCls}"
-               data-t="cell-card" data-t-id="${escapeHtml(slotKey)}" aria-label="${escapeHtml(t("a11yCell"))} ${escapeHtml(slotKey)}" data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}"
-               ${_vramClaim ? `data-cell-node="${escapeHtml(String(node.id))}" data-cell-vram="${escapeHtml(_vramClaim)}"` : ""}>
-        ${running ? '<span class="cell-beam" aria-hidden="true"></span>' : ""}
-        ${anchor}
-        <div class="node-ctrl-row">
-          ${playBtn}${stopBtn}${bootBtn}${delBtn}
-        </div>
-        ${lifecycleBar}
-        ${bodyBlock
-          ? (isReserved
-              ? `<div class="node-server-body">${bodyBlock}${(() => `<div class="topology-runtime-panel llama ghost-slots"><div class="topology-runtime-slots-head"><strong>${escapeHtml(t("topologySlots"))} <span class="topology-muted">1</span></strong></div><div class="topology-runtime-slots slot-chips-row"><span class="slot-chip idle"></span></div></div>`)()}</div>${progressPanel}`
-              : `<div class="node-server-body">${bodyBlock}${topologyRuntimePanelHtml(topologyServerGroup(s))}</div>${progressPanel}`)
-          : progressPanel}
-        ${(() => {
-          const note = (topology?.cellNotes || {})[slotKey];
-          return note ? `<div class="node-server-note" title="${escapeHtml(note)}">💬 ${escapeHtml(note)}</div>` : "";
-        })()}
-        ${isError ? (() => {
-          const err = classifyLlamaError(s.lastError);
-          return `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(errorBlockTitle(s))}">
-            <span class="llama-err-icon">⚠</span>
-            <span class="llama-err-body">
-              <span class="llama-err-friendly">${escapeHtml(err.friendly)}</span>
-              ${err.hint ? `<span class="llama-err-hint">${escapeHtml(err.hint)}</span>` : ""}
-              ${s.lastError ? `<span class="llama-err-raw">${escapeHtml(s.lastError)}</span>` : ""}
-            </span>
-          </div>`;
-        })() : ""}
-        ${running && s.reachable === false ? (() => {
-          const fw = s.firewall || {};
-          const isBlocked = fw.state === "blocked";
-          const ufwCmd = isBlocked ? `sudo ufw allow ${port}` : "";
-          return `<div class="topology-remote-unreachable">
-            <span>${escapeHtml(t("topologyRemoteUnreachable"))}</span>
-            ${ufwCmd ? `<code class="firewall-cmd" title="Run on ${escapeHtml(node.name || node.id)}">${escapeHtml(ufwCmd)}</code>` : ""}
-          </div>`;
-        })() : ""}
-      </article>`;
-    const foldMode = fold
-      ? CARD_FOLD.mode("cells", slotKey, CardFold.cellQuiet({
-          phase,
-          transient: isDeleting || isStopping || isCellStopping || !!pendingCellAction || !!statusRow,
-          crashed: !!crash,
-          unreachable: running && s.reachable === false,
-        }))
-      : "full";
-    if (foldMode === "full") return cardHtml(anchorHtml);
-    if (foldMode === "pinned") {
-      return new FoldSlot({ key: slotKey, lane: "cells", mode: "pinned", card: cardHtml(anchorHtml) }).html();
-    }
-    // The same name the card's body shows, by the same precedence as its blocks.
-    const rowName = s.model ? (parsed.label || s.model)
-      : isVllmCell ? vllmName
-        : isWhisperCell ? whisperSize
-          : isMoonshineCell ? moonshineLang
-            : isCmdCell ? (cmdText || t("commandCellFallback")) : "";
-    const line = new CellRow({
-      key: slotKey, port, name: rowName, title: s.model ? (s.modelPath || s.model) : rowName,
-      state: running ? "running" : (isReserved ? "reserved" : "parked"),
-      cpu: isCpuCell, chip: memBadge || deviceChip, launch: canPlay ? launchAttrs : "",
-      warn: !!(staleSrcChip || staleModelChip || diskNewerChip),
-      tps: running && Number(s.genTps || 0) > 0 ? `${formatTps(s.genTps)} t/s` : "",
-      busy: running && Number(s.genTps || 0) > 0, anchor: anchorHtml,
-    }).html();
-    return new FoldSlot({ key: slotKey, lane: "cells", mode: "line", line, card: cardHtml(""),
-                          peek: CARD_FOLD.peekKey === slotKey }).html();
-  } else if (s.isController) {
-    // Controller's legacy single "current" llama server (not a reserved slot).
-    const editBtn = `<button class="node-icon-btn" type="button" data-node-ctrl-edit title="${escapeHtml(t("nodeEditConfig"))}">✎</button>`;
-    if (!isStopped) {
-      controls = editBtn + `<button class="node-icon-btn warn" type="button" data-node-ctrl-stop title="${escapeHtml(t("nodeStopLlama"))}">⏹</button>`;
-    } else {
-      controls = editBtn + `<button class="node-icon-btn ok" type="button" data-node-ctrl-start title="${escapeHtml(t("nodeStartLlama"))}">▶</button>`;
-    }
-  }
-  if (controls) controls = `<span class="node-server-ctl">${controls}</span>`;
-  return `
+  // The cable's handle. Exactly one element may carry it: cables and drops
+  // find it by querySelector and read its position, and a copy inside a
+  // hidden card would hand them a rectangle of zeros — a cable drawn to the
+  // board's corner. While the card is folded, the line owns it.
+  const anchorHtml = `<span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
+            data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>`;
+  const cardHtml = (anchor) => `
     <article class="node-server ${cardCls}"
-             data-t="cell-card" data-t-id="${escapeHtml(slotKey)}" aria-label="${escapeHtml(t("a11yCell"))} ${escapeHtml(slotKey)}" data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}">
+             data-t="cell-card" data-t-id="${escapeHtml(slotKey)}" aria-label="${escapeHtml(t("a11yCell"))} ${escapeHtml(slotKey)}" data-topology-llama="1" data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}"
+             ${_vramClaim ? `data-cell-node="${escapeHtml(String(node.id))}" data-cell-vram="${escapeHtml(_vramClaim)}"` : ""}>
       ${running ? '<span class="cell-beam" aria-hidden="true"></span>' : ""}
-      <span class="topology-handle server-input ${healthCls}" data-topology-llama-input="1"
-            data-llama-port="${escapeHtml(String(port))}" data-llama-host="${escapeHtml(topologyServerUpstreamHost(s, node))}" title="${escapeHtml(t("tnTitleProxyUpstream"))}"></span>
-      ${lifecycleBar}
-      <div class="node-server-head">
-        <a href="http://${escapeHtml(addr)}" target="_blank" rel="noopener" class="topology-addr-link" onclick="event.stopPropagation()">${escapeHtml(addr)}</a>
-        ${firewallBadge(s.firewall)}
-        ${gpuBadges || (running ? `<span class="node-gpu-badge node-cpu-badge" title="${escapeHtml(t("topologyCpuCellsHint"))}">CPU</span>` : "")}
-        <span style="flex:1"></span>
-        ${controls}
+      ${anchor}
+      <div class="node-ctrl-row">
+        ${playBtn}${stopBtn}${bootBtn}${delBtn}
       </div>
+      ${lifecycleBar}
       ${bodyBlock
         ? (isReserved
             ? `<div class="node-server-body">${bodyBlock}${(() => `<div class="topology-runtime-panel llama ghost-slots"><div class="topology-runtime-slots-head"><strong>${escapeHtml(t("topologySlots"))} <span class="topology-muted">1</span></strong></div><div class="topology-runtime-slots slot-chips-row"><span class="slot-chip idle"></span></div></div>`)()}</div>${progressPanel}`
             : `<div class="node-server-body">${bodyBlock}${topologyRuntimePanelHtml(topologyServerGroup(s))}</div>${progressPanel}`)
         : progressPanel}
+      ${(() => {
+        const note = (topology?.cellNotes || {})[slotKey];
+        return note ? `<div class="node-server-note" title="${escapeHtml(note)}">💬 ${escapeHtml(note)}</div>` : "";
+      })()}
       ${isError ? (() => {
         const err = classifyLlamaError(s.lastError);
-        return `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(s.lastError)}">
+        return `<div class="topology-remote-unreachable llama-err-block" title="${escapeHtml(errorBlockTitle(s))}">
           <span class="llama-err-icon">⚠</span>
           <span class="llama-err-body">
             <span class="llama-err-friendly">${escapeHtml(err.friendly)}</span>
@@ -966,6 +855,34 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
         </div>`;
       })() : ""}
     </article>`;
+  const foldMode = fold
+    ? CARD_FOLD.mode("cells", slotKey, CardFold.cellQuiet({
+        phase,
+        transient: isDeleting || isStopping || isCtlStopping || !!pendingCellAction || !!statusRow,
+        crashed: !!crash,
+        unreachable: running && s.reachable === false,
+      }))
+    : "full";
+  if (foldMode === "full") return cardHtml(anchorHtml);
+  if (foldMode === "pinned") {
+    return new FoldSlot({ key: slotKey, lane: "cells", mode: "pinned", card: cardHtml(anchorHtml) }).html();
+  }
+  // The same name the card's body shows, by the same precedence as its blocks.
+  const rowName = s.model ? (parsed.label || s.model)
+    : isVllmCell ? vllmName
+      : isWhisperCell ? whisperSize
+        : isMoonshineCell ? moonshineLang
+          : isCmdCell ? (cmdText || t("commandCellFallback")) : "";
+  const line = new CellRow({
+    key: slotKey, port, name: rowName, title: s.model ? (s.modelPath || s.model) : rowName,
+    state: running ? "running" : (isReserved ? "reserved" : "parked"),
+    cpu: isCpuCell, chip: memBadge || deviceChip, launch: canPlay ? launchAttrs : "",
+    warn: !!(staleSrcChip || staleModelChip || diskNewerChip),
+    tps: running && Number(s.genTps || 0) > 0 ? `${formatTps(s.genTps)} t/s` : "",
+    busy: running && Number(s.genTps || 0) > 0, anchor: anchorHtml,
+  }).html();
+  return new FoldSlot({ key: slotKey, lane: "cells", mode: "line", line, card: cardHtml(""),
+                        peek: CARD_FOLD.peekKey === slotKey }).html();
 }
 
 // Drill-in detail modal for a node server (full info that the compact card omits).
@@ -974,7 +891,7 @@ export function openNodeServerDetail(nodeId, port) {
   const s = node && (node.servers || []).find((x) => String(x.port) === String(port));
   if (!s) return;
   document.getElementById("nodeServerDetailOverlay")?.remove();
-  const phase = s.phase || (s.status && s.status.phase) || (s.isController ? "running" : "stopped");
+  const phase = s.phase || (s.status && s.status.phase) || "stopped";
   const running = phase === "running";
   const parsed = parseModelName(s.model) || {};
   const fw = s.firewall || {};
@@ -1165,14 +1082,14 @@ export function openNodeServerDetail(nodeId, port) {
           ${row(t("topologyTokenSpeedHead"), (s.promptTps != null || s.genTps != null) ? `${formatTps(s.promptTps || 0)} / ${formatTps(s.genTps || 0)} t/s (${t("topologyPromptGen")})` : "")}
           ${row("Context", s.ctxMax ? `${s.ctxUsed != null ? escapeHtml(formatCtxTokens(s.ctxUsed)) : "—"} / ${escapeHtml(formatCtxTokens(s.ctxMax))} ${escapeHtml(t("topologyLlamaContextWindow").toLowerCase())}` : "")}
           ${row("Activity", [activity.label, activity.summary].filter(Boolean).map(escapeHtml).join(" · "))}
-          ${(s.isController || s.isSlot) ? row("Service", escapeHtml([s.service, s.pid ? `PID ${s.pid}` : ""].filter(Boolean).join(" · "))) : ""}
+          ${s.isSlot ? row("Service", escapeHtml([s.service, s.pid ? `PID ${s.pid}` : ""].filter(Boolean).join(" · "))) : ""}
           ${s.reachable === false ? row("Reachable", "<span style='color:var(--warn,#f59e0b)'>no — port blocked?</span>") : ""}
           ${phase === "error" && s.lastError ? row("Error", `<code>${escapeHtml(s.lastError)}</code>`) : ""}
           ${cmdBlockHtml}
           <div class="nsd-cfg-section nsd-note-section">
             <div class="nsd-cfg-head">${escapeHtml(t("cellNoteHead"))}</div>
             <textarea class="nsd-note-input" maxlength="280" rows="2"
-              placeholder="${escapeHtml(t("cellNotePlaceholder"))}">${escapeHtml((topology?.cellNotes || {})[`${s.isController ? CONTROLLER_HOST_ID : node.id}:${s.port}`] || "")}</textarea>
+              placeholder="${escapeHtml(t("cellNotePlaceholder"))}">${escapeHtml((topology?.cellNotes || {})[`${node.id}:${s.port}`] || "")}</textarea>
             <button class="nsd-note-save" type="button">${escapeHtml(t("cellNoteSave"))}</button>
           </div>
         </div>
@@ -1203,7 +1120,7 @@ export function openNodeServerDetail(nodeId, port) {
     try {
       await api("/api/topology/server-slot/note", {
         method: "POST",
-        body: JSON.stringify({ hostId: s.isController ? CONTROLLER_HOST_ID : node.id, port: s.port, note }),
+        body: JSON.stringify({ hostId: node.id, port: s.port, note }),
       });
       toast(t("cellNoteSaved"));
       await refreshTopology();
@@ -1224,6 +1141,25 @@ export function parseLlamaBuildVersion(vstr) {
   return { build: parseInt(m[1], 10), commit: m[2] };
 }
 
+// Whether this machine is the one the controller runs on (its scout says the
+// hostname): rebooting or powering it off takes the board down with it, so
+// its confirmations say so. The one reading of that fact on the page.
+export function isControllerMachine(hostId) {
+  return !!(topology?.nodes || []).find((n) => String(n.id) === String(hostId))?.controllerMachine;
+}
+
+// The words a reboot, a poweroff or its schedule are confirmed with, as an i18n
+// key: the controller's own machine takes the board down with it.
+const HOST_POWER_TEXT = {
+  reboot: ["hostRebootConfirmController", "hostRebootConfirmClient"],
+  poweroff: ["hostPowerOffConfirmController", "hostPowerOffConfirmClient"],
+  schedule: ["hostPowerSchedWarnController", "hostPowerSchedWarnClient"],
+};
+export function hostPowerTextKey(hostId, what) {
+  const [own, other] = HOST_POWER_TEXT[what];
+  return isControllerMachine(hostId) ? own : other;
+}
+
 // Returns the node-grouped HTML for the Llama Servers lane.
 export function nodesLaneHtml() {
   if (!topology) return "";
@@ -1233,20 +1169,15 @@ export function nodesLaneHtml() {
   // this lane skipped would be on no screen at all — nor could its first cell
   // be reserved, the ＋ lives here.
   const nodes = topology.nodes || [];
-  // Determine controller build number for "outdated" comparison
-  const ctrlVersionStr = state.llamaCpp?.version || "";
-  const ctrlBuild = parseLlamaBuildVersion(ctrlVersionStr);
-  const ctrlMtime = state.llamaCpp?.binaryMtime || "";
-  const ctrlUpstreamBuild = state.llamaCpp?.git?.upstreamBuild || 0;
-  const ctrlUpstreamChecked = state.llamaCpp?.git?.upstreamChecked || false;
-  const ctrlUpstreamCommit = state.llamaCpp?.git?.upstreamBuildCommit || "";
-  const ctrlHeadCommit = state.llamaCpp?.git?.head || "";
+  // The controller's llama.cpp build is the fleet's reference: a machine on
+  // another commit is "outdated", and its ⇪ converges it onto this one.
+  const ctrlBuild = parseLlamaBuildVersion(state.llamaCpp?.version || "");
 
   const sections = nodes.map((n) => {
     const cpu = n.cpu || {}, ram = cpu.ram || {};
     // llama.cpp version chip
-    const nodeVerStr = n.role === "controller" ? ctrlVersionStr : (n.llamaBinaryVersion || "");
-    const nodeMtime = n.role === "controller" ? ctrlMtime : (n.llamaBinaryMtime || "");
+    const nodeVerStr = n.llamaBinaryVersion || "";
+    const nodeMtime = n.llamaBinaryMtime || "";
     const nodeBuild = parseLlamaBuildVersion(nodeVerStr);
     const verLabel = nodeBuild ? `b${nodeBuild.build}` : "";
     // Build date: keep only the date part (first 10 ISO characters, no time)
@@ -1257,33 +1188,17 @@ export function nodesLaneHtml() {
     // git abbrevs whose LENGTH varies per clone (7 vs 9 chars for the same commit),
     // so equality is prefix-based — strict !== flagged in-sync fleets as outdated.
     const sameCommit = (a, b) => !!a && !!b && (a.startsWith(b) || b.startsWith(a));
-    const verOutdated = nodeBuild && ctrlBuild && n.role !== "controller" && (
+    const verOutdated = nodeBuild && ctrlBuild && (
       (nodeBuild.commit && ctrlBuild.commit)
         ? !sameCommit(nodeBuild.commit, ctrlBuild.commit)
         : nodeBuild.build < ctrlBuild.build       // fallback: numeric comparison
     );
     const verChipTitle = [nodeVerStr, nodeMtime].filter(Boolean).join(" · ");
-    // For the controller: show the upstream arrow only when the release tag's
-    // COMMIT differs from the local head — the numeric build is a clone-local
-    // counter (a shallow clone reports e.g. 731 while sitting exactly on
-    // b9947), so number-vs-number would show a false "outdated" arrow forever.
-    const isCtrlNode = n.role === "controller";
-    const upstreamIsNewer = ctrlUpstreamChecked && ctrlUpstreamBuild > 0 && (
-      (ctrlUpstreamCommit && (ctrlHeadCommit || nodeBuild?.commit))
-        ? !sameCommit(ctrlUpstreamCommit, ctrlHeadCommit || nodeBuild.commit)
-        : (nodeBuild && ctrlUpstreamBuild > nodeBuild.build)
-    );
-    const upstreamArrow = isCtrlNode && upstreamIsNewer
-      ? `<span class="llama-ver-upstream"> → b${ctrlUpstreamBuild} ⬆</span>`
-      : "";
-    const refreshBtn = isCtrlNode
-      ? `<button class="llama-ver-refresh" type="button" data-check-llama-ver title="${escapeHtml(t("checkUpstreamVersion"))}" aria-label="${escapeHtml(t("checkUpstreamVersion"))}">↻</button>`
-      : "";
-    // Client nodes: one-click llama.cpp update (converges the client onto the
-    // controller's commit via the scout's background job); while the scout
-    // reports a running job the button gives way to a building indicator.
+    // One-click llama.cpp update (converges the machine onto the controller's
+    // commit via its scout's background job); while the scout reports a
+    // running job the button gives way to a building indicator.
     const upd = n.llamaUpdate || {};
-    const updateBtn = !isCtrlNode && nodeVerStr
+    const updateBtn = nodeVerStr
       ? (upd.running
         ? `<span class="llama-ver-building" title="${escapeHtml(String(upd.lastLine || ""))}">⏳ ${escapeHtml(t("clientLlamaBuilding"))}</span>`
         : `<button class="llama-ver-refresh" type="button" data-update-client-llama="${escapeHtml(String(n.id))}" title="${escapeHtml(t("updateClientLlama"))}" aria-label="${escapeHtml(t("updateClientLlama"))}">⇪</button>`)
@@ -1291,7 +1206,7 @@ export function nodesLaneHtml() {
     // Stale binary: a server that started BEFORE the binary on disk was last
     // rebuilt still runs the old build — restart it to apply.
     const nodeMtimeEpoch = nodeMtime ? Date.parse(nodeMtime) / 1000 : 0;
-    const staleBinary = !isCtrlNode && nodeMtimeEpoch > 0 && (n.servers || []).some((s) => {
+    const staleBinary = nodeMtimeEpoch > 0 && (n.servers || []).some((s) => {
       const upSec = Number(s.uptimeSec || 0);
       return upSec > 0 && (Date.now() / 1000 - upSec) < nodeMtimeEpoch;
     });
@@ -1315,21 +1230,15 @@ export function nodesLaneHtml() {
     const psArmed = !!ps.enabled;
     const powerSchedBtn = `<button class="llama-ver-refresh node-power-sched${psArmed ? " armed" : ""}" type="button" data-t="node-power-schedule" data-t-id="${escapeHtml(String(n.id))}" data-power-schedule-host="${escapeHtml(String(n.id))}" title="${escapeHtml(psArmed ? t("hostPowerSchedArmedTitle", { at: ps.at || "", daily: ps.daily ? t("hostPowerSchedDaily") : t("hostPowerSchedOnce") }) : t("hostPowerSchedTitle"))}" aria-label="${escapeHtml(t("hostPowerSchedTitle"))}">⏰︎</button>`;
     const verChip = verLabel
-      ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${upstreamArrow}${verOutdated ? " ⬆" : ""}</span>${refreshBtn}${updateBtn}${staleBadge}<span class="node-power-ctl">${rebootBtn}${powerSchedBtn}${powerOffBtn}</span>`
-      : `${refreshBtn}<span class="node-power-ctl">${rebootBtn}${powerSchedBtn}${powerOffBtn}</span>`;
+      ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${verOutdated ? " ⬆" : ""}</span>${updateBtn}${staleBadge}<span class="node-power-ctl">${rebootBtn}${powerSchedBtn}${powerOffBtn}</span>`
+      : `<span class="node-power-ctl">${rebootBtn}${powerSchedBtn}${powerOffBtn}</span>`;
     const servers = (n.servers || []);
     const collapsed = _collapsedNodes.has(n.id);
     const nextCellPort = nextTopologyCellPort();
     const reservePending = _reservingCells.get(String(n.id));
     const reservePort = reservePending?.port || nextCellPort;
     const reserveBusy = !!reservePending;
-    // A containerized controller has no systemd to host cells — swap the
-    // reserve card for a hint that models are served by caravan-scout hosts.
-    const addBtn = n.containerized
-      ? `<article class="node-server ghost-server container-hint">
-      <div class="ghost-server-body"><span class="container-cells-hint">🐳 ${escapeHtml(t("topologyContainerCellsHint"))}</span></div>
-    </article>`
-      : `<article class="node-server ghost-server${reserveBusy ? " reserving" : ""}">
+    const addBtn = `<article class="node-server ghost-server${reserveBusy ? " reserving" : ""}">
       ${serverLifecycleBar(-1, "none")}
       <div class="ghost-server-body">
         <button class="ghost-start-btn" type="button"
@@ -1337,7 +1246,6 @@ export function nodesLaneHtml() {
           aria-label="${escapeHtml(t("topologyReserveCellLabel"))} :${escapeHtml(String(reservePort))}"
           data-node-reserve="${escapeHtml(n.id)}"
           data-node-reserve-port="${escapeHtml(String(reservePort))}"
-          data-node-role="${escapeHtml(n.role)}"
           ${reserveBusy ? "disabled" : ""}>${reserveBusy ? `<span class="topology-spinner" aria-hidden="true"></span> ${escapeHtml(t("topologyReservingCellLabel"))} :${escapeHtml(String(reservePort))}` : `＋ ${escapeHtml(t("topologyReserveCellLabel"))} :${escapeHtml(String(reservePort))}`}</button>
       </div>
     </article>`;
@@ -1401,35 +1309,18 @@ export function nodesLaneHtml() {
         // driver update, that's "needs a reboot", while the card is right
         // there).
         : `<div class="topology-muted" style="font-size:12px"${n.gpuError ? ` title="${escapeHtml(n.gpuError)}"` : ""}>${escapeHtml(n.gpuError || t("topologyNoGpu"))}</div>`);
-      // Controller node hosts the deep controller telemetry (mounted, not rebuilt):
-      // Server charts toggle under the "Servers" header; GPU charts live in the
-      // GPUs column; Incidents open in a modal from the header button.
-      const isCtrl = n.role === "controller";
+      // The machine this controller runs on carries its Server stats (CPU,
+      // RAM, network, disk, processes — the controller's own monitor, mounted,
+      // not rebuilt) under a "Servers" toggle.
+      const statsHere = !!n.controllerMachine;
       const statsOpen = localStorage.getItem("topologyCtrlServerStatsOpen") === "1";
-      const serversSubtitle = isCtrl
+      const serversSubtitle = statsHere
         ? `<button class="node-subtitle node-subtitle-toggle" type="button" data-ctrl-stats-toggle aria-expanded="${statsOpen ? "true" : "false"}">${escapeHtml(t("topologyServersHead"))} <span class="node-subtitle-caret">${statsOpen ? "▾" : "▸"}</span><span class="node-subtitle-hint">${escapeHtml(t("topologyNodeServerCharts"))}</span></button>`
         : `<div class="node-subtitle">${escapeHtml(t("topologyServersHead"))}</div>`;
-      const serverStatsSlot = isCtrl ? `<div class="node-ctrl-server-stats" data-ctrl-server-stats${statsOpen ? "" : " hidden"}></div>` : "";
-      // Controller mounts the rich controller canvas widget; client nodes get the
-      // same-looking telemetry rows built from per-node history.
-      const gpuTelemetrySlot = isCtrl ? `<div class="node-ctrl-gpu-telemetry" data-ctrl-gpu-telemetry></div>` : nodeTelemetryRowsHtml(n);
-      // Cells running OUTSIDE the registry (live unit, no slot record): without
-      // this strip they are invisible by construction — the board renders the
-      // store — while holding their port and VRAM with nothing left to stop
-      // them BY. Red, dashed, with the one action that makes sense.
-      const _orphans = Array.isArray(n.orphanCells) ? n.orphanCells : [];
-      const orphanHtml = _orphans.length ? `
-        <div class="node-orphan-strip" title="${escapeHtml(t("topologyOrphanHint"))}">
-          <div class="node-orphan-head">☠ ${escapeHtml(t("topologyOrphanCells"))}</div>
-          ${_orphans.map((o) => `
-            <div class="node-orphan-row">
-              <span class="node-orphan-what">:${escapeHtml(String(o.port))}${o.model ? ` · ${escapeHtml(o.model)}` : ""}${o.vramMiB ? ` · ${escapeHtml((o.vramMiB / 1024).toFixed(1))}G VRAM` : ""}${o.pid ? ` · pid ${escapeHtml(String(o.pid))}` : ""}</span>
-              <button class="node-orphan-stop" type="button" data-orphan-stop="${escapeHtml(String(o.port))}">${escapeHtml(t("stop"))}</button>
-            </div>`).join("")}
-        </div>` : "";
+      const serverStatsSlot = statsHere ? `<div class="node-ctrl-server-stats" data-ctrl-server-stats${statsOpen ? "" : " hidden"}></div>` : "";
       bodyHtml = `<div class="node-body">
-          <div class="node-servers">${serversSubtitle}${orphanHtml}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
-          <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${gpuTelemetrySlot}</div>
+          <div class="node-servers">${serversSubtitle}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
+          <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>
         </div>`;
     }
     // A machine card is a real grouping of controls that belong together, and
@@ -1442,8 +1333,7 @@ export function nodesLaneHtml() {
     // The name is assembled from what the header already shows: the role word
     // (translated), the machine's own name, and its address. Capitalised
     // because it opens a phrase; harmless where a script has no case.
-    const _roleWord = n.role === "controller" ? t("nodeRoleController")
-      : n.role === "host" ? t("nodeRoleHost") : String(n.role || "");
+    const _roleWord = n.role === "host" ? t("nodeRoleHost") : String(n.role || "");
     const _groupName = `${_roleWord.charAt(0).toUpperCase()}${_roleWord.slice(1)} ${n.name || n.id}`
       + (n.ip ? ` · ${n.ip}` : "");
     return `
@@ -1484,10 +1374,10 @@ export function parkLaneStats() {
     if (el && el.parentElement !== home) home.appendChild(el);
   });
 }
-// After a node-mode render, relocate the live telemetry cards (canvases, so we
-// move the DOM rather than rebuild it) into their slots in the controller node:
-// Server charts under the Servers toggle, GPU charts in the GPUs column. The
-// incidents card stays parked until its modal is opened.
+// After a node-mode render, relocate the live Server stats card (canvases, so
+// we move the DOM rather than rebuild it) into its slot in the controller
+// machine's node, under its Servers toggle. The incidents card stays parked
+// until its modal is opened.
 export function mountNodeTelemetry() {
   const root = $("topologyLlamaServers");
   if (!root) return;
@@ -1497,9 +1387,6 @@ export function mountNodeTelemetry() {
     if (serverCard.tagName === "DETAILS") serverCard.open = true;  // show charts, not just the summary
     statsSlot.appendChild(serverCard);
   }
-  const gpuSlot = root.querySelector("[data-ctrl-gpu-telemetry]");
-  const gpuCard = document.querySelector(".topology-gpu-history-card");
-  if (gpuSlot && gpuCard) gpuSlot.appendChild(gpuCard);
 }
 
 // Show/hide the mounted Server-telemetry charts under the controller's

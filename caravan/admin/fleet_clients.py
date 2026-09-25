@@ -11,12 +11,13 @@ import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+from caravan.admin.controller_machine import ControllerMachine
 from caravan.admin.config_builder import (CONFIG_FIELDS, build_remote_llama_args, gpu_layers_int, model_paths,
                                           run_config)
 from caravan.admin.host_telemetry import HostTelemetry
 from caravan.admin.model_locator import current_locations
 from caravan.admin.runners import effective_command, effective_health_path, uses_command_path
-from caravan.domain.runner import for_config
+from caravan.domain.runner import VllmRunner, for_config
 from caravan.admin.launch import render_command_cell_shell_line, _sanitize_snapshot_name
 from caravan.admin.paths import (
     CONTROLLER_HOST_ID,
@@ -85,6 +86,58 @@ def client_llama_restore(body: dict) -> dict:
     scout = _scout(str((body or {}).get("hostId") or ""))
     payload = {"id": str((body or {}).get("id") or "").strip()}
     return scout.post("/api/llama-node/restore", payload, timeout=15)
+
+
+#: The scout that answers for vLLM on its machine (VllmVenv, scout 2.9.0).
+VLLM_SCOUT = (2, 9, 0)
+
+
+def _version_tuple(text):
+    """(2, 9, 0) from "2.9.0" (a suffix such as ".dev1" ends it); None when
+    the text names no version."""
+    parts = []
+    for piece in str(text or "").strip().split("."):
+        if not piece.isdigit():
+            break
+        parts.append(int(piece))
+    return tuple(parts) or None
+
+
+def client_vllm(host_id: str) -> dict:
+    """vLLM on the machines with a scout, for the System panel: which
+    machines there are, and on one of them — `host_id`, or this controller's
+    own machine when none is named — the version in its venv, the versions
+    it had and the install job, with the version a first vLLM start
+    provisions. The controller no longer keeps a venv of its own: its
+    machine's vLLM cells run through that machine's scout."""
+    rows = topology_hosts()
+    machines = [{"id": str(h.get("id") or ""), "name": str(h.get("name") or h.get("id") or ""),
+                 "online": h.get("state") == "online", "scoutVersion": str(h.get("scoutVersion") or ""),
+                 "controllerMachine": ControllerMachine().is_host(h)} for h in rows]
+    host_id = str(host_id or "").strip() or ControllerMachine().host_id(rows) or (
+        machines[0]["id"] if machines else "")
+    doc = {"machines": machines, "hostId": host_id, "pinnedDefault": VllmRunner.default_version}
+    if not host_id:
+        return {**doc, "ok": False, "error": "no machine with a scout has reported yet"}
+    machine = next((m for m in machines if m["id"] == host_id), None)
+    if machine is None:
+        return {**doc, "ok": False, "error": f"no scout has reported for host {host_id}"}
+    version = _version_tuple(machine["scoutVersion"])
+    if version and version < VLLM_SCOUT:
+        return {**doc, "ok": False, "error": f"{host_id}: its scout {machine['scoutVersion']} is older than "
+                                             f"2.9.0, the first to answer for vLLM on its machine — update the scout"}
+    return {**doc, **_scout(host_id).read("/api/vllm", timeout=10)}
+
+
+def client_vllm_update(body: dict) -> dict:
+    """Install another vLLM on a scout's machine: {hostId, version?} —
+    empty is the latest release, a version pins it (a rollback)."""
+    scout = _scout(str((body or {}).get("hostId") or ""))
+    return scout.post("/api/vllm/update", {"version": str((body or {}).get("version") or "").strip()}, timeout=15)
+
+
+def client_vllm_update_status(host_id: str) -> dict:
+    return _scout(host_id).read("/api/vllm/update-status", timeout=10)
 
 
 def client_llama_suspect_dismiss(body: dict) -> dict:
@@ -844,7 +897,7 @@ def topology_hosts():
     """Machines with a scout as the board reads them: the report, its liveness
     computed on read (HostRecord.liveness, never stored — a stored "online" is
     stale the moment it is written), and the operator's name for the machine.
-    Online first, then by name.
+    In the board's order: by address (HostRecord.board_order).
     """
     now = int(time.time())
     store = topology_store()
@@ -854,7 +907,7 @@ def topology_hosts():
         row = _aliased(dict(host), aliases)
         row["state"], row["ageSeconds"] = HostRecord.liveness(row, now, HOST_REPORT_TTL)
         rows.append(row)
-    return sorted(rows, key=lambda row: (row.get("state") != "online", row.get("name") or row.get("id") or ""))
+    return sorted(rows, key=HostRecord.board_order)
 
 
 def refresh_hosts_from_scouts():

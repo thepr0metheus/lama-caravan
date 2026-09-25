@@ -23,8 +23,7 @@ import caravan.admin.model_catalog as model_catalog  # noqa: E402
 from caravan.admin.paths import TOPOLOGY_SERVER_IP  # noqa: E402
 import caravan.admin.topology as topology_mod  # noqa: E402
 from caravan.admin.topology import (  # noqa: E402
-    MODEL_CARD_TTL_SECONDS, _cell_model_card_windows, _gguf_trained_window,
-    _served_windows_by_address, annotate_route_windows,
+    _gguf_trained_window, _served_windows_by_address, annotate_route_windows,
 )
 
 _fail = []
@@ -225,46 +224,6 @@ def main():
     rows = [_proxy(23001, "router:chat", contextLength=2048), "junk"]
     annotate_route_windows(rows, CONFIG, SERVER, BLOCKS)
     check(rows[0]["effectiveWindow"] == 2048 and rows[1] == "junk", "a non-dict row is left alone")
-
-    print("a running cell's model card, both windows, cached a minute:")
-    calls = []
-    real_fetch = topology_mod.fetch_json
-
-    def fake_fetch(url, timeout=None):
-        calls.append(url)
-        return {"data": [{"id": "m", "object": "model",
-                          "meta": {"n_ctx": 60160, "n_ctx_train": 131072}}]}
-
-    def failing_fetch(url, timeout=None):
-        calls.append(url)
-        raise OSError("refused")
-
-    topology_mod._MODEL_CARD_CACHE.clear()
-    topology_mod.fetch_json = fake_fetch
-    try:
-        check(_cell_model_card_windows(22007, now=1000) == (60160, 131072),
-              "llama.cpp card: served meta.n_ctx and the trained number, apart")
-        check(calls == ["http://127.0.0.1:22007/v1/models"], f"one local GET (got {calls})")
-        topology_mod.fetch_json = failing_fetch
-        check(_cell_model_card_windows(22007, now=1000 + MODEL_CARD_TTL_SECONDS - 1) == (60160, 131072)
-              and len(calls) == 1, "within the minute the card is not asked again")
-        check(_cell_model_card_windows(22007, now=1000 + MODEL_CARD_TTL_SECONDS + 1) == (None, None)
-              and len(calls) == 2, "after the minute it is asked again; a refusal is (None, None), not a size")
-        check(_cell_model_card_windows(22007, now=1000 + MODEL_CARD_TTL_SECONDS + 2) == (None, None)
-              and len(calls) == 2, "the refusal is cached too — a dead cell is not hammered")
-        topology_mod.fetch_json = fake_fetch
-        check(_cell_model_card_windows(22008, now=1000) == (60160, 131072) and len(calls) == 3,
-              "another port is another entry")
-    finally:
-        topology_mod.fetch_json = real_fetch
-        topology_mod._MODEL_CARD_CACHE.clear()
-    vllm = {"data": [{"id": "v", "max_model_len": 32768}]}
-    topology_mod.fetch_json = lambda url, timeout=None: vllm
-    try:
-        check(_cell_model_card_windows(22010, now=5) == (32768, None), "vLLM card: served max_model_len, no trained number")
-    finally:
-        topology_mod.fetch_json = real_fetch
-        topology_mod._MODEL_CARD_CACHE.clear()
 
     print("the server object's real key:")
     import inspect

@@ -8,7 +8,6 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from caravan.admin.backups import backups
 from caravan.admin.runners import RUNNERS
 from caravan.admin.config_builder import (
     CONFIG_FIELDS,
@@ -22,7 +21,7 @@ from caravan.admin.settings_bundle import passphrase_available
 from caravan.admin.models import (list_chat_templates, list_models, list_st_artifacts,
                                   list_translate_models, list_whisper_sizes)
 from caravan.admin.monitoring import cpu_state, gpu_state, memory_state, runtime_api
-from caravan.admin.paths import ADMIN_SERVICE_NAME, AGENT_PROXY_SERVICE_NAME, IS_CONTAINER, LLAMA_HOME, PROJECT_ROOT, SERVER_CELLS_DIR, SERVICE_NAME, START_SCRIPT
+from caravan.admin.paths import ADMIN_SERVICE_NAME, AGENT_PROXY_SERVICE_NAME, IS_CONTAINER, LLAMA_HOME, PROJECT_ROOT, SERVICE_NAME, START_SCRIPT
 from caravan.admin.state import admin_state
 from caravan.admin.systemd_ctl import logs, service_status, systemctl, user_service_diagnostics
 from caravan import __version__ as APP_VERSION
@@ -99,7 +98,7 @@ def models_disk():
 
 def controller_info():
     """The Controller card in the System modal: what THIS host runs (admin +
-    proxy services, cell units, app git, python) and whether the models disk
+    proxy services, app git, python) and whether the models disk
     has room — the questions asked before/after every deploy or download."""
     import shutil
     import sys
@@ -113,18 +112,10 @@ def controller_info():
         "projectGit": project_git_info(),
         "services": _container_briefs() if IS_CONTAINER
                     else [_unit_brief(ADMIN_SERVICE_NAME), _unit_brief(AGENT_PROXY_SERVICE_NAME)],
-        "cells": {},
         "disk": {},
         "models": {},
         "time": int(time.time()),
     }
-    cells = systemctl("list-units", "lama-cell@*", "--no-legend", "--plain", timeout=5)
-    if cells["ok"]:
-        lines = [line for line in cells["stdout"].splitlines() if line.strip()]
-        info["cells"] = {
-            "total": len(lines),
-            "running": sum(1 for line in lines if " running " in f" {line} "),
-        }
     try:
         usage = shutil.disk_usage(str(models_dir))
         info["disk"] = {
@@ -169,7 +160,6 @@ def state():
         "paths": {
             "llamaHome": str(LLAMA_HOME),
             "startScript": str(START_SCRIPT),
-            "serverCellsDir": str(SERVER_CELLS_DIR),
             "modelsDir": str(models_dir_from_config(config)),
             "service": SERVICE_NAME,
         },
@@ -189,21 +179,9 @@ def state():
         "memory": memory_state(),
         "llamaCpp": llama_cpp_info(fetch_remote=False),
         "logs": logs(),
-        "backups": backups(),
         "projectGit": project_git_info(),
         "time": int(time.time()),
     }
-
-def do_action(action):
-    if IS_CONTAINER:
-        raise AppError("the legacy single-server unit does not exist in container mode — "
-                       "serve models from caravan-scout hosts", 400)
-    if action not in {"start", "stop", "restart"}:
-        raise AppError("Unsupported action")
-    result = systemctl(action, SERVICE_NAME, timeout=30)
-    if not result["ok"]:
-        raise AppError(result["stderr"] or f"systemctl {action} failed", 500)
-    return result
 
 def llama_server_path():
     return LLAMA_HOME / "build" / "bin" / "llama-server"
@@ -300,152 +278,6 @@ def llama_builds_list():
             row["id"] = entry.name
             rows.append(row)
     return {"ok": True, "builds": rows, "keep": int(os.environ.get("LLAMA_BUILDS_KEEP") or 5)}
-
-# ── vLLM runner version ops ──────────────────────────────────────────────────
-# vLLM is a pip package in ~/vllm-venv, so PyPI itself is the build archive:
-# update = `pip install vllm==X`, rollback = the same command with an older
-# version. We only keep a small history (last 5 versions seen) to offer
-# rollback candidates, and run installs through the SAME background job the
-# llama.cpp update uses (one build/install job at a time, one status stream).
-VLLM_VENV_DIR = Path.home() / "vllm-venv"
-VLLM_HISTORY_FILE = PROJECT_ROOT / "var" / "vllm-versions.json"
-
-def _vllm_pip():
-    return VLLM_VENV_DIR / "bin" / "pip"
-
-def vllm_installed_version():
-    pip = _vllm_pip()
-    if not pip.exists():
-        return ""
-    out = run([str(pip), "show", "vllm"], timeout=15)
-    m = re.search(r"^Version:\s*(\S+)", out.get("stdout") or "", re.MULTILINE)
-    return m.group(1) if m else ""
-
-def _vllm_history_load():
-    import json as _json
-    try:
-        rows = _json.loads(VLLM_HISTORY_FILE.read_text(encoding="utf-8"))
-        return rows if isinstance(rows, list) else []
-    except Exception:
-        return []
-
-def vllm_history_record(version):
-    """Remember a version we had installed (newest first, deduped, keep 5)."""
-    import json as _json
-    version = str(version or "").strip()
-    if not version:
-        return
-    rows = [r for r in _vllm_history_load() if r.get("version") != version]
-    rows.insert(0, {"version": version, "seenAt": int(time.time())})
-    try:
-        VLLM_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
-        VLLM_HISTORY_FILE.write_text(_json.dumps(rows[:5], indent=2), encoding="utf-8")
-    except Exception:
-        pass
-
-def vllm_info():
-    from caravan.admin.runners import VLLM_DEFAULT_VERSION
-    current = vllm_installed_version()
-    if current:
-        vllm_history_record(current)
-    return {"ok": True, "installed": bool(current), "version": current,
-            "venv": str(VLLM_VENV_DIR), "pinnedDefault": VLLM_DEFAULT_VERSION,
-            "history": _vllm_history_load()}
-
-def start_vllm_update(version=""):
-    """Install/upgrade/rollback vLLM as the shared background job. Empty
-    version → latest release; an explicit version pins (rollback = an older
-    pin). The venv must exist (first provision happens at cell start)."""
-    pip = _vllm_pip()
-    if not pip.exists():
-        raise AppError("vLLM venv not provisioned on this host yet — "
-                       "start a vLLM cell once to create it", 400)
-    current = vllm_installed_version()
-    if current:
-        vllm_history_record(current)   # the rollback candidate
-    version = str(version or "").strip()
-    cmd = [str(pip), "install"] + ([f"vllm=={version}"] if version else ["--upgrade", "vllm"])
-    return _start_shared_job(cmd, tag=f"vllm:{version or 'latest'}")
-
-# ── crash watchdog: a fresh build + crashing cells ⇒ offer a rollback ────────
-# Detection scans the last 15 min of lama-cell@* journal for crash markers
-# while the on-disk binary is younger than LLAMA_SUSPECT_BUILD_AGE_H (6h);
-# ≥ LLAMA_SUSPECT_MIN_CRASHES (3) trips an INCIDENT. The incident is STICKY:
-# persisted in admin_state so the banner is still there when the board is
-# opened hours later (and across admin restarts), until the user dismisses
-# it (also persisted, per build) or the binary changes (restore/update clear
-# it automatically). Restore itself always waits for explicit confirmation.
-_suspect_cache = {"t": 0.0, "data": {"suspect": False}}
-
-def _llama_binary_key():
-    """Identity of the CURRENT build: commit + binary mtime."""
-    binary = llama_server_path()
-    built_at = int(binary.stat().st_mtime) if binary.exists() else 0
-    head = run_in(["git", "rev-parse", "--short", "HEAD"],
-                  timeout=5, cwd=LLAMA_HOME)["stdout"].strip()
-    return head, built_at, f"{head}:{built_at}"
-
-def llama_crash_suspect():
-    now = time.time()
-    if now - _suspect_cache["t"] < 60:
-        return _suspect_cache["data"]
-    data = {"suspect": False}
-    try:
-        from caravan.admin.state import admin_state, save_admin_state
-        min_crashes = int(os.environ.get("LLAMA_SUSPECT_MIN_CRASHES") or 3)
-        max_age_h = float(os.environ.get("LLAMA_SUSPECT_BUILD_AGE_H") or 6)
-        head, built_at, key = _llama_binary_key()
-        incident = admin_state.get("llamaSuspectIncident")
-        dismissed_key = str(admin_state.get("llamaSuspectDismissed") or "")
-        # An incident belonging to a DIFFERENT build is stale — the binary was
-        # restored/updated since; drop it silently.
-        if incident and incident.get("key") != key:
-            admin_state.pop("llamaSuspectIncident", None)
-            save_admin_state()
-            incident = None
-        # Live detection window (only worth scanning near a fresh build).
-        if built_at and (now - built_at) < max_age_h * 3600 and key != dismissed_key:
-            out = run(["journalctl", "--user", "-u", "lama-cell@*",
-                       "--since", "-15 minutes", "--no-pager", "-o", "cat"], timeout=10)
-            crashes = len(re.findall(
-                r"CUDA error|GGML_ABORT|SIGSEGV|SIGABRT|Aborted \(core dumped\)",
-                out.get("stdout") or ""))
-            if crashes >= min_crashes:
-                incident = {
-                    "key": key, "currentCommit": head, "builtAt": built_at,
-                    "firstSeenAt": int((incident or {}).get("firstSeenAt") or now),
-                    "lastSeenAt": int(now),
-                    "crashes15m": crashes,
-                }
-                admin_state["llamaSuspectIncident"] = incident
-                save_admin_state()
-        # Sticky verdict: an unresolved incident for THIS build keeps the
-        # banner up no matter when the board is opened.
-        if incident and incident.get("key") == key and key != dismissed_key:
-            prev = next((b for b in llama_builds_list()["builds"]
-                         if b.get("commit") and head
-                         and not head.startswith(b["commit"])
-                         and not b["commit"].startswith(head)), None)
-            data = {"suspect": True, "crashes15m": incident.get("crashes15m", 0),
-                    "builtAt": built_at, "currentCommit": head,
-                    "firstSeenAt": incident.get("firstSeenAt"),
-                    "lastSeenAt": incident.get("lastSeenAt"),
-                    "restoreCandidate": prev}
-    except Exception:
-        data = {"suspect": False}
-    _suspect_cache.update(t=now, data=data)
-    return data
-
-def llama_suspect_dismiss():
-    """User said 'hide it': remember per build (survives reloads/restarts);
-    a NEW build starts with a clean slate."""
-    from caravan.admin.state import admin_state, save_admin_state
-    _, _, key = _llama_binary_key()
-    admin_state["llamaSuspectDismissed"] = key
-    admin_state.pop("llamaSuspectIncident", None)
-    save_admin_state()
-    _suspect_cache.update(t=0.0, data={"suspect": False})
-    return {"ok": True, "dismissed": key}
 
 def start_llama_restore(build_id):
     """Restore an archived build (copy back + checkout its commit) as the same

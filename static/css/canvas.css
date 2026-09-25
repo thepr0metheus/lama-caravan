@@ -994,51 +994,6 @@ select.cv-pin { width: 100%; }
   grid-template-rows: auto auto minmax(0, 1fr);
 }
 
-.topology-gpu-modal {
-  width: min(960px, calc(100vw - 40px));
-  max-height: min(800px, calc(100vh - 40px));
-  overflow: hidden;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-}
-
-.topology-gpu-modal-body {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  overflow: hidden;
-  min-height: 0;
-  padding-top: 10px;
-}
-
-.topology-gpu-modal-section {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  overflow: hidden;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px;
-  gap: 6px;
-}
-
-.topology-gpu-modal-section-head {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--muted);
-  letter-spacing: 0.04em;
-}
-
-.topology-gpu-modal-pre {
-  overflow: auto;
-  font-size: 11px;
-  line-height: 1.5;
-  margin: 0;
-  min-height: 0;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
 /* ── Usage & spend statistics modal ── */
 .usage-stats-modal {
   width: min(680px, calc(100vw - 40px));

@@ -33,6 +33,12 @@ def check(cond, msg):
 PROBE = r"""
 import "./_js_globals.mjs";
 import { pathToFileURL } from "node:url";
+// The machine the cell form targets: its cards and its RAM, as its scout
+// reported them. Exported by remote-cells, which is a stub here — the values
+// must exist before the import, and the object is mutated between runs.
+const TR_CPU = { ram: { totalGb: 64, usedGb: 60 } };
+globalThis.__stubValues = { ...(globalThis.__stubValues || {}), "remote-cells._trClientCpu": TR_CPU,
+  "remote-cells._trClientGpus": [{ index: 0, memoryTotalMiB: 8192, memoryFreeMiB: 8192, memoryUsedMiB: 0 }] };
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/memory.js").href);
 const g = (total, free, used) => ({ memoryTotalMiB: total, memoryFreeMiB: free, memoryUsedMiB: used });
 const gx = (index) => ({ index, memoryTotalMiB: 24576, memoryFreeMiB: 24576, memoryUsedMiB: 0 });
@@ -95,6 +101,22 @@ const out = {
     };
   })(),
 };
+// The offload plan's RAM check: the weights that land in RAM against the RAM of
+// the MACHINE the cell runs on — its scout's report — not the controller's.
+{
+  const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
+  st.setState({ gpu: { gpus: [] }, memory: { availableMiB: 65536 }, cpu: {}, config: {} });
+  (globalThis.__stubReturns ||= {})["form.modelsByPath"] = () => new Map([["m.gguf", { path: "m.gguf", sizeGb: 20, ggufMeta: { blockCount: 40 } }]]);
+  const plan = (usedGb) => {
+    TR_CPU.ram.usedGb = usedGb;
+    const box = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
+    globalThis.__fields = { "tr-offloadPlan": box, "tr-MODEL_FILE": { value: "m.gguf" }, "tr-N_GPU_LAYERS": { value: "10" } };
+    try { m.refreshOffloadPlan("tr-"); } catch (e) { return "threw: " + e.message; }
+    const readout = (box.innerHTML.match(/<div class="plan-readout( bad)?">/) || [])[1];
+    return [box.innerHTML.includes("plan-readout"), readout === " bad"];
+  };
+  out.ramShort = { machineFull: plan(60), machineRoomy: plan(4) };
+}
 console.log(JSON.stringify(out));
 """
 
@@ -168,6 +190,14 @@ check(tl["twoHostOnePicked"] is False,
       "в машине две карты, выбрана одна — переключателя нет: делить нечего, а показанный он читался бы как настройка, которая не сработала")
 check(tl["oneCardHost"] is False, "одна карта в машине — переключателя нет")
 check(tl["cpuMode"] is False, "режим CPU — переключателя нет")
+
+print("план выгрузки: RAM машины, а не контроллера:")
+rs = got["ramShort"]
+check(rs["machineFull"] == [True, True],
+      f"в RAM машины свободно 4 ГБ, туда уходит ~15 ГБ весов — план красный, хотя у контроллера свободно 64 ГБ "
+      f"(было: сравнивалось с RAM контроллера, и нехватка на другой машине не показывалась) (got {rs['machineFull']})")
+check(rs["machineRoomy"] == [True, False],
+      f"negative: у машины свободно 60 ГБ — план не красный (got {rs['machineRoomy']})")
 
 print()
 if _fail:

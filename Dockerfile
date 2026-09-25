@@ -2,8 +2,8 @@
 #
 # This image is the fleet's ENTRY DOOR, not its muscle: it serves the board,
 # the config editor and the agent proxies. Models run on GPU hosts you attach
-# with caravan-scout (github.com/thepr0metheus/caravan-scout) — the container
-# has no systemd, so local lama-cell@ units are disabled by CARAVAN_CONTAINER.
+# with caravan-scout (github.com/thepr0metheus/caravan-scout), as on a native
+# install: the controller runs no cells itself.
 #
 #   docker compose up -d          # see docker-compose.yml
 #

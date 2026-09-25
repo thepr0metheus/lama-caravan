@@ -1,4 +1,4 @@
-// Detail/config modals: llama & client detail, GPU, logs, priorities, schedule.
+// Detail/config modals: client detail, logs, priorities, schedule.
 import { SCHEDULE_DAY_LABELS, SCHEDULE_WEEKDAYS, scheduleOutputColor } from "./canvas.js";
 import { appPrompt } from "./dialogs.js";
 import { badge, option } from "./form.js";
@@ -7,15 +7,12 @@ import {
   modalitiesText,
   parseModelName,
   topologyCrownSvg,
-  topologyCtxInfo,
 } from "./model-meta.js";
-import { action, formatTps } from "./polling.js";
+import { formatTps } from "./polling.js";
 import { topologyRouterOutputLabel } from "./routers.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { _proxyUpstreamStr, proxyEffectiveWaitTimeout } from "./topology-activity.js";
 import {
-  topologyGpuModalOpen,
-  topologyLlamaDetailOpen,
   topologyScheduleGrid,
   topologySchedulePaintOutput,
   topologyScheduleRouterId,
@@ -37,61 +34,6 @@ export let queueThresholds = null;           // cached from /api/queue-threshold
 export let topologyLogsOpen = false;
 export let topologyLogsData = null;
 export let topologyLogsDate = "";
-export function renderTopologyLlamaDetail() {
-  if (!topologyLlamaDetailOpen) return "";
-  const server = topology?.server || {};
-  const llama = (server.llamaServers || [])[0] || {};
-  const runtime = server.runtime || {};
-  const props = runtime.props || {};
-  const genSettings = props.default_generation_settings || {};
-  const parsed = parseModelName(llama.model);
-  const ctx = topologyCtxInfo();
-  const timing = ui.latestSystemMonitor?.latest?.llamaActivity?.lastTiming || {};
-  const totalSlots = Number(ui.latestSystemMonitor?.latest?.llamaActivity?.totalSlots || 0);
-  const nCtx = genSettings.n_ctx || props.n_ctx || ctx.limit || "?";
-  const cache = ui.latestSystemMonitor?.latest?.llamaActivity?.promptCache || {};
-  const tx = (k, v) => escapeHtml(t(k, v));
-  return `
-    <div class="topology-policy-overlay" data-topology-llama-detail-overlay>
-      <div class="topology-policy-modal client-detail-modal" role="dialog" aria-modal="true" aria-label="${escapeHtml(llama.name || "Current")}">
-        <div class="topology-card-head">
-          <strong>${escapeHtml(llama.name || "Current")} · ${escapeHtml(t("topologyLlamaDetailTitle"))}</strong>
-          <button class="icon-action compact" type="button" data-topology-llama-detail-close aria-label="${escapeHtml(t("topologyClose"))}" title="${escapeHtml(t("topologyClose"))}">×</button>
-        </div>
-        <div class="client-detail-body">
-          <section class="client-detail-section">
-            <h3>${tx("topologyLlamaModelSection")}</h3>
-            <div class="client-detail-grid">
-              <div><span class="topology-muted">${tx("topologyLlamaName")}</span><strong>${escapeHtml(parsed?.label || "—")}</strong></div>
-              <div><span class="topology-muted">${tx("topologyLlamaQuant")}</span><strong>${escapeHtml(parsed?.quant || "—")}</strong></div>
-              <div><span class="topology-muted">${tx("topologyLlamaSize")}</span><strong>${escapeHtml(parsed?.size || "—")}</strong></div>
-              <div><span class="topology-muted">${tx("topologyLlamaModalities")}</span><strong>${modalitiesText(llama, tx)}</strong></div>
-            </div>
-            <div class="client-detail-models">
-              <div><span class="topology-muted">model</span> <code>${escapeHtml(llama.model || "—")}</code></div>
-              ${llama.mmproj ? `<div><span class="topology-muted">mmproj</span> <code>${escapeHtml(llama.mmproj)}</code></div>` : ""}
-            </div>
-          </section>
-          <section class="client-detail-section">
-            <h3>${tx("topologyLlamaRuntimeSection")}</h3>
-            <div class="client-detail-grid">
-              <div><span class="topology-muted">${tx("topologyLlamaContextWindow")}</span><strong>${escapeHtml(String(nCtx))}</strong></div>
-              <div><span class="topology-muted">${t("tmCtxUsed")}</span><strong>${ctx.limit ? `${ctx.tokens}/${ctx.limit} (${ctx.pct ?? "?"}%)` : "—"}</strong></div>
-              <div><span class="topology-muted">${tx("topologySlots")}</span><strong>${escapeHtml(String(totalSlots || "?"))}</strong></div>
-              <div><span class="topology-muted">${t("tmPromptGenTps")}</span><strong>${timing.promptTps ? formatTps(timing.promptTps) : "—"} / ${timing.evalTps ? formatTps(timing.evalTps) : "—"}</strong></div>
-              <div><span class="topology-muted">${t("tmPort")}</span><strong>${escapeHtml(String(llama.port || "?"))}</strong></div>
-              <div><span class="topology-muted">${t("tmStatus")}</span><strong>${escapeHtml(llama.status?.phase || "?")}</strong></div>
-              ${cache.prompts ? `<div><span class="topology-muted">${t("tmPromptCache")}</span><strong>${Math.round(cache.usedMiB || 0)}/${Math.round(cache.limitMiB || 0)} MiB</strong></div>` : ""}
-            </div>
-            <div class="client-detail-models">
-              <div><span class="topology-muted">${t("tmService")}</span> <code>${escapeHtml(llama.service || "—")}</code></div>
-            </div>
-          </section>
-        </div>
-      </div>
-    </div>
-  `;
-}
 
 export function priorityHueForLevel(level) {
   const n = Math.max(1, Math.min(10, Number(level) || 1));
@@ -219,47 +161,6 @@ export function _queuePctExampleText(cloudPct, priorPct, abortPct) {
   const priorSec = Math.round(wt * priorPct / 100);
   const abortSec = Math.round(wt * abortPct / 100);
   return `${exProxy.label} · wait_timeout=${wt}s → ↑☁ ${cloudSec}s · 👑 ${priorSec}s · ✕ ${abortSec}s`;
-}
-
-export function renderTopologyGpuModal() {
-  if (!topologyGpuModalOpen) return "";
-  const logs = state?.logs || "";
-  const summary = {
-    service: state?.service,
-    llamaCpp: state?.llamaCpp,
-    runtime: {
-      models: state?.runtime?.models,
-      props: {
-        n_ctx: state?.runtime?.props?.default_generation_settings?.n_ctx,
-        modalities: state?.runtime?.props?.modalities,
-        model_path: state?.runtime?.props?.model_path,
-      },
-      metrics: state?.runtime?.metrics,
-    },
-    cpu: state?.cpu,
-    gpu: state?.gpu,
-    memory: state?.memory,
-  };
-  return `
-    <div class="topology-policy-overlay" data-topology-gpu-modal-overlay>
-      <div class="topology-policy-modal topology-gpu-modal" role="dialog" aria-modal="true" aria-label="GPU Logs &amp; Raw API">
-        <div class="topology-card-head">
-          <strong>${escapeHtml(t("gpuLogsHeading"))}</strong>
-          <button class="icon-action compact" type="button" data-topology-gpu-modal-close aria-label="Close" title="Close">×</button>
-        </div>
-        <div class="topology-gpu-modal-body">
-          <div class="topology-gpu-modal-section">
-            <div class="topology-gpu-modal-section-head">${escapeHtml(t("logsSection"))}</div>
-            <pre class="topology-gpu-modal-pre">${escapeHtml(logs || "(no logs)")}</pre>
-          </div>
-          <div class="topology-gpu-modal-section">
-            <div class="topology-gpu-modal-section-head">${escapeHtml(t("rawApiSection"))}</div>
-            <pre class="topology-gpu-modal-pre">${escapeHtml(JSON.stringify(summary, null, 2))}</pre>
-          </div>
-        </div>
-      </div>
-    </div>
-  `;
 }
 
 export function renderTopologyQueuePriorityModal() {

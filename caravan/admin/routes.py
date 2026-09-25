@@ -45,7 +45,6 @@ from caravan.admin.paths import (
     AGENT_PROXY_LOG_DIR,
     AGENT_PROXY_SERVICE_NAME,
     AGENT_PROXY_STATE_FILE,
-    CLIENT_LABELS_FILE,
     CLOUD_PROVIDERS_FILE,
     DEFAULT_MODELS_DIR,
     HOST,
@@ -62,7 +61,6 @@ from caravan.admin.paths import (
     PROJECT_ROOT,
     PROVIDER_SECRETS_FILE,
     SERVER_BACKUPS_DIR,
-    SERVER_CELLS_DIR,
     SERVER_CELL_BASE_PORT,
     SERVICE_NAME,
     START_SCRIPT,
@@ -73,13 +71,12 @@ from caravan.admin.paths import (
     _BENCH_CACHE_DIR,
 )
 from caravan.admin.state import admin_state, load_admin_state, save_admin_state, topology_store
-from caravan.admin.backups import backup_config, backups, delete_backup, resolve_backup_path, revert_latest
 from caravan import __version__ as APP_VERSION
 from caravan.admin.cell_schedule import set_cell_schedule
 from caravan.admin.metrics import build_metrics_text
 from caravan.admin.model_gc import delete_models, list_unused_models
 from caravan.admin import auth as auth_mod
-from caravan.admin.status import controller_info, do_action, project_git_info, llama_builds_list, llama_cpp_info, llama_suspect_dismiss, llama_update_status, models_disk, start_llama_restore, start_llama_update, start_vllm_update, state, vllm_info
+from caravan.admin.status import controller_info, project_git_info, llama_builds_list, llama_cpp_info, llama_update_status, models_disk, start_llama_restore, start_llama_update, state
 from caravan.admin.cell_assets import cell_asset_bytes, cell_assets_manifest
 from caravan.admin.host_power import host_power
 from caravan.admin.host_power_schedule import set_host_power_schedule
@@ -112,7 +109,6 @@ from caravan.admin.server_cells import (
     upsert_server_slot,
     used_server_cell_ports,
 )
-from caravan.admin.cell_move import CellToScout
 from caravan.admin.fleet_clients import (
     HOST_TELEMETRY,
     _backup_meta,
@@ -125,6 +121,9 @@ from caravan.admin.fleet_clients import (
     client_llama_purge_cache,
     client_llama_builds,
     client_llama_restore,
+    client_vllm,
+    client_vllm_update,
+    client_vllm_update_status,
     client_llama_suspect_dismiss,
     client_llama_start,
     client_llama_stop,
@@ -169,43 +168,30 @@ from caravan.admin.cloud_api import (
     usage_stats,
 )
 from caravan.admin.queue_thresholds import QUEUE_THRESHOLDS, compute_queue_thresholds
-from caravan.admin.llama_metrics import parse_llamacpp_metrics, runtime_metrics_sample
 from caravan.admin.token_history import (
-    controller_gen_tps_samples,
-    controller_llama_ports,
-    controller_token_metrics,
     load_token_history,
-    record_controller_gen_tps,
     record_token_history,
     save_token_history,
     token_history_query,
 )
 from caravan.admin.proxy_stats import (
     agent_proxy_sample,
-    iso_seconds,
     list_agent_proxy_log_dates,
     load_agent_proxy_logs,
-    nearest_event,
     proxy_daily_stats,
-    proxy_item_timestamp,
     proxy_usage_tokens,
-    requests_by_client,
     summarize_proxy_item,
 )
 from caravan.admin.monitoring import (
     append_incidents_from_sample,
     cpu_snapshot,
     gpu_compute_apps,
-    llama_activity_cache,
     runtime_api,
     collect_monitor_sample,
     correlate_activity,
     cpu_state,
     gpu_state,
     incident_lock,
-    llama_activity_sample,
-    llama_clients_sample,
-    load_client_labels,
     load_incident_log,
     load_monitor_history,
     memory_state,
@@ -215,8 +201,6 @@ from caravan.admin.monitoring import (
     monitor_sampler_loop,
     monitor_snapshot,
     persist_monitor_history,
-    save_client_labels,
-    set_client_label,
     set_monitor_retention,
     system_monitor_state,
     trim_incident_log,
@@ -309,10 +293,6 @@ from caravan.admin.models import (
     serve_model_file,
 )
 from caravan.admin.systemd_ctl import (
-    cell_service_action,
-    cell_service_name,
-    cell_service_status,
-    ensure_cell_service_template,
     logs,
     read_cmdline,
     repair_user_service,
@@ -340,18 +320,7 @@ from caravan.admin.config_builder import (
     quote_shell_value,
     split_config,
 )
-from caravan.admin.launch import (
-    LAUNCH_COMMAND_BEGIN,
-    LAUNCH_COMMAND_END,
-    _sanitize_snapshot_name,
-    render_command_cell_script,
-    render_launch_script,
-    render_server_cell_script,
-    save_config,
-    server_cell_dir,
-    snapshot_config,
-    write_server_cell_artifacts,
-)
+from caravan.admin.launch import save_config
 
 
 # --- HuggingFace Browser ---
@@ -616,6 +585,22 @@ def _get_api_fleet_llama_update_status(h, parsed):
         h.send_json(client_llama_update_status((_q.get("hostId") or [""])[0].strip()))
         return
 
+@_route(GET_ROUTES, '/api/fleet/vllm')
+def _get_api_fleet_vllm(h, parsed):
+        # vLLM on a machine with a scout (its venv, history, install job) and
+        # the machines to choose from; none named = this controller's machine.
+        import urllib.parse as _up
+        _q = _up.parse_qs(parsed.query or "")
+        h.send_json(client_vllm((_q.get("hostId") or [""])[0].strip()))
+        return
+
+@_route(GET_ROUTES, '/api/fleet/vllm/update-status')
+def _get_api_fleet_vllm_update_status(h, parsed):
+        import urllib.parse as _up
+        _q = _up.parse_qs(parsed.query or "")
+        h.send_json(client_vllm_update_status((_q.get("hostId") or [""])[0].strip()))
+        return
+
 @_route(GET_ROUTES, '/api/fleet/llama-builds')
 def _get_api_fleet_llama_builds(h, parsed):
         import urllib.parse as _up
@@ -791,9 +776,14 @@ def _get_api_state(h, parsed):
         h.send_json(state())
         return
 
-@_route(GET_ROUTES, '/api/raw/start-server')
-def _get_api_raw_start_server(h, parsed):
-        h.send_json({"text": read_text(START_SCRIPT)})
+@_route(GET_ROUTES, '/api/project-git')
+def _get_api_project_git(h, parsed):
+        # The board's live beat reads only this: the git chip. It fetched the
+        # whole /api/state for it — every 1.5 s per open tab, two llama-server
+        # launches, a dozen git/systemctl/journalctl runs and probes of the
+        # controller's absent single server. The classic page, which read the
+        # rest, went in step 6.9.
+        h.send_json(project_git_info())
         return
 
 @_route(GET_ROUTES, '/api/controller-info')
@@ -885,23 +875,6 @@ def _get_api_llamacpp_builds(h, parsed):
         h.send_json(llama_builds_list())
         return
 
-@_route(GET_ROUTES, '/api/vllm')
-def _get_api_vllm(h, parsed):
-        h.send_json(vllm_info())
-        return
-
-@_route(GET_ROUTES, '/api/backup')
-def _get_api_backup(h, parsed):
-        query = dict(item.split("=", 1) for item in parsed.query.split("&") if "=" in item)
-        h.send_json(backup_config(urllib.parse.unquote(query.get("path", ""))))
-        return
-
-# One address per page, so a URL identifies which page you are on without
-# anyone having to know a synonym list. /board is that address for the board;
-# / and /index.html redirect to it rather than serving a second copy, which
-# keeps every existing bookmark working and still leaves exactly one canonical
-# answer in the address bar. 302, not 301: a permanent redirect is cached hard
-# by browsers and is unpleasant to take back.
 @_route(GET_ROUTES, '/board')
 def _get_root(h, parsed):
         h.send_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
@@ -1191,34 +1164,11 @@ def _post_api_aa_scores(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/config')
 def _post_api_config(h, parsed, body):
-        cfg = body.get("config") or {}
-        old_cell_port = body.get("cellPort")
-        cell_port = None
-        if old_cell_port not in (None, ""):
-            old_cell_port = int(old_cell_port)
-            new_port = int((cfg or {}).get("PORT") or old_cell_port)
-            cell_port = new_port
-            if new_port != old_cell_port:
-                move_server_cell(CONTROLLER_HOST_ID, old_cell_port, new_port,
-                                 config=cfg, model=(cfg or {}).get("MODEL_FILE"))
-            else:
-                assert_server_cell_port_available(new_port, exclude_key=server_slot_key(CONTROLLER_HOST_ID, new_port))
-                upsert_server_slot(CONTROLLER_HOST_ID, new_port, config=cfg, model=(cfg or {}).get("MODEL_FILE"))
-        backup = None if cell_port else save_config(cfg)
-        action_result = None
-        if body.get("restart"):
-            if cell_port:
-                action_result = cell_service_action(cell_port, "restart")
-            else:
-                action_result = do_action("restart")
-        h.send_json({"ok": True, "backup": backup, "action": action_result,
-                        "cellPort": cell_port, "state": state()})
-        return
-
-@_route(POST_ROUTES, '/api/config/snapshot')
-def _post_api_config_snapshot(h, parsed, body):
-        snapshot = snapshot_config(body.get("name"), body.get("config"))
-        h.send_json({"ok": True, "snapshot": snapshot, "state": state()})
+        # The controller's own settings (the models directory, the defaults a
+        # new cell starts from). A cell's config is saved on its slot
+        # (/api/topology/server-cell/save-config); the controller runs none.
+        backup = save_config(body.get("config") or {})
+        h.send_json({"ok": True, "backup": backup, "state": state()})
         return
 
 @_route(POST_ROUTES, '/api/llama-command-preview')
@@ -1273,29 +1223,9 @@ def _post_api_config_favorites(h, parsed, body):
         h.send_json({"ok": True, "favFields": clean})
         return
 
-@_route(POST_ROUTES, '/api/action')
-def _post_api_action(h, parsed, body):
-        result = do_action(str(body.get("action", "")))
-        h.send_json({"ok": True, "result": result, "state": state()})
-        return
-
 @_route(POST_ROUTES, '/api/repair/user-service')
 def _post_api_repair_user_service(h, parsed, body):
         result = repair_user_service()
-        h.send_json({"ok": True, "result": result, "state": state()})
-        return
-
-@_route(POST_ROUTES, '/api/revert')
-def _post_api_revert(h, parsed, body):
-        result = revert_latest()
-        if body.get("restart"):
-            result["restart"] = do_action("restart")
-        h.send_json({"ok": True, "result": result, "state": state()})
-        return
-
-@_route(POST_ROUTES, '/api/backup/delete')
-def _post_api_backup_delete(h, parsed, body):
-        result = delete_backup(str(body.get("path", "")))
         h.send_json({"ok": True, "result": result, "state": state()})
         return
 
@@ -1308,17 +1238,6 @@ def _post_api_llamacpp_update(h, parsed, body):
 @_route(POST_ROUTES, '/api/llamacpp/restore')
 def _post_api_llamacpp_restore(h, parsed, body):
         job = start_llama_restore(str((body or {}).get("id") or ""))
-        h.send_json({"ok": True, "job": job})
-        return
-
-@_route(POST_ROUTES, '/api/llamacpp/suspect-dismiss')
-def _post_api_llamacpp_suspect_dismiss(h, parsed, body):
-        h.send_json(llama_suspect_dismiss())
-        return
-
-@_route(POST_ROUTES, '/api/vllm/update')
-def _post_api_vllm_update(h, parsed, body):
-        job = start_vllm_update(str((body or {}).get("version") or ""))
         h.send_json({"ok": True, "job": job})
         return
 
@@ -1359,11 +1278,6 @@ def _post_api_api_pricing(h, parsed, body):
             admin_state["apiPricing"].pop(model, None)  # clearing both removes the override
         save_admin_state()
         h.send_json({"ok": True, "pricing": admin_state["apiPricing"]})
-        return
-
-@_route(POST_ROUTES, '/api/system-monitor/client-label')
-def _post_api_system_monitor_client_label(h, parsed, body):
-        h.send_json({"ok": True, "result": set_client_label(body.get("ip"), body.get("label"))})
         return
 
 @_route(POST_ROUTES, '/api/agent-proxies/config')
@@ -1618,10 +1532,9 @@ def _post_api_fleet_llama_restore(h, parsed, body):
         h.send_json(client_llama_restore(body))
         return
 
-@_route(POST_ROUTES, '/api/topology/cell/move-to-scout')
-def _post_api_topology_cell_move_to_scout(h, parsed, body):
-        # Step 6.8: one cell of this controller to the scout of its machine.
-        h.send_json(CellToScout((body or {}).get("port"), (body or {}).get("hostId")).run())
+@_route(POST_ROUTES, '/api/fleet/vllm/update')
+def _post_api_fleet_vllm_update(h, parsed, body):
+        h.send_json(client_vllm_update(body))
         return
 
 @_route(POST_ROUTES, '/api/fleet/llama-suspect-dismiss')

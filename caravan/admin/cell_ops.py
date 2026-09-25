@@ -1,71 +1,26 @@
-"""Server-cell lifecycle actions (start/stop/save/delete across controller
-systemd cells and client cells via the route-agent). Sits above status because
-the handlers return the composite state()."""
+"""Server-cell lifecycle actions (start/stop/save/delete of cells, each run
+through the scout of its machine). Sits above status because the handlers
+return the composite state(). The controller runs no cell itself since step
+6.8: its own machine's cells are its scout's."""
 import os
-import shutil
 
-from caravan.admin.config_builder import is_command_cell, gpu_layers_int
-from caravan.admin.runners import runner_id, uses_command_path
+from caravan.admin.config_builder import gpu_layers_int
+from caravan.admin.runners import uses_command_path
 from caravan.domain.runner import for_config
 from caravan.admin.fleet_clients import client_llama_autostart, client_llama_start, client_llama_stop
-from caravan.admin.cell_assets import assets_for_runner, materialize_local_assets
-from caravan.admin.launch import server_cell_dir, write_server_cell_artifacts
 from caravan.admin.config_builder import model_paths
-from caravan.admin.model_locator import current_locations
 from caravan.admin.server_cells import (
     assert_server_cell_port_available,
     delete_server_slot,
+    refuse_controller_host,
     reserve_server_cell,
     server_slot_key,
     upsert_server_slot,
 )
-from caravan.admin.monitoring import gpu_state
-from caravan.admin.paths import is_controller_host
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.admin.state import topology as topo
 from caravan.admin.status import state
-from caravan.admin.systemd_ctl import cell_service_action, cell_service_name, cell_service_status, listening_pid, systemctl
 from caravan.common.errors import AppError
-
-
-def _vram_gate(port, cfg):
-    """Fail a start FAST when the card cannot host what it reserves up front
-    (Runner.vram_reservation — vLLM's util×total), which otherwise dies in a
-    minute-long crash loop (live incident: :8010 and :8012 both wanting the
-    one 5090). Best-effort: silent when nvidia-smi is absent. A scout checks
-    the same reservation on its own machine at launch (the start's `vram`)."""
-    runner = for_config(cfg)
-    probe = getattr(runner, "vram_reservation", None)
-    if probe is None:
-        return
-    gs = gpu_state()
-    if not gs.get("ok") or not gs.get("gpus"):
-        return
-    want = probe(cfg, gs["gpus"])
-    if not want:
-        return
-    card = next((g for g in gs["gpus"] if str(g.get("index")) == str(want["device"])), {})
-    try:
-        free = float(card.get("memoryFreeMiB") or 0)
-    except (TypeError, ValueError):
-        return
-    if free >= want["reserveMiB"]:
-        return
-    holders = []
-    for slot in topo.slots().values():
-        s_port = int(slot.get("port") or 0)
-        if not is_controller_host(slot.get("hostId")) or s_port == port or not s_port:
-            continue
-        try:
-            if cell_service_status(s_port).get("ActiveState") == "active":
-                holders.append(f":{s_port}")
-        except Exception:
-            pass
-    hint = (f" — stop {', '.join(sorted(holders))} or lower {want['lower']}"
-            if holders else f" — lower {want['lower']}")
-    raise AppError(
-        f"{want['who']} wants {want['reserveMiB'] / 1024:.1f} GiB reserved ({want['why']}) "
-        f"but only {free / 1024:.1f} GiB VRAM is free on GPU {want['device']}{hint}", 409)
 
 
 def client_server_slot_add(body: dict) -> dict:
@@ -96,38 +51,13 @@ def client_server_slot_delete(body: dict) -> dict:
     if not host_id or not port:
         raise AppError("hostId and port are required", 400)
     removed = delete_server_slot(host_id, port)
-    # A client cell IS the agent's llama-node (not just a stored slot), so also
-    # tell the agent to stop/clear it — otherwise a configured/failed cell keeps
-    # coming back from the agent's heartbeat and can't be deleted from the UI.
-    if not is_controller_host(host_id):
-        try:
-            client_llama_stop({"hostId": host_id, "port": port})
-        except Exception:
-            pass
-    else:
-        # The controller's cell IS a systemd unit, and dropping the slot does not
-        # touch it: delete a running one and llama-server keeps serving, holding
-        # its VRAM, with nothing left on the board to stop it BY — the card is
-        # gone. That is how :8011 came to sit on 27 GB of a 32 GB card while two
-        # other cells failed to start and the UI showed no model at all.
-        try:
-            cell_service_action(port, "stop")
-        except Exception:
-            pass
-        try:
-            systemctl("reset-failed", cell_service_name(port), timeout=5)
-        except Exception:
-            pass
-        # Delete mirrors create: write_server_cell_artifacts() laid down
-        # var/server-cells/<port>/{cell.json,start.sh}, and leaving them behind
-        # is not merely litter. The port outlives the cell — it can be handed to
-        # a CLIENT next — and a stale start.sh still describes a controller cell
-        # on it, one `systemctl start lama-cell@<port>` away from putting two
-        # different cells on one number again.
-        try:
-            shutil.rmtree(server_cell_dir(port), ignore_errors=True)
-        except Exception:
-            pass
+    # A scout's cell IS its node there (not just a stored slot), so also tell
+    # the scout to stop and clear it — otherwise a configured/failed cell keeps
+    # coming back from the scout's report and can't be deleted from the UI.
+    try:
+        client_llama_stop({"hostId": host_id, "port": port})
+    except Exception:
+        pass
     return {"ok": True, "removed": removed}
 
 def server_cell_save_config(body: dict) -> dict:
@@ -139,70 +69,50 @@ def server_cell_save_config(body: dict) -> dict:
     if not host_id or not port:
         raise AppError("hostId and port are required", 400)
     slot = upsert_server_slot(host_id, port, config=config, model=model)
-    if is_controller_host(host_id):
-        # A new config invalidates the previous crash: clear the unit's failed
-        # state so the card stops shouting about a config that no longer exists.
-        try:
-            if cell_service_status(port).get("ActiveState") == "failed":
-                systemctl("reset-failed", cell_service_name(port), timeout=5)
-        except Exception:
-            pass
     autostart = None
-    if not is_controller_host(host_id):
-        slot["cacheModels"] = bool(body.get("cacheModels", False))
-        topo.put_slot(host_id, port, slot)
-        save_admin_state()
-        # A cell that starts with its machine starts from the request its
-        # scout keeps; new settings go there too, or the next boot brings back
-        # the old ones. Said in the answer when the scout would not take them.
-        host = (topology_store().get("hosts") or {}).get(host_id) or {}
-        if port in (host.get("autostart") or []):
-            try:
-                autostart = client_llama_autostart(scout_start_body(host_id, port, slot), enabled=True)
-            except Exception as exc:  # noqa: BLE001 — the settings are saved either way
-                autostart = {"ok": False, "error": str(exc)}
+    slot["cacheModels"] = bool(body.get("cacheModels", False))
+    topo.put_slot(host_id, port, slot)
+    save_admin_state()
+    # A cell that starts with its machine starts from the request its scout
+    # keeps; new settings go there too, or the next boot brings back the old
+    # ones. Said in the answer when the scout would not take them.
+    host = (topology_store().get("hosts") or {}).get(host_id) or {}
+    if port in (host.get("autostart") or []):
+        try:
+            autostart = client_llama_autostart(scout_start_body(host_id, port, slot), enabled=True)
+        except Exception as exc:  # noqa: BLE001 — the settings are saved either way
+            autostart = {"ok": False, "error": str(exc)}
     doc = {"ok": True, "hostId": host_id, "port": port, "state": state()}
     if autostart is not None:
         doc["autostart"] = {"ok": bool(autostart.get("ok")), **({"error": autostart["error"]} if autostart.get("error") else {})}
     return doc
 
-def bring_home(host_id, port, config, choice, locations, then_start=True):
-    """Decide where this cell reads its model from, and act on it.
+def bring_home(config, locations):
+    """Bring a scheduled cell's model home from the library it sits in, before
+    the cell's window opens — when there is room for it; when there is not,
+    the cell reads it where it lies. Returns the move that was started, or
+    None: the model is on this disk already, or it stays in the library.
 
-    Returns the move that was started, or None when the cell may start right
-    now — either because its model is on this disk already, or because it will
-    be read from the library it sits in.
-
-    `choice` is what the operator answered: "disk" brings the model back and
-    starts the cell when it is here, "library" starts now and reads it there.
-    Empty means nobody could be asked — a schedule, a restart after a crash —
-    and then the model comes home if there is room for it and is read where it
-    lies if there is not. No second copy of the space arithmetic: the planner
-    already refuses "no-room", and that refusal IS the answer.
-
-    `then_start` is False when the move is only a preparation — the schedule
-    fetching a model before its window opens. The cell is not started then: its
-    window has not come.
+    No second copy of the space arithmetic: the planner already refuses
+    "no-room", and that refusal IS the answer. The cell is not started — its
+    window has not come. (The controller's own cells asked their operator
+    "disk or library" at start, and a move could start them when the file
+    arrived; those cells are its machine's scout's since step 6.8.)
     """
     away = [at for at in model_paths(config, locations).values() if at.in_library]
-    if not away or choice == "library":
+    if not away:
         return None
     from caravan.admin.model_stores import StoreRegistry
     from caravan.admin.store_moves import MoveRefused, runner as move_runner
-    then = {"start": {"hostId": host_id, "port": port}} if then_start else {}
     started = None
     by_store = {}
     for at in away:
         by_store.setdefault(at.store["id"], []).append(at.rel)
     try:
-        # One job per library the files are spread over; the promise to start
-        # rides on the last one. The start script checks every file anyway, so
-        # a cell whose earlier job failed refuses to start and says which file.
+        # One job per library the files are spread over.
         for store_id, rels in by_store.items():
-            started = move_runner().start(sorted(rels), StoreRegistry.LOCAL_ID, source_id=store_id, then=then)
+            started = move_runner().start(sorted(rels), StoreRegistry.LOCAL_ID, source_id=store_id, then={})
     except MoveRefused:
-        if choice == "disk":
-            raise
         return None
     return started
 
@@ -215,54 +125,7 @@ def server_cell_action(body: dict) -> dict:
         raise AppError("hostId and port are required", 400)
     if action_name not in {"start", "stop", "restart", "enable", "disable"}:
         raise AppError("action must be start, stop, restart, enable, or disable", 400)
-    if is_controller_host(host_id):
-        slot = topo.slot(host_id, port)
-        cfg = slot.get("config") if isinstance(slot.get("config"), dict) else {}
-        if action_name in {"start", "restart"}:
-            _vram_gate(port, cfg)
-        # Preflight: llama.cpp reports a taken port as a bind error buried deep
-        # in its log. Say it up front, with WHO holds it — unless the holder is
-        # this cell's own unit (then start is a no-op / restart is the point).
-        if action_name in {"start", "restart"}:
-            try:
-                _own = cell_service_status(port).get("ActiveState") == "active"
-            except Exception:
-                _own = False
-            if not _own:
-                _lpid, _lcomm = listening_pid(port)
-                if _lpid or _lcomm:
-                    raise AppError(
-                        f"port {port} is already in use by "
-                        f"{_lcomm or 'another process'}"
-                        f"{f' (pid {_lpid})' if _lpid else ''} — stop it first", 409)
-        where = current_locations(wait=True) if action_name in {"start", "restart", "enable"} else None
-        # A model that lives in a library: bring it home first, or read it
-        # there. The answer may be a move, and then the cell starts when the
-        # move ends — not now.
-        if action_name in {"start", "restart"}:
-            bringing = bring_home(host_id, port, cfg, str(body.get("modelFrom") or ""), where)
-            if bringing:
-                return {"ok": True, "hostId": host_id, "port": port, "action": action_name,
-                        "bringing": bringing, "state": state()}
-        # The script is written again at every start, not only when it is
-        # missing: where a model lives can change between two starts. A file
-        # moved into a library since the last one has to be read from there,
-        # and the script written back then still points at this disk.
-        if action_name in {"start", "restart", "enable"}:
-            artifact = write_server_cell_artifacts(host_id, port, cfg, locations=where)
-            if artifact:
-                slot["artifact"] = artifact
-                topo.put_slot(host_id, port, slot)
-                save_admin_state()
-        # The command names $HOME/run_<runner>.sh — put the current one there.
-        # Same step a scout performs over HTTP before starting a client cell;
-        # here the source is simply this repo. Failures are logged inside and
-        # never block the start: an existing copy is better than no cell.
-        if action_name in {"start", "restart"} and uses_command_path(cfg):
-            materialize_local_assets(assets_for_runner(runner_id(cfg)))
-        result = cell_service_action(port, action_name)
-        return {"ok": True, "hostId": host_id, "port": port, "action": action_name,
-                "result": result, "status": cell_service_status(port)}
+    refuse_controller_host(host_id)
     if action_name == "stop":
         result = client_llama_stop({"hostId": host_id, "port": port})
         return {"ok": result.get("ok", False), "hostId": host_id, "port": port, "action": action_name, "result": result}
@@ -282,7 +145,7 @@ def server_cell_action(body: dict) -> dict:
             # answer 404.
             result = client_llama_start(body)
         return {"ok": result.get("ok", False), "hostId": host_id, "port": port, "action": action_name, "result": result}
-    raise AppError(f"action '{action_name}' not supported for remote host", 400)
+    raise AppError(f"action '{action_name}' not supported", 400)
 
 
 def scout_start_body(host_id, port, slot, check=True):

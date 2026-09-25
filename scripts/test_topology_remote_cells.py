@@ -50,7 +50,7 @@ SLOTS = {
 WHISPER_HEALTH = {"status": "ok", "meta": {"source": "d1g3st"}, "targetLang": "en"}
 
 
-def served(nodes, parked=(), health="ok", **host_fields):
+def served(nodes, parked=(), health="ok", slots=None, libraries=(), **host_fields):
     """topology_server over one machine whose scout reports `nodes`. Only
     their slots are stored, and those of `parked` ports: a stored cell nobody
     reports is a parked card, which another loop draws. `health` is what a
@@ -58,19 +58,15 @@ def served(nodes, parked=(), health="ok", **host_fields):
     host = dict(HOST, llamaNodes=[dict(n) for n in nodes], **host_fields)
     reported = {n["port"] for n in nodes} | set(parked)
     patch = {
-        "service_status": lambda: {"ActiveState": "inactive"},
-        "runtime_api": lambda _config: {},
-        "runtime_phase": lambda *_a: {},
         "gpu_state": lambda: {"gpus": []},
-        "runtime_metrics_sample": lambda: {"ok": False},
         "topology_store": lambda: {"hosts": {"box-a": host},
-                                   "serverSlots": {k: dict(v) for k, v in SLOTS.items()
+                                   "serverSlots": {k: dict(v) for k, v in {**SLOTS, **(slots or {})}.items()
                                                    if v["port"] in reported}},
         "command_cell_health": lambda _ip, port, _path: dict(WHISPER_HEALTH) if port == 22024 else None,
         "remote_llama_health": lambda *_a: health,
         "remote_llama_modalities": lambda *_a: None,
         "probe_remote_port": lambda *_a: True,
-        "current_locations": lambda: Locations([]),
+        "current_locations": lambda: Locations(list(libraries)),
         "_saved_command": lambda *_a: "",
     }
     saved = {k: getattr(T, k) for k in patch}
@@ -246,8 +242,28 @@ def test_retry_on_the_card():
     check(status(LLAMA) == {"phase": "warming"}, "negative: не падала — ничего")
 
 
+def test_library_on_the_card():
+    print("📚 у ячейки скаута — модель в библиотеке:")
+    libs = [{"id": "nas", "name": "NAS", "state": "ok", "path": "/mnt/nas",
+             "files": [{"path": "org/lib.gguf", "size": 5}, {"path": "org/proj.gguf", "size": 2}]}]
+    cfg = {"MODEL_FILE": "org/lib.gguf", "MMPROJ_FILE": "org/proj.gguf", "LLAMA_MODELS_DIR": "/nowhere"}
+    slots = {"box-a:22031": {"id": "box-a:22031", "hostId": "box-a", "port": 22031, "model": "org/lib.gguf",
+                             "config": dict(cfg)},
+             "box-a:22032": {"id": "box-a:22032", "hostId": "box-a", "port": 22032, "model": "org/lib.gguf",
+                             "config": dict(cfg)}}
+    live = {"port": 22031, "running": True, "phase": "running", "modelPath": "/mnt/nas/org/lib.gguf"}
+    answer = served([live, LLAMA], parked=(22032,), slots=slots, libraries=libs)
+    cards = {s["port"]: s for s in answer["llamaServers"]}
+    want = {"stores": [{"id": "nas", "name": "NAS"}], "roles": ["model", "mmproj"]}
+    check(cards[22031].get("modelStore") == want,
+          "работающая ячейка скаута: 📚 и какие её файлы держит библиотека — у перенесённых ячеек машины "
+          "контроллера чип пропал, когда они стали ячейками скаута")
+    check(cards[22032].get("modelStore") == want, "стоящая ячейка — так же")
+    check(cards[22021].get("modelStore") is None, "negative: модель на диске — чипа нет")
+
+
 if __name__ == "__main__":
-    for fn in (test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell, test_autostart_on_the_card,
+    for fn in (test_library_on_the_card, test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell, test_autostart_on_the_card,
                test_crash_on_the_card, test_retry_on_the_card, test_vllm_stats_on_the_card,
                test_starting_on_its_machine):
         try:

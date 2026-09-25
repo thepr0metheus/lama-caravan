@@ -425,12 +425,18 @@ export function refreshOffloadPlan(pfx) {
     return perLayer > 0 ? Math.max(0, Math.min(split.layers, Math.floor(forWeights / perLayer))) : 0;
   })();
   const mode = raw === "all" ? "all" : (/^\d+$/.test(raw) ? "manual" : "auto");
-  const tHook = pfx === "tr-" ? "cell-remote-offload" : "cell-edit-offload";
+  // One cell editor, one set of hooks (the controller's own editor and its
+  // cell-edit-* names went with its cells in step 6.9).
+  const tHook = "cell-remote-offload";
   // Spelled out rather than `${tHook}-slider`: the testability guard derives
   // only the "-picker" suffix, and a hook it cannot see is a hook the doc does
   // not publish — a suite would then look for a name the page never announces.
-  const tSlider = pfx === "tr-" ? "cell-remote-offload-slider" : "cell-edit-offload-slider";
-  const ramFree = Number(state.memory?.availableMiB || 0) / 1024;
+  const tSlider = "cell-remote-offload-slider";
+  // The RAM of the machine the cell runs on, as its scout reported it. It read
+  // the controller's own free RAM for every machine, so a cell that would
+  // spill past a small machine's RAM looked fine whenever the controller had
+  // room to spare.
+  const ramFree = computeTargetRamGb(pfx);
   const ramShort = split.ramGb - ramFree;
 
   const card = (id, active, icon, title, main, sub, warn) =>
@@ -543,7 +549,7 @@ export function refreshComputeTarget(pfx) {
   // data-t-id, and the `disabled` attribute left on the tiles this runner
   // cannot use — which is the state worth asserting, since it changes with
   // the runner.
-  const tHook = pfx === "tr-" ? "cell-remote-compute" : "cell-edit-compute";
+  const tHook = "cell-remote-compute";
   const card = (active, disabled, attrs, icon, title, main, sub) =>
     `<button type="button" class="compute-card${active ? " active" : ""}${disabled ? " disabled" : ""}" ${disabled ? "disabled" : ""} title="${escapeHtml([title, main, sub].filter(Boolean).join(" · "))}" ${attrs}>
       <span class="compute-card-head"><span class="compute-card-icon" aria-hidden="true">${icon}</span><span class="compute-card-name">${escapeHtml(title)}</span>${main ? `<span class="compute-card-main">${escapeHtml(main)}</span>` : ""}${sub ? `<span class="compute-card-sub">${escapeHtml(sub)}</span>` : ""}${active ? '<span class="compute-card-check" aria-hidden="true">✓</span>' : ""}</span>
@@ -605,7 +611,7 @@ export function refreshComputeTarget(pfx) {
   // changes nothing, and a control that changes nothing is worse than none:
   // the operator reads it as a setting that did not take effect.
   const splitRow = (multi && mode === "gpu" && shownSel.length > 1)
-    ? new SplitMode($(pfx + "SPLIT_MODE")?.value).html(pfx === "tr-" ? "cell-remote-split" : "cell-edit-split")
+    ? new SplitMode($(pfx + "SPLIT_MODE")?.value).html("cell-remote-split")
     : "";
   box.innerHTML = `<div class="compute-label">${t("computeTarget")}</div><div class="compute-cards">${cpuCard}${gpuCards}${autoCard}</div>${subPicker}${splitRow}`;
   refreshOffloadPlan(pfx);

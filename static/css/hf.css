@@ -200,7 +200,7 @@
 /* The llama/command field wrappers must NOT break the form's flex gap:
    display:contents promotes their children back into the form's layout.
    (style.display="none" still hides them for the Llama/Command toggle.) */
-#te-llamaFields, #tr-llamaFields { display: contents; }
+#tr-llamaFields { display: contents; }
 
 /* Reserved (empty) cell: show the port prominently, "reserved" as a muted tag */
 .node-reserved-tag {

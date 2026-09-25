@@ -134,6 +134,11 @@ PINS = [
      '(() => { m.appPrompt("Name", { placeholder: "x" }); const shown = !F().confirmInputHint.hidden; m.settleAppConfirm(false); const afterSettle = F().confirmInputHint.hidden; m.appConfirm("Sure?"); const inConfirm = F().confirmInputHint.hidden; m.settleAppConfirm(false); return [shown, afterSettle, inConfirm]; })()',
      '[true,true,true]',
      "negative: клавиша видна только в открытом prompt: после закрытия и у обычного confirm она скрыта"),
+    ("no_choose_mode",
+     '',
+     'await (async () => { const kind = typeof m.appChoose; const p = m.appConfirm("x", { options: [{ value: "a", label: "A" }] }); const shown = [F().confirmMeta.innerHTML, F().confirmMeta.hidden, F().confirmDelete.hidden]; m.settleAppConfirm("a"); return [kind, shown, await p]; })()',
+     '["undefined",["",true,false],true]',
+     "negative: режима с несколькими ответами нет (appChoose служил вопросу старта ячейки контроллера): options не рисуются кнопками, OK на месте, строка-ответ — просто «да»"),
 ]
 
 

@@ -50,18 +50,10 @@ const out = {
     bareTx: m.modalitiesText({}, tx),
     nullish: m.modalitiesText(null),
   },
-  ctx: {
-    given: m.topologyCtxInfo(),
-  },
+  // The controller's own server's context window (read from its monitor) went
+  // with its cells in step 6.9, together with the detail modal that showed it.
+  ctxGone: "topologyCtxInfo" in m,
 };
-// topologyCtxInfo читает ui.latestSystemMonitor — подставляем через настоящий state.js
-const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
-st.ui.latestSystemMonitor = { latest: { llamaActivity: { context: { limit: 4096, tokens: 1024 } } } };
-out.ctx.derived = m.topologyCtxInfo();
-st.ui.latestSystemMonitor = { latest: { llamaActivity: { context: { limit: 4096, tokens: 1024, pct: 7 } } } };
-out.ctx.explicit = m.topologyCtxInfo();
-st.ui.latestSystemMonitor = { latest: { llamaActivity: { context: { tokens: 50 } } } };
-out.ctx.noLimit = m.topologyCtxInfo();
 console.log(JSON.stringify(out));
 """
 
@@ -127,12 +119,8 @@ check(mods["bare"] == "off", f"без словаря и без mmproj → {mods[
 check(mods["bareTx"] == "<topologyOff>", f"…и через переводчик → {mods['bareTx']!r}")
 check(mods["nullish"] == "off", f"null-ячейка → {mods['nullish']!r}, не исключение")
 
-print("topologyCtxInfo:")
-ctx = got["ctx"]
-check(ctx["given"] == {"tokens": 0, "limit": 0, "pct": None}, f"нет монитора → {ctx['given']}")
-check(ctx["derived"] == {"tokens": 1024, "limit": 4096, "pct": 25}, f"pct вычислен из tokens/limit → {ctx['derived']}")
-check(ctx["explicit"] == {"tokens": 1024, "limit": 4096, "pct": 7}, f"явный pct побеждает вычисленный → {ctx['explicit']}")
-check(ctx["noLimit"] == {"tokens": 50, "limit": 0, "pct": None}, f"без лимита pct ОТСУТСТВУЕТ, не 0 и не ∞ → {ctx['noLimit']}")
+print("окно одиночного сервера контроллера:")
+check(got["ctxGone"] is False, "negative: topologyCtxInfo больше нет — окно одиночного сервера контроллера ушло с его ячейками (шаг 6.9)")
 
 print()
 if _fail:

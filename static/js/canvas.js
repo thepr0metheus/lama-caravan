@@ -3,7 +3,6 @@ import { appConfirm, appPrompt } from "./dialogs.js";
 import { option } from "./form.js";
 import { helpTip, t } from "./i18n.js";
 import { closeConfirmModal } from "./llama-edit.js";
-import { action } from "./polling.js";
 import {
   renderServersBlockHtml,
   routerById,

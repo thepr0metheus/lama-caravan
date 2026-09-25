@@ -42,7 +42,7 @@ Date.now = () => 1_700_000_100_000;
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/charts.js").href);
 const el = () => ({ innerHTML: "", textContent: "" });
 const NODES = () => [
-  { id: "controller", role: "controller", ip: "10.0.0.1", servers: [{ port: 22001 }, { port: 22002, clientIp: "10.0.0.1" }] },
+  { id: "box-c", role: "host", controllerMachine: true, ip: "10.0.0.1", servers: [{ port: 22001 }, { port: 22002, clientIp: "10.0.0.1" }] },
   { id: "box-a", role: "host", ip: "10.0.0.5", servers: [{ port: 22011 }] },
   { id: "box-b", role: "host", ip: "10.0.0.6", servers: [] },
 ];
@@ -72,9 +72,9 @@ PINS = [
      "пусто — пусто; строка — как есть; число — локальное время (строка, локаль не пинится)"),
     ("system_samples_and_latest", '', '[m.systemSamples({ samples: [1, 2] }), m.systemSamples({ samples: "no" }), m.systemSamples(null), m.latestSample([{ a: 1 }, { a: 2 }]), m.latestSample([])]',
      '[[1,2],[],[],{"a":2},{}]', "сэмплы только массивом; последний — последний; пусто — {}"),
-    ("tps_fallback_chain", '',
-     '[m.topologyPromptTps({ llamaActivity: { lastTiming: { promptTps: 10 } }, tokens: { promptTokensPerSecond: 99 } }), m.topologyPromptTps({ correlatedActivity: { llamaServer: { lastTiming: { promptTps: 20 } } } }), m.topologyPromptTps({ tokens: { promptTokensPerSecond: 30 } }), m.topologyPromptTps({}), m.topologyEvalTps({ tokens: { predictedTokensPerSecond: 40 } }), m.topologyEvalTps(null)]',
-     '[10,20,30,0,40,0]', "скорость: llamaActivity → correlatedActivity → tokens → 0"),
+    ("tps_from_tokens_only", '',
+     '[m.topologyPromptTps({ llamaActivity: { lastTiming: { promptTps: 10 } }, tokens: { promptTokensPerSecond: 99 } }), m.topologyPromptTps({ correlatedActivity: { llamaServer: { lastTiming: { promptTps: 20 } } } }), m.topologyPromptTps({ tokens: { promptTokensPerSecond: 30 } }), m.topologyPromptTps({}), m.topologyEvalTps({ tokens: { predictedTokensPerSecond: 40 } }), m.topologyEvalTps({ llamaActivity: { lastTiming: { evalTps: 7 } } }), m.topologyEvalTps(null)]',
+     '[99,0,30,0,40,0,0]', "скорость точки — только tokens.*PerSecond (так её строит _nodeTokenSamples); negative: lastTiming одиночного сервера контроллера (llamaActivity, correlatedActivity.llamaServer) больше не читается и не побеждает tokens"),
     ("main_token_info", '', 'm._mainTokenInfo({ time: 5, tokens: { predictedTokensPerSecond: 1, genTokens: 2, genMs: 3, promptTokensPerSecond: 4, promptTokens: 5, promptMs: 6, cacheTokens: 7 } })',
      '{"genTps":1,"genTokens":2,"genMs":3,"promptTps":4,"promptTokens":5,"promptMs":6,"cacheTokens":7,"time":5}', "адаптер сэмпла контроллера к полям подсказки"),
     ("chart_size_dpr_and_floors", '',
@@ -87,12 +87,12 @@ PINS = [
     ("mini_sparkline", '', '[m.miniSparklineSvg([0, 5, 10], "red", 10).includes(\'points="0.0,14.0 36.0,7.0 72.0,0.0"\'), m.miniSparklineSvg([5], "red"), m.miniSparklineSvg(["x", "y"], "red")]', '[true,"",""]',
      "спарклайн: точки по ширине 72 и высоте 14; меньше двух чисел — пусто"),
     # ── nodes ──
-    ("endpoint_set_controller_adds_loopback", '', '[...m.nodeEndpointSet(NODES()[0])].sort()', '["10.0.0.1:22001","10.0.0.1:22002","127.0.0.1:22001","127.0.0.1:22002"]',
-     "контроллер: каждый порт и по IP, и по 127.0.0.1"),
+    ("endpoint_set_controller_adds_loopback", '', '[[...m.nodeEndpointSet(NODES()[0])].sort(), [...m.nodeEndpointSet({ id: "controller", role: "controller", ip: "10.0.0.1", servers: [{ port: 22001 }] })]]', '[["10.0.0.1:22001","10.0.0.1:22002","127.0.0.1:22001","127.0.0.1:22002"],["10.0.0.1:22001"]]',
+     "машина контроллера (controllerMachine узла): каждый порт и по IP, и по 127.0.0.1 — прокси на ней ходит к её ячейкам по loopback; negative: узел с ролью «controller» (такого нет с шага 6.9) loopback больше не получает"),
     ("endpoint_set_client_and_empty", '', '[[...m.nodeEndpointSet(NODES()[1])], [...m.nodeEndpointSet(NODES()[2])], [...m.nodeEndpointSet(null)]]', '[["10.0.0.5:22011"],[],[]]', "клиент: только свой IP; без серверов — пусто; null — пусто"),
-    ("activity_filter", '', '[m.nodeActivityFilter("box-a").isController, [...m.nodeActivityFilter("box-a").endpoints], m.nodeActivityFilter("controller").isController, m.nodeActivityFilter("ghost")]',
-     '[false,["10.0.0.5:22011"],true,null]', "фильтр узла: концы и флаг контроллера; неизвестный узел — null"),
-    ("node_route_labels_direct_and_via_graph", '', '[m.nodeRouteLabels("box-a"), m.nodeRouteLabels("controller"), m.nodeRouteLabels("box-b"), m.nodeRouteLabels("ghost")]',
+    ("activity_filter", '', '[Object.keys(m.nodeActivityFilter("box-a")), [...m.nodeActivityFilter("box-a").endpoints], [...m.nodeActivityFilter("box-c").endpoints].length, m.nodeActivityFilter("ghost")]',
+     '[["endpoints"],["10.0.0.5:22011"],4,null]', "фильтр узла — только концы его ячеек (у машины контроллера и loopback); неизвестный узел — null"),
+    ("node_route_labels_direct_and_via_graph", '', '[m.nodeRouteLabels("box-a"), m.nodeRouteLabels("box-c"), m.nodeRouteLabels("box-b"), m.nodeRouteLabels("ghost")]',
      '[["graphy","scout"],["hermes"],[],[]]', "подписи: прямой upstream и через выход роутера; облако и пустая подпись не считаются; узел без ячеек — пусто; без трафика все тихие — по имени (порядок лейна), а не по порядку конфига"),
     ("ordered_route_labels_live_first_then_name", 'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:1", port: 1, label: "zeta", lastRequestAt: Date.now() / 1000 - 60 }, { id: "skynet:proxy:2", port: 2, label: "alpha", lastRequestAt: Date.now() / 1000 - 3600 * 13 }, { id: "skynet:proxy:3", port: 3, label: "Mid", lastRequestAt: Date.now() / 1000 - 3600 }, { id: "skynet:proxy:4", port: 4, label: "" }, { id: "skynet:proxy:5", port: 5, label: "alpha" }, { id: "skynet:proxy:6", port: 6, label: "beta" }] });',
      'm.orderedRouteLabels(st.topology.proxies)', '["Mid","zeta","alpha","beta"]',
@@ -125,9 +125,13 @@ PINS = [
      '{"a":"active","c":"cloud_active","cr":"cloud_recent","d":"client_disconnected","f":"failed","p":"preempting","q":"queued","r":"recent","s":"slow"}',
      "состояния: очередь, локальный/облачный активный, вытеснение, статус 5xx — failed, «client disconnected» — свой цвет, завершённые в окне 3 с, медленный первый байт; старое завершение не считается"),
     ("activity_for_sample_gpu_routes_and_filter", '',
-     '(() => { const corr = { gpu: { activeRoutes: ["g"], cloudActiveRoutes: ["gc"] }, llamaServer: { activeRoutes: ["l"] }, activeRequests: [{ label: "srv", upstream: "10.0.0.5:22011" }, { label: "other", upstream: "10.0.0.9:1" }, { label: "cl", isCloud: true }, { label: "queued", phase: "queued" }] }; const all = m.topologyRouteActivityForSample(S(1, corr)); const box = m.topologyRouteActivityForSample(S(1, corr), m.nodeActivityFilter("box-a")); const ctl = m.topologyRouteActivityForSample(S(1, corr), m.nodeActivityFilter("controller")); return [[...all.keys()].sort(), [...box.keys()].sort(), [...ctl.keys()].sort()]; })()',
-     '[["cl","g","gc","l","other","queued","srv"],["queued","srv"],["g","l","queued"]]',
-     "фильтр узла: клиенту — только обслуженное им и очередь; контроллеру — GPU/llama-корреляции без облачных, а чужой upstream — не его; облако никому из узлов"),
+     '(() => { const corr = { gpu: { activeRoutes: ["g"], cloudActiveRoutes: ["gc"] }, llamaServer: { activeRoutes: ["l"] }, activeRequests: [{ label: "srv", upstream: "10.0.0.5:22011" }, { label: "other", upstream: "10.0.0.9:1" }, { label: "cl", isCloud: true }, { label: "queued", phase: "queued" }] }; const all = m.topologyRouteActivityForSample(S(1, corr)); const box = m.topologyRouteActivityForSample(S(1, corr), m.nodeActivityFilter("box-a")); const ctl = m.topologyRouteActivityForSample(S(1, corr), m.nodeActivityFilter("box-c")); return [[...all.keys()].sort(), [...box.keys()].sort(), [...ctl.keys()].sort()]; })()',
+     '[["cl","g","gc","l","other","queued","srv"],["queued","srv"],["queued"]]',
+     "фильтр узла: только обслуженное его ячейками и очередь; negative: корреляции монитора (все локальные маршруты с запросом в полёте, чья бы машина их ни обслуживала) — только общей картине, не узлу, и машине контроллера тоже: узел контроллера брал их себе и подсвечивал маршруты, которые обслуживала другая машина; облако никому из узлов"),
+    ("activity_controller_machine_over_loopback", '',
+     '(() => { const corr = { activeRequests: [{ label: "own", upstream: "127.0.0.1:22001" }, { label: "far", upstream: "10.0.0.5:22011" }] }; return [[...m.topologyRouteActivityForSample(S(1, corr), m.nodeActivityFilter("box-c")).keys()].sort(), [...m.topologyRouteActivityForSample(S(1, corr), m.nodeActivityFilter("box-a")).keys()].sort()]; })()',
+     '[["own"],["far"]]',
+     "запрос, который прокси отдал ячейке машины контроллера по 127.0.0.1, — на её узле, а не на чужом; запрос другой машины — на ней"),
     ("activity_for_bucket_takes_max", '', 'm.topologyRouteActivityForBucket([S(1, { activeRequests: [{ label: "r", phase: "queued" }] }), S(2, { activeRequests: [{ label: "r", status: "500" }] }), S(3, { activeRequests: [{ label: "r" }] })], "r")',
      '"failed"', "бакет: самое тяжёлое состояние маршрута из всех сэмплов"),
     ("activity_for_bucket_missing_route", '', 'm.topologyRouteActivityForBucket([S(1, { activeRequests: [{ label: "r" }] })], "zzz")', '""', "negative: маршрута нет в бакете — пустая строка"),
@@ -173,7 +177,8 @@ PINS = [
      '[{"time":5,"gpu":{"memoryTotalMiB":1000,"memoryPct":0}}]',
      "boundary: в строке карты нет (nvidia-smi не ответил) — значения не выдумываются (нет, а не 0); как рисовать пропуск, "
      "решают графики — так же, как для замеров самого контроллера"),
-    ("controller_token_samples", 'st.ui.latestSystemMonitor = { tokenGenSamples: [{ time: 1 }] };', '[m.controllerTokenGenSamples(), (st.ui.latestSystemMonitor = null, m.controllerTokenGenSamples())]', '[[{"time":1}],[]]', "серия генерации контроллера из монитора; без монитора — пусто"),
+    ("controller_widget_gone", '', '["controllerTokenGenSamples", "drawGpuMetricSparklines", "renderLlamaClientsInnerHtml"].filter((k) => k in m)', '[]',
+     "negative: собственного виджета контроллера (серия генерации, спарклайны GPU/токенов/VRAM/мощности, клиенты llama) больше нет — его машина теперь узел со своей телеметрией (шаг 6.9)"),
 ]
 
 

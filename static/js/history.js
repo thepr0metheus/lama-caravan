@@ -1,7 +1,6 @@
 // Request history modal: tables, filters, detail popup.
 import { option } from "./form.js";
-import { action } from "./polling.js";
-import { topology, ui } from "./state.js";
+import { topology } from "./state.js";
 import { renderTopologyLogDetail, topologyLogSummary } from "./topology-modals.js";
 import { $, api, escapeHtml, pill, toast } from "./utils.js";
 import { t } from "./i18n.js";
@@ -165,7 +164,6 @@ export function renderHistoryTable() {
   }
 
   _historyFilteredRows = rows;
-  const clientLabels = ui.latestSystemMonitor?.clientLabels || {};
   const now = Date.now() / 1000;
 
   const tableRows = rows.map((r, idx) => {
@@ -180,10 +178,9 @@ export function renderHistoryTable() {
 
     const route = item.route || r.route || "—";
     const clientRaw = item.client || "";
-    const clientLabel = clientLabels[clientRaw] || "";
-    const clientSub = clientLabel
-      ? `<span class="history-sub">${escapeHtml(clientRaw)}</span>`
-      : clientRaw ? `<span class="history-sub">${escapeHtml(clientRaw)}</span>` : "";
+    // (Both arms of a "has a monitor label" choice drew the same address; the
+    // labels themselves left the monitor with its client list in step 6.9.)
+    const clientSub = clientRaw ? `<span class="history-sub">${escapeHtml(clientRaw)}</span>` : "";
 
     const model = item.request?.model || "";
     const modelShort = model.length > 24 ? model.slice(0, 22) + "…" : model;

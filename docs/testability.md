@@ -206,7 +206,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 363 values. Regenerate with
+Generated from the source, not from memory — 332 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Fifty of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -215,7 +215,7 @@ that is why there is a script and not a one-liner.
 **agent** — `agent-bind-menu`, `agent-bind-taken`, `agent-no-route`, `agent-proxy-bind`, `agent-remove`, `agent-rename`, `agent-row`
 **app** — `app-toast`
 **board** — `board-agent-card`, `board-cell-add`, `board-client-caption`, `board-clients-lane`, `board-cloud-lane`, `board-density`, `board-gpus-lane`, `board-hf-open`, `board-incidents-list`, `board-incidents-open`, `board-llama-suspect-banner`, `board-llama-suspect-row`, `board-models-bar`, `board-models-open`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-scout-add`, `board-system-open`
-**cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-edit-apply`, `cell-edit-cancel`, `cell-edit-command-preview`, `cell-edit-command`, `cell-edit-compute`, `cell-edit-env`, `cell-edit-fields`, `cell-edit-health-path`, `cell-edit-max-model-len`, `cell-edit-mmproj`, `cell-edit-modal`, `cell-edit-model-picker`, `cell-edit-model`, `cell-edit-moonshine-model-picker`, `cell-edit-moonshine-model`, `cell-edit-offload-slider`, `cell-edit-offload`, `cell-edit-runner-tab`, `cell-edit-runner`, `cell-edit-seamless-lang`, `cell-edit-split`, `cell-edit-translate-model`, `cell-edit-translate-src`, `cell-edit-translate-tgt`, `cell-edit-vllm-model-picker`, `cell-edit-vllm-model`, `cell-edit-whisper-model-picker`, `cell-edit-whisper-model`, `cell-edit-workdir`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-load-file`, `cell-load`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-stale`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-row`, `cell-row-start`, `cell-source-stale`, `cell-start`, `cell-stop`
+**cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-stale`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-row`, `cell-row-start`, `cell-source-stale`, `cell-start`, `cell-stop`
 
 **client** — `client-add`
 
@@ -226,7 +226,6 @@ that is why there is a script and not a one-liner.
 **route** — `route-caller`, `route-context`, `route-context-line`, `route-context-model`, `route-context-prefer`, `route-detail-delete`, `route-detail-edit`, `route-detail-tab`, `route-model`, `route-model-lock`, `route-state`, `route-wait`
 
 **sub-usage** — `sub-usage-banner`
-**dialog** — `dialog-choice`
 **confirm** — `confirm-accept`, `confirm-cancel`, `confirm-input`, `confirm-meta`, `confirm-overlay`, `confirm-path`, `confirm-text`, `confirm-title`
 **header** — `header`, `header-app-title`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-page-title`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
 **hf** — `hf-bench-panel`, `hf-bench-refresh`, `hf-bench-toggle`, `hf-capability-filter`, `hf-checkpoint`, `hf-checkpoint-download`, `hf-confirm`, `hf-confirm-cancel`, `hf-confirm-ok`, `hf-dock`, `hf-download-cancel`, `hf-download-dismiss`, `hf-download-interrupted`, `hf-download-job`, `hf-download-resume`, `hf-download-start`, `hf-downloads`, `hf-downloads-toggle`, `hf-file`, `hf-file-check`, `hf-file-delete`, `hf-file-in-library`, `hf-frontier`, `hf-frontier-open`, `hf-frontier-refresh`, `hf-in-library`, `hf-limit`, `hf-load-progress`, `hf-low-toggle`, `hf-mask`, `hf-on-disk`, `hf-other-toggle`, `hf-quant`, `hf-repo`, `hf-repo-star`, `hf-result`, `hf-search-input`, `hf-search-submit`, `hf-selection-clear`, `hf-selection-plan`, `hf-selection-remove`, `hf-selection-toggle`, `hf-size-filter`, `hf-sort`, `hf-sort-dir`, `hf-star`, `hf-tab`, `hf-token-clear`, `hf-token-edit`, `hf-token-input`, `hf-token-menu`, `hf-token-save`, `hf-tree-repo`, `hf-tree-toggle`, `hf-verify`
@@ -239,7 +238,7 @@ that is why there is a script and not a one-liner.
 **host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `cell-ctx-native`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
 **scout** — `scout-add-address`, `scout-add-connect`, `scout-add-port`, `scout-add-status`
 **setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
-**system** — `system-controller-info`, `system-diag-checks`, `system-diag-service-repair`, `system-driver-auto-check`, `system-driver-auto-install`, `system-driver-check`, `system-driver-log`, `system-driver-summary`, `system-driver-update`, `system-gc-close`, `system-gc-delete`, `system-gc-list`, `system-gc-modal`, `system-gc-open`, `system-gc-select-all`, `system-gc-selected`, `system-gc-summary`, `system-hero-stats`, `system-llama-build-update`, `system-llama-builds`, `system-llama-summary`, `system-llama-update-log`, `system-llama-versions-check`, `system-security-info`, `system-security-logout`, `system-tab-controller`, `system-tab-diag`, `system-tab-driver`, `system-tab-llama`, `system-tab-security`, `system-settings-export`, `system-settings-file`, `system-settings-import`, `system-settings-info`, `system-settings-passphrase`, `system-settings-secrets`, `system-tab-settings`, `system-vllm-list`
+**system** — `system-controller-info`, `system-diag-checks`, `system-diag-service-repair`, `system-driver-auto-check`, `system-driver-auto-install`, `system-driver-check`, `system-driver-log`, `system-driver-summary`, `system-driver-update`, `system-gc-close`, `system-gc-delete`, `system-gc-list`, `system-gc-modal`, `system-gc-open`, `system-gc-select-all`, `system-gc-selected`, `system-gc-summary`, `system-hero-stats`, `system-llama-build-update`, `system-llama-builds`, `system-llama-summary`, `system-llama-update-log`, `system-llama-versions-check`, `system-security-info`, `system-security-logout`, `system-tab-controller`, `system-tab-diag`, `system-tab-driver`, `system-tab-llama`, `system-tab-security`, `system-settings-export`, `system-settings-file`, `system-settings-import`, `system-settings-info`, `system-settings-passphrase`, `system-settings-secrets`, `system-tab-settings`, `system-vllm-list`, `system-vllm-machine`
 
 Repeated elements carry `data-t-id`: `cell-card` and the cell lifecycle buttons
 use `host:port` (the `slotKey` the board already computes), `kanban-node` uses
@@ -266,33 +265,12 @@ can never pass**, and that is not a defect to chase.
 
 | hook | what it is | how to use it |
 |---|---|---|
-| `cell-*-model` | native `<select>` under the model picker | read the value |
-| `cell-*-model-picker` | the visible widget above it | click this |
-| `cell-*-runner` | hidden input holding the chosen runner | read the value |
-| `cell-*-runner-tab` (+`data-t-id`) | the visible tabs | click these |
-| `cell-*-whisper-model`, `cell-*-moonshine-model` | hidden carriers — the size / language is chosen in the SHARED model picker | read the value |
+| `cell-remote-model` | native `<select>` under the model picker | read the value |
+| `cell-remote-model-picker` | the visible widget above it | click this |
+| `cell-remote-runner` | hidden input holding the chosen runner | read the value |
+| `cell-remote-runner-tab` (+`data-t-id`) | the visible tabs | click these |
+| `cell-remote-whisper-model`, `cell-remote-moonshine-model` | hidden carriers — the size / language is chosen in the SHARED model picker | read the value |
 | `board-gpus-lane` | a GPU mini-summary `nodes.css` hides on purpose — redundant with the node card's own GPU rows | read the values; it has no landmark role for the same reason |
-
-## A cell reading its model
-
-While a controller cell loads a model it READS — always so from a library, and
-locally when its loading mode reads instead of mapping — its card has two rows
-in place of the chips: `cell-load` (`data-t-id` = `host:port`) and one
-`cell-load-file` per file (`data-t-id` = `model`, `draft` or `mmproj`, in the
-order llama-server reads them).
-
-| hook | `data-t-state` | what it means |
-|---|---|---|
-| `cell-load` | `starting` | the process is up, no file is read yet |
-| | `reading` | a file is being read; the text has bytes, speed and time left once two readings exist |
-| | `stalled` | a file is open and no byte has come for 30 s |
-| | `setup` | no file open, at least one read: the context is being made, between files or after the last |
-| `cell-load-file` | `done` / `reading` / `waiting` | where that file is |
-
-A load the controller cannot measure — a mapped one, or a size it does not
-know — has neither hook: the card keeps its looping "loading model…" line.
-Assert on `cell-load` only when the start reads, or the test will wait for a row
-that is correctly never drawn.
 
 ## Landmark regions
 
@@ -362,7 +340,7 @@ URL does not conjure the state; `/setup` on an enabled controller just
 redirects. The wizard's post-submit token box (`setup-token-box`, `setup-token`,
 `setup-go-board`) lives on `/setup` too.
 
-**`cell-*-fields` is not a collapsed section.** It holds the llama.cpp flags and
+**`cell-remote-fields` is not a collapsed section.** It holds the llama.cpp flags and
 is hidden whenever the runner is not `llama-server`:
 
 ```js
@@ -371,7 +349,7 @@ llamaFields.style.display = nonLlama ? "none" : "";
 
 So on a whisper or vLLM cell every llama field reports hidden — correctly. There
 is no expander to click; switching the runner is what changes the field set, and
-`cell-*-runner-tab` is how a test drives that.
+`cell-remote-runner-tab` is how a test drives that.
 
 ## `node-poweroff` is the one control that cannot be undone
 
@@ -385,7 +363,7 @@ click there ends with someone walking to the rack. An inexact answer cancels; it
 does not error.
 
 Assert both are present. Press neither. `node-poweroff` belongs with
-`cell-*-apply`, `system-gc-delete` and `hf-token-clear` — named so a test can see
+`cell-remote-apply`, `system-gc-delete` and `hf-token-clear` — named so a test can see
 them, not so it can use them.
 
 ## `/hf` keeps its own words

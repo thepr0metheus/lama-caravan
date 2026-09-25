@@ -3,8 +3,9 @@
 
 Баннер был один, про машину контроллера, и жил строками в topology-render.js
 без единого теста. Скаут 2.6 судит так же о своей машине, и баннер стал
-строкой на машину: своя у контроллера (topology.llamaSuspect) и по строке на
-машину со скаутом (topology.hostSuspects). Пинится значениями: какие строки,
+строкой на машину: по строке на машину со скаутом (topology.hostSuspects).
+Своя строка контроллера ушла вместе с его ячейками (шаг 6.9): ячейки его
+машины идут через её скаута, и его вердикт — одна из этих строк. Пинится значениями: какие строки,
 что в каждой написано, что уходит на провод при «скрыть» и что открывается
 при «откатить», что строка, с которой оператор уже что-то сделал, уходит
 сразу, и что одинаковый баннер не перерисовывается.
@@ -49,6 +50,8 @@ const mkBanner = () => {
   return el;
 };
 const CAND = { id: "20260920-090000-def5678", commit: "def5678", version: "version: 9900 (def5678)", builtAt: 1789600000, sizeMb: 87 };
+// The field the controller's own verdict came in until step 6.9: a stray one
+// must not make a row any more.
 const OWN = { suspect: true, crashes15m: 4, builtAt: 1789990000, currentCommit: "abc1234", firstSeenAt: 1789999000, lastSeenAt: 1789999800, restoreCandidate: CAND };
 const HOST = { suspect: true, crashes15m: 3, builtAt: 1789996400, currentCommit: "0a0a0a0", firstSeenAt: 1789999100, lastSeenAt: 1789999880,
                restoreCandidate: CAND, hostId: "box-a", name: "Box A", llamaBinaryVersion: "version: 9947 (0a0a0a0)" };
@@ -70,24 +73,23 @@ HOST_ROW = ('<div class="llama-suspect-row" data-t="board-llama-suspect-row" dat
             '20260920-090000-def5678:29833331">' + en("llamaSuspectDismiss") + '</button></div>')
 
 PINS = [
-    ("rows_own_then_hosts",
+    ("rows_one_per_machine",
      "",
-     "keys(banner.rows({ llamaSuspect: OWN, hostSuspects: [HOST, { ...HOST, hostId: 'box-b', name: 'Box B' }, { suspect: false, hostId: 'box-c' }] }))",
-     json.dumps([["", "|abc1234:1789990000:20260920-090000-def5678:29833330"],
-                 ["box-a", "box-a|0a0a0a0:1789996400:20260920-090000-def5678:29833331"],
+     "keys(banner.rows({ hostSuspects: [HOST, { ...HOST, hostId: 'box-b', name: 'Box B' }, { suspect: false, hostId: 'box-c' }] }))",
+     json.dumps([["box-a", "box-a|0a0a0a0:1789996400:20260920-090000-def5678:29833331"],
                  ["box-b", "box-b|0a0a0a0:1789996400:20260920-090000-def5678:29833331"]]),
-     "строка контроллера первой, потом по строке на машину со скаутом; ключ — машина, сборка, кандидат, минута последнего падения; negative: машина без подозрения — строки нет"),
+     "по строке на машину со скаутом, в порядке отчёта; ключ — машина, сборка, кандидат, минута последнего падения; negative: машина без подозрения — строки нет"),
     ("rows_none",
      "",
-     "[banner.rows({ llamaSuspect: { suspect: false } }), banner.rows({}), banner.rows(null)]",
-     json.dumps([[], [], []]),
-     "negative: никто не подозревает, поля нет, доски ещё нет — строк нет"),
+     "[banner.rows({ llamaSuspect: OWN }), banner.rows({ llamaSuspect: OWN, hostSuspects: [] }), banner.rows({}), banner.rows(null)]",
+     json.dumps([[], [], [], []]),
+     "negative: свой вердикт контроллера (поле до шага 6.9) строки больше не даёт; машин с подозрением нет, поля нет, доски ещё нет — строк нет"),
     ("message_names_the_machine",
      "",
-     "[banner.message(HOST), banner.message({ ...HOST, name: '' }), banner.message({ ...OWN, hostId: '' })]",
-     json.dumps([en("llamaSuspectMsgHost", host="Box A", n=3), en("llamaSuspectMsgHost", host="box-a", n=3),
-                 en("llamaSuspectMsg", n=4)], ensure_ascii=False),
-     "строка машины называет машину (имени нет — её id); строка контроллера — прежними словами"),
+     "[banner.message(HOST), banner.message({ ...HOST, name: '' })]",
+     json.dumps([en("llamaSuspectMsgHost", host="Box A", n=3), en("llamaSuspectMsgHost", host="box-a", n=3)],
+                ensure_ascii=False),
+     "строка называет машину; имени нет — её id"),
     ("row_html_host",
      "",
      "banner.rowHtml(banner.rows({ hostSuspects: [HOST] })[0])",
@@ -105,9 +107,9 @@ PINS = [
      "negative: подозрений нет — баннер скрыт и пуст"),
     ("render_rows",
      "",
-     "(banner.render(el, { llamaSuspect: OWN, hostSuspects: [HOST] }), [el.hidden, rowsOn(), el.buttons.map((b) => b.attr)])",
-     json.dumps([False, ["controller", "box-a"], ["suspect-restore", "suspect-dismiss", "suspect-restore", "suspect-dismiss"]]),
-     "две строки — контроллер и машина, у каждой свои кнопки"),
+     "(banner.render(el, { llamaSuspect: OWN, hostSuspects: [HOST, { ...HOST, hostId: 'box-b', name: 'Box B' }] }), [el.hidden, rowsOn(), el.buttons.map((b) => b.attr)])",
+     json.dumps([False, ["box-a", "box-b"], ["suspect-restore", "suspect-dismiss", "suspect-restore", "suspect-dismiss"]]),
+     "две машины — две строки, у каждой свои кнопки; negative: строки «controller» нет"),
     ("render_same_is_left_alone",
      "",
      "(() => { const topo = { hostSuspects: [HOST] }; banner.render(el, topo); el._html = 'untouched'; banner.render(el, topo); return el.innerHTML; })()",
@@ -115,27 +117,22 @@ PINS = [
      "тот же баннер на следующем опросе не перерисовывается — кнопка под курсором не пропадает"),
     ("restore_on_a_machine",
      "",
-     "(() => { const topo = { llamaSuspect: OWN, hostSuspects: [HOST] }; banner.render(el, topo); el.buttons[2].click(); return [globalThis.__opened, rowsOn(), wire()]; })()",
+     "(() => { const topo = { hostSuspects: [HOST, { ...HOST, hostId: 'box-b', name: 'Box B' }] }; banner.render(el, topo); el.buttons[0].click(); return [globalThis.__opened, rowsOn(), wire()]; })()",
      json.dumps([[["20260920-090000-def5678", {"id": "20260920-090000-def5678", "commit": "def5678",
                                               "version": "version: 9900 (def5678)", "builtAt": 1789600000, "sizeMb": 87},
-                   {"hostId": "box-a", "name": "Box A", "version": "version: 9947 (0a0a0a0)"}]], ["controller"], []]),
-     "«Откатить» у машины — то же окно подтверждения, что в Системе, с машиной и её текущей сборкой; строка уходит сразу; на провод ничего — откат только после подтверждения"),
-    ("restore_on_the_controller",
+                   {"hostId": "box-a", "name": "Box A", "version": "version: 9947 (0a0a0a0)"}]], ["box-b"], []]),
+     "«Откатить» у машины — то же окно подтверждения, что в Системе, с машиной и её текущей сборкой; строка уходит сразу, строка другой машины остаётся; на провод ничего — откат только после подтверждения"),
+    ("restore_the_last_row",
      "",
-     "(() => { banner.render(el, { llamaSuspect: OWN }); el.buttons[0].click(); return [globalThis.__opened.map((a) => [a[0], a[2]]), el.hidden, el.innerHTML]; })()",
-     json.dumps([[["20260920-090000-def5678", None]], True, ""]),
-     "у контроллера — окно без машины (восстанавливает сам контроллер); последняя строка ушла — баннер скрыт и пуст "
+     "(() => { banner.render(el, { hostSuspects: [{ ...HOST, llamaBinaryVersion: undefined }] }); el.buttons[0].click(); return [globalThis.__opened.map((a) => a[2]), el.hidden, el.innerHTML]; })()",
+     json.dumps([[{"hostId": "box-a", "name": "Box A", "version": ""}], True, ""]),
+     "окно всегда с машиной — даже когда её версия не сообщена (пустая, а не «сам контроллер»); последняя строка ушла — баннер скрыт и пуст "
      "(живая проверка 2026-09-24: скрытый баннер держал строку, и поиск по data-t находил невидимое)"),
     ("dismiss_a_machine",
      "",
-     "await (async () => { banner.render(el, { llamaSuspect: OWN, hostSuspects: [HOST] }); el.buttons[3].click(); await settle(); return [wire(), rowsOn()]; })()",
-     json.dumps([[["/api/fleet/llama-suspect-dismiss", "POST", "{\"hostId\":\"box-a\"}"]], ["controller"]]),
-     "«Скрыть» у машины — её скауту через контроллер, для этой сборки; строка уходит сразу, строка контроллера остаётся"),
-    ("dismiss_the_controller",
-     "",
-     "await (async () => { banner.render(el, { llamaSuspect: OWN, hostSuspects: [HOST] }); el.buttons[1].click(); await settle(); return [wire(), rowsOn()]; })()",
-     json.dumps([[["/api/llamacpp/suspect-dismiss", "POST", "{}"]], ["box-a"]]),
-     "«Скрыть» у контроллера — прежний путь; строка машины остаётся"),
+     "await (async () => { banner.render(el, { hostSuspects: [HOST, { ...HOST, hostId: 'box-b', name: 'Box B' }] }); el.buttons[3].click(); await settle(); return [wire(), rowsOn()]; })()",
+     json.dumps([[["/api/fleet/llama-suspect-dismiss", "POST", "{\"hostId\":\"box-b\"}"]], ["box-a"]]),
+     "«Скрыть» у машины — её скауту через контроллер, для этой сборки, и только её; строка уходит сразу, строка другой машины остаётся"),
     ("a_new_crash_shows_again",
      "",
      "(() => { banner.render(el, { hostSuspects: [HOST] }); el.buttons[1].click(); const gone = el.hidden; banner.render(el, { hostSuspects: [HOST] }); const still = el.hidden; banner.render(el, { hostSuspects: [{ ...HOST, lastSeenAt: HOST.lastSeenAt + 60 }] }); return [gone, still, el.hidden, rowsOn()]; })()",

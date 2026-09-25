@@ -46,8 +46,8 @@ mtime, files diff cleanly in git, and a backup is a copy.)
                  │  · writes agent-proxies.json ──► · router DAG (queue/schedule/rules)       │
                  │  · reads  proxy state/events ◄── · llama or cloud upstreams + translation  │
                  │                                                                             │
-                 │  lama-cell@<port>.service         llamacpp-current.service (legacy)         │
-                 │  var/server-cells/<port>/start.sh llama.cpp/start-server.sh (:8080)         │
+                 │                                   llamacpp-current.service (legacy)         │
+                 │                                   llama.cpp/start-server.sh (:8080)         │
                  └─────────────────────────────────────────────────────────────────────────────┘
                         ▲ heartbeats / node control (HTTP)                 ▲ proxied traffic
                         │                                                  │
@@ -63,7 +63,7 @@ mtime, files diff cleanly in git, and a backup is a copy.)
 |---|---|---|
 | Admin server (`caravan/admin`) | controller `:7990` | UI + API: fleet topology, launch configs, HF model browser, monitors, cloud accounts, queue thresholds. See [backend-admin.md](backend-admin.md). |
 | Proxy daemon (`caravan/proxy`) | controller `:23001+` (one port per route; this fleet's legacy routes at `:8101+`) | OpenAI-compatible reverse proxy per agent: admission queue, priority preemption, router DAG, cloud fallback, protocol translation. See [backend-proxy.md](backend-proxy.md). |
-| Server cells | controller + clients | Per-port llama-server instances. Controller cells run under `lama-cell@<port>.service` from generated `var/server-cells/<port>/start.sh`; client cells are managed remotely through the route-agent. |
+| Server cells | machines with a scout, the controller's own machine included | Per-port llama-server, vLLM and command-server instances, started and stopped by the machine's scout on the controller's word. The controller runs none itself: its own machine's cells run through a scout installed there, like any other machine's. |
 | Route-agent (`caravan-scout`, formerly `llm-easy-route-agent`, separate repo) | each client `:8092` | Publishes the host's llama nodes/GPUs to the admin (heartbeat) and executes start/stop/config/cache commands on behalf of the admin. |
 | Cell servers (moonshine, whisper, TTS — `cells/` in THIS repo) | controller + any client | The programs a "command cell" actually runs: ordinary servers managed like llama cells, with a health endpoint reporting download/load progress. The controller owns them and serves them over `/api/cell-assets`; every host materializes them into `$HOME`, where the generated cell command looks for them — the controller before starting a local cell, a scout before starting a client one. They used to live in the scout repo and were copied by hand into the controller, which is how the two copies drifted for months. |
 | Frontend (`static/`) | served by admin | Topology board, standalone kanban/router canvas, HF browser, models-disk and System pages. Native ES modules. See [frontend.md](frontend.md). |
@@ -102,11 +102,9 @@ and concurrent writers cannot clobber each other.
 | `cloud-providers.json` | admin | proxy, admin | Cloud accounts and model blocks. |
 | `~/.config/llamacpp-easy-admin/provider-secrets.json` | admin, proxy (OAuth refresh) | both | API keys / OAuth tokens, mode 0600, outside the repo tree. |
 | `~/.local/state/llamacpp-easy-admin/admin.json` | admin | admin | Persistent admin state: topology store, pricing, HF token/favorites, starred fields. |
-| `client-labels.json`, `token-history.json` | admin | admin | Monitor labels; token-rate history (14 d). |
+| `token-history.json` | admin | admin | Token-rate history (14 d). |
 | `state/model-catalog.json` | admin | admin | Provider model lists (1 h TTL), endpoint circuit-breaker state, cached codex client version. Legacy installs keep it at the repo root. |
 | `~/.local/state/llamacpp-easy-admin/auth.db` | admin | admin | Accounts, sessions and the fleet token (stdlib SQLite, 0600). Auth is off until the first user exists. |
-| `var/vllm-versions.json` | admin | admin | vLLM venv pip history — the rollback points for `/api/vllm/update`. |
-| `var/server-cells/<port>/{cell.json,start.sh}` | admin | `lama-cell@.service` | Generated launch artifacts; `cell.json` is the source of truth, `start.sh` the runnable. |
 | `var/server-backups/<host>/<gpu-or-CPU>/…` | admin | admin | Named launch-config snapshots for every node, kept on the controller so they survive the client. |
 | `.bench_cache/`, `logs/model-pricing-cache.json` | admin | admin | HF benchmark and LiteLLM pricing caches. |
 
@@ -134,8 +132,8 @@ flowing; only the UI and fleet orchestration stop.
 
 Launch-config edits for the legacy single server rewrite only the
 `# BEGIN/END LLAMA CONFIG` block of `start-server.sh` (with a timestamped
-backup); server cells regenerate `var/server-cells/<port>/` artifacts and
-restart just that `lama-cell@<port>` unit.
+backup); a server cell's config is saved on the controller and goes to the
+machine's scout on the next start (and at once, when the cell has autostart).
 
 ## Code layout
 

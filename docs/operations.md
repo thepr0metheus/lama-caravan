@@ -11,7 +11,6 @@ pin the interpreter).
 |---|---|---|
 | `lama-caravan.service` | `.venv/bin/python app.py` (`:7990` by default) | Admin UI + API. Restart after Python changes. |
 | `lama-caravan-proxies.service` | `.venv/bin/python agent-proxies.py` | Per-agent proxy ports. Restart after Python changes; route/config edits do NOT need a restart (2 s mtime watcher). |
-| `lama-cell@<port>.service` | `var/server-cells/<port>/start.sh` | One llama-server cell per port. Managed from the UI (reserve/start/stop). |
 | `llamacpp-current.service` | `~/llama.cpp/start-server.sh` (`:8080`) | Legacy single managed server. |
 
 ```sh
@@ -170,7 +169,6 @@ export AGENT_PROXY_STATE_FILE=/tmp/caravan-dev/proxy-state.json
 export TOKEN_HISTORY_FILE=/tmp/caravan-dev/token-history.json
 export CLOUD_PROVIDERS_FILE=/tmp/caravan-dev/cloud-providers.json
 export LLAMA_MONITOR_HISTORY=/tmp/caravan-dev/monitor-history.json
-export LLAMA_CLIENT_LABELS_FILE=/tmp/caravan-dev/client-labels.json
 export LLAMA_INCIDENT_LOG=/tmp/caravan-dev/incidents.jsonl
 python3 app.py
 ```
@@ -182,7 +180,7 @@ from `ps -r`; per-core CPU% stays 0 (no `/proc`), loadavg is real.
 
 Shorthand for the same isolation: `CARAVAN_DATA_DIR=/tmp/caravan-dev python3
 app.py` rebases every mutable default (state/, config/, logs/, secrets/,
-models/, server-cells/, server-backups/) under one directory; the individual
+models/, server-backups/) under one directory; the individual
 env vars above still win when set.
 
 Quick checks while developing:
@@ -196,7 +194,7 @@ node --check <(cat static/js/<module>.js)        # ES-module syntax (or copy to 
 ## Docker (controller-only)
 
 **Evaluation / GPU-less-controller mode — native systemd stays the primary
-deployment** (only it can host `lama-cell@` cells on the controller box).
+deployment.** Neither runs cells: they run on machines with a scout.
 `docker compose up -d --build` runs the admin + proxy in one container (see
 the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
 
@@ -204,9 +202,9 @@ the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
   (`caravan/admin/proxy_supervisor.py`) — respawned by a watchdog on crash,
   respawned in place when a routes/cabling save asks for a restart. Its output
   goes to `/data/logs/proxy.log`; `docker logs` carries the admin.
-- Local `lama-cell@` cells, the legacy single-server unit and "Repair user
-  service" are disabled with a clear 400 — models run on caravan-scout hosts
-  (attach the Docker host itself with scout if it has the GPU).
+- The legacy single-server unit and "Repair user service" are disabled with
+  a clear 400 — models run on caravan-scout hosts (attach the Docker host
+  itself with scout if it has the GPU).
 - All mutable state lives under the `/data` volume (`CARAVAN_DATA_DIR`);
   the System modal shows synthetic service chips (`lama-caravan (container)`,
   `agent-proxies (child)`) and hides systemd diagnostics.

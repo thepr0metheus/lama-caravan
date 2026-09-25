@@ -76,14 +76,13 @@ class Stubs:
     def __enter__(self):
         self.keep = [(mod, name, getattr(mod, name)) for mod, name in (
             (fc, "_scout"), (fc, "topology_store"), (fc, "save_admin_state"), (fc, "current_locations"),
-            (cell_ops, "topo"), (cell_ops, "is_controller_host"), (cell_ops, "topology_store"),
+            (cell_ops, "topo"), (cell_ops, "topology_store"),
             (cell_ops, "save_admin_state"), (cell_ops, "upsert_server_slot"), (cell_ops, "state"))]
         fc._scout = lambda host_id: self.scout
         fc.topology_store = lambda: self.store
         fc.save_admin_state = lambda: self.saved.append("fc")
         fc.current_locations = lambda wait=False: Locations([])
         cell_ops.topo = Topo(self.slots)
-        cell_ops.is_controller_host = lambda host_id: host_id == "controller"
         cell_ops.topology_store = lambda: self.store
         cell_ops.save_admin_state = lambda: self.saved.append("ops")
         cell_ops.upsert_server_slot = self.upsert
@@ -182,10 +181,37 @@ def section_saving_settings():
           "скаут не принял — настройки всё равно сохранены, а ответ говорит, что автозапуск остался со старыми")
 
 
+def section_the_controller_runs_no_cells():
+    print("у контроллера своих ячеек нет (шаг 6.9):")
+    from caravan.admin import server_cells as sc
+    no_cells = (400, sc.CONTROLLER_RUNS_NO_CELLS)
+    check(sc.CONTROLLER_RUNS_NO_CELLS == "the controller runs no cells — its machine's cells run through its "
+                                        "scout, on that machine's node",
+          "отказ говорит, где теперь ячейки машины контроллера")
+    store = {"serverSlots": {}}
+    keep = sc.topology_store, sc.save_admin_state, sc.topo
+    sc.topology_store = lambda: store
+    sc.save_admin_state = lambda: None
+    sc.topo = Topo({})
+    try:
+        for host in ("controller", "skynet"):
+            check(refusal(lambda: cell_ops.server_cell_action({"hostId": host, "port": 22001, "action": "start"})) == no_cells
+                  and refusal(lambda: sc.upsert_server_slot(host, 22001, config={"PORT": "22001"})) == no_cells
+                  and refusal(lambda: sc.reserve_server_cell({"hostId": host, "port": 22001})) == no_cells,
+                  f"старт, запись и резерв ячейки на id контроллера ({host}) — отказ этими словами, а не «нет модели»")
+        check(store["serverSlots"] == {}, "negative: отказ ничего не записал")
+        slot = sc.upsert_server_slot("box-a", 22031, config={"PORT": "22031"})
+        check(slot["hostId"] == "box-a" and "box-a:22031" in store["serverSlots"],
+              "negative: ячейка машины со скаутом записывается как прежде")
+    finally:
+        sc.topology_store, sc.save_admin_state, sc.topo = keep
+
+
 def main():
     section_report_mapping()
     section_the_boot_button()
     section_saving_settings()
+    section_the_controller_runs_no_cells()
     if _fail:
         print(f"\nFAILED ({len(_fail)}):")
         for m in _fail:

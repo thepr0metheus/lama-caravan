@@ -1,7 +1,6 @@
 // Remote cell lifecycle: reserve/start/stop, tr- edit form, remote backups.
-import { appChoose, appConfirm, appPrompt } from "./dialogs.js";
+import { appConfirm, appPrompt } from "./dialogs.js";
 import { renderCommandPreview } from "./command-preview.js";
-import { CONTROLLER_HOST_ID, defaultOnOptionalToggles } from "./constants.js";
 import { refreshFavoritesPanel } from "./favorites.js";
 import {
   badge,
@@ -20,18 +19,16 @@ import { t } from "./i18n.js";
 import { saveRouters } from "./routers.js";
 import {
   applyConfigToForm,
-  deleteBackup,
-  openTopologyLlamaEdit,
   setEditCurrentCommand,
   suggestedSnapshotName,
   wireCellKindToggle,
 } from "./llama-edit.js";
 import { refreshComputeTarget } from "./memory.js";
-import { action, startMonitor } from "./polling.js";
+import { startMonitor } from "./polling.js";
 import { setTopology, state, topology } from "./state.js";
 import { topologyAssignmentsByAgent, topologyStatusPill } from "./topology-activity.js";
-import { hostAgeText, openNodeServerDetail } from "./topology-nodes.js";
-import { _topologyRenderPending, markTopologyRenderPending, refreshTopology, renderTopology, topologyInteractionActive, topologyServerPhase } from "./topology-render.js";
+import { hostAgeText, hostPowerTextKey, isControllerMachine, openNodeServerDetail } from "./topology-nodes.js";
+import { markTopologyRenderPending, refreshTopology, renderTopology, topologyInteractionActive, topologyServerPhase } from "./topology-render.js";
 import { $, api, escapeHtml, toast } from "./utils.js";
 
 export let _trCachedModels = new Set(); // relative paths of .gguf files cached on the current remote host
@@ -161,7 +158,7 @@ export function openPortPicker(hostId, port) {
   (topology?.nodes || []).forEach((n) => (n.servers || []).forEach((s) => {
     const p = Number(s.port || 0);
     if (!p) return;
-    const host = s.isController ? CONTROLLER_HOST_ID : (s.clientId || n.id);
+    const host = s.clientId || n.id;
     const what = (s.model || (s.config || {}).COMMAND || "cell").toString().slice(0, 48);
     const phase = s.phase || (s.status && s.status.phase) || "";
     used.set(p, { kind: "cell", label: `${host} · ${what}`, host, name: what,
@@ -385,25 +382,7 @@ export async function reserveServerCell(hostId, portHint = "") {
   }
 }
 
-// A cell whose model lives in a library: the operator decides how it starts —
-// bring the model home first (checked on the way, the cell starts when it is
-// here), or start now and read it over the network. The card already knows, so
-// the question is asked INSTEAD of the ordinary start confirm: two dialogs in a
-// row would ask the same person the same thing twice. Automatic starts (a
-// schedule, a restart after a crash) never come through here, and the server
-// decides for them.
-export async function askWhereFrom(btn) {
-  const name = btn.dataset.nodeCellLibrary || "";
-  if (!name) return "";
-  return appChoose(t("startWhereText", { name, files: btn.dataset.nodeCellLibraryFiles || "" }), {
-    title: t("startWhereTitle"),
-    scene: "start",
-    options: [{ value: "disk", label: t("startWhereDisk"), hint: t("startWhereDiskHint") },
-              { value: "library", label: t("startWhereLibrary", { name }), hint: t("startWhereLibraryHint") }],
-  });
-}
-
-export async function cellServiceAction(hostId, port, actionName, modelFrom = "") {
+export async function cellServiceAction(hostId, port, actionName) {
   const cellKey = `${hostId}:${port}`;
   _pendingCellActions.set(cellKey, actionName);
   _patchCellButtonsBusy(hostId, port, actionName);
@@ -414,16 +393,9 @@ export async function cellServiceAction(hostId, port, actionName, modelFrom = ""
   try {
     const res = await api("/api/topology/server-cell/action", {
       method: "POST",
-      // The answer to "where from" travels only when there was a question:
-      // every other action would otherwise carry an empty field about a
-      // decision nobody made.
-      body: JSON.stringify({ hostId, port: Number(port), action: actionName, ...(modelFrom ? { modelFrom } : {}) }),
+      body: JSON.stringify({ hostId, port: Number(port), action: actionName }),
       signal: AbortSignal.timeout(60000),
     });
-    // The model is being brought home; the cell starts when it is here. Said
-    // out loud because the card will sit "stopped" until then, and silence
-    // there reads as a start that did nothing.
-    if (res && res.bringing) toast(t("startBringing"));
     // The request can succeed (HTTP 200) but the agent may reject the action —
     // e.g. a client has a single server slot and another cell is still
     // starting/downloading. Surface that instead of silently doing nothing.
@@ -707,8 +679,8 @@ function bindVramHoverOnce() {
   });
 }
 
-// Bind data-node-start / data-node-slot-del within a root element (scoped so
-// classic board and node view don't double-bind each other's buttons).
+// Bind data-node-start / data-node-slot-del within a root element (scoped to
+// the root just rendered, so a repaint does not bind a button twice).
 export function bindServerSlotControls(root) {
   if (!root) return;
   bindVramHoverOnce();
@@ -716,10 +688,7 @@ export function bindServerSlotControls(root) {
     b.addEventListener("click", () => openRemoteFormForHost(b.dataset.nodeStart, b.dataset.nodeStartPort || "")));
   root.querySelectorAll("[data-node-cell-start]").forEach((b) =>
     b.addEventListener("click", () => {
-      const hostId = b.dataset.nodeCellStart;
-      const port = b.dataset.nodeCellPort || "";
-      if (b.dataset.nodeRole === "controller") openTopologyLlamaEdit("add", port);
-      else openRemoteFormForHost(hostId, port);
+      openRemoteFormForHost(b.dataset.nodeCellStart, b.dataset.nodeCellPort || "");
     }));
   // Launch a configured cell directly (no modal — model already set)
   root.querySelectorAll("[data-node-cell-launch]").forEach((b) =>
@@ -728,25 +697,15 @@ export function bindServerSlotControls(root) {
       const model = b.closest("article")?.querySelector(".node-model-name")?.textContent?.trim();
       // For a command-path cell that .node-model-name row is the command line,
       // so the model wording announced "bash ~/run_tts.sh $PORT cosyvoice" as a
-      // model and promised it would load into memory — neither is true.
-      if (b.dataset.nodeCellLibrary) {
-        const from = await askWhereFrom(b);
-        if (!from) return;
-        cellServiceAction(b.dataset.nodeCellLaunch, port, "start", from);
-        return;
-      }
+      // model and promised it would load into memory — neither is true. (A
+      // model in a library was asked "disk or library?" here, for the
+      // controller's own cells; a scout reads it where it is, and the answer
+      // was ignored once those cells moved to it — step 6.9.)
       const msg = (b.dataset.nodeCellRunner || "llama-server") !== "llama-server"
         ? t("dlgStartCommand", { port })
         : (model ? t("dlgStartModel", { model, port }) : t("dlgStartPort", { port }));
       if (!(await appConfirm(msg, { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;
       cellServiceAction(b.dataset.nodeCellLaunch, port, "start");
-    }));
-  // Orphan cells (running outside the registry): the strip's only action.
-  root.querySelectorAll("[data-orphan-stop]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      const port = b.dataset.orphanStop;
-      if (!(await appConfirm(t("dlgStopPort", { port }), { confirmLabel: t("stop"), scene: "stop" }))) return;
-      cellServiceAction(CONTROLLER_HOST_ID, port, "stop");
     }));
   root.querySelectorAll("[data-node-cell-stop]").forEach((b) =>
     b.addEventListener("click", async () => {
@@ -769,26 +728,10 @@ export function bindServerSlotControls(root) {
     }));
   root.querySelectorAll("[data-node-reserve]").forEach((b) =>
     b.addEventListener("click", () => reserveServerCell(b.dataset.nodeReserve, b.dataset.nodeReservePort || "")));
-  // Add server — controller routes to the local the controller add flow, clients to the
-  // remote route-agent add flow.
+  // Add server — a new cell on the machine's scout.
   root.querySelectorAll("[data-node-add]").forEach((b) =>
     b.addEventListener("click", () => {
       reserveServerCell(b.dataset.nodeAdd, b.dataset.nodeReservePort || "");
-    }));
-  // Controller server edit (the controller llama config)
-  root.querySelectorAll("[data-node-ctrl-edit]").forEach((b) =>
-    b.addEventListener("click", () => openTopologyLlamaEdit("edit")));
-  // Controller server stop (stops llamacpp-current.service, not the admin panel)
-  root.querySelectorAll("[data-node-ctrl-stop]").forEach((b) =>
-    b.addEventListener("click", () => {
-      appConfirm(t("dlgStopLlama"), { confirmLabel: t("stop"), scene: "stop" })
-        .then((ok) => { if (ok) action("stop"); });
-    }));
-  // Controller server start
-  root.querySelectorAll("[data-node-ctrl-start]").forEach((b) =>
-    b.addEventListener("click", async () => {
-      if (!(await appConfirm(t("dlgStartPort", { port: "" }).replace(" :?", "?"), { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;
-      action("start");
     }));
   root.querySelectorAll("[data-node-slot-del]").forEach((b) =>
     b.addEventListener("click", () => {
@@ -951,6 +894,19 @@ export let _trClientCpu = {};
 export let _trPurging = false; // true while cache purge is in flight → blocks Start
 export let _trCellPort = "";
 
+// Is the machine this cell form targets the controller's own? Then its files
+// are the controller's: the models tree the controller lists and the home it
+// reads scripts from. Any other scout machine has neither, so the choices only
+// that tree backs are held back from it — a safetensors folder in the picker,
+// the seamless runner and its language, a vLLM path derived from the picked
+// folder — and a script its command names is not read. Since step 6.8 the
+// controller's machine runs its cells through its scout and they are edited in
+// this form; before, the controller's own form (te-) offered them, and holding
+// them back here left that machine's seamless and vLLM cells uneditable.
+export function formOnControllerMachine(pfx) {
+  return pfx === "tr-" && isControllerMachine(_trHostId);
+}
+
 // ── Per-cell schedule panel (right rail of the cell editor) ──────────────────
 const SCHED_DAY_KEYS = ["dayMo", "dayTu", "dayWe", "dayTh", "dayFr", "daySa", "daySu"];
 let _schedSaveTimer = 0;
@@ -1029,14 +985,13 @@ export function renderSchedulePanel(pfx, hostId, cellPort, schedule) {
 // deliberate ⏰ click — no reason to carry it in every page's HTML. Reuses the
 // shared modal look; resolves when the operator saves or dismisses.
 export function openHostPowerScheduleModal(hostId, sched) {
-  const isCtrl = hostId === CONTROLLER_HOST_ID;
   const s = sched || {};
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay hps-overlay";
   overlay.innerHTML = `
     <div class="modal" data-tone="ask" role="dialog" aria-modal="true" aria-labelledby="hpsTitle" data-t="host-power-schedule-modal">
       <h2 id="hpsTitle">${escapeHtml(t("hostPowerSchedModalTitle", { host: hostId }))}</h2>
-      <p class="hps-warn">${escapeHtml(isCtrl ? t("hostPowerSchedWarnController") : t("hostPowerSchedWarnClient"))}</p>
+      <p class="hps-warn">${escapeHtml(t(hostPowerTextKey(hostId, "schedule")))}</p>
       <label class="hps-row"><input type="checkbox" id="hpsEnabled" data-t="host-power-schedule-enabled"${s.enabled ? " checked" : ""}> <span>${escapeHtml(t("hostPowerSchedEnable"))}</span></label>
       <div class="hps-row"><label for="hpsAt">${escapeHtml(t("hostPowerSchedAt"))}</label>
         <input type="time" id="hpsAt" data-t="host-power-schedule-at" value="${escapeHtml(s.at || "03:00")}"></div>
@@ -1092,8 +1047,7 @@ export function openHostPowerScheduleModal(hostId, sched) {
 // The slot from the current topology for (hostId, port) — schedule's source.
 export function findSlotEntry(hostId, port) {
   return ((topology?.server || {}).llamaServers || [])
-    .find((sv) => String(sv.port) === String(port) &&
-                  ((sv.clientId || "") === (hostId === CONTROLLER_HOST_ID ? "" : hostId)));
+    .find((sv) => String(sv.port) === String(port) && (sv.clientId || "") === hostId);
 }
 
 export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "") {

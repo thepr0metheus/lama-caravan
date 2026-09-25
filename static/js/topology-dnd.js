@@ -78,8 +78,6 @@ export let topologySchedulePaintOutput = "";  // output id currently selected fo
 export let topologyScheduleGrid = null;       // working [7][24] grid of outputId|"" while editing
 export let _schedulePainting = false;
 export let _schedulePointerUpBound = false;
-export let topologyLlamaDetailOpen = false;
-export let topologyGpuModalOpen = false;
 // Delete a proxy port from wherever its button sits (the port form, the route
 // detail). Says what leaves with it: a port is a listener AND whatever the agent
 // on the other side is configured to call, so deleting one without naming the
@@ -293,19 +291,6 @@ export function bindTopologyDragAndDrop() {
     ui.topologyCloudForm = null;
     renderTopology();
   });
-  document.querySelectorAll("[data-topology-gpu-modal]").forEach((el) => {
-    const open = () => { topologyGpuModalOpen = true; renderTopology(); };
-    el.addEventListener("click", open);
-    el.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
-    });
-  });
-  document.querySelector("[data-topology-gpu-modal-close]")?.addEventListener("click", () => {
-    topologyGpuModalOpen = false; renderTopology();
-  });
-  document.querySelector("[data-topology-gpu-modal-overlay]")?.addEventListener("click", (event) => {
-    if (event.target?.dataset?.topologyGpuModalOverlay !== undefined) { topologyGpuModalOpen = false; renderTopology(); }
-  });
   // ── Usage & spend statistics modal (open button is static in the header) ──
   document.querySelector("[data-usage-stats-close]")?.addEventListener("click", () => {
     ui.usageStatsModalOpen = false; renderTopology();
@@ -365,19 +350,6 @@ export function bindTopologyDragAndDrop() {
       e.stopPropagation();
       saveApiPrice(el.dataset.usApipriceSave);
     });
-  });
-  document.querySelectorAll("[data-topology-llama-detail]").forEach((el) => {
-    const open = () => { topologyLlamaDetailOpen = true; renderTopology(); };
-    el.addEventListener("click", open);
-    el.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); open(); }
-    });
-  });
-  document.querySelector("[data-topology-llama-detail-close]")?.addEventListener("click", () => {
-    topologyLlamaDetailOpen = false; renderTopology();
-  });
-  document.querySelector("[data-topology-llama-detail-overlay]")?.addEventListener("click", (event) => {
-    if (event.target?.dataset?.topologyLlamaDetailOverlay !== undefined) { topologyLlamaDetailOpen = false; renderTopology(); }
   });
   // Queue & Priority unified modal
   document.querySelectorAll("[data-topology-queue-priority-open]").forEach((element) => {

@@ -187,11 +187,8 @@ PINS = [
      '[true,true,""]', "сырой конфиг: путь и содержимое; после закрытия — пусто"),
     ("raw_config_error", 'globalThis.__fetchReply["/api/agent-proxies/raw"] = { __status: 500, error: "nope" };',
      'await (async () => { await m.openRawConfigViewer(); return m.renderTopologyRawConfigModal().includes("error: nope"); })()', 'true', "negative: отказ — текст ошибки в модале"),
-    ("gpu_modal_summary", 'st.setState({ config: {}, logs: "", runtime: { props: { default_generation_settings: { n_ctx: 8192 } } } });',
-     '(h => [h.includes("(no logs)"), h.includes("&quot;n_ctx&quot;: 8192"), h.includes("GPU 0 — Logs &amp; Raw API")])(m.renderTopologyGpuModal())', '[true,true,true]', "GPU-модал: заглушка без логов, сводка с n_ctx"),
-    ("llama_detail_fields", 'st.setTopology(TOPO({ server: { llamaServers: [{ name: "Current", model: "/models/Qwen3-Embedding-0.6B-f16.gguf", port: 22001, status: { phase: "ready" }, service: "llama@1" }], runtime: { props: { n_ctx: 4096 } } } }));',
-     '(h => [h.includes("<strong>Qwen3-Embedding-0.6B</strong>"), h.includes("<strong>4096</strong>"), h.includes("<strong>22001</strong>"), h.includes("<strong>ready</strong>"), h.includes("<code>llama@1</code>")])(m.renderTopologyLlamaDetail())',
-     '[true,true,true,true,true]', "детали модели: красивое имя, окно, порт, фаза, сервис"),
+    ("controller_modals_gone", '', '["renderTopologyGpuModal", "renderTopologyLlamaDetail"].filter((k) => k in m)', '[]',
+     "negative: модалов «GPU — логи и сырой API» и «детали модели» одиночного сервера контроллера больше нет (шаг 6.9)"),
 ]
 
 

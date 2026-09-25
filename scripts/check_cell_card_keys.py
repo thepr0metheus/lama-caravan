@@ -13,8 +13,10 @@ red: the key was simply absent, and absent renders as "nothing saved".
 
 So the two key sets are compared here, and a difference has to be declared with a
 reason. The point is not that they must be identical — three fields genuinely
-only exist for a live process, four only for a stored slot — but that every one
-of those is a decision somebody made, rather than a line somebody forgot.
+only exist for a live process, one only for a stored slot — but that every one
+of those is a decision somebody made, rather than a line somebody forgot. (Since
+step 6.9 the controller runs no cell of its own, and its single-server card and
+the fields only its cells had are gone: two builders, not three.)
 
 This is a KEY check, deliberately. Values differ per cell and per moment; what
 must not differ is what a card is made of.
@@ -33,23 +35,9 @@ DECLARED = {
     "ctxUsed": "live: the context in use is measured from the running process",
     "modelReady": "live: whether the engine is answering right now",
     "uptimeSec": "live: how long the process has been running",
-    # Only a stored slot has these — they are read from the record, and a live
-    # cell's card is built before the slot is consulted.
-    "artifact": "slot: launch files are recorded at Apply — the live branch has none on hand",
+    # Only a stored slot has this — read from the record's model on disk, and a
+    # live cell's card has the real figure from GPU process memory instead.
     "modelSizeBytes": "slot: the model file's size, from disk",
-    "pids": "slot: the unit's process list",
-    "modelDiskNewer": "slot: a file's mtime against the unit's start time — both "
-                       "numbers exist only for a controller cell; a client "
-                       "cell's file sits on its own host",
-    "modelFresh": "slot: the model watcher's report — about files in the "
-                  "CONTROLLER's directory; a client cell's weights sit on its "
-                  "own host, and there's nothing here to check them against",
-    "launchFresh": "slot: the same, for ALL launch files (model, mmproj, "
-                   "draft) — and for the same reason, only for a controller cell",
-    "launchDiskNewer": "slot: each launch file's mtime against the unit's "
-                       "start time — both numbers exist only for a controller cell",
-    "modelStore": "slot: which launch files only a library holds — the libraries "
-                  "are mounted on the controller; a client cell reads its own disk",
 }
 
 
@@ -70,15 +58,14 @@ def card_keys(tree):
 def main():
     tree = ast.parse(SOURCE.read_text(encoding="utf-8"))
     cards = card_keys(tree)
-    if len(cards) < 3:
-        print(f"cell card keys: FAILED — ожидалось три сборщика карточки, найдено {len(cards)}",
+    if len(cards) != 2:
+        print(f"cell card keys: FAILED — ожидалось два сборщика карточки, найдено {len(cards)}",
               file=sys.stderr)
         print("  Проверка перестала находить то, что проверяла.", file=sys.stderr)
         return 1
 
-    # cards[0] is the legacy single-server card, which is a different thing and
-    # is not compared. The two that describe a CELL are the last two.
-    (line_live, live), (line_slot, slot) = cards[-2], cards[-1]
+    # The live cell a scout reports, then a stored slot that is not live.
+    (line_live, live), (line_slot, slot) = cards
     errors = []
     for key in sorted(live - slot):
         if key not in DECLARED:

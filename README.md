@@ -215,9 +215,9 @@ is long enough. Details in [docs/backend-proxy.md](docs/backend-proxy.md).
 > **Docker is the evaluation path** — the fastest way to look around: one
 > container with the admin UI and the proxy router, no models inside. The
 > **primary, fully-featured deployment is the native systemd install**
-> ([Install On the controller](#install-on-the-controller)) — it also runs
-> `lama-cell@<port>` server cells on the controller box itself, with journald
-> logs, restart limits and per-cell memory caps.
+> ([Install On the controller](#install-on-the-controller)). Neither runs a
+> model itself: cells run on machines with a scout — the controller's own
+> machine included, with a scout installed on it like on any other.
 
 ```bash
 git clone https://github.com/thepr0metheus/lama-caravan.git
@@ -308,7 +308,7 @@ whenever a component is upgraded (last verified: **2026-09-25**):
 | Docker (container mode) | 29.1 |
 | faster-whisper | 1.2.1 (CTranslate2 4.8.0, cuDNN 9.26 from the `nvidia-cudnn-cu12` wheel) — whisper command cells; a transcription verified on the Linux host 2026-09-24 |
 | vLLM | 0.24.0, pinned provisioning — a cell on the controller's machine (`:22026`, through its scout, model folder read from the NAS library), verified 2026-09-25 |
-| caravan-scout | 2.8.2 on both Linux machines (2026-09-25) — on the controller's own machine it runs every cell (22, one trial start per runner); installed with `./install.sh` and added from the board (Model servers → ＋ Add scout); knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, brings a crashed cell back, runs each cell under the memory limits of the controller's cells, says when a fresh llama.cpp build crashes them, refuses a vLLM start its card cannot hold, reports a vLLM cell's queue and speed, and samples the machine every second for the board's charts |
+| caravan-scout | 2.10.2 on both Linux machines (2026-09-25) — on the controller's own machine it runs every cell (22, one trial start per runner); installed with `./install.sh` and added from the board (Model servers → ＋ Add scout); knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, brings a crashed cell back, runs each cell under the memory limits the controller's cells had, says when a fresh llama.cpp build crashes them, refuses a vLLM start its card cannot hold, reports a vLLM cell's queue and speed, updates and rolls back the vLLM in its machine's venv, samples the machine every second for the board's charts, keeps its id when the machine is renamed, and names the address the network knows the machine by even when paired over loopback |
 | moonshine-voice | 0.0.69 — moonshine STT command cells (CPU-only) |
 | transcribe.cpp | 0.2.0 (commit `b6a6aca`, 2026-07-22), CUDA build — transcribe cells; verified with `gigaam-v3-e2e-rnnt-Q8_0.gguf` |
 | CosyVoice (TTS cells) | upstream checkout + torch **2.7.1+cu128** in the engine venv — the cu128 wheels carry `sm_75…sm_120`, so the same cell runs on the RTX 3090 and the RTX 5090; CosyVoice's own pin (2.3.1+cu121) stops at `sm_90` and dies on Blackwell with "no kernel image" |
@@ -351,15 +351,9 @@ Legacy single-server mode edits the marked config block in:
 ~/llama.cpp/start-server.sh
 ```
 
-The long-term server-cell path uses generated launch artifacts instead:
-
-```text
-<project>/var/server-cells/<port>/cell.json
-<project>/var/server-cells/<port>/start.sh
-```
-
-The structured cell config is the source of truth; `start.sh` is the runnable
-artifact used by `lama-cell@<port>.service`.
+Server cells run on machines with a scout — the controller's own machine
+included — from the cell's structured config, which the controller keeps and
+hands to the machine's scout on every start.
 
 ## Runtime Layout
 
@@ -374,9 +368,6 @@ move toward per-port launch scripts.
 
 ~/.config/systemd/user/lama-caravan.service
   -> ~/lama-caravan/.venv/bin/python app.py
-
-~/.config/systemd/user/lama-cell@22001.service
-  -> ~/lama-caravan/var/server-cells/22001/start.sh
 ```
 
 For boot-time autostart without waiting for an interactive SSH or
@@ -463,10 +454,9 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 - Reserve globally numbered cells from port `22001` (CARAVAN_CELL_BASE_PORT; proxies get
   their own block at `23001+` via CARAVAN_PROXY_BASE_PORT) — the controller's own web
   port (`LLAMACPP_ADMIN_PORT`, default `7990`) sits inside that numbering and is
-  held out of the pool automatically; generated `cell.json` +
-  `start.sh` artifacts; `systemd --user` template units
-  (`lama-cell@<port>.service`) on the controller, scout-managed processes on
-  scout hosts (they survive scout restarts).
+  held out of the pool automatically; cells are scout-managed processes on
+  the machines with a scout, the controller's own machine included (they
+  survive scout restarts).
 - Per-cell schedule windows (start/stop by time of day and weekday), autostart,
   a port picker with a fleet-wide grid, and port swap between stopped cells.
 - llama.cpp lifecycle: fleet-wide update button, build archive with informed
@@ -659,8 +649,7 @@ redirect: `/` → `/board`, `/router` → `/kanban`):
 | `/hf` | the HuggingFace GGUF browser |
 
 `/login` and `/setup` are separate pages — a fresh controller bounces to the
-first-run wizard, an enabled one to sign-in. A `Classic` view inside the board
-keeps the legacy single-server editor (the `llamacpp-current.service` path).
+first-run wizard, an enabled one to sign-in.
 
 Topology state is stored in the admin state file:
 
@@ -703,7 +692,6 @@ This will:
 - Fetch the latest llama.cpp release tag from GitHub
 - Clone or update `~/llama.cpp`
 - Build `llama-server` with CUDA (auto-detects GPU architectures)
-- Restart any running `lama-cell@*.service` units
 - Provision the whisper STT server at the end (non-fatal if it can't)
 
 Optional flags:
@@ -809,8 +797,9 @@ Worth knowing before the first start:
 
 **This is the primary deployment.** The [Docker quick start](#quick-start-docker)
 above is for evaluation (or a GPU-less controller box); a real fleet controller
-runs native under systemd so it can host `lama-cell@<port>` server cells with
-journald logs, start limits and memory caps.
+runs native under systemd. It runs no cells itself: to put the controller's
+own GPUs to work, install a scout on its machine and pair it from the board,
+as on any other machine.
 
 Copy this directory to:
 
@@ -843,9 +832,6 @@ loginctl enable-linger $USER
 systemctl --user daemon-reload
 systemctl --user enable --now lama-caravan.service lama-caravan-proxies.service
 ```
-
-(The `lama-cell@.service` template is installed by the app itself the first
-time a cell starts — no need to copy it by hand.)
 
 Make sure no legacy crontab launcher is still present:
 

@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Snapshot of static/js/system-panels.js — the panels on the System page.
 
-What's pinned by value. Summaries from state: the service (phase, PID, the
-command line via formatCmdline, "no command running"), runtime (the model
-with fallback paths, context, vision, speculative mode, the RAM line or its
-error, "now / prev" tok/s via tokenSpeedState), CPU/GPU (data or an error
-text). Controller: good/warn service chips, cells, git with a warn on dirty
+What's pinned by value. (The controller's own service, runtime and CPU/GPU
+summaries of the classic view went with its cells in step 6.9 — pinned as
+gone.) Controller: good/warn service chips, cells, git with a warn on dirty
 files, python, disk with a warn below 50 GB or with an error, models; inside
 a container the user-service repair button is removed. llama.cpp: "upstream
 is newer" is decided by COMMIT when both sides are known, and by build number
@@ -45,11 +43,9 @@ import "./_js_globals.mjs";
 import { pathToFileURL } from "node:url";
 const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
 st.setState({ config: {}, paths: { service: "llamacpp-current.service" } });
-globalThis.__stubValues = { "polling.tokenSpeedState": { lastTime: null, current: null, previous: null } };
 globalThis.__timers = []; globalThis.setTimeout = (fn, ms) => { globalThis.__timers.push(Number(ms) || 0); return 0; }; globalThis.clearTimeout = () => {};
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/system-panels.js").href);
 const P = await import(pathToFileURL(process.env.JS_ROOT + "/polling.js").href);
-const TSS = globalThis.__stubValues["polling.tokenSpeedState"];
 const cls = () => { const s = new Set(); return { add: (...c) => c.forEach((x) => s.add(x)), remove: (...c) => c.forEach((x) => s.delete(x)), toggle: (c, on) => (on ? s.add(c) : s.delete(c)), has: (c) => s.has(c), contains: (c) => s.has(c), list: () => [...s].sort() } };
 // Элемент словарного DOM: innerHTML разбирается в кнопки с data-атрибутом (restore-build / vllm-update / auth-*), чтобы модуль мог навесить слушатели.
 const mkEl = (tag = "div") => { const e = { tag, textContent: "", hidden: false, disabled: false, title: "", classList: cls(), dataset: {}, listeners: {}, events: [], children: [], scrollTop: 0, scrollHeight: 0, value: "",
@@ -57,7 +53,7 @@ const mkEl = (tag = "div") => { const e = { tag, textContent: "", hidden: false,
   querySelectorAll(sel) { const mm = sel.match(/^\[data-([a-z-]+)\]$/); if (!mm) throw new Error("selector not modelled: " + sel); const key = mm[1]; return this.children.filter((c) => key in c.attrs); }, querySelector() { return null; } };
   Object.defineProperty(e, "innerHTML", { get() { return this._html || ""; }, set(v) { this._html = v; this.children = []; for (const idm of v.matchAll(/ id="([A-Za-z0-9_-]+)"/g)) { if (!globalThis.__fields[idm[1]]) globalThis.__fields[idm[1]] = mkEl(); } for (const h of v.matchAll(/data-([a-z-]+)="([^"]*)"/g)) { const b = mkEl("button"); b.attrs = { [h[1]]: h[2] }; b.getAttribute = (k) => (k === "data-" + h[1] ? h[2] : null); b.dataset = { [h[1].replace(/-([a-z])/g, (_, c) => c.toUpperCase())]: h[2] }; this.children.push(b); } } });
   e.attrs = {}; return e; };
-const IDS = ["serviceSummary", "cmdline", "runtimeSummary", "cpuSummary", "gpuSummary", "controllerInfo", "repairUserServiceBtn", "llamaCppSummary", "llamaUpdateLog", "llamaBuildsList", "vllmSummary", "projectGitBranch", "knownProblems", "securityInfo", "authLogoutBtn", "confirmTitle", "confirmText", "confirmMeta", "confirmPath", "confirmDelete", "confirmOverlay", "modelGcOverlay", "modelGcList", "modelGcSummary", "modelGcSelected", "modelGcDelete", "toast",
+const IDS = ["serviceSummary", "cmdline", "runtimeSummary", "cpuSummary", "gpuSummary", "controllerInfo", "repairUserServiceBtn", "llamaCppSummary", "llamaUpdateLog", "llamaBuildsList", "vllmSummary", "vllmHost", "projectGitBranch", "knownProblems", "securityInfo", "authLogoutBtn", "confirmTitle", "confirmText", "confirmMeta", "confirmPath", "confirmDelete", "confirmOverlay", "modelGcOverlay", "modelGcList", "modelGcSummary", "modelGcSelected", "modelGcDelete", "toast",
   "driverSummary", "driverUpdateBtn", "driverAutoCheck", "driverAutoInstall", "driverUpdateLog"];
 globalThis.__checked = []; document.querySelectorAll = (sel) => (sel === "[data-gc-file]:checked" ? globalThis.__checked : []);
 const F = () => globalThis.__fields;
@@ -65,8 +61,11 @@ const html = (id) => F()[id].innerHTML;
 const toastText = () => F().toast.textContent;
 const calls = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c.method, body: c.body === null ? null : JSON.parse(c.body) }));
 const polls = () => globalThis.__timers.filter((ms) => ms === 2000);
+// The section remembers the machine it shows (module state that outlives a pin): answer for any.
+const vllmReply = (r) => { for (const k of ["", "box-a", "box-b", "old-c"]) globalThis.__fetchReply["/api/fleet/vllm?hostId=" + k] = r; };
+const MACHINES = [{ id: "box-a", name: "Box A", online: true }, { id: "box-b", name: "Box B", online: false }];
 const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); };
-const reset = () => { st.setState({ config: {}, paths: { service: "llamacpp-current.service" }, time: 0 }); st.ui.pendingConfirm = null; TSS.lastTime = null; TSS.current = null; TSS.previous = null;
+const reset = () => { st.setState({ config: {}, paths: { service: "llamacpp-current.service" }, time: 0 }); st.ui.pendingConfirm = null;
   globalThis.__fields = Object.fromEntries(IDS.map((id) => [id, mkEl()])); globalThis.__checked = []; globalThis.__timers.length = 0;
   globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {};
   globalThis.__stubReturns = { "polling.formatTps": P.formatTps, "polling.metricNumber": P.metricNumber, "dialogs.appConfirm": async () => true, "dialogs.settleAppConfirm": () => true, "form.modelsByPath": () => new Map(), "topology-nodes.parseLlamaBuildVersion": (v) => { const n = Number(String(v || "").replace(/\D/g, "")); return n ? { build: n } : null; } }; };
@@ -76,35 +75,19 @@ const out = {};
 
 PINS = [
     # ── summaries ──
-    ("service_summary", 'st.setState({ ...st.state, service: { ActiveState: "active", SubState: "running", MainPID: 4242, ExecMainStartTimestamp: "Fri 10:00", cmdline: "llama-server --port 22001 --ctx-size 8192" }, runtime: { status: { phase: "ready", kind: "good", detail: "slots 4" } } });',
-     '(() => { m.renderService(); return [html("serviceSummary").includes("<b>4242</b>"), html("serviceSummary").includes("running"), html("serviceSummary").includes("slots 4"), html("serviceSummary").includes("llamacpp-current.service"), F().cmdline.textContent.includes("--port 22001")]; })()',
-     '[true,true,true,true,true]', "сервис: PID, подсостояние, деталь фазы, имя юнита, командная строка"),
-    ("service_no_command", 'st.setState({ ...st.state, service: {} });', '(() => { m.renderService(); return [F().cmdline.textContent, html("serviceSummary").includes("<b>0</b>")]; })()', '["No running command line.",true]', "negative: без cmdline — подсказка, PID 0"),
-    ("service_without_element", 'delete globalThis.__fields.serviceSummary;', '(() => { m.renderService(); return F().cmdline.textContent; })()', '""', "negative: панели нет — ничего не рисуется"),
-    ("runtime_summary_fields", 'st.setState({ ...st.state, config: { SPEC_DRAFT_MODEL_FILE: "draft.gguf", SPEC_TYPE: "mtp" }, runtime: { models: { data: [{ id: "qwen3" }] }, props: { default_generation_settings: { n_ctx: 8192 }, modalities: { vision: true } }, status: { phase: "ready", kind: "good" }, metrics: { "llamacpp:prompt_tokens_seconds": "120.5", "llamacpp:predicted_tokens_seconds": "33.333" } }, memory: { error: "no /proc" } });',
-     '(() => { m.renderRuntime(); const h = html("runtimeSummary"); return [h.includes("<b>qwen3</b>"), h.includes("<b>8192</b>"), h.includes("Vision: <span class=\\"pill good\\">on</span>") || /Vision:.*good.*on/.test(h), h.includes("draft-mtp"), h.includes("draft.gguf"), h.includes("no /proc"), h.includes("<b>120.5</b>"), h.includes("<b>33.33</b>"), h.includes("prev n/a")]; })()',
-     '[true,true,true,true,true,true,true,true,true]', "рантайм: модель, контекст, vision, спекулятивный mtp с файлом, ошибка RAM, tok/s и prev n/a при первом замере"),
-    ("runtime_prev_tps_on_next_sample", 'st.setState({ ...st.state, time: 1, runtime: { metrics: { "llamacpp:prompt_tokens_seconds": 10, "llamacpp:predicted_tokens_seconds": 20 } } });',
-     '(() => { m.renderRuntime(); st.setState({ ...st.state, time: 2, runtime: { metrics: { "llamacpp:prompt_tokens_seconds": 30, "llamacpp:predicted_tokens_seconds": 40 } } }); m.renderRuntime(); const h = html("runtimeSummary"); m.renderRuntime(); return [h.includes("<b>30.00</b> <span>prev 10.00</span>"), h.includes("<b>40.00</b> <span>prev 20.00</span>"), html("runtimeSummary").includes("prev 10.00")]; })()',
-     '[true,true,true]', "второй замер по времени сдвигает prev; повторный рендер того же времени не сдвигает"),
-    ("runtime_fallbacks", 'st.setState({ ...st.state, runtime: { models: { models: [{ name: "ollama-name" }] } }, memory: { ok: true, usedMiB: 1024, availableMiB: 2048, totalMiB: 4096 } });',
-     '(() => { m.renderRuntime(); const h = html("runtimeSummary"); return [h.includes("<b>ollama-name</b>"), h.includes("<b>n/a</b>"), h.includes("Speculative: <span class=\\"pill\\">off</span>") || /Speculative:.*off/.test(h), h.includes("RAM:")]; })()',
-     '[true,true,true,true]', "запасные пути: имя модели из ollama-формы, контекст n/a, спекулятивный off, RAM-строка при ok"),
-    ("cpu_ok_and_error", '', '(() => { st.setState({ ...st.state, cpu: { ok: true, model: "Ryzen", usagePct: 12, load1: 1, load5: 2, load15: 3, physicalCores: 8, logicalCores: 16 } }); m.renderCpu(); const a = html("cpuSummary"); st.setState({ ...st.state, cpu: { ok: false } }); m.renderCpu(); return [a.includes("<b>Ryzen</b>"), a.includes("<b>12%</b>"), a.includes("<b>1</b> / 2 / 3"), a.includes("<b>8</b> physical, <b>16</b> logical"), html("cpuSummary")]; })()',
-     '[true,true,true,true,"<div>No CPU data</div>"]', "CPU: модель, загрузка, load, ядра; без данных — подсказка"),
-    ("gpu_rows_and_error", '', '(() => { st.setState({ ...st.state, gpu: { ok: true, gpus: [{ name: "RTX", memoryUsedMiB: 1024, memoryFreeMiB: 2048, utilizationGpuPct: 55, temperatureC: 60, powerDrawW: 200, pcieGenCurrent: 4, pcieWidthCurrent: 16, pcieGenMax: 5, pcieWidthMax: 16 }, { name: "B" }] } }); m.renderGpu(); const a = html("gpuSummary"); st.setState({ ...st.state, gpu: { ok: true, gpus: [] } }); m.renderGpu(); return [(a.match(/<div><b>/g) || []).length, a.includes("<b>55%</b>"), a.includes("<b>Gen4 x16</b> / Gen5 x16"), a.includes("<b>n/a GB/s</b>"), html("gpuSummary")]; })()',
-     '[2,true,true,true,"<div>No GPU data</div>"]', "GPU: блок на карту, util, PCIe; неизвестная пропускная — n/a; пустой список — подсказка"),
+    ("classic_panels_gone", '', '["renderService", "renderRuntime", "renderCpu", "renderGpu", "revertLatest"].filter((k) => k in m)', '[]',
+     "negative: сводок одиночного сервера контроллера (служба, рантайм, CPU, GPU) и отката его start-server.sh больше нет — классический вид ушёл с ячейками контроллера в шаге 6.9"),
     # ── controller ──
-    ("controller_info_chips", '', '(() => { m.renderControllerInfo({ services: [{ unit: "caravan.service", ok: true, active: "active", sub: "running", pid: "77" }, { unit: "proxies.service", ok: false }], cells: { running: 3, total: 5 }, projectGit: { branch: "main", head: "abc1234", dirtyCount: 2 }, python: "3.12", disk: { path: "/models", totalGb: 900, freeGb: 20 }, models: { count: 12, totalGb: 340 } }); const h = html("controllerInfo"); return [h.includes("llama-chip good\\"><span>caravan.service</span><strong>active / running · PID 77"), h.includes("llama-chip warn\\"><span>proxies.service</span><strong>n/a"), h.includes("<strong>3 / 5</strong>"), h.includes("llama-chip warn\\"><span>app git</span><strong>main @ abc1234"), h.includes("<strong>3.12</strong>"), h.includes("llama-chip warn\\"><span>models disk</span><strong>20 GB free / 900 GB"), h.includes("<strong>12 · 340 GB</strong>"), F().repairUserServiceBtn.removed]; })()',
-     '[true,true,true,true,true,true,true,null]', "чипы контроллера: сервис good с PID и warn без данных, ячейки, git warn при грязных файлах, python, диск warn ниже 50 GB, модели; кнопка починки на месте"),
+    ("controller_info_chips", '', '(() => { m.renderControllerInfo({ services: [{ unit: "caravan.service", ok: true, active: "active", sub: "running", pid: "77" }, { unit: "proxies.service", ok: false }], cells: { running: 3, total: 5 }, projectGit: { branch: "main", head: "abc1234", dirtyCount: 2 }, python: "3.12", disk: { path: "/models", totalGb: 900, freeGb: 20 }, models: { count: 12, totalGb: 340 } }); const h = html("controllerInfo"); return [h.includes("llama-chip good\\"><span>caravan.service</span><strong>active / running · PID 77"), h.includes("llama-chip warn\\"><span>proxies.service</span><strong>n/a"), h.includes("3 / 5"), h.includes("llama-chip warn\\"><span>app git</span><strong>main @ abc1234"), h.includes("<strong>3.12</strong>"), h.includes("llama-chip warn\\"><span>models disk</span><strong>20 GB free / 900 GB"), h.includes("<strong>12 · 340 GB</strong>"), F().repairUserServiceBtn.removed]; })()',
+     '[true,true,false,true,true,true,true,null]', "чипы контроллера: сервис good с PID и warn без данных; negative: чипа ячеек нет, даже если старый контроллер прислал cells (своих ячеек у него нет с шага 6.9); git warn при грязных файлах, python, диск warn ниже 50 GB, модели; кнопка починки на месте"),
     ("controller_info_container_and_disk_error", '', '(() => { m.renderControllerInfo({ container: true, projectGit: {}, disk: { path: "/models", error: "not mounted" } }); const h = html("controllerInfo"); return [F().repairUserServiceBtn.removed, h.includes("llama-chip warn\\"><span>models disk</span><strong>/models: not mounted"), h.includes("llama-chip good\\"><span>app git</span><strong>n/a</strong>"), h.includes("server cells")]; })()',
-     '[true,true,true,false]', "контейнер: кнопка починки user-сервиса убрана; диск с ошибкой — warn; без ячеек чипа нет"),
+     '[true,true,true,false]', "контейнер: кнопка починки user-сервиса убрана; диск с ошибкой — warn; negative: чипа ячеек нет"),
     ("controller_info_missing", '', '(() => { m.renderControllerInfo(null); return html("controllerInfo"); })()', '""', "negative: без данных — ничего"),
     # ── llama.cpp ──
     ("llamacpp_upstream_newer_by_commit", 'st.setState({ ...st.state, llamaCpp: { binary: "/opt/llama-server", version: "version: 9947 (abc)", git: { head: "abc1234", branch: "master", upstreamChecked: true, upstreamHead: "def5678", upstreamBuild: 9900, upstreamBuildCommit: "def5678", dirtyCount: 0, trackedDirtyCount: 0 }, supportsChatTemplateFile: true } });',
      '(() => { m.renderLlamaCpp(); const h = html("llamaCppSummary"); return [h.includes("llama-chip warn\\"><span>upstream build</span><strong>b9900"), h.includes("<strong>abc1234</strong>"), h.includes("<strong>def5678</strong>"), h.includes("llama-chip good\\"><span>Tracked dirty</span><strong>0"), F().llamaUpdateLog.textContent, calls().map((c) => c.path)]; })()',
-     '[true,true,true,true,"version: 9947 (abc)",["/api/llamacpp/builds","/api/vllm"]]',
-     "upstream новее решается по КОММИТУ: локальный номер сборки больше, но коммит другой — warn; лог обновления показывает версию; тянутся сборки и vLLM"),
+     '[true,true,true,true,"version: 9947 (abc)",["/api/llamacpp/builds","/api/fleet/vllm?hostId="]]',
+     "upstream новее решается по КОММИТУ: локальный номер сборки больше, но коммит другой — warn; лог обновления показывает версию; тянутся сборки и vLLM машины контроллера (машина не названа)"),
     ("llamacpp_same_commit_is_good", 'st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc)", git: { head: "abc1234", upstreamChecked: true, upstreamBuild: 9947, upstreamBuildCommit: "abc12", trackedDirtyCount: 1 } } });',
      '(() => { m.renderLlamaCpp(); const h = html("llamaCppSummary"); return [h.includes("llama-chip good\\"><span>upstream build</span><strong>b9947"), h.includes("llama-chip warn\\"><span>Tracked dirty</span><strong>1")]; })()',
      '[true,true]', "тот же коммит (по префиксу) — good; грязные отслеживаемые файлы — warn"),
@@ -153,14 +136,38 @@ PINS = [
      'await (async () => { await m.loadDriverPanel(); const h = html("driverSummary"); return [h.includes("reboot"), h.includes("system reboot")]; })()',
      '[false,false]',
      'negative: ни одной причины — ни одной плашки про перезагрузку'),
-    ("vllm_panel_installed", 'globalThis.__fetchReply["/api/vllm"] = { installed: true, version: "0.24.0", venv: "/opt/vllm", history: [{ version: "0.24.0" }, { version: "0.23.1", seenAt: 1700000000 }] };',
-     'await (async () => { await m.loadVllmPanel(); const h = html("vllmSummary"); return [(h.match(/llama-build-row/g) || []).length, h.includes("vllm 0.24.0"), h.includes("/opt/vllm"), h.includes(">Update to latest<"), h.includes(\'data-vllm-update="0.23.1"\'), h.includes(\'data-vllm-update="0.24.0"\')]; })()',
-     '[2,true,true,true,true,false]', "vLLM: текущая версия отдельной строкой с «Update to latest», история без текущей, у прошлых — Restore"),
-    ("vllm_panel_not_installed", 'globalThis.__fetchReply["/api/vllm"] = { installed: false, pinnedDefault: "0.24.0", history: [] };', 'await (async () => { await m.loadVllmPanel(); return html("vllmSummary").includes("pinned to 0.24.0"); })()', 'true', "negative: не установлен — подсказка с пином провижининга"),
-    ("vllm_update_modal_and_post", 'globalThis.__fetchReply["/api/vllm"] = { installed: true, version: "0.24.0", history: [{ version: "0.23.1" }] }; globalThis.__fetchReply["/api/llamacpp/update-status"] = { running: true, lines: ["pip…"] };',
-     'await (async () => { await m.loadVllmPanel(); F().vllmSummary.children[1].listeners.click[0](); const a = [F().confirmPath.textContent, F().confirmDelete.textContent, F().confirmMeta.innerHTML.includes("<strong>vllm 0.24.0</strong>"), F().confirmMeta.innerHTML.includes("<strong>vllm 0.23.1</strong>"), F().confirmOverlay.hidden]; await st.ui.pendingConfirm(); await settle(); return [...a, calls().slice(1).map((c) => [c.path, c.body]), F().llamaUpdateLog.textContent, polls()]; })()',
-     '["pip install vllm==0.23.1","Restore",true,true,false,[["/api/vllm/update",{"version":"0.23.1"}],["/api/llamacpp/update-status",null]],"pip…",[2000]]',
-     "откат vLLM: модал с командой pip и from/to; подтверждение — POST версии и опрос статуса, running → следующий опрос через 2 с"),
+    ("vllm_panel_installed", 'vllmReply({ ok: true, machines: MACHINES, hostId: "box-a", installed: true, version: "0.24.0", venv: "/opt/vllm", pinnedDefault: "0.24.0", history: [{ version: "0.24.0" }, { version: "0.23.1", seenAt: 1700000000 }] }); F().vllmHost.parentElement = mkEl("label"); F().vllmHost.parentElement.hidden = true;',
+     'await (async () => { await m.loadVllmPanel(); const h = html("vllmSummary"); const sel = F().vllmHost; return [(h.match(/llama-build-row/g) || []).length, h.includes("vllm 0.24.0"), h.includes("/opt/vllm"), h.includes(">Update to latest<"), h.includes(\'data-vllm-update="0.23.1"\'), h.includes(\'data-vllm-update="0.24.0"\'), sel.innerHTML, sel.value, sel.disabled, sel.parentElement.hidden, calls().map((c) => c.path)]; })()',
+     '[2,true,true,true,true,false,"<option value=\\"box-a\\" selected>Box A</option><option value=\\"box-b\\">Box B · offline</option>","box-a",false,false,["/api/fleet/vllm?hostId="]]',
+     "vLLM машины: текущая версия отдельной строкой с «Update to latest», история без текущей, у прошлых — Restore; выбор машины — все машины, выбранная отмечена, не на связи — подписано"),
+    ("vllm_panel_not_installed", 'vllmReply({ ok: true, machines: MACHINES.slice(0, 1), hostId: "box-a", installed: false, pinnedDefault: "0.24.0", history: [] });',
+     'await (async () => { await m.loadVllmPanel(); return [html("vllmSummary").includes("pinned to 0.24.0"), F().vllmHost.disabled]; })()', '[true,true]',
+     "negative: не установлен — подсказка с пином провижининга; машина одна — выбирать не из чего"),
+    ("vllm_panel_refused", 'vllmReply({ ok: false, error: "old-c: its scout 2.8.2 is older than 2.9.0, the first to answer for vLLM on its machine — update the scout", machines: MACHINES, hostId: "old-c" });',
+     'await (async () => { await m.loadVllmPanel(); return [html("vllmSummary"), F().vllmHost.innerHTML.includes("Box A")]; })()',
+     '["<p class=\\"llama-builds-empty\\">old-c: its scout 2.8.2 is older than 2.9.0, the first to answer for vLLM on its machine — update the scout</p>",true]',
+     "скаут машины старше 2.9.0 — его слова вместо списка версий, а выбор других машин остаётся"),
+    ("vllm_panel_no_machines", 'vllmReply({ ok: false, error: "no machine with a scout has reported yet", machines: [], hostId: "" }); F().vllmHost.parentElement = mkEl("label");',
+     'await (async () => { await m.loadVllmPanel(); return [html("vllmSummary").includes("no machine with a scout has reported yet"), F().vllmHost.parentElement.hidden]; })()',
+     '[true,true]', "negative: машин нет — сказано словами, выбор машины спрятан вместе с подписью"),
+    ("vllm_machine_change", 'vllmReply({ ok: true, machines: MACHINES, hostId: "box-a", installed: true, version: "0.24.0", history: [] });',
+     'await (async () => { await m.loadVllmPanel(); globalThis.__fetchCalls.length = 0; const sel = F().vllmHost; sel.value = "box-b"; sel.listeners.change[0](); await settle(); return [calls().map((c) => c.path), sel.listeners.change.length]; })()',
+     '[["/api/fleet/vllm?hostId=box-b"],1]', "выбрали другую машину — раздел спрашивает про неё; слушатель навешен один раз, сколько бы раз раздел ни рисовался"),
+    ("vllm_update_modal_and_post", 'vllmReply({ ok: true, machines: MACHINES, hostId: "box-a", installed: true, version: "0.24.0", history: [{ version: "0.23.1" }] }); globalThis.__fetchReply["/api/fleet/vllm/update-status?hostId=box-a"] = { running: true, lines: ["pip…"] };',
+     'await (async () => { await m.loadVllmPanel(); globalThis.__fetchCalls.length = 0; F().vllmSummary.children[1].listeners.click[0](); const a = [F().confirmPath.textContent, F().confirmDelete.textContent, F().confirmMeta.innerHTML.includes("<strong>Box A</strong>"), F().confirmMeta.innerHTML.includes("<strong>vllm 0.24.0</strong>"), F().confirmMeta.innerHTML.includes("<strong>vllm 0.23.1</strong>"), F().confirmOverlay.hidden]; await st.ui.pendingConfirm(); await settle(); return [...a, calls().map((c) => [c.path, c.body]), F().llamaUpdateLog.textContent, polls()]; })()',
+     '["pip install vllm==0.23.1","Restore",true,true,true,false,[["/api/fleet/vllm/update",{"hostId":"box-a","version":"0.23.1"}],["/api/fleet/vllm/update-status?hostId=box-a",null]],"pip…",[2000]]',
+     "откат vLLM на машине: модал с машиной, командой pip и from/to; подтверждение — POST её скауту через контроллер и опрос её задания, running → следующий опрос через 2 с"),
+    ("vllm_poll_done_ok", 'vllmReply({ ok: true, machines: MACHINES, hostId: "box-a", installed: true, version: "0.23.1", history: [] }); globalThis.__fetchReply["/api/fleet/vllm/update-status?hostId=box-a"] = { done: true, rc: 0, lines: ["Successfully installed vllm-0.23.1"] }; F().vllmHost.value = "box-a";',
+     'await (async () => { await m.pollVllmUpdate("box-a"); await settle(); return [toastText(), F().llamaUpdateLog.textContent, calls().map((c) => c.path), polls()]; })()',
+     '["vLLM install finished.","Successfully installed vllm-0.23.1",["/api/fleet/vllm/update-status?hostId=box-a","/api/fleet/vllm?hostId=box-a"],[]]',
+     "установка кончилась успешно — тост о vLLM (не о llama.cpp), лог, раздел перечитан про ту же машину; опросов больше нет"),
+    ("vllm_poll_failed", 'globalThis.__fetchReply["/api/fleet/vllm/update-status?hostId=box-a"] = { done: true, rc: 1, lines: ["ERROR: no matching distribution"], error: "" };',
+     'await (async () => { await m.pollVllmUpdate("box-a"); await settle(); return [toastText(), calls().map((c) => c.path), polls()]; })()',
+     '["vLLM install failed (rc=1)",["/api/fleet/vllm/update-status?hostId=box-a"],[]]',
+     "negative: pip упал — тост с кодом, раздел не перечитывается, опросов нет"),
+    ("vllm_poll_unreachable", 'globalThis.__fetchReply["/api/fleet/vllm/update-status?hostId=box-a"] = { ok: false, error: "box-a unreachable: timed out" };',
+     'await (async () => { await m.pollVllmUpdate("box-a"); await settle(); return [F().llamaUpdateLog.textContent, polls()]; })()',
+     '["box-a unreachable: timed out",[]]', "negative: скаут не ответил — его слова в логе, опрос не повторяется"),
     # ── llama.cpp modals ──
     ("restore_build_modal", 'st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc)\\nextra" } }); globalThis.__fetchReply["/api/llamacpp/update-status"] = { done: true, rc: 1, error: "build failed" };',
      'await (async () => { m.openRestoreBuildModal("b2", { version: "version: 9900 (def)" }); const a = [F().confirmTitle.textContent, F().confirmMeta.innerHTML.includes("<strong>b9947 (abc)</strong>"), F().confirmMeta.innerHTML.includes("<strong>b9900 (def)</strong>"), F().confirmPath.textContent, F().confirmOverlay.hidden]; await st.ui.pendingConfirm(); await settle(); return [...a, calls().map((c) => [c.path, c.body]), toastText(), polls()]; })()',
@@ -175,17 +182,14 @@ PINS = [
      '[true,1,"scout at 10.0.0.5 did not answer"]',
      "negative: скаут не ответил — тост с причиной, повторов нет; версии машины не знаем — «?», а не версия контроллера"),
     ("update_modal_success_path", 'st.setState({ ...st.state, llamaCpp: { binary: "/opt/llama-server", git: { branch: "master", head: "abc", trackedDirtyCount: 0 } } }); globalThis.__fetchReply["/api/llamacpp/update-status"] = { done: true, rc: 0, lines: ["ok"] }; globalThis.__fetchReply["/api/llamacpp"] = { version: "version: 9950" }; globalThis.__fetchReply["/api/llamacpp/builds"] = { builds: [] }; globalThis.__fetchReply["/api/vllm"] = { installed: false, history: [] };',
-     'await (async () => { m.openUpdateLlamaModal(); const a = [F().confirmTitle.textContent, F().confirmMeta.innerHTML.includes("<strong>master</strong>"), F().confirmPath.textContent]; await st.ui.pendingConfirm(); await settle(); const paths = calls().map((c) => c.path); return [...a, paths.slice(0, 3), paths.filter((x) => x === "/api/llamacpp/builds").length, paths.filter((x) => x === "/api/vllm").length, paths.length, st.state.llamaCpp.version, F().llamaUpdateLog.textContent]; })()',
-     '["Update llama.cpp build?",true,"/opt/llama-server",["/api/llamacpp/update","/api/llamacpp/update-status","/api/llamacpp"],2,2,7,"version: 9950","version: 9950"]',
-     "обновление: POST, статус done rc=0 → перечитаны llama.cpp, архив и vLLM (as-is: архив и vLLM перечитываются дважды — из renderLlamaCpp и из опроса); лог после перечитывания показывает новую версию (строки джобы перекрыты — as-is)"),
+     'await (async () => { m.openUpdateLlamaModal(); const a = [F().confirmTitle.textContent, F().confirmMeta.innerHTML.includes("<strong>master</strong>"), F().confirmPath.textContent]; await st.ui.pendingConfirm(); await settle(); const paths = calls().map((c) => c.path); return [...a, paths.slice(0, 3), paths.filter((x) => x === "/api/llamacpp/builds").length, paths.filter((x) => x.startsWith("/api/fleet/vllm")).length, paths.length, st.state.llamaCpp.version, F().llamaUpdateLog.textContent]; })()',
+     '["Update llama.cpp build?",true,"/opt/llama-server",["/api/llamacpp/update","/api/llamacpp/update-status","/api/llamacpp"],2,1,6,"version: 9950","version: 9950"]',
+     "обновление: POST, статус done rc=0 → перечитаны llama.cpp, архив и vLLM (as-is: архив перечитывается дважды — из renderLlamaCpp и из опроса; vLLM — один раз: сборка llama.cpp его версию не меняет); лог после перечитывания показывает новую версию (строки джобы перекрыты — as-is)"),
     ("update_post_failure", 'globalThis.__fetchReply["/api/llamacpp/update"] = { __status: 409, error: "job running" };', 'await (async () => { m.openUpdateLlamaModal(); await st.ui.pendingConfirm(); await settle(); return [calls().map((c) => c.path), F().llamaUpdateLog.textContent, toastText()]; })()',
      '[["/api/llamacpp/update"],"job running","job running"]', "negative: отказ старта обновления — ошибка в логе и в тосте, опроса нет"),
     ("repair_user_service_modal", 'st.setState({ ...st.state, service: { MainPID: 0 } }); globalThis.__fetchReply["/api/repair/user-service"] = { state: { config: {}, paths: { service: "x.service" }, service: { MainPID: 9 } } };',
      'await (async () => { m.openRepairUserServiceModal(); const a = [F().confirmTitle.textContent, F().confirmMeta.innerHTML.includes("<strong>llamacpp-current.service</strong>"), F().confirmPath.textContent]; await st.ui.pendingConfirm(); await settle(); return [...a, calls()[0].path, st.state.service.MainPID, toastText()]; })()',
      '["Repair user service?",true,"llamacpp-current.service","/api/repair/user-service",9,"User service repaired."]', "починка user-сервиса: модал с юнитом, POST, новое состояние применено, тост"),
-    ("revert_latest_confirm_gate", 'globalThis.__fetchReply["/api/revert"] = { state: { config: {}, paths: { service: "s" }, appVersion: "9" } };',
-     'await (async () => { globalThis.__stubReturns["dialogs.appConfirm"] = async () => false; await m.revertLatest(); const a = calls().length; globalThis.__stubReturns["dialogs.appConfirm"] = async () => true; await m.revertLatest(); return [a, calls()[0].path, calls()[0].body, st.state.appVersion, toastText()]; })()',
-     '[0,"/api/revert",{"restart":true},"9","Reverted latest backup and restarted."]', "откат бэкапа: без подтверждения — ничего; с ним — POST restart, состояние, тост"),
     ("check_llamacpp", 'globalThis.__fetchReply["/api/llamacpp"] = { version: "version: 1" };', 'await (async () => { await m.checkLlamaCpp(); return [st.state.llamaCpp.version, toastText(), F().llamaUpdateLog.textContent]; })()', '["version: 1","Reloaded.","version: 1"]', "проверка версии: GET, состояние, панель перерисована, тост"),
     # ── git badge and known issues ──
     ("project_git_branch", '', '(() => { st.setState({ ...st.state, appVersion: "1.3.200", projectGit: { branch: "main", head: "abc", dirtyCount: 2 } }); m.renderProjectGitBranch(); const a = [F().projectGitBranch.textContent, F().projectGitBranch.title, F().projectGitBranch.classList.has("dirty")]; st.setState({ ...st.state, appVersion: "", projectGit: { ok: false, error: "no git" } }); m.renderProjectGitBranch(); return [...a, F().projectGitBranch.textContent, F().projectGitBranch.title, F().projectGitBranch.classList.has("dirty")]; })()',

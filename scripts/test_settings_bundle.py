@@ -91,29 +91,65 @@ def main():
         check("that copy carries the secrets, so it can restore them",
               prior["files"]["agent-proxies"]["content"]["routes"][0]["apiKey"] == "sk-live-secret")
 
-    # 5. A DELETED cell comes back — record, launch script and all. This is the
-    #    thing the feature is for: an exploring agent removes a cell, and the
-    #    file must put it back in a state that can actually start, not as a card
-    #    whose play button has nothing behind it.
-    from caravan.admin.paths import SERVER_CELLS_DIR
-    port_dir = Path(SERVER_CELLS_DIR) / "22222"
-    port_dir.mkdir(parents=True, exist_ok=True)
-    (port_dir / "cell.json").write_text(json.dumps({"port": 22222, "config": {"RUNNER": "llama-server"}}))
-    (port_dir / "start.sh").write_text("#!/bin/bash\nexec echo hello\n")
+    # 5. A DELETED cell comes back. This is the thing the feature is for: an
+    #    exploring agent removes a cell, and the file must put it back. Since
+    #    step 6.9 every cell runs through the scout of its machine and IS its
+    #    slot — it travels inside admin-state; the controller's own launch
+    #    files (var/server-cells) went with its own cells.
+    SLOT = {"hostId": "box-a", "port": 22222, "config": {"RUNNER": "llama-server", "MODEL_FILE": "m.gguf"}}
+    state = json.loads(admin.read_text())
+    state["topology"]["serverSlots"] = {"box-a:22222": SLOT}
+    write(admin, state)
     snapshot = sb.export_bundle(include_secrets=True)
-    check("export carries the launch script",
-          snapshot["files"]["server-cells"]["content"]["22222"]["start"].strip().endswith("echo hello"))
-
-    import shutil
-    shutil.rmtree(port_dir)
-    check("the cell is really gone", not port_dir.exists())
+    check("export carries the cell as its slot",
+          snapshot["files"]["admin-state"]["content"]["topology"]["serverSlots"] == {"box-a:22222": SLOT})
+    check("negative: export carries no launch files of the controller's own cells",
+          "server-cells" not in snapshot["files"], str(sorted(snapshot["files"])))
+    state["topology"]["serverSlots"] = {}
+    write(admin, state)
     sb.apply_bundle(snapshot)
-    check("import brings the cell record back", (port_dir / "cell.json").is_file())
-    check("import brings its launch script back",
-          (port_dir / "start.sh").is_file()
-          and "echo hello" in (port_dir / "start.sh").read_text())
-    check("the restored script is executable",
-          bool((port_dir / "start.sh").stat().st_mode & 0o111))
+    check("import brings the cell back",
+          json.loads(admin.read_text())["topology"]["serverSlots"] == {"box-a:22222": SLOT})
+
+    # 5b. A file taken while the controller still ran cells of its own carries
+    #     their launch files. They have nowhere to go: said in the preview and
+    #     in the answer, and nothing is written for them.
+    old = json.loads(json.dumps(snapshot))
+    old["files"]["server-cells"] = {"kind": "cells", "content": {
+        "22001": {"cell": {"hostId": "controller", "port": 22001}, "start": "#!/bin/bash\nexec echo hello\n"}}}
+    rows = [r for r in sb.preview_import(old)["changes"] if r["name"] == "server-cells"]
+    check("preview names the old launch files and why they stay out",
+          rows == [{"name": "server-cells", "action": "skip", "note": sb.SERVER_CELLS_GONE}], str(rows))
+    check("the reason says where the cells are now",
+          sb.SERVER_CELLS_GONE == "the controller runs no cells of its own since step 6.9 — its old launch "
+                                  "files are not restored; the cells come back with admin-state")
+    res = sb.apply_bundle(old)
+    check("import reports them as not restored", res["skipped"] == ["server-cells"], str(res["skipped"]))
+    check("negative: nothing is written for them",
+          not (_TMP / "server-cells").exists() and not any(_TMP.rglob("start.sh")))
+    check("negative: a file without them has no such row",
+          not [r for r in sb.preview_import(snapshot)["changes"] if r["name"] == "server-cells"])
+
+    # 5c. The labels the monitor gave the clients of the controller's own
+    #     single server. It stopped watching that server in step 6.9 and
+    #     nothing reads them: they neither leave nor come back.
+    check("negative: export carries no client labels",
+          "client-labels" not in snapshot["files"], str(sorted(snapshot["files"])))
+    older = json.loads(json.dumps(snapshot))
+    older["files"]["client-labels"] = dict(snapshot["files"]["model-catalog"], content={"10.0.0.7": "lab"})
+    rows = [r for r in sb.preview_import(older)["changes"] if r["name"] == "client-labels"]
+    check("preview names the old client labels and why they stay out",
+          rows == [{"name": "client-labels", "action": "skip", "note": sb.CLIENT_LABELS_GONE}], str(rows))
+    check("the reason says nothing reads them",
+          sb.CLIENT_LABELS_GONE == "the controller no longer watches its own server's clients since step 6.9 — "
+                                   "their labels are not restored; nothing reads them")
+    res = sb.apply_bundle(older)
+    check("import reports them as not restored", res["skipped"] == ["client-labels"], str(res["skipped"]))
+    check("negative: nothing is written for them", not any(_TMP.rglob("client-labels.json")))
+    both = json.loads(json.dumps(old))
+    both["files"]["client-labels"] = older["files"]["client-labels"]
+    check("a file with both retired sections names both, in one order",
+          sb.apply_bundle(both)["skipped"] == ["server-cells", "client-labels"])
 
     # 6. Accounts and cloud keys: out only when asked, and restorable when they
     #    are. These are the two files that make an export dangerous to leave
@@ -175,17 +211,20 @@ def main():
         # are already broken, and a forgotten passphrase must not take the cells
         # and the routes down with it.
         check("the cells stay readable without the passphrase",
-              isinstance(locked["files"]["server-cells"]["content"], dict)
-              and "22222" in locked["files"]["server-cells"]["content"])
+              locked["files"]["admin-state"]["content"]["topology"]["serverSlots"] == {"box-a:22222": SLOT})
         check("the topology stays readable without the passphrase",
               locked["files"]["admin-state"]["content"]["topology"]["clients"] == {"a": {}})
 
         AUTH_DB.unlink()
         secrets_file.unlink()
+        wiped = json.loads(admin.read_text())
+        wiped["topology"]["serverSlots"] = {}
+        write(admin, wiped)
         res = sb.apply_bundle(locked)          # no passphrase
         check("without the passphrase the credentials are skipped, not mangled",
               sorted(res["skipped"]) == ["auth-db", "provider-secrets"], str(res.get("skipped")))
-        check("and the rest still restored", (port_dir / "cell.json").is_file())
+        check("and the rest still restored",
+              json.loads(admin.read_text())["topology"]["serverSlots"] == {"box-a:22222": SLOT})
         check("nothing was written where the credentials go", not AUTH_DB.exists())
 
         try:
