@@ -245,19 +245,6 @@ def main():
         check(mw.freshness_report()["checkedAt"] == 9,
               "positive: отчёт, помеченный ключом-путём, читается как свой")
 
-        print("чей это файл:")
-        # The report is built from the CONTROLLER's models directory. A
-        # client cell's weights sit on its own host, and a matching file NAME
-        # says nothing about them. The first version hung a chip on a client
-        # cell — reporting on a file it had never seen (found by a live check).
-        import inspect
-        import caravan.admin.topology as topo
-        src = inspect.getsource(topo)
-        check('"modelFresh": _model_fresh_state(model_path) if is_controller_slot else ""' in src,
-              "поле ставится только ячейке контроллера — у клиентской остаётся пустым")
-        check('def _model_fresh_state' in src and 'freshness_report()' in src,
-              "и берётся из отчёта сторожа, а не из отдельной копии правила")
-
         print("раскладка каталога:")
         mw.local_repos = real_list
         with tempfile.TemporaryDirectory() as tmp:
@@ -348,24 +335,6 @@ def main():
                     check(getattr(exc, "status", 0) == 404,
                           f"negative: голое имя ничего не адресует — 404, а не чужая копия (got {exc})")
 
-                # AS-IS: a cell's launch involves THREE model files —
-                # MODEL_FILE, MMPROJ_FILE, and the draft — and this field's
-                # freshness is computed only from the first one. The card
-                # stays silent about the other two through this field.
-                import inspect as _insp
-                import caravan.admin.topology as topo3
-                _src = _insp.getsource(topo3)
-                check('"modelFresh": _model_fresh_state(model_path)' in _src,
-                      "as-is: чип свежести смотрит ТОЛЬКО на MODEL_FILE")
-                check("MMPROJ_FILE" in _src and "_model_fresh_state(mmproj" not in _src,
-                      "as-is: mmproj в строке есть, но его свежесть не считается")
-
-                import caravan.admin.topology as topo2
-                check(topo2._model_fresh_state("M/A/default/dup.gguf") == "size"
-                      and topo2._model_fresh_state("M/A/Q5_K_M/dup.gguf") == "size",
-                      "карточка ячейки читает вердикт СВОЕЙ копии")
-                check(topo2._model_fresh_state("M/A/Q6/dup.gguf") == "",
-                      "negative: путь, которого в отчёте нет, — «не проверяли», а не вердикт соседки")
             finally:
                 cb.models_dir_from_config, cb.parse_config = real_dir, real_cfg
 

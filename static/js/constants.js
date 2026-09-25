@@ -1,8 +1,3 @@
-// The controller's host id in API bodies and slot keys — a role name the
-// backend also accepts under its legacy spellings; keep in sync with
-// caravan/admin/paths.py CONTROLLER_HOST_ID.
-export const CONTROLLER_HOST_ID = "controller";
-
 // Launch-form field definitions (shared by the config form and edit modals).
 export const numericFields = [
   "HOST", "PORT", "CTX_SIZE", "THREADS", "THREADS_BATCH", "BATCH_SIZE",
@@ -113,6 +108,4 @@ export const whisperModelGb = {
 };
 // Every Moonshine v2 model is ~250M params, whatever the language.
 export const moonshineModelGb = 0.25;
-export const gemma4DraftModel = "gemma-4-31b-it/assistant/gemma-4-31B-it-assistant.Q4_K_M.gguf";
-export const gemma4DefaultMmproj = "gemma-4-31b-it/q4-k-m/mmproj-gemma-4-31B-it-f32.gguf";
 export const dirtyOptionalToggles = new Set();

@@ -158,12 +158,6 @@
   border-radius: 0;
 }
 
-.topology-gpu-history-subhead {
-  border-top: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
-  padding-top: 10px;
-  margin-top: 2px;
-}
-
 .topology-history-meta {
   color: var(--muted);
   font-size: 11px;
@@ -256,25 +250,6 @@ canvas[data-open-chart] {
   color: var(--muted);
   opacity: 0.6;
   font-weight: 500;
-}
-
-.topology-expand-trigger {
-  cursor: pointer;
-  user-select: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  transition: color 0.12s;
-}
-.topology-expand-trigger:hover {
-  color: var(--accent);
-}
-.topology-expand-trigger .topology-expand-hint {
-  opacity: 0.45;
-  transition: opacity 0.12s;
-}
-.topology-expand-trigger:hover .topology-expand-hint {
-  opacity: 0.9;
 }
 
 /* Route Activity modal */
@@ -522,20 +497,6 @@ details.topology-server-stats-card > .topology-processes-details {
 }
 
 .topology-llama-clients-head::-webkit-details-marker { display: none; }
-
-.topology-client-row {
-  display: grid;
-  grid-template-columns: 1fr auto auto;
-  gap: 6px;
-  align-items: baseline;
-  font-size: 11px;
-  padding: 3px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
-}
-
-.topology-client-row:last-child { border-bottom: none; }
-.topology-client-row strong { color: var(--text); }
-.topology-client-row code { color: var(--muted); font-size: 10px; }
 
 .topology-incidents-list {
   display: grid;

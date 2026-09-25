@@ -85,13 +85,6 @@ export function fetchPickerBenchBatch(items, pfx) {
   });
 }
 
-export function topologyCtxInfo() {
-  const ctx = ui.latestSystemMonitor?.latest?.llamaActivity?.context || {};
-  const limit = Number(ctx.limit || 0);
-  const tokens = Number(ctx.tokens || 0);
-  const pct = ctx.pct ?? (limit ? Math.round((100 * tokens) / limit) : null);
-  return { tokens, limit, pct };
-}
 
 // Human-readable input modalities for a llama-server. Prefers the authoritative
 // /props.modalities reported by the backend; falls back to the mmproj-presence

@@ -2,7 +2,6 @@
 import { badge, option } from "./form.js";
 import { t } from "./i18n.js";
 import { formatPricePer1M, modelPricing } from "./model-meta.js";
-import { action } from "./polling.js";
 import { nextTopologyCellPort } from "./remote-cells.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";

@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # Container mode (the Docker image sets both): IS_CONTAINER swaps systemd-based
 # service control for in-process supervision and disables host-only operations;
 # CARAVAN_DATA_DIR rebases every mutable default below one mountable directory
-# (state/, config/, logs/, secrets/, models/, server-cells/, server-backups/).
+# (state/, config/, logs/, secrets/, models/, server-backups/).
 # Each per-file env var still wins over the rebased default. The proxy daemon
 # applies the same rebase in caravan/proxy/paths.py — keep the layouts in sync.
 IS_CONTAINER = os.environ.get("CARAVAN_CONTAINER", "").strip() == "1"
@@ -30,8 +30,6 @@ DEFAULT_MODELS_DIR = Path(os.environ.get("LLAMA_MODELS_DIR")
     or _default("models", LLAMA_HOME / "models")).expanduser()
 SERVICE_NAME = os.environ.get("LLAMA_SERVICE_NAME", "llamacpp-current.service")
 STATIC_DIR = PROJECT_ROOT / "static"
-SERVER_CELLS_DIR = Path(os.environ.get("LAMA_CARAVAN_SERVER_CELLS_DIR")
-    or _default("server-cells", PROJECT_ROOT / "var/server-cells")).expanduser()
 # Named launch-config backups for every node (controller + clients), kept ON THE
 # CONTROLLER so a client's backups survive the client and show up in its Add-Llama
 # modal. Layout: <root>/<hostId>/<gpu-model-or-CPU>/<stamp>-<name>.json
@@ -57,8 +55,6 @@ LIBRARY_META_FILE = Path(os.environ.get("CARAVAN_LIBRARY_META")
 MONITOR_SAMPLE_INTERVAL = float(os.environ.get("LLAMA_MONITOR_SAMPLE_INTERVAL", "1"))
 MONITOR_RETENTION_DEFAULT = int(os.environ.get("LLAMA_MONITOR_RETENTION_SECONDS", "600"))
 INCIDENT_RETENTION_SECONDS = int(os.environ.get("LLAMA_INCIDENT_RETENTION_SECONDS", str(30 * 24 * 60 * 60)))
-CLIENT_LABELS_FILE = Path(os.environ.get("LLAMA_CLIENT_LABELS_FILE")
-    or _default("state/client-labels.json", PROJECT_ROOT / "client-labels.json"))
 AGENT_PROXY_STATE_FILE = Path(os.environ.get("AGENT_PROXY_STATE_FILE")
     or _default("state/agent-proxy-state.json", PROJECT_ROOT / "agent-proxy-state.json"))
 AGENT_PROXY_CONFIG_FILE = Path(os.environ.get("AGENT_PROXY_CONFIG_FILE")

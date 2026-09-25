@@ -31,6 +31,7 @@ and compares like with like.
 """
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -47,12 +48,17 @@ REMOTE = os.environ.get("CARAVAN_REMOTE_PATH", "~/projects/lama-caravan")
 # snapshot taken with one set of paths and checked with another would differ on
 # every line for no reason at all.
 # A NEUTRAL home, not the controller's. These fixtures live in the repository
-# and travel to the public mirror, where an operator's home directory has no
-# business being; and a snapshot pinned to one machine's paths could never be
-# checked on another. The capture rewrites the real home to this one.
-# The controller's own $HOME, whatever it is. Hardcoding one operator's path
-# put it in every file that mentions this constant.
-REAL_HOME = os.environ.get("CARAVAN_GOLDEN_REAL_HOME") or os.path.expanduser("~")
+# (the private one — sync-public.sh leaves tests/golden out), and no fixture
+# names a fleet machine or an operator's home; a snapshot pinned to one
+# machine's paths could never be checked on another either. The capture
+# rewrites every real home to this one.
+# Any machine's home, whatever it is: the slots of every machine are captured
+# since step 6.9, and each carries its own paths. It was "the controller's own
+# $HOME" — read as ~ on the machine that RAN the capture, so a capture run from
+# a workstation swapped nothing and left the controller's home, and its user's
+# name, in every rendered command. Hardcoding one operator's path put it in
+# every file that mentions the constant.
+HOMES = re.compile(r"(?:/home|/Users)/[^/\s\"']+")
 HOME = "/home/caravan"
 PINNED = {
     "LLAMA_HOME": f"{HOME}/llama.cpp",
@@ -62,9 +68,9 @@ PINNED = {
 
 
 def neutralize(value):
-    """The controller's home out, a neutral one in — at any depth."""
+    """Every machine's home out, a neutral one in — at any depth."""
     if isinstance(value, str):
-        return value.replace(REAL_HOME, HOME)
+        return HOMES.sub(HOME, value)
     if isinstance(value, dict):
         return {k: neutralize(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -78,13 +84,17 @@ def pin_env():
 
 
 def fetch_cell_configs():
-    """Every cell's saved config, straight off the controller."""
+    """Every cell's saved config, straight off the controller: the slots in
+    its admin state, by port. (Until step 6.9 they were read from the
+    controller's own var/server-cells/<port>/cell.json; those cells run
+    through the scout of their machine now, and every cell is its slot.)"""
     script = (
-        "import json,os,sys;"
-        "d=os.path.expanduser('~/projects/lama-caravan/var/server-cells');"
-        "out={};"
-        "[out.__setitem__(p, json.load(open(os.path.join(d,p,'cell.json'))).get('config') or {})"
-        " for p in sorted(os.listdir(d)) if os.path.isfile(os.path.join(d,p,'cell.json'))];"
+        "import json,os;"
+        "p=os.environ.get('LLAMA_ADMIN_STATE') or os.path.expanduser("
+        "'~/.local/state/llamacpp-easy-admin/admin.json');"
+        "s=(json.load(open(p)).get('topology') or {}).get('serverSlots') or {};"
+        "out={str(v.get('port')): v.get('config') or {} for v in s.values()"
+        " if isinstance(v, dict) and v.get('port') and v.get('config')};"
         "print(json.dumps(out))"
     )
     raw = subprocess.run(["ssh", HOST, f"python3 -c {json.dumps(script)}"],
@@ -92,19 +102,48 @@ def fetch_cell_configs():
     return neutralize(json.loads(raw))
 
 
-def api_shape(value, depth=0):
-    """Keys and types, never values.
+def fleet_names(topology):
+    """The machines and clients a topology payload names: node, client and
+    host ids, and the keys of the maps kept per client. No fixture names a fleet
+    machine (the golden files stay private, but the rule has no exceptions),
+    and a map keyed by them (assignments, cellNotes, clientAliases…) put the
+    fleet's machine names into the shapes as keys."""
+    names = set()
+    for section in ("nodes", "clients", "hosts"):
+        for row in topology.get(section) or []:
+            if isinstance(row, dict) and row.get("id"):
+                names.add(str(row["id"]))
+    for section in ("assignments", "clientAliases"):
+        if isinstance(topology.get(section), dict):
+            names.update(str(k) for k in topology[section])
+    names.discard("controller")      # the sentinel, not a machine
+    return names
+
+
+def hidden(names):
+    """A key with every fleet name in it replaced by <machine> — longest name
+    first, whole names only, so "box-pc:22001" and "box" both come out right."""
+    if not names:
+        return lambda key: key
+    pattern = re.compile(r"(?<![\w-])(" + "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
+                         + r")(?![\w-])")
+    return lambda key: pattern.sub("<machine>", key)
+
+
+def api_shape(value, depth=0, hide=lambda key: key):
+    """Keys and types, never values — and no fleet name among the keys.
 
     A payload's numbers change every second; its shape is the contract. Recursed
     to a fixed depth because a topology tree is deep and the interesting drift —
-    a field that stopped being produced — is near the top.
+    a field that stopped being produced — is near the top. A map keyed by
+    machines keeps one entry per placeholder: its shape, not its fleet.
     """
     if depth > 4:
         return "…"
     if isinstance(value, dict):
-        return {k: api_shape(v, depth + 1) for k, v in sorted(value.items())}
+        return {hide(k): api_shape(v, depth + 1, hide) for k, v in sorted(value.items())}
     if isinstance(value, list):
-        return [api_shape(value[0], depth + 1)] if value else []
+        return [api_shape(value[0], depth + 1, hide)] if value else []
     return type(value).__name__
 
 
@@ -126,25 +165,30 @@ SHAPE_SOURCES = {
 
 
 def fetch_api_shapes():
-    """Shapes of the payloads the UI binds to, from the builders themselves."""
-    shapes = {}
+    """Shapes of the payloads the UI binds to, from the builders themselves —
+    all payloads first, so the fleet's names are known before any is shaped."""
+    payloads, shapes = {}, {}
     for name, imp in SHAPE_SOURCES.items():
         script = (
             "import json,sys;sys.path.insert(0,'.');"
             f"{imp};print(json.dumps(f()))"
         )
+        done = None
         try:
             done = subprocess.run(
                 ["ssh", HOST, f"cd {REMOTE} && .venv/bin/python -c {json.dumps(script)}"],
                 capture_output=True, text=True, timeout=120)
-            shapes[name] = api_shape(json.loads(done.stdout))
+            payloads[name] = json.loads(done.stdout)
         except Exception as exc:  # noqa: BLE001
             # Recorded, not skipped: a shape that could not be taken must not
             # look like a shape that is empty.
-            detail = (done.stderr.strip().splitlines()[-1] if "done" in dir() and done.stderr
+            detail = (done.stderr.strip().splitlines()[-1] if done is not None and done.stderr
                       else str(exc))
             shapes[name] = {"__unavailable__": detail[:160]}
-    return shapes
+    hide = hidden(fleet_names(payloads.get("topology") or {}))
+    for name, payload in payloads.items():
+        shapes[name] = api_shape(payload, hide=hide)
+    return dict(sorted(shapes.items()))
 
 
 
@@ -194,7 +238,7 @@ def synthetic_configs():
             return "7"
         return f"synthetic-{field.lower()}"
 
-    from caravan.admin.launch import render_server_cell_script
+    from caravan.admin.launch import render_launch_script
     from caravan.common.errors import AppError
     import re as _re
 
@@ -214,7 +258,7 @@ def synthetic_configs():
         blanked = []
         for _ in range(len(cb.CONFIG_FIELDS) + 5):
             try:
-                render_server_cell_script(cfg)
+                render_launch_script(cfg)
                 break
             except AppError as exc:
                 m = _re.match(r"([A-Z_]+) must be (?:a number|an integer)", str(exc))
@@ -240,12 +284,12 @@ def render_all(configs):
     """The launch script each config produces, with today's code."""
     pin_env()
     sys.path.insert(0, str(ROOT))
-    from caravan.admin.launch import render_server_cell_script   # after pin_env
+    from caravan.admin.launch import render_launch_script   # after pin_env
     from caravan.common.errors import AppError
     out = {}
     for port, config in sorted(configs.items()):
         try:
-            out[port] = neutralize(render_server_cell_script(config))
+            out[port] = neutralize(render_launch_script(config))
         except AppError as exc:
             # A config the renderer refuses is itself behaviour worth pinning:
             # the rewrite must refuse the same ones for the same reason.

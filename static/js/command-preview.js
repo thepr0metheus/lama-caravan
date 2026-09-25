@@ -1,7 +1,6 @@
 // Live llama-server command preview with LCS token diffing.
 import { readConfigForm } from "./form.js";
 import { t } from "./i18n.js";
-import { setEditCurrentCommand } from "./llama-edit.js";
 import { state } from "./state.js";
 import { $, api, escapeHtml } from "./utils.js";
 
@@ -67,19 +66,15 @@ export function lcsPreviewIndexes(currentTokens, previewTokens) {
 export const _cmdPreviewTimers = {};
 export const _cmdPreviewSeq = {};
 
-// The "current command" each form's New-Command preview diffs against. The main
-// page diffs against the running controller service (state.service.cmdline). The
-// cell-edit modals (te- controller, tr- client) instead diff against the cell's
-// OWN current command — set by setEditCurrentCommand() when the modal opens —
-// otherwise they'd compare against the unrelated controller service (or, if that's
-// not running, an empty baseline that flags every flag as changed).
+// The "current command" a form's New-Command preview diffs against: the cell's
+// OWN current command, set by setEditCurrentCommand() when the cell editor
+// opens. A form that set none diffs against nothing, and every flag reads as
+// added. (The classic page diffed against the controller's own running
+// service; it went with the controller's own cells in step 6.9.)
 export const _cmdBaselineTokens = {};
 
 export function currentBaselineTokens(pfx) {
-  if (Object.prototype.hasOwnProperty.call(_cmdBaselineTokens, pfx)) {
-    return _cmdBaselineTokens[pfx] || [];
-  }
-  return splitCommand(state.service?.cmdline || "");
+  return _cmdBaselineTokens[pfx] || [];
 }
 
 export function renderCommandPreview(pfx = "") {
@@ -130,9 +125,8 @@ export function renderPreviewTokens(pfx, target, previewTokens, owners = []) {
   const hasChanges = previewChanged || removedTokens.length > 0;
 
   // Show removed (struck-through) flags whenever there's a real baseline to diff
-  // against. Both te- and tr- now diff against the cell's own current command, so
-  // this is meaningful for both; "new"/add modes have an empty baseline, so nothing
-  // is flagged removed anyway.
+  // against — the cell's own current command; "new"/add modes have an empty
+  // baseline, so nothing is flagged removed anyway.
   const showRemoved = true;
   const removedHtml = (showRemoved && hasChanges && currentTokens.length && removedTokens.length)
     ? `\n<span class="cmd-removed-row"><span class="cmd-removed-label">${t("removedFlags")}:</span> ${
@@ -168,11 +162,7 @@ export function renderPreviewTokens(pfx, target, previewTokens, owners = []) {
   }
   target.innerHTML = cmdParts.join("\n") + (hasChanges ? removedHtml : `\n<span class="cmd-note">${t("noCommandChanges")}</span>`);
 
-  // 3: dirty-indicator on Save/Start buttons
-  if (pfx === "te-") {
-    $("topologyLlamaEditSaveRestart")?.classList.toggle("cmd-dirty", hasChanges);
-  } else if (pfx === "tr-") {
-    $("llamaRemoteEditStart")?.classList.toggle("cmd-dirty", hasChanges);
-  }
+  // 3: dirty-indicator on the cell editor's Apply button
+  if (pfx === "tr-") $("llamaRemoteEditStart")?.classList.toggle("cmd-dirty", hasChanges);
 }
 

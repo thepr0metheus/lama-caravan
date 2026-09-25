@@ -5,7 +5,7 @@ import { drawCanvasConnectors, syncQueueNodesLive } from "./canvas.js";
 import { attachTokenChartHover, drawMetricChart, drawTopologyGpuHistory } from "./charts.js";
 import { t } from "./i18n.js";
 import { topologyCrownSvg } from "./model-meta.js";
-import { action, formatTps } from "./polling.js";
+import { formatTps } from "./polling.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { topologyRouteDetail } from "./topology-dnd.js";
 import { queueThresholds } from "./topology-modals.js";
@@ -497,25 +497,14 @@ export function topologyRuntimeList(items, limit = 4) {
   return rows;
 }
 
+// Running requests fill a server's slot pips in order; any beyond the slot
+// count get no pip. (A request used to take the pip of the llama slot the
+// controller's own single server was processing it on — item.slotIds, read
+// from that server's /slots. That server went with the controller's cells in
+// step 6.9, and nothing else names a request's slot.)
 export function topologyAssignRunningToSlots(running, total) {
   const slots = new Array(total).fill(null);
-  const remaining = running.slice();
-  remaining.forEach((row) => {
-    const ids = Array.isArray(row?.item?.slotIds) ? row.item.slotIds : [];
-    if (!ids.length) return;
-    const target = Number(ids[0]);
-    if (Number.isFinite(target) && target >= 0 && target < total && !slots[target]) {
-      slots[target] = row;
-      row._placed = true;
-    }
-  });
-  let cursor = 0;
-  remaining.forEach((row) => {
-    if (row._placed) return;
-    while (cursor < total && slots[cursor]) cursor += 1;
-    if (cursor < total) slots[cursor] = row;
-    cursor += 1;
-  });
+  running.slice(0, total).forEach((row, index) => { slots[index] = row; });
   return slots;
 }
 
@@ -568,15 +557,16 @@ export function topologyServerGroup(llama) {
 
 export function topologyRuntimePanelHtml(group = "") {
   const overview = topologyRuntimeOverview();
-  const liveSlots = Number(ui.latestSystemMonitor?.latest?.llamaActivity?.totalSlots || 0);
   const effective = Number(topology?.effectiveSlots || 0);
   const policy = topology?.proxyPolicy || {};
   // Per-server slot total: authoritative count tracked by the proxy from this
-  // upstream's --parallel (length of /slots). Falls back to the controller's
-  // live slots / policy default until the first request populates it.
+  // upstream's --parallel (length of /slots). Falls back to the effective /
+  // policy default until the first request populates it. (It also fell back
+  // to the live slots of the controller's own single server, which went with
+  // the controller's cells in step 6.9.)
   const slotTotals = ui.latestSystemMonitor?.latest?.agentProxies?.slotTotals || {};
   const groupSlots = group ? Number(slotTotals[group] || 0) : 0;
-  const totalSlots = Math.max(1, groupSlots || liveSlots || effective || Number(policy.maxSlots || 1));
+  const totalSlots = Math.max(1, groupSlots || effective || Number(policy.maxSlots || 1));
   // Scope rows to this server's queue group, and drop cloud routes (no slots).
   const proxies = topology?.proxies || [];
   const inGroup = (item) => !group || topologyItemGroup(item) === group;
@@ -682,27 +672,23 @@ export function proxyTelemetryLines(item) {
   ].filter(Boolean);
 }
 
+// One line about a request, from the proxy's own record of it. It also showed
+// a speed and a context size, read from the controller's own single server —
+// the timings in its journal matched to the request by time, else that
+// server's live counters or its last request's speed, whichever server the
+// request went to. That server went with the controller's cells in step 6.9;
+// a request's exact speed is in the route's token history (the proxy keeps
+// llama.cpp's own per-request timings).
 export function proxyTelemetrySummary(item) {
   const request = item?.request || {};
   const response = item?.response || {};
   const stream = item?.stream || {};
   const usage = response.usage || stream.usage || {};
-  const timing = item?.timing || {};
-  const context = item?.context || {};
-  const liveLlama = ui.latestSystemMonitor?.latest?.correlatedActivity?.llamaServer || {};
-  const liveTokens = ui.latestSystemMonitor?.latest?.tokens || {};
-  const liveTiming = liveLlama.lastTiming || ui.latestSystemMonitor?.latest?.llamaActivity?.lastTiming || {};
-  const isActiveRoute = item?.state === "active" || (liveLlama.activeRoutes || []).includes(item?.label || "");
   const model = request.model || stream.model || response.model || "-";
   const messages = request.messages !== undefined ? `${request.messages} msg` : "msg -";
   const totalTokens = usage.total_tokens || usage.totalTokens || item?.usageTokens || "-";
-  const promptTokens = timing.promptTokens ?? usage.prompt_tokens ?? usage.promptTokens ?? "-";
-  const evalTokens = timing.evalTokens ?? usage.completion_tokens ?? usage.completionTokens ?? "-";
-  const promptTpsValue = timing.promptTps ?? (isActiveRoute ? liveTokens.promptTokensPerSecond : liveTiming.promptTps);
-  const evalTpsValue = timing.evalTps ?? (isActiveRoute ? liveTokens.predictedTokensPerSecond : liveTiming.evalTps);
-  const promptTps = promptTpsValue !== undefined ? formatTps(promptTpsValue) : "-";
-  const evalTps = evalTpsValue !== undefined ? formatTps(evalTpsValue) : "-";
-  const contextTokens = context.tokens || "-";
+  const promptTokens = usage.prompt_tokens ?? usage.promptTokens ?? "-";
+  const evalTokens = usage.completion_tokens ?? usage.completionTokens ?? "-";
   const firstByte = item?.firstByteMs ? `${item.firstByteMs}ms` : "-";
   const chunks = item?.chunks !== undefined ? item.chunks : "-";
   return [
@@ -710,8 +696,6 @@ export function proxyTelemetrySummary(item) {
     messages,
     `${totalTokens} tok`,
     `${promptTokens}/${evalTokens} tok`,
-    `speed ${promptTps}/${evalTps} t/s`,
-    `ctx ${contextTokens}`,
     `fb ${firstByte}`,
     `${chunks} chunks`,
   ].join(" · ");
@@ -725,8 +709,6 @@ export function topologyRouteDetailHtml() {
   const item = activity?.item || {};
   const incident = activity?.incident || topologyIncidentForItem(item);
   const policy = topology?.proxyPolicy || {};
-  const llamaCtx = ui.latestSystemMonitor?.latest?.llamaActivity?.context || {};
-  const totalSlots = Number(ui.latestSystemMonitor?.latest?.llamaActivity?.totalSlots || 0);
   const priorityLevel = Math.max(0, Number(proxy?.priority || 0));
   // The window's tab: "details" by default — what was always here before.
   const tab = topologyRouteDetail.tab === "model" ? "model" : "details";
@@ -744,8 +726,6 @@ export function topologyRouteDetailHtml() {
     item.durationMs ? `duration: ${topologyFormatDuration(item.durationMs)}` : "",
     item.queue?.queuedMs ? `queue: ${topologyFormatDuration(item.queue.queuedMs)}${item.queue.position !== undefined && item.queue.position !== null ? `, position ${item.queue.position + 1}` : ""}` : "",
     proxy ? `proxy: :${proxy.port} -> ${proxy.upstreamHost}:${proxy.upstreamPort}` : "",
-    totalSlots ? `llama slots: ${totalSlots} · abort at ${policy.queueAbortPct ?? 85}% of wait_timeout` : "",
-    llamaCtx.tokens ? `llama context: ${llamaCtx.tokens}/${llamaCtx.limit || "?"} (${llamaCtx.pct ?? "?"}%)` : "",
     proxyTelemetrySummary(item),
     ...proxyTelemetryLines(item),
   ].filter(Boolean);
@@ -967,19 +947,12 @@ export function correlatedProxyActivity(proxy) {
   return byProxy[proxy?.label || ""] || Object.values(byProxy).find((row) => Number(row?.port) === Number(proxy?.port));
 }
 
+// What the monitor matched a request to. It matched requests to the timings,
+// context and busy slots of the controller's own single server, which went
+// with the controller's cells in step 6.9; the word that is left says which
+// proxy list the request came from.
 export function correlatedTelemetryLines(item) {
-  const timing = item?.timing || {};
-  const context = item?.context || {};
-  const lines = [];
-  if (timing.promptTokens || timing.evalTokens) {
-    lines.push(`timing: prompt ${timing.promptTokens || 0} tok @ ${timing.promptTps || 0} t/s, eval ${timing.evalTokens || 0} tok @ ${timing.evalTps || 0} t/s`);
-  }
-  if (context.tokens) {
-    lines.push(`context: ${context.tokens}/${context.limit || "?"} tokens (${context.pct ?? "?"}%)`);
-  }
-  if (item?.slotIds?.length) lines.push(`llama slots: ${item.slotIds.join(", ")}`);
-  if (item?.correlation) lines.push(`correlation: ${item.correlation}`);
-  return lines;
+  return item?.correlation ? [`correlation: ${item.correlation}`] : [];
 }
 
 // Paths whose answer is a word about the MODEL, and statuses meaning "I have
@@ -1202,35 +1175,12 @@ export function topologyProxyActivity(proxyOrId) {
   return { state: "idle", label: "", title: "" };
 }
 
+// A server card's activity: what the routes pointing at its port are doing.
+// (The card of the controller's own single server took the busy slots, context
+// and prompt cache of that server first — matched by its port, or taken for
+// any card that named no port. That server went with the controller's cells in
+// step 6.9.)
 export function topologyLlamaActivity(port) {
-  const overview = topologyRuntimeOverview();
-  const correlated = ui.latestSystemMonitor?.latest?.correlatedActivity?.llamaServer;
-  if (correlated && (!port || Number(correlated.port) === Number(port))) {
-    const activeCount = Number(correlated.activeRequestCount || 0);
-    const processing = Number(correlated.processingSlotCount || 0);
-    const context = correlated.context || {};
-    const cache = correlated.promptCache || {};
-    if (activeCount || processing) {
-      return {
-        state: "active",
-        label: `${overview.running.length || activeCount} running${overview.queued.length ? ` · ${overview.queued.length} queued` : ""}`,
-        summary: [
-          context.tokens ? `ctx ${context.tokens}/${context.limit || "?"}` : "",
-          cache.prompts ? `cache ${Math.round(cache.usedMiB || 0)}/${Math.round(cache.limitMiB || 0)} MiB` : "",
-        ].filter(Boolean).join(" · "),
-      };
-    }
-    if (context.tokens || cache.prompts) {
-      return {
-        state: "recent",
-        label: context.tokens ? `ctx ${context.pct ?? "?"}%` : `${cache.prompts} cache`,
-        summary: [
-          context.tokens ? `context ${context.tokens}/${context.limit || "?"}` : "",
-          cache.prompts ? `cache ${Math.round(cache.usedMiB || 0)}/${Math.round(cache.limitMiB || 0)} MiB` : "",
-        ].filter(Boolean).join(" · "),
-      };
-    }
-  }
   const related = (topology?.proxies || []).filter((proxy) => Number(proxy.upstreamPort || 0) === Number(port || 0));
   const entries = related.map((proxy) => ({ proxy, activity: topologyProxyActivity(proxy) }));
   const active = entries.filter((entry) => entry.activity.state === "active");
@@ -1276,13 +1226,16 @@ export function topologyLlamaActivity(port) {
   return { state: "idle", label: "", summary: "" };
 }
 
+// The GPU card's activity: the requests in flight, from the monitor's
+// correlation. (It also counted the busy slots of the controller's own single
+// server, and fell back to that server's slots and recent requests; that server
+// went with the controller's cells in step 6.9.)
 export function topologyGpuActivity() {
   const overview = topologyRuntimeOverview();
   const correlated = ui.latestSystemMonitor?.latest?.correlatedActivity?.gpu;
   if (correlated) {
     const activeCount = Number(correlated.activeRequestCount || 0);
-    const processing = Number(correlated.processingSlotCount || 0);
-    if (activeCount || processing) {
+    if (activeCount) {
       return {
         state: "active",
         label: `${overview.running.length || activeCount} running${overview.queued.length ? ` · ${overview.queued.length} queued` : ""}`,
@@ -1296,34 +1249,6 @@ export function topologyGpuActivity() {
         ].filter(Boolean).join(" · "),
       };
     }
-  }
-  const activity = ui.latestSystemMonitor?.latest?.llamaActivity || {};
-  const activeSlots = Array.isArray(activity.activeSlots) ? activity.activeSlots : [];
-  const processing = activeSlots.filter((slot) => slot.isProcessing);
-  const proxyAgents = ui.latestSystemMonitor?.latest?.agentProxies?.agents || {};
-  const proxyActive = Object.values(proxyAgents).flatMap((row) => Array.isArray(row.active) ? row.active : []);
-  const proxyRecent = Object.values(proxyAgents).flatMap((row) => Array.isArray(row.recent) ? row.recent.slice(-1) : []);
-  if (processing.length) {
-    return {
-      state: "active",
-      label: `${processing.length} processing`,
-      summary: [
-        `${activeSlots.length || processing.length} slots`,
-        proxyActive.length ? `${proxyActive.length} proxy req` : "",
-      ].filter(Boolean).join(" · "),
-    };
-  }
-  const recent = Array.isArray(activity.recentRequests) ? activity.recentRequests : [];
-  if (recent.length) {
-    const row = recent[recent.length - 1] || {};
-    return {
-      state: "recent",
-      label: "",
-      summary: [
-        `${recent.length} llama recent`,
-        proxyRecent.length ? `${proxyRecent.length} proxy routes` : "",
-      ].filter(Boolean).join(" · "),
-    };
   }
   return { state: "idle", label: "", summary: "" };
 }

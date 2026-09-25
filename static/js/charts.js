@@ -209,49 +209,17 @@ export function drawTopologyGpuHistoryOnCanvas(samples, canvas) {
   });
 }
 
+// The board's charts, redrawn on every monitor sample: the open chart and
+// route-activity modals, the Server stats panel (the controller's own
+// machine), the incidents list and every node's telemetry. The controller's
+// own GPU/token/VRAM/power widget went with its cells in step 6.9: its machine
+// is a node like any other, with the same telemetry rows.
 export function drawTopologyGpuHistory() {
-  const canvas = $("topologyGpuHistoryChart");
-  if (!canvas) return;
   const samples = systemSamples(ui.latestSystemMonitor).slice(-600);
-  const meta = $("topologyGpuHistoryMeta");
-  const legend = $("topologyGpuHistoryLegend");
-  drawTopologyGpuHistoryOnCanvas(samples, canvas);
-  if (!samples.length) {
-    if (meta) meta.textContent = t("chartWaiting");
-    if (legend) legend.textContent = "";
-    return;
-  }
-  const latest = samples[samples.length - 1] || {};
-  const activeRoutes = latest.correlatedActivity?.gpu?.activeRoutes || [];
-  if (meta) {
-    const retention = ui.latestSystemMonitor?.retentionSeconds || 600;
-    meta.textContent = t("chartSamplesMeta", { n: samples.length, m: Math.round(retention / 60) });
-  }
-  const latestUtil = latest.gpu?.utilPct ?? "n/a";
-  const latestTemp = latest.gpu?.temperatureC ?? "n/a";
-  const latestPower = latest.gpu?.powerW ?? "n/a";
-  canvas.title = [
-    `GPU ${latestUtil}%`,
-    `${latestTemp}C`,
-    `${latestPower}W`,
-    activeRoutes.length ? `active: ${activeRoutes.join(", ")}` : "no active routes now",
-  ].join(" · ");
-  const columns = Math.max(1, Math.min(220, Math.floor((canvas.width || 320) - 16)));
-  const bucketSize = Math.max(1, Math.ceil(samples.length / columns));
-  const buckets = [];
-  for (let i = 0; i < samples.length; i += bucketSize) buckets.push(samples.slice(i, i + bucketSize));
-  const barW = Math.max(1, ((canvas.width || 320) - 16) / buckets.length);
-  drawTopologyRouteHistory(samples, buckets, barW);
   drawRouteActivityModal();
-  // Token Speed draws generation-only points (gated server-side by counter
-  // advance), so idle never paints the held-gauge plateau.
-  drawTopologyTokenSpeedHistory(controllerTokenGenSamples());
-  drawTopologyVramHistory(samples);
-  drawTopologyPowerHistory(samples);
   drawChartModal();
   drawTopologyServerStats(samples);
   renderTopologyIncidents(samples);
-  drawGpuMetricSparklines(samples);
   drawNodeTelemetry();
 }
 
@@ -264,15 +232,18 @@ export function drawTopologyGpuHistory() {
 // llama upstream points at one of the node's llama-server endpoints. (Grouping
 // by "agents hosted here" was misleading: an agent's route can go to the cloud
 // or another GPU. This view matches the node's GPU/Token panels.)
-// The node's own serving endpoints (host:port of its cells). Controller cells
-// are reachable both by LAN IP and 127.0.0.1 — requests log the latter.
+// The node's own serving endpoints (host:port of its cells). The cells of the
+// controller's own machine are reachable both by LAN IP and 127.0.0.1 — the
+// proxy on that machine reaches them over loopback, and requests log that.
+// (It was the controller's own node that had them; since step 6.9 its machine
+// is its scout's node, marked controllerMachine.)
 export function nodeEndpointSet(node) {
   const endpoints = new Set();
   (node?.servers || []).forEach((s) => {
     const host = s.clientIp || node.ip;
     if (host && s.port != null) {
       endpoints.add(`${host}:${s.port}`);
-      if (node.role === "controller") endpoints.add(`127.0.0.1:${s.port}`);
+      if (node.controllerMachine) endpoints.add(`127.0.0.1:${s.port}`);
     }
   });
   return endpoints;
@@ -284,7 +255,7 @@ export function nodeEndpointSet(node) {
 export function nodeActivityFilter(nodeId) {
   const node = (topology?.nodes || []).find((n) => String(n.id) === String(nodeId));
   if (!node) return null;
-  return { endpoints: nodeEndpointSet(node), isController: node.role === "controller" };
+  return { endpoints: nodeEndpointSet(node) };
 }
 
 // Route rows in the order the board lists its clients: routes that carried a
@@ -432,7 +403,6 @@ export function _nodeTokenSamples(node) {
 // + fill value labels and the collapsed-row sparklines. Runs each monitor tick.
 export function drawNodeTelemetry() {
   (topology?.nodes || []).forEach((n) => {
-    if (n.role === "controller") return;  // controller keeps the singleton widget
     const id = String(n.id);
     const cv = (key) => document.querySelector(`[data-node-canvas="${CSS.escape(`${id}:${key}`)}"]`);
     const setVal = (key, txt) => {
@@ -476,47 +446,17 @@ export function drawNodeTelemetry() {
   });
 }
 
-export function drawGpuMetricSparklines(samples) {
-  const set = (key, values, color, max) => {
-    document.querySelectorAll(`[data-metric-spark="${key}"]`).forEach((el) => {
-      el.innerHTML = miniSparklineSvg(values, color, max);
-    });
-  };
-  const gpu = samples.map((s) => Number(s.gpu?.utilPct || 0));
-  // Use the per-request completed-token samples (same source as the expanded
-  // chart), not the system-monitor gauge: the gauge holds the last request's
-  // t/s across many samples, so the mini sparkline drew a flat line while the
-  // big chart showed real per-request variation.
-  const tok = controllerTokenGenSamples().map(topologyEvalTps);
-  const vram = samples.map((s) => Number(s.gpu?.memoryPct ?? s.gpu?.memoryUtilPct ?? 0));
-  const pow = samples.map((s) => Number(s.gpu?.powerW || 0));
-  set("gpu", gpu, "rgba(105, 208, 144, 0.9)", 100);
-  set("tokens", tok, "rgba(105, 208, 144, 0.95)", Math.max(10, ...tok));
-  set("vram", vram, "rgba(125, 211, 252, 0.9)", 100);
-  set("power", pow, "rgba(45, 212, 191, 0.9)", Math.max(50, ...pow));
-}
-
+// A token-speed chart point: {tokens: {promptTokensPerSecond,
+// predictedTokensPerSecond}}, as _nodeTokenSamples builds it from a cell's
+// tpsHistory. (A monitor sample of the controller's own single server was read
+// the same way, its last request's timings first; that server went with the
+// controller's cells in step 6.9.)
 export function topologyPromptTps(sample) {
-  return Number(sample?.llamaActivity?.lastTiming?.promptTps
-    ?? sample?.correlatedActivity?.llamaServer?.lastTiming?.promptTps
-    ?? sample?.tokens?.promptTokensPerSecond
-    ?? 0);
+  return Number(sample?.tokens?.promptTokensPerSecond ?? 0);
 }
 
 export function topologyEvalTps(sample) {
-  return Number(sample?.llamaActivity?.lastTiming?.evalTps
-    ?? sample?.correlatedActivity?.llamaServer?.lastTiming?.evalTps
-    ?? sample?.tokens?.predictedTokensPerSecond
-    ?? 0);
-}
-
-// Controller generation-only token series. llama.cpp updates its token metrics
-// atomically when a request COMPLETES (counter jumps once at the end, even for
-// long streams), so each entry here is one finished request's reported t/s.
-// Nothing is added while idle, so the chart never paints a held-gauge plateau.
-// Shaped like monitor samples so the chart renderer consumes it unchanged.
-export function controllerTokenGenSamples() {
-  return ui.latestSystemMonitor?.tokenGenSamples || [];
+  return Number(sample?.tokens?.predictedTokensPerSecond ?? 0);
 }
 
 // Shared floating tooltip for chart point hover.
@@ -539,7 +479,7 @@ export function _fmtMs(ms) {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
 }
 
-// Default accessor for the controller chart's {time, tokens:{...}} samples.
+// Default accessor for a token chart's {time, tokens:{...}} samples.
 export function _mainTokenInfo(s) {
   const tk = s.tokens || {};
   return { genTps: tk.predictedTokensPerSecond, genTokens: tk.genTokens, genMs: tk.genMs,
@@ -719,19 +659,6 @@ export function drawTopologyServerStats(samples) {
   if (metaEl) metaEl.textContent = t("chSamples", { n: samples.length });
 }
 
-export function renderLlamaClientsInnerHtml() {
-  const llamaClients = ui.latestSystemMonitor?.latest?.llamaClients || {};
-  const clients = llamaClients.clients || [];
-  if (!llamaClients.ok && !clients.length) return `<span class="topology-muted" style="font-size:11px">—</span>`;
-  if (!clients.length) return `<span class="topology-muted" style="font-size:11px">${t("chNoActiveClients")}</span>`;
-  return clients.map((row) => `
-    <div class="topology-client-row">
-      <strong>${escapeHtml(row.clientName || row.clientIp || "?")}</strong>
-      <code>${escapeHtml(row.clientIp || "")}${row.clientPort ? `:${row.clientPort}` : ""}</code>
-      <span class="topology-muted">${escapeHtml(row.state || "ESTAB")}</span>
-    </div>
-  `).join("");
-}
 
 export function topologyIncidentItems(samples) {
   const persisted = Array.isArray(ui.latestSystemMonitor?.incidents) ? ui.latestSystemMonitor.incidents : [];
@@ -941,23 +868,8 @@ export function drawChartModal() {
     if (legendEl) legendEl.innerHTML = "";
     return;
   }
-  const samples = systemSamples(ui.latestSystemMonitor).slice(-600);
-  if (_chartExpandType === "gpu") {
-    drawTopologyGpuHistoryOnCanvas(samples, canvas);
-    if (legendEl) legendEl.innerHTML = "";
-  } else if (_chartExpandType === "tokens") {
-    const tmax = drawTopologyTokenSpeedHistory(controllerTokenGenSamples(), canvas) || {};
-    if (legendEl) legendEl.innerHTML = [
-      `<span class="ral-item"><i style="background:rgba(96,165,250,0.95)"></i>prompt ≤${tmax.promptMax ?? "—"} t/s</span>`,
-      `<span class="ral-item"><i style="background:rgba(105,208,144,0.95)"></i>gen ≤${tmax.genMax ?? "—"} t/s</span>`,
-    ].join("");
-  } else if (_chartExpandType === "vram") {
-    drawTopologyVramHistory(samples, canvas);
-    if (legendEl) legendEl.innerHTML = "";
-  } else if (_chartExpandType === "power") {
-    drawTopologyPowerHistory(samples, canvas);
-    if (legendEl) legendEl.innerHTML = "";
-  }
+  // Only a node's chart opens here: the controller's own chart widget went
+  // with its cells in step 6.9.
 }
 
 export let _routeActivityHoverBound = false;
@@ -1118,8 +1030,12 @@ export function topologyRouteActivityForSample(sample, filter = null) {
     const up = String(item.upstream || "").trim();
     return !!up && !filter.endpoints.has(up);
   };
-  // GPU/llama correlations describe the CONTROLLER host's hardware.
-  if (!filter || filter.isController) {
+  // The monitor's correlations name every local route with a request in
+  // flight, whichever machine serves it — the fleet-wide picture only. A
+  // node's picture is what its own cells served (skipItem above): the
+  // controller's node used to take the correlations as its own, and lit
+  // routes another machine was serving.
+  if (!filter) {
     (correlated.gpu?.activeRoutes || []).forEach((route) => topologyRouteActivitySet(activity, route, "active"));
     if (!filter) (correlated.gpu?.cloudActiveRoutes || []).forEach((route) => topologyRouteActivitySet(activity, route, "cloud_active"));
     (correlated.llamaServer?.activeRoutes || []).forEach((route) => topologyRouteActivitySet(activity, route, "active"));

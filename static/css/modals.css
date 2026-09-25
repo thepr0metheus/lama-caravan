@@ -778,12 +778,6 @@ button.topology-detail-action.danger:focus {
   font-size: 9px;
   margin-left: 2px;
 }
-.llama-ver-upstream {
-  color: #fbbf24;
-  font-size: 9px;
-  margin-left: 3px;
-  opacity: .9;
-}
 /* Client llama.cpp update: building indicator + stale-binary badge */
 .llama-ver-building {
   font-size: 10px;
@@ -1485,80 +1479,10 @@ button.topology-detail-action.danger:focus {
   outline: 1px solid color-mix(in srgb, var(--accent) 50%, transparent);
 }
 
-.client-detail-modal {
-  min-width: 460px;
-  max-width: 640px;
-}
-
 .client-detail-head-actions {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-
-.client-detail-body {
-  display: grid;
-  gap: 14px;
-  max-height: 70vh;
-  overflow-y: auto;
-  padding-top: 6px;
-}
-
-.client-detail-section {
-  display: grid;
-  gap: 8px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--line) 22%, transparent);
-  border: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
-}
-
-.client-detail-section h3 {
-  margin: 0;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.client-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 6px 12px;
-  font-size: 12px;
-}
-
-.client-detail-grid > div {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-
-.client-detail-grid strong {
-  color: var(--text);
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.client-detail-grid .topology-muted {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.client-detail-models {
-  display: grid;
-  gap: 3px;
-  font-size: 12px;
-}
-
-.client-detail-models code {
-  background: color-mix(in srgb, var(--line) 40%, transparent);
-  padding: 1px 5px;
-  border-radius: 4px;
-  word-break: break-all;
 }
 
 .client-detail-row {
@@ -2117,6 +2041,9 @@ button.topology-detail-action.danger:focus {
 }
 /* Archived llama.cpp builds (System → llama.cpp) */
 .llama-builds-title { margin: 14px 0 6px; font-size: 12px; opacity: .75; }
+.vllm-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.vllm-machine { display: inline-flex; align-items: baseline; gap: 6px; font-size: 12px; }
+.vllm-machine > span { opacity: .75; }
 .llama-builds-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
 .llama-build-row {
   display: flex; align-items: center; gap: 10px;

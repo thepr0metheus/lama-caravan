@@ -71,10 +71,19 @@ print(json.dumps({
 '''
 
 WRITE = '''
+import json
 from caravan.admin.server_cells import upsert_server_slot
 from caravan.admin.state import save_admin_state
-upsert_server_slot("skynet", "22007", config={"RUNNER": "whisper"}, model="m.gguf", label="L")
+from caravan.common.errors import AppError
+refused = []
+for host in ("skynet", "controller"):
+    try:
+        upsert_server_slot(host, "22008", config={"RUNNER": "whisper"})
+    except AppError as exc:
+        refused.append([host, exc.status, str(exc)])
+upsert_server_slot("box-a", "22007", config={"RUNNER": "whisper"}, model="m.gguf", label="L")
 save_admin_state()
+print(json.dumps(refused))
 '''
 
 PORTS = '''
@@ -141,12 +150,14 @@ def main():
     out, stored = run(WRITE, FIXTURE)
     if out.returncode == 0 and stored:
         slots = stored["topology"]["serverSlots"]
-        check("a write under the old spelling lands on the canonical key",
-              "controller:22007" in slots and "skynet:22007" not in slots,
-              str(sorted(slots)))
-        slot = slots.get("controller:22007", {})
+        refusal = "the controller runs no cells — its machine's cells run through its scout, on that machine's node"
+        check("a new cell of the controller — under either spelling — is refused, saying why",
+              json.loads(out.stdout) == [["skynet", 400, refusal], ["controller", 400, refusal]]
+              and "controller:22008" not in slots and "skynet:22008" not in slots,
+              out.stdout.strip() + " " + str(sorted(slots)))
+        slot = slots.get("box-a:22007", {})
         check("the record carries its own key and host",
-              slot.get("id") == "controller:22007" and slot.get("hostId") == "controller",
+              slot.get("id") == "box-a:22007" and slot.get("hostId") == "box-a",
               str(slot))
         check("the port is stored as a number",
               isinstance(slot.get("port"), int), repr(slot.get("port")))

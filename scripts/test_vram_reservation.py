@@ -8,10 +8,11 @@ vLLM при старте резервирует GPU_MEMORY_UTILIZATION × кар
 ячеек скаута проверки не было. Правило переехало в раннер
 (`Runner.vram_reservation`): контроллер проверяет им свою машину, а скауту
 отдаёт резерв в запросе старта (`vram`) — свободную память скаут знает
-сам, в момент запуска.
+сам, в момент запуска. С шага 6.9 своих ячеек у контроллера нет, и своей
+проверки тоже: все ячейки проверяет скаут их машины.
 
 Пинится значениями: что резервирует vLLM и на какой карте, когда не
-резервирует ничего, как контроллер отказывает и как ENV разбирается одним
+резервирует ничего, что уходит скауту и как ENV разбирается одним
 парсером. Хранилище, nvidia-smi и systemd подменены.
 
 Запуск: python3 scripts/test_vram_reservation.py
@@ -21,9 +22,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from caravan.admin import cell_ops, fleet_clients as fc  # noqa: E402
+from caravan.admin import fleet_clients as fc  # noqa: E402
 from caravan.admin.model_locator import Locations  # noqa: E402
-from caravan.common.errors import AppError  # noqa: E402
 from caravan.domain.runner import Runner, VllmRunner, for_config  # noqa: E402
 
 _fail = []
@@ -68,49 +68,6 @@ def section_env():
           f"строки и запятые, комментарии и кривые имена пропущены, значение после первого «=» (got {got})")
 
 
-class Topo:
-    def __init__(self, slots):
-        self._slots = slots
-
-    def slots(self):
-        return self._slots
-
-
-def gate(cfg, gpus, active=()):
-    keep = cell_ops.gpu_state, cell_ops.topo, cell_ops.cell_service_status, cell_ops.is_controller_host
-    cell_ops.gpu_state = lambda: {"ok": gpus is not None, "gpus": gpus or []}
-    cell_ops.topo = Topo({f"c:{p}": {"hostId": "controller", "port": p} for p in (22001, 22012, *active)})
-    cell_ops.cell_service_status = lambda p: {"ActiveState": "active" if p in active else "inactive"}
-    cell_ops.is_controller_host = lambda h: h == "controller"
-    try:
-        cell_ops._vram_gate(22012, cfg)
-        return None
-    except AppError as exc:
-        return exc.status, str(exc)
-    finally:
-        cell_ops.gpu_state, cell_ops.topo, cell_ops.cell_service_status, cell_ops.is_controller_host = keep
-
-
-def section_the_controllers_gate():
-    print("проверка на машине контроллера:")
-    tight = [{"index": "0", "memoryTotalMiB": "32768", "memoryFreeMiB": "4000"}]
-    check(gate(VLLM, tight, active=(22010,)) == (409, "vLLM wants 28.8 GiB reserved (utilization 0.90 × 32.0 GiB) but "
-                                                       "only 3.9 GiB VRAM is free on GPU 0 — stop :22010 or lower "
-                                                       "GPU_MEMORY_UTILIZATION"),
-          "не помещается — 409 до старта, с картой и с тем, кто её держит; те же слова, что у скаута")
-    check(gate(VLLM, tight) == (409, "vLLM wants 28.8 GiB reserved (utilization 0.90 × 32.0 GiB) but only 3.9 GiB VRAM "
-                                     "is free on GPU 0 — lower GPU_MEMORY_UTILIZATION"),
-          "никто из своих не держит — совет один: убавить долю")
-    pinned = [{"index": "0", "memoryTotalMiB": "32768", "memoryFreeMiB": "32000"},
-              {"index": "1", "memoryTotalMiB": "24576", "memoryFreeMiB": "1000"}]
-    check((gate({**VLLM, "ENV": "CUDA_VISIBLE_DEVICES=1"}, pinned) or (0, ""))[1].endswith(
-              "only 1.0 GiB VRAM is free on GPU 1 — lower GPU_MEMORY_UTILIZATION"),
-          "ячейка закреплена за второй картой — проверяется она, а не первая (раньше — всегда первая)")
-    check(gate(VLLM, CARDS) is None, "negative: помещается — старт идёт")
-    check(gate({"RUNNER": "llama-server"}, tight) is None, "negative: llama.cpp не проверяется")
-    check(gate(VLLM, None) is None, "negative: nvidia-smi нет — не мешаем, как и было")
-
-
 def payload(cfg, host):
     keep = fc.topology_store, fc.current_locations
     fc.topology_store = lambda: {"hosts": {"box-a": host} if host is not None else {}}
@@ -136,7 +93,6 @@ def section_the_scouts_start():
 def main():
     section_the_rule()
     section_env()
-    section_the_controllers_gate()
     section_the_scouts_start()
     if _fail:
         print(f"\nFAILED ({len(_fail)}):")

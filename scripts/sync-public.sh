@@ -148,12 +148,18 @@ head1 "гварды и тесты на публичном дереве"
   for g in check_messages_i18n check_i18n_calls check_tour_i18n check_boot_guard \
            check_field_homes check_runner_model_fields check_command_mirrors check_installer_assets check_cell_python_floor check_cell_self_capture check_cell_card_keys check_proxy_id_namespace \
            check_cell_health_contract; do
-      printf '  %-30s ' "$g"; python3 "scripts/$g.py" >/dev/null 2>&1 && echo "✓" || { echo "✗"; exit 1; }
+      printf '  %-30s ' "$g"
+      [[ -f "scripts/$g.py" ]] || { echo "✗ такого файла нет — список в sync-public.sh устарел"; exit 1; }
+      python3 "scripts/$g.py" >/dev/null 2>&1 && echo "✓" || { echo "✗"; exit 1; }
   done
   printf '  %-30s ' "testability_names"
   python3 scripts/testability_names.py --check >/dev/null 2>&1 && echo "✓" || { echo "✗"; exit 1; }
-  for t in test_guards_fail test_cell_servers test_settings_bundle test_download_retry test_client_records test_queue_thresholds test_admin_store test_topology_store test_proxy_store test_auth_store test_cloud_store test_slot_artifacts test_scout_errors test_query_flags; do
-      printf '  %-30s ' "$t"; python3 "scripts/$t.py" >/dev/null 2>&1 && echo "✓" || { echo "✗"; exit 1; }
+  # A listed file that is gone is said as such: a bare ✗ read as a failing
+  # test when test_slot_artifacts had left with its code (step 6.9).
+  for t in test_guards_fail test_cell_servers test_settings_bundle test_download_retry test_client_records test_queue_thresholds test_admin_store test_topology_store test_proxy_store test_auth_store test_cloud_store test_scout_errors test_query_flags; do
+      printf '  %-30s ' "$t"
+      [[ -f "scripts/$t.py" ]] || { echo "✗ такого файла нет — список в sync-public.sh устарел"; exit 1; }
+      python3 "scripts/$t.py" >/dev/null 2>&1 && echo "✓" || { echo "✗"; exit 1; }
   done
 ) || die "проверки на публичном дереве не прошли"
 

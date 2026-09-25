@@ -9,7 +9,6 @@ import {
   parseModelName,
   requestAaScores,
 } from "./model-meta.js";
-import { action } from "./polling.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { topologyProxyActivity, topologyStateHealthClasses } from "./topology-activity.js";
 import { bindTopologyDragAndDrop } from "./topology-dnd.js";

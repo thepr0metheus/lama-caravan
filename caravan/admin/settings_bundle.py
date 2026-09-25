@@ -28,12 +28,10 @@ from pathlib import Path
 from caravan.admin.paths import (
     ADMIN_STATE_FILE,
     AGENT_PROXY_CONFIG_FILE,
-    CLIENT_LABELS_FILE,
     CLOUD_PROVIDERS_FILE,
     MODEL_CATALOG_FILE,
     PROJECT_ROOT,
     PROVIDER_SECRETS_FILE,
-    SERVER_CELLS_DIR,
     START_SCRIPT,
 )
 from caravan.common.errors import AppError
@@ -41,6 +39,24 @@ from caravan.common.fsio import atomic_write_text
 
 BUNDLE_FORMAT = 1
 REDACTED = "__redacted__"
+
+#: Why a file's "server-cells" section is not restored. Until step 6.9 the
+#: controller ran cells of its own and the bundle carried their launch files
+#: (cell.json + start.sh under var/server-cells); since then every cell runs
+#: through the scout of its machine, and a cell travels as its slot — inside
+#: admin-state, like everything else the board shows.
+SERVER_CELLS_GONE = ("the controller runs no cells of its own since step 6.9 — "
+                     "its old launch files are not restored; the cells come back with admin-state")
+
+#: Why a file's "client-labels" section is not restored: the labels named the
+#: clients of the controller's own single server in its monitor, which stopped
+#: sampling that server in step 6.9 — nothing reads them.
+CLIENT_LABELS_GONE = ("the controller no longer watches its own server's clients since step 6.9 — "
+                      "their labels are not restored; nothing reads them")
+
+#: Sections an older bundle carries that are no longer restored, and why —
+#: said in the preview and in the import's answer, never dropped silently.
+RETIRED = {"server-cells": SERVER_CELLS_GONE, "client-labels": CLIENT_LABELS_GONE}
 
 # Where the pre-import copy of the current settings is written, so that restoring
 # a bundle is itself undoable. An import that cannot be undone is a worse trap
@@ -57,7 +73,6 @@ def _files():
         "admin-state": ADMIN_STATE_FILE,          # topology, cells, layout, schedules, favourites
         "agent-proxies": AGENT_PROXY_CONFIG_FILE,
         "cloud-providers": CLOUD_PROVIDERS_FILE,
-        "client-labels": CLIENT_LABELS_FILE,
         "model-catalog": MODEL_CATALOG_FILE,
     }
 
@@ -143,25 +158,6 @@ def export_bundle(include_secrets=False):
             data, hits = _REDACTORS[name](data, include_secrets)
             redacted.extend(hits)
         payload[name] = {"kind": "json", "content": data}
-
-    # The cells as the operator sees them: one entry per port, its saved config.
-    cells = {}
-    cells_dir = Path(SERVER_CELLS_DIR)
-    if cells_dir.is_dir():
-        for entry in sorted(cells_dir.iterdir()):
-            cell_json = entry / "cell.json"
-            if cell_json.is_file():
-                data = _read_json(cell_json)
-                if data is None:
-                    continue
-                # The launch script comes too. cell.json is the record; start.sh
-                # is what systemd actually executes, and a cell restored without
-                # it is a card on the board whose ▶ has nothing to run — which
-                # looks like a working restore right up until someone presses it.
-                start = entry / "start.sh"
-                cells[entry.name] = {"cell": data,
-                                     "start": start.read_text(encoding="utf-8") if start.is_file() else None}
-    payload["server-cells"] = {"kind": "cells", "content": cells}
 
     credentials = []
     for name, (path, kind) in _credential_files().items():
@@ -363,25 +359,11 @@ def preview_import(bundle):
                      "note": ("needs the passphrase" if locked
                               else "credentials" if kind == "base64" else "cloud keys")})
 
-    cells = (files.get("server-cells") or {}).get("content") or {}
-    here = {}
-    if Path(SERVER_CELLS_DIR).is_dir():
-        for entry in Path(SERVER_CELLS_DIR).iterdir():
-            cj = entry / "cell.json"
-            if cj.is_file():
-                st = entry / "start.sh"
-                here[entry.name] = {"cell": _read_json(cj),
-                                    "start": st.read_text(encoding="utf-8") if st.is_file() else None}
-    # Compared, not assumed. Reporting "replace" whenever the bundle had cells
-    # said a restore rewrites 24 cells even when all 24 are identical — and a
-    # list that cries wolf is a list the operator stops reading, which is the
-    # opposite of what a preview is for.
-    if not cells:
-        action = "skip"
-    else:
-        action = "same" if cells == here else "replace"
-    rows.append({"name": "server-cells", "action": action,
-                 "note": f"{len(cells)} in file, {len(here)} here"})
+    # Said, not silently dropped: the operator restoring an old file sees why
+    # a section of it stays out.
+    for name, why in RETIRED.items():
+        if (files.get(name) or {}).get("content"):
+            rows.append({"name": name, "action": "skip", "note": why})
     return {"changes": rows, "includesSecrets": bool(bundle.get("includesSecrets")),
             "exportedAt": bundle.get("exportedAt")}
 
@@ -412,24 +394,7 @@ def apply_bundle(bundle, passphrase=""):
             atomic_write_text(path, json.dumps(data, indent=2), mkdir=True)
         written.append(name)
 
-    cells = (files.get("server-cells") or {}).get("content") or {}
-    for port, data in cells.items():
-        # Format 1 shipped cells as the bare cell.json; the same field now
-        # carries {"cell", "start"}. Both are read, so a file taken before this
-        # still restores — refusing an operator's own backup because the shape
-        # grew is the failure they would least expect.
-        cell = data.get("cell", data) if isinstance(data, dict) else data
-        start = data.get("start") if isinstance(data, dict) else None
-        base = Path(SERVER_CELLS_DIR) / str(port)
-        atomic_write_text(base / "cell.json", json.dumps(cell, indent=2), mkdir=True)
-        if start:
-            atomic_write_text(base / "start.sh", start, mkdir=True)
-            try:
-                os.chmod(base / "start.sh", 0o755)
-            except OSError:
-                pass
-    if cells:
-        written.append(f"server-cells({len(cells)})")
+    skipped.extend(name for name in RETIRED if (files.get(name) or {}).get("content"))
 
     for name, (path, kind) in _credential_files().items():
         entry = files.get(name)

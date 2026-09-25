@@ -1,31 +1,27 @@
-"""Render launch artifacts: start-server.sh config block, server-cell start.sh
-scripts (# BEGIN/END LLAMA COMMAND), snapshots and config save."""
-import json
+"""Render the launch script: the controller's start-server.sh (its config
+block is what every new cell inherits), its snapshots, and the one line a
+scout runs a command cell with. The per-cell start.sh scripts under
+var/server-cells went with the controller's own cells in step 6.9: every cell
+runs through the scout of its machine."""
 import os
 import re
 import shlex
-import shutil
-import time
-from datetime import datetime
 
 from caravan.admin.config_builder import (
     CONFIG_BEGIN,
     CONFIG_END,
     CONFIG_FIELDS,
-    _join_models_path,
     build_config_block,
     build_local_llama_command,
-    is_command_cell,
     model_paths,
     quote_shell_value,
 )
 from caravan.admin.model_stores import MARKER_NAME
-from caravan.admin.paths import DEFAULT_MODELS_DIR, SERVER_CELLS_DIR, START_SCRIPT
+from caravan.admin.paths import DEFAULT_MODELS_DIR, START_SCRIPT
 from caravan.common.errors import AppError
 from caravan.domain.runner import Runner, for_config
 from caravan.admin.runners import (
     effective_command,
-    runner_id,
     uses_command_path,
 )
 
@@ -35,14 +31,14 @@ LAUNCH_COMMAND_BEGIN = "# BEGIN LLAMA COMMAND"
 LAUNCH_COMMAND_END = "# END LLAMA COMMAND"
 
 def render_command_cell_script(config):
-    """Generate start.sh for a generic command cell (CELL_KIND="command").
+    """Generate a start script for a generic command cell (CELL_KIND="command").
 
-    Runs an arbitrary managed process (e.g. whisper-server) under the exact same
-    cell lifecycle as a llama cell — systemd `lama-cell@PORT` on the controller, or the
-    route-agent on a client. COMMAND is one shell command line, may reference
-    $PORT, and is exec'd so the cell process replaces the shell and systemd/the
-    agent tracks the real PID. Set env inline (`env VAR=val …`) or point COMMAND
-    at your own launcher script that exports what it needs.
+    Runs an arbitrary managed process (e.g. whisper-server) under the same cell
+    lifecycle as a llama cell. COMMAND is one shell command line, may reference
+    $PORT, and is exec'd so the cell process replaces the shell and whoever
+    started it tracks the real PID. Set env inline (`env VAR=val …`) or point
+    COMMAND at your own launcher script that exports what it needs. A scout
+    runs the same cell as one line (render_command_cell_shell_line).
     """
     merged = {key: str(config.get(key, "")).strip() for key in CONFIG_FIELDS}
     port = merged.get("PORT") or ""
@@ -165,8 +161,8 @@ def one_line_statements(lines):
 
 
 def render_command_cell_shell_line(config, port=None) -> str:
-    """The same command cell as one `bash -lc` line, for a host that runs the
-    cell as a child process instead of a systemd unit.
+    """The same command cell as one `bash -lc` line — how a scout runs it, as
+    a child process.
 
     The client agent used to assemble this itself, mirroring the script renderer
     above — and the mirror had already lost `set -euo pipefail`, so an identical
@@ -285,89 +281,17 @@ def render_launch_script(config, locations=None):
     ]
     return "\n".join(lines)
 
-def server_cell_dir(port):
-    return SERVER_CELLS_DIR / str(int(port))
-
-def render_server_cell_script(config, locations=None):
-    return render_launch_script(config, locations)
-
-def write_server_cell_artifacts(host_id, port, config, locations=None):
-    """Write the generated launch files for a configured server cell.
-
-    cell.json is the structured source snapshot for humans/tools; start.sh is the
-    executable artifact a future lama-cell@PORT.service can run directly.
-
-    `locations` says where the model files live right now: a start passes a
-    fresh one so the script points at whichever store holds them.
-    """
-    if not isinstance(config, dict):
-        return {}
-    if not uses_command_path(config) and not str(config.get("MODEL_FILE") or "").strip():
-        return {}
-    merged = {key: str(config.get(key, "")).strip() for key in CONFIG_FIELDS}
-    merged["PORT"] = str(port)
-    if not merged.get("LLAMA_MODELS_DIR"):
-        merged["LLAMA_MODELS_DIR"] = str(DEFAULT_MODELS_DIR)
-    script = render_server_cell_script(merged, locations)
-    cell_dir = server_cell_dir(port)
-    cell_dir.mkdir(parents=True, exist_ok=True)
-    start_path = cell_dir / "start.sh"
-    json_path = cell_dir / "cell.json"
-    tmp_start = start_path.with_suffix(".sh.tmp")
-    tmp_json = json_path.with_suffix(".json.tmp")
-    tmp_start.write_text(script, encoding="utf-8")
-    tmp_start.chmod(0o755)
-    tmp_start.replace(start_path)
-    cell_payload = {
-        "hostId": str(host_id),
-        "port": int(port),
-        "config": merged,
-        "generatedAt": int(time.time()),
-        "startScript": str(start_path),
-    }
-    tmp_json.write_text(json.dumps(cell_payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    tmp_json.replace(json_path)
-    return {
-        "dir": str(cell_dir),
-        "startScript": str(start_path),
-        "cellJson": str(json_path),
-        "generatedAt": cell_payload["generatedAt"],
-    }
-
 def _sanitize_snapshot_name(name):
     # \w is unicode in py3, so Cyrillic and friends survive; the old ASCII-only
     # class reduced e.g. "тест" to an empty string and the save failed with 400.
     safe = re.sub(r"[^\w.-]+", "-", str(name or "").strip()).strip("-.")
     return safe[:60]
 
-def snapshot_config(name, config=None):
-    """Save a NAMED snapshot of a launcher config.
-
-    Manual-only — replaces the old save-on-every-write auto-backup.
-
-    When `config` (the live form values) is supplied we render a fresh
-    start-server.sh from it, so the snapshot captures exactly what the user is
-    looking at — including a server cell's own CTX_SIZE / model / port, which are
-    NOT in the controller's start-server.sh. Without a config (legacy callers) we
-    fall back to copying the controller's current start-server.sh.
-    """
-    safe = _sanitize_snapshot_name(name)
-    if not safe:
-        raise AppError("Snapshot name is required")
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    target = START_SCRIPT.with_name(f"{START_SCRIPT.name}.bak.{stamp}-{safe}")
-    if isinstance(config, dict) and str(config.get("MODEL_FILE") or "").strip():
-        script = render_launch_script(config)
-        target.write_text(script, encoding="utf-8")
-        target.chmod(0o755)
-    else:
-        shutil.copy2(START_SCRIPT, target)
-    return str(target)
-
 def save_config(config):
     # Variant 2: regenerate the whole script from the single command builder so
-    # the config block (for GUI reload) and the exec command never drift.
-    # No auto-backup: snapshots are explicit via snapshot_config().
+    # the config block (for GUI reload) and the exec command never drift. (Its
+    # named snapshots, backups and revert went with the controller's own cells
+    # in step 6.9 — the cells' own snapshots live on their slots.)
     script = render_launch_script(config)
     START_SCRIPT.write_text(script, encoding="utf-8")
     START_SCRIPT.chmod(0o755)

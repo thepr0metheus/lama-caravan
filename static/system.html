@@ -289,7 +289,11 @@
         <div id="llamaCppSummary" class="llama-summary" data-t="system-llama-summary" role="region" aria-labelledby="sysLlamaHead"></div>
         <h3 class="llama-builds-title" id="sysBuildsHead" data-i18n="archivedBuilds">Archived builds</h3>
         <div id="llamaBuildsList" class="llama-builds-list" data-t="system-llama-builds" role="region" aria-labelledby="sysBuildsHead"></div>
-        <h3 class="llama-builds-title" id="sysVllmHead" data-i18n="vllmRunnerTitle">vLLM runner</h3>
+        <div class="vllm-head">
+          <h3 class="llama-builds-title" id="sysVllmHead" data-i18n="vllmRunnerTitle">vLLM runner</h3>
+          <label class="vllm-machine" hidden><span data-i18n="vllmMachine">Machine</span>
+            <select id="vllmHost" data-t="system-vllm-machine"></select></label>
+        </div>
         <div id="vllmSummary" class="llama-builds-list" data-t="system-vllm-list" role="region" aria-labelledby="sysVllmHead"></div>
         <pre id="llamaUpdateLog" class="llama-update-log" data-t="system-llama-update-log"></pre>
       </div>

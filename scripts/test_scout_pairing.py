@@ -245,9 +245,12 @@ def test_move_host_cells():
               "negative: у новой машины уже есть ячейка на том же порту — отказ 409, ничего не сдвинуто")
         check(refused({"from": "nobody", "to": "x"}) == (404, "no cells are configured on nobody"),
               "negative: у машины нет ячеек — 404, а не тихий успех")
-        check(refused({"from": "box-a", "to": "controller"}) == (400, "the controller's own cells stay with the controller")
-              and refused({"from": "controller", "to": "x"}) == (400, "the controller's own cells stay with the controller"),
-              "negative: ячейки контроллера не переезжают, и на контроллер тоже")
+        no_cells = "the controller runs no cells — its machine's cells run through its scout, on that machine's node"
+        check(refused({"from": "box-a", "to": "controller"}) == (400, no_cells)
+              and refused({"from": "controller", "to": "x"}) == (400, no_cells)
+              and refused({"from": "box-a", "to": "skynet"}) == (400, no_cells),
+              "negative: на контроллер ячейки не переезжают и с него тоже — своих ячеек у него нет (и под старым "
+              "его id тоже)")
         check(refused({"from": "a", "to": "a"}) == (400, "from and to are the same machine")
               and refused({"from": "", "to": "x"}) == (400, "both machines are required: from and to"),
               "negative: одна и та же машина или пустое имя — 400")

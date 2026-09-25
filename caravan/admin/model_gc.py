@@ -196,25 +196,38 @@ def referenced_any(rels):
     return any(str(r) in refs or _part_group(str(r)) in groups for r in rels)
 
 
-def running_owners(owners):
-    """Which of these cells are RUNNING, as "host:port".
+#: What a scout's cell is doing while it holds, or is about to read, its files.
+BUSY_PHASES = ("resolving", "downloading", "loading", "starting", "running")
 
-    A cell on a client host cannot be asked from here — its systemd is not this
-    host's — so it counts as running: treating it as busy is the harmless
-    mistake, and whatever refuses says whose cell it is.
+
+def running_owners(owners):
+    """Which of these cells are RUNNING — reading their files, or about to —
+    as "host:port".
+
+    A cell on a machine with a scout is what that machine's last report says:
+    the scout names each cell it runs or is starting (the host record's
+    llamaNodes), and a stopped cell is not among them. A machine whose report
+    is stale, or that never reported, cannot be asked, so its cells count as
+    running: treating one as busy is the harmless mistake, and whatever
+    refuses says whose cell it is. Every client cell used to count as running
+    that way, and once the controller's own cells had moved to its machine's
+    scout, no model a cell named could be moved at all.
     """
-    from caravan.admin.paths import CONTROLLER_HOST_ID
-    from caravan.admin.systemd_ctl import cell_service_status
+    from caravan.admin.paths import HOST_REPORT_TTL
+    from caravan.admin.state import topology_store
+    from caravan.domain.host import HostRecord
+    hosts = topology_store().get("hosts") or {}
+    now = int(time.time())
     out = set()
     for who in set(owners):
         host, _, port = str(who).rpartition(":")
-        if host != CONTROLLER_HOST_ID:
+        record = hosts.get(host)
+        if not isinstance(record, dict) or HostRecord.liveness(record, now, HOST_REPORT_TTL)[0] != "online":
             out.add(who)
             continue
-        try:
-            if (cell_service_status(int(port)) or {}).get("ActiveState") == "active":
-                out.add(who)
-        except (ValueError, OSError):
+        node = next((n for n in record.get("llamaNodes") or []
+                     if isinstance(n, dict) and str(n.get("port")) == port), None)
+        if node is not None and (node.get("running") or node.get("phase") in BUSY_PHASES):
             out.add(who)
     return out
 

@@ -16,7 +16,6 @@ from caravan.admin.monitoring import gpu_state
 from caravan.admin.proxy_stats import agent_proxy_sample, proxy_daily_stats
 from caravan.admin.paths import HOST_REPORT_TTL
 from caravan.admin.state import topology_store
-from caravan.admin.systemd_ctl import systemctl
 from caravan.domain.host import HostRecord
 
 
@@ -64,11 +63,6 @@ def build_metrics_text():
     slots = store.get("serverSlots") or {}
     metric("caravan_cells_total", "Declared server cells (slots)")
     sample("caravan_cells_total", len(slots))
-    units = systemctl("list-units", "lama-cell@*", "--no-legend", "--plain", timeout=5)
-    if units.get("ok"):
-        running = sum(1 for line in units["stdout"].splitlines() if " running " in f" {line} ")
-        metric("caravan_cells_running_local", "lama-cell@ units in the running state")
-        sample("caravan_cells_running_local", running)
 
     # ── models disk ──────────────────────────────────────────────────────────
     try:

@@ -1,42 +1,31 @@
-"""Local system monitor: metric sampling loop, history ring, incidents,
-client labels and hardware state (CPU/GPU/RAM) for the dashboard."""
+"""Local system monitor: metric sampling loop, history ring, incidents and
+hardware state (CPU/GPU/RAM) for the dashboard. (Sampling the controller's own
+single server — its slots, journal timings, connected clients and token rates —
+went with its cells in step 6.9: nothing runs there to sample.)"""
 import json
 import os
 import re
 import threading
 import time
 from collections import deque
-from datetime import datetime
 from pathlib import Path
 
-from caravan.admin.config_builder import parse_config
-from caravan.admin.llama_metrics import parse_llamacpp_metrics, runtime_metrics_sample
+from caravan.admin.llama_metrics import parse_llamacpp_metrics
 from caravan.admin.paths import (
-    CLIENT_LABELS_FILE,
     INCIDENT_LOG_FILE,
     INCIDENT_RETENTION_SECONDS,
     MONITOR_HISTORY_FILE,
     MONITOR_RETENTION_DEFAULT,
     MONITOR_SAMPLE_INTERVAL,
-    SERVICE_NAME,
 )
 from caravan.admin.proxies_config import load_agent_proxy_config
 from caravan.admin.proxy_stats import (
     agent_proxy_sample,
-    iso_seconds,
-    nearest_event,
-    proxy_item_timestamp,
-    requests_by_client,
     summarize_proxy_item,
 )
 from caravan.admin.state import admin_state, save_admin_state
 from caravan.admin.terminal import terminal_frame_to_html, terminal_frame_to_text
-from caravan.admin.token_history import (
-    controller_gen_tps_samples,
-    controller_token_metrics,
-    record_controller_gen_tps,
-    record_token_history,
-)
+from caravan.admin.token_history import record_token_history
 from caravan.common.errors import AppError
 from caravan.common.request_kind import is_discovery_probe
 from caravan.common.fsio import atomic_write_text
@@ -73,7 +62,7 @@ monitor_history = deque()
 
 # The ring stores SLIM samples (see _slim_sample); the full most-recent sample
 # lives here because the UI panels read latest.agentProxies/agentProxyConfig/
-# llamaActivity/processes/byProxy. Rebound only in this module, under
+# processes/byProxy. Rebound only in this module, under
 # monitor_lock.
 monitor_latest_full = None
 
@@ -91,23 +80,19 @@ incident_lock = threading.Lock()
 
 incident_logged_keys = set()
 
-llama_activity_cache = {"time": 0, "data": None}
-_llama_activity_lock = threading.Lock()
 
 
 def correlate_activity(sample):
+    """The requests in flight and just finished, by route, from the proxy's
+    own records. It also matched them to the controller's own single server —
+    its busy slots and the timings in its journal — which went with the
+    controller's cells in step 6.9: a recent request is now "proxy-only"."""
     agent_proxies = sample.get("agentProxies") if isinstance(sample.get("agentProxies"), dict) else {}
-    llama_activity = sample.get("llamaActivity") if isinstance(sample.get("llamaActivity"), dict) else {}
     gpu = sample.get("gpu") if isinstance(sample.get("gpu"), dict) else {}
-    tokens = sample.get("tokens") if isinstance(sample.get("tokens"), dict) else {}
     agents = agent_proxies.get("agents") if isinstance(agent_proxies.get("agents"), dict) else {}
     active = []
     recent = []
     by_proxy = {}
-    timing_events = llama_activity.get("timingEvents") if isinstance(llama_activity.get("timingEvents"), list) else []
-    context_events = llama_activity.get("contextEvents") if isinstance(llama_activity.get("contextEvents"), list) else []
-    active_slots = llama_activity.get("activeSlots") if isinstance(llama_activity.get("activeSlots"), list) else []
-    processing_slots = [slot for slot in active_slots if slot.get("isProcessing")]
     llama_active = []
     llama_active_clients = []
     llama_active_routes = []
@@ -126,19 +111,10 @@ def correlate_activity(sample):
         def _item_is_cloud(item):
             return str(item.get("upstreamType") or row.get("upstreamType") or "llama") == "cloud"
         for item in route_active:
-            item["slots"] = processing_slots
-            item["slotIds"] = [slot.get("id") for slot in processing_slots if slot.get("id") is not None]
             item["correlation"] = "active-proxy"
             item["isCloud"] = _item_is_cloud(item)
         for item in route_recent:
-            timestamp = proxy_item_timestamp(item)
-            timing = nearest_event(timing_events, timestamp, max_delta=30)
-            context = nearest_event(context_events, timestamp, max_delta=30)
-            if timing:
-                item["timing"] = timing
-            if context:
-                item["context"] = context
-            item["correlation"] = "time-window" if timing or context else "proxy-only"
+            item["correlation"] = "proxy-only"
             item["isCloud"] = _item_is_cloud(item)
         by_proxy[label] = {
             "label": label,
@@ -164,27 +140,17 @@ def correlate_activity(sample):
         "activeRequests": active,
         "recentRequests": recent_sorted[:20],
         "byProxy": by_proxy,
+        # The local (non-cloud) requests in flight, fleet-wide.
         "llamaServer": {
-            "port": llama_activity.get("port"),
             "activeRequestCount": len(llama_active),
             "activeClients": llama_active_clients,
             "activeRoutes": llama_active_routes,
-            "processingSlotCount": len(processing_slots),
-            "processingSlots": processing_slots,
-            "context": llama_activity.get("context") or {},
-            "promptCache": llama_activity.get("promptCache") or {},
-            "lastTiming": llama_activity.get("lastTiming") or {},
-            "requestsProcessing": tokens.get("requestsProcessing", 0),
-            "requestsDeferred": tokens.get("requestsDeferred", 0),
-            "promptTokensPerSecond": tokens.get("promptTokensPerSecond", 0),
-            "predictedTokensPerSecond": tokens.get("predictedTokensPerSecond", 0),
         },
         "gpu": {
             "activeRequestCount": len(active),
             "activeClients": active_clients,
             "activeRoutes": active_routes,
             "cloudActiveRoutes": cloud_active_routes,
-            "processingSlotCount": len(processing_slots),
             "utilPct": gpu.get("utilPct", 0),
             "memoryPct": gpu.get("memoryPct", 0),
             "memoryUsedMiB": gpu.get("memoryUsedMiB"),
@@ -381,185 +347,6 @@ def append_incidents_from_sample(sample):
     except Exception:
         pass
 
-def llama_activity_sample():
-    now = time.time()
-    with _llama_activity_lock:
-        cached = llama_activity_cache.get("data")
-        cached_at = llama_activity_cache.get("time", 0)
-    if cached and now - cached_at < 3:
-        return cached
-    try:
-        config = parse_config()
-        port = config.get("PORT") or "8080"
-    except Exception:
-        port = "8080"
-    slots_raw = fetch_json(f"http://127.0.0.1:{port}/slots", timeout=5)
-    slot_error = None
-    if isinstance(slots_raw, list):
-        slots = slots_raw
-    else:
-        slots = []
-        if isinstance(slots_raw, dict):
-            slot_error = slots_raw.get("error") or "unexpected /slots response"
-        else:
-            slot_error = "unexpected /slots response"
-    result = run(["journalctl", "--user", "-u", SERVICE_NAME, "-n", "500", "-o", "short-iso", "--no-pager"], timeout=4)
-    recent_requests = []
-    log_slot_activity = {}
-    last_timing = {}
-    context = {}
-    prompt_cache = {}
-    prompt_cache_rows = []
-    timing_events = []
-    context_events = []
-    current_timing = {}
-    try:
-        context_limit = int(parse_config().get("CTX_SIZE") or 0)
-    except Exception:
-        context_limit = 0
-    if result["ok"]:
-        for line in result["stdout"].splitlines():
-            if "done request:" in line and "/v1/chat/completions" in line:
-                match = re.search(r"^(\S+).*done request:\s+(\S+)\s+(\S+)\s+(\S+)\s+(\d+)", line)
-                if match:
-                    recent_requests.append({
-                        "time": match.group(1),
-                        "method": match.group(2),
-                        "path": match.group(3),
-                        "clientIp": match.group(4),
-                        "clientName": known_client_name(match.group(4)) or match.group(4),
-                        "status": match.group(5),
-                    })
-                continue
-            progress = re.search(
-                r"^(\S+).*slot update_slots: id\s+(\d+)\s+\|\s+task\s+(\d+)\s+\|\s+prompt processing progress, n_tokens = (\d+), batch.n_tokens = (\d+), progress = ([0-9.]+)",
-                line,
-            )
-            if progress:
-                slot_id = progress.group(2)
-                log_slot_activity[slot_id] = {
-                    "time": progress.group(1),
-                    "id": int(slot_id),
-                    "taskId": int(progress.group(3)),
-                    "phase": "prompt",
-                    "tokens": int(progress.group(4)),
-                    "batchTokens": int(progress.group(5)),
-                    "progressPct": round(float(progress.group(6)) * 100, 1),
-                }
-                continue
-            launch = re.search(r"^(\S+).*slot launch_slot_: id\s+(\d+)\s+\|\s+task\s+(\d+)\s+\|\s+processing task", line)
-            if launch:
-                slot_id = launch.group(2)
-                log_slot_activity.setdefault(slot_id, {
-                    "time": launch.group(1),
-                    "id": int(slot_id),
-                    "taskId": int(launch.group(3)),
-                    "phase": "processing",
-                })
-                continue
-            prompt_eval = re.search(r"prompt eval time =\s+([0-9.]+) ms /\s+(\d+) tokens.*?([0-9.]+) tokens per second", line)
-            if prompt_eval:
-                current_timing.update({
-                    "time": line.split()[0],
-                    "promptMs": float(prompt_eval.group(1)),
-                    "promptTokens": int(prompt_eval.group(2)),
-                    "promptTps": float(prompt_eval.group(3)),
-                })
-                last_timing.update(current_timing)
-                continue
-            eval_time = re.search(r"^\S+.*\beval time =\s+([0-9.]+) ms /\s+(\d+) tokens.*?([0-9.]+) tokens per second", line)
-            if eval_time:
-                current_timing.update({
-                    "time": line.split()[0],
-                    "evalMs": float(eval_time.group(1)),
-                    "evalTokens": int(eval_time.group(2)),
-                    "evalTps": float(eval_time.group(3)),
-                })
-                last_timing.update(current_timing)
-                continue
-            total_time = re.search(r"total time =\s+([0-9.]+) ms /\s+(\d+) tokens", line)
-            if total_time:
-                current_timing.update({
-                    "time": line.split()[0],
-                    "totalMs": float(total_time.group(1)),
-                    "totalTokens": int(total_time.group(2)),
-                })
-                last_timing = dict(current_timing)
-                timing_events.append(dict(current_timing))
-                current_timing = {}
-                continue
-            release = re.search(r"^(\S+).*slot\s+release: id\s+(\d+)\s+\|\s+task\s+(\d+)\s+\| stop processing: n_tokens = (\d+), truncated = (\d+)", line)
-            if release:
-                tokens = int(release.group(4))
-                context = {
-                    "time": release.group(1),
-                    "slotId": int(release.group(2)),
-                    "taskId": int(release.group(3)),
-                    "tokens": tokens,
-                    "limit": context_limit,
-                    "remaining": max(0, context_limit - tokens) if context_limit else None,
-                    "pct": round(100 * tokens / context_limit, 1) if context_limit else None,
-                    "truncated": bool(int(release.group(5))),
-                }
-                context_events.append(dict(context))
-                continue
-            cache = re.search(r"cache state: (\d+) prompts, ([0-9.]+) MiB \(limits: ([0-9.]+) MiB, (\d+) tokens, (\d+) est\)", line)
-            if cache:
-                prompt_cache = {
-                    "prompts": int(cache.group(1)),
-                    "usedMiB": float(cache.group(2)),
-                    "limitMiB": float(cache.group(3)),
-                    "tokenLimit": int(cache.group(4)),
-                    "estTokens": int(cache.group(5)),
-                    "pct": round(100 * float(cache.group(2)) / float(cache.group(3)), 1) if float(cache.group(3)) else None,
-                }
-                prompt_cache_rows = []
-                continue
-            cache_row = re.search(r"- prompt (0x[0-9a-fA-F]+):\s+(\d+) tokens, checkpoints:\s+(\d+),\s+([0-9.]+) MiB", line)
-            if cache_row:
-                prompt_cache_rows.append({
-                    "id": cache_row.group(1),
-                    "tokens": int(cache_row.group(2)),
-                    "checkpoints": int(cache_row.group(3)),
-                    "sizeMiB": float(cache_row.group(4)),
-                })
-    active_slots = []
-    for slot in slots:
-        next_token = (slot.get("next_token") or [{}])[0]
-        params = slot.get("params") or {}
-        active_slots.append({
-            "id": slot.get("id"),
-            "isProcessing": bool(slot.get("is_processing")),
-            "taskId": slot.get("id_task"),
-            "promptTokens": params.get("n_tokens") or params.get("prompt_n_tokens"),
-            "maxTokens": params.get("max_tokens") or params.get("n_predict"),
-            "stream": params.get("stream"),
-            "chatFormat": params.get("chat_format"),
-            "decoded": next_token.get("n_decoded"),
-            "remain": next_token.get("n_remain"),
-            "hasNextToken": next_token.get("has_next_token"),
-        })
-    data = {
-        "ok": True,
-        "port": int(port) if str(port).isdigit() else port,
-        "slotError": slot_error,
-        "slotStatus": "ok" if slot_error is None else "unavailable",
-        "totalSlots": len(slots),
-        "activeSlots": active_slots,
-        "logSlotActivity": list(log_slot_activity.values())[-4:],
-        "lastTiming": last_timing,
-        "context": context,
-        "promptCache": {**prompt_cache, "rows": prompt_cache_rows[-5:]} if prompt_cache else {},
-        "timingEvents": timing_events[-20:],
-        "contextEvents": context_events[-20:],
-        "recentByClient": requests_by_client(recent_requests, timing_events, context_events),
-        "recentRequests": recent_requests[-8:],
-    }
-    with _llama_activity_lock:
-        llama_activity_cache["time"] = now
-        llama_activity_cache["data"] = data
-    return data
-
 def monitor_retention_seconds():
     try:
         value = int(admin_state.get("monitor", {}).get("retentionSeconds", MONITOR_RETENTION_DEFAULT))
@@ -713,120 +500,6 @@ def gpu_sample():
         "powerW": number(5),
     }
 
-# Built-in labels for well-known addresses; everything else is labelled at
-# runtime via client-labels.json (the ✎ button in the monitors).
-KNOWN_LLAMA_CLIENTS = {
-    "127.0.0.1": "local",
-    "::1": "local",
-}
-
-def load_client_labels():
-    try:
-        if CLIENT_LABELS_FILE.exists():
-            payload = json.loads(CLIENT_LABELS_FILE.read_text(encoding="utf-8"))
-            if isinstance(payload, dict):
-                return {str(k): str(v) for k, v in payload.items() if str(v).strip()}
-    except Exception:
-        pass
-    return {}
-
-def save_client_labels(labels):
-    atomic_write_text(CLIENT_LABELS_FILE, json.dumps(labels, ensure_ascii=False, indent=2) + "\n")
-
-def endpoint_parts(value):
-    endpoint = str(value or "").strip()
-    if not endpoint:
-        return "", None
-    if endpoint.startswith("[") and "]:" in endpoint:
-        host, port_text = endpoint.rsplit("]:", 1)
-        host = host.lstrip("[")
-    elif ":" in endpoint:
-        host, port_text = endpoint.rsplit(":", 1)
-        host = host.strip("[]")
-    else:
-        return endpoint, None
-    try:
-        port = int(port_text)
-    except Exception:
-        port = None
-    return host, port
-
-def parse_ss_client_line(line):
-    parts = line.split(maxsplit=5)
-    if len(parts) < 4:
-        return None
-    if parts[0].isalpha() or parts[0].upper() in {"ESTAB", "ESTABLISHED"}:
-        state = parts[0]
-        local = parts[3] if len(parts) >= 4 else ""
-        peer = parts[4] if len(parts) >= 5 else ""
-        process = parts[5] if len(parts) >= 6 else ""
-    else:
-        state = "ESTAB"
-        local = parts[2]
-        peer = parts[3]
-        process = parts[4] if len(parts) >= 5 else ""
-    local_ip, local_port = endpoint_parts(local)
-    peer_ip, peer_port = endpoint_parts(peer)
-    if not peer_ip:
-        return None
-    return {
-        "state": state,
-        "localIp": local_ip,
-        "localPort": local_port,
-        "clientIp": peer_ip,
-        "clientPort": peer_port,
-        "process": process,
-    }
-
-def known_client_name(ip):
-    normalized = str(ip or "")
-    if normalized.startswith("::ffff:"):
-        normalized = normalized.removeprefix("::ffff:")
-    custom = load_client_labels().get(normalized)
-    return custom or KNOWN_LLAMA_CLIENTS.get(normalized, "")
-
-def set_client_label(ip, label):
-    normalized = str(ip or "").strip()
-    if normalized.startswith("::ffff:"):
-        normalized = normalized.removeprefix("::ffff:")
-    if not re.match(r"^[0-9a-fA-F:.]+$", normalized):
-        raise AppError("client ip is invalid")
-    labels = load_client_labels()
-    text = str(label or "").strip()
-    if text:
-        labels[normalized] = text[:80]
-    else:
-        labels.pop(normalized, None)
-    save_client_labels(labels)
-    return {"ip": normalized, "label": labels.get(normalized, ""), "labels": labels}
-
-def llama_clients_sample():
-    try:
-        config = parse_config()
-        port = int(config.get("PORT") or "8080")
-    except Exception:
-        port = 8080
-    result = run(["ss", "-Htnp", "state", "established"], timeout=3)
-    if not result["ok"]:
-        return {"ok": False, "port": port, "clients": [], "error": result["stderr"].strip() or "ss failed"}
-    clients = []
-    seen = set()
-    for line in result["stdout"].splitlines():
-        row = parse_ss_client_line(line)
-        if not row or row.get("localPort") != port:
-            continue
-        process = row.get("process") or ""
-        if process and "llama-server" not in process:
-            continue
-        key = (row.get("clientIp"), row.get("clientPort"), row.get("localIp"), row.get("localPort"))
-        if key in seen:
-            continue
-        seen.add(key)
-        row["clientName"] = known_client_name(row.get("clientIp"))
-        clients.append(row)
-    clients.sort(key=lambda row: (row.get("clientName") or row.get("clientIp") or "", row.get("clientPort") or 0))
-    return {"ok": True, "port": port, "clients": clients}
-
 def memory_sample():
     memory = memory_state()
     if not memory.get("ok"):
@@ -906,18 +579,13 @@ def collect_monitor_sample():
     previous_time = monitor_history[-1]["time"] if monitor_history else now
     elapsed = max(0.001, now - previous_time)
     load1, load5, load15 = os.getloadavg()
-    tokens = controller_token_metrics()
-    record_controller_gen_tps(tokens, now)
     sample = {
         "time": int(now),
         "cpu": cpu_percentages(monitor_last_cpu, cpu_now),
         "cpuLoad": [round(load1, 2), round(load5, 2), round(load15, 2)],
         "gpu": gpu_sample(),
-        "llamaClients": llama_clients_sample(),
-        "llamaActivity": llama_activity_sample(),
         "agentProxies": agent_proxy_sample(),
         "agentProxyConfig": load_agent_proxy_config(),
-        "tokens": tokens,
         "memory": memory_sample(),
         "disk": rate_delta(monitor_last_disk, disk_now, elapsed, ["readBytes", "writeBytes"]),
         "net": rate_delta(monitor_last_net, net_now, elapsed, ["rxBytes", "txBytes"]),
@@ -964,10 +632,7 @@ def _slim_sample(sample):
     snapshots and the request/response previews made every sample ~180 KB — the
     endpoint shipped >70 MB and could not answer within the 1 s poll cadence.
     The UI reads the heavy fields from `latest` only, which stays full."""
-    slim = {k: sample.get(k) for k in ("time", "cpuLoad", "cpu", "memory", "disk", "net", "gpu", "tokens") if k in sample}
-    la = sample.get("llamaActivity")
-    if isinstance(la, dict) and la.get("lastTiming") is not None:
-        slim["llamaActivity"] = {"lastTiming": la.get("lastTiming")}
+    slim = {k: sample.get(k) for k in ("time", "cpuLoad", "cpu", "memory", "disk", "net", "gpu") if k in sample}
     ca = sample.get("correlatedActivity")
     if isinstance(ca, dict):
         slim["correlatedActivity"] = {
@@ -991,8 +656,9 @@ def system_monitor_state(since=0):
     epoch — everything else is small and always sent whole.
 
     WHY IT MATTERS. The board polls this once a SECOND, and the full body is
-    ~3.4 MB: ten minutes of samples at 1.8 MB plus token-speed points at ~1.4 MB.
-    The client already holds all of it but the newest sample, so the other 3.4 MB
+    ~3.4 MB: ten minutes of samples at 1.8 MB plus token-speed points at ~1.4 MB
+    (the controller's own, gone with its cells in step 6.9). The client already
+    holds all of it but the newest sample, so the other 3.4 MB
     was rebuilt, serialized and pushed every second, per open tab. With four
     browsers that is 13 MB/s of JSON the server assembles to tell them what they
     already knew — which is what made page load time climb with the number of
@@ -1005,7 +671,6 @@ def system_monitor_state(since=0):
     with monitor_lock:
         samples = list(monitor_history)
         latest_full = monitor_latest_full
-    gen_samples = controller_gen_tps_samples()
     newest = samples[-1].get("time", 0) if samples else 0
     partial = False
     try:
@@ -1015,18 +680,13 @@ def system_monitor_state(since=0):
     if since > 0:
         partial = True
         samples_out = [s for s in samples if s.get("time", 0) > since]
-        gen_out = [s for s in gen_samples if s.get("time", 0) > since]
     else:
-        samples_out, gen_out = samples, gen_samples
+        samples_out = samples
     return {
         "ok": True,
         "intervalSeconds": MONITOR_SAMPLE_INTERVAL,
         "retentionSeconds": monitor_retention_seconds(),
-        "clientLabels": load_client_labels(),
         "samples": samples_out,
-        # Generation-only token-speed points (controller): the Token Speed chart
-        # draws these, not the per-second gauge, so idle never paints a plateau.
-        "tokenGenSamples": gen_out,
         # The client appends rather than replaces when this is set, and asks for
         # `newestSample` next time. Absent = a whole series, as before.
         **({"partial": True, "newestSample": newest} if partial else {"newestSample": newest}),

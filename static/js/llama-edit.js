@@ -1,23 +1,15 @@
-// te- cell edit modal: backups, snapshots, confirm modal, command presets.
-import { appPrompt, settleAppConfirm } from "./dialogs.js";
+// The cell editor (tr-): runner tabs, command presets, the command preview, the confirm modal.
+import { settleAppConfirm } from "./dialogs.js";
 import {
   _cmdBaselineTokens,
   effectiveModelsDir,
   formatCmdline,
   renderCommandPreview,
-  splitCommand,
 } from "./command-preview.js";
-import { CONTROLLER_HOST_ID, dirtyOptionalToggles, modelFields, numericFields, toggleFields } from "./constants.js";
-import { refreshFavoritesPanel } from "./favorites.js";
-import { findSlotEntry, renderSchedulePanel } from "./remote-cells.js";
-import { syncConfigTabs, updateCtxYarnHint } from "./form.js";
+import { modelFields, numericFields, toggleFields } from "./constants.js";
 import {
-  badge,
   mcUpdateTrigger,
-  option,
   readConfigForm,
-  renderChatTemplateHint,
-  renderFields,
   renderModelInsight,
   renderModelSelects,
   syncAllToggleLabels,
@@ -27,92 +19,34 @@ import {
 } from "./form.js";
 import { fieldHelp, t } from "./i18n.js";
 import { currentComputeMode, refreshAsidePanels, refreshComputeTarget } from "./memory.js";
-import { action, loadState, saveConfig } from "./polling.js";
-import { _trCellPort, _trHostId } from "./remote-cells.js";
-import { setState, state, topology, ui } from "./state.js";
-import { renderAll } from "./topology-render.js";
-import { $, api, escapeHtml, toast } from "./utils.js";
+import { _trCellPort, _trHostId, formOnControllerMachine } from "./remote-cells.js";
+import { state, topology, ui } from "./state.js";
+import { $, api, escapeHtml } from "./utils.js";
 
-export let teLlamaFormReady = false;  // whether te-dynamicFields has been rendered at least once
-export let pendingBackupDelete = "";
-
-
-export function backupLabel(path) {
-  return String(path).split("/").pop().replace("start-server.sh.bak.", "");
-}
-
-export function backupPath(row) {
-  return typeof row === "string" ? row : row.path;
-}
-
-export function backupDisplayLabel(row) {
-  if (typeof row === "string") return backupLabel(row);
-  return row.label || backupLabel(row.path);
-}
-
-export function backupCreatedLabel(row) {
-  const value = backupLabel(backupPath(row));
-  const match = value.match(/^(\d{8})-(\d{6})/);
-  if (!match) return value;
-  const [, date, timeValue] = match;
-  return `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)} ${timeValue.slice(0, 2)}:${timeValue.slice(2, 4)}:${timeValue.slice(4, 6)}`;
-}
-
-export function backupByPath(path) {
-  return (state.backups || []).find((row) => backupPath(row) === path) || path;
-}
-
-// ── Topology Llama Edit Modal ────────────────────────────────────────────────
-export let _teCellPort = "";
-let _teTitleMode = "edit";
-
-// Composed chrome of the OPEN cell editor (title with the server name, the
-// state-dependent Apply/Start/Restart button) cannot be refreshed from
-// data-i18n — rebuild those two pieces when the language changes while the
-// overlay is visible. Everything else in the overlay is covered by the
-// data-i18n / data-fieldhelp markers that applyLanguage() walks.
-window.addEventListener("caravan:langchange", () => {
-  const overlay = $("topologyLlamaEditOverlay");
-  if (!overlay || overlay.hidden) return;
-  const serverName = topology?.server?.name || "Controller";
-  const gpuName = (topology?.server?.gpus || [])[0]?.name || "";
-  const gpuSuffix = gpuName ? ` · ${gpuName}` : "";
-  const titleEl = $("topologyLlamaEditTitle");
-  if (titleEl) {
-    titleEl.textContent = _cellEditTitleText("te-", _teTitleMode, `${serverName}${gpuSuffix}`);
-  }
-  const saveRestartBtn = $("topologyLlamaEditSaveRestart");
-  if (saveRestartBtn) {
-    const isRunning = !!(state.service?.active || state.service?.pid);
-    saveRestartBtn.textContent = _teCellPort ? t("apply") : t(isRunning ? "restart" : "start");
-  }
-});
 // Runner tabs (labels + trade-off tooltips + the benefits line) and the
 // command-aside preview are rebuilt purely from state/t() — safe to re-render
-// on language switch for whichever cell editor is open ("te-" controller,
-// "tr-" client). Form inputs live outside these subtrees, so no edits are lost.
+// on language switch while the cell editor is open. Form inputs live outside
+// these subtrees, so no edits are lost.
 window.addEventListener("caravan:langchange", () => {
-  ["te-", "tr-"].forEach((pfx) => {
-    const overlay = _cellKindOverlay(pfx);
-    if (!overlay || overlay.hidden) return;
-    renderRunnerTabs(pfx);
-    refreshComputeTarget(pfx);
-    if (effectiveRunnerId(pfx) !== "llama-server") renderCommandCellPreview(pfx);
-  });
+  const overlay = _cellKindOverlay("tr-");
+  if (!overlay || overlay.hidden) return;
+  renderRunnerTabs("tr-");
+  refreshComputeTarget("tr-");
+  if (effectiveRunnerId("tr-") !== "llama-server") renderCommandCellPreview("tr-");
 });
 export const _editCmdSeq = {};
 
 // Fill a form's "current command" panel (<pfx>currentCmdline) and set the diff
 // baseline for its New-Command preview, then (re)render the preview. The baseline
 // is the form's CURRENT command, so editing a field highlights only what actually
-// changed. Used by both the controller (te-) and client (tr-) Add-Llama modals so
-// they behave identically. Modes:
-//   • "main" — the controller's running service (state.service.cmdline);
-//   • "cell" — a configured cell (controller or remote): build its command from the
-//     form's initial config via the canonical builder, so an unedited form shows
-//     "no changes" and edits highlight precisely;
+// changed. Modes:
+//   • "cell" — a configured cell: build its command from the form's initial
+//     config via the canonical builder, so an unedited form shows "no changes"
+//     and edits highlight precisely;
 //   • "new"  — a freshly reserved / brand-new server: no prior command, every flag
 //     reads as added.
+// (A third, "main" — the controller's own running service — went with the
+// controller's own cells in step 6.9.)
 // Show a command line (or the localized "no command" placeholder) in the
 // <pfx>currentCmdline panel. Stamps data-i18n on the placeholder so an open
 // editor re-translates it on language switch; real cmdlines clear the marker.
@@ -130,13 +64,6 @@ function _showCurrentCmdline(cur, tokens) {
 export async function setEditCurrentCommand(pfx, mode) {
   const cur = $(pfx + "currentCmdline");
   const seq = (_editCmdSeq[pfx] = (_editCmdSeq[pfx] || 0) + 1);
-  if (mode === "main") {
-    const tokens = splitCommand(state.service?.cmdline || "");
-    _cmdBaselineTokens[pfx] = tokens;
-    _showCurrentCmdline(cur, tokens);
-    renderCommandPreview(pfx);
-    return;
-  }
   if (mode === "new") {
     _cmdBaselineTokens[pfx] = [];
     _showCurrentCmdline(cur, []);
@@ -164,207 +91,7 @@ export async function setEditCurrentCommand(pfx, mode) {
   renderCommandPreview(pfx);
 }
 
-export function syncTeModelsDirPreview() {
-  const input = $("te-LLAMA_MODELS_DIR");
-  const hint = $("te-modelFileDirHint");
-  const val = input?.value?.trim() || "";
-  if (hint) {
-    hint.hidden = !!val;
-    if (!val) hint.textContent = t("modelFileDirHint");
-  }
-}
-
-export function openTopologyLlamaEdit(mode = "edit", cellPort = "") {
-  _teCellPort = cellPort ? String(cellPort) : "";
-  renderSchedulePanel("te", CONTROLLER_HOST_ID, _teCellPort, findSlotEntry(CONTROLLER_HOST_ID, _teCellPort)?.schedule);
-  // The YaRN hint must be right on OPEN, not only after a model change; the
-  // tab bar needs the same treatment for its overflow state.
-  setTimeout(() => {
-    // A RUNNING cell's trained window comes from its model card (the topology
-    // row), not from a file this host may not have: stashed on the field so
-    // that ctxNativeFor can offer it when the catalogue knows no header.
-    const ctxEl = $("te-CTX_SIZE");
-    const row = _teCellPort ? findSlotEntry(CONTROLLER_HOST_ID, _teCellPort) : null;
-    if (ctxEl) ctxEl.dataset.trained = Number(row?.ctxTrained) > 0 ? String(row.ctxTrained) : "";
-    updateCtxYarnHint("te-"); syncConfigTabs("te-");
-  }, 0);
-  if (!teLlamaFormReady) {
-    renderFields("te-");
-    wireCellKindToggle("te-");
-    $("te-LLAMA_MODELS_DIR")?.addEventListener("input", syncTeModelsDirPreview);
-    teLlamaFormReady = true;
-  }
-  renderModelSelects("te-");
-  // For a cell (cellPort set), load the cell's own saved slotConfig rather than
-  // the controller's start-server.sh config — otherwise the form shows the main
-  // service's model (e.g. gemma) instead of the model this cell actually runs.
-  let _teFormConfig = state.config;
-  let _teSlotHasConfig = false;
-  if (_teCellPort) {
-    const slot = (topology?.nodes || [])
-      .flatMap((n) => n.servers || [])
-      .find((s) => s.isSlot && String(s.port) === String(_teCellPort));
-    if (slot?.slotConfig && Object.keys(slot.slotConfig).length) {
-      _teFormConfig = { ...state.config, ...slot.slotConfig };
-      _teSlotHasConfig = true;
-    }
-  }
-  if (!_teSlotHasConfig) {
-    // A cell with nothing saved yet inherits the controller's own config, where
-    // N_GPU_LAYERS is 999 — "put every layer on the GPU". That is the setting
-    // that turns "too big for the card" into a failed start instead of a slow
-    // run, and it is not a decision anyone made for this cell; it is the legacy
-    // single-server value arriving by inheritance. A fresh cell starts from the
-    // engine's own default, which fits what it can and leaves the rest in RAM.
-    _teFormConfig = { ..._teFormConfig, N_GPU_LAYERS: "auto" };
-  }
-  applyConfigToForm(_teFormConfig, "te-");
-  // Populate hidden models-dir from effective value so command preview is correct
-  const teMdEl = $("te-LLAMA_MODELS_DIR");
-  if (teMdEl && !teMdEl.value) teMdEl.value = effectiveModelsDir(state.config);
-  const tePortEl = $("te-PORT");
-  if (tePortEl) {
-    if (_teCellPort) {
-      tePortEl.value = _teCellPort;
-      tePortEl.readOnly = true;
-    } else {
-      tePortEl.readOnly = false;
-    }
-  }
-  refreshComputeTarget("te-");
-  renderChatTemplateHint("te-");
-  renderBackups("te-");
-  refreshFavoritesPanel("te-");  // reflect the latest global favorites order/set
-  syncTeModelsDirPreview();
-  // Fill the COMMAND panel and set the diff baseline for New Command, then render
-  // the preview. Three cases: the controller's main service (no cell), a cell that
-  // already has a saved config, or a freshly reserved (empty) cell.
-  setEditCurrentCommand("te-", _teCellPort ? (_teSlotHasConfig ? "cell" : "new") : "main");
-
-  // Dynamic title: show server name + first GPU name
-  const serverName = topology?.server?.name || "Controller";
-  const gpuName = (topology?.server?.gpus || [])[0]?.name || "";
-  const gpuSuffix = gpuName ? ` · ${gpuName}` : "";
-  _teTitleMode = mode;   // remembered so a language switch re-renders the title live
-  const titleEl = $("topologyLlamaEditTitle");
-  if (titleEl) {
-    titleEl.textContent = _cellEditTitleText("te-", mode, `${serverName}${gpuSuffix}`);
-    // LOCAL badge next to title (not in actions bar)
-    let badge = titleEl.parentElement.querySelector(".topo-edit-mode-badge");
-    if (!badge) {
-      badge = document.createElement("span");
-      badge.className = "topo-edit-mode-badge local";
-      badge.dataset.i18n = "badgeLocal";   // kept in sync by applyLanguage
-      titleEl.after(badge);
-    }
-    badge.textContent = t("badgeLocal");   // update on every open, not just create
-  }
-
-  // Adaptive button: "OK" (save only) for cell config, Start/Restart for main config
-  const saveRestartBtn = $("topologyLlamaEditSaveRestart");
-  if (saveRestartBtn) {
-    const isRunning = !!(state.service?.active || state.service?.pid);
-    if (_teCellPort) {
-      saveRestartBtn.textContent = t("apply");
-      saveRestartBtn.className = "topo-ok-btn";
-    } else {
-      saveRestartBtn.textContent = t(isRunning ? "restart" : "start");
-      saveRestartBtn.className = "danger";
-    }
-  }
-
-  // The command-cell toggle only applies to reserved cells, not the main service.
-  const teKindRow = $("topologyLlamaEditOverlay")?.querySelector(".cell-kind-row");
-  if (teKindRow) teKindRow.hidden = !_teCellPort;
-  if (!_teCellPort) {
-    const k = $("te-CELL_KIND");
-    const r = $("te-RUNNER");
-    if ((k && k.value) || (r && r.value && r.value !== "llama-server")) {
-      if (k) k.value = "";
-      if (r) r.value = "";
-      applyCellKindUI("te-");
-    }
-  }
-  const _ov = $("topologyLlamaEditOverlay");
-  _ov.hidden = false;
-  // Move focus INTO the dialog. A modal that leaves focus behind it is one a
-  // keyboard user cannot reach or dismiss — and it is why Escape was landing
-  // wherever the previous click happened to be.
-  if (!_ov.hasAttribute("tabindex")) _ov.tabIndex = -1;
-  _ov.focus({ preventScroll: true });
-}
-
-export function closeTopologyLlamaEdit() {
-  $("topologyLlamaEditOverlay").hidden = true;
-}
-
-export async function saveTopologyLlamaConfig(restart) {
-  const btn = $("topologyLlamaEditSaveRestart");
-  const orig = btn ? btn.textContent : "";
-  if (btn) {
-    btn.textContent = restart ? t("topologyClientGpuStarting") : t("savingConfig");
-    btn.disabled = true;
-    btn.classList.add("btn-busy");
-  }
-  try {
-    const config = readConfigForm("te-");
-    const data = await api("/api/config", {
-      method: "POST",
-      body: JSON.stringify({ config, restart, cellPort: _teCellPort }),
-    });
-    setState(data.state);
-    closeTopologyLlamaEdit();
-    renderAll();
-    toast(restart ? t("savedRestarted") : t("saved"));
-  } catch (err) {
-    toast(err.message);
-  } finally {
-    if (btn) {
-      btn.textContent = orig;
-      btn.disabled = false;
-      btn.classList.remove("btn-busy");
-    }
-  }
-}
-
-// ── End Topology Llama Edit Modal ────────────────────────────────────────────
-
-export function renderBackups(pfx = "") {
-  const rows = state.backups || [];
-  const infoEl = $(pfx + "backupInfo");
-  const listEl = $(pfx + "backups");
-  if (!infoEl || !listEl) return;
-  infoEl.textContent = rows.length ? t("clickBackupHint") : t("noBackups");
-  const saveCurrentHtml = `
-    <button class="backup-save-current" type="button" data-snapshot-config title="${escapeHtml(t("saveSnapshotHint"))}">
-      + ${escapeHtml(t("saveSnapshot"))}
-    </button>`;
-  listEl.innerHTML = saveCurrentHtml + rows.map((row) => {
-    const path = backupPath(row);
-    const label = backupDisplayLabel(row);
-    const title = `${label}\n${path}`;
-    return `
-      <div class="backup-row" title="${escapeHtml(title)}">
-        <button class="backup-item" type="button" data-backup-path="${escapeHtml(path)}">
-          <span>${escapeHtml(label)}</span>
-          <code>${escapeHtml(path)}</code>
-        </button>
-        <button class="backup-delete" type="button" data-delete-backup="${escapeHtml(path)}" aria-label="${escapeHtml(t("deleteBackup"))}">×</button>
-      </div>
-    `;
-  }).join("");
-  const snapBtn = listEl.querySelector("[data-snapshot-config]");
-  if (snapBtn) snapBtn.addEventListener("click", () => snapshotConfig(pfx));
-  listEl.querySelectorAll("[data-backup-path]").forEach((button) => {
-    button.addEventListener("click", () => loadBackup(button.dataset.backupPath, pfx));
-  });
-  listEl.querySelectorAll("[data-delete-backup]").forEach((button) => {
-    button.addEventListener("click", () => openDeleteBackupModal(backupByPath(button.dataset.deleteBackup)));
-  });
-}
-
 export function applyConfigToForm(config, pfx = "") {
-  if (!pfx) dirtyOptionalToggles.clear();
   modelFields.forEach((field) => {
     const el = $(pfx + field);
     if (!el) return;
@@ -479,173 +206,19 @@ export function suggestedSnapshotName(pfx = "") {
   return [base, date, "stable"].filter(Boolean).join("-");
 }
 
-// The CURRENTLY-SAVED config for whatever this form targets — deliberately NOT
-// readConfigForm(), so "Save current config" snapshots the running config and
-// ignores unsaved edits in the open form. For a configured server cell that's the
-// cell's own saved slotConfig; otherwise null → the backend copies the live
-// start-server.sh (the main launcher's current config).
-export function currentSavedConfig(pfx) {
-  if (pfx === "te-" && _teCellPort) {
-    const slot = (topology?.nodes || [])
-      .flatMap((n) => n.servers || [])
-      .find((s) => s.isSlot && String(s.port) === String(_teCellPort));
-    if (slot?.slotConfig && Object.keys(slot.slotConfig).length) {
-      return { ...state.config, ...slot.slotConfig };
-    }
-  }
-  return null;
-}
-
-export async function snapshotConfig(pfx = "") {
-  const name = await appPrompt(t("snapshotNamePrompt"), { value: suggestedSnapshotName(pfx), confirmLabel: t("save"), scene: "create" });
-  if (name === null) return;
-  const trimmed = name.trim();
-  if (!trimmed) {
-    toast(t("snapshotNameRequired"));
-    return;
-  }
-  const cellConfig = currentSavedConfig(pfx);
-  // The prompt modal is gone the moment it resolves, and the snapshot call
-  // can take a couple of seconds — keep the trigger button visibly busy so
-  // the pause reads as "saving", not "nothing happened".
-  const snapBtn = $(pfx + "backups")?.querySelector("[data-snapshot-config]");
-  snapBtn?.classList.add("btn-busy");
-  if (snapBtn) snapBtn.disabled = true;
-  toast(t("snapshotSaving"));
-  try {
-    const data = await api("/api/config/snapshot", {
-      method: "POST",
-      body: JSON.stringify(cellConfig ? { name: trimmed, config: cellConfig } : { name: trimmed }),
-    });
-    if (data.state) setState(data.state);
-    renderBackups(pfx);
-    toast(`${t("snapshotSaved")}: ${backupLabel(data.snapshot)}`);
-  } catch (err) {
-    toast(err.message);
-  } finally {
-    snapBtn?.classList.remove("btn-busy");
-    if (snapBtn) snapBtn.disabled = false;
-  }
-}
-
-export async function loadBackup(path, pfx = "") {
-  try {
-    const data = await api(`/api/backup?path=${encodeURIComponent(path)}`);
-    applyConfigToForm(data.config || {}, pfx);
-    const infoEl = $(pfx + "backupInfo");
-    if (infoEl) infoEl.textContent = `${t("loadedBackup")}: ${data.path}`;
-    toast(`${t("loadedBackup")}: ${backupLabel(data.path)}`);
-  } catch (err) {
-    const infoEl = $(pfx + "backupInfo");
-    if (infoEl) infoEl.textContent = err.message;
-    toast(err.message);
-  }
-}
-
-export function openDeleteBackupModal(row) {
-  const path = backupPath(row);
-  pendingBackupDelete = path;
-  $("confirmText").textContent = t("deleteBackupText");
-  const model = typeof row === "string" ? "" : row.modelFile;
-  const ctx = typeof row === "string" ? "" : row.ctxSize;
-  const meta = [
-    [t("created"), backupCreatedLabel(row)],
-    [t("model"), model ? model.split("/").pop() : ""],
-    [t("context"), ctx],
-  ].filter(([, value]) => value);
-  $("confirmMeta").hidden = !meta.length;
-  $("confirmMeta").innerHTML = meta.map(([label, value]) => `
-    <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>
-  `).join("");
-  $("confirmPath").textContent = path;
-  $("confirmDelete").textContent = t("deleteAction");
-  $("confirmDelete").classList.add("danger");
-  ui.pendingConfirm = () => deleteBackup();
-  $("confirmOverlay").hidden = false;
-}
-
 export function closeConfirmModal() {
   settleAppConfirm(false);
-  pendingBackupDelete = "";
   ui.pendingConfirm = null;
   $("confirmOverlay").hidden = true;
   // Reset button state so next caller starts clean (danger/non-danger).
   $("confirmDelete").classList.remove("danger");
 }
 
-export async function deleteBackup(path = pendingBackupDelete) {
-  if (!path) return;
-  try {
-    const data = await api("/api/backup/delete", {
-      method: "POST",
-      body: JSON.stringify({ path }),
-    });
-    setState(data.state);
-    closeConfirmModal();
-    renderAll();
-    toast(t("deletedBackup"));
-  } catch (err) {
-    toast(err.message);
-  }
-}
-
-export function openActionModal(name) {
-  $("confirmTitle").textContent = t("confirmActionTitle");
-  $("confirmText").textContent = t("confirmActionText", { action: t(name) });
-  const meta = [
-    [t("actionLabel"), t(name)],
-    [t("service"), state.paths?.service || "llamacpp-current.service"],
-    [t("pid"), state.service?.MainPID || "n/a"],
-  ];
-  $("confirmMeta").hidden = false;
-  $("confirmMeta").innerHTML = meta.map(([label, value]) => `
-    <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>
-  `).join("");
-  $("confirmPath").textContent = state.paths?.service || "llamacpp-current.service";
-  $("confirmDelete").textContent = t(name);
-  $("confirmDelete").classList.add("danger");
-  ui.pendingConfirm = () => action(name);
-  $("confirmOverlay").hidden = false;
-}
-
-export function openToolbarConfirm(kind) {
-  const isReload = kind === "reload";
-  const isSave = kind === "save";
-  const titleKey = isReload ? "confirmReloadTitle" : isSave ? "confirmSaveTitle" : "confirmSaveRestartTitle";
-  const textKey = isReload ? "confirmReloadText" : isSave ? "confirmSaveText" : "confirmSaveRestartText";
-  const config = readConfigForm();
-  $("confirmTitle").textContent = t(titleKey);
-  $("confirmText").textContent = t(textKey);
-  const meta = [
-    [t("actionLabel"), isReload ? t("reload") : isSave ? t("save") : t("saveRestart")],
-    [t("model"), config.MODEL_FILE ? config.MODEL_FILE.split("/").pop() : "n/a"],
-    [t("context"), config.CTX_SIZE || "n/a"],
-  ];
-  $("confirmMeta").hidden = false;
-  $("confirmMeta").innerHTML = meta.map(([label, value]) => `
-    <div><span>${escapeHtml(label)}</span><strong>${escapeHtml(String(value))}</strong></div>
-  `).join("");
-  $("confirmPath").textContent = state.paths?.startScript || "start-server.sh";
-  $("confirmDelete").textContent = isReload ? t("reload") : isSave ? t("save") : t("saveRestart");
-  $("confirmDelete").classList.add("danger");
-  ui.pendingConfirm = async () => {
-    closeConfirmModal();
-    if (isReload) {
-      await loadState();
-      toast(t("reloaded"));
-    } else {
-      await saveConfig(!isSave);
-    }
-  };
-  $("confirmOverlay").hidden = false;
-}
-
 // ── Generic command cell: toggle a cell config form between llama-server fields
-// and a single raw COMMAND (pfx "te-" = controller cell, "tr-" = client cell). ──
+// and a single raw COMMAND. The one cell form is the scout's (tr-); the
+// controller's own (te-) went with its cells in step 6.9. ──
 export function _cellKindOverlay(pfx) {
-  const id = pfx === "te-" ? "topologyLlamaEditOverlay"
-           : pfx === "tr-" ? "llamaRemoteEditOverlay" : "";
-  return id ? $(id) : null;
+  return pfx === "tr-" ? $("llamaRemoteEditOverlay") : null;
 }
 
 // Runner metadata: prefer the backend registry (state.runners), fall back to
@@ -711,12 +284,12 @@ const KIND_REASON = {
 // vLLM and custom read their artifact from somewhere other than MODEL_FILE, so
 // what sits in that field cannot disqualify them.
 function runnerAvailability(runner, pfx) {
-  // Client forms cannot offer a directory checkpoint: the controller shows its
-  // safetensors artifacts only to its own forms, because the scout's model cache
-  // is .gguf throughout — download, listing and eviction all key on that suffix.
-  // Leaving the runner selectable there produced a panel with nothing to pick,
-  // which reads as broken rather than unsupported.
-  if (pfx === "tr-" && (runner.artifacts || []).includes("seamless-st")) {
+  // A form whose machine does not read the controller's models tree cannot
+  // offer a directory checkpoint: the scout's model cache is .gguf throughout —
+  // download, listing and eviction all key on that suffix. Leaving the runner
+  // selectable there produced a panel with nothing to pick, which reads as
+  // broken rather than unsupported. (formOnControllerMachine.)
+  if (!formOnControllerMachine(pfx) && (runner.artifacts || []).includes("seamless-st")) {
     return { ok: false, reasonKey: "runnerControllerOnly" };
   }
   // `artifacts` is the current field; `formats` is what older registries carry.
@@ -777,12 +350,13 @@ function runnerHostGateHtml(pfx) {
 
 // VLLM_MODEL derives from the model picker, so the raw field is noise while a
 // model is picked — show it only for the hand-typed HF-repo-id case (empty
-// picker), and always on client (tr-) cells where controller paths don't apply.
+// picker), and always where the controller's paths don't apply (a machine that
+// does not read its models tree — formOnControllerMachine).
 function syncVllmModelVisibility(pfx) {
   const el = $(pfx + "VLLM_MODEL");
   if (!el) return;
   const picked = !!(($(pfx + "MODEL_FILE")?.value || "").trim());
-  const hide = picked && pfx !== "tr-";
+  const hide = picked && formOnControllerMachine(pfx);
   el.style.display = hide ? "none" : "";
   const lbl = el.previousElementSibling;
   if (lbl?.classList?.contains("label-row")) lbl.style.display = hide ? "none" : "";
@@ -847,11 +421,8 @@ export function renderRunnerTabs(pfx) {
     const tipParts = [r.benefitsKey ? t(r.benefitsKey) : "", MINUS_KEY[r.id] ? t(MINUS_KEY[r.id]) : ""];
     if (!avail.ok) tipParts.unshift(t(avail.reasonKey));
     const tip = tipParts.filter(Boolean).join("\n\n");
-    // Which editor this is decides the hook name, so one locator per modal —
-    // the two editors are parallel and a test drives them separately.
-    const tHook = pfx === "tr-" ? "cell-remote-runner-tab" : "cell-edit-runner-tab";
     return `<button type="button" class="cell-kind-btn${r.id === current ? " is-active" : ""}"` +
-      ` data-t="${tHook}" data-t-id="${escapeHtml(r.id)}"` +
+      ` data-t="cell-remote-runner-tab" data-t-id="${escapeHtml(r.id)}"` +
       ` data-runner="${escapeHtml(r.id)}"${avail.ok ? "" : " disabled"} title="${escapeHtml(tip)}"` +
       ` style="flex:1;padding:6px 10px;cursor:pointer">${escapeHtml(label)}` +
       `<span class="runner-tab-help" title="${escapeHtml(tip)}">?</span></button>`;
@@ -861,29 +432,6 @@ export function renderRunnerTabs(pfx) {
     const meta = runnerRegistry().find((r) => r.id === current);
     benefits.innerHTML = (meta?.benefitsKey ? escapeHtml(t(meta.benefitsKey)) : "") + runnerHostGateHtml(pfx);
   }
-}
-
-// The modal's title. It said "Add Llama Server" whatever runner was selected,
-// so an NLLB cell was configured under a heading naming a different engine —
-// the same mislabel as the model picker below it, one line higher. The runner
-// names itself here; the label is already translated for the tabs.
-function _cellEditTitleText(pfx, mode, name) {
-  // pfx matters: this modal's fields are "te-"-prefixed. Called with "" it
-  // reads the /config page's RUNNER instead, and the topology tick then
-  // repainted a correct title back to whatever that page had selected.
-  const rid = effectiveRunnerId(pfx);
-  const meta = runnerRegistry().find((r) => r.id === rid) || {};
-  const runner = ((meta.icon ? meta.icon + " " : "") + t(meta.labelKey || rid)).trim();
-  return t(mode === "add" ? "cellEditTitleAdd" : "cellEditTitleEdit", { runner, name });
-}
-
-export function refreshCellEditTitle(pfx) {
-  const titleEl = pfx === "tr-" ? null : $("topologyLlamaEditTitle");
-  if (!titleEl || !_teTitleMode) return;
-  const serverName = topology?.server?.name || "Controller";
-  const gpuName = (topology?.server?.gpus || [])[0]?.name || "";
-  titleEl.textContent = _cellEditTitleText(pfx, _teTitleMode,
-    `${serverName}${gpuName ? ` · ${gpuName}` : ""}`);
 }
 
 export function applyCellKindUI(pfx) {
@@ -947,7 +495,7 @@ export function applyCellKindUI(pfx) {
   // Unlike whisper/moonshine, seamless has a real setting of its own — the
   // language it translates INTO — so its block is shown, not just carried.
   const seamlessFields = $(pfx + "seamlessFields");
-  if (seamlessFields) seamlessFields.style.display = (isSeamless && pfx !== "tr-") ? "" : "none";
+  if (seamlessFields) seamlessFields.style.display = (isSeamless && formOnControllerMachine(pfx)) ? "" : "none";
   const translateFields = $(pfx + "translateFields");
   if (translateFields) translateFields.style.display = isTranslate ? "" : "none";
   // TRANSLATE_MODEL is now picked in the SHARED picker (a 🔄 row per NLLB
@@ -970,7 +518,6 @@ export function applyCellKindUI(pfx) {
   // transcribe, an ASR gguf under llama), so it has to be repainted here too —
   // otherwise the dimming still describes the runner you just left.
   renderModelSelects(pfx);
-  refreshCellEditTitle(pfx);
   // Runs on open and on every runner switch — the right beat to (re)decide
   // whether this window is editing something that is already live.
   syncRunningBeam(pfx);
@@ -1055,9 +602,10 @@ export function wireCellKindToggle(pfx) {
     // VLLM_MODEL is DERIVED from the picked model (folder for safetensors,
     // file path for gguf) — the field stays editable only for HF repo ids
     // with no local copy. An explicit pick always rewrites it, like ALIAS.
-    // Controller cells only: these are controller paths, clients don't have them.
+    // Only where the target reads the controller's models tree: these are its
+    // paths, other machines don't have them (formOnControllerMachine).
     const vmEl = $(pfx + "VLLM_MODEL");
-    if (vmEl && model && pfx !== "tr-") {
+    if (vmEl && model && formOnControllerMachine(pfx)) {
       const base = (state.paths?.modelsDir || effectiveModelsDir(state.config) || "").replace(/\/+$/, "");
       if (stRow) vmEl.value = base + "/" + stRow.path;
       else if (model.toLowerCase().endsWith(".gguf")) vmEl.value = base + "/" + model;
@@ -1211,13 +759,11 @@ export function populateCommandPresets(pfx) {
 }
 
 export function _commandCellSlot(pfx) {
-  const port = pfx === "te-" ? _teCellPort : (pfx === "tr-" ? _trCellPort : "");
+  const port = pfx === "tr-" ? _trCellPort : "";
   if (!port) return null;
-  const hostId = pfx === "tr-" ? _trHostId : CONTROLLER_HOST_ID;
   return (topology?.nodes || [])
     .flatMap((n) => n.servers || [])
-    .find((s) => s.isSlot && String(s.port) === String(port) &&
-                 (pfx === "te-" ? s.isController : String(s.clientId || "") === String(hostId))) || null;
+    .find((s) => s.isSlot && String(s.port) === String(port) && String(s.clientId || "") === String(_trHostId)) || null;
 }
 
 // Mirror of build_vllm_command() in caravan/admin/runners.py — the backend
@@ -1240,7 +786,7 @@ export function buildVllmCommandPreview(pfx) {
 }
 
 export function _buildCommandExecPreview(pfx) {
-  const port = $(pfx + "PORT")?.value || (pfx === "te-" ? _teCellPort : _trCellPort) || "PORT";
+  const port = $(pfx + "PORT")?.value || _trCellPort || "PORT";
   const runner = effectiveRunnerId(pfx);
   if (runner === "vllm") {
     return [`export PORT=${port}`,
@@ -1335,9 +881,10 @@ export function _buildCommandExecPreview(pfx) {
 
 // ── Script preview: show the content of the .sh/.py the command points at ──
 // Parsed from the BUILT exec preview (covers whisper's baked-in run_whisper.sh
-// and any custom COMMAND). Controller cells read via /api/script-preview;
-// client-cell files live on the remote host — shown as a note until the scout
-// grows a matching endpoint.
+// and any custom COMMAND). A cell of the controller's own machine has its
+// files under the controller's home, read via /api/script-preview; any other
+// machine's files live there — shown as a note until the scout grows a
+// matching endpoint.
 function _scriptTokenFromPreview(pfx) {
   const text = _buildCommandExecPreview(pfx);
   const execLine = text.split("\n").filter((l) => l.startsWith("exec ")).pop() || "";
@@ -1359,7 +906,7 @@ function _refreshScriptPreview(pfx) {
   const tok = effectiveRunnerId(pfx) === "vllm" ? "" : _scriptTokenFromPreview(pfx);
   if (!tok) { if (panel) panel.style.display = "none"; return; }
   if (panel) panel.style.display = "";
-  if (pfx !== "te-") {
+  if (!formOnControllerMachine(pfx)) {
     meta.textContent = tok;
     pre.dataset.i18n = "scriptClientNote";
     pre.textContent = t("scriptClientNote");
@@ -1384,8 +931,7 @@ function _refreshScriptPreview(pfx) {
 // land on something serving traffic" reads identically in both places. Colour
 // follows the board's rule: CPU cells run blue, everything else green.
 export function syncRunningBeam(pfx) {
-  const overlay = $(pfx === "tr-" ? "llamaRemoteEditOverlay" : "topologyLlamaEditOverlay");
-  const modal = overlay?.querySelector(".topology-llama-edit-modal");
+  const modal = _cellKindOverlay(pfx)?.querySelector(".topology-llama-edit-modal");
   if (!modal) return;
   const slot = _commandCellSlot(pfx);
   const live = !!slot && ["running", "warming"].includes(String(slot.phase || ""));

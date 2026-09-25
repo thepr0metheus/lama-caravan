@@ -226,16 +226,11 @@ PINS = [
      'rc.findSlotEntry("h1", 22002) ?? null',
      'null',
      'negative: findSlotEntry: другой порт → undefined (null через ??)'),
-    ('fse_controller_matches_no_clientId',
-     'st.topology.server = { llamaServers: [{ port: 22002, tag: "local" }] };',
-     'rc.findSlotEntry(cst.CONTROLLER_HOST_ID, 22002) ?? null',
-     '{"port": 22002, "tag": "local"}',
-     'positive: findSlotEntry: hostId=controller ищет запись с пустым/отсутствующим clientId'),
-    ('fse_controller_skips_client_entry',
-     'st.topology.server = { llamaServers: [{ port: 22001, clientId: "h1" }] };',
-     'rc.findSlotEntry(cst.CONTROLLER_HOST_ID, 22001) ?? null',
-     'null',
-     'negative: findSlotEntry: controller не видит клиентскую запись того же порта'),
+    ('fse_controller_id_is_no_host',
+     'st.topology.server = { llamaServers: [{ port: 22002, tag: "local" }, { port: 22001, clientId: "h1" }] };',
+     '[rc.findSlotEntry("controller", 22002) ?? null, rc.findSlotEntry("controller", 22001) ?? null]',
+     '[null, null]',
+     'negative: findSlotEntry: id контроллера — не машина: запись без clientId (ячейка контроллера до шага 6.9) им больше не находится, и чужая запись того же порта — тоже'),
     ('fse_client_skips_controller_entry',
      'st.topology.server = { llamaServers: [{ port: 22001, clientId: "" }] };',
      'rc.findSlotEntry("h1", 22001) ?? null',
@@ -266,25 +261,27 @@ PINS = [
      'await (async () => { await rc.cellServiceAction("h1", 22001, "boot"); return ({ calls: calls(), toast: toastText(), pending: rc._pendingCellActions.get("h1:22001") ?? null, stopping: [...rc._stoppingCells] }); })()',
      '{"calls": [{"path": "/api/topology/server-cell/action", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001,\\"action\\":\\"boot\\"}"}], "toast": "", "pending": null, "stopping": []}',
      'positive: cellServiceAction: boot идёт по ветке start — pending снят сразу'),
-    ('csa_asks_where_when_a_library_holds_the_model',
-     'globalThis.__stubReturns["dialogs.appChoose"] = async (text, opts) => { globalThis.__asked = [text, opts.title, (opts.options || []).map((o) => [o.value, o.label])]; return "disk"; };',
-     r"""await (async () => { const btn = { dataset: { nodeCellLibrary: "NAS", nodeCellLibraryFiles: "model, mmproj" } };
-       const answer = await rc.askWhereFrom(btn); await rc.cellServiceAction("h1", 22001, "start", answer);
-       const none = await rc.askWhereFrom({ dataset: {} });
-       return ({ answer, none, asked: globalThis.__asked, body: calls()[0].body }); })()""",
-     json.dumps({"answer": "disk", "none": "",
-                 "asked": [en("startWhereText", name="NAS", files="model, mmproj"), EN["startWhereTitle"],
-                           [["disk", EN["startWhereDisk"]], ["library", en("startWhereLibrary", name="NAS")]]],
-                 "body": json.dumps({"hostId": "h1", "port": 22001, "action": "start", "modelFrom": "disk"},
-                                    separators=(",", ":"))}, ensure_ascii=False),
-     'модель в библиотеке — вопрос с её именем и обоими ответами, и выбранный уходит на провод полем modelFrom; '
-     'модели на диске (у кнопки нет библиотеки) вопроса не задают вовсе'),
-    ('csa_bringing_says_so',
-     'globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: true, bringing: { id: "mv-1" } };',
-     'await (async () => { await rc.cellServiceAction("h1", 22001, "start", "disk"); return toastText(); })()',
-     json.dumps(EN["startBringing"], ensure_ascii=False),
-     'ответ «везу модель» сказан вслух: карточка будет стоять «остановлена», пока перенос идёт, и молчание '
-     'читалось бы как старт, который ничего не сделал'),
+    ('csa_library_model_starts_like_any',
+     'globalThis.__asked = []; globalThis.__stubReturns["dialogs.appConfirm"] = async (text) => { globalThis.__asked.push(text); return true; };'
+     ' globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: true, bringing: { id: "mv-1" } };',
+     r'''await (async () => {
+       const handlers = [];
+       const btn = { dataset: { nodeCellLaunch: "h1", nodeCellPort: "22001", nodeCellRunner: "llama-server",
+                                nodeCellLibrary: "NAS", nodeCellLibraryFiles: "model, mmproj" },
+                     closest: () => null, addEventListener: (ev, fn) => handlers.push(fn) };
+       const root = { querySelectorAll: (sel) => (sel === "[data-node-cell-launch]" ? [btn] : []) };
+       // The vram hover binds once per page, on the body's dataset.
+       document.body ||= {}; document.body.dataset ||= { vramHoverBound: "1" };
+       rc.bindServerSlotControls(root);
+       await handlers[0]();
+       for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+       return ({ asked: globalThis.__asked, body: calls().map((c) => c.body), toast: toastText(), choose: typeof rc.askWhereFrom }); })()''',
+     json.dumps({"asked": [en("dlgStartPort", port="22001")],
+                 "body": [json.dumps({"hostId": "h1", "port": 22001, "action": "start"}, separators=(",", ":"))],
+                 "toast": "", "choose": "undefined"}, ensure_ascii=False),
+     'negative: ▶ у ячейки с моделью в библиотеке — обычное подтверждение старта, без вопроса «с диска или из '
+     'библиотеки» и без поля modelFrom на проводе: ответ читали только ячейки контроллера, скаут читает модель на '
+     'месте; и ответ сервера «везу модель» больше ничего не говорит'),
     ('csa_port_nan_body',
      '',
      'await (async () => { await rc.cellServiceAction("h1", "abc", "start"); return { calls: calls(), pending: rc._pendingCellActions.get("h1:abc") ?? null }; })()',

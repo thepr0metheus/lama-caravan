@@ -2,23 +2,20 @@
 """Snapshot of static/js/polling.js — polling for state and monitors.
 
 What's pinned by value. Formats (tok/s with thresholds, compact context
-tokens), the live-poll delay (5s while running, else 1.5s), the monitor
-interval (1..30s from the input/localStorage). refreshLiveState — ONLY the
-live fields are taken from /api/state (service, runtime, cpu/gpu, memory,
-diagnostics, logs, git, time), the form's config is left untouched; an
-"in-flight" guard; a failure shows a toast. saveConfig and action — what goes
-out on the wire and which toast appears. refreshMonitor — the URL by
+tokens), the live-poll delay (1.5 s), the monitor interval (1..30s from the
+input/localStorage). refreshLiveState — the git chip from its own small
+address (/api/project-git, never the whole /api/state), then the board; an
+"in-flight" guard; a failure shows a toast. refreshMonitor — the URL by
 nvidia-smi's source (a remote host through client-monitor), html or text
 with a timestamp, on failure the previous snapshot is kept with a mark.
 Merging a monitor series: a full response replaces it, a partial one
 (`partial`) appends and trims by the server's retention, incidents use their
-own, longer one; after the first response, polling continues with `?since=`;
-an "in-flight" guard and a request timeout (without it, one stuck request
-used to kill the cycle until the page reloaded). renderGpuUsers — proxy rows
-from correlated activity (active ones, else up to 8 recent), clients, slots,
-"by clients", recent ones, speed/context/timing/cache rows, the empty state.
-Retention — clamped to 60..3600 and a POST. A client's caption — input, POST,
-refresh.
+own, longer one, the scouts' rows merge by machine; after the first response,
+polling continues with `?since=`; an "in-flight" guard and a request timeout
+(without it, one stuck request used to kill the cycle until the page
+reloaded). Retention — clamped to 60..3600 and a POST. (saveConfig, action,
+renderGpuUsers and the client caption went with the controller's own cells
+in step 6.9.)
 
 The DOM is the `globalThis.__fields` dict; timers are recorders; stateful
 neighbors (`activeView`, `topologyPointerDrag`, `_nvidiaSmiSource`) go through
@@ -64,36 +61,36 @@ const reset = () => { st.setState({ config: { MODEL_FILE: "keep.gguf" }, runtime
   globalThis.__stubReturns = { "charts.formatEventTime": (v) => (v ? "T" + v : ""), "charts.renderLlamaClientsInnerHtml": () => "<i>clients</i>", "form.readConfigForm": () => ({ MODEL_FILE: "form.gguf", THREADS: "8" }),
     "dialogs.appPrompt": async () => null, "llama-edit.closeConfirmModal": rec("closeConfirmModal"), "topology-activity.proxyTelemetrySummary": () => "tps 12", "topology-activity.refreshTopologyActivityState": rec("refreshTopologyActivityState"),
     "topology-render.refreshTopology": async () => { globalThis.__calls.push(["refreshTopology", null]); }, "topology-render.renderAll": rec("renderAll"),
-    "system-panels.renderService": rec("renderService"), "system-panels.renderRuntime": rec("renderRuntime"), "system-panels.renderCpu": rec("renderCpu"), "system-panels.renderGpu": rec("renderGpu"), "system-panels.renderKnownProblems": rec("renderKnownProblems"), "system-panels.renderProjectGitBranch": rec("renderProjectGitBranch") }; };
+    "system-panels.renderProjectGitBranch": rec("renderProjectGitBranch") }; };
 reset();
 globalThis.document.querySelector = (sel) => (sel === ".topology-llama-clients-dynamic" ? (globalThis.__clientsDyn ||= mkEl()) : null);
 const named = () => globalThis.__calls.map((c) => c[0]);
-const MON = (over = {}) => ({ time: 1000, retentionSeconds: 600, incidentRetentionSeconds: 86400, newestSample: 1000, samples: [{ time: 990 }, { time: 1000 }], tokenGenSamples: [{ time: 1000 }], incidents: [{ time: 500 }, { time: 1640 }], latest: { llamaClients: { clients: [{ ip: "a" }, { ip: "b" }] } }, ...over });
+const MON = (over = {}) => ({ time: 1000, retentionSeconds: 600, incidentRetentionSeconds: 86400, newestSample: 1000, samples: [{ time: 990 }, { time: 1000 }], incidents: [{ time: 500 }, { time: 1640 }], latest: {}, ...over });
 const out = {};
 """
 
 PINS = [
     ("metric_number_and_tps", '', '[m.metricNumber("12.5"), m.metricNumber("x"), m.metricNumber(Infinity), m.formatTps(123.456), m.formatTps(12.345), m.formatTps(1.5), m.formatTps(2), m.formatTps("junk")]', '[12.5,0,0,"123.5","12.35","1.5","2","0"]',
      "число из метрики (мусор и бесконечность — 0); tok/s: ≥100 одна десятичная, ≥10 две, ниже — до трёх без хвостовых нулей"),
+    ("format_tps_boundaries", '', '[m.formatTps(100), m.formatTps(99.999), m.formatTps(99.99), m.formatTps(10), m.formatTps(9.9999), m.formatTps(9.999), m.formatTps(0.0001), m.formatTps("abc")]',
+     '["100.0","100.00","99.99","10.00","10","9.999","0","0"]',
+     "границы tok/s (переехали сюда из строки-сводки маршрута, где скорости больше нет): ровно 100 — одна десятичная; as-is: 99.999 округляется ЗА порог с двумя знаками; 10 — две; as-is: 9.9999 → «10» (хвост срезан); 9.999 — три; as-is: 0.0001 → «0»; мусор — «0», а не «-»"),
     ("format_ctx_tokens", '', '[m.formatCtxTokens(32768), m.formatCtxTokens(12000), m.formatCtxTokens(1500), m.formatCtxTokens(999), m.formatCtxTokens(150000), m.formatCtxTokens(-1), m.formatCtxTokens("x")]', '["32.8k","12k","1.5k","999","150k","—","—"]',
      "компактные токены: k с одной десятичной до 100k, целые от 100k, меньше тысячи — как есть; отрицательное и мусор — прочерк"),
-    ("live_refresh_delay", '', '(() => { const a = m.liveRefreshDelay(); st.state.runtime.status.phase = "running"; return [a, m.liveRefreshDelay()]; })()', '[1500,5000]', "задержка живого опроса: 1.5 с, при running — 5 с"),
+    ("live_refresh_beat", '', '(() => { st.state.runtime = { status: { phase: "running" } }; return [m.LIVE_REFRESH_MS, "liveRefreshDelay" in m]; })()', '[1500,false]', "живой опрос — ровно 1.5 с; negative: пятисекундного такта «одиночный сервер работает» больше нет — сервер ушёл с ячейками контроллера (шаг 6.9)"),
     ("monitor_interval_clamps", '', '(() => { const inp = F().monitorIntervalNvidia; inp.value = "0"; const a = m.monitorIntervalMs("nvidia-smi"); inp.value = "99"; const b = m.monitorIntervalMs("nvidia-smi"); inp.value = "7"; const c = m.monitorIntervalMs("nvidia-smi"); return [a, b, c, m.monitorIntervalMs("other"), m.monitorStorageKey("nvidia-smi")]; })()',
      '[1000,30000,7000,1000,"llamacpp-monitor-interval-nvidia-smi"]', "интервал монитора: 1..30 с в миллисекундах; без инпута — 1 с"),
     ("monitor_interval_save_and_restore", '', '(() => { const inp = F().monitorIntervalNvidia; inp.value = "45"; m.saveMonitorInterval("nvidia-smi"); const a = [inp.value, localStorage.getItem("llamacpp-monitor-interval-nvidia-smi")]; inp.value = "1"; m.restoreMonitorInterval("nvidia-smi"); const b = inp.value; localStorage.setItem("llamacpp-monitor-interval-nvidia-smi", "0"); m.restoreMonitorInterval("nvidia-smi"); return [...a, b, inp.value]; })()',
      '["30","30","30","1"]', "сохранение нормализует и пишет в localStorage; восстановление зажимает снизу единицей"),
-    ("refresh_live_state_merges_live_fields_only", 'globalThis.__fetchReply["/api/state"] = { config: { MODEL_FILE: "server.gguf" }, service: { MainPID: 7 }, runtime: { status: { phase: "running" } }, cpu: { ok: true }, gpu: { ok: true }, memory: { ok: true }, diagnostics: { checks: [] }, logs: "L", projectGit: { branch: "main" }, time: 42 };',
-     'await (async () => { await m.refreshLiveState(); return [st.state.config.MODEL_FILE, st.state.service.MainPID, st.state.runtime.status.phase, st.state.time, st.state.logs, named(), m.liveRefreshInflight]; })()',
-     '["keep.gguf",7,"running",42,"L",["renderProjectGitBranch","renderService","renderRuntime","renderCpu","renderGpu","renderKnownProblems","refreshTopology"],false]',
-     "живое обновление: конфиг формы НЕ затирается, живые поля обновлены, карточки перерисованы, на доске — refreshTopology; сторож снят"),
-    ("refresh_live_state_failure_toasts", 'globalThis.__fetchReply["/api/state"] = { __status: 500, error: "down" };', 'await (async () => { await m.refreshLiveState(); return [F().toast.textContent, m.liveRefreshInflight, named().length]; })()', '["down",false,0]', "negative: отказ — тост, сторож снят, ничего не перерисовано"),
-    ("schedule_live_refresh", '', '(() => { m.scheduleLiveRefresh(); m.scheduleLiveRefresh(250); return [...globalThis.__timers]; })()', '["timeout:1500","timeout:250"]', "планирование: задержка по фазе или заданная"),
+    ("refresh_live_state_git_chip_only", 'globalThis.__fetchReply["/api/project-git"] = { branch: "main", head: "abc1234", dirtyCount: 0, ok: true }; globalThis.__fetchReply["/api/state"] = { config: { MODEL_FILE: "server.gguf" }, projectGit: { branch: "old" }, time: 42 };',
+     'await (async () => { await m.refreshLiveState(); return [calls().map((c) => c.path), st.state.projectGit.branch, st.state.config.MODEL_FILE, st.state.time, named(), m.liveRefreshInflight]; })()',
+     '[["/api/project-git"],"main","keep.gguf",null,["renderProjectGitBranch","refreshTopology"],false]',
+     "живой такт: один запрос — /api/project-git, ветка обновлена, на доске — refreshTopology; сторож снят; negative: целого /api/state такт больше не просит (конфиг формы не тронут, state.time никто не пишет)"),
+    ("refresh_live_state_failure_toasts", 'globalThis.__fetchReply["/api/project-git"] = { __status: 500, error: "down" };', 'await (async () => { await m.refreshLiveState(); return [F().toast.textContent, m.liveRefreshInflight, named().length]; })()', '["down",false,0]', "negative: отказ — тост, сторож снят, ничего не перерисовано"),
+    ("schedule_live_refresh", '', '(() => { m.scheduleLiveRefresh(); m.scheduleLiveRefresh(250); return [...globalThis.__timers]; })()', '["timeout:1500","timeout:250"]', "планирование: такт 1.5 с или заданная задержка"),
     ("load_state", 'globalThis.__fetchReply["/api/state"] = { config: { X: "1" }, appVersion: "9" };', 'await (async () => { await m.loadState(); return [st.state.appVersion, named(), [...globalThis.__timers]]; })()', '["9",["renderAll"],["timeout:1500"]]', "первая загрузка: состояние целиком, полная перерисовка, опрос запланирован"),
-    ("save_config_posts_form", 'globalThis.__fetchReply["/api/config"] = { state: { config: { MODEL_FILE: "form.gguf" }, appVersion: "s" } };', 'await (async () => { await m.saveConfig(false); const a = [calls()[0].path, calls()[0].body, F().toast.textContent, st.state.appVersion]; await m.saveConfig(true); return [...a, calls()[1].body.restart, F().toast.textContent]; })()',
-     '["/api/config",{"config":{"MODEL_FILE":"form.gguf","THREADS":"8"},"restart":false},"Saved.","s",true,"Saved and restarted."]', "сохранение: конфиг из формы и флаг рестарта; тост по флагу; состояние из ответа"),
-    ("action_posts_and_schedules", 'globalThis.__fetchReply["/api/action"] = { state: { config: {}, appVersion: "a" } };', 'await (async () => { await m.action("restart"); return [calls()[0].body, st.state.appVersion, named(), F().toast.textContent, globalThis.__timers.filter((x) => x !== "timeout:3200")]; })()',
-     '[{"action":"restart"},"a",["closeConfirmModal","renderAll"],"restart sent.",["timeout:500"]]', "действие: POST имени, состояние из ответа, модал закрыт, полная перерисовка, тост, быстрый опрос через 0.5 с"),
-    ("action_failure", 'globalThis.__fetchReply["/api/action"] = { __status: 409, error: "busy" };', 'await (async () => { await m.action("stop"); return [F().toast.textContent, named().length]; })()', '["busy",0]', "negative: отказ действия — тост, без перерисовки"),
+    ("single_server_writes_gone", '', '["saveConfig", "action", "renderLiveCards", "tokenSpeedState"].filter((k) => k in m)', '[]',
+     "negative: ни сохранения формы одиночного сервера (/api/config с рестартом), ни его старт/стоп (/api/action), ни их карточек — ушли с ячейками контроллера (шаг 6.9)"),
     ("monitor_remote_source_url_and_html", 'globalThis.__fetchReply["/api/topology/client-monitor?hostId=box-a&kind=nvidia-smi"] = { time: 1700000000, source: "box-a", html: "<b>smi</b>" };',
      'await (async () => { await m.refreshMonitor("nvidia-smi"); const h = F().monitorNvidia.innerHTML; return [calls()[0].path, h.includes("monitor-stamp"), h.includes("] box-a</span>"), h.endsWith("<b>smi</b>"), m.monitorInflight["nvidia-smi"]]; })()',
      '["/api/topology/client-monitor?hostId=box-a&kind=nvidia-smi",true,true,true,false]', "nvidia-smi с удалённым источником идёт через client-monitor хоста; html-ответ с меткой времени и источником"),
@@ -106,9 +103,9 @@ PINS = [
     ("start_stop_monitor", '', '(() => { F().monitorIntervalNvidia.value = "3"; m.startMonitor("nvidia-smi"); const a = [...globalThis.__timers]; m.stopMonitor("nvidia-smi"); m.startMonitor(""); return [a, m.monitorState["nvidia-smi"], globalThis.__timers.length]; })()', '[["interval:3000"],null,1]', "старт монитора — интервал из настройки, стоп — обнуление; пустой вид — ничего"),
     ("start_monitor_system_routes_to_series", 'globalThis.__fetchReply["/api/system-monitor"] = MON();', 'await (async () => { m.startMonitor("system"); await new Promise((r) => setImmediate(r)); return [[...globalThis.__timers], calls()[0].path.startsWith("/api/system-monitor")]; })()', '[["interval:1000"],true]', "монитор «system» — это серия: опрос раз в секунду"),
     ("system_monitor_full_then_partial_merge", 'globalThis.__fetchReply["/api/system-monitor"] = MON();',
-     'await (async () => { await m.refreshSystemMonitor(); const a = [calls()[0].path.startsWith("/api/system-monitor"), st.ui.latestSystemMonitor.samples.length]; globalThis.__fetchReply["/api/system-monitor?since=1000"] = MON({ partial: true, time: 1650, newestSample: 1650, samples: [{ time: 1650 }], tokenGenSamples: [], incidents: [] }); await m.refreshSystemMonitor(); const s = st.ui.latestSystemMonitor; return [...a, calls()[1].path, s.samples.map((x) => x.time), s.tokenGenSamples.length, s.incidents.map((x) => x.time), s.partial]; })()',
-     '[true,2,"/api/system-monitor?since=1000",[1650],1,[500,1640],true]',
-     "серия: первый ответ целиком; дальше ?since=; частичный ответ дописывается и режется по retention (600 с от 1650 → 990 и 1000 выпали), инциденты — старый и свежий — остаются: их режут по СВОЕМУ retention (сутки), не по окну сэмплов"),
+     'await (async () => { await m.refreshSystemMonitor(); const a = [calls()[0].path.startsWith("/api/system-monitor"), st.ui.latestSystemMonitor.samples.length]; globalThis.__fetchReply["/api/system-monitor?since=1000"] = MON({ partial: true, time: 1650, newestSample: 1650, samples: [{ time: 1650 }], incidents: [] }); await m.refreshSystemMonitor(); const s = st.ui.latestSystemMonitor; return [...a, calls()[1].path, s.samples.map((x) => x.time), "tokenGenSamples" in s, s.incidents.map((x) => x.time), s.partial]; })()',
+     '[true,2,"/api/system-monitor?since=1000",[1650],false,[500,1640],true]',
+     "серия: первый ответ целиком; дальше ?since=; частичный ответ дописывается и режется по retention (600 с от 1650 → 990 и 1000 выпали), инциденты — старый и свежий — остаются: их режут по СВОЕМУ retention (сутки), не по окну сэмплов; negative: серии tokenGenSamples (скорости одиночного сервера контроллера) больше нет — склейка её не заводит"),
     ("host_rows_merge",
      '',
      '[m.mergeHostRows({ "box-a": [{ t: 1 }, { t: 2 }] }, { "box-a": [{ t: 2 }, { t: 3 }], "box-b": [{ t: 7 }] }), m.mergeHostRows({ "box-a": [{ t: 1 }, { t: 5 }] }, { "box-a": [{ t: 700 }] }, 600), m.mergeHostRows(null, null)]',
@@ -121,29 +118,18 @@ PINS = [
      "что у доски есть по каждой машине — последняя строка; пустая машина не называется: её пришлют целиком"),
     ("system_monitor_asks_hosts_since",
      'globalThis.__fetchReply["/api/system-monitor"] = MON({ hosts: { "box-a": [{ t: 5000 }] } });',
-     'await (async () => { await m.refreshSystemMonitor(); const url = "/api/system-monitor?since=1000&hostsSince=" + encodeURIComponent("box-a:5000"); globalThis.__fetchReply[url] = MON({ partial: true, time: 1001, newestSample: 1001, samples: [], tokenGenSamples: [], incidents: [], hosts: { "box-a": [{ t: 5001 }], "box-b": [{ t: 9 }] } }); await m.refreshSystemMonitor(); return [calls()[1].path, st.ui.latestSystemMonitor.hosts]; })()',
+     'await (async () => { await m.refreshSystemMonitor(); const url = "/api/system-monitor?since=1000&hostsSince=" + encodeURIComponent("box-a:5000"); globalThis.__fetchReply[url] = MON({ partial: true, time: 1001, newestSample: 1001, samples: [], incidents: [], hosts: { "box-a": [{ t: 5001 }], "box-b": [{ t: 9 }] } }); await m.refreshSystemMonitor(); return [calls()[1].path, st.ui.latestSystemMonitor.hosts]; })()',
      '["/api/system-monitor?since=1000&hostsSince=box-a%3A5000",{"box-a":[{"t":5000},{"t":5001}],"box-b":[{"t":9}]}]',
      "следующий опрос называет, что есть по машинам (hostsSince), и доливает ответ; negative: пока машин нет — адрес прежний (см. пины выше)"),
     ("system_monitor_full_replaces", 'globalThis.__fetchReply["/api/system-monitor"] = MON();', 'await (async () => { await m.refreshSystemMonitor(); globalThis.__fetchReply["/api/system-monitor?since=1000"] = MON({ newestSample: 2000, samples: [{ time: 2000 }] }); await m.refreshSystemMonitor(); return [st.ui.latestSystemMonitor.samples.map((x) => x.time), calls().length]; })()', '[[2000],2]', "ответ без partial заменяет серию целиком"),
-    ("system_monitor_render_side_effects", 'globalThis.__fetchReply["/api/system-monitor"] = MON();', 'await (async () => { await m.refreshSystemMonitor(); return [named(), globalThis.__clientsDyn?.innerHTML, F().topologyLlamaClientsCount.textContent]; })()', '[["refreshTopologyActivityState"],"<i>clients</i>",2]', "на доске после серии: активность пересчитана, блок клиентов и их счётчик перерисованы (число; настоящий DOM приведёт к строке)"),
+    ("system_monitor_render_side_effects", 'globalThis.__fetchReply["/api/system-monitor"] = MON();', 'await (async () => { await m.refreshSystemMonitor(); return [named(), globalThis.__clientsDyn?.innerHTML ?? null, F().topologyLlamaClientsCount.textContent]; })()', '[["refreshTopologyActivityState"],null,""]', "на доске после серии: активность пересчитана; negative: блок клиентов llama и их счётчик (одиночного сервера контроллера) не трогаются — их нет на странице с шага 6.9"),
     ("system_monitor_skips_while_form_open", 'globalThis.__fetchReply["/api/system-monitor"] = MON(); st.ui.topologyProxyFormOpen = true;', 'await (async () => { await m.refreshSystemMonitor(); return [named().length, st.ui.latestSystemMonitor.samples.length]; })()', '[0,2]', "открытая форма прокси: серия принята, но доска не трогается"),
     ("system_monitor_failure_status", 'globalThis.__fetchReply["/api/system-monitor"] = { __status: 504, error: "slow" };', 'await (async () => { await m.refreshSystemMonitor(); return [F().systemMonitor.status.textContent, m.systemMonitorInflight]; })()', '["refresh failed: slow",false]', "negative: отказ серии — статус в панели, сторож снят"),
     ("topology_monitor_guards", 'globalThis.__fetchReply["/api/system-monitor"] = MON();', 'await (async () => { await m.refreshTopologyMonitor(); const a = calls().length; m.startTopologyMonitor(); await new Promise((r) => setImmediate(r)); const b = calls().length; m.startSystemMonitor(); await new Promise((r) => setImmediate(r)); const c = calls().length; await m.refreshTopologyMonitor(); return [a, b, c, calls().length, [...globalThis.__timers], named().length]; })()', '[1,2,3,3,["interval:1000","interval:1000"],3]',
      "опрос доски: идёт, пока нет монитора системы; старт — раз в секунду; при запущенном мониторе системы опрос доски молчит (иначе два цикла тянули бы серию наперегонки)"),
     ("save_retention_clamps_and_posts", 'globalThis.__fetchReply["/api/system-monitor/settings"] = { monitor: MON({ samples: [] }) };', 'await (async () => { const inp = F().systemMonitorRetention; inp.value = "5"; await m.saveSystemMonitorRetention(); const a = [inp.value, calls()[0].body]; inp.value = "9999"; await m.saveSystemMonitorRetention(); return [...a, inp.value, calls()[1].body.retentionSeconds, st.ui.latestSystemMonitor.samples.length]; })()',
      '["60",{"retentionSeconds":60},"3600",3600,0]', "retention серии: зажим 60..3600, POST, монитор из ответа применён"),
-    ("edit_client_label", 'st.ui.latestSystemMonitor = { clientLabels: { "10.0.0.7": "old" } }; globalThis.__fetchReply["/api/system-monitor"] = MON();', 'await (async () => { let opts = null; globalThis.__stubReturns["dialogs.appPrompt"] = async (_m, o) => { opts = o; return "hermes-box"; }; await m.editClientLabel("10.0.0.7"); return [opts.value, calls()[0].path, calls()[0].body, calls()[1].path.startsWith("/api/system-monitor"), F().toast.textContent]; })()',
-     '["old","/api/system-monitor/client-label",{"ip":"10.0.0.7","label":"hermes-box"},true,"Saved."]', "подпись клиента: ввод с прежним значением, POST, перечитывание серии, тост"),
-    ("edit_client_label_cancel", '', 'await (async () => { await m.editClientLabel("10.0.0.7"); return calls().length; })()', '0', "negative: отмена ввода — ни запроса"),
-    ("gpu_users_proxy_rows_from_correlated", 'st.ui.latestSystemMonitor = { latest: { correlatedActivity: { activeRequests: [{ state: "active", label: "hermes", port: 23001, upstreamPort: 22001, path: "/v1/chat", client: "10.0.0.7", startedAt: 5, phase: "running", bytes: 10, correlation: "gpu" }], recentRequests: [{ label: "old" }] } } };',
-     '(h => [h.includes("system-user-row active detailed proxy"), h.includes("<strong>hermes</strong>"), h.includes(":23001 -&gt; :22001"), h.includes("phase running · bytes 10 · tps 12 · via gpu"), h.includes("<strong>old</strong>"), h.includes("system-activity-title")])(m.renderGpuUsers({ clients: [], activeSlots: [], recentRequests: [], gpuUtil: 0, promptTps: 0, predictTps: 0, activity: {} }))',
-     '[true,true,true,true,false,true]', "строки прокси: активные из коррелированной активности с телеметрией и корреляцией; недавние не показываются, пока есть активные"),
-    ("gpu_users_recent_capped_at_8", 'st.ui.latestSystemMonitor = { latest: { correlatedActivity: { activeRequests: [], recentRequests: Array.from({ length: 12 }, (_, i) => ({ label: "r" + i, status: 200, durationMs: 5, finishedAt: 9 })) } } };',
-     '(h => [(h.match(/system-user-row recent detailed proxy/g) || []).length, h.includes("<strong>r7</strong>"), h.includes("<strong>r8</strong>")])(m.renderGpuUsers({ clients: [], activeSlots: [], recentRequests: [], gpuUtil: 0, promptTps: 0, predictTps: 0, activity: {} }))',
-     '[8,true,false]', "без активных — недавние, не больше восьми"),
-    ("gpu_users_clients_slots_recent_byclient", '', '(h => [h.includes("<strong>box</strong>"), h.includes("10.0.0.7:5000"), h.includes("(port n/a)"), h.includes("<strong>slot 1</strong>"), h.includes("system-user-row active\\">\\n      <strong>slot 1"), h.includes("<strong>10.0.0.9</strong>"), h.includes("<strong>cli</strong>"), h.includes("2 req, last 200"), h.includes("GPU 50% · prompt 10.00 t/s · predict 20.00 t/s")])(m.renderGpuUsers({ clients: [{ clientName: "box", clientIp: "10.0.0.7", clientPort: 5000, localIp: "10.0.0.1", localPort: 22001 }, { clientIp: "10.0.0.8" }], activeSlots: [{ id: 1, isProcessing: true, taskId: 3 }], recentRequests: [{ clientIp: "10.0.0.9", path: "/v1/x", status: 200 }], gpuUtil: 50, promptTps: 10, predictTps: 20, activity: { recentByClient: [{ clientName: "cli", count: 2, lastStatus: 200 }] } }))',
-     '[true,true,true,true,true,true,true,true,true]', "клиенты с адресом и без порта, слоты с обработкой, недавние, «по клиентам» без тайминга, строка скорости"),
-    ("gpu_users_empty", '', 'm.renderGpuUsers({ clients: [], activeSlots: [], recentRequests: [], gpuUtil: 0, promptTps: 0, predictTps: 0, activity: {} }).includes("system-process-empty")', 'true', "negative: ничего — пустое состояние"),
+    ("controller_monitor_widgets_gone", '', '["renderGpuUsers", "editClientLabel"].filter((k) => k in m)', '[]', "negative: панели «кто на GPU» и подписи клиентов одиночного сервера контроллера больше нет — ни целей на странице, ни вызовов (шаг 6.9)"),
 ]
 
 

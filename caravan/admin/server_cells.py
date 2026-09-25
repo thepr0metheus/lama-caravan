@@ -3,10 +3,8 @@ artifacts. Pure data layer — the start/stop actions live in cell_ops.py."""
 import time
 
 from caravan.admin.config_builder import is_command_cell
-from caravan.admin.launch import write_server_cell_artifacts
 from caravan.admin.paths import PORT, SERVER_CELL_BASE_PORT, is_controller_host, canonical_host_id
 from caravan.admin.state import save_admin_state, topology_store
-from caravan.domain.host import host_for
 from caravan.admin.state import topology as topo
 from caravan.common.errors import AppError
 
@@ -55,28 +53,6 @@ def used_server_cell_ports(exclude_key=None):
                     pass
     except Exception:
         pass
-    # Live lama-cell@ units count as taken even when the registry lost them
-    # (an orphan holds its port as firmly as a registered cell does). Safe to
-    # consult now that orphans are VISIBLE on the board with a stop button —
-    # before that, this check would have blocked a port nobody could free.
-    #
-    # exclude_key has to reach this set too. It did not, and the result was that
-    # a RUNNING cell could never have its config saved: the caller excluded the
-    # cell's registry entry, then its own live unit put the port straight back,
-    # and the save failed with "port is already reserved" — naming the cell as
-    # the squatter on its own port. Editing a stopped cell worked, which is why
-    # it read as intermittent.
-    try:
-        from caravan.admin.systemd_ctl import active_cell_unit_ports
-        live = active_cell_unit_ports()
-        if exclude_key:
-            try:
-                live.discard(int(str(exclude_key).rsplit(":", 1)[-1]))
-            except (TypeError, ValueError):
-                pass
-        used |= live
-    except Exception:
-        pass
     return {p for p in used if p > 0}
 
 def next_server_cell_port():
@@ -93,8 +69,22 @@ def assert_server_cell_port_available(port, exclude_key=None):
     if port in used_server_cell_ports(exclude_key=exclude_key):
         raise AppError(f"server cell port {port} is already reserved", 409)
 
+#: Since step 6.8 the controller runs no cell itself: its machine's cells run
+#: through that machine's scout, on that machine's node.
+CONTROLLER_RUNS_NO_CELLS = ("the controller runs no cells — its machine's cells run through its scout, "
+                            "on that machine's node")
+
+
+def refuse_controller_host(host_id):
+    """Refuse a cell of the controller's own host id, saying why — not a
+    slot nobody would ever start, nor a refusal about something else."""
+    if is_controller_host(host_id):
+        raise AppError(CONTROLLER_RUNS_NO_CELLS, 400)
+
+
 def upsert_server_slot(host_id, port, config=None, model=None, label=None):
     """Record/refresh a persistent server slot for host:port."""
+    refuse_controller_host(host_id)
     store = topology_store()
     key = server_slot_key(host_id, port)
     slot = store["serverSlots"].get(key) or {"createdAt": int(time.time())}
@@ -132,7 +122,6 @@ def upsert_server_slot(host_id, port, config=None, model=None, label=None):
                                 "ts": int(time.time())})
                 slot["commandHistory"] = hist[:10]
         slot["config"] = {k: v for k, v in config.items() if v is not None}
-        host_for(host_id).refresh_launch_files(slot, port, config)
     store["serverSlots"][key] = slot
     save_admin_state()
     return slot
@@ -140,7 +129,7 @@ def upsert_server_slot(host_id, port, config=None, model=None, label=None):
 def reassign_server_slot_port(body):
     """Move a STOPPED cell slot to another FREE port (the fleet-wide pool:
     cells on every host + agent/bridge proxy ports). The slot record, its
-    saved config PORT, controller start.sh artifacts and every router
+    saved config PORT and every router
     reference to srv:<old> (graph cables, rules, embeddings/audio outputs)
     all follow — the cell keeps its wiring on the new number."""
     host_id = str(body.get("hostId") or "").strip()
@@ -156,18 +145,8 @@ def reassign_server_slot_port(body):
     if not slot:
         raise AppError(f"no server slot {old_key}", 404)
     assert_server_cell_port_available(new_port, exclude_key=old_key)
-    # The UI only offers reassign on stopped cells; this is the backend belt —
-    # a running unit owns its old port (controller check only; a client cell's
-    # runtime lives on the scout and the board state already gates the button).
-    if is_controller_host(host_id):
-        try:
-            from caravan.admin.systemd_ctl import cell_service_status
-            if (cell_service_status(old_port) or {}).get("ActiveState") == "active":
-                raise AppError("stop the cell first — it is running", 409)
-        except AppError:
-            raise
-        except Exception:
-            pass
+    # The UI only offers reassign on stopped cells: a cell's runtime lives on
+    # its scout, and the board state gates the button.
     new_key = server_slot_key(host_id, new_port)
     del store["serverSlots"][old_key]
     slot["id"] = new_key
@@ -176,7 +155,6 @@ def reassign_server_slot_port(body):
     cfg = slot.get("config")
     if isinstance(cfg, dict) and cfg:
         cfg["PORT"] = str(new_port)
-        host_for(host_id).refresh_launch_files(slot, new_port, cfg)
     store["serverSlots"][new_key] = slot
     save_admin_state()
     # Cables follow the cell: srv:<old> → srv:<new> across every router.
@@ -188,26 +166,11 @@ def reassign_server_slot_port(body):
     return {"ok": True, "key": new_key, "port": new_port}
 
 
-def _assert_cell_stopped(host_id, port):
-    """Belt for the controller: a running unit owns its port. Client cells run
-    on the scout — the board state gates the UI there, same as reassign."""
-    if not is_controller_host(host_id):
-        return
-    try:
-        from caravan.admin.systemd_ctl import cell_service_status
-        if (cell_service_status(port) or {}).get("ActiveState") == "active":
-            raise AppError(f"stop cell :{port} first — it is running", 409)
-    except AppError:
-        raise
-    except Exception:
-        pass
-
-
 def swap_server_slot_ports(body):
     """Swap the ports of two STOPPED cells (fleet-wide, any hosts). Both slot
-    records, their config PORT, controller start.sh artifacts and every router
-    reference (srv:<a> ↔ srv:<b>) trade places — each cell's cables follow it.
-    Neither may be running."""
+    records, their config PORT and every router reference (srv:<a> ↔ srv:<b>)
+    trade places — each cell's cables follow it. The board offers it on stopped
+    cells only."""
     host_a = str(body.get("hostId") or "").strip()
     port_a = int(body.get("port") or 0)
     port_b = int(body.get("targetPort") or 0)
@@ -226,8 +189,6 @@ def swap_server_slot_ports(body):
     if not slot_b:
         raise AppError(f"port :{port_b} is not a cell — only two cells can swap", 400)
     host_b = str(slot_b.get("hostId") or key_b.rsplit(":", 1)[0])
-    _assert_cell_stopped(host_a, port_a)
-    _assert_cell_stopped(host_b, port_b)
 
     def _move(slot, host_id, new_port):
         slot["id"] = server_slot_key(host_id, new_port)
@@ -236,7 +197,6 @@ def swap_server_slot_ports(body):
         cfg = slot.get("config")
         if isinstance(cfg, dict) and cfg:
             cfg["PORT"] = str(new_port)
-            host_for(host_id).refresh_launch_files(slot, new_port, cfg)
         return slot
 
     # Detach both, then reattach on the swapped ports (avoids a key collision
@@ -312,7 +272,7 @@ def move_host_cells(body):
 
     Ports are global, so routes and kanban edges (srv:<port>) are untouched;
     each cell keeps its config, model, label, note and command history. The
-    controller's own cells never move (they are not a scout's). Refused when
+    controller runs no cell of its own to move. Refused when
     the new machine already holds one of those ports; a scout's cell cannot
     run under a name no scout reports, so nothing here can be running.
     """
@@ -322,8 +282,8 @@ def move_host_cells(body):
         raise AppError("both machines are required: from and to", 400)
     if src == dst:
         raise AppError("from and to are the same machine", 400)
-    if is_controller_host(src) or is_controller_host(dst):
-        raise AppError("the controller's own cells stay with the controller", 400)
+    refuse_controller_host(src)
+    refuse_controller_host(dst)
     store = topology_store()
     slots = store["serverSlots"]
     moving = sorted((slot for slot in slots.values() if slot.get("hostId") == src),

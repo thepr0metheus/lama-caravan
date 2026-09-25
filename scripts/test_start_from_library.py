@@ -23,12 +23,10 @@ What is pinned, each claim together with its opposite:
   sits under the mount point is the local disk, so the file test alone would
   report the model missing and send its reader looking for a deleted file.
 * A local start is unchanged, flag for flag.
-* The choice: "disk" brings the model home and the cell starts when it is here
-  (the promise rides in the move's manifest, so it survives a closed tab and a
-  restarted controller); "library" starts now and reads it there; nobody to ask
-  — a schedule, a restart after a crash — means home if there is room and read
-  where it lies if there is not. The space arithmetic is the planner's alone:
-  its "no-room" refusal IS the fallback.
+* The move home before a schedule's window: home if there is room, read where
+  it lies if there is not. The space arithmetic is the planner's alone: its
+  "no-room" refusal IS the fallback. (The controller's own cells once asked
+  "disk or library" at start; they are its machine's scout's since step 6.8.)
 * The schedule brings a model home before its window opens, once per window,
   and does NOT start the cell then: the window has not come.
 * A client cell is told where this controller reads each of its files — on
@@ -317,72 +315,37 @@ def section_vllm_folder():
 
 
 def section_every_start():
-    print("скрипт пишется заново на каждом старте:")
+    print("старт ячейки скаута с моделью в библиотеке:")
     from caravan.admin import cell_ops
 
-    wrote, slot = [], {"config": dict(CFG), "artifact": {"startScript": "/old/start.sh"}}
-    saved = {k: getattr(cell_ops, k) for k in
-             ("is_controller_host", "for_config", "cell_service_status", "listening_pid",
-              "cell_service_action", "state", "save_admin_state", "uses_command_path",
-              "write_server_cell_artifacts", "current_locations", "topo", "client_llama_start")}
+    slot = {"config": dict(CFG), "model": CFG["MODEL_FILE"]}
+    saved = {k: getattr(cell_ops, k) for k in ("topo", "client_llama_start")}
 
     class Topo:
         def slot(self, host, port):
             return slot
 
-        def put_slot(self, host, port, value):
-            slot.update(value)
-
-    cell_ops.is_controller_host = lambda host: True
-    cell_ops.for_config = lambda cfg: type("R", (), {"vram_reservation": lambda self, cfg, gpus: None})()
-    cell_ops.cell_service_status = lambda port: {"ActiveState": "inactive"}
-    cell_ops.listening_pid = lambda port: (0, "")
-    cell_ops.cell_service_action = lambda port, action: {"ok": True}
     cell_ops.client_llama_start = lambda payload: {"ok": True, "sent": payload}
-    cell_ops.state = lambda: {}
-    cell_ops.save_admin_state = lambda: None
-    cell_ops.uses_command_path = lambda cfg: False
-    waits = []
-    snapshot = here("q/Qwen/Q8/q.gguf")
-    cell_ops.current_locations = lambda wait=False: (waits.append(wait), snapshot)[1]
-    cell_ops.write_server_cell_artifacts = (
-        lambda host, port, cfg, locations=None: wrote.append(locations) or {"startScript": "/new/start.sh"})
     cell_ops.topo = Topo()
     client = []
     try:
-        cell_ops.server_cell_action({"hostId": "controller", "port": 22001, "action": "start"})
-        cell_ops.server_cell_action({"hostId": "controller", "port": 22001, "action": "restart"})
-        # A client cell downloads its model FROM THIS CONTROLLER, and the
-        # controller serves what is on its own disk.
-        cell_ops.is_controller_host = lambda host: False
-        slot["model"] = CFG["MODEL_FILE"]
-        cell_ops.current_locations = lambda wait=False: here()
         client.append(refused(lambda: cell_ops.server_cell_action(
             {"hostId": "forge", "port": 22021, "action": "start"})))
-        cell_ops.current_locations = lambda wait=False: here("q/Qwen/Q8/q.gguf")
         client.append(cell_ops.server_cell_action({"hostId": "forge", "port": 22021, "action": "start"}).get("ok"))
     finally:
         for k, v in saved.items():
             setattr(cell_ops, k, v)
     check(client[0] is None,
-          f"defect-history: клиентская ячейка с моделью в библиотеке больше не отказана — скаут прочтёт её на "
-          f"месте, если у него та же библиотека по тому же пути, а если нет — сам назовёт её (got {client[0]})")
-    check(client[1] is True,
-          f"negative: модель на диске контроллера — клиентская ячейка стартует как раньше (got {client[1]})")
-    check(wrote == [snapshot, snapshot],
-          f"каждый старт и перезапуск пишет start.sh заново, даже когда он уже есть: между двумя стартами "
-          f"модель могла переехать, а старый скрипт всё ещё показывает на этот диск (got {len(wrote)} раз(а))")
-    check(waits == [True, True],
-          f"и снимок берётся СВЕЖИЙ: старт — единственное место, которому можно подождать NAS, "
-          f"иначе ячейка поедет по памяти пятнадцатисекундной давности (got {waits})")
+          f"defect-history: ячейка скаута с моделью в библиотеке не отказана — скаут прочтёт её на месте, если у "
+          f"него та же библиотека по тому же пути, а если нет — сам назовёт её (got {client[0]})")
+    check(client[1] is True, f"старт уходит скауту машины (got {client[1]})")
 
 
 def section_choice():
-    print("откуда запускать — решение:")
+    print("модель домой перед окном расписания — решение:")
     from caravan.admin import cell_ops
 
     calls = []
-    saved = {k: getattr(cell_ops, k) for k in ("model_paths",)}
 
     class Runner:
         def start(self, paths, target, source_id=None, then=None):
@@ -396,42 +359,25 @@ def section_choice():
     keep_runner = sm.runner
     sm.runner = lambda: Runner()
     try:
-        home = cell_ops.bring_home("controller", 22001, dict(CFG), "", here("q/Qwen/Q8/q.gguf"))
+        home = cell_ops.bring_home(dict(CFG), here("q/Qwen/Q8/q.gguf"))
         check(home is None and calls == [],
-              f"модель на этом диске — решать нечего, ячейка стартует сразу (got {home}, {calls})")
-        cell_ops.bring_home("controller", 22001, dict(CFG), "library", here())
-        check(calls == [], "«запустить из библиотеки» — ни одного переноса: читаем там, где лежит")
-        job = cell_ops.bring_home("controller", 22001, dict(CFG), "disk", here())
-        check(job == {"id": "mv-1"} and len(calls) == 1
-              and calls[0] == {"paths": ["q/Qwen/Q8/q.gguf"], "to": "local", "from": "lib-a",
-                               "then": {"start": {"hostId": "controller", "port": 22001}}},
-              f"«вернуть и запустить» — перенос из библиотеки на этот диск, и задание НЕСЁТ обещание "
-              f"запустить ячейку, когда файл приедет (got {calls})")
-        calls.clear()
-        auto = cell_ops.bring_home("controller", 22001, dict(CFG), "", here())
-        check(auto == {"id": "mv-1"} and calls[0]["then"],
-              "никого не спросить (расписание, перезапуск после сбоя) — модель едет домой, раз место есть")
-        calls.clear()
-        nofetch = cell_ops.bring_home("controller", 22001, dict(CFG), "", here(), then_start=False)
-        check(nofetch == {"id": "mv-1"} and calls[0]["then"] == {},
-              f"предзагрузка перед окном расписания — тот же перенос, но БЕЗ обещания запустить: "
-              f"окно ещё не наступило (got {calls[0]['then']})")
+              f"модель на этом диске — везти нечего (got {home}, {calls})")
+        job = cell_ops.bring_home(dict(CFG), here())
+        check(job == {"id": "mv-1"} and calls == [{"paths": ["q/Qwen/Q8/q.gguf"], "to": "local", "from": "lib-a",
+                                                    "then": {}}],
+              f"модель в библиотеке — перенос на этот диск, и БЕЗ обещания запустить: окно ещё не наступило "
+              f"(got {calls})")
         calls.clear()
         tight = {**CFG, "MODEL_FILE": "q/no-room.gguf"}
         lib = {**LIB, "files": [{"path": "q/no-room.gguf", "size": 8}]}
         from caravan.admin.model_locator import Locations
         nowhere = Locations([lib], exists=lambda p: False)
-        fell = refused(lambda: cell_ops.bring_home("controller", 22001, tight, "", nowhere))
-        check(fell is None,
-              "места на диске нет, а спросить некого — читаем из библиотеки: арифметика места живёт "
-              "в планировщике, второй копии её здесь нет")
-        hand = refused(lambda: cell_ops.bring_home("controller", 22001, tight, "disk", nowhere))
-        check(hand == "no-room",
-              f"negative: но если «вернуть» попросили руками — отказ с причиной, а не тихая подмена решения (got {hand})")
+        fell = refused(lambda: cell_ops.bring_home(tight, nowhere))
+        check(fell is None and len(calls) == 1,
+              "места на диске нет — ячейка прочтёт модель из библиотеки: арифметика места живёт в "
+              "планировщике, второй копии её здесь нет")
     finally:
         sm.runner = keep_runner
-        for k, v in saved.items():
-            setattr(cell_ops, k, v)
 
 
 def section_prefetch():
@@ -460,7 +406,7 @@ def section_prefetch():
     keep_bring, keep_where = ops.bring_home, None
     import caravan.admin.model_locator as locator
     keep_where = locator.current_locations
-    ops.bring_home = lambda h, p, c, choice, where, then_start=True: asked.append((p, choice, then_start)) or {"id": "mv-2"}
+    ops.bring_home = lambda c, where: asked.append((c.get("MODEL_FILE"), where is not None)) or {"id": "mv-2"}
     locator.current_locations = lambda wait=False: here()
     try:
         slot = {"hostId": "controller", "port": 22001, "config": dict(CFG)}
@@ -468,8 +414,8 @@ def section_prefetch():
         # предзагрузки, и сторож «раз на окно» скрыл бы отсутствие проверки.
         check(cs.prefetch_tick(slot, sched, at(1, "12:00")) is False and asked == [],
               f"negative: за десять часов до окна — рано: место занято зря, и модель успела бы устареть (got {asked})")
-        check(cs.prefetch_tick(slot, sched, at(1, "21:45")) is True and asked == [(22001, "", False)],
-              f"за 15 минут до окна модель едет домой, и ячейка при этом НЕ запускается (got {asked})")
+        check(cs.prefetch_tick(slot, sched, at(1, "21:45")) is True and asked == [(CFG["MODEL_FILE"], True)],
+              f"за 15 минут до окна модель ячейки едет домой по свежему снимку мест (got {asked})")
         check(cs.prefetch_tick(slot, sched, at(1, "21:46")) is False and len(asked) == 1,
               f"negative: следующий тик через минуту второй раз тот же перенос не заводит (got {len(asked)})")
     finally:

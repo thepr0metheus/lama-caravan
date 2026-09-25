@@ -272,11 +272,27 @@ def test_unreadable_card_says_why():
     # answer: the board draws nodes, and "no GPU" lives there (found by a
     # live check — the first version only put the field on server_obj, and
     # nothing changed on the board).
-    import inspect
+    # Since step 6.9 the controller has no node of its own: its machine is the
+    # host node of its scout, and a scout does not say why a card is missing.
     import caravan.admin.topology as topo
-    src = inspect.getsource(topo.topology_nodes) if hasattr(topo, "topology_nodes") else inspect.getsource(topo)
-    check('"gpuError": server_obj.get("gpuError")' in src,
-          "узел контроллера несёт gpuError дальше, к карточке")
+    from caravan.admin.controller_machine import ControllerMachine
+    keep = {k: getattr(topo, k) for k in ("topo", "_record_cpu_history", "_record_gpu_history",
+                                          "_record_tps_history", "ControllerMachine")}
+    try:
+        topo.topo = type("Topo", (), {"power_schedules": staticmethod(lambda: {})})()
+        topo._record_cpu_history = topo._record_gpu_history = topo._record_tps_history = lambda *a, **kw: []
+        topo.ControllerMachine = lambda: ControllerMachine("own-box")
+        nodes = {n["id"]: n for n in topo.topology_nodes(
+            {}, {"gpuError": "NVIDIA driver/library version mismatch"},
+            [{"id": "own", "hostname": "own-box", "state": "online", "gpus": []},
+             {"id": "far", "hostname": "far-box", "state": "online", "gpus": []}])}
+    finally:
+        for k, v in keep.items():
+            setattr(topo, k, v)
+    check(nodes["own"]["gpuError"] == "NVIDIA driver/library version mismatch",
+          "узел машины контроллера несёт gpuError дальше, к карточке: причину читает сам контроллер на своей машине")
+    check(nodes["far"]["gpuError"] == "",
+          "negative: у чужой машины причины контроллер не знает — пусто, а не его причина")
 
 
 

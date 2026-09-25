@@ -6,8 +6,6 @@ import {
   defaultOnOptionalToggles,
   dirtyOptionalToggles,
   fieldChoices,
-  gemma4DefaultMmproj,
-  gemma4DraftModel,
   modelFields,
   numericFields,
   optionalToggleFields,
@@ -22,7 +20,7 @@ import {
 } from "./favorites.js";
 import { bindCommandLocator, renderConfigSearch } from "./config-locator.js";
 import { fieldHelp, labelWithTip, t } from "./i18n.js";
-import { _commandCellSlot, gpuComputeCap, renderBackups, renderCommandCellPreview, runnerRegistry } from "./llama-edit.js";
+import { _commandCellSlot, gpuComputeCap, renderCommandCellPreview, runnerRegistry } from "./llama-edit.js";
 import {
   applyComputeTarget,
   computeIsCpu,
@@ -43,10 +41,8 @@ import {
 } from "./memory.js";
 import { JOB_LABELS, JOB_MARKS, jobsForArtifact } from "./model-jobs.js";
 import { _modelBenchKey, fetchPickerBenchBatch, serverBenchCache } from "./model-meta.js";
-import { saveConfig } from "./polling.js";
-import { _trCachedModels, _trClientCpu } from "./remote-cells.js";
+import { _trCachedModels, _trClientCpu, formOnControllerMachine } from "./remote-cells.js";
 import { state, topology } from "./state.js";
-import { renderRuntime } from "./system-panels.js";
 import { $, api, escapeHtml, formatBool, formatCtxTokens, inferSpecType, toast } from "./utils.js";
 
 export function syncToggleLabel(input) {
@@ -238,15 +234,6 @@ export function openClawQwenTemplatePath() {
 export function openClawQwenTemplateExists() {
   const wanted = openClawQwenTemplatePath();
   return (state.chatTemplates || []).some((row) => row.path === wanted);
-}
-
-export function isGemma4ModelPath(path) {
-  return /gemma-4/i.test(String(path || ""));
-}
-
-export function selectedGemma4Mmproj() {
-  const { selected } = selectedModelRows();
-  return selected?.suggestedMmproj || gemma4DefaultMmproj;
 }
 
 export function badge(text, kind) {
@@ -646,9 +633,10 @@ export function renderModelSelects(pfx = "") {
       libraryOnly: !!row.libraryOnly,
       store: row.store || null,
     }));
-  // Safetensors artifacts (vLLM launches them). Controller forms only: client
-  // hosts don't have the controller's models tree and the scout syncs gguf only.
-  if (pfx !== "tr-") {
+  // Safetensors artifacts (vLLM launches them). Only where the target reads the
+  // controller's models tree (formOnControllerMachine): other scout machines
+  // don't have it, and their scout syncs gguf only.
+  if (formOnControllerMachine(pfx)) {
     (state.artifacts || []).forEach((row) => modelItems.push({
       value: row.path,
       sizeGb: row.sizeGb,
@@ -1150,46 +1138,16 @@ export function renderField(field, pfx = "") {
     : labelWithTip(field);
 
   if (field === "PORT") {
+    // A plain input: the cell's port is picked on the board (the RESERVED
+    // step's port picker), not here. (The classic single-server form had a
+    // chip dropdown; it went with the controller's own cells in step 6.9.)
     const currentPort = String(state.config.PORT || "8080");
-    if (!pfx) {
-      // Main config form: full port picker with chips
-      const portOptions = Array.from({ length: 10 }, (_, i) => 8080 + i);
-      const chipsHtml = portOptions.map((p) =>
-        `<button class="port-chip${String(p) === currentPort ? " active" : ""}" type="button" data-port="${p}">${p}</button>`
-      ).join("");
-      div.innerHTML = `
-        ${labelRow}
-        <div class="port-combo">
-          <input id="${fid}" name="${field}" type="number" min="1024" max="65535"
-            value="${escapeHtml(currentPort)}" autocomplete="off">
-          <button class="port-dropdown-btn" type="button" tabindex="-1" aria-haspopup="true" title="${escapeHtml(t("pickPort"))}">▾</button>
-          <div class="port-dropdown" hidden>${chipsHtml}</div>
-        </div>
-        <p>${escapeHtml(help)}</p>
-      `;
-      const input = div.querySelector("input");
-      const dropdown = div.querySelector(".port-dropdown");
-      const toggleBtn = div.querySelector(".port-dropdown-btn");
-      const chips = div.querySelectorAll(".port-chip");
-      toggleBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        dropdown.hidden = !dropdown.hidden;
-      });
-      chips.forEach((chip) => chip.addEventListener("click", () => {
-        input.value = chip.dataset.port;
-        dropdown.hidden = true;
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      }));
-      input.addEventListener("input", () => syncPortChipsEl(chips, input.value));
-    } else {
-      // Topology modal forms (te-, tr-): plain readonly input, no dropdown
-      div.innerHTML = `
-        ${labelRow}
-        <input id="${fid}" name="${field}" type="number" min="1024" max="65535"
-          value="${escapeHtml(currentPort)}" autocomplete="off">
-        <p>${escapeHtml(help)}</p>
-      `;
-    }
+    div.innerHTML = `
+      ${labelRow}
+      <input id="${fid}" name="${field}" type="number" min="1024" max="65535"
+        value="${escapeHtml(currentPort)}" autocomplete="off">
+      <p>${escapeHtml(help)}</p>
+    `;
     return div;
   }
 
@@ -1288,20 +1246,6 @@ export function renderField(field, pfx = "") {
   }
   attachFavStar(div, field, pfx);
   return div;
-}
-
-export function maybeAutofillChatTemplate() {
-  const selected = modelsByPath().get($("MODEL_FILE").value);
-  const current = $("CHAT_TEMPLATE_FILE").value.trim();
-  if (!selected || !isQwenModelPath(selected.path) || current || !openClawQwenTemplateExists()) return;
-  $("CHAT_TEMPLATE_FILE").value = openClawQwenTemplatePath();
-  toast(t("templateAutoFilled"));
-}
-
-export function maybeAutofillModelHelpers() {
-  maybeAutofillModelHelpersPfx("", { aliasFollow: true });
-  renderRuntime();
-  maybeAutofillChatTemplate();
 }
 
 /**
@@ -1429,47 +1373,6 @@ export function maybeAutofillModelHelpersPfx(pfx, opts = {}) {
   // MODEL_FILE, so picking a model has to repaint the command preview too —
   // otherwise the box keeps naming the file you just replaced.
   if ((($(pfx + "RUNNER")?.value || "").trim()) === "transcribe") renderCommandCellPreview(pfx);
-}
-
-export function setInputValue(id, value) {
-  const input = $(id);
-  if (!input) return;
-  input.value = value;
-  // Keep model combobox trigger in sync when value is set programmatically
-  if (input.tagName === "SELECT") mcUpdateTrigger(input);
-}
-
-export function ensureGemma4MtpFields() {
-  setInputValue("SPEC_DRAFT_MODEL_FILE", $("SPEC_DRAFT_MODEL_FILE")?.value || gemma4DraftModel);
-  setInputValue("SPEC_TYPE", $("SPEC_TYPE")?.value || "draft-mtp");
-  setInputValue("SPEC_DRAFT_N_GPU_LAYERS", $("SPEC_DRAFT_N_GPU_LAYERS")?.value || "999");
-  setInputValue("SPEC_DRAFT_N_MAX", $("SPEC_DRAFT_N_MAX")?.value || "16");
-  setInputValue("SPEC_DRAFT_N_MIN", $("SPEC_DRAFT_N_MIN")?.value || "0");
-  setInputValue("SPEC_DRAFT_CACHE_TYPE_K", $("SPEC_DRAFT_CACHE_TYPE_K")?.value || "q8_0");
-  setInputValue("SPEC_DRAFT_CACHE_TYPE_V", $("SPEC_DRAFT_CACHE_TYPE_V")?.value || "q8_0");
-}
-
-export async function setGemma4Mode(mode) {
-  if (!isGemma4ModelPath($("MODEL_FILE")?.value || state.config.MODEL_FILE)) {
-    toast(t("gemmaModeNeedsGemma"));
-    return;
-  }
-  ensureGemma4MtpFields();
-  if (mode === "vision") {
-    const projector = selectedGemma4Mmproj();
-    if (!projector) {
-      toast(t("gemmaVisionNeedsProjector"));
-      return;
-    }
-    setInputValue("MMPROJ_FILE", projector);
-  } else {
-    setInputValue("MMPROJ_FILE", "");
-  }
-  renderModelInsight();
-  renderRuntime();
-  renderCommandPreview();
-  await saveConfig(true);
-  toast(mode === "vision" ? t("gemmaVisionApplied") : t("gemmaTextBoostApplied"));
 }
 
 // Auto-parse EXTRA_ARGS: pull any flag that has a dedicated form field out of the
@@ -1680,10 +1583,6 @@ export function renderFields(pfx = "") {
   // re-sync all canonical stars to the current favorite set after each render.
   updateStarStates(pfx);
 
-  if (!pfx) {
-    document.querySelector('[data-help="MODEL_FILE"]').innerHTML = `<span data-fieldhelp-text="MODEL_FILE">${fieldHelp("MODEL_FILE")}</span><span class="inline-tip" tabindex="0" data-fieldhelp="MODEL_FILE">?<span class="tooltip" role="tooltip">${fieldHelp("MODEL_FILE")}</span></span>`;
-    document.querySelector('[data-help="LLAMA_MODELS_DIR"]').innerHTML = `<span data-fieldhelp-text="LLAMA_MODELS_DIR">${fieldHelp("LLAMA_MODELS_DIR")}</span><span class="inline-tip" tabindex="0" data-fieldhelp="LLAMA_MODELS_DIR">?<span class="tooltip" role="tooltip">${fieldHelp("LLAMA_MODELS_DIR")}</span></span>`;
-  }
 }
 
 // Give the custom chat-template panel the same label-row as renderField fields:
@@ -1714,38 +1613,6 @@ export function enhanceChatTemplatePanel(panel, pfx = "") {
   }
   p.dataset.fieldhelpText = field;   // refreshed in place on language switch
   p.textContent = help;
-}
-
-export function renderStaticConfigFields() {
-  const modelsDir = $("LLAMA_MODELS_DIR");
-  if (modelsDir && !modelsDir.value) {
-    modelsDir.value = effectiveModelsDir(state.config);
-  }
-  const preview = $("modelsDirPreview");
-  if (preview && modelsDir) {
-    preview.textContent = modelsDir.value || effectiveModelsDir(state.config);
-    preview.title = preview.textContent;
-  }
-}
-
-export function renderRaw() {
-  const summary = {
-    paths: state.paths,
-    config: state.config,
-    runtime: {
-      models: state.runtime?.models,
-      props: {
-        n_ctx: state.runtime?.props?.default_generation_settings?.n_ctx,
-        modalities: state.runtime?.props?.modalities,
-        model_path: state.runtime?.props?.model_path,
-      },
-      metrics: state.runtime?.metrics,
-    },
-    cpu: state.cpu,
-    gpu: state.gpu,
-    memory: state.memory,
-  };
-  renderBackups();
 }
 
 export function readConfigForm(pfx = "") {

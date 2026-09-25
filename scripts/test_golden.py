@@ -15,6 +15,7 @@ Run `scripts/capture_golden.py` to take a fresh picture.
 """
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -34,7 +35,7 @@ for _k, _v in (("LLAMA_HOME", f"{HOME}/llama.cpp"),
 
 sys.path.insert(0, str(ROOT))
 
-from caravan.admin.launch import render_command_cell_shell_line, render_server_cell_script   # noqa: E402
+from caravan.admin.launch import render_command_cell_shell_line, render_launch_script   # noqa: E402
 from caravan.admin.runners import uses_command_path          # noqa: E402
 from caravan.common.errors import AppError                   # noqa: E402
 
@@ -60,6 +61,17 @@ def first_difference(want, got):
     return "       (различий по строкам нет — расходятся пробелы или конец файла)"
 
 
+def all_keys(value):
+    """Every dict key at any depth of a JSON value."""
+    if isinstance(value, dict):
+        for key, inner in value.items():
+            yield key
+            yield from all_keys(inner)
+    elif isinstance(value, list):
+        for inner in value:
+            yield from all_keys(inner)
+
+
 def main():
     if not FIXTURES.is_dir() or not any(FIXTURES.glob("*.json")):
         print("golden: FAILED — снимков нет. Снимите: python3 scripts/capture_golden.py",
@@ -77,7 +89,7 @@ def main():
         config = json.loads(fixture.read_text(encoding="utf-8"))
         want = (COMMANDS / f"{port}.sh").read_text(encoding="utf-8")
         try:
-            got = render_server_cell_script(config)
+            got = render_launch_script(config)
         except AppError as exc:
             got = f"__REFUSED__ {exc}"
         except Exception as exc:  # noqa: BLE001
@@ -110,6 +122,35 @@ def main():
         # is what compares it against a running controller.
         check("api shapes recorded", all("__unavailable__" not in v for v in shapes.values()),
               "       часть форм не снялась — переснимите с работающего контроллера")
+        # A map keyed by machines keeps its entries under <machine>: no fixture
+        # names a fleet machine (the golden files stay private, but the rule has
+        # no exceptions), and "<name>:<port>" keys put them in (capture_golden
+        # hides them since step 6.9).
+        named = sorted({k for k in all_keys(shapes) if re.fullmatch(r"[^<:\s][^:\s]*:\d+", k)})
+        check("api shapes key no machine by name", not named, "       " + ", ".join(named[:5]))
+
+    # No home but the neutral one anywhere in the golden files: a capture run
+    # from a workstation once left the controller's home — and its user's name —
+    # in every rendered command.
+    homes = sorted({f"{path.relative_to(GOLDEN)}: {m.group(0)}"
+                    for path in GOLDEN.rglob("*") if path.is_file()
+                    for m in re.finditer(r"(?:/home|/Users)/([^/\s\"']+)",
+                                         path.read_text(encoding="utf-8", errors="replace"))
+                    if m.group(1) != "caravan"})
+    check("golden files name no home but the neutral one", not homes, "       " + "; ".join(homes[:5]))
+
+    # The capture's two rules, by value: it cannot run here (no controller in
+    # CI), but what it writes is decided by these.
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import capture_golden as cg
+    check("capture: any machine's home becomes the neutral one",
+          [cg.neutralize(x) for x in ("/home/box/m.gguf", "/Users/box/m", 'D="/home/box/x"', "/mnt/lib/m.gguf")]
+          == ["/home/caravan/m.gguf", "/home/caravan/m", 'D="/home/caravan/x"', "/mnt/lib/m.gguf"])
+    hide = cg.hidden(cg.fleet_names({"nodes": [{"id": "box-pc"}], "clients": [{"id": "box"}],
+                                     "assignments": {"crate": {}}, "clientAliases": {"controller": {}}}))
+    check("capture: a map keyed by machines keeps <machine>, other keys stay",
+          [hide(k) for k in ("box-pc:22001", "box", "crate", "boxer", "controller", "name")]
+          == ["<machine>:22001", "<machine>", "<machine>", "boxer", "controller", "name"])
 
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     if FAIL:

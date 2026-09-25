@@ -6,9 +6,10 @@ import { $, api, escapeHtml } from "./utils.js";
 
 /**
  * One row per machine whose fresh llama.cpp build crashes its cells. The
- * verdict is the machine's own: this controller keeps its own
- * (topology.llamaSuspect), a scout keeps its machine's and reports it
- * (topology.hostSuspects, scout 2.6+). A row offers the newest archived
+ * verdict is the machine's own: its scout keeps it and reports it
+ * (topology.hostSuspects, scout 2.6+). The controller's own row went with
+ * its cells (step 6.9): its machine's cells run through that machine's
+ * scout, whose verdict is one of these rows. A row offers the newest archived
  * build of another commit — restored only after the same confirmation the
  * System builds list uses, never by itself — and a dismissal the machine
  * remembers for that build.
@@ -24,30 +25,23 @@ export class LlamaSuspectBanner {
   }
 
   rows(topo) {
-    const all = [];
-    const own = topo?.llamaSuspect || {};
-    if (own.suspect) all.push({ ...own, hostId: "", name: "" });
-    for (const row of topo?.hostSuspects || []) {
-      if (row?.suspect) all.push(row);
-    }
-    return all
+    return (topo?.hostSuspects || [])
+      .filter((row) => row?.suspect)
       .map((row) => ({ ...row, key: `${row.hostId}|${row.currentCommit}:${row.builtAt}:`
         + `${row.restoreCandidate?.id || ""}:${Math.floor((row.lastSeenAt || 0) / 60)}` }))
       .filter((row) => !this.done.has(row.key));
   }
 
   message(row) {
-    const n = String(row.crashes15m || 0);
-    return row.hostId
-      ? t("llamaSuspectMsgHost").replace("{host}", row.name || row.hostId).replace("{n}", n)
-      : t("llamaSuspectMsg").replace("{n}", n);
+    return t("llamaSuspectMsgHost").replace("{host}", row.name || row.hostId)
+      .replace("{n}", String(row.crashes15m || 0));
   }
 
   rowHtml(row) {
     const cand = row.restoreCandidate || null;
     const candLabel = cand ? String(cand.version || cand.id).replace("version: ", "b") : "";
     const lastSeen = row.lastSeenAt ? ` · ${new Date(row.lastSeenAt * 1000).toLocaleTimeString()}` : "";
-    return `<div class="llama-suspect-row" data-t="board-llama-suspect-row" data-t-id="${escapeHtml(row.hostId || "controller")}">`
+    return `<div class="llama-suspect-row" data-t="board-llama-suspect-row" data-t-id="${escapeHtml(row.hostId)}">`
       + `<span class="llama-suspect-msg">⚠ ${escapeHtml(this.message(row))}${escapeHtml(lastSeen)}</span>`
       + (cand ? `<button type="button" class="llama-suspect-restore" data-suspect-restore="${escapeHtml(row.key)}">`
         + `${escapeHtml(t("llamaSuspectRestore"))} ${escapeHtml(candLabel)}</button>` : "")
@@ -86,17 +80,15 @@ export class LlamaSuspectBanner {
     this.forget(row, el, topo);
     const cand = row.restoreCandidate || null;
     openRestoreBuildModal(String(cand?.id || ""), cand,
-      row.hostId ? { hostId: row.hostId, name: row.name, version: row.llamaBinaryVersion || "" } : null);
+      { hostId: row.hostId, name: row.name, version: row.llamaBinaryVersion || "" });
   }
 
   // The machine remembers it for this build; its next build starts clean.
   dismiss(row, el, topo) {
     if (!row) return;
     this.forget(row, el, topo);
-    const [path, body] = row.hostId
-      ? ["/api/fleet/llama-suspect-dismiss", { hostId: row.hostId }]
-      : ["/api/llamacpp/suspect-dismiss", {}];
-    api(path, { method: "POST", body: JSON.stringify(body) }).catch(() => {});
+    api("/api/fleet/llama-suspect-dismiss", { method: "POST", body: JSON.stringify({ hostId: row.hostId }) })
+      .catch(() => {});
   }
 
   forget(row, el, topo) {

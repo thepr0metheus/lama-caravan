@@ -78,8 +78,10 @@ const out = {
   tc: { undef: m.toggleChecked("KV_OFFLOAD", {}), blank: m.toggleChecked("KV_OFFLOAD", { KV_OFFLOAD: " " }),
         off: m.toggleChecked("KV_OFFLOAD", { KV_OFFLOAD: "0" }), yes: m.toggleChecked("MMAP", { MMAP: "YES" }),
         nonDefault: m.toggleChecked("ENABLE_MLOCK", {}), stateDefault: m.toggleChecked("KV_OFFLOAD") },
-  paths: { qwen: [m.isQwenModelPath("Qwen3-8B.gguf"), m.isQwenModelPath("gemma"), m.isQwenModelPath(null)],
-           g4: [m.isGemma4ModelPath("gemma-4-31b"), m.isGemma4ModelPath("gemma-3"), m.isGemma4ModelPath(undefined)] },
+  paths: { qwen: [m.isQwenModelPath("Qwen3-8B.gguf"), m.isQwenModelPath("gemma"), m.isQwenModelPath(null)] },
+  classicGone: ["isGemma4ModelPath", "selectedGemma4Mmproj", "setGemma4Mode", "ensureGemma4MtpFields", "setInputValue",
+                "maybeAutofillModelHelpers", "maybeAutofillChatTemplate", "renderStaticConfigFields", "renderRaw"]
+    .filter((n) => n in m),
   oc: { noTpl: m.openClawQwenTemplatePath(), exists0: m.openClawQwenTemplateExists() },
   fmt: { badge: m.badge("<b>", "warn"), badgeNoKind: m.badge("x"),
          mbadge: m.mbadge("fault", "T", 'a"<b', "id<1"), mbadgePlain: m.mbadge("ok", "T"),
@@ -91,7 +93,6 @@ const out = {
          jobs: { llm: m.jobChips(["llm"]), two: m.jobChips(["asr", "tts"]),
                  none: m.jobChips([]), unknown: m.jobChips(["sorcery"]),
                  compound: m.jobChips(["speech-translate"]) } },
-  gemma: { none: m.selectedGemma4Mmproj() },
 };
 globalThis.__fields = { "tr-PORT": { value: "9" }, PORT: { value: "1" } };
 out.prefixed = m.readConfigForm("tr-").PORT;
@@ -102,7 +103,6 @@ cst.dirtyOptionalToggles.add("FIT"); out.dirtyFit = pick(F(base)).FIT; cst.dirty
 st.setState({ ...st.state, chatTemplates: [{ name: "OpenClaw Qwen", path: "/t/oq.jinja" }],
   models: [{ path: "a.gguf", suggestedMmproj: "mm-a.gguf" }], config: { ...st.state.config, MODEL_FILE: "a.gguf" } });
 out.oc.withTpl = m.openClawQwenTemplatePath(); out.oc.exists1 = m.openClawQwenTemplateExists();
-globalThis.__fields = { MODEL_FILE: { value: "a.gguf" } }; out.gemma.sel = m.selectedGemma4Mmproj();
 out.byPath = [...m.modelsByPath().keys()];
 // 🎓 beside CTX_SIZE — the trained window in one press.
 st.setState({ ...st.state, models: [{ path: "a.gguf", ggufMeta: { contextLength: 262144 } }] });
@@ -169,6 +169,37 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
     .map((el) => [el.dataset.value, el.innerHTML.includes('data-t="model-in-library"')]);
   out.pickerMap = { model: rows(pm), mmproj: rows(pp), draft: rows(pd) };
 }
+// A safetensors folder is offered where the form's machine reads the
+// controller's models tree — asked of remote-cells, the one place that knows.
+{
+  const pickFor = (reads) => {
+    const kids = [];
+    const list = { innerHTML: "", appendChild: (el) => kids.push(el) };
+    const trigger = { innerHTML: "", appendChild() {} };
+    const wrap = { classList: { contains: (c) => c === "mc-wrap", toggle() {}, add() {} },
+                   querySelector: (q) => (q === ".mc-list" ? list : q === ".mc-trigger" ? trigger : null) };
+    st.setState({ ...st.state, config: {}, models: [], artifacts: [
+      { path: "org/Qwen-ST", name: "Qwen-ST", sizeGb: 16, format: "safetensors", arch: "qwen2" }] });
+    const other = () => {
+      const l = { innerHTML: "", appendChild() {} }, tr = { innerHTML: "", appendChild() {} };
+      return { value: "", dataset: {}, innerHTML: "", appendChild() {},
+               previousElementSibling: { classList: { contains: (c) => c === "mc-wrap", toggle() {}, add() {} },
+                                         querySelector: (q) => (q === ".mc-list" ? l : q === ".mc-trigger" ? tr : null) } };
+    };
+    globalThis.__fields = { "tr-MODEL_FILE": { value: "", dataset: {}, innerHTML: "", appendChild() {}, previousElementSibling: wrap },
+                            "tr-MMPROJ_FILE": other(), "tr-SPEC_DRAFT_MODEL_FILE": other() };
+    (globalThis.__stubReturns ||= {})["llama-edit.runnerRegistry"] = () => [];
+    globalThis.__stubReturns["remote-cells.formOnControllerMachine"] = (pfx) => (pfx === "tr-" ? reads : true);
+    const made = document.createElement;
+    document.createElement = () => ({ className: "", dataset: {}, style: {}, classList: { add() {}, toggle() {} }, setAttribute() {},
+                                      addEventListener() {}, appendChild() {}, innerHTML: "", textContent: "" });
+    try { m.renderModelSelects("tr-"); } catch (e) { out.stPickError = String((e && e.message) || e); }
+    document.createElement = made;
+    delete globalThis.__stubReturns["remote-cells.formOnControllerMachine"];
+    return kids.some((el) => el.dataset.value === "org/Qwen-ST");
+  };
+  out.stRows = [pickFor(true), pickFor(false)];
+}
 console.log(JSON.stringify(out));
 """
 
@@ -197,7 +228,10 @@ if run.returncode != 0:
 got = json.loads(run.stdout.strip().splitlines()[-1])
 
 print("модуль:")
-check(got["exports"] == 48, "form.js экспортирует 48 функций (пересчитай при изменении охвата)")
+check(got["exports"] == 39, "form.js экспортирует 39 функций (пересчитай при изменении охвата)")
+check(got["classicGone"] == [],
+      f"negative: помощников классической формы одиночного сервера больше нет — Gemma-режимы, автошаблон, "
+      f"сырой вывод; она ушла с ячейками контроллера в шаге 6.9 (got {got['classicGone']})")
 
 print("readConfigForm — поля:")
 rc = got["rc"]
@@ -235,14 +269,12 @@ check(tc["nonDefault"] is False, "ENABLE_MLOCK без значения → вы�
 check(tc["stateDefault"] is False, "без второго аргумента читает state.config (KV_OFFLOAD=\"0\")")
 
 print("пути и шаблоны:")
-check(got["paths"]["qwen"] == [True, False, False] and got["paths"]["g4"] == [True, False, False],
-      "isQwenModelPath/isGemma4ModelPath: регистронезависимо, null/undefined → false")
+check(got["paths"]["qwen"] == [True, False, False],
+      "isQwenModelPath: регистронезависимо, null/undefined → false")
 oc = got["oc"]
 check(oc["noTpl"] == "/opt/llama/models/templates/openclaw-qwen.jinja" and oc["exists0"] is False,
       "без шаблонов — путь из state.paths.llamaHome, exists=false")
 check(oc["withTpl"] == "/t/oq.jinja" and oc["exists1"] is True, "шаблон с openclaw+qwen в имени найден по регэкспу, exists=true")
-check(got["gemma"]["none"] == "gemma-4-31b-it/q4-k-m/mmproj-gemma-4-31B-it-f32.gguf", "Gemma-4 mmproj без выбора — константа по умолчанию")
-check(got["gemma"]["sel"] == "mm-a.gguf", "выбранная модель с suggestedMmproj побеждает умолчание")
 check(got["byPath"] == ["a.gguf"], "modelsByPath — Map по path из state.models")
 
 print("форматтеры:")
@@ -305,6 +337,9 @@ check(pmap == {"model": [["L/a/Q4/lib-Q4.gguf", True], ["L/a/Q4/loc-Q4.gguf", Fa
                "mmproj": [["L/a/Q4/mmproj-lib.gguf", True]], "draft": [["L/a/Q4/mtp-lib.gguf", True]]},
       f"пикер целиком: место файла доходит до всех трёх выборов — модели, проектора и черновика; строка с этого диска "
       f"без 📚 (got {pmap}, {got.get('pickerMapError')})")
+check(got["stRows"] == [True, False] and got.get("stPickError") is None,
+      f"папка safetensors — в пикере формы, чья машина читает дерево моделей контроллера (машина контроллера); "
+      f"negative: у другой машины скаута её нет (got {got['stRows']}, {got.get('stPickError')})")
 
 print()
 if _fail:

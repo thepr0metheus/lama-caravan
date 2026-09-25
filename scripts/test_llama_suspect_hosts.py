@@ -127,7 +127,6 @@ def section_the_answer():
         "parse_config": lambda: {},
         "topology_store": lambda: {"assignments": {}, "serverSlots": {}, "clientAliases": {}, "layout": {}},
         "load_agent_proxy_config": lambda: {"routes": [], "routers": [], "policy": {"maxSlots": 1}},
-        "_llama_total_slots": lambda: 0,
         "proxy_ports_last_seen": lambda: {},
         "_port_holders": lambda: {},
         "topology_server": lambda _config: {"id": "controller", "name": "Ctl", "llamaServers": []},
@@ -141,20 +140,21 @@ def section_the_answer():
         "cloud_provider_presets_public": lambda: [],
     }
     saved = {k: getattr(T, k) for k in patch}
-    keep = cloud_api.annotate_cloud_topology, status.llama_crash_suspect
+    keep = cloud_api.annotate_cloud_topology
     try:
         for k, v in patch.items():
             setattr(T, k, v)
         cloud_api.annotate_cloud_topology = lambda *a: {"endpoints": {}, "codexClientVersion": {}}
-        status.llama_crash_suspect = lambda: {"suspect": False}
         payload = T.topology_state(refresh_hosts=False)
     finally:
         for k, v in saved.items():
             setattr(T, k, v)
-        cloud_api.annotate_cloud_topology, status.llama_crash_suspect = keep
-    check([r["hostId"] for r in payload.get("hostSuspects", [])] == ["box-a"]
-          and payload.get("llamaSuspect") == {"suspect": False},
-          "/api/topology: своя строка контроллера (llamaSuspect) и строки машин (hostSuspects) — рядом, порознь")
+        cloud_api.annotate_cloud_topology = keep
+    check([r["hostId"] for r in payload.get("hostSuspects", [])] == ["box-a"],
+          "/api/topology: строки машин (hostSuspects)")
+    check("llamaSuspect" not in payload,
+          "negative: своего вердикта у контроллера больше нет (llamaSuspect) — его ячейки идут через скаута его "
+          "машины, и вердикт этой машины — одна из строк hostSuspects (шаг 6.9)")
 
 
 def main():

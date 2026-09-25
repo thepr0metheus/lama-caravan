@@ -953,12 +953,6 @@ button.llama-edit-head:hover .llama-edit-pencil {
 }
 
 
-.config-panel {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-}
-
 .section-title {
   grid-column: 1 / -1;
   display: flex;
@@ -976,62 +970,14 @@ button.llama-edit-head:hover .llama-edit-pencil {
   align-items: stretch;
 }
 
-.models-dir-panel {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--panel) 94%, var(--accent) 6%);
-  transition: border-color 120ms ease, background 120ms ease;
-}
-
-.models-dir-panel:hover,
-.models-dir-panel:focus-within {
-  border-color: color-mix(in srgb, var(--accent) 58%, var(--line));
-  background: color-mix(in srgb, var(--panel) 88%, var(--accent) 12%);
-}
-
-.models-dir-panel summary {
-  display: grid;
-  grid-template-columns: auto max-content minmax(0, 1fr) max-content;
-  gap: 12px;
-  align-items: center;
-  padding: 12px 14px;
-  cursor: pointer;
-  font-weight: 750;
-}
-
-.models-dir-panel summary::before,
 .advanced-fields summary::before {
   content: "▸";
   color: var(--accent);
   transition: transform 120ms ease;
 }
 
-.models-dir-panel[open] summary::before,
 .advanced-fields[open] summary::before {
   transform: rotate(90deg);
-}
-
-.models-dir-panel summary code {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.summary-badge {
-  padding: 3px 8px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  color: var(--accent);
-  background: var(--button-bg);
-  font-size: 11px;
-  font-weight: 750;
-}
-
-.models-dir-field {
-  padding: 0 14px 12px;
 }
 
 .mmproj-hidden-select { display: none; }
@@ -1155,10 +1101,6 @@ button.llama-edit-head:hover .llama-edit-pencil {
   grid-template-rows: 26px 42px minmax(78px, auto);
   gap: 6px;
   align-content: start;
-}
-
-.span-2 {
-  grid-column: span 2;
 }
 
 label {
@@ -1302,45 +1244,6 @@ input[type="checkbox"] {
 .ctx-native-btn { font-variant-numeric: tabular-nums; font-weight: 500; }
 .ctx-native-btn.active { color: var(--accent); border-color: var(--accent); }
 
-.port-combo {
-  position: relative;
-  display: flex;
-}
-.port-combo input {
-  flex: 1;
-  border-radius: 6px 0 0 6px !important;
-}
-.port-dropdown-btn {
-  padding: 0 10px;
-  background: var(--field);
-  border: 1px solid var(--line);
-  border-left: none;
-  border-radius: 0 6px 6px 0;
-  cursor: pointer;
-  color: var(--muted);
-  font-size: 11px;
-  transition: color 0.1s, background 0.1s;
-}
-.port-dropdown-btn:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--field));
-}
-.port-dropdown {
-  position: absolute;
-  top: calc(100% + 5px);
-  left: 0;
-  z-index: 25;
-  background: var(--panel);
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  padding: 8px;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  min-width: 220px;
-}
-.port-dropdown[hidden] { display: none; }
 .port-chip {
   padding: 5px 10px;
   font-size: 12px;
@@ -1649,22 +1552,6 @@ button.danger {
   color: #fff;
 }
 
-.icon-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  min-width: 34px;
-  min-height: 34px;
-  padding: 0;
-  font-weight: 750;
-}
-
-.icon-button.primary {
-  width: 44px;
-  min-width: 44px;
-}
-
 .actions, .button-row {
   display: flex;
   gap: 8px;
@@ -1692,19 +1579,6 @@ button.danger {
 
 .summary b {
   color: var(--text);
-}
-
-.runtime-rate {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  flex-wrap: wrap;
-}
-
-.runtime-rate span {
-  color: color-mix(in srgb, var(--muted) 70%, transparent);
-  font-size: 12px;
-  font-weight: 700;
 }
 
 .pill {

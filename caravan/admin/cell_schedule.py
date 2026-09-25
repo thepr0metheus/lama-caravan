@@ -137,8 +137,7 @@ def prefetch_tick(slot, sched, now):
     from caravan.admin.cell_ops import bring_home
     from caravan.admin.model_locator import current_locations
     try:
-        job = bring_home(slot.get("hostId"), slot.get("port"), slot.get("config") or {}, "",
-                         current_locations(wait=True), then_start=False)
+        job = bring_home(slot.get("config") or {}, current_locations(wait=True))
         if job:
             print(f"[cell-schedule] {slot.get('hostId')}:{slot.get('port')}: bringing the model home for {opens}")
     except Exception as exc:  # noqa: BLE001 - a fetch that fails must not stop the tick

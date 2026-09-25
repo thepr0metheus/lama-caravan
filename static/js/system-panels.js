@@ -1,14 +1,13 @@
-// Controller service/CPU/GPU panels, the /system page sections, llama.cpp
-// update/revert. Renderers null-guard their targets: some ids exist only on
-// the board page, some only on /system.
+// The /system page sections: controller info, llama.cpp and vLLM builds,
+// diagnostics, the models-disk GC. Renderers null-guard their targets: some
+// ids exist only on the board page, some only on /system. (The controller's
+// own service/runtime/CPU/GPU panels of the classic view went with its cells
+// in step 6.9.)
 import { appConfirm, settleAppConfirm } from "./dialogs.js";
-import { formatCmdline } from "./command-preview.js";
 import { helpTip, t } from "./i18n.js";
-import { estimateRuntimeMemoryGb, formatSizeGb, ramFit, vramFit } from "./memory.js";
-import { formatTps, metricNumber, tokenSpeedState } from "./polling.js";
 import { setState, state, ui } from "./state.js";
 import { parseLlamaBuildVersion } from "./topology-nodes.js";
-import { $, api, escapeHtml, formatBytesMiB, formatMemoryMiB, pill, toast } from "./utils.js";
+import { $, api, escapeHtml, toast } from "./utils.js";
 
 // Close the shared confirm dialog (the repair/update flows fill it directly).
 function closeConfirmModal() {
@@ -18,69 +17,23 @@ function closeConfirmModal() {
 // The state-driven System sections — refreshed after repair/update instead of
 // the board-wide renderAll (this module also runs on /system, no board there).
 function renderSystemSections() {
-  renderService();
   renderLlamaCpp();
   renderKnownProblems();
   renderProjectGitBranch();
 }
 
-export function renderService() {
-  const svc = state.service || {};
-  const el = $("serviceSummary");
-  if (!el) return;
-  const status = state.runtime?.status || {};
-  const phase = status.phase || svc.ActiveState || "unknown";
-  const label = t(phase) || status.label || phase;
-  el.innerHTML = `
-    <div>${pill(label, status.kind || (svc.ActiveState === "active" ? "good" : "bad"))} ${escapeHtml(svc.SubState || "")}</div>
-    <div>${t("pid")}: <b>${svc.MainPID || "0"}</b></div>
-    <div>${t("started")}: <b>${svc.ExecMainStartTimestamp || "n/a"}</b></div>
-    <div>${t("service")}: <b>${state.paths.service}</b></div>
-    ${status.detail ? `<div>${escapeHtml(status.detail)}</div>` : ""}
-  `;
-  const cmdEl = $("cmdline");
-  if (cmdEl) cmdEl.textContent = svc.cmdline ? formatCmdline(svc.cmdline) : t("noRunningCommand");
-}
-
 export function renderSectionTips() {
+  // Only targets some page still has: the classic view's (service, runtime,
+  // config, backups…) and the retired monitor drawer's went with their markup.
   const targets = {
-    serviceTip: "serviceHelp",
-    runtimeTip: "runtimeHelp",
-    cpuTip: "cpuHelp",
-    gpuTip: "gpuHelp",
-    configTip: "configHelp",
-    textOnlyTip: "textOnlyHelp",
-    revertLatestTip: "revertLatestHelp",
-    commandTip: "commandHelp",
-    previewCommandTip: "previewCommandHelp",
-    backupsTip: "backupsHelp",
     llamaCppTip: "llamaCppHelp",
     checkVersionsTip: "checkVersionsHelp",
     updateBuildTip: "updateBuildHelp",
     knownProblemsTip: "knownProblemsHelp",
     repairUserServiceTip: "repairUserServiceHelp",
-    logsTip: "logsHelp",
-    rawApiTip: "rawApiHelp",
-    systemMonitorTip: "systemMonitorHelp",
-    systemHistoryTip: "systemHistoryHelp",
-    systemGpuTip: "gpuMonitorHelp",
-    systemGpuUsersTip: "gpuUsersHelp",
-    systemClientsTip: "clientsHelp",
-    systemLlamaActivityTip: "llamaActivityHelp",
-    systemTokenTip: "tokenSpeedHelp",
-    systemVramTip: "vramMonitorHelp",
-    systemCpuTip: "cpuMonitorHelp",
-    systemMemoryTip: "memoryMonitorHelp",
-    systemNetTip: "networkMonitorHelp",
-    systemDiskTip: "diskMonitorHelp",
-    systemPowerTip: "powerMonitorHelp",
-    systemProcessesTip: "topProcessesHelp",
     nvidiaMonitorTip: "nvidiaMonitorHelp",
     nvidiaIntervalTip: "monitorIntervalHelp",
-    topologyServerTip: "topologyServerHelp",
-
     topologyLlamaServersTip: "topologyLlamaServersHelp",
-    topologyGpusTip: "topologyGpusHelp",
     topologyClientsTip: "topologyClientsHelp",
     topologyCloudTip: "topologyCloudHelp",
   };
@@ -88,93 +41,6 @@ export function renderSectionTips() {
     const el = $(id);
     if (el) el.innerHTML = helpTip(key);
   });
-}
-
-export function renderRuntime() {
-  const runtime = state.runtime || {};
-  const config = state.config || {};
-  const props = runtime.props || {};
-  const models = runtime.models || {};
-  const memory = state.memory || {};
-  const ctx = props.default_generation_settings?.n_ctx || "n/a";
-  const vision = props.modalities?.vision;
-  const modelId = models.data?.[0]?.id || models.models?.[0]?.name || "n/a";
-  const metrics = runtime.metrics || {};
-  const estimate = estimateRuntimeMemoryGb();
-  const vram = vramFit(estimate.runtimeSize);
-  const ram = ramFit(estimate.runtimeSize);
-  const ramLine = memory.ok
-    ? `<div>${t("ram")}: <b>${formatMemoryMiB(memory.usedMiB)}</b> ${t("used")}, <b>${formatMemoryMiB(memory.availableMiB)}</b> ${t("available")}, <b>${formatMemoryMiB(memory.totalMiB)}</b> ${t("total")}</div>`
-    : `<div>${memory.error || t("noRamData")}</div>`;
-  const specTypeVal = (config.SPEC_TYPE || "").trim().toLowerCase();
-  const specEnabled = !!config.SPEC_DRAFT_MODEL_FILE && !!specTypeVal && specTypeVal !== "none";
-  const specLabel = specTypeVal === "mtp" ? "draft-mtp" : specTypeVal;
-  const mtpLine = specEnabled
-    ? `<div>Speculative: ${pill(specLabel, "good")} <span class="muted">${escapeHtml(config.SPEC_DRAFT_MODEL_FILE)}</span></div>`
-    : `<div>Speculative: ${pill("off", "")}</div>`;
-  const status = runtime.status || {};
-  const currentTps = {
-    prompt: metricNumber(metrics["llamacpp:prompt_tokens_seconds"]),
-    predict: metricNumber(metrics["llamacpp:predicted_tokens_seconds"]),
-  };
-  if (state.time && state.time !== tokenSpeedState.lastTime) {
-    tokenSpeedState.previous = tokenSpeedState.current;
-    tokenSpeedState.current = currentTps;
-    tokenSpeedState.lastTime = state.time;
-  } else if (!tokenSpeedState.current) {
-    tokenSpeedState.current = currentTps;
-  }
-  const previousTps = tokenSpeedState.previous;
-  const promptPrevious = previousTps ? formatTps(previousTps.prompt) : "n/a";
-  const predictPrevious = previousTps ? formatTps(previousTps.predict) : "n/a";
-  const runtimeEl = $("runtimeSummary");
-  if (runtimeEl) runtimeEl.innerHTML = `
-    <div>${pill(t(status.phase || "unknown") || status.label || "unknown", status.kind || "")} ${status.detail ? escapeHtml(status.detail) : ""}</div>
-    <div>${t("model")}: <b>${modelId}</b></div>
-    <div>${t("context")}: <b>${ctx}</b></div>
-    <div>${t("vision")}: ${pill(vision ? t("on") : t("off"), vision ? "good" : "")}</div>
-    ${mtpLine}
-    <div>${t("runtimeSize")}: <b>${estimate.runtimeSize ? formatSizeGb(estimate.runtimeSize) : "n/a"}</b></div>
-    <div>${t("vramFit")}: ${vram.html}</div>
-    <div>${t("ramFit")}: ${ram.html}</div>
-    ${ramLine}
-    <div class="runtime-rate">${t("promptTps")}: <b>${formatTps(currentTps.prompt)}</b> <span>prev ${promptPrevious}</span></div>
-    <div class="runtime-rate">${t("predictTps")}: <b>${formatTps(currentTps.predict)}</b> <span>prev ${predictPrevious}</span></div>
-  `;
-}
-
-export function renderCpu() {
-  if (!$("cpuSummary")) return;
-  const cpu = state.cpu || {};
-  if (!cpu.ok) {
-    $("cpuSummary").innerHTML = `<div>${cpu.error || t("noCpuData")}</div>`;
-    return;
-  }
-  $("cpuSummary").innerHTML = `
-    <div><b>${escapeHtml(cpu.model || "unknown")}</b></div>
-    <div>${t("util")}: <b>${cpu.usagePct || 0}%</b></div>
-    <div>${t("load")}: <b>${cpu.load1}</b> / ${cpu.load5} / ${cpu.load15}</div>
-    <div>${t("cores")}: <b>${cpu.physicalCores}</b> physical, <b>${cpu.logicalCores}</b> logical</div>
-  `;
-}
-
-export function renderGpu() {
-  if (!$("gpuSummary")) return;
-  const gpu = state.gpu || {};
-  if (!gpu.ok || !gpu.gpus?.length) {
-    $("gpuSummary").innerHTML = `<div>${gpu.error || t("noGpuData")}</div>`;
-    return;
-  }
-  const rows = gpu.gpus.map((row) => `
-    <div><b>${row.name}</b></div>
-    <div>${t("vram")}: <b>${formatBytesMiB(row.memoryUsedMiB)}</b> ${t("used")}, <b>${formatBytesMiB(row.memoryFreeMiB)}</b> ${t("free")}</div>
-    <div>${t("util")}: <b>${row.utilizationGpuPct}%</b>, ${t("gpuMemory")}: <b>${row.utilizationMemoryPct || 0}%</b></div>
-    <div>${t("temp")}: <b>${row.temperatureC} C</b>, ${t("power")}: <b>${row.powerDrawW} W</b></div>
-    <div>${t("pcie")}: <b>Gen${row.pcieGenCurrent} x${row.pcieWidthCurrent}</b> / Gen${row.pcieGenMax} x${row.pcieWidthMax}</div>
-    <div>${t("bandwidth")}: <b>${row.pcieBandwidthCurrentGBs || "n/a"} GB/s</b> PCIe, <b>${row.memoryBandwidthGBs || "n/a"} GB/s</b> VRAM</div>
-    <div>Bus: <b>${row.pciBusId || "n/a"}</b>, mem clock: <b>${row.memoryClockMHz || "n/a"} MHz</b></div>
-  `);
-  $("gpuSummary").innerHTML = rows.join("");
 }
 
 // ── Models-disk GC modal ─────────────────────────────────────────────────────
@@ -401,10 +267,6 @@ export function renderControllerInfo(info) {
     const since = svc.since ? ` · ${svc.since.replace(/^\w+ /, "")}` : "";
     chips.push(`<div class="llama-chip ${good ? "good" : "warn"}"><span>${escapeHtml(svc.unit || "")}</span><strong>${escapeHtml(activeTxt)}${svc.pid && svc.pid !== "0" ? ` · PID ${escapeHtml(svc.pid)}` : ""}${escapeHtml(since)}</strong></div>`);
   }
-  const cells = info.cells || {};
-  if (cells.total != null) {
-    chips.push(`<div class="llama-chip ${cells.running ? "good" : ""}"><span>${t("ctrlCells")}</span><strong>${cells.running || 0} / ${cells.total || 0}</strong></div>`);
-  }
   const git = info.projectGit || {};
   chips.push(`<div class="llama-chip ${git.dirtyCount ? "warn" : "good"}"><span>${t("ctrlAppGit")}</span><strong>${escapeHtml(git.branch || "n/a")}${git.head ? " @ " + escapeHtml(git.head) : ""}${git.dirtyCount ? ` +${git.dirtyCount}` : ""}</strong></div>`);
   chips.push(`<div class="llama-chip"><span>Python</span><strong>${escapeHtml(info.python || "n/a")}</strong></div>`);
@@ -622,18 +484,31 @@ export async function pollDriverUpdate() {
   }
 }
 
-// ── vLLM runner: pip-versioned, so PyPI is the archive — we list the small
-//    version history and install any pin via the same shared job/log. ────────
+// ── vLLM runner: pip-versioned, so PyPI is the archive — a machine's scout
+//    lists the small version history of its venv and installs any pin in a
+//    job of its own. The controller keeps no venv: its machine's vLLM cells
+//    run through that machine's scout like any other's. ──────────────────────
+let _vllmPollTimer = null;
+
 export async function loadVllmPanel() {
   const el = $("vllmSummary");
   if (!el) return;
+  // The machine shown is the picker's own value — "" before the first answer,
+  // and then the controller asks about its own machine.
+  const picked = $("vllmHost")?.value || "";
   let info;
   try {
-    info = await api("/api/vllm");
+    info = await api(`/api/fleet/vllm?hostId=${encodeURIComponent(picked)}`);
   } catch (err) {
     el.textContent = err.message;
     return;
   }
+  renderVllmMachines(info);
+  if (info.ok === false) {
+    el.innerHTML = `<p class="llama-builds-empty">${escapeHtml(info.error || "")}</p>`;
+    return;
+  }
+  const machine = (info.machines || []).find((mc) => mc.id === info.hostId) || { id: info.hostId, name: info.hostId };
   const cur = info.version || "";
   const rows = (info.history || []).filter((r) => r.version !== cur);
   const curRow = info.installed
@@ -648,15 +523,32 @@ export async function loadVllmPanel() {
       <button type="button" class="llama-build-restore" data-vllm-update="${escapeHtml(r.version)}">${escapeHtml(t("restoreBuild"))}</button>
     </div>`).join("");
   el.querySelectorAll("[data-vllm-update]").forEach((btn) => {
-    btn.addEventListener("click", () => openVllmUpdateModal(btn.getAttribute("data-vllm-update") || "", cur));
+    btn.addEventListener("click", () => openVllmUpdateModal(btn.getAttribute("data-vllm-update") || "", cur, machine));
   });
 }
 
-function openVllmUpdateModal(version, currentVersion) {
+// The machines to choose from: each keeps its own vLLM in its own venv.
+function renderVllmMachines(info) {
+  const sel = $("vllmHost");
+  if (!sel) return;
+  const machines = info.machines || [];
+  sel.innerHTML = machines.map((mc) => `<option value="${escapeHtml(mc.id)}"${mc.id === info.hostId ? " selected" : ""}>`
+    + `${escapeHtml(mc.name || mc.id)}${mc.online ? "" : ` · ${escapeHtml(t("vllmOffline"))}`}</option>`).join("");
+  sel.value = info.hostId || "";
+  if (sel.parentElement) sel.parentElement.hidden = !machines.length;   // the label with it
+  sel.disabled = machines.length < 2;
+  if (!sel.dataset.bound) {
+    sel.dataset.bound = "1";
+    sel.addEventListener("change", () => loadVllmPanel());
+  }
+}
+
+function openVllmUpdateModal(version, currentVersion, machine) {
   $("confirmTitle").textContent = t("vllmUpdateTitle");
   $("confirmText").textContent = t("vllmUpdateText");
   $("confirmMeta").hidden = false;
   $("confirmMeta").innerHTML = [
+    [t("vllmMachine"), machine.name || machine.id],
     [t("restoreFrom"), `vllm ${currentVersion || "?"}`],
     [t("restoreTo"), version ? `vllm ${version}` : t("vllmUpdateLatest")],
   ].map(([label, value]) => `
@@ -670,14 +562,45 @@ function openVllmUpdateModal(version, currentVersion) {
     const log = $("llamaUpdateLog");
     if (log) log.textContent = version ? `pip install vllm==${version}...` : "pip install --upgrade vllm...";
     try {
-      await api("/api/vllm/update", { method: "POST", body: JSON.stringify({ version }) });
-      pollLlamaUpdate();
+      await api("/api/fleet/vllm/update", { method: "POST", body: JSON.stringify({ hostId: machine.id, version }) });
+      pollVllmUpdate(machine.id);
     } catch (err) {
       if (log) log.textContent = err.message;
       toast(err.message);
     }
   };
   $("confirmOverlay").hidden = false;
+}
+
+// The install job on that machine, into the section's log, until it ends.
+export async function pollVllmUpdate(hostId) {
+  clearTimeout(_vllmPollTimer);
+  let job;
+  try {
+    job = await api(`/api/fleet/vllm/update-status?hostId=${encodeURIComponent(hostId)}`);
+  } catch (err) {
+    toast(err.message);
+    return;
+  }
+  const el = $("llamaUpdateLog");
+  if (job.ok === false) {
+    if (el) el.textContent = job.error || "";
+    return;
+  }
+  if (el) {
+    el.textContent = (job.lines || []).join("\n") || "...";
+    el.scrollTop = el.scrollHeight;
+  }
+  if (job.running) {
+    _vllmPollTimer = setTimeout(() => pollVllmUpdate(hostId), 2000);
+    return;
+  }
+  if (job.done && job.rc === 0) {
+    toast(t("vllmInstallDone"));
+    loadVllmPanel();
+  } else if (job.done) {
+    toast(job.error || `vLLM install failed (rc=${job.rc})`);
+  }
 }
 
 // Shared by the System builds list AND the board's crash-watchdog banner: one
@@ -878,20 +801,9 @@ async function pollLlamaUpdate() {
     toast(t("updateComplete"));
     try { await checkLlamaCpp(); } catch { /* chips refresh is best-effort */ }
     loadLlamaBuilds();   // a finished build/restore changes the archive list
-    loadVllmPanel();     // …and a pip job changes the vLLM version/history
   } else if (job.done) {
     toast(job.error || `update failed (rc=${job.rc})`);
   }
 }
 
-export async function revertLatest() {
-  if (!(await appConfirm(t("revertConfirm")))) return;
-  const data = await api("/api/revert", {
-    method: "POST",
-    body: JSON.stringify({ restart: true }),
-  });
-  setState(data.state);
-  renderSystemSections();
-  toast(t("reverted"));
-}
 

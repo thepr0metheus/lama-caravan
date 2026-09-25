@@ -211,65 +211,7 @@
   background: rgba(105, 208, 144, 0.08);
 }
 
-.system-user-row {
-  display: grid;
-  grid-template-columns: minmax(110px, 0.7fr) minmax(180px, 1fr) 84px minmax(180px, 1.2fr);
-  gap: 8px;
-  align-items: center;
-  padding: 7px 8px;
-  border: 1px solid rgba(125, 211, 252, 0.2);
-  border-radius: 6px;
-  background: rgba(125, 211, 252, 0.07);
-}
-
-.system-user-row.active {
-  border-color: rgba(105, 208, 144, 0.35);
-  background: rgba(105, 208, 144, 0.1);
-}
-
-.system-user-row.recent {
-  border-color: rgba(244, 191, 79, 0.24);
-  background: rgba(244, 191, 79, 0.08);
-}
-
-.system-user-row.detailed {
-  grid-template-columns: 1fr;
-  align-items: stretch;
-}
-
-.system-user-main {
-  display: grid;
-  grid-template-columns: minmax(150px, 0.7fr) minmax(170px, 1fr) minmax(170px, 0.9fr);
-  gap: 8px;
-  min-width: 0;
-  align-items: center;
-}
-
-.system-user-row.proxy {
-  gap: 6px;
-}
-
-.system-user-row.proxy .system-user-main {
-  grid-template-columns: minmax(150px, 0.7fr) minmax(120px, 0.55fr) minmax(220px, 1fr);
-}
-
-.system-user-detail {
-  display: grid;
-  grid-template-columns: 84px minmax(220px, 1fr) minmax(140px, 0.6fr);
-  gap: 8px;
-  min-width: 0;
-  align-items: center;
-}
-
 .system-client-row strong {
-  color: #69d090;
-}
-
-.system-user-row strong {
-  color: #7dd3fc;
-}
-
-.system-user-row.active strong {
   color: #69d090;
 }
 
@@ -375,35 +317,9 @@
   color: #69d090;
 }
 
-.system-activity-title {
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.system-activity-help {
-  padding: 7px 8px;
-  border: 1px solid rgba(160, 180, 185, 0.14);
-  border-radius: 6px;
-  background: rgba(160, 180, 185, 0.06);
-  color: var(--muted);
-  font: 12px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-.system-activity-help.warning {
-  border-color: rgba(226, 178, 82, 0.34);
-  background: rgba(226, 178, 82, 0.08);
-  color: #d8c59d;
-}
-
 .system-client-row code,
 .system-client-row span,
 .system-client-row small,
-.system-user-row code,
-.system-user-row span,
-.system-user-detail small,
 .system-activity-row code,
 .system-activity-row span,
 .system-activity-row small {
@@ -411,19 +327,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.system-user-row small {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  white-space: normal;
-}
-
-@media (max-width: 900px) {
-  .system-user-row.proxy .system-user-main,
-  .system-user-detail {
-    grid-template-columns: 1fr;
-  }
 }
 
 .system-client-row small {
@@ -454,11 +357,6 @@
 .system-process-row strong {
   color: #69d090;
   text-align: right;
-}
-
-.system-process-empty {
-  padding: 10px;
-  color: var(--muted);
 }
 
 /* ── Topology Llama Edit Modal ──────────────────────────────────────────────── */
@@ -665,16 +563,6 @@
   padding: 10px 12px;
 }
 
-.te-models-dir-hint {
-  color: var(--accent);
-  font-size: 12px;
-  margin-top: 5px;
-}
-.te-models-dir-hint::before {
-  content: "↑ ";
-}
-.te-models-dir-hint[hidden] { display: none !important; }
-
 /* ── Server edit/add modal — visual redesign ─────────────────────────────── */
 
 /* Input & select: use design-system vars, proper height, focus ring */
@@ -769,17 +657,10 @@
   opacity: 0.7;
 }
 
-/* ── Controller (local) vs Remote visual distinction ─────────────────────── */
+/* ── The cell editor's accent ──────────────────────────────────────────────── */
 
-/* Controller: teal/accent accent strip on left + subtle header tint */
-#topologyLlamaEditOverlay .topology-llama-edit-modal {
-  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, var(--line));
-}
-#topologyLlamaEditOverlay .topo-edit-header {
-  background: color-mix(in srgb, var(--accent) 5%, var(--panel));
-}
-
-/* Remote/client: fallback (blue) accent strip on left + subtle header tint */
+/* A fallback (blue) strip on the left + a subtle header tint. (The controller's
+   own editor had a teal one; it went with the controller's cells in step 6.9.) */
 #llamaRemoteEditOverlay .topology-llama-edit-modal {
   border-left: 3px solid color-mix(in srgb, var(--fallback) 50%, var(--line));
 }
@@ -801,40 +682,6 @@
   opacity: 0.5;
 }
 
-/* ── Backups collapsible panel ───────────────────────────────────────────── */
-.topo-backups-panel { cursor: default; }
-.topo-backups-panel summary {
-  list-style: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
-  margin: 0 0 0;
-  user-select: none;
-}
-.topo-backups-panel summary::after {
-  content: "";
-  flex: 1;
-  height: 1px;
-  background: var(--line);
-  opacity: 0.5;
-}
-.topo-backups-panel summary::before {
-  content: "▸";
-  font-size: 10px;
-  color: var(--muted);
-  transition: transform 120ms;
-  order: -1;
-}
-.topo-backups-panel[open] summary::before { transform: rotate(90deg); }
-.topo-backups-panel summary::-webkit-details-marker { display: none; }
-.topo-backups-panel[open] summary { margin-bottom: 8px; }
-
 /* ── Aside panel depth ────────────────────────────────────────────────────── */
 .topo-edit-aside .panel {
   background: color-mix(in srgb, var(--bg) 40%, var(--panel));
@@ -842,7 +689,8 @@
   border-radius: 7px;
 }
 
-/* ── LOCAL / REMOTE header badge ─────────────────────────────────────────── */
+/* ── REMOTE header badge (its LOCAL twin marked the controller's own editor,
+      which went with the controller's cells in step 6.9) ─────────────────── */
 .topo-edit-mode-badge {
   display: inline-flex;
   align-items: center;
@@ -852,11 +700,6 @@
   font-weight: 700;
   letter-spacing: 0.07em;
   flex-shrink: 0;
-}
-.topo-edit-mode-badge.local {
-  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
-  color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
 }
 .topo-edit-mode-badge.remote {
   background: color-mix(in srgb, var(--fallback) 14%, var(--panel));

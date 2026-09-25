@@ -43,15 +43,16 @@ place, never reassigned.
 Environment-driven constants and every repo-relative path, all anchored to `PROJECT_ROOT =
 Path(__file__).resolve().parents[2]` (the repo root, where `app.py` lives). No other module may
 derive paths from its own `__file__` — it would point into `caravan/`. Covers the llama.cpp install
-(`LLAMA_HOME`, `START_SCRIPT`, `DEFAULT_MODELS_DIR`), the two service names, cell/backup dirs
-(`var/server-cells`, `var/server-backups`), the shared JSON files (`agent-proxies.json`,
+(`LLAMA_HOME`, `START_SCRIPT`, `DEFAULT_MODELS_DIR`), the two service names, the config-backup dir
+(`var/server-backups`), the shared JSON files (`agent-proxies.json`,
 `agent-proxy-state.json`, `cloud-providers.json`, `token-history.json`), per-user state
 (`admin.json`, monitor history, incident log), secrets (`provider-secrets.json` — outside the repo,
 0600), and tunables (monitor interval/retention, token-history caps,
 `SERVER_CELL_BASE_PORT`, default 22001 via `CARAVAN_CELL_BASE_PORT`). NOTE: `PORT` was once inside the cell numbering
 that starts at `SERVER_CELL_BASE_PORT`, so `used_server_cell_ports()` adds it to
-the taken set — otherwise a cell could be assigned the controller's own port and
-would only fail at `systemctl start`.
+the taken set — otherwise a cell could be assigned the controller's own port.
+(`var/server-cells`, the controller's own cells' launch files, went with those cells in step 6.9;
+so did `client-labels.json`, the monitor's labels for the clients of the controller's own server.)
 Owns: — (constants only; the single source of path truth).
 Key functions: — (no functions; import the constants).
 
@@ -130,17 +131,19 @@ Key functions: `runner_id`, `uses_command_path`, `build_vllm_command`, `build_wh
 
 ## `launch.py`
 
-Renders launch artifacts from configs. `render_launch_script` produces a complete start script: env
-header, the config block (so the GUI can reload values via `parse_config`), file-existence guards,
+Renders launch scripts from configs. `render_launch_script` produces the controller's
+start-server.sh — whose config block is what every new cell inherits — and the same script for any
+config the goldens pin: env header, the config block (so the GUI can reload values via
+`parse_config`), file-existence guards,
 and a generated `# BEGIN/END LLAMA COMMAND` `exec llama-server …` block — regenerated from the
 config so block and command never drift. The engine's environment is the runner's
 (`Runner.launch_env`): CPU-only llama configs (`N_GPU_LAYERS=0`) export `CUDA_VISIBLE_DEVICES=""`
 because a CUDA build still initializes the backend at `-ngl 0` and can abort on a full GPU; a
 scout's start carries the same environment (`env`, since scout 2.8.1). `render_command_cell_script` does the same for command cells (arbitrary managed
-process, `exec`'d so systemd/the agent tracks the real PID; `ENV` rendered as exports, optional `cd
+process, `exec`'d so whoever starts it tracks the real PID; `ENV` rendered as exports, optional `cd
 WORKDIR`), and `render_command_cell_shell_line` renders that same cell as one `bash -lc` sentence
-for a host that runs it as a child process instead of a unit — shipped to clients as
-`payload["shellLine"]`. The two share `command_cell_env_exports`: the agent used to parse `ENV`
+— how a scout runs it, as a child process — shipped as `payload["shellLine"]`. The two share
+`command_cell_env_exports`: the agent used to parse `ENV`
 itself and had already lost `set -euo pipefail`, so one config behaved differently per host. They
 share the runner's bootstrap too (`runner.bootstrap_lines`, vLLM's venv provisioning): the script
 has it as lines, the sentence as the same lines joined by `one_line_statements`. vLLM once had a
@@ -148,19 +151,18 @@ one-line copy of its own — it installed an unpinned vLLM, and the `exec` meant
 in front of the whole chain, so bash was replaced by `[` and a vLLM cell on a scout never served
 (`scripts/test_vllm_shell_line.py` now runs the sentence in bash). Both are pinned by the goldens:
 `tests/golden/commands/*.sh` and, for command cells, `tests/golden/shell-lines/*.txt`.
-`write_server_cell_artifacts` writes `var/server-cells/<port>/start.sh` + `cell.json`
-(temp+replace) — again at every start, not only when the script is missing, because where a model
-lives can change between two starts. A file in a library brings one guard more, before the file
-tests and once per library: its mark in the library's root. Without the mark the share did not
-mount, and what sits under the mount point is the local disk — the file test alone would report the
-model missing and send whoever reads the log looking for a deleted file. Snapshots are manual-only (`snapshot_config` — named
-`start-server.sh.bak.<stamp>-<name>` files, rendered from the live form config when given so
-cell-specific values are captured); `save_config` rewrites the whole start-server.sh with no
-auto-backup.
-Owns: the `# BEGIN/END LLAMA COMMAND` markers; `var/server-cells/<port>/` contents.
+A file in a library brings one guard more, before the file tests and once per library: its mark
+in the library's root. Without the mark the share did not mount, and what sits under the mount point
+is the local disk — the file test alone would report the model missing and send whoever reads the
+log looking for a deleted file. (The per-cell `var/server-cells/<port>/start.sh` + `cell.json`
+went with the controller's own cells in step 6.9: a cell runs through the scout of its machine,
+which gets its line from the controller at every start.) `save_config` rewrites the whole
+start-server.sh — the controller's own config: its models directory and the defaults a new cell
+starts from. (Its named `.bak` snapshots, their list and the revert went with the controller's own
+cells in step 6.9; a cell's snapshots live with its slot.)
+Owns: the `# BEGIN/END LLAMA COMMAND` markers.
 Key functions: `render_launch_script`, `render_command_cell_script`,
-`render_command_cell_shell_line`, `command_cell_env_exports`, `write_server_cell_artifacts`,
-`server_cell_dir`, `snapshot_config`, `save_config`.
+`render_command_cell_shell_line`, `command_cell_env_exports`, `save_config`.
 
 ## `models.py`
 
@@ -193,20 +195,6 @@ library's last look gave it, all parts of a multi-part GGUF; a path under a libr
 usable now is unknown, and nothing may look there.
 Key functions: `Locations.locate`, `Locations.library_entries`, `Locations.library_size`,
 `Locations.library_file`, `current_locations`.
-
-## `load_progress.py`
-
-How far a starting cell has read its model files, which one it reads now and what is still to come
-— the card's two load rows. Measured from the kernel alone: the running process's command line
-decides whether it READS its files (`--no-mmap`, `--load-mode none|mlock`; a library start always
-does), `rchar` in `/proc/PID/io` is how much it has read, and `readlink` on its open descriptors
-says which file. Bytes are credited in llama-server's own order (weights, draft, projector); the
-speed needs two readings and skips the pause in which the context is made; 30 s without a byte, a
-file open, is `stalled`. A mapped load, an unknown size or a silent kernel gets no answer, so the
-card keeps its looping line instead of a made-up 0 %. Nothing here opens or `stat()`s a model file.
-Owns: `LOAD_WATCH` — per port, the readings of the start being watched (forgotten when the cell
-stops loading, or after ten minutes unseen).
-Key functions: `LlamaProcess.among`, `LlamaProcess.reads_files`, `LoadWatch.look`, `LoadWatch.forget`.
 
 `MountFacts` answers what the card shows when a store is NOT ok: what this host has mounted at
 that path (`/proc/self/mountinfo`, the last mount wins — that is the one a reader gets), whether the
@@ -244,16 +232,29 @@ Key functions: `list_unused_models`, `delete_models`, `holders`, `running_owners
 ## `systemd_ctl.py`
 
 `systemctl --user` control. `user_systemd_env` supplies `XDG_RUNTIME_DIR` and the session bus
-address so the admin (itself a service) can talk to the user manager. Handles both the legacy single
-service (`llamacpp-current.service`) and per-port cell services (`lama-cell@<port>.service`):
-`ensure_cell_service_template` installs/updates the unit from `systemd/lama-cell@.service` into
-`~/.config/systemd/user` (+ daemon-reload) and `cell_service_action` additionally opens the port in
-ufw before start/restart/enable. `user_service_diagnostics` produces the bus/service/HTTP checklist
-shown in the UI.
-Owns: the installed `lama-cell@.service` user unit copy.
-Key functions: `systemctl`, `service_status`, `cell_service_name`, `cell_service_status`,
-`cell_service_action`, `ensure_cell_service_template`, `user_service_diagnostics`, `logs` (journal
-tail), `read_cmdline`, `repair_user_service` (daemon-reload + restart).
+address so the admin (itself a service) can talk to the user manager. What is left: bouncing the
+proxy daemon after a routes save (`restart_agent_proxy` — a supervised child in the container), the
+legacy single service (`llamacpp-current.service`: status, journal tail, repair), and who listens
+on a port. `user_service_diagnostics` produces the bus/service/HTTP checklist shown in the UI. The
+per-port cell units (`lama-cell@<port>.service`) and their template went with the controller's own
+cells in step 6.9: its machine's cells run through that machine's scout.
+Owns: —.
+Key functions: `systemctl`, `restart_agent_proxy`, `service_status`, `listening_pid`,
+`user_service_diagnostics`, `logs` (journal tail), `read_cmdline`, `repair_user_service`
+(daemon-reload + restart).
+
+## `cell_words.py`
+
+`CellWords` — one vocabulary for the words a cell writes, whoever carries them to the board: why
+it would not start (`failure_kind`: exec, oom, model, port — or crash), where its start is
+(`progress_note`, from the last line that names a stage), and what killed it (`crash_kind`:
+gpu-hang, gpu-oom, assert, killed — or crash). A scout carries the words (the crash note with its
+last lines, the lines written while the port did not listen yet); the tables are matched in order,
+the first hit wins, and every entry says why it stands where it does. It read the journal of the
+controller's own cells too, until those moved to its machine's scout — which is why it outlived
+`systemd_ctl`'s cell half.
+Owns: —.
+Key functions: `CellWords.failure_kind`, `CellWords.progress_note`, `CellWords.crash_kind`.
 
 ## `llama_metrics.py`
 
@@ -377,22 +378,17 @@ Key functions: `load_cloud_data`/`save_cloud_data`, `load_provider_secrets`/`sav
 
 ## `token_history.py`
 
-Token-rate history (`token-history.json`) and controller-side TPS counters. `_token_history` and the
-controller counters are rebound here — every rebinding function stays in this module.
+Token-rate history (`token-history.json`), fed by the proxy's own records. `_token_history` is
+rebound here — every rebinding function stays in this module.
 `record_token_history` appends one entry per **completed** proxy request from llama.cpp's exact
 per-request `timings` on the proxy's recent items, attributed by proxy port, deduped by request id,
 trimmed to 14 days / 12,000 entries on save — the authoritative per-request source, no
-time-correlation guesswork. `controller_token_metrics` scrapes every controller llama port
-(skynet-tagged slots + the legacy PORT) and sums the gauges; since llama.cpp's `*_seconds` gauges
-hold their last value while idle, "generating right now" is detected by cumulative-counter deltas,
-which also yield the finished request's real size, duration and Δtokens/Δsec throughput.
-`record_controller_gen_tps` keeps the last 600 completed-request points for the Token Speed chart
-(idle ticks add nothing — no plateau).
-Owns: `_token_history` (+lock), `_controller_token_counters`, `_controller_gen_tps` (+lock),
-`token-history.json`.
+time-correlation guesswork. (The controller-side counters that scraped the controller's own
+llama-servers every second, and fed a Token Speed series of their own, went with its cells in
+step 6.9: a cell's rates now come from its machine's scout.)
+Owns: `_token_history` (+lock), `token-history.json`.
 Key functions: `load_token_history`, `save_token_history`, `record_token_history`,
-`token_history_query`, `controller_llama_ports`, `controller_token_metrics`,
-`record_controller_gen_tps`, `controller_gen_tps_samples`.
+`token_history_query`.
 
 ## `proxy_stats.py`
 
@@ -402,33 +398,33 @@ Read-only views over the **proxy daemon's** artifacts: `agent-proxy-state.json` 
 request record (upstream host/port recovery, usage tokens, phase) for the dashboard.
 `load_agent_proxy_logs` reads one date's JSONL (filterable, capped at 2000 rows);
 `proxy_daily_stats` folds a day's `received`/`blocked`/`finished` events into per-route
-total/failed/paused counts (paused = blocked by route mode, not a real failure). `nearest_event`
-matches journal timing/context events to requests within ±20s.
+total/failed/paused counts (paused = blocked by route mode, not a real failure). (Matching the
+journal of the controller's own single server to requests by time went with that server in
+step 6.9.)
 Owns: — (reader only).
 Key functions: `agent_proxy_sample`, `summarize_proxy_item`, `proxy_usage_tokens`,
-`proxy_item_timestamp`, `requests_by_client`, `list_agent_proxy_log_dates`, `load_agent_proxy_logs`,
-`proxy_daily_stats`, `iso_seconds`, `nearest_event`.
+`list_agent_proxy_log_dates`, `load_agent_proxy_logs`, `proxy_daily_stats`.
 
 ## `monitoring.py`
 
 The local system monitor. `monitor_sampler_loop` — a daemon thread started by `main()` — collects
 one sample per second (`MONITOR_SAMPLE_INTERVAL`): CPU from `/proc/stat` deltas, loadavg, GPU
-(`nvidia-smi`), connected llama clients (`ss`), llama activity (journal parse + `/slots`, cached
-3s), the proxy state file and config, controller token metrics (recording per-request TPS points and
-token history as a side effect), memory, disk/net rates, and top processes; `correlate_activity`
-then joins active proxy requests to processing llama slots and recent ones to journal timing/context
-events. `append_incidents_from_sample` derives incidents (failed / client_disconnected /
+(`nvidia-smi`), the proxy state file and config (recording token history as a side effect), memory,
+disk/net rates, and top processes; `correlate_activity` then groups the proxy's active and recent
+requests by route and counts the local and cloud ones in flight. (Until step 6.9 the sample also
+carried the controller's own single server — its connected clients via `ss`, its slots and journal,
+its token counters — and `correlate_activity` matched requests to its busy slots and, by time, to
+its journal timings, whichever server had served them.) `append_incidents_from_sample` derives incidents (failed / client_disconnected /
 upstream_timeout / slow first byte ≥30s / slow request ≥120s, each with a cause) and appends deduped
 records to `incident-log.jsonl` (30-day retention). The sample ring is trimmed to the configurable
 retention and persisted to `monitor-history.json` at most every 10s, reloaded on startup. Also hosts
-the dashboard hardware state, client labels, and on-demand `monitor_snapshot` (nvidia-smi, or a btop
+the dashboard hardware state and on-demand `monitor_snapshot` (nvidia-smi, or a btop
 frame rendered via `terminal.py` with a `top` fallback).
 Owns: `monitor_history` deque + `monitor_lock`, the rebound `monitor_last_cpu/_disk/_net/ _persist`,
-`incident_lock` + `incident_logged_keys`, `llama_activity_cache`, `monitor-history.json`,
-`incident-log.jsonl`, `client-labels.json`.
+`incident_lock` + `incident_logged_keys`, `monitor-history.json`, `incident-log.jsonl`.
 Key functions: `monitor_sampler_loop`, `collect_monitor_sample`, `system_monitor_state` (the
 `/api/system-monitor` payload), `correlate_activity`, `append_incidents_from_sample`,
-`llama_activity_sample`, `gpu_state`/`cpu_state`/`memory_state`, `runtime_api`, `monitor_snapshot`,
+`gpu_state`/`cpu_state`/`memory_state`, `runtime_api`, `monitor_snapshot`,
 `set_monitor_retention`.
 
 ## `metrics.py`
@@ -561,13 +557,14 @@ are persistent `"hostId:port"` records in `topology_store()["serverSlots"]` so a
 attached while a server is stopped or its model changes. Port allocation starts at the configured base (default 22001; `CARAVAN_CELL_BASE_PORT`) and
 collisions raise 409. `upsert_server_slot` deliberately keeps empty-string config values (an empty
 field is a *removed* flag — dropping it would make the edit form re-inherit the controller default),
-keeps a ≤10-entry command history for command cells (one-click revert), and regenerates on-disk cell
-artifacts for controller (`skynet`) slots.
+and keeps a ≤10-entry command history for command cells (one-click revert). A cell of the
+controller's own host id is refused (`refuse_controller_host`, `CONTROLLER_RUNS_NO_CELLS`): since
+step 6.8 the controller's machine runs its cells through its scout.
 Owns: the `serverSlots` records inside admin state.
 Key functions: `server_slot_key`, `next_server_cell_port`, `used_server_cell_ports`,
 `assert_server_cell_port_available`, `upsert_server_slot`, `reserve_server_cell`,
-`move_server_cell`, `delete_server_slot`, `reassign_server_slot_port` (fleet-wide free check,
-refuses a running controller cell, remaps router refs `srv:old→srv:new`).
+`move_server_cell`, `delete_server_slot`, `refuse_controller_host`, `reassign_server_slot_port`
+(fleet-wide free check, remaps router refs `srv:old→srv:new`).
 
 ## `cell_schedule.py`
 
@@ -595,8 +592,13 @@ GPUs, compute apps, CPU/RAM, cells, build versions, address — and `record_host
 `host_from_report` replace it with each report; its CLIENT record in `topology.clients` is the
 operator's — name, agents — and no report touches it (old scouts still send agents; they are not
 read). `topology_hosts` computes a host's liveness on read (`online` within `HOST_REPORT_TTL`,
-180 s — three scout heartbeats — else `stale`; never stored); `topology_clients` has none — a
-client's agents' traffic shows whether it works. `refresh_hosts_from_scouts` pulls each scout's
+180 s — three scout heartbeats — else `stale`; never stored) and returns the machines in the
+board's order, by address as a number (`HostRecord.board_order`; a silent machine keeps its place,
+one without an IP goes last); `topology_clients` has none — a
+client's agents' traffic shows whether it works. `client_vllm` / `client_vllm_update` answer the System
+page's vLLM section per machine through its scout (2.9+): the machines, this controller's own by
+default (`ControllerMachine`), and a legible refusal for an older scout.
+`refresh_hosts_from_scouts` pulls each scout's
 `/api/state` so the board stays current between heartbeats; it runs in the background
 (`SCOUT_POLLER`, see `scout_poll.py`), never inside a board read, and `scout_payload_from_state`
 turns what it reads into the shape of a heartbeat. Which fields a report carries is one sample for both
@@ -630,18 +632,20 @@ replaces with a fake scout.
 ## `topology.py`
 
 Assembly of the `/api/topology` tree — the first aggregator layer. `topology_server` builds the
-controller node: service + runtime phase, GPUs, and every controller cell with its systemd status,
-health, live metrics, context usage, modalities and TPS history. `topology_nodes` produces the
-host-centric spine (one node per machine, servers bound to GPUs via compute apps). `topology_state`
+fleet's cells: every cell a scout reports (running or starting — health, live metrics, context
+usage, modalities, crash note read with `CellWords`, TPS history) and every stored slot that is not live, as a parked card
+(its trained window from the GGUF header, ≈VRAM from the file's size), plus the controller's own GPU
+read for its machine's node. Since step 6.9 there is one kind of cell: the controller's own cells,
+their unit status, journal errors, load progress and freshness chips went with them. `topology_nodes` produces the
+host-centric spine: one node per machine with a scout, servers bound to GPUs via compute apps. The
+controller has no node of its own since step 6.9 — its machine is its scout's host node, marked
+`controllerMachine` (with the controller's own `gpuError` for it). `topology_state`
 pulls it together: refreshes clients from their agents (skippable via `refresh_clients=False`),
-auto-syncs the policy's `maxSlots` to the fleet's total llama slots, resolves each proxy's *actual*
+resolves each proxy's *actual*
 upstream through its router's default output (the route's own upstreamPort is a legacy placeholder),
 auto-syncs router outputs to the available providers (persisting once, via a fresh read-modify-write
 to avoid clobbering concurrent edits), and returns servers, nodes, proxies, routers, policy,
 clients, assignments, aliases, layout and cloud state.
-A controller cell that is starting or warming carries `loadProgress` when its load can be measured
-(`_cell_load` → `load_progress.py`, sizes by `_load_file_size`: a library's file by the library's
-last look, never a `stat()` on the share).
 `apply_topology_assignments` validates and stores agent→proxy assignments; nothing is sent to the
 machine (the scout's apply went with its word about agents — an agent is pointed at its port by hand).
 Owns: — (aggregates; writes only via `proxies_config`/`state`).
@@ -668,51 +672,43 @@ output for diagnostics. On native installs this module is inert.
 Owns: the child process handle + watchdog thread (container mode only).
 Key functions: `start`, `restart`, `status`, `tail`.
 
-## `backups.py`
+## `controller_machine.py`
 
-Controller `start-server.sh` backups (the `*.bak.*` files written by `snapshot_config`). `backups()`
-lists the newest 20 with labels enriched by the parsed model/ctx; `resolve_backup_path` rejects
-anything outside the launcher directory or not matching the backup name prefix. `revert_latest`
-copies the newest backup over `start-server.sh` and re-chmods it. (Client/cell config backups are a
-different store — see `fleet_clients.py`.)
-Owns: — (operates on `START_SCRIPT.bak.*` files).
-Key functions: `backups`, `resolve_backup_path`, `backup_config` (parsed + raw text),
-`delete_backup`, `revert_latest`.
+`ControllerMachine` — which scout's machine is the one this controller runs on: its scout reports
+the machine's hostname, and the controller knows its own (short name, any case). Since step 6.8
+that machine's cells run through its scout like any other's; it is still the machine to show
+first and the one whose panels the controller fills from its own monitor.
 
 ## `status.py`
 
-The composite dashboard state and service actions. `state()` is the `/api/state` payload: parsed
-config + field metadata, paths, model catalog, chat templates, service status, runtime (with phase),
-diagnostics, CPU/GPU/memory, llama.cpp build info, journal logs, backups, and the project's own
-git info. `do_action` starts/stops/restarts `llamacpp-current.service`. `llama_cpp_info` reports the binary
+The composite dashboard state. `state()` is the `/api/state` payload: parsed config + field
+metadata, paths, model catalog, chat templates, service status, runtime (with phase), diagnostics,
+CPU/GPU/memory, llama.cpp build info, journal logs and the project's own git info. (Starting and
+stopping `llamacpp-current.service` and its start-server.sh backups went with the controller's own
+cells in step 6.9.) `llama_cpp_info` reports the binary
 version and feature support plus the llama.cpp checkout's git state (optionally checking upstream
 for the newest `bNNNN` build tag); `update_llama_cpp` refuses when tracked files are dirty, then
 fetch + ff-only merge + cmake-builds `llama-server`.
 Owns: —.
-Key functions: `state`, `do_action`, `llama_cpp_info`, `update_llama_cpp`, `llama_server_path`,
+Key functions: `state`, `llama_cpp_info`, `update_llama_cpp`, `llama_server_path`,
 `project_git_info`.
 
 ## `cell_ops.py`
 
-Server-cell lifecycle actions across both kinds of hosts; sits above `status` because its handlers
-return the composite `state()`. `client_server_slot_add` declares a persistent slot (reserving the
-next free port when none is given); `client_server_slot_delete` removes the slot and, for client
-hosts, also tells the agent to stop/clear the node — otherwise the cell keeps coming back with the
-next heartbeat. `server_cell_save_config` saves without starting. `server_cell_action` dispatches:
-on `skynet` it ensures the start.sh artifact exists and drives systemd `lama-cell@<port>`
-(start/stop/restart/enable/disable); on a client it forwards start/restart (from the saved slot
-config; command cells must have a COMMAND, llama cells a model) or stop to the route-agent.
-`bring_home` decides where a start reads its model from when a library holds it: `modelFrom: "disk"`
-starts a move back and the cell starts when the file is here (the promise rides in the move's own
-manifest, so it survives a closed tab and a restarted controller), `"library"` starts now and reads
-it there, and an empty choice — a schedule, a restart after a crash, nobody to ask — brings it home
-if there is room and reads it where it lies if there is not. The space arithmetic is the move
-planner's alone: its `no-room` refusal IS the fallback. A CLIENT cell is refused instead, by
-library name: a client downloads its model from this controller, and the controller serves only its
-own disk, so the alternative is a 404 halfway through a download on another machine.
+Server-cell lifecycle actions, each through the scout of the cell's machine; sits above `status`
+because its handlers return the composite `state()`. `client_server_slot_add` declares a persistent
+slot (reserving the next free port when none is given); `client_server_slot_delete` removes the slot
+and also tells the scout to stop/clear the node — otherwise the cell keeps coming back with the next
+report. `server_cell_save_config` saves without starting (and refreshes the request the scout keeps
+for an autostart cell). `server_cell_action` forwards start/restart (from the saved slot config;
+command cells must have a COMMAND, llama cells a model), stop, and enable/disable (the scout's
+autostart) to the scout; the controller's own host id is refused — it runs no cells since step 6.8.
+`bring_home` brings a scheduled cell's model home from a library before its window opens, when there
+is room; when there is not, the cell reads it where it lies — the move planner's `no-room` refusal
+IS that answer. `script_preview` shows a script a command names, from this machine's home.
 Owns: —.
 Key functions: `client_server_slot_add`, `client_server_slot_delete`, `server_cell_save_config`,
-`server_cell_action`, `bring_home`.
+`server_cell_action`, `bring_home`, `script_preview`.
 
 ## `routes.py`
 

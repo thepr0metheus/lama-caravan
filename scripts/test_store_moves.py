@@ -1097,30 +1097,55 @@ def section_references():
     # Названа ячейкой и ЧИТАЕТСЯ ячейкой — разные вопросы. Удаление спрашивает
     # первый (удалить модель остановленной ячейки — сломать её молча), перенос
     # второй (остановленная ячейка файл не держит, а старт вернёт его).
-    owners = {"C/c.gguf": ["controller:22001"], "D/d-00001-of-00002.gguf": ["controller:22002", "forge:22021"],
-              "E/e.gguf": ["controller:22003"]}
-    live = {22001: "active", 22002: "inactive", 22003: "failed"}
-    saved_status = model_gc.cell_service_status if hasattr(model_gc, "cell_service_status") else None
-    import caravan.admin.systemd_ctl as ctl
-    keep_ctl = ctl.cell_service_status
-    ctl.cell_service_status = lambda port, **kw: {"ActiveState": live.get(int(port), "active")}
+    import time as _time
+    import caravan.admin.state as admin_state_mod
+    owners = {"C/c.gguf": ["box:22001"], "D/d-00001-of-00002.gguf": ["box:22002", "forge:22021"],
+              "E/e.gguf": ["box:22003"]}
+    keep_store = admin_state_mod.topology_store
+    admin_state_mod.topology_store = lambda: {"hosts": {"box": {"lastSeen": int(_time.time()), "llamaNodes": [
+        {"port": 22001, "running": True}, {"port": 22003, "running": False, "phase": "error"}]}}}
     model_gc._referenced_relpaths = lambda with_owners=False: (set(owners), owners) if with_owners else set(owners)
     try:
         held = [model_gc.holders(["C/c.gguf"]), model_gc.holders(["E/e.gguf"]),
                 model_gc.holders(["D/d-00002-of-00002.gguf"]), model_gc.holders(["A/a.gguf"])]
+        stale_controller = model_gc.running_owners(["controller:22001"])
     finally:
         model_gc._referenced_relpaths = saved
-        ctl.cell_service_status = keep_ctl
-        if saved_status is not None:
-            model_gc.cell_service_status = saved_status
-    check(held[0] == ["controller:22001"],
+        admin_state_mod.topology_store = keep_store
+    check(held[0] == ["box:22001"],
           f"запущенная ячейка держит свой файл — и названа поимённо (got {held[0]})")
     check(held[1] == [],
           f"negative: ячейка упала — файл она не читает, и модель может уехать (got {held[1]})")
     check(held[2] == ["forge:22021"],
-          f"спрашиваем по ГРУППЕ частей, а клиентскую ячейку спросить отсюда нечем — считаем читающей: "
-          f"отказать зря безвредно, а увезти файл из-под неё — нет (got {held[2]})")
+          f"спрашиваем по ГРУППЕ частей; ячейка машины без отчёта — спросить нечем, считаем читающей: "
+          f"отказать зря безвредно, а увезти файл из-под неё — нет; остановленная (её нет в отчёте) — свободна "
+          f"(got {held[2]})")
     check(held[3] == [], "negative: файла никто не называл — держать его некому")
+    check(stale_controller == {"controller:22001"},
+          "negative: запись ячейки на id контроллера (до шага 6.9) не спрашивает systemd — отчёта у него нет, и "
+          "она считается занятой, как любая ячейка, которую спросить нечем")
+
+    # Ячейка на машине со скаутом — то, что сказал последний отчёт машины. Раньше
+    # любая клиентская ячейка считалась работающей, и когда ячейки машины
+    # контроллера переехали к её скауту, ни одну модель ячейки увезти было нельзя.
+    import time as _time
+    now = int(_time.time())
+    admin_state_mod.topology_store = lambda: {"hosts": {
+        "box": {"lastSeen": now, "llamaNodes": [{"port": 22031, "running": True},
+                                                {"port": 22032, "running": False, "phase": "loading"},
+                                                {"port": 22033, "running": False, "phase": "error"}]},
+        "gone": {"lastSeen": now - 100000, "llamaNodes": []}}}
+    try:
+        busy = model_gc.running_owners(["box:22031", "box:22032", "box:22033", "box:22034", "gone:22035",
+                                        "nobody:22036"])
+    finally:
+        admin_state_mod.topology_store = keep_store
+    check("box:22031" in busy and "box:22032" in busy,
+          f"ячейка скаута работает или грузит модель — держит файл (got {sorted(busy)})")
+    check("box:22033" not in busy and "box:22034" not in busy,
+          f"negative: упала или остановлена (в отчёте её нет) — файл свободен, модель может уехать (got {sorted(busy)})")
+    check("gone:22035" in busy and "nobody:22036" in busy,
+          f"отчёт машины устарел или его нет — спросить нечем, считаем занятой (got {sorted(busy)})")
 
 
 def section_reader():

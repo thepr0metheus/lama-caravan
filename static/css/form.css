@@ -758,31 +758,6 @@ button.cmd-dirty::after {
   white-space: nowrap;
 }
 
-/* A question with more than two answers: the answers stand in the meta row,
-   one per line, each wide enough to read in full. The grid above is for the
-   three-fact summary; a choice is a list, not a table. */
-.modal-meta:has(.mdl-choice) {
-  grid-template-columns: 1fr;
-}
-
-.mdl-choice {
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--panel) 86%, var(--accent) 14%);
-  color: var(--text);
-  font: inherit;
-  font-weight: 600;
-  text-align: left;
-  cursor: pointer;
-}
-
-.mdl-choice:hover,
-.mdl-choice:focus-visible {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--panel) 70%, var(--accent) 30%);
-}
-
 .modal code {
   display: block;
   padding: 10px;
@@ -800,7 +775,6 @@ button.cmd-dirty::after {
 }
 
 @media (max-width: 1100px) {
-  .status-grid,
   .workspace {
     grid-template-columns: 1fr;
   }
@@ -834,7 +808,6 @@ button.cmd-dirty::after {
     padding: 14px;
   }
 
-  .config-panel,
   .field-grid,
   .advanced-grid,
   .llama-summary,
@@ -848,10 +821,6 @@ button.cmd-dirty::after {
 
   .diagnostic-row {
     grid-template-columns: 1fr;
-  }
-
-  .span-2 {
-    grid-column: span 1;
   }
 }
 

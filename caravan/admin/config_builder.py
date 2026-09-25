@@ -460,9 +460,8 @@ LLAMA_PATH_PLACEHOLDER_SPEC = "{{SPEC_PATH}}"
 # Variant 2 architecture: this is the ONE place that turns the admin form config
 # into llama-server flags. Every consumer funnels through it:
 #   • local server   -> render_launch_script() generates start-server.sh
-#   • server cells    -> render_server_cell_script() (same generator)
-#   • remote clients  -> sent over the wire as payload["args"] (with path
-#                        placeholders the route-agent substitutes after download)
+#   • server cells    -> sent to the machine's scout as payload["args"] (with
+#                        path placeholders the scout substitutes after download)
 #   • GUI preview     -> POST /api/llama-command-preview
 # Adding a new flag means editing build_llama_args() and nothing else.
 # "Yes" is parsed the same way in the query string, a cell config, and a

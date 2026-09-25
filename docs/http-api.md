@@ -18,28 +18,28 @@ fails at import time.
 
 ## Dashboard & launch config
 
+The controller's own single server — `/api/action` (start/stop its service), `/api/revert`,
+`/api/backup`, `/api/backup/delete`, `/api/config/snapshot`, `/api/raw/start-server` and
+`/api/system-monitor/client-label` — went with its cells in step 6.9, together with the page parts
+that called them.
+
 | Method & path | Purpose |
 |---|---|
-| `GET /api/state` | Composite dashboard state: parsed launch config, models, service status, backups, field help. |
-| `POST /api/config` | Save launch config `{config, restart}` — rewrites the `# BEGIN/END LLAMA CONFIG` block (with backup), optional restart. |
-| `POST /api/config/snapshot` | Save a named config snapshot into `var/server-backups/`. |
+| `GET /api/state` | Composite dashboard state: parsed launch config, models, service status, field help. Heavy (it runs llama-server and a dozen git/systemctl commands) — pages read it once, on load. |
+| `GET /api/project-git` | The controller's own git branch, head and dirty count — what the board's live beat reads every 1.5 s (it read the whole `/api/state` for it until step 6.9). |
+| `POST /api/config` | Save the controller's own config `{config}` — its models directory and the defaults a new cell starts from; rewrites `start-server.sh` from it. |
 | `POST /api/config-favorites` | Persist the starred launch-form fields (Favorites tab). |
 | `POST /api/llama-command-preview` | Build the llama-server command line for a config dict (GUI diff preview). |
 | `POST /api/parse-extra-args` | Hoist recognized flags out of a raw `EXTRA_ARGS` string into structured fields. |
-| `POST /api/action` | Service action `{action: start\|stop\|restart}` on the managed llama service. |
-| `POST /api/revert` | Restore the newest `start-server.sh.bak.*`. |
-| `GET /api/backup?path=` | Read one backup's parsed config. |
-| `POST /api/backup/delete` | Delete a named backup. |
 | `POST /api/repair/user-service` | Rewrite/repair the `systemd --user` unit for the managed service. |
-| `GET /api/raw/start-server` | Raw text of `start-server.sh`. |
 | `GET /api/llamacpp` | llama.cpp build/version info (`?fetch_remote=1` compares upstream). |
 | `POST /api/llamacpp/update` | Pull + rebuild llama.cpp from git (background job). |
 | `GET /api/llamacpp/update-status` | Progress/log stream of the running build job. |
 | `GET /api/llamacpp/builds` | Archived controller builds (rollback points). |
 | `POST /api/llamacpp/restore` | Restore an archived build over the current binary. |
-| `POST /api/llamacpp/suspect-dismiss` | Dismiss the crash-watchdog "suspect build" banner (server-side, survives reloads). |
-| `GET /api/vllm` / `POST /api/vllm/update` | vLLM venv version/pip history / update or roll back the pinned version. |
-| `GET /api/controller-info` | System page payload: services, cells, git, python, models-disk numbers. |
+| `GET /api/fleet/vllm?hostId=` | vLLM on a machine with a scout (scout 2.9+): the machines to choose from (`machines: [{id, name, online, scoutVersion, controllerMachine}]`), the machine answered (`hostId` — this controller's own machine when none is named), the version its first vLLM start provisions (`pinnedDefault`) and that scout's `/api/vllm` (version, history, job). A scout older than 2.9.0, an unknown machine and no machines at all answer `ok: false` with the reason, without asking any scout. |
+| `POST /api/fleet/vllm/update` · `GET /api/fleet/vllm/update-status?hostId=` | Install another vLLM on that machine (`{hostId, version?}` — empty is the latest release, a version pins it: a rollback) and follow the job. The controller keeps no vLLM venv of its own since its machine's cells run through its scout. |
+| `GET /api/controller-info` | System page payload: services, git, python, models-disk numbers. (Its own cell counts went with its cells in step 6.9.) |
 | `GET /api/script-preview?host=&port=` | Rendered start.sh preview for a cell (read-only, $HOME-scoped, 64 KB cap). |
 
 ## Models & HuggingFace browser
@@ -83,9 +83,8 @@ fails at import time.
 | Method & path | Purpose |
 |---|---|
 | `GET /api/monitor/<kind>` | Terminal-style snapshot: `nvidia-smi`, `btop`, service logs… |
-| `GET /api/system-monitor` | CPU/RAM/disk/net/GPU sample history + llama activity. `?since=` sends only newer samples. `hosts` — the machines whose scout samples them second by second (scout 2.8+): `{hostId: [{t, gpus: [{index, memUsedMiB, memTotalMiB, utilPct, powerW, tempC}], cpuPct, ram}]}`, ten minutes by each scout's own clock, pulled in the background at most once a second while boards read this (HostTelemetry); `?hostsSince=id:t,id:t` names the newest row the board holds of each, and a machine it does not name comes back whole. |
+| `GET /api/system-monitor` | CPU/RAM/disk/net/GPU sample history + the requests in flight by route (`latest.correlatedActivity`, from the proxy's records). `?since=` sends only newer samples. (Until step 6.9 it also carried the controller's own single server: `llamaActivity`, `llamaClients`, `tokens` in a sample, `tokenGenSamples` and `clientLabels` beside them.) `hosts` — the machines whose scout samples them second by second (scout 2.8+): `{hostId: [{t, gpus: [{index, memUsedMiB, memTotalMiB, utilPct, powerW, tempC}], cpuPct, ram}]}`, ten minutes by each scout's own clock, pulled in the background at most once a second while boards read this (HostTelemetry); `?hostsSince=id:t,id:t` names the newest row the board holds of each, and a machine it does not name comes back whole. |
 | `POST /api/system-monitor/settings` | Set monitor retention seconds. |
-| `POST /api/system-monitor/client-label` | Label a client IP in the monitors. |
 | `GET /api/token-history?client=&range=` | Token-rate history (14 d ring). |
 | `GET /api/usage-stats?days=` | Usage & spend aggregation over proxy event logs. |
 | `GET /api/proxy-daily-stats?date=` | Per-route request/failure counts for a day. |
@@ -95,7 +94,7 @@ fails at import time.
 
 | Method & path | Purpose |
 |---|---|
-| `GET /api/topology` | The full fleet tree: hosts (machines with a scout, liveness computed on read), clients (made by hand) and their agents, servers, GPUs, proxies, routers, cloud. A machine's node has `role: "host"`, `ageSeconds` — seconds since its scout's last report (`null` when there was none) — and `scoutVersion`, empty for a 1.x scout. A client row is the operator's record only: a machine's report and liveness are in `hosts`, never merged into it. A controller cell that is starting from files it reads carries `loadProgress`: `{stage: starting\|reading\|stalled\|setup, read, total, speed?, left?, idle?, files: [{role, name, size, read, state: done\|reading\|waiting, library?}]}` — bytes, bytes per second, seconds; absent when the load cannot be measured (a mapped load, an unknown size). Every proxy carries `holders: [{hostId, agentId, role}]` — who holds the port, read by the same function `POST /api/topology/agent-proxy-bind` refuses by (one port, one owner, 409); empty when nobody holds it. `llamaSuspect` is this controller's own "fresh llama.cpp build, crashing cells" verdict; `hostSuspects` — a row per machine whose scout (2.6+) says the same of its build: the verdict (`crashes15m`, `builtAt`, `currentCommit`, `firstSeenAt`, `lastSeenAt`, `restoreCandidate`) with `hostId`, `name` and the `llamaBinaryVersion` it runs. A scout's remote cell with a crash note carries its last log lines in `crash.tail` (2.6+), and while its watchdog brings it back, `status.lastError: {kind, detail, tail}` as a cell of this controller has from its journal. |
+| `GET /api/topology` | The full fleet tree: hosts (machines with a scout, liveness computed on read), clients (made by hand) and their agents, servers, GPUs, proxies, routers, cloud. A machine's node has `role: "host"`, `ageSeconds` — seconds since its scout's last report (`null` when there was none) — and `scoutVersion`, empty for a 1.x scout. A client row is the operator's record only: a machine's report and liveness are in `hosts`, never merged into it. Every proxy carries `holders: [{hostId, agentId, role}]` — who holds the port, read by the same function `POST /api/topology/agent-proxy-bind` refuses by (one port, one owner, 409); empty when nobody holds it. `hostSuspects` — a row per machine whose scout (2.6+) says a fresh llama.cpp build crashes its cells: the verdict (`crashes15m`, `builtAt`, `currentCommit`, `firstSeenAt`, `lastSeenAt`, `restoreCandidate`) with `hostId`, `name` and the `llamaBinaryVersion` it runs. A scout's remote cell with a crash note carries its last log lines in `crash.tail` (2.6+), and while its watchdog brings it back, `status.lastError: {kind, detail, tail}` — what the attempt before died of. |
 | `POST /api/topology/client-heartbeat` | Scout heartbeat: the machine only — GPUs, compute apps, CPU/RAM, llama nodes, build versions. Replaces the machine's host record (`topology.hosts`) and touches no client; agent fields from old scouts are not read. Replies `{ok, host}`. |
 | `POST /api/topology/assignments` | Store client→router assignments (cable drops). |
 | `POST /api/topology/agent-proxy-bind` | Point an agent at a proxy port for one role: `{hostId, agentId, port, role: primary\|fallback}`. 404 for a client or an agent the operator's record does not have, 400 without a port or for a port with no route, 409 when another agent holds the port. |
@@ -112,13 +111,12 @@ fails at import time.
 | `POST /api/topology/client-llama/start` / `…/stop` | Start/stop a llama node on a client via its route-agent. |
 | `POST /api/topology/client-llama/purge-cache` | Clear a client's model cache. |
 | `POST /api/topology/server-slot/add` / `…/delete` | Declare/remove a persistent host:port server slot. |
-| `POST /api/topology/server-cell/action` | Cell lifecycle `{action: start\|stop\|restart\|enable\|disable\|delete}` (controller systemd or client via agent; `enable`/`disable` is autostart — on a scout's cell, 2.4+, it hands the scout the cell's start request, which it keeps and starts when its machine boots). A start also takes `modelFrom` when a library holds the model: `"disk"` answers `{ok, bringing}` — a move home, and the cell starts when it arrives — `"library"` starts now and reads it over the network, and an empty value lets the server decide (home if there is room). The start script is rewritten before every start, from where the files are at that moment. |
+| `POST /api/topology/server-cell/action` | Cell lifecycle `{action: start\|stop\|restart\|enable\|disable\|delete}`, through the scout of the cell's machine (the controller runs no cells; a cell on its id is refused, 400). `enable`/`disable` is autostart — on a scout's cell, 2.4+, it hands the scout the cell's start request, which it keeps and starts when its machine boots. A model in a library is read where it is: the scout gets its start line with the library path, built at every start from where the files are at that moment. (`modelFrom`, the controller's own cells' "disk or library" answer, went with those cells in step 6.9.) |
 | `POST /api/topology/server-cell/save-config` | Save a cell's config without starting it. A scout's cell with autostart on gets the new start request at once, or the next boot would bring back the old one; the answer carries `autostart: {ok, error?}` then. |
 | `POST /api/topology/server-cell/schedule` | Save a cell's start/stop window (`{enabled, start, stop, days[]}`). |
 | `POST /api/topology/server-cell/reassign-port` | Move a parked cell to a free port (fleet-wide check; router refs remapped `srv:old→srv:new`). |
 | `POST /api/topology/server-slot/note` | Save the free-text note on a cell card. |
 | `POST /api/fleet/llama-update` / `…/llama-restore` | Build/update llama.cpp on a client host via its scout / restore an archived client build. |
-| `POST /api/topology/cell/move-to-scout` | `{port, hostId}` — one cell of this controller handed to the scout of the machine it runs on (step 6.8 of the scout split): the slot is re-keyed with its config, model, label, note, schedule and command history; an enabled unit becomes the scout's autostart (the cell stays stopped) and is disabled; start.sh and cell.json go to `var/server-cells-moved/<port>-<stamp>`. Refused, changing nothing: a running cell (409), a scout of another machine (400), a port that machine already has (409). A scout that does not take the autostart, or a unit that does not disable, puts the slot back. |
 | `POST /api/fleet/llama-suspect-dismiss` | `{hostId}` — hide a machine's "fresh build, crashing cells" banner row for its current build; its scout remembers (scout 2.6+). The host record says "not suspect" at once. |
 | `GET /api/fleet/llama-update-status?hostId=` / `GET /api/fleet/llama-builds?hostId=` | Client build-job progress / archived builds on a client. |
 | `GET /api/queue-thresholds` / `POST /api/queue-thresholds/recalc` | Computed queue wait thresholds / force resync from OpenClaw. |

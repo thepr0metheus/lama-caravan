@@ -50,8 +50,7 @@ def main():
     # any writer needs it, and supervise the proxy as a child — the image has
     # no systemd unit to run it (see caravan/admin/proxy_supervisor.py).
     if DATA_DIR:
-        for sub in ("state", "config", "logs", "secrets", "models",
-                    "server-cells", "server-backups"):
+        for sub in ("state", "config", "logs", "secrets", "models", "server-backups"):
             (DATA_DIR / sub).mkdir(parents=True, exist_ok=True)
     if IS_CONTAINER:
         from caravan.admin import proxy_supervisor

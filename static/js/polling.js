@@ -1,40 +1,18 @@
-// State loading and polling loops: loadState/saveConfig, monitors, live refresh.
-import { formatEventTime, renderLlamaClientsInnerHtml } from "./charts.js";
+// State loading and polling loops: loadState, monitors, live refresh.
+import { formatEventTime } from "./charts.js";
 import { dirtyOptionalToggles } from "./constants.js";
 import { appPrompt } from "./dialogs.js";
-import { readConfigForm } from "./form.js";
 import { t } from "./i18n.js";
-import { closeConfirmModal } from "./llama-edit.js";
 import { _nvidiaSmiSource } from "./remote-cells.js";
 import { setState, state, topology, ui } from "./state.js";
-import {
-  renderCpu,
-  renderGpu,
-  renderKnownProblems,
-  renderProjectGitBranch,
-  renderRuntime,
-  renderService,
-} from "./system-panels.js";
+import { renderProjectGitBranch } from "./system-panels.js";
 import { proxyTelemetrySummary, refreshTopologyActivityState } from "./topology-activity.js";
 import { topologyPointerDrag } from "./topology-dnd.js";
 import { activeView, refreshTopology, renderAll } from "./topology-render.js";
 import { $, api, escapeHtml, toast } from "./utils.js";
 
-export function renderLiveCards() {
-  renderService();
-  renderRuntime();
-  renderCpu();
-  renderGpu();
-  renderKnownProblems();
-}
-
 export let liveRefreshTimer = null;
 export let liveRefreshInflight = false;
-export const tokenSpeedState = {
-  lastTime: null,
-  current: null,
-  previous: null,
-};
 
 export function metricNumber(value) {
   const number = Number(value);
@@ -52,27 +30,22 @@ export function formatTps(value) {
 // polling.js imports the form); re-exported so its readers keep this import.
 export { formatCtxTokens } from "./utils.js";
 
-export function liveRefreshDelay() {
-  const phase = state.runtime?.status?.phase;
-  return phase === "running" ? 5000 : 1500;
-}
+// The board's live beat. It was five seconds while the controller's own
+// single server ran and 1.5 s otherwise; that server went with the
+// controller's own cells in step 6.9, and 1.5 s is what the board has had.
+export const LIVE_REFRESH_MS = 1500;
 
+// The beat reads the git chip only, from its own small address. It fetched the
+// whole /api/state for it: every 1.5 s per open tab the controller launched
+// llama-server twice and ran a dozen git/systemctl/journalctl commands. (The
+// classic page, which read the rest, went in step 6.9; so did state.time,
+// which nothing read.)
 export async function refreshLiveState() {
   if (liveRefreshInflight) return;
   liveRefreshInflight = true;
   try {
-    const fresh = await api("/api/state");
-    state.service = fresh.service;
-    state.runtime = fresh.runtime;
-    state.cpu = fresh.cpu;
-    state.gpu = fresh.gpu;
-    state.memory = fresh.memory;
-    state.diagnostics = fresh.diagnostics;
-    state.logs = fresh.logs;
-    state.projectGit = fresh.projectGit;
-    state.time = fresh.time;
+    state.projectGit = await api("/api/project-git");
     renderProjectGitBranch();
-    renderLiveCards();
     if (activeView === "topology") {
       await refreshTopology();
     }
@@ -83,7 +56,7 @@ export async function refreshLiveState() {
   }
 }
 
-export function scheduleLiveRefresh(delay = liveRefreshDelay()) {
+export function scheduleLiveRefresh(delay = LIVE_REFRESH_MS) {
   clearTimeout(liveRefreshTimer);
   liveRefreshTimer = setTimeout(async () => {
     await refreshLiveState();
@@ -96,34 +69,6 @@ export async function loadState() {
   dirtyOptionalToggles.clear();
   renderAll();
   scheduleLiveRefresh();
-}
-
-export async function saveConfig(restart) {
-  const config = readConfigForm();
-  const data = await api("/api/config", {
-    method: "POST",
-    body: JSON.stringify({ config, restart }),
-  });
-  setState(data.state);
-  dirtyOptionalToggles.clear();
-  renderAll();
-  toast(restart ? t("savedRestarted") : t("saved"));
-}
-
-export async function action(name) {
-  try {
-    const data = await api("/api/action", {
-      method: "POST",
-      body: JSON.stringify({ action: name }),
-    });
-    setState(data.state);
-    closeConfirmModal();
-    renderAll();
-    toast(t("actionSent", { action: name }));
-    scheduleLiveRefresh(500);
-  } catch (err) {
-    toast(err.message);
-  }
 }
 
 
@@ -242,189 +187,10 @@ export function bindMonitorDrawer() {
   $("systemMonitorRetention")?.addEventListener("change", saveSystemMonitorRetention);
 }
 
-export function renderGpuUsers({ clients, activeSlots, recentRequests, gpuUtil, promptTps, predictTps, activity }) {
-  const timing = activity.lastTiming || {};
-  const context = activity.context || {};
-  const promptCache = activity.promptCache || {};
-  const recentByClient = activity.recentByClient || [];
-  const correlated = ui.latestSystemMonitor?.latest?.correlatedActivity || {};
-  const proxyAgents = ui.latestSystemMonitor?.latest?.agentProxies?.agents || {};
-  const correlatedProxyRows = [
-    ...(correlated.activeRequests || []),
-    ...(correlated.activeRequests?.length ? [] : (correlated.recentRequests || []).slice(0, 8)),
-  ].map((item) => `
-      <div class="system-user-row ${item.state === "active" ? "active" : "recent"} detailed proxy">
-        <div class="system-user-main">
-          <strong>${escapeHtml(item.label || `:${item.port}`)}</strong>
-          <code>${escapeHtml(`:${item.port || "?"} -> :${item.upstreamPort || 8080}`)}</code>
-          <span>${escapeHtml(`${item.method || "POST"} ${item.path || ""}`)}</span>
-        </div>
-        <div class="system-user-detail">
-          <span>${escapeHtml(item.state === "active" ? t("gpuUsersNow") : String(item.status || "?"))}</span>
-          <small>${escapeHtml(item.state === "active"
-            ? t("gpuUsersProxyActive", { client: item.client || "?", time: formatEventTime(item.startedAt) })
-            : t("gpuUsersProxyRecent", { status: item.status || "?", duration: String(item.durationMs || 0), time: formatEventTime(item.finishedAt) }))}</small>
-          <small>${escapeHtml([
-            `phase ${item.phase || "active"}`,
-            `bytes ${item.bytes || 0}`,
-            proxyTelemetrySummary(item),
-            item.correlation ? `via ${item.correlation}` : "",
-          ].filter(Boolean).join(" · "))}</small>
-        </div>
-      </div>
-  `).join("");
-  const proxyRows = correlatedProxyRows || Object.entries(proxyAgents).flatMap(([agent, row]) => {
-    const port = row.port || "?";
-    const active = (row.active || []).map((item) => `
-      <div class="system-user-row active detailed proxy">
-        <div class="system-user-main">
-          <strong>${escapeHtml(agent)}</strong>
-          <code>${escapeHtml(`:${port} -> :8080`)}</code>
-          <span>${escapeHtml(`${item.method || "POST"} ${item.path || ""}`)}</span>
-        </div>
-        <div class="system-user-detail">
-          <span>${escapeHtml(t("gpuUsersNow"))}</span>
-          <small>${escapeHtml(t("gpuUsersProxyActive", { client: item.client || "?", time: formatEventTime(item.startedAt) }))}</small>
-          <small>${escapeHtml([
-            `phase ${item.phase || "active"}`,
-            `bytes ${item.bytes || 0}`,
-            proxyTelemetrySummary(item),
-          ].filter(Boolean).join(" · "))}</small>
-        </div>
-      </div>
-    `);
-    const recent = (row.recent || []).slice(-3).reverse().map((item) => `
-      <div class="system-user-row recent detailed proxy">
-        <div class="system-user-main">
-          <strong>${escapeHtml(agent)}</strong>
-          <code>${escapeHtml(`:${port} -> :8080`)}</code>
-          <span>${escapeHtml(`${item.method || "POST"} ${item.path || ""}`)}</span>
-        </div>
-        <div class="system-user-detail">
-          <span>${escapeHtml(String(item.status || "?"))}</span>
-          <small>${escapeHtml(t("gpuUsersProxyRecent", { status: item.status || "?", duration: String(item.durationMs || 0), time: formatEventTime(item.finishedAt) }))}</small>
-          <small>${escapeHtml([
-            item.client || "?",
-            proxyTelemetrySummary(item),
-            item.error || "",
-          ].filter(Boolean).join(" · "))}</small>
-        </div>
-      </div>
-    `);
-    return active.length ? active : recent;
-  }).join("");
-  const activeRows = clients.map((row) => {
-    const name = row.clientName || row.clientIp || "unknown";
-    const endpoint = `${row.clientIp || "?"}${row.clientPort ? `:${row.clientPort}` : ` (${t("gpuUsersPortUnknown")})`}`;
-    const local = `${row.localIp || "?"}:${row.localPort || "?"}`;
-    return `
-      <div class="system-user-row active">
-        <strong>${escapeHtml(name)}</strong>
-        <code>${escapeHtml(endpoint)}</code>
-        <span>${escapeHtml(t("gpuUsersNow"))}</span>
-        <small>${escapeHtml(row.state || "ESTAB")} -> ${escapeHtml(local)} <button class="mini-link" type="button" data-client-label="${escapeHtml(row.clientIp || "")}">${escapeHtml(t("editClientLabel"))}</button></small>
-      </div>
-    `;
-  }).join("");
-  const slotRows = activeSlots.map((slot) => `
-    <div class="system-user-row ${slot.isProcessing ? "active" : ""}">
-      <strong>slot ${escapeHtml(String(slot.id ?? "?"))}</strong>
-      <code>${escapeHtml(t("llamaActivityTask"))} ${escapeHtml(String(slot.taskId ?? "-"))}</code>
-      <span>${escapeHtml(t(slot.isProcessing ? "llamaActivityProcessing" : "llamaActivityIdle"))}</span>
-      <small>${escapeHtml(t("llamaActivityDecodedRemain", { decoded: String(slot.decoded ?? 0), remain: String(slot.remain ?? 0) }))}</small>
-    </div>
-  `).join("");
-  const recentRows = recentRequests.slice().reverse().slice(0, 5).map((row) => `
-    <div class="system-user-row recent">
-      <strong>${escapeHtml(row.clientName || row.clientIp || "unknown")}</strong>
-      <code>${escapeHtml(row.method || "POST")} ${escapeHtml(row.path || "")}</code>
-      <span>${escapeHtml(row.status || "")}</span>
-      <small>${escapeHtml(row.time || "")}</small>
-    </div>
-  `).join("");
-  const byClientRows = recentByClient.map((row) => {
-    const timing = row.lastTiming || {};
-    const context = row.lastContext || {};
-    const timingText = (timing.promptTokens || timing.evalTokens)
-      ? t("gpuUsersClientTiming", {
-        count: String(row.count || 0),
-        status: String(row.lastStatus || "?"),
-        promptTokens: String(timing.promptTokens ?? 0),
-        promptTps: String(timing.promptTps ?? 0),
-        evalTokens: String(timing.evalTokens ?? 0),
-        evalTps: String(timing.evalTps ?? 0),
-      })
-      : `${row.count || 0} req, last ${row.lastStatus || "?"}`;
-    const contextText = context.tokens
-      ? ` · ${t("gpuUsersClientContext", {
-        tokens: String(context.tokens),
-        limit: String(context.limit || "?"),
-        pct: String(context.pct ?? "?"),
-      })}`
-      : "";
-    return `
-      <div class="system-user-row recent detailed">
-        <div class="system-user-main">
-          <strong>${escapeHtml(row.clientName || row.clientIp || "unknown")}</strong>
-          <code>${escapeHtml(row.lastPath || "/v1/chat/completions")}</code>
-          <span>${escapeHtml(row.lastTime || "")}</span>
-        </div>
-        <small>${escapeHtml(timingText + contextText)}</small>
-      </div>
-    `;
-  }).join("");
-  const speedLine = (gpuUtil > 0 || promptTps > 0 || predictTps > 0)
-    ? `<div class="system-activity-help">${escapeHtml(`GPU ${gpuUtil}% · prompt ${formatTps(promptTps)} t/s · predict ${formatTps(predictTps)} t/s`)}</div>`
-    : "";
-  const contextLine = context.tokens ? `
-    <div class="system-activity-help">${escapeHtml(t("gpuUsersContext", {
-      tokens: String(context.tokens),
-      limit: String(context.limit || "?"),
-      pct: String(context.pct ?? "?"),
-      remaining: String(context.remaining ?? "?"),
-    }))}</div>
-  ` : "";
-  const timingLine = (timing.promptTokens || timing.evalTokens) ? `
-    <div class="system-activity-help">${escapeHtml(t("gpuUsersTiming", {
-      promptTokens: String(timing.promptTokens ?? 0),
-      promptTps: String(timing.promptTps ?? 0),
-      evalTokens: String(timing.evalTokens ?? 0),
-      evalTps: String(timing.evalTps ?? 0),
-    }))}</div>
-  ` : "";
-  const cacheLine = promptCache.prompts ? `
-    <div class="system-activity-help">${escapeHtml(t("gpuUsersCache", {
-      prompts: String(promptCache.prompts),
-      used: String(Math.round(promptCache.usedMiB || 0)),
-      limit: String(Math.round(promptCache.limitMiB || 0)),
-      pct: String(promptCache.pct ?? "?"),
-    }))}</div>
-  ` : "";
-  return `
-    ${speedLine}
-    ${contextLine}
-    ${timingLine}
-    ${cacheLine}
-    ${proxyRows ? `<div class="system-activity-title">${escapeHtml(t("gpuUsersProxyPorts"))}</div>${proxyRows}` : ""}
-    ${activeRows}
-    ${slotRows}
-    ${byClientRows ? `<div class="system-activity-title">${escapeHtml(t("gpuUsersByClient"))}</div>${byClientRows}` : ""}
-    ${recentRows ? `<div class="system-activity-title">${escapeHtml(t("gpuUsersRecent"))}</div>${recentRows}` : ""}
-    ${proxyRows || activeRows || slotRows || byClientRows || recentRows ? "" : `<div class="system-process-empty">${escapeHtml(t("gpuUsersNoData"))}</div>`}
-  `;
-}
-
 export function renderSystemMonitor(data) {
   ui.latestSystemMonitor = data;
   if (activeView === "topology" && topology && !ui.topologyProxyFormOpen && !topologyPointerDrag) {
     refreshTopologyActivityState();
-    const clientsDynamic = document.querySelector(".topology-llama-clients-dynamic");
-    if (clientsDynamic) clientsDynamic.innerHTML = renderLlamaClientsInnerHtml();
-    const clientsCount = $("topologyLlamaClientsCount");
-    if (clientsCount) {
-      const clients = data.latest?.llamaClients?.clients || [];
-      clientsCount.textContent = clients.length || 0;
-    }
   }
 }
 
@@ -490,7 +256,6 @@ function mergeMonitor(payload) {
   const merged = {
     ...payload,
     samples: join(prev.samples, payload.samples),
-    tokenGenSamples: join(prev.tokenGenSamples, payload.tokenGenSamples),
     // Incidents keep their own retention, which is far longer than the sample
     // window — trimming them on the sample cutoff would erase the log.
     incidents: joinIncidents(prev.incidents, payload.incidents),
@@ -576,19 +341,4 @@ export async function saveSystemMonitorRetention() {
   }
 }
 
-export async function editClientLabel(ip) {
-  const current = (ui.latestSystemMonitor?.clientLabels || {})[ip] || "";
-  const label = await appPrompt(t("dlgClientLabel", { ip }), { value: current, confirmLabel: t("save") });
-  if (label === null) return;
-  try {
-    await api("/api/system-monitor/client-label", {
-      method: "POST",
-      body: JSON.stringify({ ip, label }),
-    });
-    await refreshSystemMonitor();
-    toast(t("saved"));
-  } catch (err) {
-    toast(err.message);
-  }
-}
 

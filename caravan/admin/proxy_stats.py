@@ -9,42 +9,6 @@ from caravan.admin.paths import AGENT_PROXY_LOG_DIR, AGENT_PROXY_STATE_FILE
 from caravan.common.errors import AppError
 
 
-def requests_by_client(recent_requests, timing_events, context_events):
-    grouped = {}
-    for request in recent_requests[-20:]:
-        key = request.get("clientIp") or request.get("clientName") or "unknown"
-        row = grouped.setdefault(key, {
-            "clientIp": request.get("clientIp"),
-            "clientName": request.get("clientName") or request.get("clientIp") or "unknown",
-            "count": 0,
-            "lastTime": "",
-            "lastStatus": "",
-            "lastPath": "",
-            "lastTiming": {},
-            "lastContext": {},
-        })
-        row["count"] += 1
-        row["lastTime"] = request.get("time") or row["lastTime"]
-        row["lastStatus"] = request.get("status") or row["lastStatus"]
-        row["lastPath"] = request.get("path") or row["lastPath"]
-        request_ts = iso_seconds(request.get("time"))
-        timing = nearest_event(timing_events, request_ts)
-        context = nearest_event(context_events, request_ts)
-        if timing:
-            row["lastTiming"] = timing
-        if context:
-            row["lastContext"] = context
-    return sorted(grouped.values(), key=lambda row: row.get("lastTime") or "", reverse=True)[:8]
-
-def proxy_item_timestamp(item):
-    if not isinstance(item, dict):
-        return None
-    for key in ("finishedAt", "startedAt"):
-        value = item.get(key)
-        if isinstance(value, (int, float)):
-            return float(value)
-    return iso_seconds(item.get("time"))
-
 def proxy_usage_tokens(item):
     if not isinstance(item, dict):
         return 0
@@ -347,27 +311,3 @@ def proxy_daily_stats(date_text=None):
             pass
 
     return {"date": date_text, "routes": routes}
-
-
-def iso_seconds(value):
-    try:
-        return datetime.fromisoformat(str(value)).timestamp()
-    except Exception:
-        return None
-
-def nearest_event(events, timestamp, max_delta=20):
-    if timestamp is None:
-        return None
-    best = None
-    best_delta = max_delta + 1
-    for event in events:
-        event_ts = iso_seconds(event.get("time"))
-        if event_ts is None:
-            continue
-        delta = abs(event_ts - timestamp)
-        if delta <= max_delta and delta < best_delta:
-            best = event
-            best_delta = delta
-    if not best:
-        return None
-    return {**best, "approximate": True, "deltaSec": round(best_delta, 1)}

@@ -11,9 +11,10 @@ Two small pieces the picker, the cell card and the start path lean on:
   expanded, and a multi-part GGUF's library size counts all its parts.
 * The board reads the last measurement and never waits for the NAS; a start
   waits for a fresh one.
-* A controller cell's card names which of its launch files only a library
-  holds, looked for where the start joins them, and its ≈VRAM badge counts
-  moved weights by the library's measure.
+* A cell's card names which of its launch files only a library holds, looked
+  for where the start joins them — for a cell of any machine: its scout reads
+  them there — and a parked cell's ≈VRAM badge counts moved weights by the
+  library's measure.
 * LibraryMeta keeps a GGUF header's facts for files that live in a library,
   read from the local copy before a move deleted it; a different size under
   the same name is another file and gets nothing.
@@ -133,72 +134,6 @@ def section_card():
     check(sizes == [9, 42, 0], f"≈VRAM стоящей ячейки: веса здесь — с диска, перенесённые — мера библиотеки (все части), нигде — ноль (got {sizes})")
 
 
-def section_load_sizes():
-    print("размеры для загрузки ячейки:")
-    from caravan.admin import topology
-    locs = model_locator.Locations(LIBS)
-    check((locs.library_file("/mnt/lib/M/a/Q4/m.gguf")[0]["id"], locs.library_file("/mnt/lib/M/a/Q4/m.gguf")[1]) == ("lib-a", 40),
-          "путь в доступной библиотеке — её запись и размер из её последнего осмотра")
-    check(locs.library_file("/mnt/lib/Big/x/Q8/big-00001-of-00002.gguf")[1] == 42, "многочастный GGUF — все его части")
-    check(locs.library_file("/mnt/ro/R/r.gguf")[1] == 3, "библиотека только для чтения — тоже библиотека")
-    check(locs.library_file("/mnt/old/Gone/g.gguf") == (None, 0),
-          "negative: библиотека не смонтирована — о файле ничего не известно, но путь всё равно её (смотреть туда нельзя)")
-    check(locs.library_file("/mnt/lib/Nope/n.gguf")[1] == 0, "negative: в доступной библиотеке, но не в её списке — ноль, а не догадка")
-    check([locs.library_file(p) for p in ("/models/Here/h.gguf", "/mnt/library/M/a/Q4/m.gguf", "")] == [None, None, None],
-          "negative: путь вне библиотек — None; папка, чьё имя лишь начинается как корень библиотеки, — не она")
-    twin = model_locator.Locations([
-        {"id": "a", "name": "First", "state": "ok", "path": "/mnt/a", "files": [{"path": "M/m.gguf", "size": 10}]},
-        {"id": "b", "name": "Second", "state": "ok", "path": "/mnt/b", "files": [{"path": "M/m.gguf", "size": 11}]}])
-    check(twin.library_file("/mnt/b/M/m.gguf")[1] == 11, "один путь в двух библиотеках — размер той, из которой читают, а не первой")
-
-    touched = []
-    saved = (os.path.isfile, os.path.getsize)
-    os.path.isfile = lambda p: touched.append(p) or saved[0](p)
-    os.path.getsize = lambda p: touched.append(p) or saved[1](p)
-    try:
-        lib = topology._load_file_size("/mnt/lib/M/a/Q4/m.gguf", locs)
-        dead = topology._load_file_size("/mnt/old/Gone/g.gguf", locs)
-        unlisted = topology._load_file_size("/mnt/lib/Nope/n.gguf", locs)
-        nas_touched = list(touched)
-        with tempfile.TemporaryDirectory() as tmp:
-            one = Path(tmp) / "load-one.gguf"
-            one.write_bytes(b"x" * 7)
-            for n in (1, 2):
-                (Path(tmp) / f"load-split-0000{n}-of-00002.gguf").write_bytes(b"x" * (5 * n))
-            here = topology._load_file_size(str(one), locs)
-            split = topology._load_file_size(str(Path(tmp) / "load-split-00001-of-00002.gguf"), locs)
-            missing = topology._load_file_size(str(Path(tmp) / "load-none.gguf"), locs)
-    finally:
-        os.path.isfile, os.path.getsize = saved
-    check((lib, nas_touched) == ((40, "NAS"), []), f"файл библиотеки: размер и её имя, без единого stat() (got {lib}, {nas_touched})")
-    check((dead, unlisted) == (None, None), "negative: библиотека недоступна или файла нет в её списке — не известно, и туда не смотрят")
-    check((here, split, missing) == ((7, None), (15, None), None),
-          f"файл этого диска — stat(), все части многочастного; нет файла — не известно (got {here}, {split}, {missing})")
-
-    calls = []
-
-    class Watch:
-        def look(self, port, pids, size_of):
-            calls.append(("look", port, sorted(pids), size_of("/mnt/lib/M/a/Q4/m.gguf")))
-            if port == 99:
-                raise OSError("proc gone")
-            return {"stage": "reading"}
-
-        def forget(self, port):
-            calls.append(("forget", port))
-    saved = (topology.LOAD_WATCH, topology.cell_unit_pids)
-    topology.LOAD_WATCH, topology.cell_unit_pids = Watch(), lambda port: {port + 1}
-    try:
-        got = [topology._cell_load(22001, phase, locs) for phase in ("starting", "warming", "running", "stopped", "error", "broken")]
-        failed = topology._cell_load(99, "warming", locs)
-    finally:
-        topology.LOAD_WATCH, topology.cell_unit_pids = saved
-    check(got == [{"stage": "reading"}, {"stage": "reading"}, None, None, None, None] and failed is None,
-          f"о загрузке спрашивают только стартующую и греющуюся ячейку; сбой замера — None, доска цела (got {got}, {failed})")
-    check(calls == [("look", 22001, [22002], (40, "NAS"))] * 2 + [("forget", 22001)] * 4 + [("look", 99, [100], (40, "NAS"))],
-          f"замер получает процессы ячейки и размеры из снимка библиотек; остальные ячейки забываются (got {calls})")
-
-
 def section_meta():
     print("запомненные заголовки:")
     with tempfile.TemporaryDirectory() as tmp:
@@ -243,7 +178,6 @@ def main():
     section_locations()
     section_current()
     section_card()
-    section_load_sizes()
     section_meta()
     print()
     if _fail:

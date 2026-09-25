@@ -10,14 +10,6 @@ import {
   renderTopologyCloudPicker,
   renderTopologyCloudProviders,
 } from "./cloud.js";
-import {
-  readConfigForm,
-  renderFields,
-  renderModelSelects,
-  renderRaw,
-  renderStaticConfigFields,
-  syncAllToggleLabels,
-} from "./form.js";
 import { appConfirm, appPrompt } from "./dialogs.js";
 import { applyLanguage, applyTheme, t } from "./i18n.js";
 import { fetchProxyDailyStats } from "./model-meta.js";
@@ -50,22 +42,15 @@ import { renderTopologyRouterCard, renderTopologyRouterDetail } from "./routers.
 import { setTopology, state, topology, ui } from "./state.js";
 import { SUSPECT_BANNER } from "./suspect-banner.js";
 import {
-  checkLlamaCpp,
-  renderCpu,
-  renderGpu,
   renderKnownProblems,
   renderLlamaCpp,
   renderProjectGitBranch,
-  renderRuntime,
   renderSectionTips,
-  renderService,
 } from "./system-panels.js";
 import {
   drawRouteTokenHistory,
   refreshTopologyActivityState,
-  topologyGpuActivity,
   topologyRouteDetailHtml,
-  topologyStateHealthClasses,
   topologyStatusPill,
   sortedLaneCards,
   sortedTopologyClients,
@@ -77,8 +62,6 @@ import {
 } from "./topology-dnd.js";
 import {
   recalcQueueThresholds,
-  renderTopologyGpuModal,
-  renderTopologyLlamaDetail,
   renderTopologyRawConfigModal,
   renderTopologyScheduleModal,
   topologyQueuePriorityModalOpen,
@@ -87,6 +70,8 @@ import {
   _collapsedNodes,
   applyNodesViewMode,
   hostAgeText,
+  hostPowerTextKey,
+  isControllerMachine,
   mountNodeTelemetry,
   nodesLaneHtml,
   nodeSparklineSvg,
@@ -123,10 +108,9 @@ export let _lastStructureFingerprint = "";
 // Perf: skip redundant per-tick DOM work when nothing has changed
 export let _lastRuntimePanelHtml = {};       // group -> last-rendered panel HTML (per-server cache)
 export function setActiveView(view) {
-  // Classic is retired — the app is Topology-only now. The old #classicView DOM
-  // is kept (hidden) because some bindings (#configForm, readConfigForm) still
-  // reference it; the two unique panels (llama.cpp build, Known Problems) moved
-  // into the System info modal.
+  // The board is the only view: the classic single-server view went with the
+  // controller's own cells in step 6.9 (its two unique panels, llama.cpp
+  // build and Known Problems, had already moved to the System page).
   activeView = "topology";
   localStorage.setItem("llamacppAdminView", activeView);
   document.querySelectorAll("[data-view-tab]").forEach((button) => {
@@ -158,9 +142,6 @@ export function renderTopology() {
   // Park live stat/chart elements back home before any innerHTML rebuild so we
   // never destroy them (they're re-mounted into the controller node below).
   parkLaneStats();
-  const server = topology.server || {};
-  const service = server.service || {};
-  const runtimeStatus = server.runtime?.status || {};
   const updated = topology.time ? new Date(topology.time * 1000).toLocaleTimeString() : "";
   const updatedEl = $("topologyUpdated");
   if (updatedEl) updatedEl.textContent = updated ? `${t("topologyUpdatedLabel")} ${updated}` : "";
@@ -200,9 +181,7 @@ export function renderTopology() {
 
   $("topologyProxies").innerHTML = [
     renderUsageStatsModal(),
-    renderTopologyGpuModal(),
     renderTopologyRawConfigModal(),
-    renderTopologyLlamaDetail(),
     renderTopologyCloudPicker(),
     renderTopologyCloudAccountModal(),
     renderTopologyCloudBlockModal(),
@@ -285,33 +264,10 @@ export function renderTopology() {
   // a download) even when no client-side placeholder initiated it.
   if (remoteStartupInFlight()) startRemoteStartWatch();
 
-  const gpuActivity = topologyGpuActivity();
-  // controller GPUs
-  const skynetGpuCards = (server.gpus || []).map((gpu) => {
-    const used = formatMemoryMiB(gpu.memoryUsedMiB);
-    const total = formatMemoryMiB(gpu.memoryTotalMiB);
-    const util = gpu.utilPct ?? gpu.utilizationGpuPct ?? 0;
-    const power = gpu.powerW ?? gpu.powerDrawW ?? "n/a";
-    return `
-      <article class="topology-card gpu-card ${escapeHtml(topologyStateHealthClasses(gpuActivity))}" data-topology-gpu-modal="${escapeHtml(String(gpu.index ?? 0))}" role="button" tabindex="0" title="Show Logs &amp; Raw API">
-        <div class="topology-card-head">
-          <strong>GPU ${escapeHtml(gpu.index ?? "?")}</strong>
-          ${topologyStatusPill(`${util}%`)}
-        </div>
-        <div class="topology-model">${escapeHtml(gpu.name || "GPU")}</div>
-        <div class="topology-meta">
-          <span>VRAM ${used} / ${total}</span>
-          <span>${escapeHtml(gpu.temperatureC ?? "n/a")}C</span>
-          <span>${escapeHtml(power)}W</span>
-          ${gpuActivity.label ? `<span class="topology-activity-chip ${escapeHtml(gpuActivity.state)}">${escapeHtml(gpuActivity.label)}</span>` : ""}
-        </div>
-        ${gpuActivity.summary ? `<div class="topology-telemetry-line server">${escapeHtml(gpuActivity.summary)}</div>` : ""}
-      </article>`;
-  });
-
-  // The GPUs of the machines whose scouts answer — shown alongside the
-  // controller's. They are the hosts' (topology.hosts), not the clients':
-  // a client is the operator's record and has no hardware of its own.
+  // The GPUs of the machines whose scouts answer — the controller's own
+  // machine among them (its own GPU cards, with the legacy logs modal, went
+  // with its cells in step 6.9). They are the hosts' (topology.hosts), not the
+  // clients': a client is the operator's record and has no hardware of its own.
   const remoteGpuCards = [];
   for (const host of (topology?.hosts || [])) {
     if (host.state !== "online") continue;
@@ -339,7 +295,7 @@ export function renderTopology() {
   }
 
   const gpusEl = $("topologyGpus");
-  if (gpusEl) gpusEl.innerHTML = [...skynetGpuCards, ...remoteGpuCards].join("") ||
+  if (gpusEl) gpusEl.innerHTML = remoteGpuCards.join("") ||
     `<article class="topology-card"><div class="topology-muted">${escapeHtml(t("topologyNoGpusDetected"))}</div></article>`;
   renderTopologyCloudProviders();
   bindTopologyDragAndDrop();
@@ -360,13 +316,10 @@ export function renderTopology() {
   $("topologyLlamaServers")?.querySelectorAll("[data-scout-disconnect]").forEach((btn) => {
     btn.addEventListener("click", () => disconnectScout(btn.dataset.scoutDisconnect));
   });
-  // Controller node: "Servers" header toggles the mounted Server telemetry slot.
+  // The controller machine's node: "Servers" header toggles the mounted
+  // Server stats slot.
   $("topologyLlamaServers")?.querySelectorAll("[data-ctrl-stats-toggle]").forEach((btn) => {
     btn.addEventListener("click", () => toggleCtrlServerStats(btn));
-  });
-  // Controller node: llama.cpp version refresh button
-  $("topologyLlamaServers")?.querySelectorAll("[data-check-llama-ver]").forEach((btn) => {
-    btn.addEventListener("click", () => checkLlamaCpp().catch((err) => toast(err.message)));
   });
   // Client nodes: update llama.cpp on the client to the controller's commit.
   // The scout runs it as a background job; its heartbeat flips the chip to a
@@ -392,10 +345,9 @@ export function renderTopology() {
     btn.addEventListener("click", async (event) => {
       event.stopPropagation();
       const hostId = btn.getAttribute("data-reboot-host") || "";
-      const isCtrl = /^(controller|skynet)$/i.test(hostId);
+      const isCtrl = isControllerMachine(hostId);
       const ok = await appConfirm(
-        t(isCtrl ? "hostRebootConfirmController" : "hostRebootConfirmClient")
-          .replace("{host}", hostId),
+        t(hostPowerTextKey(hostId, "reboot")).replace("{host}", hostId),
         { confirmLabel: t("hostRebootOk"), scene: "stop" });
       if (!ok) return;
       try {
@@ -425,10 +377,9 @@ export function renderTopology() {
     btn.addEventListener("click", async (event) => {
       event.stopPropagation();
       const hostId = btn.getAttribute("data-poweroff-host") || "";
-      const isCtrl = /^(controller|skynet)$/i.test(hostId);
+      const isCtrl = isControllerMachine(hostId);
       const typed = await appPrompt(
-        t(isCtrl ? "hostPowerOffConfirmController" : "hostPowerOffConfirmClient")
-          .replace("{host}", hostId),
+        t(hostPowerTextKey(hostId, "poweroff")).replace("{host}", hostId),
         { text: t("hostPowerOffWarning").replace("{host}", hostId),
           placeholder: hostId, confirmLabel: t("hostPowerOffOk"), scene: "stop" });
       // Cancel resolves null; an inexact answer is treated as cancel rather
@@ -525,7 +476,7 @@ export function topologyInteractionActive() {
 // phase (download %, t/s, ctx) are NOT in the phase, so they stay live-patched;
 // any phase transition (downloading→loading→running) is structural → full render.
 export function topologyServerPhase(s) {
-  return (s.phase) || (s.status && s.status.phase) || (s.isController ? "running" : "stopped");
+  return (s.phase) || (s.status && s.status.phase) || "stopped";
 }
 
 // Identity of the graph: anything that changes which cards/handles/cables exist
@@ -575,7 +526,7 @@ export function topologyStructureFingerprint() {
     .sort().join(",");
   const nodeSrv = (topology.nodes || [])
     .flatMap((n) => (n.servers || []).map((s) =>
-      `${n.id}/${s.port}:${s.model || ""}:${topologyServerPhase(s)}:${s.isController ? 1 : 0}:${s.reachable === false ? 0 : 1}`
+      `${n.id}/${s.port}:${s.model || ""}:${topologyServerPhase(s)}:${s.reachable === false ? 0 : 1}`
       + `:${s.bootEnabled ? 1 : 0}${s.bootSupported ? 1 : 0}`))
     .sort().join(",");
   const gpus = (topology.nodes || [])
@@ -620,10 +571,8 @@ export function applyTopologyUpdate() {
       b.forEach((v, i) => { if (v !== a[i]) console.debug(`[fp] ${parts[i]} changed:\n  was: ${a[i]}\n  now: ${v}`); });
     }
     renderTopology();          // structure changed → full rebuild
-  } else if (topologyNodesViewOn) {
-    syncTopologyLive();        // node view → patch volatile numbers, keep DOM + animations
   } else {
-    renderTopology();          // classic view (legacy) keeps its per-tick full render
+    syncTopologyLive();        // patch volatile numbers, keep DOM + animations
   }
 }
 
@@ -656,9 +605,6 @@ export function syncTopologyLive() {
   if (updatedEl && topology.time) {
     updatedEl.textContent = `${t("topologyUpdatedLabel")} ${new Date(topology.time * 1000).toLocaleTimeString()}`;
   }
-
-  // Node view is the only place we live-patch servers/GPUs (classic re-renders).
-  if (!topologyNodesViewOn) return;
 
   (topology.nodes || []).forEach((n) => {
     const nodeEl = document.querySelector(`.node-card[data-node-id="${CSS.escape(n.id)}"]`);
@@ -772,23 +718,8 @@ export function renderAll() {
   applyTheme();
   renderProjectGitBranch();
   renderSectionTips();
-  renderService();
-  renderRuntime();
-  renderCpu();
-  renderGpu();
   renderLlamaCpp();
   renderKnownProblems();
-  renderFields();
-  renderStaticConfigFields();
-  renderModelSelects();
-  syncAllToggleLabels();
-  // renderCommandPreview() is NOT called here. Unprefixed it targets
-  // #previewCmdline, which lives inside <main id="classicView" hidden> — the
-  // retired view. It POSTs /api/llama-command-preview, and the controller
-  // builds a full argument list, to paint a <pre> nobody can see. The cell
-  // editors call it with their own prefix when they open, which is the only
-  // place the preview is real.
-  renderRaw();
   renderTopology();
 }
 

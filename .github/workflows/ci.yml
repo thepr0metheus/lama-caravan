@@ -38,8 +38,11 @@ jobs:
           python3 scripts/test_vllm_shell_line.py
           python3 scripts/test_vram_reservation.py
           python3 scripts/test_host_telemetry.py
-          python3 scripts/test_cell_to_scout.py
           python3 scripts/test_scout_launch_parity.py
+          python3 scripts/test_vllm_machines.py
+          python3 scripts/test_host_power_schedule.py
+          python3 scripts/test_retired_routes.py
+          python3 scripts/test_monitor_sample.py
           python3 scripts/test_queue_thresholds.py
           python3 scripts/test_token_history.py
 
@@ -87,7 +90,6 @@ jobs:
           python3 scripts/test_proxy_store.py
           python3 scripts/test_auth_store.py
           python3 scripts/test_cloud_store.py
-          python3 scripts/test_slot_artifacts.py
           python3 scripts/test_scout_errors.py
           python3 scripts/test_query_flags.py
           python3 scripts/test_proxy_models.py
@@ -116,7 +118,6 @@ jobs:
           python3 scripts/test_model_stores.py
           python3 scripts/test_store_moves.py
           python3 scripts/test_model_locator.py
-          python3 scripts/test_load_progress.py
           python3 scripts/test_models_list.py
           python3 scripts/test_proxy_forward.py
           python3 scripts/test_api_body.py
@@ -130,7 +131,6 @@ jobs:
           python3 scripts/test_js_form.py
           python3 scripts/test_js_topology_activity.py
           python3 scripts/test_js_topology_nodes.py
-          python3 scripts/test_js_cell_load.py
           python3 scripts/test_js_llama_edit.py
           python3 scripts/test_js_remote_cells.py
           python3 scripts/test_js_scout_add.py

@@ -126,7 +126,7 @@ def check_runner_panel_fields():
     if not loader_panels:
         errors.append("could not find the runner-panel loader array in llama-edit.js")
 
-    for panel in re.findall(r'id="te-([a-zA-Z]+Fields)"', html):
+    for panel in re.findall(r'id="tr-([a-zA-Z]+Fields)"', html):
         if panel in ("llamaFields", "dynamicFields"):
             continue                      # llama fields load through their own path
         if panel not in PANEL_IDS:
@@ -138,18 +138,18 @@ def check_runner_panel_fields():
     # Which ids sit inside each panel: crude but enough — panels are flat blocks.
     inside = set()
     for panel in PANEL_IDS:
-        m = re.search(rf'id="te-{panel}"', html)
+        m = re.search(rf'id="tr-{panel}"', html)
         if not m:
             continue
         chunk = html[m.end():m.end() + 6000]
-        inside.update(re.findall(r'id="te-([A-Z][A-Z0-9_]*)"', chunk))
+        inside.update(re.findall(r'id="tr-([A-Z][A-Z0-9_]*)"', chunk))
 
     for field, where in NO_TAB.items():
         if "runner panel" not in where and "vLLM runner" not in where:
             continue
         if field not in inside:
             errors.append(f"{field} says it is rendered in a runner panel, but no "
-                          f'id="te-{field}" appears inside one — the loader cannot reach it')
+                          f'id="tr-{field}" appears inside one — the loader cannot reach it')
     return errors
 
 

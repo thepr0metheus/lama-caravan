@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""Value snapshot: how a cell reports that it HAS CRASHED.
+"""Value snapshot: the words a cell writes, read one way (CellWords).
 
-systemd brings a crashed cell back up, and a minute later the card is
-"running" again — an evening with three crashes in a row looked like smooth
-operation on the board (the 2026-09-06 production case: Xid 8, "CUDA error:
-the launch timed out"). The fresh-build watcher doesn't catch this by
-construction: it only looks near a fresh binary and requires three crashes
-in 15 minutes.
+A cell tells why it would not start, where its start is, and what killed it
+only in its own lines — llama.cpp's, vLLM's, the driver's, a launch
+script's. Its scout carries them to the board: a crash note (the reason and
+the last lines) and the lines written while the port did not listen yet.
+The controller reads them with one vocabulary, whoever carried them. Until
+step 6.9 it read the journal of its own cells with the same words; those
+cells moved to its machine's scout, and the journal parse went with them.
 
-What's pinned is the journal PARSE: the count comes from systemd, the time
-from the "Main process exited" line, the reason from the last line ABOVE it
-that actually says something relevant; the kind of crash is told apart by the
-driver's and llama.cpp's own words.
+What is pinned is the vocabulary as values: every word of every table gives
+its own kind (no entry swallowed by an earlier one — one is, as-is, below),
+the order that decides a line naming two kinds, and what comes back when no
+word says anything. How a crash note reaches the card is pinned in
+test_topology_remote_cells.py.
 
 Run: python3 scripts/test_cell_crash.py
 """
@@ -21,7 +23,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from caravan.admin import systemd_ctl  # noqa: E402
+from caravan.admin.cell_words import CellWords  # noqa: E402
 
 _fail = []
 
@@ -32,103 +34,79 @@ def check(cond, msg):
         _fail.append(msg)
 
 
-GPU_HANG = """2026-09-06T21:52:05+0400 linux start.sh[2156731]: 8.46.900.000 I slot print_timing: id 0 | task 2443 | n_decoded = 203
-2026-09-06T21:52:14+0400 linux start.sh[2156731]: /home/user/llama.cpp/ggml/src/ggml-cuda/ggml-cuda.cu:106: CUDA error
-2026-09-06T21:52:14+0400 linux start.sh[2156731]: 8.46.933.879 E CUDA error: the launch timed out and was terminated
-2026-09-06T21:52:14+0400 linux start.sh[2156731]: 8.46.933.882 E   current device: 0, in function ggml_backend_cuda_synchronize
-2026-09-06T21:52:16+0400 linux systemd[1677]: lama-cell@22011.service: Main process exited, code=dumped, status=6/ABRT
-2026-09-06T21:52:26+0400 linux systemd[1677]: lama-cell@22011.service: Scheduled restart job, restart counter is at 3.
-"""
-
-OOM = """2026-09-06T10:00:00+0400 linux start.sh[9]: ggml_backend_cuda_buffer_type_alloc_buffer: allocating 22 GiB
-2026-09-06T10:00:01+0400 linux start.sh[9]: cudaMalloc failed: out of memory
-2026-09-06T10:00:02+0400 linux systemd[1]: lama-cell@22002.service: Main process exited, code=exited, status=1/FAILURE
-"""
-
-QUIET = """2026-09-06T10:00:02+0400 linux systemd[1]: lama-cell@22003.service: Main process exited, code=killed, status=15/TERM
-"""
-
-NO_EXIT = """2026-09-06T10:00:00+0400 linux start.sh[9]: 0.00.1 I srv llama_server: listening on http://0.0.0.0:22004
-"""
+def every_word(table, read):
+    """[(kind, word, what reading the word alone gives)] for a table."""
+    return [(kind, word, read(word)) for kind, words in table for word in words]
 
 
-def _with_journal(text):
-    systemd_ctl.run = lambda *a, **k: {"ok": True, "stdout": text, "stderr": ""}
-    systemd_ctl._cell_crash_cache.clear()
+def test_failure_kind():
+    print("почему ячейка не стартовала (failure_kind):")
+    check([kind for kind, _ in CellWords.FAILURE] == ["exec", "oom", "model", "port"],
+          "виды по порядку: exec, oom, model, port — порядок и есть правило")
+    wrong = [(k, w, got) for k, w, got in every_word(CellWords.FAILURE, CellWords.failure_kind) if got != k]
+    check(wrong == [], f"каждое слово таблицы даёт свой вид — ни одно не съедено более ранним (got {wrong})")
+    guards = [CellWords.failure_kind(w) for w in (
+        "Model not found: /home/x/models/M/m.gguf", "MMProj not found: /home/x/models/M/p.gguf",
+        "Spec draft not found: /mnt/lib/M/d.gguf", "Library not mounted: NAS (/mnt/lib)")]
+    check(guards == ["model"] * 4,
+          f"слова скрипта запуска — «нет модели», «нет проектора», «нет черновика», «библиотека не смонтирована» — "
+          f"это «модель», а не необъяснимый крэш (got {guards})")
+    check(CellWords.failure_kind("cudaMalloc failed: out of memory\nllama_model_load: error loading model") == "oom",
+          "нехватка памяти важнее «модели»: такой лог всегда заканчивается и «error loading model»")
+    check(CellWords.failure_kind("bind: Address already in use") == "port"
+          and CellWords.failure_kind("status=203/EXEC") == "exec",
+          "регистр не важен: «Address already in use» — порт, «203/EXEC» — не нашёлся исполняемый файл")
+    check(CellWords.failure_kind("gguf_init_from_file: failed to open /m/x.gguf: Permission denied") == "exec",
+          "as-is: «Permission denied» — всегда exec, даже про файл модели: exec стоит первым")
+    check([CellWords.failure_kind(w) for w in ("Segmentation fault (core dumped)", "", None)] == ["crash"] * 3,
+          "negative: незнакомые слова, пусто, None — «crash», а не выдуманная причина")
 
 
-def test_crash_note():
-    print("разбор падения:")
-    _with_journal(GPU_HANG)
-    note = systemd_ctl.cell_crash_note(22011, 3)
-    check(note["count"] == 3, f"счёт берётся у systemd, а не из журнала (got {note['count']})")
-    check(note["at"] == "2026-09-06T21:52:16+0400",
-          f"время — у строки «Main process exited» (got {note['at']!r})")
-    check(note["kind"] == "gpu-hang", f"вид: зависание карты (got {note['kind']!r})")
-    check(note["reason"] == "8.46.933.879 E CUDA error: the launch timed out and was terminated",
-          f"причина — слова самой смерти, а не «code=dumped» (got {note['reason']!r})")
-
-    _with_journal(OOM)
-    note = systemd_ctl.cell_crash_note(22002, 1)
-    check(note["kind"] == "gpu-oom" and "out of memory" in note["reason"],
-          f"нехватка памяти отличается от зависания (got {note['kind']!r} {note['reason']!r})")
-
-    _with_journal(QUIET)
-    note = systemd_ctl.cell_crash_note(22003, 1)
-    check(note["reason"].startswith("lama-cell@22003.service: Main process exited"),
-          f"нечего процитировать — цитируется сама строка systemd (got {note['reason']!r})")
-
-    _with_journal(NO_EXIT)
-    note = systemd_ctl.cell_crash_note(22004, 1)
-    check(note["at"] == "" and note["reason"] == "",
-          f"systemd перезапускал, а в журнале за сутки следа нет — пусто, а не выдумка (got {note!r})")
-
-    print("отрицательные:")
-    _with_journal(GPU_HANG)
-    check(systemd_ctl.cell_crash_note(22011, 0) is None,
-          "ноль перезапусков — записи нет вовсе (и журнал не читается)")
-    check(systemd_ctl.cell_crash_note(22011, None) is None, "None — тоже ноль")
-    check(systemd_ctl.cell_crash_note(22011, "мусор") is None, "мусор вместо числа — ноль")
-    calls = []
-    systemd_ctl.run = lambda *a, **k: (calls.append(a), {"ok": True, "stdout": GPU_HANG, "stderr": ""})[1]
-    systemd_ctl._cell_crash_cache.clear()
-    systemd_ctl.cell_crash_note(22011, 3)
-    systemd_ctl.cell_crash_note(22011, 3)
-    check(len(calls) == 1, f"второй вызов подряд журнал не перечитывает (got {len(calls)})")
-    systemd_ctl.cell_crash_note(22011, 4)
-    check(len(calls) == 2, "а новое падение (счёт вырос) перечитывает сразу, не дожидаясь TTL")
-
-
-def test_last_error_kinds():
-    print("почему ячейка не стартовала:")
-
-    def kind_of(text):
-        systemd_ctl.run = lambda *a, **k: {"ok": True, "stdout": text, "stderr": ""}
-        systemd_ctl._cell_err_cache.clear()
-        res = systemd_ctl.cell_last_error(22011)
-        return res and res["kind"]
-    guards = [kind_of("Model not found: /home/x/models/M/m.gguf"), kind_of("MMProj not found: /home/x/models/M/p.gguf"),
-              kind_of("Spec draft not found: /mnt/lib/M/d.gguf"), kind_of("Library not mounted: NAS (/mnt/lib)")]
-    check(guards == ["model", "model", "model", "model"],
-          f"слова самого скрипта запуска — «нет модели», «нет проектора», «нет черновика», «библиотека не смонтирована» — это "
-          f"причина «модель», а не необъяснимый крэш: скрипт останавливает старт раньше llama.cpp (got {guards})")
-    check(kind_of("cudaMalloc failed: out of memory\nllama_model_load: error loading model") == "oom",
-          "negative: нехватка памяти по-прежнему важнее «модели» — такой лог всегда заканчивается и «error loading model»")
-    check(kind_of("Segmentation fault (core dumped)") == "crash", "negative: незнакомые слова — крэш, а не выдуманная причина")
-    words = ["Model not found: /m/m.gguf", "cudaMalloc failed: out of memory\nerror loading model",
-             "bind: address already in use", "status=203/EXEC", "Segmentation fault", ""]
-    check([systemd_ctl.crash_kind(w) for w in ("died of SIGKILL", "died of SIGSEGV", "died of SIGABRT")]
+def test_crash_kind():
+    print("чем ячейка УПАЛА (crash_kind):")
+    check([kind for kind, _ in CellWords.CRASH] == ["gpu-hang", "gpu-oom", "assert", "killed"],
+          "виды по порядку: gpu-hang, gpu-oom, assert, killed")
+    wrong = [(k, w, got) for k, w, got in every_word(CellWords.CRASH, CellWords.crash_kind) if got != k]
+    check(wrong == [("killed", "out of memory: killed process", "gpu-oom")],
+          f"as-is: одно слово таблицы съедено — OOM-киллер ядра («Out of memory: Killed process») читается как "
+          f"нехватка памяти КАРТЫ: gpu-oom стоит раньше (got {wrong})")
+    check(CellWords.crash_kind("CUDA error: the launch timed out and was terminated") == "gpu-hang",
+          "Xid 8 с карты (прод 2026-09-06) — зависание карты")
+    check(CellWords.crash_kind("NVRM: Xid 31, out of memory") == "gpu-hang",
+          "зависание важнее нехватки: строка с Xid и «out of memory» — gpu-hang")
+    check(CellWords.crash_kind("cudaMalloc failed: out of memory") == "gpu-oom",
+          "нехватка памяти карты отличается от зависания")
+    check(CellWords.crash_kind("GGML_ASSERT(n > 0) failed") == "assert", "проверка llama.cpp — assert")
+    check([CellWords.crash_kind(w) for w in ("died of SIGKILL", "died of SIGSEGV", "died of SIGABRT")]
           == ["killed", "crash", "crash"],
-          "скаут 2.6 называет сигнал: SIGKILL — «убита», SIGSEGV/SIGABRT — «крэш»; negative: слово «died» само по себе не вид")
-    check(systemd_ctl.progress_note_of("Loading safetensors checkpoint shards\nstarting vLLM API server") == "starting API"
-          and systemd_ctl.progress_note_of("nothing here") == "" and systemd_ctl.progress_note_of(None) == "",
-          "стадия старта — по последней строке, где она названа; нет слов — пусто; одно правило для журнала и строк скаута")
-    check([systemd_ctl.cell_failure_kind(w) for w in words] == ["model", "oom", "port", "exec", "crash", "crash"],
-          "одно правило вида: те же слова дают тот же вид и для строк, которые прислал скаут, — без журнала")
+          "скаут 2.6 называет сигнал: SIGKILL — «убита», SIGSEGV/SIGABRT — «крэш»; negative: «died» само по себе не вид")
+    check([CellWords.crash_kind(w) for w in ("exited (code 1)", "", None)] == ["crash"] * 3,
+          "negative: незнакомые слова, пусто, None — «crash»")
 
 
-test_crash_note()
-test_last_error_kinds()
+def test_progress_note():
+    print("где сейчас старт (progress_note):")
+    check([label for label, _ in CellWords.PROGRESS] == [
+        "starting API", "capturing CUDA graphs", "compiling kernels", "loading weights",
+        "downloading model", "provisioning venv", "warming up"],
+          "стадии — от поздней к ранней")
+    wrong = [(k, w, got) for k, w, got in every_word(CellWords.PROGRESS, CellWords.progress_note) if got != k]
+    check(wrong == [], f"каждое слово таблицы даёт свою стадию (got {wrong})")
+    check(CellWords.progress_note("Loading safetensors checkpoint shards\nstarting vLLM API server") == "starting API",
+          "решает ПОСЛЕДНЯЯ строка, где стадия названа: заметка идёт за стартом")
+    check(CellWords.progress_note("starting vLLM API server\nLoading safetensors checkpoint shards") == "loading weights",
+          "negative: не самая поздняя стадия из всех строк, а последняя строка")
+    check(CellWords.progress_note("loading weights\nnothing to see\n\n") == "loading weights",
+          "строки без слов пропускаются — берётся последняя, где слово есть")
+    check(CellWords.progress_note("torch.compile took 12 s, capturing CUDA graph 3/67") == "capturing CUDA graphs",
+          "строка с двумя стадиями — более поздняя по таблице")
+    check([CellWords.progress_note(w) for w in ("nothing here", "", None)] == ["", "", ""],
+          "negative: нет слов, пусто, None — пустая заметка, а не выдуманная стадия")
+
+
+test_failure_kind()
+test_crash_kind()
+test_progress_note()
 
 print()
 if _fail:
@@ -136,4 +114,4 @@ if _fail:
     for m in _fail:
         print("  - " + m)
     sys.exit(1)
-print("all cell-crash snapshots hold")
+print("all cell-words snapshots hold")
