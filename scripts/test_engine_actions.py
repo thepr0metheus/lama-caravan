@@ -103,6 +103,25 @@ def test_act():
     actions.act("box-a", "load", "ollama", "qwen3:8b")
     same((store["hosts"]["box-a"]["engines"], len(saves)), ([ENGINE], 0),
          "negative: скаут не назвал движков — запись не тронута и не сохранена (не стёрта в «нет движков»)")
+    actions, scouts, store, saves = rig(answer={"ok": True, "engines": AFTER})
+    actions.act("box-a", "load", "ollama", "qwen3:8b", None, force=True, hold=900)
+    same(scouts["box-a"].calls[0][1], {"kind": "ollama", "port": 11500, "model": "qwen3:8b", "force": True, "hold": 900},
+         "«грузить всё равно» и сколько держать (скаут 2.15) — скауту как есть")
+    actions, scouts, store, saves = rig(answer={"ok": True, "engines": AFTER})
+    actions.act("box-a", "load", "ollama", "qwen3:8b", None, force="yes", hold="")
+    same(scouts["box-a"].calls[0][1], {"kind": "ollama", "port": 11500, "model": "qwen3:8b"},
+         "negative: force не true и пустой срок — не отправляются: скаут решает сам (спросит о памяти, держит до выгрузки)")
+    short = {"needBytes": 45097156608, "freeBytes": 1048576000, "basis": "weights",
+             "error": "big:70b needs at least about 42.0 GiB of VRAM, the cards have 1.0 GiB free"}
+    actions, scouts, store, saves = rig(answer={"ok": False, "short": short, "error": short["error"],
+                                                "engines": [dict(ENGINE)]})
+    same(actions.act("box-a", "load", "ollama", "qwen3:8b"),
+         {"ok": False, "hostId": "box-a", "kind": "ollama", "model": "qwen3:8b", "op": "load",
+          "short": {"needBytes": 45097156608, "freeBytes": 1048576000, "basis": "weights"}},
+         "не влезет (скаут 2.15) — не отказ и не успех: вопрос оператору, с числами")
+    actions, scouts, store, saves = rig(answer={"ok": True, "short": short, "engines": AFTER})
+    same(actions.act("box-a", "load", "ollama", "qwen3:8b")["ok"], True,
+         "negative: скаут начал загрузку (ok) — лишнее поле short ничего не значит")
     actions, *_r = rig(raises=AppError("box-a: qwen3:8b is loaded already", 502))
     same(refusal(lambda: actions.act("box-a", "load", "ollama", "qwen3:8b")),
          (502, "box-a: qwen3:8b is loaded already"), "отказ скаута — его словами, как есть")
@@ -134,18 +153,20 @@ def test_route():
     seen = []
     real_act, real_state = EngineActions.act, routes.topology_state
     try:
-        EngineActions.act = lambda self, *a: (seen.append(a), {"ok": True, "op": a[1]})[1]
+        EngineActions.act = lambda self, *a, **kw: (seen.append((*a, kw)), {"ok": True, "op": a[1]})[1]
         routes.topology_state = lambda **kw: {"board": True, **kw}
         sent = []
         for path in ("/api/engines/load", "/api/engines/unload"):
             h = _H()
             routes._post_api_engines_act(h, types.SimpleNamespace(path=path),
-                                         {"hostId": "box-a", "kind": "ollama", "model": "qwen3:8b", "contextLength": 8192})
+                                         {"hostId": "box-a", "kind": "ollama", "model": "qwen3:8b", "contextLength": 8192,
+                                          "force": path == "/api/engines/load" or "yes", "hold": 900})
             sent += h.sent
     finally:
         EngineActions.act, routes.topology_state = real_act, real_state
-    same(seen, [("box-a", "load", "ollama", "qwen3:8b", 8192), ("box-a", "unload", "ollama", "qwen3:8b", 8192)],
-         "действие — из пути, остальное — из тела как есть")
+    same(seen, [("box-a", "load", "ollama", "qwen3:8b", 8192, {"force": True, "hold": 900}),
+                ("box-a", "unload", "ollama", "qwen3:8b", 8192, {"force": False, "hold": 900})],
+         "действие — из пути, остальное — из тела как есть; «грузить всё равно» — только настоящее true")
     same(sent, [{"ok": True, "op": op, "topology": {"board": True, "refresh_hosts": False}} for op in ("load", "unload")],
          "ответ — что сделано и доска, без нового опроса машин")
 

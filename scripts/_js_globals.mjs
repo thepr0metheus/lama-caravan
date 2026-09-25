@@ -15,12 +15,14 @@ globalThis.window = globalThis;
 // Сеть под снимком не нужна и не должна быть: fetch записывает вызовы в
 // globalThis.__fetchCalls (path, method, body) и отвечает тем, что лежит в
 // globalThis.__fetchReply[path] (или {ok:true}). Так пинится то, что уходит
-// на провод, — а не ответ сервера.
+// на провод, — а не ответ сервера. Ответ-функция зовётся на каждый вызов
+// ({method, body}) — для пути, который отвечает по-разному второй раз.
 globalThis.__fetchCalls = [];
 globalThis.__fetchReply = {};
 globalThis.fetch = async (path, opts = {}) => {
   globalThis.__fetchCalls.push({ path: String(path), method: opts.method || "GET", body: opts.body === undefined ? null : opts.body });
-  const reply = Object.prototype.hasOwnProperty.call(globalThis.__fetchReply, String(path)) ? globalThis.__fetchReply[String(path)] : { ok: true };
+  const stored = Object.prototype.hasOwnProperty.call(globalThis.__fetchReply, String(path)) ? globalThis.__fetchReply[String(path)] : { ok: true };
+  const reply = typeof stored === "function" ? stored({ method: opts.method || "GET", body: opts.body }) : stored;
   const status = (reply && typeof reply === "object" && typeof reply.__status === "number") ? reply.__status : 200;
   return new Response(JSON.stringify(reply), { status, headers: { "content-type": "application/json" } });
 };

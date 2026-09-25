@@ -42,11 +42,30 @@ const m = await import(pathToFileURL(process.env.JS_ROOT + "/dialogs.js").href);
 const cls = () => { const s = new Set(); return { add: (c) => s.add(c), remove: (c) => s.delete(c), toggle: (c, on) => (on ? s.add(c) : s.delete(c)), has: (c) => s.has(c) }; };
 const focusLog = [];
 const node = (name) => ({ name, textContent: "", hidden: false, value: "", type: "text", autocomplete: "", placeholder: "", onkeydown: null, innerHTML: "", dataset: {}, classList: cls(), focus() { focusLog.push(name); }, select() {} });
+// The meta box of a prompt with choices: its buttons are read back from the
+// markup the module wrote, once per markup, so a click handler set on one
+// stays on it.
+const metaNode = () => {
+  const n = node("meta");
+  let cache = { html: null, list: [] };
+  n.querySelectorAll = () => {
+    if (cache.html !== n.innerHTML) {
+      cache = { html: n.innerHTML, list: [...n.innerHTML.matchAll(/data-choice="([^"]*)"\s*aria-checked="(true|false)">([^<]*)</g)]
+        .map((x) => ({ dataset: { choice: x[1] }, label: x[3], attrs: { "aria-checked": x[2] }, onclick: null,
+          setAttribute(k, v) { this.attrs[k] = v; } })) };
+    }
+    return cache.list;
+  };
+  return n;
+};
+const chips = () => F().confirmMeta.querySelectorAll().map((b) => [b.dataset.choice, b.attrs["aria-checked"], b.label]);
+const HOLDS = { choiceLabel: "Unload when unused for", choice: "-1",
+  choices: [{ value: "900", label: "15 min" }, { value: "3600", label: "1 h" }, { value: "-1", label: "until I unload it" }] };
 const build = () => {
   const modal = { dataset: {} };
   globalThis.__fields = {
     confirmOverlay: { hidden: true, dataset: {}, querySelector: (sel) => (sel === ".modal" ? modal : null) },
-    confirmTitle: node("title"), confirmText: node("text"), confirmMeta: node("meta"), confirmPath: node("path"),
+    confirmTitle: node("title"), confirmText: node("text"), confirmMeta: metaNode(), confirmPath: node("path"),
     confirmInput: node("input"), confirmInputHint: node("hint"), confirmDelete: node("ok"), confirmCancel: node("cancel"),
   };
   return modal;
@@ -134,6 +153,46 @@ PINS = [
      '(() => { m.appPrompt("Name", { placeholder: "x" }); const shown = !F().confirmInputHint.hidden; m.settleAppConfirm(false); const afterSettle = F().confirmInputHint.hidden; m.appConfirm("Sure?"); const inConfirm = F().confirmInputHint.hidden; m.settleAppConfirm(false); return [shown, afterSettle, inConfirm]; })()',
      '[true,true,true]',
      "negative: клавиша видна только в открытом prompt: после закрытия и у обычного confirm она скрыта"),
+    ("choice_shows_its_choices",
+     '',
+     '(() => { m.appPromptChoice("Context window for m", HOLDS); return [F().confirmMeta.hidden, chips(), /data-t="confirm-choice"/.test(F().confirmMeta.innerHTML), /dlg-choices-label">Unload when unused for</.test(F().confirmMeta.innerHTML), F().confirmInput.hidden, modalOf().dataset.tone, F().confirmDelete.classList.has("danger")]; })()',
+     '[false,[["900","false","15 min"],["3600","false","1 h"],["-1","true","until I unload it"]],true,true,false,"ask",false]',
+     "prompt с выбором: варианты — кнопками в meta, нажат заданный; подпись — над ними; поле ввода видно; тон «спросить», кнопка не опасная"),
+    ("choice_answer_is_text_and_choice",
+     '',
+     'await (async () => { const p = m.appPromptChoice("W", HOLDS); F().confirmInput.value = "4096"; m.settleAppConfirm(true); return [await p, F().confirmMeta.hidden, F().confirmMeta.innerHTML]; })()',
+     '[{"value":"4096","choice":"-1"},true,""]',
+     "ответ — текст и нажатый вариант; после — meta скрыта и пуста"),
+    ("choice_click_moves_the_press",
+     '',
+     'await (async () => { const p = m.appPromptChoice("W", HOLDS); const b = F().confirmMeta.querySelectorAll(); b[0].onclick(); const pressed = chips().map((c) => c[1]); m.settleAppConfirm(true); return [pressed, await p]; })()',
+     '[["true","false","false"],{"value":"","choice":"900"}]',
+     "нажатие переносит выбор: нажат один, и ответ — он"),
+    ("choice_cancel_is_null_and_forgets",
+     '',
+     'await (async () => { const p = m.appPromptChoice("W", HOLDS); F().confirmMeta.querySelectorAll()[1].onclick(); m.settleAppConfirm(false); const a = await p; const q = m.appPromptChoice("W", { choices: [] }); m.settleAppConfirm(true); const r = m.appPrompt("Name"); F().confirmInput.value = "x"; m.settleAppConfirm(true); return [a, await q, await r]; })()',
+     '[null,{"value":"","choice":null},"x"]',
+     "negative: отмена — null; выбор не переживает диалог: следующий без вариантов отвечает choice null, обычный prompt — строкой"),
+    ("choice_forgotten_when_reopened_unsettled",
+     '',
+     'await (async () => { m.appPromptChoice("W", HOLDS); F().confirmMeta.querySelectorAll()[0].onclick(); const q = m.appPromptChoice("W2", { choices: [] }); m.settleAppConfirm(true); return await q; })()',
+     '{"value":"","choice":null}',
+     "negative: второй диалог открыт поверх неотвеченного первого — выбор первого ему не достаётся"),
+    ("choice_unknown_default_is_first",
+     '',
+     '(() => { m.appPromptChoice("W", { ...HOLDS, choice: "86400" }); return chips().map((c) => c[1]); })()',
+     '["true","false","false"]',
+     "boundary: заданного варианта нет среди кнопок — нажат первый, а не ни один"),
+    ("choice_labels_escaped",
+     '',
+     '(() => { m.appPromptChoice("W", { choiceLabel: "<i>x</i>", choices: [{ value: "a<b", label: "<b>1</b>" }] }); return [F().confirmMeta.innerHTML.includes("<b>"), F().confirmMeta.innerHTML.includes("&lt;b&gt;1&lt;/b&gt;"), F().confirmMeta.innerHTML.includes("<i>"), F().confirmMeta.innerHTML.includes(`data-choice="a&lt;b"`)]; })()',
+     '[false,true,false,true]',
+     "negative: подписи и значения экранированы — вариант не превращается в разметку"),
+    ("choice_not_in_plain_prompt",
+     '',
+     '(() => { m.appPrompt("Name", HOLDS); return [F().confirmMeta.hidden, F().confirmMeta.innerHTML]; })()',
+     '[true,""]',
+     "negative: обычный prompt вариантов не рисует, даже если их передали"),
     ("no_choose_mode",
      '',
      'await (async () => { const kind = typeof m.appChoose; const p = m.appConfirm("x", { options: [{ value: "a", label: "A" }] }); const shown = [F().confirmMeta.innerHTML, F().confirmMeta.hidden, F().confirmDelete.hidden]; m.settleAppConfirm("a"); return [kind, shown, await p]; })()',

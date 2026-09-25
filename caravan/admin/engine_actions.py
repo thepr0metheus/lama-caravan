@@ -14,6 +14,11 @@ class EngineActions:
     they are now, and they go into the host record straight away — the board
     shows "loading…" on the next read, not after the next report. What the
     act came to arrives with the reports after it.
+
+    A load that would not fit into the cards' free memory is not started by
+    the scout (2.15+): the answer is `short` — how much it needs, how much is
+    free — and the board asks the operator; the same load with `force`
+    starts anyway.
     """
 
     ACTIONS = EngineReport.ACTIONS
@@ -26,7 +31,7 @@ class EngineActions:
         self._store = store or topology_store
         self._save = save or save_admin_state
 
-    def act(self, host_id, op, kind, model, context_length=None):
+    def act(self, host_id, op, kind, model, context_length=None, force=False, hold=None):
         host_id, kind, model = (str(x or "").strip() for x in (host_id, kind, model))
         if op not in self.ACTIONS:
             raise AppError(f"unknown engine action {op!r}", 400)
@@ -41,6 +46,10 @@ class EngineActions:
         body = {"kind": kind, "port": engine.get("port"), "model": model}
         if context_length not in (None, ""):
             body["contextLength"] = context_length
+        if force is True:
+            body["force"] = True
+        if hold not in (None, ""):
+            body["hold"] = hold
         answer = self._scout_for(host_id).post(f"/api/engines/{op}", body, timeout=self.TIMEOUT)
         engines = EngineReport.engines((answer or {}).get("engines"))
         if engines is not None:
@@ -48,4 +57,8 @@ class EngineActions:
             if isinstance(record, dict):
                 record["engines"] = engines
                 self._save()
-        return {"ok": True, "hostId": host_id, "kind": kind, "model": model, "op": op}
+        done = {"hostId": host_id, "kind": kind, "model": model, "op": op}
+        short = EngineReport.short((answer or {}).get("short")) if (answer or {}).get("ok") is False else None
+        if short:
+            return {"ok": False, **done, "short": short}
+        return {"ok": True, **done}

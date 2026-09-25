@@ -282,15 +282,16 @@ const ENGINE_IDLE_SHOWN = 6;
 const ENGINE_FOREVER_SEC = 365 * 86400;
 
 // Memory as its size reads: gigabytes from one, megabytes below — an engine's
-// 20 MB process written "0.0 GB" read as holding nothing.
-function _gb(bytes) {
+// 20 MB process written "0.0 GB" read as holding nothing. Also the sizes a
+// load that would not fit asks about (remote-cells.js).
+export function engineSizeText(bytes) {
   const n = Number(bytes);
   return n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.round(n / 1024 ** 2)} MB`;
 }
 
 // What an engine's processes hold, as its card and the live patch write it.
 export function engineRamText(e) {
-  return e?.ramBytes != null ? `RAM ${_gb(e.ramBytes)}` : "";
+  return e?.ramBytes != null ? `RAM ${engineSizeText(e.ramBytes)}` : "";
 }
 
 // A model's switch: a router output or not (step 2, docs/foreign-engines.md).
@@ -336,6 +337,7 @@ function engineActHtml(n, e, m) {
   const hook = op === "load" ? "node-engine-load" : "node-engine-unload";
   return `<button class="node-engine-act ${op}" type="button" data-t="${hook}" data-t-id="${id}"
       data-engine-act="${op}" data-engine-host="${escapeHtml(String(n.id))}" data-engine-kind="${escapeHtml(String(e.kind || ""))}"
+      data-engine-holds="${e.holds === true ? "1" : ""}"
       data-engine-label="${escapeHtml(String(e.label || e.kind || ""))}" data-engine-model="${escapeHtml(m.name)}"
       title="${escapeHtml(t(op === "load" ? "nodeEngineLoadTitle" : "nodeEngineUnloadTitle"))}">${escapeHtml(label)}</button>`;
 }
@@ -351,20 +353,22 @@ function engineModelRowHtml(m, n = {}, e = {}) {
   const meta = [m.params, m.quant].filter(Boolean).join(" · ");
   const bits = [];
   if (m.loaded === true) {
-    if (m.vramBytes != null) bits.push(`VRAM ${_gb(m.vramBytes)}`);
+    if (m.vramBytes != null) bits.push(`VRAM ${engineSizeText(m.vramBytes)}`);
     if (m.memBytes != null && m.vramBytes != null && m.memBytes - m.vramBytes >= 64 * 1024 ** 2) {
-      bits.push(`RAM ${_gb(m.memBytes - m.vramBytes)}`);
+      bits.push(`RAM ${engineSizeText(m.memBytes - m.vramBytes)}`);
     }
     if (m.contextLength != null) bits.push(`🪟 ${formatCtxTokens(m.contextLength)}`);
     // When keep_alive lets it go — as a clock time, which a card rebuilt
     // only when something changes cannot let go stale the way "in 4 min" would.
     const at = m.expiresAt ? Date.parse(m.expiresAt) : NaN;
-    if (at - Date.now() > ENGINE_FOREVER_SEC * 1000) bits.push(t("nodeEngineStaysLoaded"));
+    // Kept until unloaded: LM Studio says it (staysLoaded, scout 2.15), Ollama
+    // by an expiry decades away.
+    if (m.staysLoaded === true || at - Date.now() > ENGINE_FOREVER_SEC * 1000) bits.push(t("nodeEngineStaysLoaded"));
     else if (at > Date.now()) {
       bits.push(t("nodeEngineUnloadsAt", { t: new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }));
     }
   } else if (m.fileBytes != null && !m.remote) {
-    bits.push(_gb(m.fileBytes));
+    bits.push(engineSizeText(m.fileBytes));
   }
   const cloud = m.remote
     ? ` <span class="node-engine-cloud" title="${escapeHtml(t("nodeEngineCloudModelHint"))}">☁ ${escapeHtml(t("nodeEngineCloudModel"))}</span>` : "";

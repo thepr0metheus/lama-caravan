@@ -712,6 +712,79 @@ PINS = [
      'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load"); return st.topology.nodes[0].engines[0].models[0].action; })()',
      '{"op": "load", "since": 7}',
      'positive: доска из ответа — сразу в состояние: модель «загружается» до следующего опроса'),
+    ('engine_load_asks_how_long_to_hold',
+     'globalThis.__msg = null; globalThis.__plain = 0;'
+     ' globalThis.__stubReturns["dialogs.appPrompt"] = async () => { globalThis.__plain += 1; return ""; };'
+     ' globalThis.__stubReturns["dialogs.appPromptChoice"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return { value: " 4096 ", choice: "900" }; };',
+     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load", true); return { calls: calls(), asked: globalThis.__msg, plain: globalThis.__plain }; })()',
+     json.dumps({"calls": [{"path": "/api/engines/load", "method": "POST",
+                            "body": "{\"hostId\":\"box-a\",\"kind\":\"ollama\",\"model\":\"qwen3:8b\",\"contextLength\":4096,\"hold\":900}"}],
+                 "asked": {"msg": en("nodeEngineLoadPrompt", model="qwen3:8b"),
+                           "opts": {"value": "", "confirmLabel": en("nodeEngineLoad"), "choiceLabel": en("nodeEngineHoldLabel"),
+                                    "choice": "-1",
+                                    "choices": [{"value": "900", "label": en("nodeEngineHoldMinutes", n=15)},
+                                                {"value": "3600", "label": en("nodeEngineHoldHours", n=1)},
+                                                {"value": "14400", "label": en("nodeEngineHoldHours", n=4)},
+                                                {"value": "-1", "label": en("nodeEngineHoldUntilUnloaded")}]}},
+                 "plain": 0}, ensure_ascii=False),
+     'positive: движок умеет срок (holds) — окно и срок одним диалогом; по умолчанию «пока не выгружу»; срок — числом секунд'),
+    ('engine_button_carries_its_row',
+     'globalThis.__seen = [];'
+     ' globalThis.__stubReturns["dialogs.appPromptChoice"] = async () => { globalThis.__seen.push("choice"); return { value: "", choice: "3600" }; };'
+     ' globalThis.__stubReturns["dialogs.appPrompt"] = async () => { globalThis.__seen.push("plain"); return ""; };',
+     'await (async () => { const b = (holds, act = "load") => ({ dataset: { engineHost: "box-a", engineKind: "lmstudio", engineLabel: "LM Studio", engineModel: "qwen/qwen3-0.6b", engineAct: act, engineHolds: holds } });'
+     ' await rc.actOnEngineButton(b("1")); await rc.actOnEngineButton(b("")); await rc.actOnEngineButton(b("0")); await rc.actOnEngineButton(b("", "unload"));'
+     ' return { seen: globalThis.__seen, sent: calls().map((c) => [c.path, c.body]) }; })()',
+     json.dumps({"seen": ["choice", "plain", "plain"],
+                 "sent": [["/api/engines/load", "{\"hostId\":\"box-a\",\"kind\":\"lmstudio\",\"model\":\"qwen/qwen3-0.6b\",\"hold\":3600}"],
+                          ["/api/engines/load", "{\"hostId\":\"box-a\",\"kind\":\"lmstudio\",\"model\":\"qwen/qwen3-0.6b\"}"],
+                          ["/api/engines/load", "{\"hostId\":\"box-a\",\"kind\":\"lmstudio\",\"model\":\"qwen/qwen3-0.6b\"}"],
+                          ["/api/engines/unload", "{\"hostId\":\"box-a\",\"kind\":\"lmstudio\",\"model\":\"qwen/qwen3-0.6b\"}"]]}),
+     'кнопка строки несёт машину, движок, модель, действие и умеет ли движок срок: только «1» — диалог со сроком; выгрузка — выгрузка'),
+    ('engine_load_until_unloaded_is_said',
+     'globalThis.__stubReturns["dialogs.appPromptChoice"] = async () => ({ value: "", choice: "-1" });',
+     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load", true); return calls().map((c) => c.body); })()',
+     json.dumps(["{\"hostId\":\"box-a\",\"kind\":\"ollama\",\"model\":\"qwen3:8b\",\"hold\":-1}"]),
+     'boundary: «пока не выгружу» уходит явным -1, а не пропуском поля'),
+    ('engine_load_choice_typo_refused',
+     'globalThis.__stubReturns["dialogs.appPromptChoice"] = async () => ({ value: "8k", choice: "900" });',
+     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load", true); return { calls: calls(), toast: toastText() }; })()',
+     json.dumps({"calls": [], "toast": en("nodeEngineContextNotANumber")}, ensure_ascii=False),
+     'negative: опечатка в окне и при выборе срока — отказ словами, ничего не уходит'),
+    ('engine_load_choice_cancelled',
+     'globalThis.__stubReturns["dialogs.appPromptChoice"] = async () => null;',
+     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load", true); return calls(); })()',
+     '[]',
+     'negative: отменённый диалог со сроком не шлёт ничего'),
+    ('engine_load_short_asks_then_forces',
+     'globalThis.__asked = [];'
+     ' globalThis.__stubReturns["dialogs.appPrompt"] = async () => "";'
+     ' globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__asked.push({ msg, opts }); return true; };'
+     ' let n = 0; globalThis.__fetchReply["/api/engines/load"] = () => (++n === 1'
+     ' ? { ok: false, op: "load", short: { needBytes: 45097156608, freeBytes: 1048576000, basis: "weights" } }'
+     ' : { ok: true, topology: { proxies: [], clients: [], routers: [], assignments: {}, nodes: [{ id: "box-a" }] } });',
+     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "big:70b", "load"); return { bodies: calls().map((c) => c.body), asked: globalThis.__asked, nodes: st.topology.nodes.map((x) => x.id) }; })()',
+     json.dumps({"bodies": ["{\"hostId\":\"box-a\",\"kind\":\"ollama\",\"model\":\"big:70b\"}",
+                            "{\"hostId\":\"box-a\",\"kind\":\"ollama\",\"model\":\"big:70b\",\"force\":true}"],
+                 "asked": [{"msg": en("nodeEngineShort", model="big:70b", need="≥ 42.0 GB", free="1000 MB"),
+                            "opts": {"confirmLabel": en("nodeEngineLoadAnyway")}}],
+                 "nodes": ["box-a"]}, ensure_ascii=False),
+     'positive: не влезет — спросить с числами («≥» — только файл, не меньше); согласие — та же загрузка с force'),
+    ('engine_load_short_declined',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "";'
+     ' globalThis.__stubReturns["dialogs.appConfirm"] = async () => false;'
+     ' globalThis.__fetchReply["/api/engines/load"] = { ok: false, op: "load", short: { needBytes: 7000000000, freeBytes: 4294967296, basis: "engine" } };',
+     'await (async () => { await rc.actOnEngineModel("box-a", "lmstudio", "LM Studio", "google/gemma-4-e4b", "load"); return { n: calls().length, toast: toastText() }; })()',
+     '{"n": 1, "toast": ""}',
+     'negative: «нет» — второй загрузки нет, и ничего не сломано'),
+    ('engine_load_short_estimate_says_about',
+     'globalThis.__asked = null;'
+     ' globalThis.__stubReturns["dialogs.appPrompt"] = async () => "";'
+     ' globalThis.__stubReturns["dialogs.appConfirm"] = async (msg) => { globalThis.__asked = msg; return false; };'
+     ' globalThis.__fetchReply["/api/engines/load"] = { ok: false, op: "load", short: { needBytes: 7000000000, freeBytes: 4294967296, basis: "engine" } };',
+     'await (async () => { await rc.actOnEngineModel("box-a", "lmstudio", "LM Studio", "google/gemma-4-e4b", "load"); return globalThis.__asked; })()',
+     json.dumps(en("nodeEngineShort", model="google/gemma-4-e4b", need="≈ 6.5 GB", free="4.0 GB"), ensure_ascii=False),
+     'оценка самого движка — «≈», а не «≥»'),
     ('engine_act_refusal_in_its_words',
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "";'
      ' globalThis.__fetchReply["/api/engines/load"] = { __status: 409, error: "qwen3:8b is loaded already" };',

@@ -29,6 +29,10 @@ class EngineReport:
     FIREWALL = ("open", "all", "restricted", "blocked", "unknown")
     #: What the board may do to an engine's model (scout 2.14+).
     ACTIONS = ("load", "unload")
+    #: Where the need of a load that would not fit comes from (scout 2.15+):
+    #: the engine's own estimate, the file and the window's cache, the file
+    #: alone — at least that much.
+    BASES = ("engine", "weights+cache", "weights")
 
     @staticmethod
     def text(value, limit=120):
@@ -85,6 +89,9 @@ class EngineReport:
             # What the board may do to it — nothing for a scout before 2.14,
             # an engine that did not answer, or LM Studio 0.3.
             "controls": [a for a in cls.ACTIONS if isinstance(raw.get("controls"), list) and a in raw["controls"]],
+            # Whether a load can say how long the model stays unused (scout
+            # 2.15+): Ollama always, LM Studio where its command line is.
+            "holds": raw.get("holds") is True,
         }
         # Only when the list of installed models did not answer: the models
         # shown are the loaded ones, and "that is all it has" would be a guess.
@@ -121,12 +128,29 @@ class EngineReport:
             "contextLength": cls.number(raw.get("contextLength")),
             "maxContextLength": cls.number(raw.get("maxContextLength")),
             "expiresAt": cls.text(raw.get("expiresAt"), 40),
+            # LM Studio's "no idle limit" (scout 2.15+): true, false, or None
+            # when its command line did not say. Ollama says it by a far
+            # expiresAt instead.
+            "staysLoaded": cls.flag(raw.get("staysLoaded")),
             "instances": cls.number(raw.get("instances")),
             # An act under way on it, and the last one the engine refused, in
             # its own words (scout 2.14+); None when there is none.
             "action": cls.act_mark(raw.get("action"), "since"),
             "actionError": cls.act_mark(raw.get("actionError"), "at", with_error=True),
         }
+
+    @classmethod
+    def short(cls, raw):
+        """{needBytes, freeBytes, basis} of a load the scout did not start
+        because it would not fit into the cards' free memory (2.15+); None
+        when the answer is not that."""
+        if not isinstance(raw, dict):
+            return None
+        need, free = cls.number(raw.get("needBytes")), cls.number(raw.get("freeBytes"))
+        if not need or free is None or need <= free:
+            return None
+        basis = cls.text(raw.get("basis"), 20)
+        return {"needBytes": need, "freeBytes": free, "basis": basis if basis in cls.BASES else ""}
 
     @classmethod
     def act_mark(cls, raw, when, with_error=False):

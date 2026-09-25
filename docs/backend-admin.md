@@ -345,7 +345,10 @@ unloaded from the board: the engine's port comes from the machine's host
 record, the act goes to its scout (`POST /api/engines/<op>`, 15 s — the scout
 answers before the engine does), and the engines the scout answers with,
 the model marked as being acted on, go into the host record at once. What the
-act came to arrives with the reports after it (`action`, `actionError`).
+act came to arrives with the reports after it (`action`, `actionError`). A load
+that would not fit into the cards' free memory comes back as `short` (scout
+2.15+) — `EngineReport.short` keeps its numbers — and `force` loads it anyway;
+`hold` says how long the model stays unused.
 Key functions: `EngineActions.act`; `POST /api/engines/load|unload`.
 
 ## `engine_outputs.py`
