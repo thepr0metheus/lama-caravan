@@ -348,8 +348,12 @@ the model marked as being acted on, go into the host record at once. What the
 act came to arrives with the reports after it (`action`, `actionError`). A load
 that would not fit into the cards' free memory comes back as `short` (scout
 2.15+) — `EngineReport.short` keeps its numbers — and `force` loads it anyway;
-`hold` says how long the model stays unused.
-Key functions: `EngineActions.act`; `POST /api/engines/load|unload`.
+`hold` says how long the model stays unused. `EngineActions.serve` starts or
+stops the engine's server itself (scout 2.16+) the same way; `EngineReport`
+keeps who runs it (`runBy`), whether it starts with the machine (`autostart`),
+its start or stop under way or refused (`serverAction`, `serverError`), and a
+stopped engine (`state: "stopped"`).
+Key functions: `EngineActions.act`, `EngineActions.serve`; `POST /api/engines/load|unload|start|stop`.
 
 ## `engine_outputs.py`
 

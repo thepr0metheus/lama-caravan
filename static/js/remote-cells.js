@@ -812,6 +812,32 @@ export async function submitLlamaStop(hostId) {
   }
 }
 
+// The server of an engine next to a machine's cells started or stopped from
+// its card (step 3г, scout 2.16+). A stop is confirmed like stopping a cell —
+// its loaded models go with it; a start is not: it takes memory only when a
+// model loads. The server answers with the board as it is now, the engine
+// already marked as starting or stopping.
+export async function serveEngine(hostId, kind, label, machine, op) {
+  if (op === "stop" && !(await appConfirm(t("nodeEngineStopConfirm", { engine: label, machine }),
+    { confirmLabel: t("nodeEngineStop"), scene: "stop" }))) {
+    return;
+  }
+  try {
+    const res = await api(`/api/engines/${op}`, { method: "POST", body: JSON.stringify({ hostId, kind }) });
+    if (res.topology) setTopology(res.topology);
+    renderTopology();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+// A start/stop button in an engine card's header, as its markup says it
+// (engineServerHtml in topology-nodes.js).
+export function serveEngineButton(btn) {
+  const d = btn.dataset;
+  return serveEngine(d.engineHost, d.engineKind, d.engineLabel, d.engineMachine, d.engineServe);
+}
+
 // A load/unload button on an engine model's row, as its markup says it
 // (engineActHtml in topology-nodes.js): which machine, engine and model, the
 // act, and whether the engine can be told how long to hold the model.

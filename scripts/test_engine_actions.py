@@ -140,8 +140,9 @@ def test_act():
 def test_route():
     print("маршрут POST /api/engines/load|unload:")
     from caravan.admin import routes
-    same([p in routes.POST_ROUTES for p in ("/api/engines/load", "/api/engines/unload", "/api/engines/stop")],
-         [True, True, False], "оба пути — один маршрут; третьего действия нет")
+    same([p in routes.POST_ROUTES for p in ("/api/engines/load", "/api/engines/unload", "/api/engines/start",
+                                            "/api/engines/stop", "/api/engines/pause")],
+         [True, True, True, True, False], "загрузка/выгрузка и пуск/остановка сервера — маршруты; других действий нет")
 
     class _H:
         def __init__(self):
@@ -171,7 +172,57 @@ def test_route():
          "ответ — что сделано и доска, без нового опроса машин")
 
 
-for test in (test_act, test_route):
+def test_serve():
+    print("пуск и остановка сервера движка через скаут (скаут 2.16):")
+    stopping = [{**ENGINE, "serverAction": {"op": "stop", "since": 7}}]
+    actions, scouts, store, saves = rig(answer={"ok": True, "engines": stopping})
+    same(actions.serve("box-a", "stop", "ollama"), {"ok": True, "hostId": "box-a", "kind": "ollama", "op": "stop"},
+         "ответ — что сделано")
+    same(scouts["box-a"].calls, [("/api/engines/stop", {"kind": "ollama", "port": 11500}, 15)],
+         "скауту — вид и порт движка из записи машины; ждать секунды (скаут отвечает сразу)")
+    same((store["hosts"]["box-a"]["engines"][0]["serverAction"], len(saves)), ({"op": "stop", "since": 7}, 1),
+         "движки из ответа — сразу в запись машины: «останавливается» видно на следующем чтении")
+    actions, scouts, store, saves = rig(answer={"ok": True})
+    actions.serve("box-a", "start", "ollama")
+    same((scouts["box-a"].calls[0][0], store["hosts"]["box-a"]["engines"], len(saves)),
+         ("/api/engines/start", [ENGINE], 0), "negative: скаут не назвал движков — запись не тронута")
+    actions, scouts, *_r = rig(answer={"ok": True})
+    for args, want in ((("box-a", "reboot", "ollama"), (400, "unknown engine action 'reboot'")),
+                       (("box-a", "load", "ollama"), (400, "unknown engine action 'load'")),
+                       (("", "start", "ollama"), (400, "hostId and kind are required")),
+                       (("box-a", "start", " "), (400, "hostId and kind are required")),
+                       (("box-z", "start", "ollama"), (404, "no scout has reported for host box-z")),
+                       (("box-a", "start", "lmstudio"), (404, "box-a reports no lmstudio"))):
+        same(refusal(lambda: actions.serve(*args)), want, f"negative: {args[1]} {args[0] or '—'}/{args[2].strip() or '—'} — {want[1]}")
+    same(scouts, {}, "negative: ни один отказ до скаута не дошёл")
+
+    from caravan.admin import routes
+
+    class _H:
+        def __init__(self):
+            self.sent = []
+
+        def send_json(self, doc, *a, **kw):
+            self.sent.append(doc)
+
+    seen = []
+    real_serve, real_state = EngineActions.serve, routes.topology_state
+    try:
+        EngineActions.serve = lambda self, *a: (seen.append(a), {"ok": True, "op": a[1]})[1]
+        routes.topology_state = lambda **kw: {"board": True, **kw}
+        sent = []
+        for path in ("/api/engines/start", "/api/engines/stop"):
+            h = _H()
+            routes._post_api_engines_serve(h, types.SimpleNamespace(path=path), {"hostId": "box-a", "kind": "ollama"})
+            sent += h.sent
+    finally:
+        EngineActions.serve, routes.topology_state = real_serve, real_state
+    same(seen, [("box-a", "start", "ollama"), ("box-a", "stop", "ollama")], "маршрут: действие — из пути")
+    same(sent, [{"ok": True, "op": op, "topology": {"board": True, "refresh_hosts": False}} for op in ("start", "stop")],
+         "ответ — что сделано и доска, без нового опроса машин")
+
+
+for test in (test_act, test_route, test_serve):
     try:
         test()
     except Exception as exc:  # noqa: BLE001 — a crash is a red pin

@@ -342,6 +342,41 @@ function engineActHtml(n, e, m) {
       title="${escapeHtml(t(op === "load" ? "nodeEngineLoadTitle" : "nodeEngineUnloadTitle"))}">${escapeHtml(label)}</button>`;
 }
 
+// The engine's server itself (step 3г, scout 2.16+): stopped or started from
+// its card's header — only what its controls offer — and while that runs,
+// "starting…" / "stopping…" in the button's place.
+function engineServerHtml(n, e) {
+  const id = escapeHtml(`${n.id}:${e.kind}:${e.port}`);
+  if (e.serverAction?.op) {
+    const busy = t(e.serverAction.op === "start" ? "nodeEngineStarting" : "nodeEngineStopping");
+    return `<span class="node-engine-busy" data-t="node-engine-server-busy" data-t-id="${id}"><span class="topology-spinner" aria-hidden="true"></span> ${escapeHtml(busy)}</span>`;
+  }
+  const controls = Array.isArray(e.controls) ? e.controls : [];
+  const op = controls.includes("stop") ? "stop" : (controls.includes("start") ? "start" : "");
+  if (!op) return "";
+  const hook = op === "start" ? "node-engine-start" : "node-engine-stop";
+  const label = op === "start" ? `▶ ${t("nodeEngineStart")}` : `⏹ ${t("nodeEngineStop")}`;
+  return `<button class="node-engine-serve ${op}" type="button" data-t="${hook}" data-t-id="${id}"
+      data-engine-serve="${op}" data-engine-host="${escapeHtml(String(n.id))}" data-engine-kind="${escapeHtml(String(e.kind || ""))}"
+      data-engine-label="${escapeHtml(String(e.label || e.kind || ""))}" data-engine-machine="${escapeHtml(String(n.name || n.id))}"
+      title="${escapeHtml(t(op === "start" ? "nodeEngineStartTitle" : "nodeEngineStopTitle"))}">${escapeHtml(label)}</button>`;
+}
+
+// Under the header: what the server refused last, in its words; that another
+// user runs it (a system service — the operator's to stop); that it starts
+// with the machine (started from the board).
+function engineServerNotesHtml(e) {
+  const bits = [];
+  const err = e.serverError;
+  if (err?.op) {
+    const text = t(err.op === "start" ? "nodeEngineStartFailed" : "nodeEngineStopFailed", { error: err.error || "" });
+    bits.push(`<span class="node-engine-act-error" title="${escapeHtml(err.error || "")}">⚠ ${escapeHtml(text)}</span>`);
+  }
+  if (e.runBy === "other") bits.push(`<span class="node-engine-note">${escapeHtml(t("nodeEngineRunByOther"))}</span>`);
+  if (e.autostart === true) bits.push(`<span class="node-engine-note">${escapeHtml(t("nodeEngineAutostart"))}</span>`);
+  return bits.length ? `<div class="node-engine-server-notes">${bits.join("")}</div>` : "";
+}
+
 function engineActErrorHtml(m) {
   const err = m.actionError;
   if (!err?.op) return "";
@@ -392,7 +427,8 @@ export function nodeEngineCardHtml(n, e) {
   const ram = e.ramBytes != null
     ? `<span class="node-engine-ram" data-live-engine-ram title="${escapeHtml(t("nodeEngineRamTitle"))}">${escapeHtml(engineRamText(e))}</span>` : "";
   let body = "";
-  if (e.state === "auth") body = `<div class="node-engine-state warn">${escapeHtml(t("nodeEngineAuth"))}</div>`;
+  if (e.state === "stopped") body = `<div class="node-engine-state">${escapeHtml(t("nodeEngineStopped"))}</div>`;
+  else if (e.state === "auth") body = `<div class="node-engine-state warn">${escapeHtml(t("nodeEngineAuth"))}</div>`;
   else if (e.state === "unreachable") body = `<div class="node-engine-state err">${escapeHtml(t("nodeEngineUnreachable"))}</div>`;
   else {
     const models = Array.isArray(e.models) ? e.models : [];
@@ -419,8 +455,9 @@ export function nodeEngineCardHtml(n, e) {
         <code>:${escapeHtml(String(e.port))}</code>
         ${loopback}${e.listen === "network" ? firewallBadge(e.firewall) : ""}
         <span style="flex:1"></span>
-        ${ram}
+        ${ram}${engineServerHtml(n, e)}
       </header>
+      ${engineServerNotesHtml(e)}
       ${body}
     </article>`;
 }

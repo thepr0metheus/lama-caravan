@@ -1002,6 +1002,17 @@
 .node-engine-busy { font-size:10px; color:var(--muted,#888); display:inline-flex; align-items:center; gap:4px; }
 .node-engine-act-error { flex-basis:100%; font-size:11px; color:var(--bad,#ff8585);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:help; }
+/* The engine's server (step 3g): start/stop in its card's header, and the
+   notes under it — what it refused, who runs it, that it starts with the
+   machine. */
+.node-engine-serve { font-size:10px; padding:1px 6px; border-radius:4px; min-height:0; line-height:1.4; margin-left:6px;
+  border:1px solid var(--line); background:transparent; color:var(--muted,#888); cursor:pointer; }
+.node-engine-serve.start:hover { border-color:var(--good,#69d090); color:var(--good,#69d090); }
+.node-engine-serve.stop:hover { border-color:var(--bad,#ff8585); color:var(--bad,#ff8585); }
+.node-engine-serve:focus-visible { outline:2px solid var(--accent-strong); outline-offset:1px; }
+.node-engine-head .node-engine-busy { margin-left:6px; }
+.node-engine-server-notes { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:4px; }
+.node-engine-note { font-size:11px; color:var(--muted,#888); }
 /* CPU block: a RAM bar mirroring the GPU's VRAM bar, and the CPU-cell blue
    (#4593ff) throughout — accent stripe, fill, and a faint wash — so the block
    matches the cells that run on it. */

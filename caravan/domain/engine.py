@@ -22,13 +22,17 @@ class EngineReport:
     MAX_PIDS = 256
     #: What an engine's answer can be. Anything else is no engine the scout
     #: named, and is not kept.
-    STATES = ("ok", "auth", "unreachable")
+    STATES = ("ok", "auth", "unreachable", "stopped")
     #: Where it takes connections from; "" when the scout's OS did not say.
     LISTEN = ("loopback", "network")
     #: Who ufw lets reach its port, as a cell's port says it (scout 2.13+).
     FIREWALL = ("open", "all", "restricted", "blocked", "unknown")
     #: What the board may do to an engine's model (scout 2.14+).
     ACTIONS = ("load", "unload")
+    #: What the board may do to the engine's server itself (scout 2.16+).
+    SERVER_ACTIONS = ("start", "stop")
+    #: Who runs its server (scout 2.16+): this scout's user, or another one.
+    RUN_BY = ("user", "other")
     #: Where the need of a load that would not fit comes from (scout 2.15+):
     #: the engine's own estimate, the file and the window's cache, the file
     #: alone — at least that much.
@@ -88,10 +92,18 @@ class EngineReport:
             "firewall": cls.firewall(raw.get("firewall")),
             # What the board may do to it — nothing for a scout before 2.14,
             # an engine that did not answer, or LM Studio 0.3.
-            "controls": [a for a in cls.ACTIONS if isinstance(raw.get("controls"), list) and a in raw["controls"]],
+            "controls": [a for a in cls.ACTIONS + cls.SERVER_ACTIONS
+                         if isinstance(raw.get("controls"), list) and a in raw["controls"]],
             # Whether a load can say how long the model stays unused (scout
             # 2.15+): Ollama always, LM Studio where its command line is.
             "holds": raw.get("holds") is True,
+            # Who runs its server — "" when the scout's machine did not say —
+            # whether it starts with the machine, and its start or stop under
+            # way or refused (scout 2.16+).
+            "runBy": cls.text(raw.get("runBy"), 10) if raw.get("runBy") in cls.RUN_BY else "",
+            "autostart": raw.get("autostart") is True,
+            "serverAction": cls.act_mark(raw.get("serverAction"), "since", ops=cls.SERVER_ACTIONS),
+            "serverError": cls.act_mark(raw.get("serverError"), "at", with_error=True, ops=cls.SERVER_ACTIONS),
         }
         # Only when the list of installed models did not answer: the models
         # shown are the loaded ones, and "that is all it has" would be a guess.
@@ -153,9 +165,9 @@ class EngineReport:
         return {"needBytes": need, "freeBytes": free, "basis": basis if basis in cls.BASES else ""}
 
     @classmethod
-    def act_mark(cls, raw, when, with_error=False):
-        """{op, <when>[, error]} of a load or unload, or None."""
-        if not isinstance(raw, dict) or raw.get("op") not in cls.ACTIONS:
+    def act_mark(cls, raw, when, with_error=False, ops=None):
+        """{op, <when>[, error]} of a load or unload — or of `ops` — or None."""
+        if not isinstance(raw, dict) or raw.get("op") not in (ops or cls.ACTIONS):
             return None
         mark = {"op": raw["op"], when: cls.number(raw.get(when))}
         if with_error:
