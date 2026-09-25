@@ -39,7 +39,7 @@ def same(actual, expected, msg):
 MODEL = {"name": "qwen3:8b", "type": "", "format": "gguf", "family": "qwen3", "params": "8.2B", "quant": "Q4_K_M",
          "fileBytes": 5_225_388_164, "remote": False, "loaded": True, "memBytes": 6_591_830_464,
          "vramBytes": 5_333_539_264, "contextLength": 4096, "maxContextLength": None,
-         "expiresAt": "2026-09-22T17:00:00+00:00", "instances": None}
+         "expiresAt": "2026-09-22T17:00:00+00:00", "instances": None, "action": None, "actionError": None}
 ENGINE = {"kind": "ollama", "label": "Ollama", "port": 11434, "listen": "network", "state": "ok", "version": "0.12.3",
           "models": [MODEL], "pids": [5100, 5151], "ramBytes": 1_283_457_024}
 
@@ -47,7 +47,7 @@ ENGINE = {"kind": "ollama", "label": "Ollama", "port": 11434, "listen": "network
 def test_engine_report():
     print("что контроллер хранит о движке:")
     kept = EngineReport.engines([copy.deepcopy(ENGINE)])
-    same(kept, [{**ENGINE, "api": "", "firewall": None}],
+    same(kept, [{**ENGINE, "api": "", "firewall": None, "controls": []}],
          "движок как сказал скаут — все поля; api и файрвол пусты, когда не сказаны")
     same(EngineReport.engines(None), None, "negative: скаут не сказал (старый) — None, а не [] («смотрел — нет»)")
     same(EngineReport.engines([]), [], "смотрел, никого — []")
@@ -88,6 +88,16 @@ def test_engine_report():
          "negative: не сказан, чужое состояние, без состояния, не словарь — None (не знаю), а не «открыт»")
     same(len(one(firewall={"state": "restricted", "allowedFrom": [f"10.0.{i}.0/24" for i in range(20)]})
              ["firewall"]["allowedFrom"]), 8, "boundary: не больше 8 источников")
+    same([one(controls=c)["controls"] for c in (["load", "unload"], ["unload", "reboot", "load"], ["unload"], [], None, "load")],
+         [["load", "unload"], ["load", "unload"], ["unload"], [], [], []],
+         "что можно делать (скаут 2.14): только известные действия, в своём порядке; не сказано — ничего (не «всё»)")
+    acted = EngineReport.model({"name": "a", "action": {"op": "load", "since": "1790000000", "x": 1},
+                                "actionError": {"op": "unload", "error": "e" * 400, "at": 5}})
+    same((acted["action"], acted["actionError"]),
+         ({"op": "load", "since": 1790000000}, {"op": "unload", "at": 5, "error": "e" * 300}),
+         "идущее действие и последняя ошибка — как сказал скаут; ошибка — до 300 знаков")
+    same([EngineReport.model({"name": "a", "action": a})["action"] for a in ({"op": "stop"}, "load", {}, None)],
+         [None, None, None, None], "negative: чужое действие, не словарь, пусто — None, а не «идёт»")
     m = EngineReport.model({"name": "a", "loaded": "yes", "memBytes": "12", "vramBytes": None, "remote": "true",
                             "contextLength": True})
     same((m["loaded"], m["memBytes"], m["vramBytes"], m["remote"], m["contextLength"]), (None, 12, None, False, None),
@@ -126,7 +136,7 @@ def test_report_to_record():
     rec = fc.host_from_report(copy.deepcopy(payload))
     same([a["name"] for a in rec["computeApps"]], ["ollama", ""],
          "имя процесса на карте хранится; скаут без него — «»")
-    same(rec["engines"], [{**ENGINE, "api": "", "firewall": None}], "движки — в записи машины")
+    same(rec["engines"], [{**ENGINE, "api": "", "firewall": None, "controls": []}], "движки — в записи машины")
     older = fc.host_from_report({"host": {"id": "box-a"}})
     same(older["engines"], None, "negative: скаут до 2.12 — None, доска ничего не рисует")
     pulled = fc.scout_payload_from_state({"host": {"id": "box-a"}}, "http://10.0.0.5:8092")
@@ -161,7 +171,7 @@ def test_node_carries_engines():
     host = {"id": "box-a", "name": "Box A", "ip": "10.0.0.5", "state": "online", "cpu": {},
             "gpus": [{"index": "0", "uuid": "u0", "name": "G", "memoryTotalMiB": "24576"}],
             "computeApps": [{"gpuUuid": "u0", "pid": 5151, "name": "ollama", "usedMiB": 3500}],
-            "engines": [{**ENGINE, "api": "", "firewall": None}]}
+            "engines": [{**ENGINE, "api": "", "firewall": None, "controls": []}]}
     import caravan.admin.engine_outputs as EO
     exposed_id = EO.EngineOutputs.output_id("box-a", "ollama", "qwen3:8b")
     saved = (T.topo.power_schedules, EO.topology_store)
@@ -173,7 +183,7 @@ def test_node_carries_engines():
     finally:
         T.topo.power_schedules, EO.topology_store = saved
     same([n["engines"] for n in nodes],
-         [[{**ENGINE, "api": "", "firewall": None, "blockedBy": "", "reachable": True,
+         [[{**ENGINE, "api": "", "firewall": None, "controls": [], "blockedBy": "", "reachable": True,
             "models": [{**MODEL, "outputId": exposed_id, "exposed": True}]}], None],
          "движки — как в записи, и у каждой модели — id её выхода и сделана ли она выходом; у машины "
          "со старым скаутом — None (не [])")

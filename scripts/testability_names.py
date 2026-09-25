@@ -86,6 +86,9 @@ COMPOSED = {
     "cell-job-translate": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-job-speech-translate": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-config-search": "config-locator.js: the settings search input above the tabs",
+    # An engine model's load / unload button — one of the two, by what the model is.
+    "node-engine-load": "topology-nodes.js: engineActHtml() on an engine's model row",
+    "node-engine-unload": "topology-nodes.js: engineActHtml() on an engine's model row",
     "cell-config-search-results": "config-locator.js: the search suggestion list",
 }
 

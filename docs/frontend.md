@@ -566,6 +566,11 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   ufw rule that would let the controller in) offers no switch to turn on; an output made already can
   be turned off. An engine open to the network wears its port's firewall badge, as a cell's port does. On the kanban an engine's output is labelled «model · engine» and is lit by the output
   a request was routed to (`routedOutputId`), not by its engine's host:port.
+- A model is loaded or unloaded from its row (`node-engine-load` / `node-engine-unload`, only what the
+  engine's `controls` offer, scout 2.14+): the load asks for a window — empty keeps the engine's own —
+  and the unload is confirmed like stopping a cell (`actOnEngineModel` in remote-cells.js). While the
+  act runs the row says «loading…» instead of offering another; what the engine refused last stays on
+  the row in its own words.
 - `machineAt(address)` — the machine behind an address its cells answer at, `{ key, name }`: its node and
   the node's name (the computer's hostname, from its scout); loopback and the controller's own address
   are the controller's machine (its node, else `topology.server.hostname`); an unknown address is said

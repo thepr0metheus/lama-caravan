@@ -992,6 +992,16 @@
   color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,transparent); }
 .node-engine-expose:disabled { opacity:.45; cursor:not-allowed; }
 .node-engine-expose:focus-visible { outline:2px solid var(--accent-strong); outline-offset:1px; }
+/* Driving a model (step 3): load / unload, the act under way, and what the
+   engine refused last — in its own words, on the row it was about. */
+.node-engine-act { font-size:10px; padding:1px 6px; border-radius:4px; min-height:0; line-height:1.4;
+  border:1px solid var(--line); background:transparent; color:var(--muted,#888); cursor:pointer; }
+.node-engine-act.load:hover { border-color:var(--good,#69d090); color:var(--good,#69d090); }
+.node-engine-act.unload:hover { border-color:var(--warn,#d9a441); color:var(--warn,#d9a441); }
+.node-engine-act:focus-visible { outline:2px solid var(--accent-strong); outline-offset:1px; }
+.node-engine-busy { font-size:10px; color:var(--muted,#888); display:inline-flex; align-items:center; gap:4px; }
+.node-engine-act-error { flex-basis:100%; font-size:11px; color:var(--bad,#ff8585);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:help; }
 /* CPU block: a RAM bar mirroring the GPU's VRAM bar, and the CPU-cell blue
    (#4593ff) throughout — accent stripe, fill, and a faint wash — so the block
    matches the cells that run on it. */

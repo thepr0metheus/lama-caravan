@@ -1468,6 +1468,18 @@ def _post_api_engine_outputs_expose(h, parsed, body):
         h.send_json({"ok": True, **result, "topology": topology_state(refresh_hosts=False)})
         return
 
+@_route(POST_ROUTES, '/api/engines/load', '/api/engines/unload')
+def _post_api_engines_act(h, parsed, body):
+        # A model of an engine next to a machine's cells, loaded or unloaded
+        # through its scout (docs/foreign-engines.md, step 3).
+        from caravan.admin.engine_actions import EngineActions
+        from caravan.admin.fleet_clients import _scout
+        op = parsed.path.rsplit("/", 1)[-1]
+        result = EngineActions(_scout, topology_hosts).act(body.get("hostId"), op, body.get("kind"), body.get("model"),
+                                                           body.get("contextLength"))
+        h.send_json({**result, "topology": topology_state(refresh_hosts=False)})
+        return
+
 @_route(POST_ROUTES, '/api/queue-thresholds/recalc')
 def _post_api_queue_thresholds_recalc(h, parsed, body):
         threading.Thread(target=compute_queue_thresholds, daemon=True).start()

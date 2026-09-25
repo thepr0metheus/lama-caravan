@@ -142,6 +142,19 @@ PINS = [
      'm.topologyStructureFingerprint() !== globalThis.__fpE5',
      'true',
      "positive: файрвол порта движка сменился (открыт → только сеть контроллера) при той же достижимости — структура: бейдж перерисовывается (скаут 2.13)"),
+    ("fingerprint_sees_an_act_start_and_fail",
+     'const E = (models, extra = {}) => ({ kind: "ollama", label: "Ollama", port: 11434, listen: "network", state: "ok", version: "0.12.3", models, pids: [5100], ramBytes: 100, ...extra });'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "a", loaded: false }], { controls: ["load", "unload"] })] }] });'
+     ' const f0 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "a", loaded: false, action: { op: "load", since: 1 } }], { controls: ["load", "unload"] })] }] });'
+     ' const f1 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "a", loaded: false, actionError: { op: "load", error: "e", at: 2 } }], { controls: ["load", "unload"] })] }] });'
+     ' const f2 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "a", loaded: false }], { controls: [] })] }] });'
+     ' globalThis.__fpA = [f0, f1, f2, m.topologyStructureFingerprint()];',
+     'new Set(globalThis.__fpA).size',
+     '4',
+     "positive: действие началось, упало, движок перестал его предлагать — каждое перестраивает карточку (кнопка, «loading…», ошибка)"),
     ("fingerprint_ignores_engine_memory",
      'const E = (models, extra = {}) => ({ kind: "ollama", label: "Ollama", port: 11434, listen: "network", state: "ok", version: "0.12.3", models, pids: [5100], ramBytes: 100, ...extra });'
      ' st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [E([{ name: "a", loaded: true }])] }] });'

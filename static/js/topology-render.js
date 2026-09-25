@@ -25,6 +25,7 @@ import {
   _pendingCellActions,
   _stoppingCells,
   bindServerSlotControls,
+  actOnEngineModel,
   clearPendingRemoteStart,
   deleteTopologyClientAgent,
   openHostPowerScheduleModal,
@@ -315,6 +316,14 @@ export function renderTopology() {
   $("topologyLlamaServers")?.querySelectorAll("[data-node-collapse]").forEach((btn) => {
     btn.addEventListener("click", () => toggleNodeCollapsed(btn.dataset.nodeCollapse));
   });
+  // An engine's model next to the cells: load it or unload it (step 3).
+  $("topologyLlamaServers")?.querySelectorAll("[data-engine-act]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      actOnEngineModel(btn.dataset.engineHost, btn.dataset.engineKind, btn.dataset.engineLabel,
+        btn.dataset.engineModel, btn.dataset.engineAct);
+    });
+  });
   // An engine's model next to the cells: make it a router output, or stop.
   $("topologyLlamaServers")?.querySelectorAll("[data-engine-expose]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
@@ -550,9 +559,10 @@ export function topologyStructureFingerprint() {
   const engines = (topology.nodes || [])
     .flatMap((n) => (Array.isArray(n.engines) ? n.engines : []).map((e) =>
       `${n.id}/${e.kind}:${e.port}:${e.state}:${e.listen}:${e.version}:${e.installedKnown === false ? 0 : 1}:`
-      + `${e.reachable === false ? 0 : 1}${e.blockedBy || ""}:${e.firewall?.state || ""}:`
+      + `${e.reachable === false ? 0 : 1}${e.blockedBy || ""}:${e.firewall?.state || ""}:${(e.controls || []).join("+")}:`
       + (Array.isArray(e.models) ? e.models : [])
-        .map((m) => `${m.name}${m.loaded === true ? "+" : m.loaded === false ? "-" : "?"}${m.contextLength ?? ""}@${m.expiresAt || ""}${m.exposed === true ? "#" : ""}`)
+        .map((m) => `${m.name}${m.loaded === true ? "+" : m.loaded === false ? "-" : "?"}${m.contextLength ?? ""}@${m.expiresAt || ""}${m.exposed === true ? "#" : ""}`
+          + `${m.action?.op || ""}${m.actionError?.at || ""}`)
         .join("|")))
     .sort().join(",");
   const prox = (topology.proxies || [])
