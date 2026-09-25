@@ -26,6 +26,7 @@ import {
   _stoppingCells,
   bindServerSlotControls,
   actOnEngineButton,
+  pullEngineButton,
   serveEngineButton,
   clearPendingRemoteStart,
   deleteTopologyClientAgent,
@@ -71,6 +72,7 @@ import {
 import {
   _collapsedNodes,
   applyNodesViewMode,
+  engineDownloadText,
   engineRamText,
   gpuOutsideBar,
   gpuWhoHtml,
@@ -324,6 +326,13 @@ export function renderTopology() {
       actOnEngineButton(btn);
     });
   });
+  // A model downloaded into an engine (step 3д).
+  $("topologyLlamaServers")?.querySelectorAll("[data-engine-pull]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      pullEngineButton(btn);
+    });
+  });
   // An engine's server itself: start it or stop it (step 3г).
   $("topologyLlamaServers")?.querySelectorAll("[data-engine-serve]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
@@ -568,7 +577,7 @@ export function topologyStructureFingerprint() {
       `${n.id}/${e.kind}:${e.port}:${e.state}:${e.listen}:${e.version}:${e.installedKnown === false ? 0 : 1}:`
       + `${e.reachable === false ? 0 : 1}${e.blockedBy || ""}:${e.firewall?.state || ""}:${(e.controls || []).join("+")}`
       + `${e.holds === true ? "~" : ""}:${e.runBy || ""}${e.autostart === true ? "^" : ""}`
-      + `${e.serverAction?.op || ""}${e.serverError?.at || ""}:`
+      + `${e.serverAction?.op || ""}${e.serverError?.at || ""}${e.downloading?.model || ""}${e.downloadError?.at || ""}:`
       + (Array.isArray(e.models) ? e.models : [])
         .map((m) => `${m.name}${m.loaded === true ? "+" : m.loaded === false ? "-" : "?"}${m.contextLength ?? ""}@${m.expiresAt || ""}${m.exposed === true ? "#" : ""}`
           + `${m.action?.op || ""}${m.actionError?.at || ""}${m.staysLoaded === true ? "∞" : ""}`)
@@ -675,7 +684,10 @@ export function syncTopologyLive() {
     // it answers are structure (the fingerprint) and rebuild its card.
     (Array.isArray(n.engines) ? n.engines : []).forEach((e) => {
       const card = nodeEl.querySelector(`[data-t="node-engine"][data-t-id="${CSS.escape(`${n.id}:${e.kind}:${e.port}`)}"]`);
-      if (card) _liveSet(card, "[data-live-engine-ram]", engineRamText(e));
+      if (card) {
+        _liveSet(card, "[data-live-engine-ram]", engineRamText(e));
+        _liveSet(card, "[data-live-engine-download]", engineDownloadText(e));
+      }
     });
 
     // Server cards: token speed, context usage, download progress.

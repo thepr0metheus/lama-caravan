@@ -27,8 +27,11 @@ class EngineReport:
     LISTEN = ("loopback", "network")
     #: Who ufw lets reach its port, as a cell's port says it (scout 2.13+).
     FIREWALL = ("open", "all", "restricted", "blocked", "unknown")
-    #: What the board may do to an engine's model (scout 2.14+).
-    ACTIONS = ("load", "unload")
+    #: What the board may do to an engine's model (scout 2.14+; delete 2.17+).
+    ACTIONS = ("load", "unload", "delete")
+    #: A model downloaded into the engine (scout 2.17+): an act on the engine,
+    #: not on one of its models.
+    DOWNLOADS = ("pull",)
     #: What the board may do to the engine's server itself (scout 2.16+).
     SERVER_ACTIONS = ("start", "stop")
     #: Who runs its server (scout 2.16+): this scout's user, or another one.
@@ -92,7 +95,7 @@ class EngineReport:
             "firewall": cls.firewall(raw.get("firewall")),
             # What the board may do to it — nothing for a scout before 2.14,
             # an engine that did not answer, or LM Studio 0.3.
-            "controls": [a for a in cls.ACTIONS + cls.SERVER_ACTIONS
+            "controls": [a for a in cls.ACTIONS + cls.DOWNLOADS + cls.SERVER_ACTIONS
                          if isinstance(raw.get("controls"), list) and a in raw["controls"]],
             # Whether a load can say how long the model stays unused (scout
             # 2.15+): Ollama always, LM Studio where its command line is.
@@ -104,6 +107,10 @@ class EngineReport:
             "autostart": raw.get("autostart") is True,
             "serverAction": cls.act_mark(raw.get("serverAction"), "since", ops=cls.SERVER_ACTIONS),
             "serverError": cls.act_mark(raw.get("serverError"), "at", with_error=True, ops=cls.SERVER_ACTIONS),
+            # A download under way into it, and the last one that failed
+            # (scout 2.17+); None when there is none.
+            "downloading": cls.download(raw.get("downloading")),
+            "downloadError": cls.download(raw.get("downloadError"), failed=True),
         }
         # Only when the list of installed models did not answer: the models
         # shown are the loaded ones, and "that is all it has" would be a guess.
@@ -150,6 +157,19 @@ class EngineReport:
             "action": cls.act_mark(raw.get("action"), "since"),
             "actionError": cls.act_mark(raw.get("actionError"), "at", with_error=True),
         }
+
+    @classmethod
+    def download(cls, raw, failed=False):
+        """{model, since, doneBytes, totalBytes} of a download under way — the
+        sizes None until the engine says them — or {model, error, at} of the
+        last one that failed; None when there is none."""
+        if not isinstance(raw, dict) or not cls.text(raw.get("model"), 300):
+            return None
+        if failed:
+            return {"model": cls.text(raw.get("model"), 300), "error": cls.text(raw.get("error"), 300),
+                    "at": cls.number(raw.get("at"))}
+        return {"model": cls.text(raw.get("model"), 300), "since": cls.number(raw.get("since")),
+                "doneBytes": cls.number(raw.get("doneBytes")), "totalBytes": cls.number(raw.get("totalBytes"))}
 
     @classmethod
     def short(cls, raw):

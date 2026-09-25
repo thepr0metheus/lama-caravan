@@ -294,6 +294,18 @@ export function engineRamText(e) {
   return e?.ramBytes != null ? `RAM ${engineSizeText(e.ramBytes)}` : "";
 }
 
+// A download into the engine (step 3д, scout 2.17+), as its card and the live
+// patch write it: how much has come of how much, once the engine says; "" when
+// nothing downloads.
+export function engineDownloadText(e) {
+  const d = e?.downloading;
+  if (!d?.model) return "";
+  const head = `⤓ ${t("nodeEnginePulling", { model: d.model })}`;
+  if (d.doneBytes == null || !d.totalBytes) return `${head}…`;
+  const pct = Math.min(100, Math.floor((Number(d.doneBytes) / Number(d.totalBytes)) * 100));
+  return `${head} · ${t("nodeEnginePullProgress", { done: engineSizeText(d.doneBytes), total: engineSizeText(d.totalBytes) })} (${pct}%)`;
+}
+
 // A model's switch: a router output or not (step 2, docs/foreign-engines.md).
 // No switch on a model Ollama runs on its own cloud. An engine the proxy
 // cannot reach (127.0.0.1 of another machine) offers none to switch on — its
@@ -324,10 +336,15 @@ function engineExposeBtnHtml(n, e, m) {
 // it — only what the engine's scout offers (`controls`, scout 2.14+), never an
 // Ollama cloud model. While an act runs the row says so instead of offering
 // another; what the engine refused last stays on the row in its own words.
+// What a model's row says while an act on it runs, by the act.
+const ENGINE_ACT_BUSY = { load: "nodeEngineLoading", unload: "nodeEngineUnloading", delete: "nodeEngineDeleting" };
+// And what it says the engine refused.
+const ENGINE_ACT_FAILED = { load: "nodeEngineLoadFailed", unload: "nodeEngineUnloadFailed", delete: "nodeEngineDeleteFailed" };
+
 function engineActHtml(n, e, m) {
   const id = escapeHtml(`${n.id}:${e.kind}:${m.name}`);
   if (m.action?.op) {
-    const busy = t(m.action.op === "load" ? "nodeEngineLoading" : "nodeEngineUnloading");
+    const busy = t(ENGINE_ACT_BUSY[m.action.op] || "nodeEngineUnloading");
     return `<span class="node-engine-busy" data-t="node-engine-busy" data-t-id="${id}"><span class="topology-spinner" aria-hidden="true"></span> ${escapeHtml(busy)}</span>`;
   }
   const can = (op) => (Array.isArray(e.controls) ? e.controls : []).includes(op);
@@ -362,6 +379,17 @@ function engineServerHtml(n, e) {
       title="${escapeHtml(t(op === "start" ? "nodeEngineStartTitle" : "nodeEngineStopTitle"))}">${escapeHtml(label)}</button>`;
 }
 
+// A model downloaded into the engine (step 3д, scout 2.17+): in its card's
+// header, where the engine offers it and nothing downloads there yet.
+function enginePullHtml(n, e) {
+  const controls = Array.isArray(e.controls) ? e.controls : [];
+  if (!controls.includes("pull") || e.downloading?.model) return "";
+  return `<button class="node-engine-serve pull" type="button" data-t="node-engine-pull" data-t-id="${escapeHtml(`${n.id}:${e.kind}:${e.port}`)}"
+      data-engine-pull data-engine-host="${escapeHtml(String(n.id))}" data-engine-kind="${escapeHtml(String(e.kind || ""))}"
+      data-engine-label="${escapeHtml(String(e.label || e.kind || ""))}"
+      title="${escapeHtml(t("nodeEnginePullTitle"))}">⤓ ${escapeHtml(t("nodeEnginePull"))}</button>`;
+}
+
 // Under the header: what the server refused last, in its words; that another
 // user runs it (a system service — the operator's to stop); that it starts
 // with the machine (started from the board).
@@ -372,15 +400,35 @@ function engineServerNotesHtml(e) {
     const text = t(err.op === "start" ? "nodeEngineStartFailed" : "nodeEngineStopFailed", { error: err.error || "" });
     bits.push(`<span class="node-engine-act-error" title="${escapeHtml(err.error || "")}">⚠ ${escapeHtml(text)}</span>`);
   }
+  const down = engineDownloadText(e);
+  if (down) bits.push(`<span class="node-engine-download" data-t="node-engine-downloading" data-live-engine-download>${escapeHtml(down)}</span>`);
+  const failed = e.downloadError;
+  if (failed?.model) {
+    const text = t("nodeEnginePullFailed", { model: failed.model, error: failed.error || "" });
+    bits.push(`<span class="node-engine-act-error" title="${escapeHtml(failed.error || "")}">⚠ ${escapeHtml(text)}</span>`);
+  }
   if (e.runBy === "other") bits.push(`<span class="node-engine-note">${escapeHtml(t("nodeEngineRunByOther"))}</span>`);
   if (e.autostart === true) bits.push(`<span class="node-engine-note">${escapeHtml(t("nodeEngineAutostart"))}</span>`);
   return bits.length ? `<div class="node-engine-server-notes">${bits.join("")}</div>` : "";
 }
 
+// A model's files deleted from the engine's disk (step 3д, scout 2.17+): only
+// where the engine offers it (Ollama), only a model that is not loaded, not
+// while another act on it runs.
+function engineDeleteHtml(n, e, m) {
+  const controls = Array.isArray(e.controls) ? e.controls : [];
+  if (!controls.includes("delete") || m.loaded !== false || m.action?.op) return "";
+  return `<button class="node-engine-act delete" type="button" data-t="node-engine-delete" data-t-id="${escapeHtml(`${n.id}:${e.kind}:${m.name}`)}"
+      data-engine-act="delete" data-engine-host="${escapeHtml(String(n.id))}" data-engine-kind="${escapeHtml(String(e.kind || ""))}"
+      data-engine-holds="" data-engine-label="${escapeHtml(String(e.label || e.kind || ""))}" data-engine-model="${escapeHtml(m.name)}"
+      data-engine-machine="${escapeHtml(String(n.name || n.id))}"
+      title="${escapeHtml(t("nodeEngineDeleteTitle"))}">🗑 ${escapeHtml(t("nodeEngineDelete"))}</button>`;
+}
+
 function engineActErrorHtml(m) {
   const err = m.actionError;
   if (!err?.op) return "";
-  const text = t(err.op === "load" ? "nodeEngineLoadFailed" : "nodeEngineUnloadFailed", { error: err.error || "" });
+  const text = t(ENGINE_ACT_FAILED[err.op] || "nodeEngineUnloadFailed", { error: err.error || "" });
   return `<span class="node-engine-act-error" title="${escapeHtml(err.error || "")}">⚠ ${escapeHtml(text)}</span>`;
 }
 
@@ -415,7 +463,7 @@ function engineModelRowHtml(m, n = {}, e = {}) {
       <span class="node-engine-model-name" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}</span>${cloud}
       ${meta ? `<span class="node-engine-model-meta">${escapeHtml(meta)}</span>` : ""}
       ${bits.length ? `<span class="node-engine-model-mem">${bits.map((b) => escapeHtml(b)).join(" · ")}</span>` : ""}
-      ${engineActHtml(n, e, m)}${engineExposeBtnHtml(n, e, m)}
+      ${engineActHtml(n, e, m)}${engineDeleteHtml(n, e, m)}${engineExposeBtnHtml(n, e, m)}
       ${engineActErrorHtml(m)}
     </li>`;
 }
@@ -455,7 +503,7 @@ export function nodeEngineCardHtml(n, e) {
         <code>:${escapeHtml(String(e.port))}</code>
         ${loopback}${e.listen === "network" ? firewallBadge(e.firewall) : ""}
         <span style="flex:1"></span>
-        ${ram}${engineServerHtml(n, e)}
+        ${ram}${enginePullHtml(n, e)}${engineServerHtml(n, e)}
       </header>
       ${engineServerNotesHtml(e)}
       ${body}

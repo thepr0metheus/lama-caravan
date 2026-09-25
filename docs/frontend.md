@@ -581,6 +581,11 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   stopping a cell, the start is not. A stopped engine keeps its card (`data-t-state="stopped"`) with
   only «▶ start»; under the header — what the server refused last, «run by another user» (a system
   service, the operator's to stop) and «starts with the machine».
+- A model is downloaded into an engine from its header (`node-engine-pull`, scout 2.17+,
+  `pullEngineModel`): its name asked, with the engine's own hint; the progress line under the header
+  (`engineDownloadText`) is patched live — the bytes do not rebuild the card, the download's start and
+  end do. An Ollama model that is not loaded can be deleted from its row (`node-engine-delete`), through
+  a danger dialog naming the model, the engine and the machine; LM Studio offers no delete.
 - `machineAt(address)` — the machine behind an address its cells answer at, `{ key, name }`: its node and
   the node's name (the computer's hostname, from its scout); loopback and the controller's own address
   are the controller's machine (its node, else `topology.server.hostname`); an unknown address is said

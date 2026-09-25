@@ -49,7 +49,8 @@ def test_engine_report():
     print("что контроллер хранит о движке:")
     kept = EngineReport.engines([copy.deepcopy(ENGINE)])
     same(kept, [{**ENGINE, "api": "", "firewall": None, "controls": [], "holds": False, "runBy": "", "autostart": False,
-                 "serverAction": None, "serverError": None}],
+                 "serverAction": None, "serverError": None,
+                 "downloading": None, "downloadError": None}],
          "движок как сказал скаут — все поля; api и файрвол пусты, когда не сказаны")
     same(EngineReport.engines(None), None, "negative: скаут не сказал (старый) — None, а не [] («смотрел — нет»)")
     same(EngineReport.engines([]), [], "смотрел, никого — []")
@@ -110,6 +111,19 @@ def test_engine_report():
     same([one(controls=c)["controls"] for c in (["stop", "load", "unload"], ["start"], ["start", "reboot"])],
          [["load", "unload", "stop"], ["start"], ["start"]],
          "сервер движка (скаут 2.16): пуск и остановка — тоже из известных действий, после действий над моделями")
+    same([one(controls=c)["controls"] for c in (["pull", "delete", "load"], ["pull"])],
+         [["load", "delete", "pull"], ["pull"]],
+         "скачать в движок и удалить модель (скаут 2.17) — тоже из известных действий, в своём порядке")
+    dl = one(downloading={"model": "qwen3:4b", "since": "7", "doneBytes": 500, "totalBytes": None, "x": 1},
+             downloadError={"model": "qwen3:8b", "error": "e" * 400, "at": 9})
+    same((dl["downloading"], dl["downloadError"]),
+         ({"model": "qwen3:4b", "since": 7, "doneBytes": 500, "totalBytes": None},
+          {"model": "qwen3:8b", "error": "e" * 300, "at": 9}),
+         "скачивание идёт — сколько пришло из скольких (не сказано — None, а не 0); последний отказ — его словами")
+    same([one(downloading=d)["downloading"] for d in ({"since": 1}, {"model": ""}, "qwen3", None)], [None, None, None, None],
+         "negative: без имени модели, не словарь — никакого скачивания")
+    same(EngineReport.model({"name": "a", "action": {"op": "delete", "since": 1}})["action"], {"op": "delete", "since": 1},
+         "удаление модели идёт — та же метка, что загрузка")
     same([one(state="stopped", models=None)[k] for k in ("state", "models")], ["stopped", None],
          "остановленный движок (скаут 2.16) хранится: его можно запустить; модели неизвестны — None")
     same([one(runBy=r)["runBy"] for r in ("user", "other", "root", None)], ["user", "other", "", ""],
@@ -170,7 +184,8 @@ def test_report_to_record():
     same([a["name"] for a in rec["computeApps"]], ["ollama", ""],
          "имя процесса на карте хранится; скаут без него — «»")
     same(rec["engines"], [{**ENGINE, "api": "", "firewall": None, "controls": [], "holds": False, "runBy": "", "autostart": False,
-                 "serverAction": None, "serverError": None}], "движки — в записи машины")
+                 "serverAction": None, "serverError": None,
+                 "downloading": None, "downloadError": None}], "движки — в записи машины")
     older = fc.host_from_report({"host": {"id": "box-a"}})
     same(older["engines"], None, "negative: скаут до 2.12 — None, доска ничего не рисует")
     pulled = fc.scout_payload_from_state({"host": {"id": "box-a"}}, "http://10.0.0.5:8092")
@@ -206,7 +221,8 @@ def test_node_carries_engines():
             "gpus": [{"index": "0", "uuid": "u0", "name": "G", "memoryTotalMiB": "24576"}],
             "computeApps": [{"gpuUuid": "u0", "pid": 5151, "name": "ollama", "usedMiB": 3500}],
             "engines": [{**ENGINE, "api": "", "firewall": None, "controls": [], "holds": False, "runBy": "", "autostart": False,
-                 "serverAction": None, "serverError": None}]}
+                 "serverAction": None, "serverError": None,
+                 "downloading": None, "downloadError": None}]}
     import caravan.admin.engine_outputs as EO
     exposed_id = EO.EngineOutputs.output_id("box-a", "ollama", "qwen3:8b")
     saved = (T.topo.power_schedules, EO.topology_store)
@@ -219,7 +235,8 @@ def test_node_carries_engines():
         T.topo.power_schedules, EO.topology_store = saved
     same([n["engines"] for n in nodes],
          [[{**ENGINE, "api": "", "firewall": None, "controls": [], "holds": False, "runBy": "", "autostart": False,
-                 "serverAction": None, "serverError": None, "blockedBy": "", "reachable": True,
+                 "serverAction": None, "serverError": None,
+                 "downloading": None, "downloadError": None, "blockedBy": "", "reachable": True,
             "models": [{**MODEL, "outputId": exposed_id, "exposed": True}]}], None],
          "движки — как в записи, и у каждой модели — id её выхода и сделана ли она выходом; у машины "
          "со старым скаутом — None (не [])")
