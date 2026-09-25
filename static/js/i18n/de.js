@@ -448,6 +448,7 @@ export default {
   nodeEngineCloudModel: "Cloud",
   nodeEngineCloudModelHint: "Läuft auf den Servern von Ollama, nicht auf diesem Rechner",
   nodeEngineRamTitle: "Speicher der Prozesse dieser Engine",
+  nodeEngineVramTitle: "Grafikspeicher der Engine-Prozesse auf den Karten dieses Rechners (laut nvidia-smi)",
   nodeEngineOnDemandHint: "Lädt Modelle bei Bedarf: kann Speicher belegen, nachdem eine Zelle gestartet ist",
   topologyGpuOutsideEngineHint: "Eine Engine auf diesem Rechner, die keine Zelle von Caravan ist — ihre Modelle stehen unter „Andere Engines“",
   nodeEngineExpose: "als Ausgang",

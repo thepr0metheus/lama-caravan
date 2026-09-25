@@ -448,6 +448,7 @@ export default {
   nodeEngineCloudModel: "đám mây",
   nodeEngineCloudModelHint: "Chạy trên máy chủ của Ollama, không phải trên máy này",
   nodeEngineRamTitle: "Bộ nhớ do các tiến trình của engine chiếm",
+  nodeEngineVramTitle: "Bộ nhớ video mà các tiến trình của engine chiếm trên card của máy này (theo nvidia-smi)",
   nodeEngineOnDemandHint: "Nạp mô hình theo yêu cầu: có thể chiếm bộ nhớ sau khi một ô đã khởi động",
   topologyGpuOutsideEngineHint: "Một engine trên máy này không phải ô của Caravan — các mô hình của nó nằm ở «Engine khác»",
   nodeEngineExpose: "làm đầu ra",

@@ -1179,6 +1179,7 @@ export default {
   nodeEngineCloudModel: "cloud",
   nodeEngineCloudModelHint: "Runs on Ollama's servers, not on this machine",
   nodeEngineRamTitle: "Memory held by the engine's processes",
+  nodeEngineVramTitle: "Video memory the engine's processes hold on this machine's cards (nvidia-smi)",
   nodeEngineOnDemandHint: "Loads models on demand: it can take memory after a cell has started",
   topologyGpuOutsideEngineHint: "An engine on this machine that is not a caravan cell — its models are under “Other engines”",
   nodeEngineExpose: "make output",

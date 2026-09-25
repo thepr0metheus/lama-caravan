@@ -1179,6 +1179,7 @@ export default {
   nodeEngineCloudModel: "облако",
   nodeEngineCloudModelHint: "Работает на серверах Ollama, а не на этой машине",
   nodeEngineRamTitle: "Память процессов движка",
+  nodeEngineVramTitle: "Видеопамять процессов движка на картах этой машины (по nvidia-smi)",
   nodeEngineOnDemandHint: "Грузит модели по запросу: может занять память уже после старта ячейки",
   topologyGpuOutsideEngineHint: "Движок на этой машине, но не ячейка каравана — его модели в блоке «Другие движки»",
   nodeEngineExpose: "сделать выходом",

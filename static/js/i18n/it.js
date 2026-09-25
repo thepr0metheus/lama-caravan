@@ -448,6 +448,7 @@ export default {
   nodeEngineCloudModel: "cloud",
   nodeEngineCloudModelHint: "Gira sui server di Ollama, non su questa macchina",
   nodeEngineRamTitle: "Memoria occupata dai processi del motore",
+  nodeEngineVramTitle: "Memoria video dei processi del motore sulle schede di questa macchina (secondo nvidia-smi)",
   nodeEngineOnDemandHint: "Carica i modelli su richiesta: può occupare memoria dopo l’avvio di una cella",
   topologyGpuOutsideEngineHint: "Un motore su questa macchina che non è una cella di Caravan — i suoi modelli sono in «Altri motori»",
   nodeEngineExpose: "rendi uscita",

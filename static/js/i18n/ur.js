@@ -448,6 +448,7 @@ export default {
   nodeEngineCloudModel: "کلاؤڈ",
   nodeEngineCloudModelHint: "Ollama کے سرورز پر چلتا ہے، اس مشین پر نہیں",
   nodeEngineRamTitle: "انجن کے پراسیسز کی لی ہوئی میموری",
+  nodeEngineVramTitle: "اس مشین کے کارڈز پر انجن کے پروسیسز کی ویڈیو میموری (nvidia-smi کے مطابق)",
   nodeEngineOnDemandHint: "ماڈل مانگ پر لوڈ کرتا ہے: کسی سیل کے شروع ہونے کے بعد بھی میموری لے سکتا ہے",
   topologyGpuOutsideEngineHint: "اس مشین پر ایک انجن جو Caravan کا سیل نہیں — اس کے ماڈل «دیگر انجن» میں ہیں",
   nodeEngineExpose: "آؤٹ پٹ بنائیں",

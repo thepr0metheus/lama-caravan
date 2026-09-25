@@ -448,6 +448,7 @@ export default {
   nodeEngineCloudModel: "クラウド",
   nodeEngineCloudModelHint: "このマシンではなく Ollama のサーバーで動作します",
   nodeEngineRamTitle: "エンジンのプロセスが使用しているメモリ",
+  nodeEngineVramTitle: "このマシンのカード上でエンジンのプロセスが使うビデオメモリ（nvidia-smi による）",
   nodeEngineOnDemandHint: "モデルを必要に応じて読み込みます：セルの起動後にメモリを使うことがあります",
   topologyGpuOutsideEngineHint: "Caravan のセルではない、このマシン上のエンジン — そのモデルは「その他のエンジン」にあります",
   nodeEngineExpose: "出力にする",
