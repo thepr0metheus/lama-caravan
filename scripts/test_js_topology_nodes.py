@@ -56,7 +56,7 @@ const norm = (s) => String(s).replace(/\s+/g, " ").trim();
 const reset = () => { st.setState({ config: {}, runners: [], artifacts: [], models: [], paths: {} });
   st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [] });
   ui.latestSystemMonitor = null;
-  cf.CARD_FOLD.pinned.clear(); cf.CARD_FOLD.densities = {}; cf.CARD_FOLD.peekKey = ""; cf.CARD_FOLD.openKey = ""; cf.CARD_FOLD.hideIdle.clear(); cf.CARD_FOLD.launchers = {};
+  cf.CARD_FOLD.pinned.clear(); cf.CARD_FOLD.densities = {}; cf.CARD_FOLD.peekKey = ""; cf.CARD_FOLD.openKey = ""; cf.CARD_FOLD.hideIdle.clear(); cf.CARD_FOLD.launchers = {}; cf.CARD_FOLD.engineKey = "";
   for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingRemoteStarts, rc._pendingCellActions, rc._reservingCells]) c.clear(); };
 const node = { id: "h1", name: "Host", ip: "10.0.0.5", role: "host", gpus: [{ index: 0, name: "RTX", memoryTotalMiB: 24576 }] };
 const mk = (extra) => ({ port: 22001, isSlot: true, model: "a.gguf", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "a.gguf" }, ...extra });
@@ -2552,11 +2552,12 @@ PINS += [
 # The engines next to the cells (scout 2.12+): read-only cards under the
 # cells, and the memory their processes hold (docs/foreign-engines.md, step 1).
 PINS += [
-    ("engines_none_draws_nothing",
-     "",
-     "[m.nodeEnginesHtml({ id: \"h1\", engines: null }), m.nodeEnginesHtml({ id: \"h1\", engines: [] }), m.nodeEnginesHtml({ id: \"h1\" })]",
-     "[\"\", \"\", \"\"]",
-     "negative: движков нет — None (старый скаут не умеет смотреть), [] (смотрел — нет) и без поля — блока нет вовсе, а не «0 движков»"),
+    ("engines_panel_none",
+     'cf.CARD_FOLD.engineKey = "h1:ollama";',
+     '[m.nodeEnginePanelHtml({ id: "h1", engines: null }), m.nodeEnginePanelHtml({ id: "h1", engines: [] }), m.nodeEnginePanelHtml({ id: "h1" }), m.nodeEnginePanelHtml({ id: "h2", engines: [ENG()] }), m.nodeEnginePanelHtml({ id: "h1", engines: [ENG({ kind: "lmstudio" })] }), (cf.CARD_FOLD.engineKey = "", m.nodeEnginePanelHtml({ id: "h1", engines: [ENG()] }))]',
+     '["", "", "", "", "", ""]',
+     "negative: панели нет — движков нет (None: старый скаут не умеет смотреть; []: смотрел — нет; без поля), ▾ открыт "
+     "у другой машины, открыт ▾ движка, которого машина не сообщает, ни один ▾ не открыт"),
     ("engines_card_ok_full",
      "",
      "norm(m.nodeEngineCardHtml(node, ENG({ models: [MDL({ name: \"llama3.2:3b\", params: \"3.2B\", loaded: true, memBytes: 6591830464, vramBytes: 5333539264, contextLength: 4096, expiresAt: SOON }), MDL(), MDL({ name: \"gpt-oss:120b-cloud\", params: \"116.8B\", quant: \"MXFP4\", fileBytes: 384, remote: true })] })))",
@@ -2565,8 +2566,10 @@ PINS += [
     ("engines_loopback_chip",
      "",
      "[ENG({ listen: \"loopback\" }), ENG({ kind: \"lmstudio\", label: \"LM Studio\", port: 1234, listen: \"loopback\" }), ENG({ listen: \"network\" }), ENG({ listen: \"\" })].map((e) => (norm(m.nodeEngineCardHtml(node, e)).match(/<span class=\"node-engine-listen\"[^>]*>[^<]*<\\/span>/) || [\"\"])[0])",
-     "[\"<span class=\\\"node-engine-listen\\\" title=\\\"Listens on 127.0.0.1 only: other machines, the caravan&#39;s proxy among them, cannot reach it. To open it to the network: OLLAMA_HOST=0.0.0.0\\\">this machine only</span>\", \"<span class=\\\"node-engine-listen\\\" title=\\\"Listens on 127.0.0.1 only: other machines, the caravan&#39;s proxy among them, cannot reach it. To open it to the network: lms server start --bind 0.0.0.0\\\">this machine only</span>\", \"\", \"\"]",
-     "positive: слушает только 127.0.0.1 — плашка «только эта машина» с подсказкой, как открыть в сеть, своей для вида; сеть и «не знаю» — без плашки (неизвестное не рисуется петлёй)"),
+     json.dumps([f'<span class="node-engine-listen" title="{_en("nodeEngineLoopbackHint")}">{_en("nodeEngineLoopback")}</span>'] * 2
+                + ["", ""], ensure_ascii=False),
+     "positive: слушает только 127.0.0.1 — плашка «только эта машина»; подсказка одна для обоих движков: это изоляция, "
+     "путь внутрь — ячейка в движке (а не «откройте в сеть»); сеть и «не знаю» — без плашки (неизвестное не рисуется петлёй)"),
     ("engines_states",
      "",
      "[ENG({ state: \"auth\", models: null }), ENG({ state: \"unreachable\", models: null, version: \"\" })].map((e) => (h => [h.match(/data-t-state=\"([^\"]*)\"/)[1], h.match(/<div class=\"node-engine-state[^\"]*\">([^<]*)<\\/div>/)[1], h.includes(\"node-engine-models\")])(norm(m.nodeEngineCardHtml(node, e))))",
@@ -2607,11 +2610,6 @@ PINS += [
      "[[5333539264, 5333539264 + 67108864], [5333539264, 5333539264 + 67108863]].map(([v, mem]) => (norm(m.nodeEngineCardHtml(node, ENG({ models: [MDL({ loaded: true, vramBytes: v, memBytes: mem })] }))).match(/<span class=\"node-engine-model-mem\">([^<]*)<\\/span>/) || [\"\", \"\"])[1])",
      "[\"VRAM 5.0 GB · RAM 64 MB\", \"VRAM 5.0 GB\"]",
      "boundary: часть модели в RAM показывается от 64 МиБ (ровно 64 — да, на байт меньше — нет)"),
-    ("engines_in_lane",
-     "st.setTopology({ ...st.topology, nodes: [{ ...node, engines: [ENG()], servers: [] }] });",
-     "(h => [h.indexOf('data-t=\"node-engines\"') > h.indexOf('data-t=\"board-cell-add\"'), h.indexOf('data-t=\"node-engines\"') < h.indexOf('class=\"node-gpus\"'), (h.match(/data-t=\"node-engine\"/g) || []).length])(norm(m.nodesLaneHtml()))",
-     "[true, true, 1]",
-     "positive: блок движков — в колонке ячеек узла, после кнопки ＋, до видеокарт"),
     ("engine_ram_text",
      "",
      "[m.engineRamText({ ramBytes: null }), m.engineRamText({}), m.engineRamText({ ramBytes: 1288490189 }), m.engineRamText(null), m.engineRamText({ ramBytes: 20611072 }), m.engineRamText({ ramBytes: 1073741823 }), m.engineRamText({ ramBytes: 1073741824 }), m.engineRamText({ ramBytes: 0 })]",
@@ -2635,18 +2633,21 @@ PINS += [
     ("engines_expose_switch_off",
      "",
      "(norm(m.nodeEngineCardHtml(node, ENG({ reachable: true, models: [MDL({ outputId: \"eng:1\", exposed: false })] }))).match(/<button class=\"node-engine-expose[^>]*>[^<]*<\\/button>/) || [\"none\"])[0]",
-     "\"<button class=\\\"node-engine-expose\\\" type=\\\"button\\\" data-t=\\\"node-engine-expose\\\" data-t-id=\\\"eng:1\\\" data-engine-expose=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-model=\\\"qwen3:8b\\\" data-engine-exposed=\\\"0\\\" aria-pressed=\\\"false\\\" title=\\\"Make this model a router output: agents reach it through the caravan&#39;s proxy, and the engine loads it when asked\\\">⇄ make output</button>\"",
-     "positive: у модели — переключатель «сделать выходом» (шаг 2): data-t-id — id выхода, aria-pressed false, подсказка — что будет"),
+     '"none"',
+     "negative: сделать модель движка выходом с доски нельзя (2026-09-26, решение оператора: путь к модели — ячейка в "
+     "движке) — у невыведенной модели переключателя нет"),
     ("engines_expose_switch_on",
      "",
      "(h => [(h.match(/<button class=\"node-engine-expose[^>]*>[^<]*<\\/button>/) || [\"none\"])[0], (h.match(/<span class=\"topology-handle[^>]*><\\/span>/) || [\"none\"])[0], /node-engine-model[^\"]* exposed/.test(h)])(norm(m.nodeEngineCardHtml(node, ENG({ reachable: true, models: [MDL({ outputId: \"eng:1\", exposed: true })] }))))",
-     "[\"<button class=\\\"node-engine-expose on\\\" type=\\\"button\\\" data-t=\\\"node-engine-expose\\\" data-t-id=\\\"eng:1\\\" data-engine-expose=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-model=\\\"qwen3:8b\\\" data-engine-exposed=\\\"1\\\" aria-pressed=\\\"true\\\" title=\\\"Stop routing to this model: the router&#39;s cables to it wait for it to come back\\\">⇄ output</button>\", \"<span class=\\\"topology-handle server-input engine-input\\\" data-topology-engine-input=\\\"1\\\" data-output-id=\\\"eng:1\\\"></span>\", true]",
-     "positive: модель — выход: переключатель нажат, у строки — якорь кабеля роутера по id выхода, строка помечена exposed"),
+     "[\"<button class=\\\"node-engine-expose on\\\" type=\\\"button\\\" data-t=\\\"node-engine-expose\\\" data-t-id=\\\"eng:1\\\" data-engine-expose=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-model=\\\"qwen3:8b\\\" data-engine-exposed=\\\"1\\\" aria-pressed=\\\"true\\\" title=\\\"Stop routing to this model: the router&#39;s cables to it wait for it to come back\\\">⇄ output</button>\", \"none\", true]",
+     "positive: уже сделанный выход снимается здесь: переключатель нажат, строка помечена exposed; якоря у строки нет — "
+     "кабель садится у чипов машины: панель большую часть времени закрыта"),
     ("engines_expose_blocked",
      "",
      "[false, true].map((on) => (h => [/<button class=\"node-engine-expose[^>]* disabled>/.test(h), (h.match(/title=\"([^\"]*)\"(?: disabled)?>⇄/) || [])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ reachable: false, listen: \"loopback\", models: [MDL({ outputId: \"eng:1\", exposed: on })] })))))",
-     "[[true, \"The caravan&#39;s proxy cannot reach this engine: it listens on 127.0.0.1 of another machine. Open it to the network first\"], [false, \"Stop routing to this model: the router&#39;s cables to it wait for it to come back\"]]",
-     "negative: движок на 127.0.0.1 чужой машины — включить нельзя (disabled, подсказка: откройте в сеть); уже сделанный выход — выключить можно"),
+     '[[false, null], [false, "Stop routing to this model: the router&#39;s cables to it wait for it to come back"]]',
+     "negative: движок на 127.0.0.1 чужой машины — включать нечего (ни переключателя, ни совета «откройте в сеть»); "
+     "уже сделанный выход — выключить можно"),
     ("engines_expose_none_for_remote",
      "",
      "[MDL({ outputId: \"eng:1\", remote: true }), MDL({ outputId: \"\" }), MDL({})].map((mm) => norm(m.nodeEngineCardHtml(node, ENG({ models: [mm] }))).includes(\"node-engine-expose\"))",
@@ -2656,7 +2657,7 @@ PINS += [
      "",
      "(h => [(h.match(/<li class=\"node-engine-model/g) || []).length, (h.match(/title=\"(m\\d)\">m\\d<\\/span>/g) || []).map((x) => x.slice(7, 9)), (h.match(/<div class=\"node-engine-more topology-muted\">([^<]*)<\\/div>/) || [])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ models: [...Array(8)].map((_, i) => MDL({ name: `m${i}`, outputId: `eng:${i}`, exposed: i === 7 })) }))))",
      "[6, [\"m7\", \"m0\", \"m1\", \"m2\", \"m3\", \"m4\"], \"+2 more installed\"]",
-     "boundary: незагруженная модель-выход стоит первой среди установленных, даже восьмой по списку: к ней тянется кабель; всего 6, остальные — «+2»"),
+     "boundary: незагруженная модель-выход стоит первой среди установленных, даже восьмой по списку: снять её можно только здесь; всего 6, остальные — «+2»"),
 ]
 
 # An engine behind its machine's firewall (scout 2.13).
@@ -2664,8 +2665,8 @@ PINS += [
     ("engines_firewall_blocked_switch",
      "st.setTopology({ ...st.topology, server: { ip: \"10.0.0.1\" } });",
      "(h => [/<button class=\"node-engine-expose[^>]* disabled>/.test(h), (h.match(/title=\"([^\"]*)\" disabled>⇄/) || [])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ reachable: false, blockedBy: \"firewall\", firewall: { state: \"blocked\", allowedFrom: [] }, models: [MDL({ outputId: \"eng:1\" })] }))))",
-     "[true, \"This machine&#39;s firewall does not let the caravan&#39;s proxy reach this port. Open it for the controller: sudo ufw allow from 10.0.0.1 to any port 11434\"]",
-     "negative: файрвол машины не пускает контроллер (скаут 2.13) — включить нельзя, а подсказка даёт правило ufw с адресом контроллера и портом движка"),
+     '[false, null]',
+     "negative: файрвол машины не пускает контроллер (скаут 2.13) — переключателя нет: выход с доски не делают"),
     ("engines_firewall_badge",
      "",
      "[ENG({ firewall: { state: \"blocked\", allowedFrom: [] } }), ENG({ listen: \"loopback\", firewall: { state: \"blocked\", allowedFrom: [] } }), ENG({ firewall: null }), ENG({ firewall: { state: \"restricted\", allowedFrom: [\"10.0.0.0/24\"] } })].map((e) => (norm(m.nodeEngineCardHtml(node, e)).split(\"</header>\")[0].match(/<span class=\"node-fw-badge[^\"]*\"/) || [\"none\"])[0])",
@@ -2922,6 +2923,28 @@ PINS += [
                  ["lmstudio", _en("cellsFilterOnly").replace("{launcher}", "LM Studio") + "\n" + _en("cellsFilterEngineDown").replace("{engine}", "LM Studio")]],
                 ensure_ascii=False),
      "подсказка чипа движка — что он покажет и работает ли движок на этой машине"),
+    ("lane_engine_panel_open",
+     LANE + ' cf.CARD_FOLD.engineKey = "h1:ollama";',
+     '(h => [h.includes(\'data-t="node-engines"\'), h.indexOf(\'data-t="node-engine-panel"\') > h.indexOf(\'data-t="node-cell-filter"\'), h.indexOf(\'data-t="node-engine-panel"\') < h.indexOf(\'data-t="cell-row"\'), (h.match(/data-t="node-engine"/g) || []).length, (h.match(/<div class="(node-engine-panel[^"]*)"/) || [])[1], (h.match(/data-t="node-engine-menu" data-t-id="h1:ollama" aria-expanded="(true|false)" title="[^"]*" aria-label="[^"]*">([^<]*)</) || []).slice(1)])(lane([ENG()], TWO()))',
+     '[false, true, true, 1, "node-engine-panel engine-ollama", ["true", "▴"]]',
+     "positive: блока движков под ячейками нет; открыт ▾ Ollama — панель с карточкой движка под чипами, до ячеек, в "
+     "цвет движка; кнопка нажата и смотрит вверх"),
+    ("lane_engine_panel_closed",
+     LANE,
+     '(h => [h.includes("node-engine-panel"), (h.match(/data-t="node-engine"/g) || []).length, (h.match(/data-t="node-engine-menu" data-t-id="h1:ollama" aria-expanded="(true|false)" title="([^"]*)" aria-label="[^"]*">([^<]*)</) || []).slice(1)])(lane([ENG()], TWO()))',
+     json.dumps([False, 0, ["false", _en("engineMenuTitle").replace("{engine}", "Ollama"), "▾"]], ensure_ascii=False),
+     "negative: ни один ▾ не открыт — ни панели, ни карточки движка; ▾ говорит, что внутри"),
+    ("lane_engine_menu_only_when_reported",
+     LANE,
+     '(h => [h.includes(\'data-t-id="h1:ollama" aria-pressed\'), h.includes("data-engine-menu")])(lane([], TWO()))',
+     '[true, false]',
+     "negative: движок известен только по ячейке (в отчёте его нет) — чип есть, ▾ нет: показать в панели нечего"),
+    ("lane_output_anchors_at_chips",
+     LANE + ' cf.CARD_FOLD.engineKey = "h1:ollama";',
+     '(h => { const chipsRow = (h.match(/<div class="node-cell-filter"[^>]*>(.*?)<button/) || [0, ""])[1]; return [(h.match(/data-topology-engine-input="1"/g) || []).length, [...chipsRow.matchAll(/data-output-id="([^"]*)" title="([^"]*)"/g)].map((x) => [x[1], x[2]])]; })(lane([ENG({ models: [MDL({ outputId: "eng:1", exposed: true }), MDL({ name: "b", outputId: "eng:2", exposed: false })] })], TWO()))',
+     '[1, [["eng:1", "qwen3:8b · Ollama"]]]',
+     "positive: кабель выхода модели садится у края строки чипов (якорь назван моделью и движком); при открытой панели "
+     "якорь один — строка модели своего не рисует; у невыведенной модели якоря нет"),
     ("lane_cpu_line_skips_engine_cells",
      LANE,
      '(h => (h.match(/<span class="node-gpu-ports">▶ ([^<]*)</) || [0, "none"])[1])(lane([ENG()], [mk({ phase: "running" }), EC({ phase: "running" })]))',

@@ -206,7 +206,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 354 values. Regenerate with
+Generated from the source, not from memory — 355 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Fifty of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -234,7 +234,7 @@ that is why there is a script and not a one-liner.
 **model** — `model-file-stale`, `model-in-library`, `model-job-asr`, `model-job-embed`, `model-job-llm`, `model-job-speech-translate`, `model-job-translate`, `model-job-tts`
 
 **models** — `models-delete-selected`, `models-filter`, `models-filter-clear`, `models-filter-empty`, `models-filters`, `models-folder-item`, `models-fresh-at`, `models-fresh-auto`, `models-fresh-check`, `models-fresh-get`, `models-fresh-keep`, `models-fresh-stamp`, `models-hf-open`, `models-library-file`, `models-model-select`, `models-move-branch`, `models-move-dest`, `models-move-dismiss`, `models-move-menu`, `models-move-open`, `models-move-progress`, `models-move-selected`, `models-move-stayed`, `models-move-stop`, `models-move-target`, `models-moves-summary`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-place-all`, `models-place-card`, `models-place-open`, `models-search`, `models-selection`, `models-staged-download`, `models-staged-progress`, `models-staged-revert`, `models-store`, `models-store-add`, `models-store-add-cancel`, `models-store-add-open`, `models-store-add-path`, `models-store-add-row`, `models-store-files`, `models-store-meta`, `models-store-remove`, `models-store-repath`, `models-store-repath-cancel`, `models-store-repath-input`, `models-store-repath-row`, `models-store-repath-save`, `models-store-state`, `models-store-why`, `models-store-why-command`, `models-stores`, `models-stores-error`, `models-summary`, `models-summary-bar`, `models-summary-facts`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-tree-head`, `models-unused-select-all`, `models-unused-summary`
-**node** — `node-cell-filter`, `node-disconnect`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-downloading`, `node-engine-expose`, `node-engine-job`, `node-engine-load`, `node-engine-pull`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-engines`, `node-hide-idle`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
+**node** — `node-cell-filter`, `node-disconnect`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-downloading`, `node-engine-expose`, `node-engine-job`, `node-engine-load`, `node-engine-menu`, `node-engine-panel`, `node-engine-pull`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-hide-idle`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
 **host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `cell-ctx-native`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
 **scout** — `scout-add-address`, `scout-add-connect`, `scout-add-port`, `scout-add-status`
 **setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
@@ -257,14 +257,15 @@ nothing is `disabled`. Two hooks exist only after a step: `models-store-add-row`
 selection bar `models-selection` is `hidden` while nothing is picked.
 
 On the board, the engines next to a machine's cells (Ollama, LM Studio — scout
-2.12+) sit in `node-engines`, whose `data-t-id` is the node id; each engine is a
-`node-engine` with `data-t-id` `<node>:<kind>:<port>` (`ollama`, `lmstudio`) and
-`data-t-state` for how it answered: `ok`, `auth` (it wants a token) or
-`unreachable` (its port is silent). No block at all is a machine whose scout
-found none, or cannot look. A model's switch `node-engine-expose` makes it a
-router output: its `data-t-id` is the output's id (`eng:<hash>`), and
-`aria-pressed="true"` while the model is one; it is `disabled` when the
-controller's proxy cannot reach the engine and the model is not an output yet.
+2.12+) open from their chips: a reported engine's chip has `node-engine-menu`
+beside it (`data-t-id` `<node>:<kind>`, `aria-expanded`), and the panel it opens,
+`node-engine-panel` with the same id, holds a `node-engine` with `data-t-id`
+`<node>:<kind>:<port>` (`ollama`, `lmstudio`) and `data-t-state` for how it
+answered: `ok`, `auth` (it wants a token) or `unreachable` (its port is silent).
+No chip and no panel is a machine whose scout found none, or cannot look. A
+model is not made a router output from the board any more; one made already
+keeps its switch `node-engine-expose` (`data-t-id` the output's id `eng:<hash>`,
+`aria-pressed="true"`) to turn it off.
 `node-engine-load` and `node-engine-unload` load a model into the engine or
 unload it (scout 2.14+); their `data-t-id` is `<node>:<kind>:<model>`, and
 while the act runs the row carries `node-engine-busy` with the same id instead.

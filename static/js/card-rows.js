@@ -179,17 +179,27 @@ export class CellEye {
  * Each chip says how many cells it holds; an engine's carries a dot while its
  * server answers, and none when the machine did not report it. The pressed
  * chip is the list shown.
+ *
+ * An engine the machine reports has a ▾ beside its chip: the panel with its
+ * server and its models (2026-09-26, the operator's choice — the block of
+ * engines under the cells is gone). `anchors` are the handles of the models
+ * already made router outputs: their cables land at the chips' edge, as a
+ * cell's land at its line.
  */
 export class CellFilter {
-  constructor({ hostId, chosen = "", options = [] } = {}) {
+  constructor({ hostId, chosen = "", options = [], anchors = "" } = {}) {
     this.hostId = String(hostId || "");
     this.chosen = String(chosen || "");
+    this.anchors = String(anchors || "");
     this.options = (Array.isArray(options) ? options : []).map((o) => ({
       id: String(o?.id || ""),
       label: String(o?.label || ""),
       count: Math.max(0, Math.floor(Number(o?.count) || 0)),
       up: typeof o?.up === "boolean" ? o.up : null,
       title: String(o?.title || ""),
+      menu: o?.menu === true,
+      open: o?.open === true,
+      menuTitle: String(o?.menuTitle || ""),
     }));
   }
 
@@ -199,13 +209,21 @@ export class CellFilter {
     const chips = this.options.map((o) => {
       // An engine's chip wears its colour; "" (all) and the caravan keep the board's.
       const engine = o.id && o.id !== "caravan" ? CellRow.launcher(o.id) : "";
+      const colour = engine ? ` engine-${engine}` : "";
       const dot = o.up === null ? "" : `<span class="ncf-dot${o.up ? " up" : ""}" aria-hidden="true"></span>`;
-      return `<button type="button" class="ncf-chip${engine ? ` engine-${engine}` : ""}" data-cell-filter="${host}"`
+      const chip = `<button type="button" class="ncf-chip${colour}" data-cell-filter="${host}"`
         + ` data-cell-filter-id="${escapeHtml(o.id)}" data-t="node-cell-filter" data-t-id="${host}:${escapeHtml(o.id || "all")}"`
         + ` aria-pressed="${o.id === this.chosen}" title="${escapeHtml(o.title)}">${dot}${escapeHtml(o.label)}`
         + `<span class="ncf-count">${o.count}</span></button>`;
+      if (!engine || !o.menu) return chip;
+      const key = escapeHtml(`${this.hostId}:${engine}`);
+      const words = escapeHtml(o.menuTitle);
+      return `<span class="ncf-group">${chip}<button type="button" class="ncf-menu${colour}" data-engine-menu="${key}"`
+        + ` data-t="node-engine-menu" data-t-id="${key}" aria-expanded="${o.open}" title="${words}" aria-label="${words}">`
+        + `${o.open ? "▴" : "▾"}</button></span>`;
     }).join("");
-    return `<div class="node-cell-filter" role="group" aria-label="${escapeHtml(t("cellsFilterLabel"))}">${chips}</div>`;
+    return `<div class="node-cell-filter" role="group" aria-label="${escapeHtml(t("cellsFilterLabel"))}">`
+      + `${this.anchors}${chips}</div>`;
   }
 }
 

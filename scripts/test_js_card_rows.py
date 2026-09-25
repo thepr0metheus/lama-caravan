@@ -147,6 +147,12 @@ const filters = {
   none: new CellFilter({ hostId: "h1" }).html(),
   odd: new CellFilter({ hostId: '"><b>', chosen: "", options: [{ id: 'a b', label: "<i>x", count: "7.9", up: "yes", title: '"t' }, { id: "", count: -2 }] }).html(),
   label: en.cellsFilterLabel,
+  menu: new CellFilter({ hostId: "h1", options: [{ id: "", label: "All", count: 2 },
+    { id: "ollama", label: "Ollama", count: 1, up: true, menu: true, open: true, menuTitle: 'Ollama: "x"' },
+    { id: "lmstudio", label: "LM Studio", count: 1, menu: true, menuTitle: "LM Studio" },
+    { id: "caravan", label: "Caravan", count: 1, menu: true, menuTitle: "c" },
+    { id: "odd one", label: "Odd", count: 0, menu: true, menuTitle: "o" }],
+    anchors: '<span class="topology-handle engine-input" data-output-id="eng:1"></span>' }).html(),
 };
 console.log(JSON.stringify({ cell, agent, slot, windows, eyes, filters }));
 """
@@ -308,6 +314,22 @@ check('<span class="ncf-count">7</span>' in odd and '<span class="ncf-count">0</
       "boundary: счётчик — целое неотрицательное (7.9 → 7, −2 → 0)")
 check(odd.count('aria-pressed="true"') == 1 and 'data-t-id="&quot;&gt;&lt;b&gt;:all" aria-pressed="true"' in odd,
       "без выбора нажат «все»")
+
+mn = fl["menu"]
+check('<span class="ncf-group"><button type="button" class="ncf-chip engine-ollama" data-cell-filter="h1" data-cell-filter-id="ollama"' in mn
+      and '<button type="button" class="ncf-menu engine-ollama" data-engine-menu="h1:ollama" data-t="node-engine-menu" '
+          'data-t-id="h1:ollama" aria-expanded="true" title="Ollama: &quot;x&quot;" aria-label="Ollama: &quot;x&quot;">▴</button></span>' in mn,
+      "у чипа движка — ▾ в одной группе с ним, в его цвет; открыт — нажат и смотрит вверх; подсказка экранирована")
+check('data-engine-menu="h1:lmstudio" data-t="node-engine-menu" data-t-id="h1:lmstudio" aria-expanded="false" '
+      'title="LM Studio" aria-label="LM Studio">▾</button>' in mn,
+      "закрытый ▾ — aria-expanded false и стрелка вниз")
+check('data-engine-menu="h1:caravan"' not in mn and "odd one" not in mn.split("ncf-menu")[0] and 'data-engine-menu="h1:odd' not in mn,
+      "negative: у каравана и у слова, не годного в класс, ▾ нет — меню только у движка")
+check(mn.startswith('<div class="node-cell-filter" role="group" aria-label="' + fl["label"] + '">'
+                    '<span class="topology-handle engine-input" data-output-id="eng:1"></span><button'),
+      "якоря выходов — первыми в строке чипов, у её края")
+check('ncf-group' not in fl["full"] and "data-engine-menu" not in fl["full"],
+      "negative: без menu у варианта ▾ не рисуется — чип как был")
 
 print("глаз машины (CellEye):")
 off_words, on_words = e["words"]

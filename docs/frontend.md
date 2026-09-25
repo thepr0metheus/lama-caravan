@@ -432,7 +432,7 @@ their marks say `launcher`, the eye's `idle`, and the eye counts only its own.
   `boardCardPinned`, `boardCellsHideIdle`, `boardCellsLauncher`)
   as a per-browser convenience — a cell's pin saved before the window came is ignored.
 - Key exports: `CardFold` (`OPENS`, `density`, `toggleDensity`, `togglePin`, `hidesIdle`,
-  `toggleHideIdle`, `launcherOf`, `setLauncher`, `opensInWindow`, `mode`, `syncSwitches`, `cellQuiet`, `cellIdle`,
+  `toggleHideIdle`, `launcherOf`, `setLauncher`, `toggleEngineMenu`, `opensInWindow`, `mode`, `syncSwitches`, `cellQuiet`, `cellIdle`,
   `agentQuiet`), `FoldPeek` (`bind`, `openWindow`,
   `closeWindow`), `CARD_FOLD`.
 
@@ -462,7 +462,9 @@ request; without it the card is drawn byte for byte as before. Styles: `static/c
 - Owns: nothing mutable.
 `CellFilter` draws a machine's chips over its cells: each says how many cells it holds, an
 engine's wears its colour and a dot while its server answers (none when the machine did not
-report it), and the pressed one is the list shown; with nothing to choose it draws nothing.
+report it), and the pressed one is the list shown; with nothing to choose it draws nothing. A
+reported engine's chip has a ▾ beside it (`node-engine-menu`, ▴ while its panel is open), and the
+row starts with the anchors of the engine models made router outputs.
 
 - Key exports: `CellRow`, `AgentRow`, `CellWindow`, `CellEye`, `CellFilter`, `FoldSlot`.
 
@@ -579,7 +581,7 @@ and `isControllerMachine` / `hostPowerTextKey` give that node's reboot, poweroff
 words for the machine the board runs on. Collapsed nodes persist to localStorage.
 
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
-- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeEnginesHtml`, `nodeEngineCardHtml`, `engineRamText`.
+- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeEnginePanelHtml`, `nodeEngineCardHtml`, `engineRamText`.
 - A GPU row names who holds the memory that is no cell's (`outside` from the backend): an engine of
   the machine («Ollama 5.9 GB»), else the process's name, else «outside»; each owner from 64 MiB is a
   hatched band laid after the fleet's share of the bar, and the «who» line lists the cells' ports AND
@@ -602,21 +604,23 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   in that the machine reports or has a cell in — offered only when there is such an engine. The
   lane passes the chosen launcher to each card (`only`); a launcher the machine no longer offers
   shows all, so no list stays narrowed with no chip to widen it.
-- The engines next to a machine's cells (Ollama, LM Studio — scout 2.12+) are read-only cards under
-  its cells (`nodeEnginesHtml`, `node-engines` / `node-engine`): version, port, «this machine only»
-  with how to open it when it listens on 127.0.0.1, the RAM its processes hold (patched live),
-  loaded models with their VRAM, RAM part, window and when keep_alive unloads them (a clock time),
-  then up to six installed ones and «+N more installed»; «wants a token» and «does not answer»
-  instead of a list. None (an older scout) and [] (none found) draw no block. An engine's state and
-  what it has loaded are in the board's structure fingerprint; its memory is not.
-- A model's switch (`node-engine-expose`) makes it a router output (`POST /api/engine-outputs/expose`,
-  `setEngineModelExposed` in routers.js); an output's row carries the anchor the router's cable lands
-  on (`data-topology-engine-input` by output id — one engine port serves many models), and an
-  exposed idle model is listed first so its cable has a row to land on. An engine the proxy cannot
-  reach (127.0.0.1 of another machine, or its machine's firewall — the switch's title then gives the
-  ufw rule that would let the controller in) offers no switch to turn on; an output made already can
-  be turned off. An engine open to the network wears its port's firewall badge, as a cell's port does. On the kanban an engine's output is labelled «model · engine» and is lit by the output
-  a request was routed to (`routedOutputId`), not by its engine's host:port.
+- The engines next to a machine's cells (Ollama, LM Studio — scout 2.12+) have no block under the
+  cells since 2026-09-26: a reported engine's chip carries a ▾ (`node-engine-menu`), and the ▾ opens
+  its card in a panel under the chips (`nodeEnginePanelHtml`, `node-engine-panel` / `node-engine`,
+  one open at a time — `CARD_FOLD.engineKey`, not kept across pages), in the engine's colour: version,
+  port, «this machine only» when it listens on 127.0.0.1 (the isolation the cells rely on — the hint
+  says a cell in the engine is the way in), the RAM its processes hold (patched live), loaded models
+  with their VRAM, RAM part, window and when keep_alive unloads them (a clock time), then up to six
+  installed ones and «+N more installed»; «wants a token» and «does not answer» instead of a list. An
+  engine's state and what it has loaded are in the board's structure fingerprint; its memory is not.
+- A model is no longer made a router output from the board (the operator's choice, 2026-09-26: a cell
+  in the engine is the way to its model; `POST /api/engine-outputs/expose` still takes one). A model
+  made one already keeps its switch (`node-engine-expose`, pressed) to turn it off, and is listed
+  first; the anchor its router cable lands on (`data-topology-engine-input` by output id) sits at the
+  edge of its machine's chips, so the cable is drawn while the panel is shut. An engine open to the
+  network wears its port's firewall badge, as a cell's port does. On the kanban an engine's output is
+  labelled «model · engine» and is lit by the output a request was routed to (`routedOutputId`), not by
+  its engine's host:port.
 - A model is loaded or unloaded from its row (`node-engine-load` / `node-engine-unload`, only what the
   engine's `controls` offer, scout 2.14+): the load asks for a window — empty keeps the engine's own —
   and the unload is confirmed like stopping a cell (`actOnEngineModel` in remote-cells.js). While the

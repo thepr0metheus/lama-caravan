@@ -954,10 +954,9 @@
     color-mix(in srgb,var(--warn,#d9a441) 38%,transparent) 3px 6px); }
 .node-vram-outside + .node-vram-outside { box-shadow:inset 1px 0 0 rgba(13,17,23,.6); }
 .node-gpu-outside { color:var(--warn,#d9a441); }
-/* Engines next to the cells (Ollama, LM Studio): read-only cards under the
-   cells, in the amber of the memory they hold on the cards. */
-.node-engines { display:flex; flex-direction:column; gap:6px; }
-.node-engines > .node-subtitle { padding:6px 4px 0; }
+/* An engine next to the cells (Ollama, LM Studio): its card, in the amber of
+   the memory it holds on the cards — opened by the ▾ at its machine's chip
+   (.node-engine-panel, nodes.css), where it wears the engine's colour. */
 .node-engine { border:1px solid color-mix(in srgb,var(--warn,#d9a441) 30%,var(--line)); border-radius:8px;
   padding:7px 10px; background:color-mix(in srgb,var(--warn,#d9a441) 5%,transparent); font-size:12px; }
 .node-engine-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
@@ -980,10 +979,9 @@
 .node-engine-cloud { font-size:10px; padding:0 5px; border-radius:3px; cursor:help;
   color:var(--fallback,#60a5fa); background:color-mix(in srgb,var(--fallback,#60a5fa) 14%,transparent); }
 .node-engine-more { margin-top:4px; font-size:11px; }
-/* A model the router routes to: its cable lands on its row, as on a cell's
-   card; the switch at its end makes it an output or stops. */
+/* A model the router routes to: its cable lands at the machine's chips
+   (nodes.css); the switch at its row's end is the only way to stop it here. */
 .node-engine-model { position:relative; }
-.node-engine-model > .topology-handle.engine-input { left:-35px; height:22px; }
 .node-engine-model.exposed .node-engine-model-name { color:var(--text,#ddd); }
 .node-engine-expose { font-size:10px; padding:1px 6px; border-radius:4px; min-height:0; line-height:1.4;
   border:1px solid var(--line); background:transparent; color:var(--muted,#888); cursor:pointer; }

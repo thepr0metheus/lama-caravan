@@ -279,7 +279,6 @@ export function nodeGpuRowHtml(node, g) {
 // older scout, which cannot look) and [] (it looked, none) draw nothing.
 // How each kind is opened to the network when it listens on 127.0.0.1 only:
 // the words are the engine's own, not translated.
-const ENGINE_OPEN_HOW = { ollama: "OLLAMA_HOST=0.0.0.0", lmstudio: "lms server start --bind 0.0.0.0" };
 // Installed-but-not-loaded models shown before "+N more installed".
 const ENGINE_IDLE_SHOWN = 6;
 // Ollama's keep_alive -1 is an expiry decades away: "stays loaded".
@@ -328,30 +327,17 @@ export function engineDownloadText(e) {
   return `${head} · ${t("nodeEnginePullProgress", { done: engineSizeText(d.doneBytes), total: engineSizeText(d.totalBytes) })} (${pct}%)`;
 }
 
-// A model's switch: a router output or not (step 2, docs/foreign-engines.md).
-// No switch on a model Ollama runs on its own cloud. An engine the proxy
-// cannot reach (127.0.0.1 of another machine) offers none to switch on — its
-// title says why — but an output already made keeps its switch off.
-// Why the proxy cannot reach an engine, in words: 127.0.0.1 of another machine,
-// or that machine's firewall — with the rule that would let the controller in.
-function engineBlockedTitle(e) {
-  if (e.blockedBy === "firewall") {
-    const from = String(topology?.server?.ip || "<controller>");
-    return t("nodeEngineFirewallBlocked", { cmd: `sudo ufw allow from ${from} to any port ${e.port}` });
-  }
-  return t("nodeEngineExposeBlocked");
-}
-
+// A model made a router output directly (step 2, docs/foreign-engines.md) can
+// only be turned off from the board now: an engine's model is reached through
+// a cell in it (2026-09-26, the operator's choice — no new outputs here; the
+// controller's API still takes one). No switch on any other model.
 function engineExposeBtnHtml(n, e, m) {
-  if (m.remote || !m.outputId) return "";
-  const on = m.exposed === true;
-  const blocked = !on && e.reachable === false;
-  const title = on ? t("nodeEngineUnexposeTitle") : blocked ? engineBlockedTitle(e) : t("nodeEngineExposeTitle");
-  return `<button class="node-engine-expose${on ? " on" : ""}" type="button" data-t="node-engine-expose"
+  if (m.remote || !m.outputId || m.exposed !== true) return "";
+  return `<button class="node-engine-expose on" type="button" data-t="node-engine-expose"
       data-t-id="${escapeHtml(m.outputId)}" data-engine-expose="${escapeHtml(String(n.id))}"
       data-engine-kind="${escapeHtml(String(e.kind || ""))}" data-engine-model="${escapeHtml(m.name)}"
-      data-engine-exposed="${on ? "1" : "0"}" aria-pressed="${on ? "true" : "false"}"
-      title="${escapeHtml(title)}"${blocked ? " disabled" : ""}>⇄ ${escapeHtml(t(on ? "nodeEngineExposed" : "nodeEngineExpose"))}</button>`;
+      data-engine-exposed="1" aria-pressed="true"
+      title="${escapeHtml(t("nodeEngineUnexposeTitle"))}">⇄ ${escapeHtml(t("nodeEngineExposed"))}</button>`;
 }
 
 // Driving a model from the board (step 3): load it into the engine or unload
@@ -477,11 +463,10 @@ function engineModelRowHtml(m, n = {}, e = {}) {
   }
   const cloud = m.remote
     ? ` <span class="node-engine-cloud" title="${escapeHtml(t("nodeEngineCloudModelHint"))}">☁ ${escapeHtml(t("nodeEngineCloudModel"))}</span>` : "";
-  // An output's model is where the router's cable lands, as a cell's card is.
-  const anchor = m.exposed === true
-    ? `<span class="topology-handle server-input engine-input" data-topology-engine-input="1" data-output-id="${escapeHtml(m.outputId)}"></span>` : "";
+  // An output's cable lands at its machine's chips (engineOutputAnchorsHtml),
+  // where it stays while this panel is shut.
   return `<li class="node-engine-model${m.loaded === true ? " loaded" : ""}${m.exposed === true ? " exposed" : ""}">
-      ${anchor}<span class="node-engine-dot" aria-hidden="true"></span>
+      <span class="node-engine-dot" aria-hidden="true"></span>
       <span class="node-engine-model-name" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}</span>${cloud}
       ${engineJobChipsHtml(m)}${meta ? `<span class="node-engine-model-meta">${escapeHtml(meta)}</span>` : ""}
       ${bits.length ? `<span class="node-engine-model-mem">${bits.map((b) => escapeHtml(b)).join(" · ")}</span>` : ""}
@@ -493,7 +478,7 @@ function engineModelRowHtml(m, n = {}, e = {}) {
 export function nodeEngineCardHtml(n, e) {
   const kind = String(e.kind || "");
   const loopback = e.listen === "loopback"
-    ? `<span class="node-engine-listen" title="${escapeHtml(t("nodeEngineLoopbackHint", { how: ENGINE_OPEN_HOW[kind] || "" }))}">${escapeHtml(t("nodeEngineLoopback"))}</span>` : "";
+    ? `<span class="node-engine-listen" title="${escapeHtml(t("nodeEngineLoopbackHint"))}">${escapeHtml(t("nodeEngineLoopback"))}</span>` : "";
   const ram = e.ramBytes != null
     ? `<span class="node-engine-ram" data-live-engine-ram title="${escapeHtml(t("nodeEngineRamTitle"))}">${escapeHtml(engineRamText(e))}</span>` : "";
   // Always the slot, so the live patch can fill it when the engine takes the
@@ -507,7 +492,8 @@ export function nodeEngineCardHtml(n, e) {
     const models = Array.isArray(e.models) ? e.models : [];
     const loaded = models.filter((m) => m.loaded === true);
     const idle = models.filter((m) => m.loaded !== true);
-    // An output's model is always shown, loaded or not: its cable lands here.
+    // An output's model is always listed, loaded or not: the operator can turn
+    // it off only here.
     const outputs = idle.filter((m) => m.exposed === true);
     const rest = idle.filter((m) => m.exposed !== true);
     const shown = [...outputs, ...rest.slice(0, Math.max(0, ENGINE_IDLE_SHOWN - outputs.length))];
@@ -535,13 +521,28 @@ export function nodeEngineCardHtml(n, e) {
     </article>`;
 }
 
-export function nodeEnginesHtml(n) {
-  const engines = Array.isArray(n?.engines) ? n.engines : [];
-  if (!engines.length) return "";
-  return `<div class="node-engines" data-t="node-engines" data-t-id="${escapeHtml(String(n.id))}">
-      <div class="node-subtitle">${escapeHtml(t("nodeEnginesHead"))}</div>
-      ${engines.map((e) => nodeEngineCardHtml(n, e)).join("")}
+// The panel of the engine whose ▾ is open at its machine's chips (2026-09-26,
+// in place of the block of engines under the cells): the engine's card, as it
+// was — its server, memory, downloads and models. "" when none is open here.
+export function nodeEnginePanelHtml(n) {
+  const [host, kind] = String(CARD_FOLD.engineKey || "").split(/:(?=[^:]*$)/);
+  if (!kind || host !== String(n?.id ?? "")) return "";
+  const e = (Array.isArray(n?.engines) ? n.engines : []).find((x) => String(x.kind || "") === kind);
+  if (!e) return "";
+  const colour = CellRow.launcher(kind);
+  return `<div class="node-engine-panel${colour ? ` engine-${colour}` : ""}" data-t="node-engine-panel" data-t-id="${escapeHtml(`${n.id}:${kind}`)}">
+      ${nodeEngineCardHtml(n, e)}
     </div>`;
+}
+
+// The handles of a machine's engine models made router outputs: their cables
+// land at the machine's chips, always drawn — the panel that lists the models
+// is shut most of the time.
+function engineOutputAnchorsHtml(n) {
+  return (Array.isArray(n?.engines) ? n.engines : []).flatMap((e) => (Array.isArray(e.models) ? e.models : [])
+    .filter((m) => m && m.exposed === true && m.outputId)
+    .map((m) => `<span class="topology-handle server-input engine-input" data-topology-engine-input="1"`
+      + ` data-output-id="${escapeHtml(m.outputId)}" title="${escapeHtml(`${m.name} · ${e.label || e.kind}`)}"></span>`)).join("");
 }
 
 // Small firewall-access badge (icon + tooltip) for a server's port.
@@ -691,11 +692,16 @@ export function nodeCellFilter(n, servers = []) {
       const name = String(e?.label || t(r.labelKey || "") || r.id);
       const up = e ? e.state === "ok" : null;
       const state = up === null ? "" : `\n${t(up ? "cellsFilterEngineUp" : "cellsFilterEngineDown", { engine: name })}`;
-      return { id: r.id, label: name, count: count(r.id), up, title: `${t("cellsFilterOnly", { launcher: name })}${state}` };
+      // A reported engine has a panel; one known only from its cells has
+      // nothing to show in one.
+      return { id: r.id, label: name, count: count(r.id), up, title: `${t("cellsFilterOnly", { launcher: name })}${state}`,
+               menu: !!e, open: !!e && CARD_FOLD.engineKey === `${n?.id}:${r.id}`,
+               menuTitle: t("engineMenuTitle", { engine: name }) };
     }),
   ];
   const want = CARD_FOLD.launcherOf(n?.id);
-  return new CellFilter({ hostId: n?.id, chosen: options.some((o) => o.id === want) ? want : "", options });
+  return new CellFilter({ hostId: n?.id, chosen: options.some((o) => o.id === want) ? want : "", options,
+                          anchors: engineOutputAnchorsHtml(n) });
 }
 
 // The runner of a cell whose model runs inside an engine next to it (Ollama,
@@ -1771,7 +1777,7 @@ export function nodesLaneHtml() {
       }).html();
       const serversHead = `<div class="node-servers-head">${serversSubtitle}${filter.html()}${eye}</div>`;
       bodyHtml = `<div class="node-body">
-          <div class="node-servers">${serversHead}${serversHtml}${startingCard}${addBtn}${nodeEnginesHtml(n)}${serverStatsSlot}</div>
+          <div class="node-servers">${serversHead}${nodeEnginePanelHtml(n)}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
           <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>
         </div>`;
     }
