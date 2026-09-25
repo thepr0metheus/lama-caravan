@@ -1,8 +1,9 @@
 /* Folded board cards (card-fold.js, card-rows.js).
-   A quiet card stands in its lane as one line; its full card floats over the
-   lane on hover and stays in place when pinned. The line never moves and owns
-   the cable's handle, so the lane does not reflow under the pointer and no
-   cable has to follow a card that is only being looked at. */
+   A quiet card stands in its lane as one line. An agent's full card floats
+   over the lane on hover and stays in place when pinned; a cell's opens as a
+   window over the board on a click. The line never moves and owns the cable's
+   handle, so the lane does not reflow under the pointer and no cable has to
+   follow a card that is only being looked at. */
 
 .fold-slot { position: relative; }
 
@@ -13,7 +14,6 @@
    now and then on the live board, and the operator asked for none at all
    (2026-09-23). A card that is simply there is also what a board repaint
    draws, so the two can never disagree about how an open card looks. */
-.fold-slot[data-fold-mode="line"] > .node-server,
 .fold-slot[data-fold-mode="line"] > .topology-agent {
   display: none;
   position: absolute;
@@ -23,15 +23,75 @@
   z-index: 40;
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55), 0 0 0 1px color-mix(in srgb, var(--accent) 40%, var(--line));
 }
-.fold-slot.peek > .node-server { display: block; }
 .fold-slot.peek > .topology-agent { display: grid; }
 
-/* A card's own background is a tint over nothing; floating, it would show the
-   lines beneath it through itself. The same tint, laid over the page's ground. */
-.fold-slot.peek > .node-server {
-  background-color: var(--bg);
-  background-image: linear-gradient(color-mix(in srgb, var(--cell-accent, #3fb950) 6%, transparent),
-                                    color-mix(in srgb, var(--cell-accent, #3fb950) 6%, transparent));
+/* ── a cell opens in a window ────────────────────────────────────────────
+   Since 2026-09-25 a folded cell no longer floats over its lane: a click on
+   its line opens its card as a window over a dimmed board (the operator's
+   choice). The window is the card itself (card-rows.js CellWindow), so its
+   buttons, live numbers and repaints are the card's own. */
+.fold-slot > .cell-window,
+.fold-slot > .cell-window-backdrop { display: none; }
+.fold-slot.open > .cell-window-backdrop {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: rgba(3, 6, 8, 0.55);
+}
+.fold-slot.open > .cell-window {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: fixed;
+  left: 50%;
+  /* The lanes sit in their own stacking context, under the page's top bar:
+     the window centres below it, so its title and ✕ are never under the bar. */
+  top: calc(50% + 30px);
+  transform: translate(-50%, -50%);
+  z-index: 901;
+  box-sizing: border-box;
+  width: min(660px, calc(100vw - 32px));
+  max-height: calc(100vh - 124px);
+  overflow: auto;
+  padding: 14px 16px 16px;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: var(--panel);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+.cell-window-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.cwh-name { min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cwh-port { flex-shrink: 0; font: 600 12px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
+.cwh-addr { flex-shrink: 0; font-size: 11.5px; color: var(--muted); }
+/* Sized here in full: the board's buttons carry a 34px minimum height (cards.css). */
+.cwh-close {
+  margin-left: auto;
+  flex-shrink: 0;
+  align-self: center;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  min-height: 0;
+  padding: 0;
+  border-radius: 7px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.cwh-close:hover { color: var(--text); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+.cwh-close:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+/* The card keeps its own look; the window only gives it room — the model and
+   its slots side by side, as in the design the operator chose. */
+.cell-window .node-server-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(200px, 250px);
+  gap: 12px;
+  align-items: start;
+}
+@media (max-width: 640px) {
+  .cell-window .node-server-body { grid-template-columns: 1fr; }
 }
 
 /* A floating agent card is its own layer. Inside its lane card the agent block
@@ -100,38 +160,43 @@
 .cell-row > .topology-handle.server-input { height: 28px; }
 .cell-row.parked > .topology-handle.server-input,
 .cell-row.reserved > .topology-handle.server-input { background: var(--muted, #6e7681); }
-.fr-play {
+/* The line's switch: on while the cell runs, off while it is parked — the
+   card's ▶ and ⏹ in one (card-rows.js CellRow.lead). It drinks from
+   --cell-accent, so a CPU cell's is blue; off, only its outline is coloured.
+   Sized here in full: the board's buttons carry a 34px minimum height. */
+.fr-switch {
+  position: relative;
   flex-shrink: 0;
-  display: grid;
-  place-items: center;
   box-sizing: border-box;
-  width: 22px;
-  height: 22px;
+  width: 30px;
+  height: 18px;
   min-height: 0;
   padding: 0;
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--good) 40%, var(--line));
-  background: color-mix(in srgb, var(--good) 10%, transparent);
-  color: var(--good);
-  font-size: 9px;
+  border-radius: 9px;
+  border: 1px solid color-mix(in srgb, var(--cell-accent) 42%, transparent);
+  background: transparent;
   cursor: pointer;
 }
-.fr-play:hover { background: color-mix(in srgb, var(--good) 20%, transparent); }
-.fr-dot {
-  flex-shrink: 0;
-  width: 8px;
-  height: 8px;
-  margin: 0 7px;
+.fr-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--cell-accent) 45%, var(--line));
+  background: var(--muted);
+  transition: left 120ms ease;
 }
-.cell-row.running .fr-dot {
-  background: var(--cell-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--cell-accent) 22%, transparent);
+.fr-switch[aria-checked="true"] {
+  border-color: color-mix(in srgb, var(--cell-accent) 80%, transparent);
+  background: color-mix(in srgb, var(--cell-accent) 16%, transparent);
 }
-/* Generating right now: the dot breathes — the line's own word for "busy". */
-.cell-row.busy .fr-dot { animation: fold-breathe 1.4s ease-in-out infinite; }
-.cell-row.reserved .fr-dot { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+.fr-switch[aria-checked="true"] .fr-knob { left: 14px; background: var(--cell-accent); }
+.fr-switch:hover:not(:disabled) { border-color: var(--cell-accent); }
+.fr-switch:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
+.fr-switch:disabled { opacity: .45; cursor: not-allowed; }
+/* Generating right now: the switch breathes — the line's own word for "busy". */
+.cell-row.busy .fr-switch { animation: fold-breathe 1.4s ease-in-out infinite; }
 .fr-port { flex-shrink: 0; font: 500 11.5px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
 .fr-name {
   flex: 1;
@@ -231,6 +296,7 @@
 .cell-row, .agent-row { transition: border-color 150ms ease, background-color 150ms ease; }
 
 @media (prefers-reduced-motion: reduce) {
-  .cell-row.busy .fr-dot { animation: none; }
+  .cell-row.busy .fr-switch { animation: none; }
+  .fr-knob { transition: none; }
   .cell-row, .agent-row { transition: none; }
 }

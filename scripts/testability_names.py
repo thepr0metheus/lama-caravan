@@ -39,6 +39,9 @@ COMPOSED = {
     # static/js/card-rows.js — a folded card's control: 📌 keeps it open, ▴ folds it back
     "fold-pin": "card-rows.js: FoldSlot.control() by mode",
     "fold-unpin": "card-rows.js: FoldSlot.control() by mode",
+    # static/js/card-rows.js — a cell line's switch: its hook says what flipping it does
+    "cell-row-start": "card-rows.js: CellRow.lead() by the switch's state",
+    "cell-row-stop": "card-rows.js: CellRow.lead() by the switch's state",
     # static/js/split-mode.js — split across cards, data-t-id layer|row|tensor
     "cell-remote-split": "memory.js: SplitMode.html(hook)",
     # static/js/memory.js — weights placement, data-t-id auto|all|manual (+slider)

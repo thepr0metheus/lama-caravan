@@ -189,6 +189,10 @@ export function drawTopologyCables() {
         : isEngine
           ? document.querySelector(`[data-topology-engine-input][data-output-id="${CSS.escape(String(out.id || ""))}"]`)
           : document.querySelector(`[data-topology-llama-input][data-llama-port="${CSS.escape(String(out.upstreamPort || ""))}"]`);
+      // A cell its machine's eye hides has no handle to land on: its cable is put
+      // away with it — not drawn, and not reported as a cable the board lost.
+      if (!target && !isCloud && !isEngine
+          && document.querySelector(`[data-cell-hidden-port="${CSS.escape(String(out.upstreamPort || ""))}"]`)) return;
       const activity = topologyOutputActivity(out);
       const cable = topologySvgPath(
         topologyPointFor(source, "right"),

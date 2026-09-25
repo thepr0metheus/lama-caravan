@@ -395,41 +395,61 @@ to divide, so the row is absent rather than inert.
 
 ## card-fold.js
 
-Which cards on the board fold into a line, and which one floats open now. The two long
+Which cards on the board fold into a line, and how a folded one opens. The two long
 lanes — model cells and client agents — drew every card at full height: on 2026-09-23 the
 controller had 24 cells of which 6 ran, and 14 client routes of which one had a fallback.
 `CardFold` holds the operator's per-lane choice (`compact` or `full`, the lane-header switch
 `board-density`), the cards pinned open, and the one rule for what is quiet enough to fold:
 `cellQuiet` (running with nothing to report, or parked) and `agentQuiet` (has a route, not
 stale, no incident). A card in motion or in trouble never folds. Automation
-(`navigator.webdriver`) sees full cards by default. `FoldPeek` is the pointer and keyboard
-side: the full card floats over the lane after the pointer rests 300 ms on its line (at once
-on keyboard focus), a click on the line or 📌 pins it, ▴ folds it back, Escape closes; no card
-floats while a cable is dragged. Delegated on the document once — the lanes are repainted
+(`navigator.webdriver`) sees full cards by default. How a folded card opens is one table,
+`CardFold.OPENS`: a cell opens as a window over the dimmed board on a click on its line
+(since 2026-09-25, the operator's choice — no float, no pin), an agent floats. `FoldPeek` is
+the pointer and keyboard side: an agent's full card floats over the lane after the pointer
+rests 300 ms on its line (at once on keyboard focus), a click on the line or 📌 pins it, ▴
+folds it back; a cell's line opens its window on a click (Enter, Space), and ✕, a click on the
+dimmed board or Escape closes it, giving the keyboard back to the line. Nothing floats or
+opens while a cable is dragged. Delegated on the document once — the lanes are repainted
 wholesale.
 
-- Owns: `CARD_FOLD` (densities, pinned set, `peekKey` so a float survives a repaint); both
-  persisted in `localStorage` (`boardCardDensity`, `boardCardPinned`) as a per-browser
-  convenience.
-- Key exports: `CardFold` (`density`, `toggleDensity`, `togglePin`, `mode`, `syncSwitches`,
-  `cellQuiet`, `agentQuiet`), `FoldPeek` (`bind`), `CARD_FOLD`.
+The machine's eye over its list of cells lives here too: `hidesIdle(hostId)` is a choice
+per machine, and `cellIdle` the one rule for what it may hide — quiet and not running (parked,
+or reserved with no model). What moves or is in trouble never hides, for the reason it never
+folds. `nodeServerCardHtml` leaves a hidden mark in place of a hidden cell (`data-cell-hidden`,
+`data-cell-hidden-port`), and `drawTopologyCables` puts that cell's cable away without
+reporting it lost; the eye (`CellEye`) says how many are hidden.
+
+- Owns: `CARD_FOLD` (densities, pinned set, `peekKey` so a float survives a repaint,
+  `openKey` so an open window does, the machines whose eye is shut); densities, pins and eyes
+  persisted in `localStorage` (`boardCardDensity`, `boardCardPinned`, `boardCellsHideIdle`)
+  as a per-browser convenience — a cell's pin saved before the window came is ignored.
+- Key exports: `CardFold` (`OPENS`, `density`, `toggleDensity`, `togglePin`, `hidesIdle`,
+  `toggleHideIdle`, `opensInWindow`, `mode`, `syncSwitches`, `cellQuiet`, `cellIdle`,
+  `agentQuiet`), `FoldPeek` (`bind`, `openWindow`,
+  `closeWindow`), `CARD_FOLD`.
 
 ## card-rows.js
 
-The folded line of a board card, and the slot that holds the line and the card. `CellRow` and
-`AgentRow` only lay out facts the card computed — the name, the memory chip, the ▶ start
-attributes, the route values — so the line and the card cannot disagree. The line owns the
+The folded line of a board card, the slot that holds the line and the card, and the window a
+cell's card opens in. `CellRow` and
+`AgentRow` only lay out facts the card computed — the name, the memory chip, the ▶ start and
+⏹ stop attributes with the words saying why, the route values — so the line and the card
+cannot disagree. A cell's line carries a switch in place of ▶ and a dot: on while the cell
+runs, off while it is parked, disabled with its reason when neither is possible. The line owns the
 cable's handle while folded: cables and drops find handles by `querySelector` and read their
 rectangle, and a copy inside a hidden card would hand them zeros. `FoldSlot` holds the line
-(which never moves) and the full card (which floats over the lane); pinned, it holds the card
-in place with ▴. An agent's line shows only what is set — no dash placeholders, no empty
-fallback. Values are still changed on the full card, where they always were.
+(which never moves) and the full card — an agent's floats over the lane, and pinned it stands
+in place with ▴; a cell's sits in a `CellWindow`: the card itself under a title bar (the
+line's own name from `CellRow.shownName`, :port, the machine's address when the report has
+one) and a ✕, over a dimmed board, shown only while the slot is open. An agent's line shows
+only what is set — no dash placeholders, no empty fallback. Values are still changed on the
+full card, where they always were.
 
 `nodeServerCardHtml(node, s, { fold })` and `topologyAgentCard(…, { fold })` take the lane's
 request; without it the card is drawn byte for byte as before. Styles: `static/css/fold.css`.
 
 - Owns: nothing mutable.
-- Key exports: `CellRow`, `AgentRow`, `FoldSlot`.
+- Key exports: `CellRow`, `AgentRow`, `CellWindow`, `CellEye`, `FoldSlot`.
 
 ## split-mode.js
 
