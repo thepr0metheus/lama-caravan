@@ -38,7 +38,7 @@ import {
   setRouteContextPrefer,
   setRouteModelLock,
 } from "./remote-cells.js";
-import { renderTopologyRouterCard, renderTopologyRouterDetail } from "./routers.js";
+import { renderTopologyRouterCard, renderTopologyRouterDetail, setEngineModelExposed } from "./routers.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { SUSPECT_BANNER } from "./suspect-banner.js";
 import {
@@ -315,6 +315,15 @@ export function renderTopology() {
   $("topologyLlamaServers")?.querySelectorAll("[data-node-collapse]").forEach((btn) => {
     btn.addEventListener("click", () => toggleNodeCollapsed(btn.dataset.nodeCollapse));
   });
+  // An engine's model next to the cells: make it a router output, or stop.
+  $("topologyLlamaServers")?.querySelectorAll("[data-engine-expose]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      btn.disabled = true;
+      setEngineModelExposed(btn.dataset.engineExpose, btn.dataset.engineKind, btn.dataset.engineModel,
+        btn.dataset.engineExposed !== "1");
+    });
+  });
   // A machine's one ✕: let go of its scout, or forget a silent one.
   $("topologyLlamaServers")?.querySelectorAll("[data-scout-disconnect]").forEach((btn) => {
     btn.addEventListener("click", () => disconnectScout(btn.dataset.scoutDisconnect));
@@ -541,8 +550,9 @@ export function topologyStructureFingerprint() {
   const engines = (topology.nodes || [])
     .flatMap((n) => (Array.isArray(n.engines) ? n.engines : []).map((e) =>
       `${n.id}/${e.kind}:${e.port}:${e.state}:${e.listen}:${e.version}:${e.installedKnown === false ? 0 : 1}:`
+      + `${e.reachable === false ? 0 : 1}${e.blockedBy || ""}:${e.firewall?.state || ""}:`
       + (Array.isArray(e.models) ? e.models : [])
-        .map((m) => `${m.name}${m.loaded === true ? "+" : m.loaded === false ? "-" : "?"}${m.contextLength ?? ""}@${m.expiresAt || ""}`)
+        .map((m) => `${m.name}${m.loaded === true ? "+" : m.loaded === false ? "-" : "?"}${m.contextLength ?? ""}@${m.expiresAt || ""}${m.exposed === true ? "#" : ""}`)
         .join("|")))
     .sort().join(",");
   const prox = (topology.proxies || [])

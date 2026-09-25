@@ -206,16 +206,18 @@ def migrate_legacy_cloud_outputs(routers, account_ids):
         save_cloud_data(data)
     return changed
 
-def sync_router_outputs(routers, server_obj, cloud_accounts=None, cloud_blocks=None):
+def sync_router_outputs(routers, server_obj, cloud_accounts=None, cloud_blocks=None, engine_outputs=None):
     """Outputs are AUTO-derived from the available providers: one per local llama
-    server + one per EXPOSED cloud model-block. Replace each router's outputs with the
-    desired set; keep rules.default valid. Returns True if changed."""
+    server + one per model of an engine next to the cells the operator made an
+    output (`engine_outputs`, EngineOutputs.outputs) + one per EXPOSED cloud
+    model-block. Replace each router's outputs with the desired set; keep
+    rules.default valid. Returns True if changed."""
     account_ids = [a.get("id") for a in (cloud_accounts or []) if a.get("id")]
     if migrate_legacy_cloud_outputs(routers, account_ids):
         cloud_blocks = cloud_blocks_state()   # re-read: exposure just changed
     local = _router_local_outputs(server_obj)
     cloud = _router_cloud_outputs(cloud_accounts, cloud_blocks)
-    desired = [normalize_router_output(o) for o in (local + cloud)]
+    desired = [normalize_router_output(o) for o in (local + list(engine_outputs or []) + cloud)]
     changed = False
     for router in routers:
         if not isinstance(router, dict):
@@ -238,7 +240,7 @@ def sync_router_outputs(routers, server_obj, cloud_accounts=None, cloud_blocks=N
             old_default = str(rules.get("default") or "")
             # Stash a stable-keyed default (srv:/cb:) so it survives the rewrite
             # and auto-restores when its output reappears.
-            if old_default.startswith(("srv:", "cb:")) and not rules.get("dormantDefault"):
+            if old_default.startswith(("srv:", "cb:", "eng:")) and not rules.get("dormantDefault"):
                 rules["dormantDefault"] = old_default
             local_ids = [o["id"] for o in desired if o["upstreamType"] != "cloud"]
             rules["default"] = (local_ids or [o["id"] for o in desired] or [""])[0]

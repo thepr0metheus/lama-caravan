@@ -29,8 +29,12 @@ def upstream_slot_total(route, timeout=0.8, ttl=5.0):
     """Number of slots (llama-server --parallel) for the route's upstream.
 
     Cached briefly per group. Returns None when /slots is unavailable so the
-    caller can fall back to the policy default.
+    caller can fall back to the policy default — and for an engine next to
+    the cells (Ollama, LM Studio) without asking: /slots is llama.cpp's, and
+    a foreign engine was sent a request it cannot answer on every admission.
     """
+    if str(route.get("upstreamType") or "") == "engine":
+        return None
     group = route_group_key(route)
     now = time.time()
     with slot_total_lock:
@@ -83,6 +87,9 @@ def active_count(group=None):
     return counted
 
 def llama_processing_count(route, timeout=0.8):
+    # llama.cpp's /slots again: an engine next to the cells has none.
+    if str(route.get("upstreamType") or "") == "engine":
+        return None
     try:
         conn = http.client.HTTPConnection(route["upstreamHost"], route["upstreamPort"], timeout=timeout)
         conn.request("GET", "/slots", headers={"Connection": "close"})

@@ -26,9 +26,13 @@ export function topologyOutputActivity(out) {
   const isCloud = String(out.upstreamType || "llama") === "cloud";
   const want = `${out.upstreamHost || ""}:${out.upstreamPort || ""}`;
   // Cloud upstreams collide on host:port, so match by providerId (the chosen block).
+  // The models of one engine share its host:port too: matched by the output
+  // the request was routed to, or every model of the engine would light up.
   const matches = (it) => isCloud
     ? (String(it.upstreamType || "") === "cloud" && String(it.providerId || "") === String(out.providerId || ""))
-    : (String(it.upstreamType || "llama") !== "cloud" && String(it.upstream || "") === want);
+    : String(out.upstreamType || "") === "engine"
+      ? String(it.routedOutputId || "") === String(out.id || "")
+      : (String(it.upstreamType || "llama") !== "cloud" && String(it.upstream || "") === want);
   const agents = ui.latestSystemMonitor?.latest?.agentProxies?.agents || {};
   let active = false, recent = false;
   for (const row of Object.values(agents)) {
@@ -59,6 +63,11 @@ export function topologyRouterOutputLabel(out) {
     // Per-account cloud output; the model (block) is shown via its own dropdown.
     const acc = (topology?.cloudAccounts || []).find((a) => a.id === out.accountId);
     return out.label || `☁ ${acc?.name || out.accountId || "cloud"}`;
+  }
+  // An engine's model: its name in the engine and the engine, as the
+  // controller labelled it — no cell stands on the engine's port.
+  if (String(out.upstreamType || "") === "engine") {
+    return out.label || `${out.upstreamModel || ""} · ${out.engine || ""}`;
   }
   // Local server: use the SAME short/pretty model name as the server card
   // (parseModelName), not the raw .gguf filename baked into out.label.
@@ -427,6 +436,18 @@ export function setCloudModelExposed(blockId, exposed) {
       _cloudExposeRenderTimer = setTimeout(renderTopology, 250);
     } catch (e) { toast(e.message); }
   });
+}
+
+// A model of an engine next to the cells becomes a router output, or stops
+// being one. The server answers with the board it now is.
+export async function setEngineModelExposed(hostId, kind, model, exposed) {
+  try {
+    const res = await api("/api/engine-outputs/expose", {
+      method: "POST", body: JSON.stringify({ hostId, kind, model, exposed: !!exposed }),
+    });
+    if (res.topology) setTopology(res.topology);
+    renderTopology();
+  } catch (e) { toast(e.message); }
 }
 
 // Re-bind a proxy to another router (drag proxy output → router input).

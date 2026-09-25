@@ -180,10 +180,15 @@ export function drawTopologyCables() {
       const source = document.querySelector(`[data-topology-router-output][data-router-id="${CSS.escape(router.id)}"][data-output-id="${CSS.escape(out.id)}"]`)
         || document.querySelector(`[data-topology-router-output][data-router-id="${CSS.escape(router.id)}"]`);
       const isCloud = String(out.upstreamType || "llama") === "cloud";
+      // An engine's model next to the cells: one engine port serves many
+      // models, so its cable lands on the model's row, found by the output.
+      const isEngine = String(out.upstreamType || "") === "engine";
       // Cloud cable attaches to the PROVIDER (account), not a specific model-block.
       const target = isCloud
         ? document.querySelector(`[data-topology-cloud-input][data-account-id="${CSS.escape(String(out.accountId || ""))}"]`)
-        : document.querySelector(`[data-topology-llama-input][data-llama-port="${CSS.escape(String(out.upstreamPort || ""))}"]`);
+        : isEngine
+          ? document.querySelector(`[data-topology-engine-input][data-output-id="${CSS.escape(String(out.id || ""))}"]`)
+          : document.querySelector(`[data-topology-llama-input][data-llama-port="${CSS.escape(String(out.upstreamPort || ""))}"]`);
       const activity = topologyOutputActivity(out);
       const cable = topologySvgPath(
         topologyPointFor(source, "right"),
@@ -193,7 +198,8 @@ export function drawTopologyCables() {
       if (!cable) {
         noteCableDrop(`router ${router.id} -> ${out.id}`, {
           routerOutputFound: !!source,
-          upstream: isCloud ? `cloud account ${out.accountId || "(none)"}` : `:${out.upstreamPort || "(none)"}`,
+          upstream: isCloud ? `cloud account ${out.accountId || "(none)"}`
+            : isEngine ? `engine model ${out.upstreamModel || "(none)"}` : `:${out.upstreamPort || "(none)"}`,
           upstreamInputFound: !!target,
         });
       }

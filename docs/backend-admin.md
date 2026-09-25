@@ -338,6 +338,30 @@ Key functions: `normalize_router`, `normalize_router_output`, `normalize_router_
 `normalize_agent_proxy_policy`, `recompute_cloud_fallback_eligibility` (keeps ↑☁ flags consistent
 with graph connections).
 
+## `engine_outputs.py`
+
+The models of engines next to the cells (Ollama, LM Studio — found by the
+machines' scouts, kept by `EngineReport`) that the operator made router
+outputs: `EngineOutputs`. An output is `eng:<hash>` of (machine, engine kind,
+model name) — no `:` or `/` of a model name in an id read by prefix, and no
+port, so an engine that moves keeps its edges. An exposed model whose machine
+is on the board is always an output, even when it cannot work (engine stopped,
+model removed, engine on 127.0.0.1 of another machine): its probe says so, and
+the router's default is not rewritten each time an engine blinks. The proxy
+reaches the engine at the machine's address, or at 127.0.0.1 when the engine
+listens only there and the machine is the controller's own. `set` refuses a
+model the machine's report does not list and a model Ollama runs on its own
+cloud. `annotate` gives the board each model's output id, whether it is one,
+and whether the proxy can reach its engine — and why not (`blockedBy`):
+`loopback` (127.0.0.1 of another machine) or `firewall` (its ufw lets no one
+in on the port, or only sources the controller's address is not among — scout
+2.13+ reports the reading). On the controller's own machine neither applies;
+an unread firewall, or a controller whose own address was never set, is no
+verdict.
+Owns: `topology.engineOutputs` (`{output id: {hostId, kind, model, port}}`).
+Key functions: `EngineOutputs.output_id`, `set`, `outputs`, `annotate`;
+`POST /api/engine-outputs/expose`.
+
 ## `proxies_config.py`
 
 `agent-proxies.json` I/O and mutation — routes, routers, policy. The admin **owns** this file; the

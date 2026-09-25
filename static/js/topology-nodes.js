@@ -293,7 +293,33 @@ export function engineRamText(e) {
   return e?.ramBytes != null ? `RAM ${_gb(e.ramBytes)}` : "";
 }
 
-function engineModelRowHtml(m) {
+// A model's switch: a router output or not (step 2, docs/foreign-engines.md).
+// No switch on a model Ollama runs on its own cloud. An engine the proxy
+// cannot reach (127.0.0.1 of another machine) offers none to switch on — its
+// title says why — but an output already made keeps its switch off.
+// Why the proxy cannot reach an engine, in words: 127.0.0.1 of another machine,
+// or that machine's firewall — with the rule that would let the controller in.
+function engineBlockedTitle(e) {
+  if (e.blockedBy === "firewall") {
+    const from = String(topology?.server?.ip || "<controller>");
+    return t("nodeEngineFirewallBlocked", { cmd: `sudo ufw allow from ${from} to any port ${e.port}` });
+  }
+  return t("nodeEngineExposeBlocked");
+}
+
+function engineExposeBtnHtml(n, e, m) {
+  if (m.remote || !m.outputId) return "";
+  const on = m.exposed === true;
+  const blocked = !on && e.reachable === false;
+  const title = on ? t("nodeEngineUnexposeTitle") : blocked ? engineBlockedTitle(e) : t("nodeEngineExposeTitle");
+  return `<button class="node-engine-expose${on ? " on" : ""}" type="button" data-t="node-engine-expose"
+      data-t-id="${escapeHtml(m.outputId)}" data-engine-expose="${escapeHtml(String(n.id))}"
+      data-engine-kind="${escapeHtml(String(e.kind || ""))}" data-engine-model="${escapeHtml(m.name)}"
+      data-engine-exposed="${on ? "1" : "0"}" aria-pressed="${on ? "true" : "false"}"
+      title="${escapeHtml(title)}"${blocked ? " disabled" : ""}>⇄ ${escapeHtml(t(on ? "nodeEngineExposed" : "nodeEngineExpose"))}</button>`;
+}
+
+function engineModelRowHtml(m, n = {}, e = {}) {
   const meta = [m.params, m.quant].filter(Boolean).join(" · ");
   const bits = [];
   if (m.loaded === true) {
@@ -314,11 +340,15 @@ function engineModelRowHtml(m) {
   }
   const cloud = m.remote
     ? ` <span class="node-engine-cloud" title="${escapeHtml(t("nodeEngineCloudModelHint"))}">☁ ${escapeHtml(t("nodeEngineCloudModel"))}</span>` : "";
-  return `<li class="node-engine-model${m.loaded === true ? " loaded" : ""}">
-      <span class="node-engine-dot" aria-hidden="true"></span>
+  // An output's model is where the router's cable lands, as a cell's card is.
+  const anchor = m.exposed === true
+    ? `<span class="topology-handle server-input engine-input" data-topology-engine-input="1" data-output-id="${escapeHtml(m.outputId)}"></span>` : "";
+  return `<li class="node-engine-model${m.loaded === true ? " loaded" : ""}${m.exposed === true ? " exposed" : ""}">
+      ${anchor}<span class="node-engine-dot" aria-hidden="true"></span>
       <span class="node-engine-model-name" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}</span>${cloud}
       ${meta ? `<span class="node-engine-model-meta">${escapeHtml(meta)}</span>` : ""}
       ${bits.length ? `<span class="node-engine-model-mem">${bits.map((b) => escapeHtml(b)).join(" · ")}</span>` : ""}
+      ${engineExposeBtnHtml(n, e, m)}
     </li>`;
 }
 
@@ -335,8 +365,11 @@ export function nodeEngineCardHtml(n, e) {
     const models = Array.isArray(e.models) ? e.models : [];
     const loaded = models.filter((m) => m.loaded === true);
     const idle = models.filter((m) => m.loaded !== true);
-    const shown = idle.slice(0, ENGINE_IDLE_SHOWN);
-    const rows = [...loaded, ...shown].map(engineModelRowHtml).join("");
+    // An output's model is always shown, loaded or not: its cable lands here.
+    const outputs = idle.filter((m) => m.exposed === true);
+    const rest = idle.filter((m) => m.exposed !== true);
+    const shown = [...outputs, ...rest.slice(0, Math.max(0, ENGINE_IDLE_SHOWN - outputs.length))];
+    const rows = [...loaded, ...shown].map((m) => engineModelRowHtml(m, n, e)).join("");
     const more = idle.length > shown.length
       ? `<div class="node-engine-more topology-muted">${escapeHtml(t("nodeEngineMoreInstalled", { n: idle.length - shown.length }))}</div>` : "";
     const unknown = e.installedKnown === false
@@ -351,7 +384,7 @@ export function nodeEngineCardHtml(n, e) {
         <strong>${escapeHtml(e.label || kind)}</strong>
         ${e.version ? `<span class="topology-muted">${escapeHtml(e.version)}</span>` : ""}
         <code>:${escapeHtml(String(e.port))}</code>
-        ${loopback}
+        ${loopback}${e.listen === "network" ? firewallBadge(e.firewall) : ""}
         <span style="flex:1"></span>
         ${ram}
       </header>

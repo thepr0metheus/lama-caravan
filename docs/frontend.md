@@ -558,6 +558,14 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   then up to six installed ones and «+N more installed»; «wants a token» and «does not answer»
   instead of a list. None (an older scout) and [] (none found) draw no block. An engine's state and
   what it has loaded are in the board's structure fingerprint; its memory is not.
+- A model's switch (`node-engine-expose`) makes it a router output (`POST /api/engine-outputs/expose`,
+  `setEngineModelExposed` in routers.js); an output's row carries the anchor the router's cable lands
+  on (`data-topology-engine-input` by output id — one engine port serves many models), and an
+  exposed idle model is listed first so its cable has a row to land on. An engine the proxy cannot
+  reach (127.0.0.1 of another machine, or its machine's firewall — the switch's title then gives the
+  ufw rule that would let the controller in) offers no switch to turn on; an output made already can
+  be turned off. An engine open to the network wears its port's firewall badge, as a cell's port does. On the kanban an engine's output is labelled «model · engine» and is lit by the output
+  a request was routed to (`routedOutputId`), not by its engine's host:port.
 - `machineAt(address)` — the machine behind an address its cells answer at, `{ key, name }`: its node and
   the node's name (the computer's hostname, from its scout); loopback and the controller's own address
   are the controller's machine (its node, else `topology.server.hostname`); an unknown address is said

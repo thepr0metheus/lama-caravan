@@ -37,7 +37,7 @@ def _default_router_output():
 def normalize_router_output(out):
     out = out if isinstance(out, dict) else {}
     upstream_type = str(out.get("upstreamType") or "llama").strip().lower()
-    if upstream_type not in ("llama", "cloud"):
+    if upstream_type not in ("llama", "cloud", "engine"):
         upstream_type = "llama"
     norm = {
         "id": str(out.get("id") or "").strip() or "o1",
@@ -52,6 +52,12 @@ def normalize_router_output(out):
     # in providerId). Cloud has unlimited concurrency (no slot accounting).
     if upstream_type == "cloud":
         norm["accountId"] = str(out.get("accountId") or "").strip()
+    # An engine's model (Ollama, LM Studio next to the cells): one engine
+    # serves many models, so the output names the one it routes to —
+    # the proxy puts it into the request (docs/foreign-engines.md, step 2).
+    if upstream_type == "engine":
+        for key, limit in (("upstreamModel", 200), ("engine", 40), ("hostId", 120)):
+            norm[key] = str(out.get(key) or "").strip()[:limit]
     return norm
 
 def normalize_router(router):
@@ -115,7 +121,7 @@ def _valid_edge_ref(ref, node_ids, out_ids):
         # None for the missing output (→ legacy-rules fallback), but the edge —
         # and any queue admit/spill role naming it — is preserved, so the wiring
         # auto-restores the moment an output with the same id reappears.
-        if out_id.startswith("srv:") or out_id.startswith("cb:"):
+        if out_id.startswith(("srv:", "cb:", "eng:")):
             return True
         return out_id in out_ids
     return False

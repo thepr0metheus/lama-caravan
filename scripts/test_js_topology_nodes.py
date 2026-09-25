@@ -2560,6 +2560,50 @@ PINS += [
      "negative: движок без версии (LM Studio её не говорит) и без RAM (ps не ответил) — в шапке ни пустой версии, ни «RAM 0.0 GB»"),
 ]
 
+# A model of an engine as a router output (step 2): its switch and the
+# anchor its cable lands on.
+PINS += [
+    ("engines_expose_switch_off",
+     "",
+     "(norm(m.nodeEngineCardHtml(node, ENG({ reachable: true, models: [MDL({ outputId: \"eng:1\", exposed: false })] }))).match(/<button class=\"node-engine-expose[^>]*>[^<]*<\\/button>/) || [\"none\"])[0]",
+     "\"<button class=\\\"node-engine-expose\\\" type=\\\"button\\\" data-t=\\\"node-engine-expose\\\" data-t-id=\\\"eng:1\\\" data-engine-expose=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-model=\\\"qwen3:8b\\\" data-engine-exposed=\\\"0\\\" aria-pressed=\\\"false\\\" title=\\\"Make this model a router output: agents reach it through the caravan&#39;s proxy, and the engine loads it when asked\\\">⇄ make output</button>\"",
+     "positive: у модели — переключатель «сделать выходом» (шаг 2): data-t-id — id выхода, aria-pressed false, подсказка — что будет"),
+    ("engines_expose_switch_on",
+     "",
+     "(h => [(h.match(/<button class=\"node-engine-expose[^>]*>[^<]*<\\/button>/) || [\"none\"])[0], (h.match(/<span class=\"topology-handle[^>]*><\\/span>/) || [\"none\"])[0], /node-engine-model[^\"]* exposed/.test(h)])(norm(m.nodeEngineCardHtml(node, ENG({ reachable: true, models: [MDL({ outputId: \"eng:1\", exposed: true })] }))))",
+     "[\"<button class=\\\"node-engine-expose on\\\" type=\\\"button\\\" data-t=\\\"node-engine-expose\\\" data-t-id=\\\"eng:1\\\" data-engine-expose=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-model=\\\"qwen3:8b\\\" data-engine-exposed=\\\"1\\\" aria-pressed=\\\"true\\\" title=\\\"Stop routing to this model: the router&#39;s cables to it wait for it to come back\\\">⇄ output</button>\", \"<span class=\\\"topology-handle server-input engine-input\\\" data-topology-engine-input=\\\"1\\\" data-output-id=\\\"eng:1\\\"></span>\", true]",
+     "positive: модель — выход: переключатель нажат, у строки — якорь кабеля роутера по id выхода, строка помечена exposed"),
+    ("engines_expose_blocked",
+     "",
+     "[false, true].map((on) => (h => [/<button class=\"node-engine-expose[^>]* disabled>/.test(h), (h.match(/title=\"([^\"]*)\"(?: disabled)?>⇄/) || [])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ reachable: false, listen: \"loopback\", models: [MDL({ outputId: \"eng:1\", exposed: on })] })))))",
+     "[[true, \"The caravan&#39;s proxy cannot reach this engine: it listens on 127.0.0.1 of another machine. Open it to the network first\"], [false, \"Stop routing to this model: the router&#39;s cables to it wait for it to come back\"]]",
+     "negative: движок на 127.0.0.1 чужой машины — включить нельзя (disabled, подсказка: откройте в сеть); уже сделанный выход — выключить можно"),
+    ("engines_expose_none_for_remote",
+     "",
+     "[MDL({ outputId: \"eng:1\", remote: true }), MDL({ outputId: \"\" }), MDL({})].map((mm) => norm(m.nodeEngineCardHtml(node, ENG({ models: [mm] }))).includes(\"node-engine-expose\"))",
+     "[false, false, false]",
+     "negative: облачная модель Ollama, модель без id выхода (контроллер старее) — переключателя нет"),
+    ("engines_exposed_idle_shown_first",
+     "",
+     "(h => [(h.match(/<li class=\"node-engine-model/g) || []).length, (h.match(/title=\"(m\\d)\">m\\d<\\/span>/g) || []).map((x) => x.slice(7, 9)), (h.match(/<div class=\"node-engine-more topology-muted\">([^<]*)<\\/div>/) || [])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ models: [...Array(8)].map((_, i) => MDL({ name: `m${i}`, outputId: `eng:${i}`, exposed: i === 7 })) }))))",
+     "[6, [\"m7\", \"m0\", \"m1\", \"m2\", \"m3\", \"m4\"], \"+2 more installed\"]",
+     "boundary: незагруженная модель-выход стоит первой среди установленных, даже восьмой по списку: к ней тянется кабель; всего 6, остальные — «+2»"),
+]
+
+# An engine behind its machine's firewall (scout 2.13).
+PINS += [
+    ("engines_firewall_blocked_switch",
+     "st.setTopology({ ...st.topology, server: { ip: \"10.0.0.1\" } });",
+     "(h => [/<button class=\"node-engine-expose[^>]* disabled>/.test(h), (h.match(/title=\"([^\"]*)\" disabled>⇄/) || [])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ reachable: false, blockedBy: \"firewall\", firewall: { state: \"blocked\", allowedFrom: [] }, models: [MDL({ outputId: \"eng:1\" })] }))))",
+     "[true, \"This machine&#39;s firewall does not let the caravan&#39;s proxy reach this port. Open it for the controller: sudo ufw allow from 10.0.0.1 to any port 11434\"]",
+     "negative: файрвол машины не пускает контроллер (скаут 2.13) — включить нельзя, а подсказка даёт правило ufw с адресом контроллера и портом движка"),
+    ("engines_firewall_badge",
+     "",
+     "[ENG({ firewall: { state: \"blocked\", allowedFrom: [] } }), ENG({ listen: \"loopback\", firewall: { state: \"blocked\", allowedFrom: [] } }), ENG({ firewall: null }), ENG({ firewall: { state: \"restricted\", allowedFrom: [\"10.0.0.0/24\"] } })].map((e) => (norm(m.nodeEngineCardHtml(node, e)).split(\"</header>\")[0].match(/<span class=\"node-fw-badge[^\"]*\"/) || [\"none\"])[0])",
+     "[\"<span class=\\\"node-fw-badge fw-blocked\\\"\", \"none\", \"none\", \"<span class=\\\"node-fw-badge fw-restricted\\\"\"]",
+     "бейдж файрвола — у движка, открытого в сеть, как у порта ячейки; на 127.0.0.1 и без чтения ufw — нет бейджа"),
+]
+
 _fail = []
 
 

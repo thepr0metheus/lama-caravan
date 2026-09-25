@@ -55,6 +55,7 @@ from caravan.proxy.translate import (
     _responses_passthrough_body,
     is_responses_request,
     iter_responses_passthrough,
+    model_named,
     _extract_chatgpt_account_id,
     _iter_anthropic_as_completions_sse,
     _iter_responses_as_completions_sse,
@@ -249,6 +250,26 @@ def _rename_models(body, name):
     if not changed:
         return body
     return json.dumps(payload).encode("utf-8")
+
+
+def _engine_model_entry(body, model):
+    """An engine's /v1/models narrowed to the one model this port routes to:
+    (200, that list), or (503, why) when the engine does not list it — the
+    port cannot serve it now, and an empty list would read as "a port with
+    no model" rather than "a model gone from its engine"."""
+    try:
+        payload = json.loads(body.decode("utf-8"))
+    except Exception:
+        payload = None
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return 502, json.dumps({"error": {"message": "the engine's /v1/models is not a model list",
+                                          "type": "upstream_unavailable"}}).encode("utf-8")
+    mine = [e for e in data if isinstance(e, dict) and e.get("id") == model]
+    if not mine:
+        return 503, json.dumps({"error": {"message": f"the engine does not list {model!r}",
+                                          "type": "model_unavailable"}}).encode("utf-8")
+    return 200, json.dumps({**payload, "data": mine[:1]}).encode("utf-8")
 
 
 def _cloud_model_entry(route):
@@ -763,9 +784,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 else:
                     conn = http.client.HTTPConnection(route["upstreamHost"], route["upstreamPort"], timeout=600)
                     register_active_control(request_id, route["label"], conn)
+                    engine_model = str(route.get("upstreamModel") or "")
+                    # An engine next to the cells is not ours: the key the
+                    # client presented to the caravan stays with the caravan.
+                    kept_out = ("host", "authorization", "x-api-key") if engine_model else ("host",)
                     headers = {
                         key2: value for key2, value in self.headers.items()
-                        if key2.lower() not in HOP_HEADERS and key2.lower() != "host"
+                        if key2.lower() not in HOP_HEADERS and key2.lower() not in kept_out
                     }
                     headers["Host"] = f"{route['upstreamHost']}:{route['upstreamPort']}"
                     headers["Connection"] = "close"
@@ -773,6 +798,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     headers["X-Agent-Proxy-Request-Id"] = request_id
                     headers["X-Forwarded-For"] = client
                     send_path = path
+                    if engine_model:
+                        # One engine, many models: the output names the one
+                        # this request goes to (docs/foreign-engines.md).
+                        send_body = model_named(body, engine_model)
+                        if send_body is not body:
+                            headers = {k: v for k, v in headers.items() if k.lower() != "content-length"}
+                            headers["Content-Length"] = str(len(send_body))
                 update_active(str(route["port"]), request_id, {"phase": "upstream"})
                 # Build cloud request metadata for logging
                 cloud_meta = {}
@@ -1410,6 +1442,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "message": f"upstream {host}:{port} did not answer /v1/models: {exc}",
                 "type": "upstream_unavailable"}}).encode("utf-8"))
             return
+        if status == 200 and upstream_type == "engine":
+            # The engine lists every model it has; this port serves one.
+            status, body = _engine_model_entry(body, route.get("upstreamModel"))
+            ctype = "application/json"
         if status == 200:
             body = _publish_context_window(body, route)
             body = _rename_models(body, _route_model_name(route))

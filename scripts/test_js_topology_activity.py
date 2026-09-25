@@ -1763,6 +1763,11 @@ PINS = [
      '[m.routeModelWindowTip({ kind: "account", account: "acc" }, 0), m.routeModelWindowTip({ kind: "block", name: "terra" }, 0), m.routeModelWindowTip({ kind: "error", reason: "boom" }, 0), m.routeModelWindowTip(undefined, 0), m.routeModelWindowTip({ kind: "cell", host: "h", port: 1 }, 8)]',
      '["An account passthrough pins no model, so there is no model window — only your limit can apply.","The cloud block terra states no window — only your limit can apply.","The port reaches no output (boom) — it advertises nothing.","No model window is known for this port — only your limit can apply.","Window served by the cell at h:1, as the running server reports it."]',
      'positive: у каждого вида источника своя формулировка — сквозной аккаунт, блок без числа, ошибка с причиной, неизвестно, ячейка'),
+    ('ctx_model_tip_engine',
+     '',
+     '[m.routeModelWindowTip({ kind: "engine", model: "qwen3:8b", host: "h", port: 11434 }, 0), m.routeModelWindowTip({ kind: "engine" }, 0)]',
+     '["An engine next to the cells serves this model (qwen3:8b); it tells the caravan no window, so the port advertises only your limit.","An engine next to the cells serves this model (); it tells the caravan no window, so the port advertises only your limit."]',
+     'positive: модель движка рядом с ячейками — сказано, почему окна нет (движок его не сообщает), а не «ячейка молчит»; as-is: без имени модели — пустые скобки'),
     # ── timeouts_route_row ──
     ('pewt_negative_budget_is_none',
      '',

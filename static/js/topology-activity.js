@@ -1473,6 +1473,7 @@ export function routeModelWindowTip(source, model) {
     return model > 0 ? t("routeCtxModelBlockTip", { name }) : t("routeCtxModelBlockNoneTip", { name });
   }
   if (kind === "account") return t("routeCtxAccountTip");
+  if (kind === "engine") return t("routeCtxModelEngineTip", { model: String(source.model || "") });
   if (kind === "unrouted" || kind === "error") {
     return t("routeCtxUnroutedTip", { reason: String(source.reason || kind) });
   }

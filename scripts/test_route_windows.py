@@ -73,6 +73,10 @@ CONFIG = {"policy": {}, "routers": [OE_ROUTER,
                             "accountId": "acc:1"}),
     _router("router:gone", {"id": "out:gone", "upstreamType": "cloud", "providerId": "blk:gone",
                             "accountId": "acc:1"}),
+    # An engine's model next to the cells (step 2): on the port of a cell that
+    # serves a window, to show the engine's output is not read as that cell.
+    _router("router:engine", {"id": "eng:abc", "upstreamType": "engine", "upstreamHost": "127.0.0.1",
+                              "upstreamPort": 22007, "upstreamModel": "qwen3:8b"}),
 ]}
 
 BLOCKS = [
@@ -128,6 +132,13 @@ def main():
           f"switch on: the model's 60160 above the limit 2048 (got {facts(row)})")
     row = annotate()
     check(facts(row) == (60160, "cell", 60160), f"no limit → the model's own (got {facts(row)})")
+
+    print("an engine's model next to the cells:")
+    row = annotate(router="router:engine", contextLength=32768)
+    check(facts(row) == (None, "engine", 32768),
+          f"the engine tells no window → the limit is advertised, the source says engine (got {facts(row)})")
+    check(row["modelWindowSource"] == {"kind": "engine", "model": "qwen3:8b", "host": "127.0.0.1", "port": 22007},
+          f"negative: not the cell's 60160 on the same address — the engine's model is named (got {row['modelWindowSource']})")
 
     print("a cell whose /props is silent — only the configured total is known:")
     row = annotate(router="router:gemma", contextLength=256000)

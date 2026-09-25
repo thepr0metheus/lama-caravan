@@ -980,6 +980,18 @@
 .node-engine-cloud { font-size:10px; padding:0 5px; border-radius:3px; cursor:help;
   color:var(--fallback,#60a5fa); background:color-mix(in srgb,var(--fallback,#60a5fa) 14%,transparent); }
 .node-engine-more { margin-top:4px; font-size:11px; }
+/* A model the router routes to: its cable lands on its row, as on a cell's
+   card; the switch at its end makes it an output or stops. */
+.node-engine-model { position:relative; }
+.node-engine-model > .topology-handle.engine-input { left:-35px; height:22px; }
+.node-engine-model.exposed .node-engine-model-name { color:var(--text,#ddd); }
+.node-engine-expose { font-size:10px; padding:1px 6px; border-radius:4px; min-height:0; line-height:1.4;
+  border:1px solid var(--line); background:transparent; color:var(--muted,#888); cursor:pointer; }
+.node-engine-expose:hover:not(:disabled) { border-color:var(--accent); color:var(--text,#ddd); }
+.node-engine-expose.on { border-color:color-mix(in srgb,var(--accent) 60%,var(--line));
+  color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,transparent); }
+.node-engine-expose:disabled { opacity:.45; cursor:not-allowed; }
+.node-engine-expose:focus-visible { outline:2px solid var(--accent-strong); outline-offset:1px; }
 /* CPU block: a RAM bar mirroring the GPU's VRAM bar, and the CPU-cell blue
    (#4593ff) throughout — accent stripe, fill, and a faint wash — so the block
    matches the cells that run on it. */

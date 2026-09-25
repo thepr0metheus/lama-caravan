@@ -522,6 +522,12 @@ def _overlay_output(route, out, queue_spec=None):
         # providerId = a model-block; empty = passthrough → resolve the account directly.
         resolved["providerId"] = str(out.get("providerId") or "")
         resolved["cloudAccountId"] = str(out.get("accountId") or "")
+    # An engine's model: the handler names it in the request. Dropped first,
+    # so a route re-resolved onto a cell (a spill, a rescue) carries no name
+    # left over from the engine it was resolved onto before.
+    resolved.pop("upstreamModel", None)
+    if out_type == "engine":
+        resolved["upstreamModel"] = str(out.get("upstreamModel") or "")
     resolved.pop("queuePlan", None)
     resolved.pop("rescueRefs", None)
     resolved.pop("deadSkipped", None)

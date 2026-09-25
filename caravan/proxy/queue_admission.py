@@ -145,7 +145,9 @@ def stop_request_watcher():
                 probed = set()
                 for router in (cfg.get("routers") or []):
                     for out in (router.get("outputs") or []):
-                        if str(out.get("upstreamType") or "llama") == "cloud":
+                        # /slots is llama.cpp's: a cloud account has none, and
+                        # neither has an engine next to the cells (Ollama, LM Studio).
+                        if str(out.get("upstreamType") or "llama") in ("cloud", "engine"):
                             continue
                         host = str(out.get("upstreamHost") or "").strip()
                         port = int(out.get("upstreamPort") or 0)
