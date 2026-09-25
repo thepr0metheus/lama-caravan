@@ -32,6 +32,7 @@
     },
     "engines": [
       {
+        "autostart": false,
         "controls": [
           "load",
           "unload"
@@ -92,14 +93,17 @@
         ],
         "port": 11434,
         "ramBytes": 1283457024,
+        "runBy": "",
         "state": "ok",
         "version": "0.12.3"
       },
       {
         "api": "v1",
+        "autostart": false,
         "controls": [
           "load",
-          "unload"
+          "unload",
+          "stop"
         ],
         "firewall": null,
         "holds": true,
@@ -136,6 +140,7 @@
         ],
         "port": 1234,
         "ramBytes": 419430400,
+        "runBy": "user",
         "state": "ok",
         "version": ""
       }
@@ -345,6 +350,7 @@
     },
     "engines": [
       {
+        "autostart": false,
         "controls": [
           "load",
           "unload"
@@ -405,14 +411,17 @@
         ],
         "port": 11434,
         "ramBytes": 1283457024,
+        "runBy": "",
         "state": "ok",
         "version": "0.12.3"
       },
       {
         "api": "v1",
+        "autostart": false,
         "controls": [
           "load",
-          "unload"
+          "unload",
+          "stop"
         ],
         "firewall": null,
         "holds": true,
@@ -449,6 +458,7 @@
         ],
         "port": 1234,
         "ramBytes": 419430400,
+        "runBy": "user",
         "state": "ok",
         "version": ""
       }

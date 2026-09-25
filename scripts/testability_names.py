@@ -89,6 +89,9 @@ COMPOSED = {
     # An engine model's load / unload button — one of the two, by what the model is.
     "node-engine-load": "topology-nodes.js: engineActHtml() on an engine's model row",
     "node-engine-unload": "topology-nodes.js: engineActHtml() on an engine's model row",
+    # An engine's server start / stop button in its card's header — one of the two.
+    "node-engine-start": "topology-nodes.js: engineServerHtml() in an engine card's header",
+    "node-engine-stop": "topology-nodes.js: engineServerHtml() in an engine card's header",
     "cell-config-search-results": "config-locator.js: the search suggestion list",
 }
 

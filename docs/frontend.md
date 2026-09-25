@@ -576,6 +576,11 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   asked about — «≥» when the need is the file alone, «≈» when it is an estimate — and loaded with
   `force` only on «load anyway». LM Studio's «stays loaded» comes from the scout (`staysLoaded`),
   Ollama's from an expiry centuries away.
+- An engine's server is started or stopped from its card's header (`node-engine-start` /
+  `node-engine-stop`, scout 2.16+, `serveEngine` in remote-cells.js): the stop is confirmed like
+  stopping a cell, the start is not. A stopped engine keeps its card (`data-t-state="stopped"`) with
+  only «▶ start»; under the header — what the server refused last, «run by another user» (a system
+  service, the operator's to stop) and «starts with the machine».
 - `machineAt(address)` — the machine behind an address its cells answer at, `{ key, name }`: its node and
   the node's name (the computer's hostname, from its scout); loopback and the controller's own address
   are the controller's machine (its node, else `topology.server.hostname`); an unknown address is said

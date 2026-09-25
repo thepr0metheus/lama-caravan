@@ -155,6 +155,15 @@ PINS = [
      'new Set(globalThis.__fpA).size',
      '4',
      "positive: действие началось, упало, движок перестал его предлагать — каждое перестраивает карточку (кнопка, «loading…», ошибка)"),
+    ("fingerprint_sees_the_server",
+     'const E = (extra = {}) => ({ kind: "ollama", label: "Ollama", port: 11434, listen: "loopback", state: "ok", version: "0.34.4", models: [], pids: [7], ramBytes: 100, controls: ["load", "unload", "stop"], ...extra });'
+     ' const fp = (e) => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [e] }] }); return m.topologyStructureFingerprint(); };'
+     ' globalThis.__fpC = [fp(E()), fp(E({ runBy: "user" })), fp(E({ runBy: "other" })), fp(E({ autostart: true })),'
+     ' fp(E({ serverAction: { op: "stop", since: 1 } })), fp(E({ serverError: { op: "start", error: "x", at: 2 } })),'
+     ' fp(E({ state: "stopped", models: null, controls: ["start"] }))];',
+     'new Set(globalThis.__fpC).size',
+     '7',
+     "positive: кто запускает сервер, «с машиной», пуск/остановка идёт или упали, «остановлен» (скаут 2.16) — каждое перестраивает карточку"),
     ("fingerprint_sees_hold_and_stays",
      'const E = (models, extra = {}) => ({ kind: "lmstudio", label: "LM Studio", port: 1234, listen: "loopback", state: "ok", version: "", models, pids: [7], ramBytes: 100, controls: ["load", "unload"], ...extra });'
      ' const fp = (e) => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [e] }] }); return m.topologyStructureFingerprint(); };'

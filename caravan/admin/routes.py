@@ -1481,6 +1481,17 @@ def _post_api_engines_act(h, parsed, body):
         h.send_json({**result, "topology": topology_state(refresh_hosts=False)})
         return
 
+@_route(POST_ROUTES, '/api/engines/start', '/api/engines/stop')
+def _post_api_engines_serve(h, parsed, body):
+        # The server of an engine next to a machine's cells started or
+        # stopped through its scout (docs/foreign-engines.md, step 3г).
+        from caravan.admin.engine_actions import EngineActions
+        from caravan.admin.fleet_clients import _scout
+        op = parsed.path.rsplit("/", 1)[-1]
+        result = EngineActions(_scout, topology_hosts).serve(body.get("hostId"), op, body.get("kind"))
+        h.send_json({**result, "topology": topology_state(refresh_hosts=False)})
+        return
+
 @_route(POST_ROUTES, '/api/queue-thresholds/recalc')
 def _post_api_queue_thresholds_recalc(h, parsed, body):
         threading.Thread(target=compute_queue_thresholds, daemon=True).start()
