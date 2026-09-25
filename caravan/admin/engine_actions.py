@@ -65,6 +65,19 @@ class EngineActions:
             return {"ok": False, **done, "short": short}
         return {"ok": True, **done}
 
+    def pull(self, host_id, kind, model):
+        """Download a model into the engine (scout 2.17+): the scout answers
+        at once, the engine marked `downloading`, and fetches on its own
+        thread — the progress comes with the reports after it."""
+        host_id, kind, model = (str(x or "").strip() for x in (host_id, kind, model))
+        if not host_id or not kind or not model:
+            raise AppError("hostId, kind and model are required", 400)
+        engine = self.engine(host_id, kind)
+        answer = self._scout_for(host_id).post("/api/engines/pull", {"kind": kind, "port": engine.get("port"),
+                                                                    "model": model}, timeout=self.TIMEOUT)
+        self.keep(host_id, answer)
+        return {"ok": True, "hostId": host_id, "kind": kind, "model": model, "op": "pull"}
+
     def serve(self, host_id, op, kind):
         """Start the engine's server, or stop it (scout 2.16+): the scout
         answers at once, the engine marked, and waits for the server on its

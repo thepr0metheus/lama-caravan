@@ -222,7 +222,54 @@ def test_serve():
          "ответ — что сделано и доска, без нового опроса машин")
 
 
-for test in (test_act, test_route, test_serve):
+def test_pull_delete():
+    print("скачать в движок и удалить модель через скаут (скаут 2.17):")
+    downloading = [{**ENGINE, "downloading": {"model": "qwen3:4b", "since": 7, "doneBytes": None, "totalBytes": None}}]
+    actions, scouts, store, saves = rig(answer={"ok": True, "engines": downloading})
+    same(actions.pull("box-a", "ollama", " qwen3:4b "),
+         {"ok": True, "hostId": "box-a", "kind": "ollama", "model": "qwen3:4b", "op": "pull"}, "ответ — что сделано")
+    same((scouts["box-a"].calls, store["hosts"]["box-a"]["engines"][0]["downloading"]["model"], len(saves)),
+         ([("/api/engines/pull", {"kind": "ollama", "port": 11500, "model": "qwen3:4b"}, 15)], "qwen3:4b", 1),
+         "скауту — вид, порт движка и имя; движки из ответа — сразу в запись машины")
+    actions, scouts, *_r = rig(answer={"ok": True})
+    for args, want in ((("box-a", "ollama", ""), (400, "hostId, kind and model are required")),
+                       (("", "ollama", "m"), (400, "hostId, kind and model are required")),
+                       (("box-z", "ollama", "m"), (404, "no scout has reported for host box-z")),
+                       (("box-a", "lmstudio", "m"), (404, "box-a reports no lmstudio"))):
+        same(refusal(lambda: actions.pull(*args)), want, f"negative: скачать {args[2] or '—'} на {args[0] or '—'}/{args[1]} — {want[1]}")
+    same(scouts, {}, "negative: ни один отказ до скаута не дошёл")
+    actions, scouts, store, saves = rig(answer={"ok": True, "engines": AFTER})
+    actions.act("box-a", "delete", "ollama", "qwen3:8b")
+    same(scouts["box-a"].calls[0][:2], ("/api/engines/delete", {"kind": "ollama", "port": 11500, "model": "qwen3:8b"}),
+         "удаление модели — то же действие над моделью, что загрузка")
+
+    from caravan.admin import routes
+    same(["/api/engines/delete" in routes.POST_ROUTES, "/api/engines/pull" in routes.POST_ROUTES], [True, True],
+         "маршруты удаления и скачивания есть")
+
+    class _H:
+        def __init__(self):
+            self.sent = []
+
+        def send_json(self, doc, *a, **kw):
+            self.sent.append(doc)
+
+    seen = []
+    real_pull, real_state = EngineActions.pull, routes.topology_state
+    try:
+        EngineActions.pull = lambda self, *a: (seen.append(a), {"ok": True, "op": "pull"})[1]
+        routes.topology_state = lambda **kw: {"board": True, **kw}
+        h = _H()
+        routes._post_api_engines_pull(h, types.SimpleNamespace(path="/api/engines/pull"),
+                                      {"hostId": "box-a", "kind": "lmstudio", "model": "qwen/qwen3-4b"})
+    finally:
+        EngineActions.pull, routes.topology_state = real_pull, real_state
+    same((seen, h.sent), ([("box-a", "lmstudio", "qwen/qwen3-4b")],
+                          [{"ok": True, "op": "pull", "topology": {"board": True, "refresh_hosts": False}}]),
+         "маршрут скачивания: машина, движок, имя — как есть; ответ с доской")
+
+
+for test in (test_act, test_route, test_serve, test_pull_delete):
     try:
         test()
     except Exception as exc:  # noqa: BLE001 — a crash is a red pin

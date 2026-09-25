@@ -353,7 +353,11 @@ stops the engine's server itself (scout 2.16+) the same way; `EngineReport`
 keeps who runs it (`runBy`), whether it starts with the machine (`autostart`),
 its start or stop under way or refused (`serverAction`, `serverError`), and a
 stopped engine (`state: "stopped"`).
-Key functions: `EngineActions.act`, `EngineActions.serve`; `POST /api/engines/load|unload|start|stop`.
+`EngineActions.pull` downloads a model into an engine (scout 2.17+); `delete` is
+one more model act, as a load is. `EngineReport` keeps the download under way
+(`downloading`) and the last one refused (`downloadError`).
+Key functions: `EngineActions.act`, `EngineActions.serve`, `EngineActions.pull`;
+`POST /api/engines/load|unload|delete|pull|start|stop`.
 
 ## `engine_outputs.py`
 

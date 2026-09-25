@@ -164,6 +164,14 @@ PINS = [
      'new Set(globalThis.__fpC).size',
      '7',
      "positive: кто запускает сервер, «с машиной», пуск/остановка идёт или упали, «остановлен» (скаут 2.16) — каждое перестраивает карточку"),
+    ("fingerprint_sees_a_download_not_its_bytes",
+     'const E = (extra = {}) => ({ kind: "ollama", label: "Ollama", port: 11434, listen: "loopback", state: "ok", version: "0.34.4", models: [], pids: [7], ramBytes: 100, controls: ["load", "unload", "delete", "pull"], ...extra });'
+     ' const fp = (e) => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [e] }] }); return m.topologyStructureFingerprint(); };'
+     ' globalThis.__fpD = [fp(E()), fp(E({ downloading: { model: "qwen3:4b", since: 1, doneBytes: 1, totalBytes: 10 } })),'
+     ' fp(E({ downloading: { model: "qwen3:4b", since: 1, doneBytes: 9, totalBytes: 10 } })), fp(E({ downloadError: { model: "q", error: "x", at: 3 } }))];',
+     '[new Set(globalThis.__fpD).size, globalThis.__fpD[1] === globalThis.__fpD[2]]',
+     '[3, true]',
+     "скачивание началось, кончилось отказом — перестраивают карточку; negative: пришли ещё байты — нет (строку обновляет живой патч)"),
     ("fingerprint_sees_hold_and_stays",
      'const E = (models, extra = {}) => ({ kind: "lmstudio", label: "LM Studio", port: 1234, listen: "loopback", state: "ok", version: "", models, pids: [7], ramBytes: 100, controls: ["load", "unload"], ...extra });'
      ' const fp = (e) => { st.setTopology({ ...st.topology, nodes: [{ id: "h1", role: "host", online: true, engines: [e] }] }); return m.topologyStructureFingerprint(); };'

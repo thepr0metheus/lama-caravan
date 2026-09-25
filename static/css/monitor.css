@@ -1013,6 +1013,9 @@
 .node-engine-head .node-engine-busy { margin-left:6px; }
 .node-engine-server-notes { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:4px; }
 .node-engine-note { font-size:11px; color:var(--muted,#888); }
+.node-engine-serve.pull:hover { border-color:var(--accent-strong); color:var(--accent-strong); }
+.node-engine-act.delete:hover { border-color:var(--bad,#ff8585); color:var(--bad,#ff8585); }
+.node-engine-download { font-size:11px; color:var(--accent-strong); font-variant-numeric:tabular-nums; }
 /* CPU block: a RAM bar mirroring the GPU's VRAM bar, and the CPU-cell blue
    (#4593ff) throughout — accent stripe, fill, and a faint wash — so the block
    matches the cells that run on it. */

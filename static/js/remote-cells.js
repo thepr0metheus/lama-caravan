@@ -844,7 +844,35 @@ export function serveEngineButton(btn) {
 export function actOnEngineButton(btn) {
   const d = btn.dataset;
   return actOnEngineModel(d.engineHost, d.engineKind, d.engineLabel, d.engineModel, d.engineAct,
-    d.engineHolds === "1");
+    d.engineHolds === "1", d.engineMachine || d.engineHost);
+}
+
+// What to download into each engine, as the prompt hints it.
+const ENGINE_PULL_HINTS = { ollama: "nodeEnginePullHintOllama", lmstudio: "nodeEnginePullHintLmStudio" };
+
+// A model downloaded into an engine next to a machine's cells (step 3д, scout
+// 2.17+): its name asked — one word, a typo sends nothing — and the download
+// runs on the machine, its progress on the engine's card.
+export async function pullEngineModel(hostId, kind, label) {
+  const hint = ENGINE_PULL_HINTS[kind] ? t(ENGINE_PULL_HINTS[kind]) : "";
+  const answer = await appPrompt(t("nodeEnginePullPrompt", { engine: label, hint }),
+    { value: "", confirmLabel: t("nodeEnginePull") });
+  if (answer === null) return;
+  const model = String(answer).trim();
+  if (!/^[^\s\x00-\x1f\x7f]{1,300}$/.test(model)) { toast(t("nodeEngineModelNameBad")); return; }
+  try {
+    const res = await api("/api/engines/pull", { method: "POST", body: JSON.stringify({ hostId, kind, model }) });
+    if (res.topology) setTopology(res.topology);
+    renderTopology();
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+// The download button in an engine card's header, as its markup says it.
+export function pullEngineButton(btn) {
+  const d = btn.dataset;
+  return pullEngineModel(d.engineHost, d.engineKind, d.engineLabel);
 }
 
 // How long a model loaded from the board stays unused before its engine lets
@@ -864,7 +892,7 @@ export const ENGINE_HOLDS = [
 // free memory is not started by the scout (2.15): it is asked about, and
 // loaded anyway only when the operator says so. The server answers with the
 // board as it is now — the model already marked as being acted on.
-export async function actOnEngineModel(hostId, kind, label, model, op, holds = false) {
+export async function actOnEngineModel(hostId, kind, label, model, op, holds = false, machine = "") {
   let contextLength = null;
   let hold = null;
   if (op === "load") {
@@ -883,6 +911,12 @@ export async function actOnEngineModel(hostId, kind, label, model, op, holds = f
       contextLength = Number(text);
     }
     if (holds) hold = Number(answer.choice);
+  } else if (op === "delete") {
+    // Its files go from the disk: the danger look, and the machine named.
+    if (!(await appConfirm(t("nodeEngineDeleteConfirm", { model, engine: label, machine: machine || hostId }),
+      { confirmLabel: t("nodeEngineDelete") }))) {
+      return;
+    }
   } else if (!(await appConfirm(t("nodeEngineUnloadConfirm", { model, engine: label }),
     { confirmLabel: t("nodeEngineUnload"), scene: "stop" }))) {
     return;
