@@ -17,6 +17,7 @@ from caravan.admin.runners import (cell_artifact_label, cell_model_ref,
                                    runner_id, uses_command_path,
                                    uses_token_context)
 from caravan.admin.fleet_clients import SCOUT_POLLER, topology_clients, topology_hosts
+from caravan.admin.launch_files import LaunchFiles
 from caravan.admin.models import display_model_name
 from caravan.admin.model_locator import current_locations
 from caravan.admin.monitoring import gpu_state
@@ -214,6 +215,16 @@ def _gguf_trained_window(model_path, config):
         return None
 
 
+def _freshness_inputs(config):
+    """(the watcher's report, the models directory it keys files by) — or an
+    empty report when it cannot be read: no ⇪ on any card, never a guess."""
+    try:
+        from caravan.admin.model_watch import freshness_report
+        return freshness_report(), str(models_dir_from_config(config))
+    except Exception:
+        return {}, ""
+
+
 def topology_server(config=None):
     """The fleet's cells as the board draws them: every cell a scout reports
     (running or starting), and every stored slot that is not live (stopped or
@@ -256,6 +267,9 @@ def topology_server(config=None):
     # What the libraries hold, as last measured — once for all the cards, and
     # without waiting for a NAS that may not answer.
     model_locations = current_locations()
+    # How the models stand against Hugging Face, as the watcher last measured —
+    # once for all the cards (⇪ on a card, for every file of its launch).
+    fresh_report, models_dir = _freshness_inputs(config)
     # A client may run several concurrent slots (translator + whisper + …), each
     # reported as one entry in llamaNodes. Flatten to (client, node) pairs and
     # render one server cell per node. Fall back to the legacy single llamaNode.
@@ -296,7 +310,12 @@ def topology_server(config=None):
         # Fall back to slot's saved model when the live server hasn't reported it yet.
         if not model_path and _r_slot:
             model_path = str(_r_slot.get("model") or "")
-        model_name = model_path.split("/")[-1] if model_path else ""
+        # The name, by the one rule a stopped cell's card uses too, and from the
+        # model the cell is configured with when it has a slot: the scout reports
+        # where IT reads the model, and a checkpoint folder's last segment is its
+        # precision — the same seamless cell read "FP32" running and
+        # "seamless-m4t-v2-large" stopped.
+        model_name = display_model_name(str((_r_slot or {}).get("model") or "") or model_path)
         gpu_name = ""
         if client.get("gpus"):
             gpu_name = str((client["gpus"][0] or {}).get("name") or "")
@@ -375,6 +394,11 @@ def topology_server(config=None):
             # saved config's paths: what the scout reports is where IT reads them.
             "modelStore": _launch_in_library(_r_cfg, str((_r_slot or {}).get("model") or ""), config,
                                              model_locations),
+            # ⇪: a launch file differs from Hugging Face; ⟳: the scout says a
+            # file it holds changed on disk after the cell started (2.11+).
+            "launchFresh": LaunchFiles(_r_cfg, str((_r_slot or {}).get("model") or "")).fresh(fresh_report,
+                                                                                            models_dir),
+            "launchDiskNewer": LaunchFiles.disk_newer(ln.get("launchDiskNewer")),
             "mmproj": str(ln.get("mmprojPath") or ""),
             "specDraft": str(ln.get("specPath") or ""),
             "specType": str(ln.get("specType") or ""),
@@ -469,6 +493,7 @@ def topology_server(config=None):
             "cellMeta": _cell_meta(None, slot_cfg, slot_is_command),
             "modelPath": model_path,
             "modelStore": _launch_in_library(slot_cfg, model_path, config, model_locations),
+            "launchFresh": LaunchFiles(slot_cfg, model_path).fresh(fresh_report, models_dir),
             "mmproj": str(slot_cfg.get("MMPROJ_FILE") or ""),
             "specDraft": str(slot_cfg.get("SPEC_DRAFT_MODEL_FILE") or ""),
             "specType": str(slot_cfg.get("SPEC_TYPE") or ""),

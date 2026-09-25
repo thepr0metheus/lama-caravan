@@ -35,6 +35,7 @@ DECLARED = {
     "ctxUsed": "live: the context in use is measured from the running process",
     "modelReady": "live: whether the engine is answering right now",
     "uptimeSec": "live: how long the process has been running",
+    "launchDiskNewer": "live: a file the process holds changed on disk after it started — a stopped cell holds none",
     # Only a stored slot has this — read from the record's model on disk, and a
     # live cell's card has the real figure from GPU process memory instead.
     "modelSizeBytes": "slot: the model file's size, from disk",

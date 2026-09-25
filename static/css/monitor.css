@@ -64,157 +64,6 @@
   font-weight: 700;
 }
 
-.system-monitor-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.system-card {
-  display: grid;
-  gap: 7px;
-  min-width: 0;
-  padding: 9px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
-}
-
-.system-card.span-wide {
-  grid-column: 1 / -1;
-}
-
-.system-collapsed-card {
-  gap: 6px;
-}
-
-.system-collapsed-card > summary {
-  cursor: pointer;
-  list-style: none;
-}
-
-.system-collapsed-card > summary::-webkit-details-marker {
-  display: none;
-}
-
-.system-collapsed-card > summary::before {
-  content: "▸";
-  color: var(--muted);
-  font-size: 11px;
-  margin-right: 4px;
-}
-
-.system-collapsed-card[open] > summary::before {
-  content: "▾";
-}
-
-.system-card-note {
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.system-card-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 22px;
-}
-
-.system-card-head strong {
-  font-size: 13px;
-}
-
-.system-card-head > span {
-  min-width: 0;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
-  overflow: hidden;
-  text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.system-card canvas {
-  display: block;
-  width: 100%;
-  height: 116px;
-  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
-  border-radius: 6px;
-  background: #050607;
-}
-
-.system-card.span-wide canvas {
-  height: 140px;
-}
-
-.system-processes {
-  display: grid;
-  overflow: auto;
-  max-height: 220px;
-  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
-  border-radius: 6px;
-  background: #050607;
-  color: #dce9e9;
-  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.system-clients {
-  display: grid;
-  gap: 6px;
-  overflow: auto;
-  max-height: 140px;
-  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
-  border-radius: 6px;
-  background: #050607;
-  padding: 8px;
-  color: #dce9e9;
-  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.system-activity {
-  display: grid;
-  gap: 6px;
-  overflow: auto;
-  max-height: 220px;
-  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
-  border-radius: 6px;
-  background: #050607;
-  padding: 8px;
-  color: #dce9e9;
-  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.system-gpu-users {
-  display: grid;
-  gap: 6px;
-  overflow: auto;
-  max-height: 230px;
-  border: 1px solid color-mix(in srgb, var(--line) 62%, transparent);
-  border-radius: 6px;
-  background: #050607;
-  padding: 8px;
-  color: #dce9e9;
-  font: 12px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-.system-client-row {
-  display: grid;
-  grid-template-columns: minmax(110px, 0.7fr) minmax(140px, 1fr) 70px minmax(130px, 1fr);
-  gap: 8px;
-  align-items: center;
-  padding: 7px 8px;
-  border: 1px solid rgba(105, 208, 144, 0.22);
-  border-radius: 6px;
-  background: rgba(105, 208, 144, 0.08);
-}
-
-.system-client-row strong {
-  color: #69d090;
-}
-
 .mini-link {
   margin-left: 8px;
   border: 0;
@@ -224,10 +73,6 @@
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
-}
-
-.danger-link {
-  color: #fca5a5;
 }
 
 .primary-mini-action {
@@ -286,77 +131,6 @@
   .proxy-route-actions {
     justify-content: flex-start;
   }
-}
-
-.system-activity-row {
-  display: grid;
-  grid-template-columns: minmax(90px, 0.6fr) 90px minmax(180px, 1.2fr) minmax(160px, 1fr) minmax(170px, 1fr);
-  gap: 8px;
-  align-items: center;
-  padding: 7px 8px;
-  border: 1px solid rgba(125, 211, 252, 0.2);
-  border-radius: 6px;
-  background: rgba(125, 211, 252, 0.07);
-}
-
-.system-activity-row.active {
-  border-color: rgba(105, 208, 144, 0.35);
-  background: rgba(105, 208, 144, 0.1);
-}
-
-.system-activity-row.request {
-  border-color: rgba(244, 191, 79, 0.24);
-  background: rgba(244, 191, 79, 0.08);
-}
-
-.system-activity-row strong {
-  color: #7dd3fc;
-}
-
-.system-activity-row.active strong {
-  color: #69d090;
-}
-
-.system-client-row code,
-.system-client-row span,
-.system-client-row small,
-.system-activity-row code,
-.system-activity-row span,
-.system-activity-row small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.system-client-row small {
-  color: var(--muted);
-}
-
-.system-process-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 70px 90px 70px 90px;
-  gap: 8px;
-  align-items: center;
-  padding: 6px 8px;
-  border-bottom: 1px solid rgba(160, 180, 185, 0.12);
-}
-
-.system-process-row:last-child {
-  border-bottom: 0;
-}
-
-.system-process-row span,
-.system-process-row code {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.system-process-row strong {
-  color: #69d090;
-  text-align: right;
 }
 
 /* ── Topology Llama Edit Modal ──────────────────────────────────────────────── */
@@ -512,15 +286,6 @@
 }
 .topo-edit-form > .field:last-of-type {
   margin-bottom: 0;
-}
-
-/* The Advanced <details> section: reduce top gap */
-.topo-edit-form .advanced-fields {
-  margin-top: 4px;
-}
-.topo-edit-form .advanced-fields summary {
-  font-size: 12px;
-  padding: 4px 0;
 }
 
 .topo-edit-form .model-insight {
@@ -890,16 +655,6 @@
 @keyframes topology-spinner-rot {
   to { transform: rotate(360deg); }
 }
-.topology-card.llama-card.loading {
-  border-color: color-mix(in srgb, var(--warn, #f59e0b) 55%, var(--line));
-  background:
-    linear-gradient(100deg,
-      transparent 30%,
-      color-mix(in srgb, var(--warn, #f59e0b) 8%, transparent) 50%,
-      transparent 70%) 0 0 / 220% 100%,
-    var(--panel);
-  animation: topology-loading-shimmer 1.4s ease-in-out infinite;
-}
 @keyframes topology-loading-shimmer {
   from { background-position: 120% 0, 0 0; }
   to   { background-position: -120% 0, 0 0; }
@@ -1011,11 +766,6 @@
 }
 
 /* ── Host-centric node view (Stage 3a) ───────────────────────────────────── */
-.topology-viewmode { display:flex; justify-content:flex-end; padding:0 12px 8px; }
-#topologyNodesToggle.active { background: color-mix(in srgb, var(--accent,#6ea8fe) 18%, transparent); border-color: var(--accent,#6ea8fe); color: var(--accent,#6ea8fe); }
-.topology-nodes-view { padding: 4px 12px 24px; display:flex; flex-direction:column; gap:14px; }
-.fleet-overview { display:flex; gap:18px; flex-wrap:wrap; padding:10px 14px; border:1px solid var(--line); border-radius:8px; background:var(--panel); font-size:13px; color:var(--muted,#888); }
-.fleet-overview b { color: var(--text, #e6e6e6); font-size:15px; }
 .node-card { border:1px solid var(--line); border-radius:10px; background:var(--panel); overflow:visible; }
 /* A host whose scout stopped answering is dimmed — all of it but the banner
    that says so: that is the part to read. */
@@ -1163,10 +913,6 @@
 }
 .nsd-note-save { align-self: flex-end; font-size: 12px; padding: 4px 14px; cursor: pointer; }
 
-/* container mode: the reserve card becomes a static "cells live on scouts" hint */
-.node-server.ghost-server.container-hint { opacity: .85; cursor: default; }
-.node-server.ghost-server.container-hint:hover { border-color: color-mix(in srgb, var(--muted,#888) 25%, transparent); }
-.container-cells-hint { font-size: 12px; color: var(--muted,#888); text-align: center; line-height: 1.45; padding: 2px 6px; }
 .ghost-start-btn {
   padding: 5px 14px; text-align: center;
   background: none; border: 1px dashed color-mix(in srgb, var(--muted,#888) 35%, transparent);
@@ -1185,10 +931,8 @@
   margin-right: 7px;
   vertical-align: -1px;
 }
-.node-add-btn { text-align:left; padding-left:16px; }
 .node-servers > .topology-muted, .node-gpus > .topology-muted { padding:8px 16px 12px; }
 .node-server-head { display:flex; align-items:center; gap:7px; flex-wrap:wrap; }
-.node-server-model { font-size:12px; color:var(--muted,#aaa); margin-top:4px; word-break:break-all; }
 .node-gpu-badge { font-size:10px; padding:1px 5px; border-radius:3px; white-space:nowrap; background:color-mix(in srgb,var(--accent,#6ea8fe) 18%, transparent); color:var(--accent,#6ea8fe); }
 .node-cpu-badge { background:color-mix(in srgb,#94a3b8 16%, transparent); color:#cbd5e1; }
 .node-gpu-row { padding:8px 14px; border-bottom:1px solid var(--line); }
@@ -1226,14 +970,8 @@
 .node-gpu-ports { color:#3fb950; }
 .node-spark { margin-left:auto; opacity:.8; }
 
-/* Stopped remote server (persistent slot) in the classic Llama Servers column */
-.topology-card.llama-card.stopped { opacity:.7; border-style:dashed; }
-.topology-card.llama-card.stopped .topology-handle.server-input { background: var(--muted,#6e7681); }
-
 /* [hidden] must win over the board/nodes display rules */
 .topology-board[hidden] { display: none !important; }
-.topology-nodes-view[hidden] { display: none !important; }
-
 /* Node cards rendered inside the Llama Servers lane (cable targets) */
 
 

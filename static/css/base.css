@@ -88,13 +88,6 @@ body {
   gap: 16px;
 }
 
-.topbar-sep {
-  width: 1px;
-  height: 20px;
-  background: var(--line);
-  flex-shrink: 0;
-}
-
 h1, h2 {
   margin: 0;
   letter-spacing: 0;
@@ -221,11 +214,6 @@ main {
   max-width: 1480px;
   margin: 0 auto;
   padding: 20px 24px 40px;
-}
-
-.view-switcher {
-  width: max-content;
-  border-color: color-mix(in srgb, var(--line) 90%, transparent);
 }
 
 .app-view[hidden] {

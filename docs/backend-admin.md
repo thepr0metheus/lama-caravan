@@ -629,6 +629,18 @@ machine only forgotten, a refusing scout's kept. Every failure is worded with wh
 comes in through `http_get`/`http_post` parameters, which the snapshot (`test_scout_pairing.py`)
 replaces with a fake scout.
 
+## `launch_files.py`
+
+`LaunchFiles` — the files a cell's launch uses, each under its role on the card (`MODEL_FILE` →
+model, `MMPROJ_FILE` → mmproj, `SPEC_DRAFT_MODEL_FILE` → draft), and how they stand against
+Hugging Face: `fresh(report, models_dir)` reads the model watcher's report (keyed by the path
+relative to the models directory; an absolute path inside it is brought to that key, one outside
+is not checked) and keeps only what differs (`size`, `date`) or was not checked (`unknown`) — a
+"matches" is never drawn. `disk_newer(reported)` keeps the roles a scout names as changed on disk
+since its cell started (scout 2.11+; an older scout says nothing, which is not "unchanged").
+`topology_server` puts both on every cell's card (`launchFresh` running and stopped,
+`launchDiskNewer` running only) — the ⇪ and ⟳ chips the controller's own cells had until step 6.9.
+
 ## `topology.py`
 
 Assembly of the `/api/topology` tree — the first aggregator layer. `topology_server` builds the

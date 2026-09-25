@@ -536,12 +536,22 @@ def display_model_name(model_path):
     no model and is identical across all of them. The first segment is the name,
     the same rule list_st_artifacts already applies.
     """
-    path = str(model_path or "").strip().strip("/")
+    raw = str(model_path or "").strip()
+    path = raw.strip("/")
     if not path:
         return ""
     if path.lower().endswith(".gguf"):
         return path.split("/")[-1]
     parts = [p for p in path.split("/") if p]
+    # An absolute path is where a machine reads the model (a scout reports
+    # one): the tree above the model is that machine's, so the layout is read
+    # from the end — the folder before <author>/<FORMAT> when the last segment
+    # names a format, else the folder itself. Read from the front it named the
+    # checkpoint "home".
+    if raw.startswith(("/", "~")):
+        if len(parts) >= 3 and parts[-1].upper() in _ST_FORMAT_HINTS:
+            return parts[-3]
+        return parts[-1]
     # Two segments is not that layout — it is a Hugging Face repo id,
     # <author>/<model>, which is how the runners that download their own weights
     # name a model (facebook/nllb-200-distilled-600M). Applying the local rule

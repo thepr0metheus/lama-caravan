@@ -108,12 +108,6 @@
   min-height: 36px;
 }
 
-.topology-divider-btn {
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-}
-
 .topology-lanes h2 {
   margin: 0 0 8px;
 }
@@ -477,27 +471,6 @@ details.topology-server-stats-card > .topology-processes-details {
 .topology-process-row code { color: var(--muted); font-size: 10px; }
 .topology-process-row strong { color: #f4bf4f; font-size: 11px; }
 
-/* ── Active llama clients in Llama card ─────────────────── */
-.topology-llama-clients-details {
-  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-  padding: 0 12px 6px;
-}
-
-.topology-llama-clients-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 0 4px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: color-mix(in srgb, var(--text) 70%, var(--muted));
-  cursor: pointer;
-  list-style: none;
-}
-
-.topology-llama-clients-head::-webkit-details-marker { display: none; }
-
 .topology-incidents-list {
   display: grid;
   gap: 6px;
@@ -545,8 +518,7 @@ details.topology-server-stats-card > .topology-processes-details {
 }
 
 .topology-card.activity-active,
-.topology-agent-route.activity-active,
-.topology-proxy-row.activity-active {
+.topology-agent-route.activity-active{
   border-color: color-mix(in srgb, var(--accent) 72%, var(--line));
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent),
@@ -556,8 +528,7 @@ details.topology-server-stats-card > .topology-processes-details {
 }
 
 .topology-card.activity-queued,
-.topology-agent-route.activity-queued,
-.topology-proxy-row.activity-queued {
+.topology-agent-route.activity-queued{
   border-color: color-mix(in srgb, #60a5fa 58%, var(--line));
   box-shadow:
     0 0 0 1px color-mix(in srgb, #60a5fa 18%, transparent),
@@ -565,14 +536,12 @@ details.topology-server-stats-card > .topology-processes-details {
 }
 
 .topology-card.activity-recent,
-.topology-agent-route.activity-recent,
-.topology-proxy-row.activity-recent {
+.topology-agent-route.activity-recent{
   border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
 }
 
 .topology-card.health-degraded,
-.topology-agent-route.health-degraded,
-.topology-proxy-row.health-degraded {
+.topology-agent-route.health-degraded{
   border-color: color-mix(in srgb, var(--warn) 70%, var(--line));
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--warn) 22%, transparent),
@@ -581,10 +550,8 @@ details.topology-server-stats-card > .topology-processes-details {
 
 .topology-card.health-failed,
 .topology-agent-route.health-failed,
-.topology-proxy-row.health-failed,
 .topology-card.activity-error,
-.topology-agent-route.activity-error,
-.topology-proxy-row.activity-error {
+.topology-agent-route.activity-error{
   border-color: color-mix(in srgb, var(--bad) 72%, var(--line));
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--bad) 24%, transparent),
@@ -614,12 +581,6 @@ details.topology-server-stats-card > .topology-processes-details {
 
 .proxy-group-card {
   padding-bottom: 6px;
-}
-
-.topology-proxy-rows {
-  display: grid;
-  gap: 5px;
-  margin-top: 6px;
 }
 
 /* ── Proxy squares (thin entry points) ─────────────────────────────────────── */
@@ -706,7 +667,6 @@ details.topology-server-stats-card > .topology-processes-details {
 
 /* Proxy detail popover reuses the policy-overlay/modal shell. */
 .proxy-detail-modal { width: min(360px, 92vw); }
-.proxy-detail-modal .topology-proxy-main { margin-top: 4px; }
 .topology-policy-head-actions { display: inline-flex; align-items: center; gap: 4px; }
 
 /* ── Router routing layer ────────────────────────────────────────── */
@@ -778,35 +738,7 @@ details.topology-server-stats-card > .topology-processes-details {
 .topology-cable.router.idle { opacity: .3; }
 
 /* Router config popover */
-/* Compound selector so it beats the later, single-class .topology-policy-modal
-   (width: 440px) rule — otherwise the 3-col router popover stays cramped. */
-.topology-policy-modal.router-cfg-modal { width: min(860px, 96vw); }
-.router-cfg-cols { display: grid; grid-template-columns: 1fr 1.1fr 1fr; gap: 14px; margin-top: 10px; align-items: start; }
-.router-cfg-col { min-width: 0; }
-.router-cfg-col-head { font-size: 11px; font-weight: 600; margin-bottom: 8px; padding-bottom: 4px; border-bottom: 1px solid var(--line); }
-.router-cfg-col-head .muted { color: var(--muted); font-weight: 400; }
-.router-cfg-rules { border-left: 1px solid var(--line); border-right: 1px solid var(--line); padding: 0 14px; }
-@media (max-width: 720px) {
-  .router-cfg-cols { grid-template-columns: 1fr; }
-  .router-cfg-rules { border: 0; padding: 0; }
-}
-.router-cfg-inputs { max-height: 62vh; overflow: auto; }
-.router-in-group { margin-bottom: 12px; }
-.router-in-group-h { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin-bottom: 5px; }
-.router-in-group-h.on-other { color: var(--accent); }
-.router-in-group-h.free { color: var(--bad); }
-.router-in-toggle {
-  width: 100%; text-align: left; background: none; border: 0; cursor: pointer;
-  font-size: 9px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted);
-  padding: 0 0 5px; display: flex; align-items: center; gap: 6px;
-}
-.router-in-count { color: var(--accent); font-weight: 600; }
-.router-in-search {
-  width: 100%; box-sizing: border-box; margin-bottom: 6px;
-  background: var(--field); border: 1px solid var(--line); border-radius: 6px;
-  padding: 3px 7px; color: inherit; font-size: 11px;
-}
-.router-pill-wrap { display: flex; flex-wrap: wrap; gap: 5px; }
+
 .router-pill {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 2px 6px; border: 1px solid var(--line); border-radius: 5px;
@@ -821,13 +753,6 @@ details.topology-server-stats-card > .topology-processes-details {
 .router-pill-503 { font-size: 8px; color: var(--bad); }
 .router-pill-x { background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; padding: 0; }
 .router-pill-x:hover { color: var(--bad); }
-.router-cfg-default-line { font-size: 12px; margin-bottom: 8px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.router-cfg-default-line strong { color: var(--text, inherit); }
-.router-cfg-sched-line { margin-top: 10px; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
-.router-cfg-failover { margin-top: 10px; }
-.router-cfg-failover .mini-link.active { color: var(--accent); }
-.router-cfg-failover-chain { font-size: 11px; color: var(--muted); margin-top: 3px; font-variant-numeric: tabular-nums; }
-
 
 /* Below ~1480 the two columns stop fitting: .topology-lanes needs its four
    floors (210 + 36 + 390 + 260) plus three 44px gaps = 1028px, and the right
