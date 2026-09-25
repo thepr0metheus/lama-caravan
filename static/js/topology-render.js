@@ -334,6 +334,13 @@ export function renderTopology() {
       renderTopology();
     });
   });
+  // An engine's ▾ beside its chip: its panel — the server and the models.
+  $("topologyLlamaServers")?.querySelectorAll("[data-engine-menu]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      CARD_FOLD.toggleEngineMenu(btn.dataset.engineMenu);
+      renderTopology();
+    });
+  });
   // An engine's model next to the cells: load it or unload it (step 3).
   $("topologyLlamaServers")?.querySelectorAll("[data-engine-act]").forEach((btn) => {
     btn.addEventListener("click", (event) => {

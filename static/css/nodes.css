@@ -66,6 +66,31 @@
 .ncf-dot { width:6px; height:6px; border-radius:50%; background:var(--muted,#888); opacity:.55; }
 .ncf-dot.up { background:var(--cell-accent); opacity:1; }
 .ncf-count { font:600 10.5px/1 ui-monospace, "SF Mono", Menlo, monospace; opacity:.75; }
+/* An engine's chip and its ▾ read as one control; the ▾ opens the engine's
+   panel under the chips (topology-nodes.js nodeEnginePanelHtml). */
+.ncf-group { display:inline-flex; align-items:stretch; }
+.ncf-group > .ncf-chip { border-top-right-radius:0; border-bottom-right-radius:0; }
+.ncf-menu {
+  --cell-accent: var(--ok, #3fb950);
+  box-sizing:border-box; height:22px; min-height:0; padding:0 6px; margin-left:-1px;
+  border:1px solid var(--line); border-radius:0 999px 999px 0; background:transparent;
+  color:var(--muted,#888); font-size:12px; line-height:1; cursor:pointer;
+}
+.ncf-menu:hover { color:var(--text,#ddd); border-color:color-mix(in srgb, var(--cell-accent) 45%, var(--line)); }
+.ncf-menu[aria-expanded="true"] {
+  color:var(--text,#ddd); border-color:color-mix(in srgb, var(--cell-accent) 70%, var(--line));
+  background:color-mix(in srgb, var(--cell-accent) 14%, transparent);
+}
+.ncf-menu:focus-visible { outline:2px solid var(--accent-strong); outline-offset:2px; }
+/* The cables of engine models made router outputs land at the chips' edge,
+   as a cell's cable lands at its line. */
+.node-cell-filter { position:relative; }
+.node-cell-filter > .topology-handle.engine-input { left:-24px; height:22px; }
+.node-engine-panel { margin:2px 0 8px; }
+.node-engine-panel > .node-engine {
+  border-color:color-mix(in srgb, var(--cell-accent, var(--warn,#d9a441)) 40%, var(--line));
+  background:color-mix(in srgb, var(--cell-accent, var(--warn,#d9a441)) 5%, transparent);
+}
 /* Mounted Server-stats + GPU-telemetry slots inside the node columns. */
 .node-ctrl-server-stats { padding:4px 10px 10px; }
 .node-ctrl-gpu-telemetry { padding:4px 10px 12px; min-width:0; }
@@ -278,8 +303,10 @@
    launcher's colour — Ollama orange, LM Studio violet — on its card, its line
    with the switch, its window and its machine's chip: one rule, two classes deep, so neither
    stylesheet's order nor the green default can win over it. */
-.node-server.engine-ollama, .cell-row.engine-ollama, .cell-window.engine-ollama, .ncf-chip.engine-ollama { --cell-accent: #f0a05a; }
-.node-server.engine-lmstudio, .cell-row.engine-lmstudio, .cell-window.engine-lmstudio, .ncf-chip.engine-lmstudio { --cell-accent: #a78bfa; }
+.node-server.engine-ollama, .cell-row.engine-ollama, .cell-window.engine-ollama, .ncf-chip.engine-ollama,
+.ncf-menu.engine-ollama, .node-engine-panel.engine-ollama { --cell-accent: #f0a05a; }
+.node-server.engine-lmstudio, .cell-row.engine-lmstudio, .cell-window.engine-lmstudio, .ncf-chip.engine-lmstudio,
+.ncf-menu.engine-lmstudio, .node-engine-panel.engine-lmstudio { --cell-accent: #a78bfa; }
 
 /* ── Running-cell life: the border comet, always on while the cell runs.
    (The breathing ring was tried in v1.3.45/46 and retired — "processing"
