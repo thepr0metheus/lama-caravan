@@ -44,6 +44,7 @@ from caravan.admin.telemetry import (
     remote_llama_modalities,
 )
 from caravan.common.errors import AppError
+from caravan.domain.engine import GpuOwners
 from caravan.common.context_window import block_window, effective_window, route_window_inputs
 from caravan.domain.client_proxy import AgentAssignment, PROXY_ID_PREFIX, ProxyRoute
 from caravan.proxy.graph import PLAIN_REQUEST_CTX, apply_router
@@ -552,14 +553,17 @@ def topology_server(config=None):
         "llamaServers": llama_servers,
     }
 
-def _bind_servers_to_gpus(gpus, compute_apps, servers):
+def _bind_servers_to_gpus(gpus, compute_apps, servers, engines=None):
     """many-to-many: fill server.gpuIndexes (+ per-gpu MiB) from pid→gpu, and
     reverse-fill gpu.serverPorts. Handles N servers on one GPU and one server
-    split across N GPUs."""
+    split across N GPUs. The memory that is no cell's is named by who holds
+    it (`outside`): an engine of the machine by its processes, else the
+    process's own name (GpuOwners)."""
     uuid_to_index = {str(g.get("uuid")): g.get("index")
                      for g in gpus if g.get("uuid")}
     pid_indexes: dict = {}
     pid_mem: dict = {}
+    pid_name: dict = {}
     for app in compute_apps or []:
         idx = uuid_to_index.get(str(app.get("gpuUuid")))
         if idx is None:
@@ -567,6 +571,7 @@ def _bind_servers_to_gpus(gpus, compute_apps, servers):
         pid = app.get("pid")
         pid_indexes.setdefault(pid, set()).add(idx)
         pid_mem[(pid, idx)] = app.get("usedMiB", 0)
+        pid_name[pid] = str(app.get("name") or "")
     gpu_ports: dict = {}
     for s in servers:
         pids = {p for p in [s.get("pid"), *(s.get("pids") or [])] if p}
@@ -588,11 +593,13 @@ def _bind_servers_to_gpus(gpus, compute_apps, servers):
     # rest are not. (Graphics like Xorg aren't in --query-compute-apps, so a few
     # MiB of overhead just falls into the free remainder — close enough.)
     fleet_pids = {p for s in servers for p in [s.get("pid"), *(s.get("pids") or [])] if p}
+    owners = GpuOwners(engines)
     for g in gpus:
         idx = g.get("index")
         g["serverPorts"] = sorted(gpu_ports.get(idx, set()),
                                   key=lambda x: (x is None, x))
         fleet_mib = non_fleet_mib = 0
+        foreign = []
         for (pid, i), mib in pid_mem.items():
             if i != idx:
                 continue
@@ -600,8 +607,11 @@ def _bind_servers_to_gpus(gpus, compute_apps, servers):
                 fleet_mib += mib
             else:
                 non_fleet_mib += mib
+                foreign.append((pid, mib, pid_name.get(pid, "")))
         g["fleetUsedMiB"] = round(fleet_mib)
         g["nonFleetUsedMiB"] = round(non_fleet_mib)
+        # nonFleetUsedMiB by who holds it — the same memory, named.
+        g["outside"] = owners.split(foreign)
     return servers, gpus
 
 def _server_port_key(s):
@@ -645,7 +655,7 @@ def topology_nodes(config, server_obj, hosts):
                 g["index"] = None
         servers = remote_by_host.get(cid, [])
         servers.sort(key=_server_port_key)
-        _bind_servers_to_gpus(hgpus, host.get("computeApps"), servers)
+        _bind_servers_to_gpus(hgpus, host.get("computeApps"), servers, host.get("engines"))
         _record_gpu_history(cid, hgpus)
         for s in servers:
             s["tpsHistory"] = _record_tps_history(
@@ -671,6 +681,9 @@ def topology_nodes(config, server_obj, hosts):
             "llamaUpdate": host.get("llamaUpdate") or {},
             "scoutVersion": host.get("scoutVersion") or "",
             "powerSchedule": _power_scheds.get(cid) or {},
+            # Ollama, LM Studio on the machine (scout 2.12+): None when its
+            # scout cannot look — the board then draws no block at all.
+            "engines": host.get("engines"),
             # The machine this controller runs on: its node carries the
             # controller's own Server stats panel.
             "controllerMachine": own,

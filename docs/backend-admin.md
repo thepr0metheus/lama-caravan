@@ -588,7 +588,9 @@ the controller is the single command builder: it ships the resolved `build_remot
 the model's header) with the engine's environment (`env`), or, for command cells, the raw command +
 health path; slot moves/reservations happen first. A machine is two records under one id
 (`HostRecord`, since 2026-09-24): its HOST record in `topology.hosts` is what its scout reports —
-GPUs, compute apps, CPU/RAM, cells, build versions, address — and `record_host_report` /
+GPUs, compute apps (with the process's name, scout 2.12+), the engines next to its cells (Ollama,
+LM Studio — `EngineReport` in `caravan/domain/engine.py` keeps them typed, and None for a scout
+that cannot look, never "none"), CPU/RAM, cells, build versions, address — and `record_host_report` /
 `host_from_report` replace it with each report; its CLIENT record in `topology.clients` is the
 operator's — name, agents — and no report touches it (old scouts still send agents; they are not
 read). `topology_hosts` computes a host's liveness on read (`online` within `HOST_REPORT_TTL`,
@@ -649,7 +651,10 @@ usage, modalities, crash note read with `CellWords`, TPS history) and every stor
 (its trained window from the GGUF header, ≈VRAM from the file's size), plus the controller's own GPU
 read for its machine's node. Since step 6.9 there is one kind of cell: the controller's own cells,
 their unit status, journal errors, load progress and freshness chips went with them. `topology_nodes` produces the
-host-centric spine: one node per machine with a scout, servers bound to GPUs via compute apps. The
+host-centric spine: one node per machine with a scout, servers bound to GPUs via compute apps, and
+the rest of each card's memory named by who holds it (`outside`, from `GpuOwners` in
+`caravan/domain/engine.py`: an engine of the machine by the processes its scout names, else the
+process's own name); a node carries its machine's `engines` as the host record keeps them. The
 controller has no node of its own since step 6.9 — its machine is its scout's host node, marked
 `controllerMachine` (with the controller's own `gpuError` for it). `topology_state`
 pulls it together: refreshes clients from their agents (skippable via `refresh_clients=False`),

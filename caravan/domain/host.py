@@ -25,7 +25,7 @@ class HostRecord:
     #: The fields a report writes, plus when the machine was first and last
     #: heard. `ip` is the one a client may carry too: there it is where the
     #: client's calls come from, here where the machine's cells are reached.
-    FIELDS = ("hostname", "ip", "agentUrl", "gpus", "computeApps", "cpu", "platform",
+    FIELDS = ("hostname", "ip", "agentUrl", "gpus", "computeApps", "engines", "cpu", "platform",
               "llamaNode", "llamaNodes", "llamaBinaryVersion", "llamaBinaryMtime",
               "llamaUpdate", "scoutVersion", "firstSeen", "lastSeen")
 

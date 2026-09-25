@@ -7,8 +7,15 @@
     "computeApps": [
       {
         "gpuUuid": "GPU-00000000-0000-0000-0000-000000000000",
+        "name": "llama-server",
         "pid": 4242,
         "usedMiB": 20000
+      },
+      {
+        "gpuUuid": "GPU-00000000-0000-0000-0000-000000000000",
+        "name": "ollama",
+        "pid": 5151,
+        "usedMiB": 3500
       }
     ],
     "cpu": {
@@ -23,6 +30,89 @@
         "usedGb": 18.2
       }
     },
+    "engines": [
+      {
+        "kind": "ollama",
+        "label": "Ollama",
+        "listen": "network",
+        "models": [
+          {
+            "contextLength": 4096,
+            "expiresAt": "2026-09-22T17:00:00+00:00",
+            "family": "qwen3",
+            "fileBytes": 5225388164,
+            "format": "gguf",
+            "instances": null,
+            "loaded": true,
+            "maxContextLength": null,
+            "memBytes": 6591830464,
+            "name": "qwen3:8b",
+            "params": "8.2B",
+            "quant": "Q4_K_M",
+            "remote": false,
+            "type": "",
+            "vramBytes": 5333539264
+          },
+          {
+            "contextLength": null,
+            "expiresAt": "",
+            "family": "gptoss",
+            "fileBytes": 384,
+            "format": "",
+            "instances": null,
+            "loaded": false,
+            "maxContextLength": null,
+            "memBytes": null,
+            "name": "gpt-oss:120b-cloud",
+            "params": "116.8B",
+            "quant": "MXFP4",
+            "remote": true,
+            "type": "",
+            "vramBytes": null
+          }
+        ],
+        "pids": [
+          5100,
+          5151
+        ],
+        "port": 11434,
+        "ramBytes": 1283457024,
+        "state": "ok",
+        "version": "0.12.3"
+      },
+      {
+        "api": "v1",
+        "kind": "lmstudio",
+        "label": "LM Studio",
+        "listen": "loopback",
+        "models": [
+          {
+            "contextLength": 8192,
+            "expiresAt": "",
+            "family": "gemma3",
+            "fileBytes": 3340000000,
+            "format": "gguf",
+            "instances": 1,
+            "loaded": true,
+            "maxContextLength": 131072,
+            "memBytes": null,
+            "name": "google/gemma-3-4b",
+            "params": "4B",
+            "quant": "Q4_K_M",
+            "remote": false,
+            "type": "llm",
+            "vramBytes": null
+          }
+        ],
+        "pids": [
+          613
+        ],
+        "port": 1234,
+        "ramBytes": 419430400,
+        "state": "ok",
+        "version": ""
+      }
+    ],
     "gpus": [
       {
         "driverStatus": "ok",
@@ -202,8 +292,15 @@
     "computeApps": [
       {
         "gpuUuid": "GPU-00000000-0000-0000-0000-000000000000",
+        "name": "llama-server",
         "pid": 4242,
         "usedMiB": 20000
+      },
+      {
+        "gpuUuid": "GPU-00000000-0000-0000-0000-000000000000",
+        "name": "ollama",
+        "pid": 5151,
+        "usedMiB": 3500
       }
     ],
     "controllerUrl": "http://10.0.0.1:7990",
@@ -219,6 +316,89 @@
         "usedGb": 18.2
       }
     },
+    "engines": [
+      {
+        "kind": "ollama",
+        "label": "Ollama",
+        "listen": "network",
+        "models": [
+          {
+            "contextLength": 4096,
+            "expiresAt": "2026-09-22T17:00:00+00:00",
+            "family": "qwen3",
+            "fileBytes": 5225388164,
+            "format": "gguf",
+            "instances": null,
+            "loaded": true,
+            "maxContextLength": null,
+            "memBytes": 6591830464,
+            "name": "qwen3:8b",
+            "params": "8.2B",
+            "quant": "Q4_K_M",
+            "remote": false,
+            "type": "",
+            "vramBytes": 5333539264
+          },
+          {
+            "contextLength": null,
+            "expiresAt": "",
+            "family": "gptoss",
+            "fileBytes": 384,
+            "format": "",
+            "instances": null,
+            "loaded": false,
+            "maxContextLength": null,
+            "memBytes": null,
+            "name": "gpt-oss:120b-cloud",
+            "params": "116.8B",
+            "quant": "MXFP4",
+            "remote": true,
+            "type": "",
+            "vramBytes": null
+          }
+        ],
+        "pids": [
+          5100,
+          5151
+        ],
+        "port": 11434,
+        "ramBytes": 1283457024,
+        "state": "ok",
+        "version": "0.12.3"
+      },
+      {
+        "api": "v1",
+        "kind": "lmstudio",
+        "label": "LM Studio",
+        "listen": "loopback",
+        "models": [
+          {
+            "contextLength": 8192,
+            "expiresAt": "",
+            "family": "gemma3",
+            "fileBytes": 3340000000,
+            "format": "gguf",
+            "instances": 1,
+            "loaded": true,
+            "maxContextLength": 131072,
+            "memBytes": null,
+            "name": "google/gemma-3-4b",
+            "params": "4B",
+            "quant": "Q4_K_M",
+            "remote": false,
+            "type": "llm",
+            "vramBytes": null
+          }
+        ],
+        "pids": [
+          613
+        ],
+        "port": 1234,
+        "ramBytes": 419430400,
+        "state": "ok",
+        "version": ""
+      }
+    ],
     "gpus": [
       {
         "driverStatus": "ok",

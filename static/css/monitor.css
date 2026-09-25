@@ -942,17 +942,44 @@
 .node-gpu-util { margin-left:auto; font-size:11px; color:var(--muted,#888); }
 .node-vram-bar { position:relative; height:6px; border-radius:3px; background:color-mix(in srgb,var(--line) 60%, transparent); overflow:hidden; margin:6px 0; }
 .node-vram-bar > span { display:block; height:100%; background:var(--accent,#6ea8fe); }
-/* VRAM held by something that is NOT a fleet cell (a training run, another app):
-   an amber hatch laid over the left of the fill, so "used" splits visibly into
-   fleet (plain accent) and outside (hatched). The card is not idle when this
-   shows — the label says so too. */
-.node-vram-outside { position:absolute; inset-block:0; left:0; min-width:2px; border-radius:3px 0 0 3px;
+/* VRAM held by something that is NOT a fleet cell (an engine next to the
+   cells, a training run, another app): an amber hatch per owner laid after the
+   fleet's share of the fill, so "used" splits visibly into fleet (plain
+   accent) and each outside owner (hatched, a thin seam between two). The card
+   is not idle when this shows — the label names who holds it. */
+.node-vram-outsides { position:absolute; inset:0; pointer-events:none; }
+.node-vram-outside { position:absolute; inset-block:0; min-width:2px;
   background:repeating-linear-gradient(45deg,
     color-mix(in srgb,var(--warn,#d9a441) 72%,transparent) 0 3px,
-    color-mix(in srgb,var(--warn,#d9a441) 38%,transparent) 3px 6px);
-  pointer-events:none; }
-.node-vram-outside[hidden] { display:none; }
+    color-mix(in srgb,var(--warn,#d9a441) 38%,transparent) 3px 6px); }
+.node-vram-outside + .node-vram-outside { box-shadow:inset 1px 0 0 rgba(13,17,23,.6); }
 .node-gpu-outside { color:var(--warn,#d9a441); }
+/* Engines next to the cells (Ollama, LM Studio): read-only cards under the
+   cells, in the amber of the memory they hold on the cards. */
+.node-engines { display:flex; flex-direction:column; gap:6px; }
+.node-engines > .node-subtitle { padding:6px 4px 0; }
+.node-engine { border:1px solid color-mix(in srgb,var(--warn,#d9a441) 30%,var(--line)); border-radius:8px;
+  padding:7px 10px; background:color-mix(in srgb,var(--warn,#d9a441) 5%,transparent); font-size:12px; }
+.node-engine-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.node-engine-head code { font-size:11px; color:var(--muted,#888); }
+.node-engine-listen { font-size:10px; padding:1px 6px; border-radius:3px; cursor:help;
+  color:var(--warn,#d9a441); background:color-mix(in srgb,var(--warn,#d9a441) 14%,transparent); }
+.node-engine-ram { font-size:11px; color:var(--muted,#888); font-variant-numeric:tabular-nums; }
+.node-engine-state { margin-top:6px; font-size:11px; color:var(--muted,#888); }
+.node-engine-state.warn { color:var(--warn,#d9a441); }
+.node-engine-state.err { color:var(--bad,#ff8585); }
+.node-engine-models { list-style:none; margin:6px 0 0; padding:0; display:flex; flex-direction:column; gap:3px; }
+.node-engine-model { display:flex; align-items:baseline; gap:6px; min-width:0; flex-wrap:wrap; }
+.node-engine-dot { width:7px; height:7px; border-radius:50%; flex:none; align-self:center;
+  box-shadow:inset 0 0 0 1px var(--muted,#888); }
+.node-engine-model.loaded .node-engine-dot { background:var(--good,#69d090); box-shadow:none; }
+.node-engine-model-name { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.node-engine-model:not(.loaded) .node-engine-model-name { font-weight:400; color:var(--muted,#aaa); }
+.node-engine-model-meta, .node-engine-model-mem { font-size:11px; color:var(--muted,#888); font-variant-numeric:tabular-nums; }
+.node-engine-model-mem { margin-left:auto; }
+.node-engine-cloud { font-size:10px; padding:0 5px; border-radius:3px; cursor:help;
+  color:var(--fallback,#60a5fa); background:color-mix(in srgb,var(--fallback,#60a5fa) 14%,transparent); }
+.node-engine-more { margin-top:4px; font-size:11px; }
 /* CPU block: a RAM bar mirroring the GPU's VRAM bar, and the CPU-cell blue
    (#4593ff) throughout — accent stripe, fill, and a faint wash — so the block
    matches the cells that run on it. */

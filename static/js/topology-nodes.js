@@ -196,21 +196,63 @@ export function nodeSparklineSvg(history, idx, color, max) {
     <polyline points="${d}" fill="none" stroke="${color}" stroke-width="1.5"/></svg>`;
 }
 
+// VRAM a card holds for something that is NOT a fleet cell, by who holds it:
+// the backend's `outside` — an engine of the machine (Ollama, LM Studio: its
+// processes, as the scout names them), else the process's own name, else ""
+// (nvidia-smi could not name it). Below a small floor an owner is driver or
+// context overhead, not a job, and the card still reads "idle"; above it,
+// "idle" was a lie: the card is busy, just not with us. A card without the
+// split (a backend before it) has one unnamed owner: the whole nonFleet.
+const OUTSIDE_FLOOR_MIB = 64;
+export function gpuOutsideOwners(g) {
+  const rows = Array.isArray(g?.outside) ? g.outside
+    : (Number(g?.nonFleetUsedMiB || 0) > 0 ? [{ name: "", engine: "", mib: Number(g.nonFleetUsedMiB) }] : []);
+  return rows
+    .filter((r) => Number(r?.mib || 0) >= OUTSIDE_FLOOR_MIB)
+    .map((r) => ({ name: String(r.name || ""), engine: String(r.engine || ""), mib: Number(r.mib) }));
+}
+
+function _outsideLabel(o) {
+  return `${o.name || t("topologyGpuOutside")} · ${(o.mib / 1024).toFixed(1)} GB`;
+}
+
+// Who holds the card, in words: the fleet's ports, then everyone else by name
+// — both when both are there (the ports used to hide an outside job). The first
+// render and the live update both write this, so they cannot say two things.
+export function gpuWhoHtml(g) {
+  const ports = (g?.serverPorts || []).filter((p) => p != null);
+  const parts = ports.length
+    ? [`<span class="node-gpu-ports">▶ ${ports.map((p) => escapeHtml(String(p))).join(", ")}</span>`] : [];
+  for (const o of gpuOutsideOwners(g)) {
+    const hint = o.engine ? t("topologyGpuOutsideEngineHint") : t("topologyGpuOutsideHint");
+    parts.push(`<span class="node-gpu-outside${o.engine ? " engine" : ""}" title="${escapeHtml(hint)}">▶ ${escapeHtml(_outsideLabel(o))}</span>`);
+  }
+  return parts.length ? parts.join(" ") : `<span class="topology-muted">${escapeHtml(t("topologyGpuIdle"))}</span>`;
+}
+
+// The outside owners on the VRAM bar: hatched bands laid after the fleet's
+// share — the cells' own hover slices stack from zero by port, so the two
+// never cover each other. Returns [html, key]: the key lets the live update
+// skip a rewrite the browser would otherwise re-serialize every tick.
+export function gpuOutsideBar(g) {
+  const total = Number(g?.memoryTotalMiB || 0);
+  const owners = total > 0 ? gpuOutsideOwners(g) : [];
+  let at = Number(g?.fleetUsedMiB || 0);
+  const html = owners.map((o) => {
+    const left = Math.min(100, (at / total) * 100);
+    const width = Math.max(0, Math.min(100 - left, (o.mib / total) * 100));
+    at += o.mib;
+    return `<i class="node-vram-outside${o.engine ? " engine" : ""}" style="left:${left.toFixed(1)}%;width:${width.toFixed(1)}%" title="${escapeHtml(_outsideLabel(o))}"></i>`;
+  }).join("");
+  return [html, `${total}|${Number(g?.fleetUsedMiB || 0)}|${owners.map((o) => `${o.name}:${o.engine}:${o.mib}`).join(",")}`];
+}
+
 export function nodeGpuRowHtml(node, g) {
   const used = Number(g.memoryUsedMiB || 0), total = Number(g.memoryTotalMiB || 0);
   const pct = total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
   const usedGb = (used / 1024).toFixed(1), totalGb = (total / 1024).toFixed(1);
   const util = g.utilizationGpuPct ?? "?", temp = g.temperatureC ?? "?", power = g.powerDrawW ?? "?";
-  const ports = (g.serverPorts || []).filter((p) => p != null);
-  // VRAM the card holds for something that is NOT a fleet cell — a training run,
-  // another app. Below a small floor it is driver/graphics overhead, not a job,
-  // so the card still reads "idle". Above it, "idle" was a lie: the card is busy,
-  // just not with us. The backend split `used` using the compute-app pids.
-  const nonFleet = Number(g.nonFleetUsedMiB || 0);
-  const nonFleetPct = total > 0 ? Math.min(100, Math.round((nonFleet / total) * 100)) : 0;
-  const nonFleetGb = (nonFleet / 1024).toFixed(1);
-  const hasOutside = nonFleet >= 64;   // MiB floor
-  const outsideLabel = `▶ ${t("topologyGpuOutside")} · ${nonFleetGb} GB`;
+  const [outsideBar, outsideKey] = gpuOutsideBar(g);
   return `
     <div class="node-gpu-row" data-gpu-row="${escapeHtml(`${node.id}:${g.index}`)}">
       <div class="node-gpu-head">
@@ -219,16 +261,110 @@ export function nodeGpuRowHtml(node, g) {
         <span class="node-gpu-util" data-live-gpuutil>${escapeHtml(String(util))}% · ${escapeHtml(String(temp))}°C · ${escapeHtml(String(power))}W</span>
       </div>
       <div class="node-vram-bar" data-live-gpuvrambar data-vram-total="${escapeHtml(String(total))}"
-           title="${usedGb} / ${totalGb} GB"><span style="width:${pct}%"></span><i class="node-vram-outside" data-live-gpuoutsidebar style="width:${nonFleetPct}%"${hasOutside ? "" : " hidden"}></i><i class="node-vram-slice" hidden></i></div>
+           title="${usedGb} / ${totalGb} GB"><span style="width:${pct}%"></span><b class="node-vram-outsides" data-live-gpuoutside data-key="${escapeHtml(outsideKey)}">${outsideBar}</b><i class="node-vram-slice" hidden></i></div>
       <div class="node-gpu-meta">
         <span data-live-gpuvram>VRAM ${usedGb} / ${totalGb} GB</span>
-        <span data-live-gpuwho>${ports.length
-          ? `<span class="node-gpu-ports">▶ ${ports.map((p) => escapeHtml(String(p))).join(", ")}</span>`
-          : hasOutside
-            ? `<span class="node-gpu-outside" title="${escapeHtml(t("topologyGpuOutsideHint"))}">${escapeHtml(outsideLabel)}</span>`
-            : `<span class="topology-muted">${escapeHtml(t("topologyGpuIdle"))}</span>`}</span>
+        <span data-live-gpuwho>${gpuWhoHtml(g)}</span>
         <span data-live-gpuspark>${nodeSparklineSvg(g.history, 1, "var(--accent,#6ea8fe)", total)}</span>
       </div>
+    </div>`;
+}
+
+// Engines on a machine that are not its cells — Ollama, LM Studio — as its
+// scout finds them (scout 2.12+): read-only cards under the cells. None (an
+// older scout, which cannot look) and [] (it looked, none) draw nothing.
+// How each kind is opened to the network when it listens on 127.0.0.1 only:
+// the words are the engine's own, not translated.
+const ENGINE_OPEN_HOW = { ollama: "OLLAMA_HOST=0.0.0.0", lmstudio: "lms server start --bind 0.0.0.0" };
+// Installed-but-not-loaded models shown before "+N more installed".
+const ENGINE_IDLE_SHOWN = 6;
+// Ollama's keep_alive -1 is an expiry decades away: "stays loaded".
+const ENGINE_FOREVER_SEC = 365 * 86400;
+
+// Memory as its size reads: gigabytes from one, megabytes below — an engine's
+// 20 MB process written "0.0 GB" read as holding nothing.
+function _gb(bytes) {
+  const n = Number(bytes);
+  return n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.round(n / 1024 ** 2)} MB`;
+}
+
+// What an engine's processes hold, as its card and the live patch write it.
+export function engineRamText(e) {
+  return e?.ramBytes != null ? `RAM ${_gb(e.ramBytes)}` : "";
+}
+
+function engineModelRowHtml(m) {
+  const meta = [m.params, m.quant].filter(Boolean).join(" · ");
+  const bits = [];
+  if (m.loaded === true) {
+    if (m.vramBytes != null) bits.push(`VRAM ${_gb(m.vramBytes)}`);
+    if (m.memBytes != null && m.vramBytes != null && m.memBytes - m.vramBytes >= 64 * 1024 ** 2) {
+      bits.push(`RAM ${_gb(m.memBytes - m.vramBytes)}`);
+    }
+    if (m.contextLength != null) bits.push(`🪟 ${formatCtxTokens(m.contextLength)}`);
+    // When keep_alive lets it go — as a clock time, which a card rebuilt
+    // only when something changes cannot let go stale the way "in 4 min" would.
+    const at = m.expiresAt ? Date.parse(m.expiresAt) : NaN;
+    if (at - Date.now() > ENGINE_FOREVER_SEC * 1000) bits.push(t("nodeEngineStaysLoaded"));
+    else if (at > Date.now()) {
+      bits.push(t("nodeEngineUnloadsAt", { t: new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }));
+    }
+  } else if (m.fileBytes != null && !m.remote) {
+    bits.push(_gb(m.fileBytes));
+  }
+  const cloud = m.remote
+    ? ` <span class="node-engine-cloud" title="${escapeHtml(t("nodeEngineCloudModelHint"))}">☁ ${escapeHtml(t("nodeEngineCloudModel"))}</span>` : "";
+  return `<li class="node-engine-model${m.loaded === true ? " loaded" : ""}">
+      <span class="node-engine-dot" aria-hidden="true"></span>
+      <span class="node-engine-model-name" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}</span>${cloud}
+      ${meta ? `<span class="node-engine-model-meta">${escapeHtml(meta)}</span>` : ""}
+      ${bits.length ? `<span class="node-engine-model-mem">${bits.map((b) => escapeHtml(b)).join(" · ")}</span>` : ""}
+    </li>`;
+}
+
+export function nodeEngineCardHtml(n, e) {
+  const kind = String(e.kind || "");
+  const loopback = e.listen === "loopback"
+    ? `<span class="node-engine-listen" title="${escapeHtml(t("nodeEngineLoopbackHint", { how: ENGINE_OPEN_HOW[kind] || "" }))}">${escapeHtml(t("nodeEngineLoopback"))}</span>` : "";
+  const ram = e.ramBytes != null
+    ? `<span class="node-engine-ram" data-live-engine-ram title="${escapeHtml(t("nodeEngineRamTitle"))}">${escapeHtml(engineRamText(e))}</span>` : "";
+  let body = "";
+  if (e.state === "auth") body = `<div class="node-engine-state warn">${escapeHtml(t("nodeEngineAuth"))}</div>`;
+  else if (e.state === "unreachable") body = `<div class="node-engine-state err">${escapeHtml(t("nodeEngineUnreachable"))}</div>`;
+  else {
+    const models = Array.isArray(e.models) ? e.models : [];
+    const loaded = models.filter((m) => m.loaded === true);
+    const idle = models.filter((m) => m.loaded !== true);
+    const shown = idle.slice(0, ENGINE_IDLE_SHOWN);
+    const rows = [...loaded, ...shown].map(engineModelRowHtml).join("");
+    const more = idle.length > shown.length
+      ? `<div class="node-engine-more topology-muted">${escapeHtml(t("nodeEngineMoreInstalled", { n: idle.length - shown.length }))}</div>` : "";
+    const unknown = e.installedKnown === false
+      ? `<div class="node-engine-state">${escapeHtml(t("nodeEngineInstalledUnknown"))}</div>` : "";
+    const none = !models.length && e.installedKnown !== false
+      ? `<div class="node-engine-state topology-muted">${escapeHtml(t("nodeEngineNoModels"))}</div>` : "";
+    body = `${rows ? `<ul class="node-engine-models">${rows}</ul>` : ""}${more}${unknown}${none}`;
+  }
+  const id = `${n.id}:${kind}:${e.port}`;
+  return `<article class="node-engine" data-t="node-engine" data-t-id="${escapeHtml(id)}" data-t-state="${escapeHtml(String(e.state || ""))}">
+      <header class="node-engine-head" title="${escapeHtml(t("nodeEngineOnDemandHint"))}">
+        <strong>${escapeHtml(e.label || kind)}</strong>
+        ${e.version ? `<span class="topology-muted">${escapeHtml(e.version)}</span>` : ""}
+        <code>:${escapeHtml(String(e.port))}</code>
+        ${loopback}
+        <span style="flex:1"></span>
+        ${ram}
+      </header>
+      ${body}
+    </article>`;
+}
+
+export function nodeEnginesHtml(n) {
+  const engines = Array.isArray(n?.engines) ? n.engines : [];
+  if (!engines.length) return "";
+  return `<div class="node-engines" data-t="node-engines" data-t-id="${escapeHtml(String(n.id))}">
+      <div class="node-subtitle">${escapeHtml(t("nodeEnginesHead"))}</div>
+      ${engines.map((e) => nodeEngineCardHtml(n, e)).join("")}
     </div>`;
 }
 
@@ -1344,7 +1480,7 @@ export function nodesLaneHtml() {
         : `<div class="node-subtitle">${escapeHtml(t("topologyServersHead"))}</div>`;
       const serverStatsSlot = statsHere ? `<div class="node-ctrl-server-stats" data-ctrl-server-stats${statsOpen ? "" : " hidden"}></div>` : "";
       bodyHtml = `<div class="node-body">
-          <div class="node-servers">${serversSubtitle}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
+          <div class="node-servers">${serversSubtitle}${serversHtml}${startingCard}${addBtn}${nodeEnginesHtml(n)}${serverStatsSlot}</div>
           <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>
         </div>`;
     }
