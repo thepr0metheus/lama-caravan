@@ -5,8 +5,6 @@
 .node-card { position: relative; }
 /* Anchor uses the same flat server-input tab as Cloud Providers rows (left:-24) */
 .node-server.stopped > .topology-handle.server-input { background: var(--muted,#6e7681); }
-#topologyLlamaServers.nodes-mode .fleet-overview { margin-bottom: 10px; }
-
 /* Node collapse + collapsed input rail */
 .node-collapse { background:none; border:none; color:var(--muted,#888); cursor:pointer; font-size:13px; padding:0 4px; line-height:1; }
 .node-collapse:hover { color:var(--accent,#6ea8fe); }
@@ -16,28 +14,7 @@
 .node-rail-input > .topology-handle.server-input { left:-22px; height:22px; }
 .node-rail-input > code { font-size:11px; color:var(--muted,#888); }
 
-/* Per-node CPU sparkline in the node header */
-.node-cpu-spark { display:inline-flex; align-items:center; opacity:.85; }
-.node-cpu-spark .node-spark { width:80px; height:22px; }
-
-/* Per-server live activity / token-speed line in node view */
-.node-server-activity { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-top:5px; font-size:11px; }
-.node-activity-chip { padding:1px 6px; border-radius:3px; font-size:10px; background:color-mix(in srgb,var(--accent,#6ea8fe) 16%, transparent); color:var(--accent,#6ea8fe); }
-.node-activity-chip.activity-error, .node-activity-chip.health-failed { background:color-mix(in srgb,#f85149 18%, transparent); color:#f85149; }
-
-/* Controller node: relocated system charts (park/remount) */
-.node-ctrl-telemetry { border-top:1px solid var(--line); }
-.node-ctrl-telemetry > summary { padding:9px 16px; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--muted,#888); cursor:pointer; list-style:none; }
-.node-ctrl-telemetry > summary::-webkit-details-marker { display:none; }
-.node-ctrl-telemetry > summary::before { content:"▸ "; }
-.node-ctrl-telemetry[open] > summary::before { content:"▾ "; }
-.node-ctrl-telemetry > [data-ctrl-telemetry] {
-  display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr));
-  gap:12px; padding:6px 16px 16px; align-items:start;
-}
-.node-ctrl-telemetry > [data-ctrl-telemetry] > * { min-width:0; }
-
-/* ── Deep telemetry mounted inside the controller node ─────────────────────── */
+/* ── Deep telemetry mounted inside the controller machine's node ─────────────────────── */
 /* "Servers" header becomes a toggle for the mounted Server charts. */
 .node-subtitle-toggle {
   display:flex; align-items:center; gap:6px; width:100%;
@@ -107,11 +84,6 @@
 .incidents-modal-body { overflow:auto; padding-top:6px; }
 .incidents-modal-body > .topology-card { background:transparent; border:none; padding:0; margin:0; }
 .incidents-modal-body > .topology-card > .topology-card-head { display:none; } /* modal already titled */
-
-/* System info modal (llama.cpp build + Known Problems, moved out of Classic) */
-.system-info-modal { width:min(720px, 94vw); max-height:86vh; display:flex; flex-direction:column; }
-.system-info-body { overflow:auto; display:flex; flex-direction:column; gap:14px; padding-top:6px; }
-.system-info-body > .panel { margin:0; }
 
 .node-server-head > .topology-addr-link { flex-shrink:0; }
 
@@ -244,8 +216,6 @@
 /* "Previous attempt failed" marker next to the loading spinner (hover = its last lines). */
 .msl-prev-err { color: var(--warn, #e0a03f); font-size: 12px; flex: 0 0 auto; cursor: help; }
 
-.node-server-foot { font-size:11px; margin-top:4px; }
-
 /* Right column overrides: badges smaller in server cards, slots full-width rows */
 .node-server-body .mbadge { font-size: 9px; padding: 1px 4px; }
 .node-server-body .topology-runtime-slots-head strong { font-size: 9px; letter-spacing: .06em; opacity: .55; }
@@ -300,12 +270,6 @@
 }
 
 /* ── Server lifecycle breadcrumb: stopped → starting → running ───────────── */
-/* Wrapper row: lifecycle bar + ✕ delete button in same row */
-.node-lc-row {
-  display: flex; align-items: flex-start; gap: 0;
-}
-.node-lc-row .node-server-lc { flex: 1; min-width: 0; }
-
 /* 4-button action row — flex:1 each, matches lifecycle bar width */
 .node-ctrl-row {
   display: flex; align-items: stretch; gap: 3px;
@@ -373,11 +337,6 @@
 }
 .node-action-btn:disabled { cursor: default; }
 .nab-lbl { font-size: 7px; text-transform: uppercase; letter-spacing: .05em; }
-.node-cell-right-btns {
-  display: flex; align-items: center; gap: 4px;
-  flex: 1; justify-content: flex-end; flex-wrap: nowrap;
-}
-
 .node-server-lc {
   display: flex; align-items: center; gap: 0;
   margin: 0 0 5px; padding: 0 1px;
@@ -504,9 +463,7 @@
   0%, 100% { box-shadow: 0 0 0 3px color-mix(in srgb,#f85149 30%,transparent); }
   50%       { box-shadow: 0 0 0 7px color-mix(in srgb,#f85149 0%,transparent); }
 }
-/* Indeterminate bar in stopping state — red tones */
-.remote-dl-bar.stopping-bar { background: color-mix(in srgb, #f85149 18%, transparent); }
-.remote-dl-bar.stopping-bar > span { background: #f85149; }
+/* The spinner of a stopping cell — red */
 .topology-spinner.stopping-spinner { border-top-color: #f85149 !important; }
 
 @keyframes lc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
@@ -575,16 +532,6 @@
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--cell-accent, #3fb950) 22%, transparent);
 }
 .lc-node.lc-cfg-btn.lc-cfg-live:not(:disabled):hover .lc-lbl { color: var(--cell-accent, #3fb950) !important; }
-
-/* Start button in stopped state — shows text label, slightly more prominent */
-.node-btn-start { font-size:11px; padding: 2px 7px; gap:4px;
-  border: 1px solid color-mix(in srgb, var(--cell-accent, #3fb950) 40%, transparent); border-radius:4px; }
-.node-btn-start:hover { border-color: var(--cell-accent, #3fb950); }
-
-.node-btn-configure { font-size:11px; padding: 2px 7px; gap:4px;
-  color: var(--accent,#6ea8fe);
-  border: 1px solid color-mix(in srgb, var(--accent,#6ea8fe) 40%, transparent); border-radius:4px; }
-.node-btn-configure:hover { border-color: var(--accent,#6ea8fe); color: color-mix(in srgb, var(--accent,#6ea8fe) 90%, #fff); }
 
 /* Slot chips: compact squares (idle) → rectangles (active) */
 .slot-chips-row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 2px 0; }

@@ -62,17 +62,9 @@
 .rw-cfg-order { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
 .rw-cfg-order li { display: flex; align-items: center; gap: 6px; }
 .rw-cfg-ord { margin-left: auto; display: inline-flex; gap: 2px; }
-.rw-cfg-win { border: 1px solid var(--line); border-radius: 6px; padding: 6px; display: flex; flex-direction: column; gap: 5px; }
-.rw-cfg-days { display: flex; flex-wrap: wrap; gap: 4px; }
-.rw-cfg-day { display: inline-flex; align-items: center; gap: 2px; font-size: 10px; }
-.rw-cfg-times { display: flex; align-items: center; gap: 4px; }
 .cv-rule-btns { display: inline-flex; gap: 3px; }
 .cv-rule-cfg, .cv-rule-del { margin: 0; padding: 0 5px; line-height: 1.4; }
-/* .cv-rule-help removed — queue ? now uses .inline-tip.help-tip */
-.rw-pins-head { margin-top: 16px; }
 .rw-canvas-hint { position: absolute; left: 12px; bottom: 10px; font-size: 11px; opacity: 0.7; pointer-events: none; }
-.rw-pane-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.rw-proxy-list { display: flex; flex-direction: column; margin-top: 6px; }
 .rw-proxy-row {
   display: grid; grid-template-columns: auto auto 1fr auto auto; align-items: center; gap: 8px;
   padding: 4px 2px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
@@ -80,15 +72,10 @@
 .rw-proxy-row.orphan { opacity: 0.7; }
 .rw-proxy-drag { cursor: grab; color: var(--muted); user-select: none; touch-action: none; font-size: 13px; }
 .rw-proxy-drag:hover { color: var(--accent); }
-.rw-left-hint { font-size: 11px; margin: 8px 0; line-height: 1.4; }
 .cv-ghost {
   position: fixed; z-index: 9999; pointer-events: none; transform: translate(10px, 10px);
   background: var(--panel); border: 1px solid var(--accent); border-radius: 6px;
   padding: 3px 8px; font-size: 12px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-}
-.rw-canvas-empty {
-  position: absolute; top: 42%; left: 50%; transform: translate(-50%, -50%);
-  text-align: center; font-size: 13px; line-height: 1.6; max-width: 60%; pointer-events: none;
 }
 .rw-proxy-port { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; }
 .rw-proxy-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; }
@@ -97,7 +84,6 @@
 .rw-proxy-actions { display: inline-flex; gap: 2px; }
 @media (max-width: 900px) {
   .rw-cols { grid-template-columns: 1fr; grid-auto-rows: minmax(180px, auto); }
-  .rw-left, .rw-right { border: 0; border-bottom: 1px solid var(--line); }
 }
 .cv-viewport {
   position: relative; margin-top: 10px; height: 72vh; max-height: 760px;
@@ -152,8 +138,6 @@
 .cv-act.on { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
 button.cv-act:hover { border-color: var(--accent); color: var(--accent); }
 select.cv-pin { width: 100%; }
-.router-canvas-btn { border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 6px; padding: 2px 8px; color: var(--accent); }
-.router-canvas-btn:hover { background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .cv-node strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cv-node .cv-sub { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .cv-input { border-color: color-mix(in srgb, var(--accent) 32%, var(--line)); }
@@ -438,11 +422,6 @@ select.cv-pin { width: 100%; }
 .cv-port:hover { background: var(--accent); transform: scale(1.25); box-shadow: 0 0 0 5px color-mix(in srgb, var(--accent) 22%, transparent); }
 /* Highlight a node that a dragged connection can drop onto. */
 .cv-node.cv-drop-ok { box-shadow: 0 0 0 2px var(--accent), 0 4px 18px rgba(0, 0, 0, .35); }
-.router-cfg-output-row.cloud { flex-wrap: wrap; }
-.router-cfg-model-select {
-  background: var(--field); border: 1px solid var(--line); border-radius: 5px;
-  padding: 1px 4px; color: inherit; font-size: 10px; max-width: 130px;
-}
 .router-out-unlimited { color: var(--accent); font-weight: 700; }
 /* Live-traffic dot on each output row: serving now (pulsing accent) /
    recently served (steady accent) / idle (faint). */
@@ -460,10 +439,8 @@ select.cv-pin { width: 100%; }
   50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 0%, transparent); }
 }
 /* Hover-link: visually connect a rule/default with its output row */
-.router-cfg-rule-row, .router-cfg-output-row, .router-cfg-default-line, .router-out-row { transition: background .1s, box-shadow .1s; }
-.router-cfg-output-row.link-hi,
+.router-cfg-rule-row, .router-out-row { transition: background .1s, box-shadow .1s; }
 .router-cfg-rule-row.link-hi,
-.router-cfg-default-line.link-hi,
 .router-out-row.link-hi {
   background: color-mix(in srgb, var(--accent) 14%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
@@ -643,18 +620,13 @@ select.cv-pin { width: 100%; }
 }
 .router-cfg-title strong { font-size: 14px; font-weight: 600; }
 .router-cfg-sub { font-size: 11px; color: var(--muted); white-space: nowrap; }
-.router-cfg-section { margin-top: 12px; }
-.router-cfg-section-head { font-size: 11px; font-weight: 600; margin-bottom: 6px; }
-.router-cfg-section-head .muted, .router-cfg-section .muted { color: var(--muted); font-weight: 400; }
 .router-cfg-muted { font-size: 11px; color: var(--muted); padding: 4px 0; }
-.router-cfg-output-row, .router-cfg-rule-row {
+ .router-cfg-rule-row {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 4px 0; border-top: 1px solid var(--line);
 }
-.router-cfg-output-row:first-of-type, .router-cfg-rule-row:first-of-type { border-top: 0; }
-.router-cfg-output-label { font-size: 12px; }
+ .router-cfg-rule-row:first-of-type { border-top: 0; }
 .router-cfg-rule-text { font-size: 11px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.router-cfg-output-actions { display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto; }
 .router-cfg-add-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
 .router-cfg-select {
   flex: 1 1 auto; min-width: 0;
@@ -780,73 +752,12 @@ select.cv-pin { width: 100%; }
 .schedule-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; }
 .schedule-actions .spacer { flex: 1 1 auto; }
 
-.topology-proxy-row {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 3px;
-  align-items: start;
-  min-height: 34px;
-  padding: 4px 0;
-  border-top: 1px solid var(--line);
-}
-
-.topology-proxy-row.priority-proxy-row {
-  margin: 0;
-  padding: 4px 0;
-  border-top: 0;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--priority) 8%, transparent);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--priority) 68%, var(--line)),
-    0 0 16px color-mix(in srgb, var(--priority) 10%, transparent);
-}
-
-.topology-proxy-row.priority-proxy-row.activity-active {
-  box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--priority) 78%, var(--line)),
-    0 0 20px color-mix(in srgb, var(--priority) 18%, transparent),
-    var(--shadow);
-}
-
-.topology-proxy-row:first-child {
-  border-top: 0;
-}
-
-.topology-proxy-row.priority-proxy-row:first-child {
-  border-top: 0;
-}
-
-.topology-proxy-row.empty {
-  min-height: 24px;
-  color: var(--muted);
-}
-
 .proxy-role-label {
   color: var(--muted);
   font-size: 10px;
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0;
-}
-
-.topology-proxy-row.fallback .proxy-role-label {
-  color: var(--warn);
-}
-
-.topology-proxy-main {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-  grid-column: 1;
-}
-
-.topology-proxy-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  min-height: 13px;
 }
 
 .proxy-priority-chip,
@@ -866,29 +777,6 @@ select.cv-pin { width: 100%; }
 .proxy-mode-chip {
   color: var(--text);
   background: color-mix(in srgb, var(--muted) 18%, transparent);
-}
-
-.topology-proxy-endpoint,
-.topology-proxy-upstream {
-  min-width: 0;
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-
-.topology-proxy-row .topology-proxy-endpoint {
-  padding-right: 0;
-}
-
-.topology-proxy-endpoint {
-  color: color-mix(in srgb, var(--text) 82%, var(--muted));
-}
-
-.topology-proxy-upstream {
-  padding-left: 0;
 }
 
 .topology-proxy-form {

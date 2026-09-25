@@ -50,7 +50,7 @@ SLOTS = {
 WHISPER_HEALTH = {"status": "ok", "meta": {"source": "d1g3st"}, "targetLang": "en"}
 
 
-def served(nodes, parked=(), health="ok", slots=None, libraries=(), **host_fields):
+def served(nodes, parked=(), health="ok", slots=None, libraries=(), fresh=None, **host_fields):
     """topology_server over one machine whose scout reports `nodes`. Only
     their slots are stored, and those of `parked` ports: a stored cell nobody
     reports is a parked card, which another loop draws. `health` is what a
@@ -68,6 +68,8 @@ def served(nodes, parked=(), health="ok", slots=None, libraries=(), **host_field
         "probe_remote_port": lambda *_a: True,
         "current_locations": lambda: Locations(list(libraries)),
         "_saved_command": lambda *_a: "",
+        # The watcher's report on the models (⇪), and the directory it keys by.
+        "_freshness_inputs": lambda _config: (dict(fresh or {}), "/models"),
     }
     saved = {k: getattr(T, k) for k in patch}
     try:
@@ -262,8 +264,99 @@ def test_library_on_the_card():
     check(cards[22021].get("modelStore") is None, "negative: модель на диске — чипа нет")
 
 
+def test_a_checkpoint_cell_is_named_by_its_model():
+    print("ячейка с моделью-папкой называется моделью, а не точностью:")
+    ckpt = {"RUNNER": "seamless", "MODEL_FILE": "seam-m4t/facebook/FP32", "HEALTH_PATH": "/health"}
+    slots = {"box-a:22031": {"id": "box-a:22031", "hostId": "box-a", "port": 22031,
+                             "model": "seam-m4t/facebook/FP32", "config": dict(ckpt)},
+             "box-a:22032": {"id": "box-a:22032", "hostId": "box-a", "port": 22032,
+                             "model": "seam-m4t/facebook/FP32", "config": dict(ckpt)}}
+    # The scout reports where IT reads the model: an absolute path.
+    running = {"port": 22031, "running": True, "phase": "running",
+               "modelPath": "/home/box/llama.cpp/models/seam-m4t/facebook/FP32"}
+    stray = {"port": 22033, "running": True, "phase": "running",
+             "modelPath": "/mnt/lib/other-m4t/facebook/BF16"}
+    slots["box-a:22034"] = {"id": "box-a:22034", "hostId": "box-a", "port": 22034,
+                            "model": "seam-m4t/facebook/FP32", "config": dict(ckpt)}
+    cached = {"port": 22034, "running": True, "phase": "running",
+              "modelPath": "/home/box/llama-model-cache/blob-1234"}
+    answer = served([running, stray, cached], parked=(22032,), slots=slots)
+    cards = {s["port"]: s for s in answer["llamaServers"] if s["port"] in (22031, 22032, 22033, 22034)}
+    check([cards[22031]["model"], cards[22032]["model"]] == ["seam-m4t", "seam-m4t"],
+          f"работающая и стоящая ячейка с одной моделью называются одинаково — моделью "
+          f"(got {[cards[22031]['model'], cards[22032]['model']]})")
+    check(cards[22031]["model"] != "FP32",
+          "negative: не точность из последнего куска пути, как было у работающей ячейки")
+    check(cards[22031]["modelPath"] == "/home/box/llama.cpp/models/seam-m4t/facebook/FP32",
+          "путь, по которому скаут читает модель, остаётся — для подсказки при наведении")
+    check(cards[22034]["model"] == "seam-m4t",
+          f"настроенная модель важнее пути скаута: копия в его кэше под другим именем — всё та же модель "
+          f"(got {cards[22034]['model']})")
+    check(cards[22033]["model"] == "other-m4t",
+          f"ячейка без слота — имя из пути скаута, раскладка читается с конца (got {cards[22033]['model']})")
+
+
+def test_the_launch_on_the_card():
+    print("⇪ и ⟳ у ячейки скаута (как было у ячеек контроллера):")
+    report = {"repos": {"org/a": {"files": {"org/a/m.gguf": {"state": "size"},
+                                            "org/a/mmproj.gguf": {"state": "match"},
+                                            "org/a/draft.gguf": {"state": "unknown"}}}}}
+    cfg = {"MODEL_FILE": "org/a/m.gguf", "MMPROJ_FILE": "org/a/mmproj.gguf",
+           "SPEC_DRAFT_MODEL_FILE": "/models/org/a/draft.gguf"}
+    slots = {"box-a:22041": {"id": "box-a:22041", "hostId": "box-a", "port": 22041, "model": "org/a/m.gguf",
+                             "config": dict(cfg)},
+             "box-a:22042": {"id": "box-a:22042", "hostId": "box-a", "port": 22042, "model": "org/a/m.gguf",
+                             "config": dict(cfg)},
+             "box-a:22043": {"id": "box-a:22043", "hostId": "box-a", "port": 22043, "model": "/elsewhere/m.gguf",
+                             "config": {"MODEL_FILE": "/elsewhere/m.gguf"}}}
+    nodes = [{"port": 22041, "running": True, "phase": "running", "modelPath": "/m/m.gguf",
+              "launchDiskNewer": ["model", "bogus", "mmproj"]},
+             {"port": 22043, "running": True, "phase": "running", "modelPath": "/elsewhere/m.gguf"}]
+    answer = served(nodes, parked=(22042,), slots=slots, fresh=report)
+    cards = {s["port"]: s for s in answer["llamaServers"] if s["port"] in (22041, 22042, 22043)}
+    want = [{"role": "model", "file": "m.gguf", "state": "size"},
+            {"role": "draft", "file": "draft.gguf", "state": "unknown"}]
+    check([cards[22041].get("launchFresh"), cards[22042].get("launchFresh")] == [want, want],
+          f"⇪: каждый файл запуска по отчёту наблюдателя, у работающей и у стоящей ячейки; абсолютный путь "
+          f"внутри каталога моделей приведён к ключу отчёта (got {cards[22041].get('launchFresh')})")
+    check(not any(r["role"] == "mmproj" for r in cards[22041]["launchFresh"]),
+          "negative: «совпадает» не рисуется никогда — ✓ над непроверенным файлом и был дефектом")
+    check(cards[22043].get("launchFresh") == [],
+          "negative: файл вне каталога моделей в отчёте не значится — не проверен, чипа нет")
+    check(cards[22041].get("launchDiskNewer") == ["model", "mmproj"],
+          f"⟳: роли, которые скаут назвал изменившимися после старта; чужое слово отброшено "
+          f"(got {cards[22041].get('launchDiskNewer')})")
+    check(cards[22043].get("launchDiskNewer") == [],
+          "negative: скаут старше 2.11 ничего не говорит — чипа нет, а не «не изменилось»")
+    check("launchDiskNewer" not in cards[22042],
+          "стоящая ячейка файлов не держит — поля нет (объявлено в check_cell_card_keys)")
+    # The machine's record between the report and the card: host_from_report.
+    from caravan.admin.fleet_clients import host_from_report
+    kept = host_from_report({"host": {"id": "box-a", "name": "Box A"},
+                             "llamaNodes": [{"port": 22041, "running": True, "launchDiskNewer": ["draft", "x"]},
+                                            {"port": 22043, "running": True}]})["llamaNodes"]
+    check([kept[0].get("launchDiskNewer"), kept[1].get("launchDiskNewer", "missing")] == [["draft"], None],
+          "запись машины держит слова скаута о файлах (отфильтрованные по ролям), а у старого скаута — None: "
+          "«не сказано», а не «ничего не изменилось»; без этого поле терялось по дороге к карточке")
+
+
+def test_the_model_name_rule():
+    print("правило имени модели (display_model_name):")
+    from caravan.admin.models import display_model_name as name
+    got = [name(x) for x in ("seam-m4t/facebook/FP32", "/home/box/llama.cpp/models/seam-m4t/facebook/FP32",
+                             "~/models/seam-m4t/facebook/BF16", "org/q/model-Q4_K_M.gguf", "/abs/x/model.gguf",
+                             "facebook/nllb-200", "/abs/models/flat-model", "solo", "")]
+    check(got == ["seam-m4t", "seam-m4t", "seam-m4t", "model-Q4_K_M.gguf", "model.gguf",
+                  "nllb-200", "flat-model", "solo", ""],
+          f"папка <модель>/<автор>/<ФОРМАТ> — модель, и по относительному пути, и по абсолютному; gguf — файл; "
+          f"id репозитория — модель, не автор; плоская папка — сама папка (got {got})")
+    check(name("/home/box/llama.cpp/models/seam-m4t/facebook/FP32") != "home",
+          "negative: абсолютный путь не читается с начала — там дерево машины, а не модель")
+
+
 if __name__ == "__main__":
-    for fn in (test_library_on_the_card, test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell, test_autostart_on_the_card,
+    for fn in (test_the_launch_on_the_card, test_a_checkpoint_cell_is_named_by_its_model, test_the_model_name_rule,
+               test_library_on_the_card, test_llama_cell_alone, test_no_neighbour_meta, test_silent_command_cell, test_autostart_on_the_card,
                test_crash_on_the_card, test_retry_on_the_card, test_vllm_stats_on_the_card,
                test_starting_on_its_machine):
         try:

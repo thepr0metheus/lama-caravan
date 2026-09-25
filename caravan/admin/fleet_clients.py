@@ -44,6 +44,7 @@ from caravan.admin.systemd_ctl import restart_agent_proxy
 from caravan.admin.telemetry import _normalize_modalities
 from caravan.common.errors import AppError
 from caravan.domain.client import FleetClient
+from caravan.admin.launch_files import LaunchFiles
 from caravan.domain.host import HostRecord
 from caravan.admin.scout_pairing import ScoutPairing
 from caravan.admin.scout_poll import ScoutPoller
@@ -682,6 +683,11 @@ def host_from_report(payload):
             # not, the last lines of its log (scout 2.7+): a starting cell.
             "listening": raw.get("listening") if isinstance(raw.get("listening"), bool) else None,
             "startingTail": str(raw.get("startingTail") or "")[-1500:],
+            # The files it holds that changed on disk after it started (scout
+            # 2.11+): the card's ⟳. None when the scout does not say — an older
+            # one cannot, and "nothing changed" would be a claim it never made.
+            "launchDiskNewer": (LaunchFiles.disk_newer(raw["launchDiskNewer"])
+                                if isinstance(raw.get("launchDiskNewer"), list) else None),
         }
     _raw_nodes = payload.get("llamaNodes")
     llama_nodes = [_san_node(n) for n in _raw_nodes if isinstance(n, dict)] \

@@ -34,51 +34,11 @@
   margin-top: 4px;
 }
 
-.topology-queue-bar > i {
-  /* Full-width gradient pinned to the track; clip-path "eats" the elapsed (left) portion
-     so colors keep their true positions instead of compressing — the green edge is
-     consumed first, pacman-style, leaving no color behind in the passed path. */
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  height: 100%;
-  width: 100%;
-  background: linear-gradient(90deg,
-    color-mix(in srgb, #34d399 70%, transparent),
-    color-mix(in srgb, #f59e0b 80%, transparent),
-    color-mix(in srgb, #ef4444 90%, transparent));
-  border-radius: inherit;
-  clip-path: inset(0 0 0 calc(100% - var(--queue-start, 100%)));
-  animation-name: queue-eat;
-  animation-timing-function: linear;
-  animation-fill-mode: forwards;
-  animation-iteration-count: 1;
-}
-
 @keyframes queue-grow {
   to { width: 100%; }
 }
 
 /* Sticky slot reservation bar */
-.topology-runtime-entry.sticky-reserved {
-  flex-wrap: wrap;
-  align-items: baseline;
-  padding-bottom: 4px;
-}
-
-.topology-runtime-entry.sticky-reserved > b {
-  color: color-mix(in srgb, var(--accent) 85%, transparent);
-}
-
-.topology-sticky-meta {
-  font-size: 10px;
-  color: color-mix(in srgb, var(--accent) 65%, transparent);
-  font-style: italic;
-  margin-left: auto;
-  white-space: nowrap;
-}
-
 .topology-sticky-bar {
   flex-basis: 100%;
   display: block;
@@ -103,25 +63,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .topology-runtime-entry.running .topology-runtime-chevrons i,
-  .topology-runtime-entry.preempting .topology-runtime-dot {
-    animation: none;
-    opacity: 1;
-    transform: rotate(45deg);
-  }
-  .topology-queue-bar > i,
   .topology-sticky-bar > i {
     animation: none;
     width: 100%;
   }
-}
-
-.topology-proxy-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-  margin-left: auto;
 }
 
 .icon-action {
@@ -209,22 +154,6 @@
   opacity: 1;
 }
 
-.pause-toggle-button {
-  font-size: 12px;
-}
-
-.pause-toggle-button:not(.active) {
-  opacity: 0.45;
-}
-
-.icon-action.pause-toggle-button.active {
-  border-color: color-mix(in srgb, var(--bad) 70%, var(--line));
-  color: var(--bad);
-  background: color-mix(in srgb, var(--bad) 14%, var(--field));
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--bad) 12%, transparent);
-  opacity: 1;
-}
-
 .icon-action.prominent {
   width: 34px;
   height: 34px;
@@ -260,42 +189,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.topology-card-head-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-button.llama-edit-head {
-  width: 100%;
-  background: color-mix(in srgb, var(--line) 24%, transparent);
-  border: 1px solid color-mix(in srgb, var(--line) 50%, transparent);
-  border-radius: 8px;
-  padding: 6px 10px;
-  cursor: pointer;
-  text-align: left;
-  color: inherit;
-  font: inherit;
-  transition: border-color 0.15s, background 0.15s;
-}
-button.llama-edit-head:hover,
-button.llama-edit-head:focus-visible {
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  outline: none;
-}
-button.llama-edit-head:hover .llama-edit-pencil {
-  opacity: 1;
-}
-.llama-edit-pencil {
-  margin-left: auto;
-  flex-shrink: 0;
-  font-size: 11px;
-  opacity: 0.35;
-  transition: opacity 0.12s;
 }
 
 .raw-config-modal {
@@ -700,7 +593,6 @@ button.llama-edit-head:hover .llama-edit-pencil {
 }
 
 .topology-agent-route > .topology-handle,
-.topology-proxy-row > .topology-handle,
 .topology-card > .topology-handle {
   position: absolute !important;
 }
@@ -788,14 +680,6 @@ button.llama-edit-head:hover .llama-edit-pencil {
 .topology-cable.priority {
   stroke: var(--priority);
   opacity: 0.95;
-}
-
-.topology-cable.status-error {
-  stroke: var(--bad);
-}
-
-.topology-cable.status-warn {
-  opacity: 0.72;
 }
 
 .topology-cable.proxy {
@@ -970,18 +854,6 @@ button.llama-edit-head:hover .llama-edit-pencil {
   align-items: stretch;
 }
 
-.advanced-fields summary::before {
-  content: "▸";
-  color: var(--accent);
-  transition: transform 120ms ease;
-}
-
-.advanced-fields[open] summary::before {
-  transform: rotate(90deg);
-}
-
-.mmproj-hidden-select { display: none; }
-
 /* ── Companion rows (MMPROJ + SPEC DRAFT below MODEL_FILE) ── */
 .companion-field {
   grid-template-rows: 26px 42px;
@@ -1044,34 +916,6 @@ button.llama-edit-head:hover .llama-edit-pencil {
 
 .chat-template-panel p {
   padding-bottom: 4px;
-}
-
-.chat-template-hint-label {
-  font-size: 11px;
-  font-weight: 400;
-  opacity: 0.6;
-}
-
-.advanced-fields {
-  grid-column: 1 / -1;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--panel) 92%, var(--accent) 8%);
-}
-
-.advanced-fields summary {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 12px 14px;
-  cursor: pointer;
-  font-weight: 750;
-}
-
-.advanced-fields summary small {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 500;
 }
 
 .advanced-group {
@@ -1312,8 +1156,6 @@ input[type="checkbox"] {
   font-size: 12px;
   font-weight: 700;
 }
-
-.badge-detail { font-weight: 400; opacity: 0.7; margin-left: 3px; }
 
 .badge.text::before,
 .badge.vision::before,

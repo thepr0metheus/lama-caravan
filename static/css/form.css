@@ -893,11 +893,6 @@ button.cmd-dirty::after {
   width: min(980px, calc(100vw - 82px));
 }
 
-.edge-panel.system-panel {
-  width: min(1120px, calc(100vw - 82px));
-  max-height: min(760px, calc(100vh - 112px));
-}
-
 .edge-tab:hover .edge-panel,
 .edge-tab:focus-within .edge-panel,
 .edge-tab:focus .edge-panel {
@@ -1074,21 +1069,6 @@ button.cmd-dirty::after {
 
 .cmd-command-input { font-family: ui-monospace, Menlo, monospace; }
 
-/* Device tiles: reuse the Compute-target card look; the check only shows on
-   the active tile, and each device keeps its own accent (auto/GPU/CPU). */
-.cmd-device-tiles .compute-card .compute-card-check { visibility: hidden; }
-.cmd-device-tiles .compute-card.active .compute-card-check { visibility: visible; }
-.cmd-device-tiles .compute-card.active[data-device-tile="auto"] {
-  border-color: var(--accent,#6ea8fe);
-  background: color-mix(in srgb, var(--accent,#6ea8fe) 10%, transparent);
-}
-.cmd-device-tiles .compute-card.active[data-device-tile="auto"] .compute-card-check { color: var(--accent,#6ea8fe); }
-.cmd-device-tiles .compute-card.active[data-device-tile="cpu"] {
-  border-color: #4593ff;
-  background: color-mix(in srgb, #4593ff 10%, transparent);
-}
-.cmd-device-tiles .compute-card.active[data-device-tile="cpu"] .compute-card-check { color: #4593ff; }
-
 .cmd-two-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1116,9 +1096,6 @@ button.cmd-dirty::after {
 .plan-bar-ram  { background: #4593ff; }
 .plan-readout { margin-top: 6px; font-size: 12px; color: var(--muted); }
 .plan-readout.bad { color: var(--bad, #f85149); }
-/* Two cards: alternating shades so the segments read as separate devices. */
-.plan-bar-gpu0 { background: var(--ok, #3fb950); }
-.plan-bar-gpu1 { background: #7ee787; }
 /* The settings file that carries accounts and keys says so where it is made. */
 .settings-warn { color: var(--warn, #d29922); font-size: 12px; margin: 6px 0 0; }
 .settings-file-list { margin: 4px 0; padding-left: 18px; font-size: 12px; }
