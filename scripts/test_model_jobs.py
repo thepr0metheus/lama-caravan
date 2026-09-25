@@ -104,6 +104,10 @@ CELLS = [
 #: docstring said it never produces a transcript; nothing could have caught that
 #: except pinning what it says.
 DECLARED = {
+    # The engine cell's job follows its model (llm, or embed for a vector
+    # model) — both pinned by value in test_engine_cell_server.py; what a
+    # reader of the source sees is the common case, llm.
+    "engine_cell_server.py": ["llm"],
     "moonshine_server.py": ["asr", "tts"],
     "seamless_server.py": ["speech-translate"],
     "transcribe_server.py": ["asr"],

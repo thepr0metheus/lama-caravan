@@ -45,6 +45,27 @@
 }
 .node-eye:focus-visible { outline:2px solid var(--accent-strong); outline-offset:2px; }
 .node-eye-count { font:600 10.5px/1 ui-monospace, "SF Mono", Menlo, monospace; }
+/* A machine's chips (card-rows.js CellFilter): a row of their own under the
+   title and the eye, so four of them never squeeze the title. An engine's
+   chip wears its colour (the engine rule below); all and the caravan, green. */
+.node-servers-head { flex-wrap:wrap; }
+.node-cell-filter { order:3; flex-basis:100%; display:flex; flex-wrap:wrap; gap:4px; padding:2px 0 4px; }
+.ncf-chip {
+  --cell-accent: var(--ok, #3fb950);
+  display:inline-flex; align-items:center; gap:5px;
+  box-sizing:border-box; height:22px; min-height:0; padding:0 8px;
+  border-radius:999px; border:1px solid var(--line); background:transparent;
+  color:var(--muted,#888); font-size:11px; cursor:pointer;
+}
+.ncf-chip:hover { color:var(--text,#ddd); border-color:color-mix(in srgb, var(--cell-accent) 45%, var(--line)); }
+.ncf-chip[aria-pressed="true"] {
+  color:var(--text,#ddd); border-color:color-mix(in srgb, var(--cell-accent) 70%, var(--line));
+  background:color-mix(in srgb, var(--cell-accent) 14%, transparent);
+}
+.ncf-chip:focus-visible { outline:2px solid var(--accent-strong); outline-offset:2px; }
+.ncf-dot { width:6px; height:6px; border-radius:50%; background:var(--muted,#888); opacity:.55; }
+.ncf-dot.up { background:var(--cell-accent); opacity:1; }
+.ncf-count { font:600 10.5px/1 ui-monospace, "SF Mono", Menlo, monospace; opacity:.75; }
 /* Mounted Server-stats + GPU-telemetry slots inside the node columns. */
 .node-ctrl-server-stats { padding:4px 10px 10px; }
 .node-ctrl-gpu-telemetry { padding:4px 10px 12px; min-width:0; }
@@ -253,6 +274,12 @@
    cell-typed. Recoloring a cell kind is these two lines, nothing else. */
 .node-server { --cell-accent: var(--ok, #3fb950); --cell-caution: var(--warn, #f59e0b); }
 .node-server.cpu-cell { --cell-accent: #4593ff; --cell-caution: #4593ff; }
+/* A cell whose model runs inside an engine next to it (2026-09-25) wears its
+   launcher's colour — Ollama orange, LM Studio violet — on its card, its line
+   with the switch, its window and its machine's chip: one rule, two classes deep, so neither
+   stylesheet's order nor the green default can win over it. */
+.node-server.engine-ollama, .cell-row.engine-ollama, .cell-window.engine-ollama, .ncf-chip.engine-ollama { --cell-accent: #f0a05a; }
+.node-server.engine-lmstudio, .cell-row.engine-lmstudio, .cell-window.engine-lmstudio, .ncf-chip.engine-lmstudio { --cell-accent: #a78bfa; }
 
 /* ── Running-cell life: the border comet, always on while the cell runs.
    (The breathing ring was tried in v1.3.45/46 and retired — "processing"

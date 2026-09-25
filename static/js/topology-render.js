@@ -327,6 +327,13 @@ export function renderTopology() {
       renderTopology();
     });
   });
+  // A machine's chips: all its cells, or only the ones one launcher runs.
+  $("topologyLlamaServers")?.querySelectorAll("[data-cell-filter]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      CARD_FOLD.setLauncher(btn.dataset.cellFilter, btn.dataset.cellFilterId || "");
+      renderTopology();
+    });
+  });
   // An engine's model next to the cells: load it or unload it (step 3).
   $("topologyLlamaServers")?.querySelectorAll("[data-engine-act]").forEach((btn) => {
     btn.addEventListener("click", (event) => {

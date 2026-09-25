@@ -208,8 +208,12 @@ during a live audit once) and look foreign — nothing in the app should call th
 (`appChoose`, the same dialog with more than two answers, served one question — where a
 controller cell's start reads its model from — and went with it in step 6.9.)
 
+`appConfirmChoice` is a confirm that also asks one of several choices (`opts.choices`, pressed
+first `opts.choice`, `opts.list` for a long list shown as a scrolling column) and resolves the
+pressed value as a string, or null on cancel — where a new cell runs, and an engine cell's model.
+
 - Owns: the pending-dialog resolver.
-- Key exports: `appConfirm`, `appPrompt`.
+- Key exports: `appConfirm`, `appConfirmChoice`, `appPrompt`, `appPromptChoice`.
 
 ## dialog-llamas.js
 
@@ -416,15 +420,19 @@ The machine's eye over its list of cells lives here too: `hidesIdle(hostId)` is 
 per machine, and `cellIdle` the one rule for what it may hide — quiet and not running (parked,
 or reserved with no model). What moves or is in trouble never hides, for the reason it never
 folds. `nodeServerCardHtml` leaves a hidden mark in place of a hidden cell (`data-cell-hidden`,
-`data-cell-hidden-port`), and `drawTopologyCables` puts that cell's cable away without
-reporting it lost; the eye (`CellEye`) says how many are hidden.
+`data-cell-hidden-port`, and `data-cell-hidden-by` — which rule hid it), and `drawTopologyCables`
+puts that cell's cable away without reporting it lost; the eye (`CellEye`) says how many it hid.
+A machine's chips (`CellFilter`, 2026-09-25) narrow its cells to one launcher — the caravan or an
+engine — and `launcherOf(hostId)` / `setLauncher(hostId, launcher)` keep that choice per machine;
+their marks say `launcher`, the eye's `idle`, and the eye counts only its own.
 
 - Owns: `CARD_FOLD` (densities, pinned set, `peekKey` so a float survives a repaint,
-  `openKey` so an open window does, the machines whose eye is shut); densities, pins and eyes
-  persisted in `localStorage` (`boardCardDensity`, `boardCardPinned`, `boardCellsHideIdle`)
+  `openKey` so an open window does, the machines whose eye is shut, each machine's chosen
+  launcher); densities, pins, eyes and chips persisted in `localStorage` (`boardCardDensity`,
+  `boardCardPinned`, `boardCellsHideIdle`, `boardCellsLauncher`)
   as a per-browser convenience — a cell's pin saved before the window came is ignored.
 - Key exports: `CardFold` (`OPENS`, `density`, `toggleDensity`, `togglePin`, `hidesIdle`,
-  `toggleHideIdle`, `opensInWindow`, `mode`, `syncSwitches`, `cellQuiet`, `cellIdle`,
+  `toggleHideIdle`, `launcherOf`, `setLauncher`, `opensInWindow`, `mode`, `syncSwitches`, `cellQuiet`, `cellIdle`,
   `agentQuiet`), `FoldPeek` (`bind`, `openWindow`,
   `closeWindow`), `CARD_FOLD`.
 
@@ -443,13 +451,20 @@ in place with ▴; a cell's sits in a `CellWindow`: the card itself under a titl
 line's own name from `CellRow.shownName`, :port, the machine's address when the report has
 one) and a ✕, over a dimmed board, shown only while the slot is open. An agent's line shows
 only what is set — no dash placeholders, no empty fallback. Values are still changed on the
-full card, where they always were.
+full card, where they always were. A cell whose model runs inside an engine gives its line and
+its window the class `engine-<runner>` (`CellRow.launcher` admits only a lowercase word), so
+they wear the launcher's colour; its window adds where the requests go — the engine's
+`127.0.0.1:<port>` (`cell-window-via`).
 
 `nodeServerCardHtml(node, s, { fold })` and `topologyAgentCard(…, { fold })` take the lane's
 request; without it the card is drawn byte for byte as before. Styles: `static/css/fold.css`.
 
 - Owns: nothing mutable.
-- Key exports: `CellRow`, `AgentRow`, `CellWindow`, `CellEye`, `FoldSlot`.
+`CellFilter` draws a machine's chips over its cells: each says how many cells it holds, an
+engine's wears its colour and a dot while its server answers (none when the machine did not
+report it), and the pressed one is the list shown; with nothing to choose it draws nothing.
+
+- Key exports: `CellRow`, `AgentRow`, `CellWindow`, `CellEye`, `CellFilter`, `FoldSlot`.
 
 ## split-mode.js
 
@@ -564,13 +579,29 @@ and `isControllerMachine` / `hostPowerTextKey` give that node's reboot, poweroff
 words for the machine the board runs on. Collapsed nodes persist to localStorage.
 
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
-- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeEnginesHtml`, `nodeEngineCardHtml`, `engineRamText`.
+- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeEnginesHtml`, `nodeEngineCardHtml`, `engineRamText`.
 - A GPU row names who holds the memory that is no cell's (`outside` from the backend): an engine of
   the machine («Ollama 5.9 GB»), else the process's name, else «outside»; each owner from 64 MiB is a
   hatched band laid after the fleet's share of the bar, and the «who» line lists the cells' ports AND
   the owners (the ports used to hide an outside job). The first render and the live patcher write
   both from one function each (`gpuWhoHtml`, `gpuOutsideBar` — the latter with a key, so the bands are
   rewritten only when they change).
+- A cell whose model runs inside an engine (a runner with `engineCell` in the registry — Ollama, LM
+  Studio; reserved with its model, see remote-cells.js) has a body of its own (`cell-engine-model`):
+  the model's name verbatim as the engine names it (`ENGINE_MODEL`), its job from the engine's report
+  when the cell does not say it, the runner chip from the registry (🟠 Ollama, 🟣 LM Studio — the
+  chip table falls back to the registry for any runner it does not name), the memory the engine holds
+  for the model while the cell runs (≈ the file's size while it does not), the model's parameters,
+  quant and window. It is never a CPU cell and has no device chip (its process holds no model), it
+  has no ⚙ (no editor tab), its ▶ confirms a model's start, and card, line and window wear the
+  launcher's colour (`engine-ollama` orange, `engine-lmstudio` violet — one rule in nodes.css). An
+  engine the report does not carry leaves the card naming its engine and nothing it would have to
+  guess. `engineRunnerOf(srv)` asks the question once for the card, the machine's CPU line (a cell
+  in an engine is not a cell on the CPU) and its chips.
+- A machine's chips (`nodeCellFilter`): all its cells, the caravan's, and each engine a cell can run
+  in that the machine reports or has a cell in — offered only when there is such an engine. The
+  lane passes the chosen launcher to each card (`only`); a launcher the machine no longer offers
+  shows all, so no list stays narrowed with no chip to widen it.
 - The engines next to a machine's cells (Ollama, LM Studio — scout 2.12+) are read-only cards under
   its cells (`nodeEnginesHtml`, `node-engines` / `node-engine`): version, port, «this machine only»
   with how to open it when it listens on 127.0.0.1, the RAM its processes hold (patched live),
@@ -733,8 +764,15 @@ form offer what only that tree backs: a safetensors folder in the picker, the se
 its language, a vLLM path derived from the picked folder, and the content of a script its command
 names; any other machine keeps them held back.
 
+`reserveServerCell` asks where the new cell runs when the machine reports an engine a cell can run
+in (`reserveEngines`: the scout's engines whose kind is a runner with `engineCell`): Caravan first,
+then each engine — one not ready is marked so; for an engine the next step lists its models. An
+engine not ready, or without models, is sent without a model and the controller's refusal is the
+toast (`caravan/admin/engine_cells.py` holds the words). A machine without such an engine gets the
+old confirm.
+
 - Owns: the pending-op collections — `_pendingRemoteStarts` (Map), `_stoppingHosts`, `_deletingSlots`, `_reservingCells`, `_newReservedCells`, `_stoppingCells`, `_expandedCellCfgs` — plus `_remoteStartWatchTimer`, `_nvidiaSmiSource`, the `_tr*` form state.
-- Key exports: `reserveServerCell`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.
+- Key exports: `reserveServerCell`, `reserveEngines`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.
 
 ## cloud.js
 

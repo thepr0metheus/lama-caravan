@@ -176,6 +176,10 @@ CONFIG_FIELDS = [
     "TRANSLATE_MODEL",         # HF repo id (downloads itself) or a local dir
     "TRANSLATE_SRC_LANG",      # FLORES-200 source, e.g. eng_Latn
     "TRANSLATE_TGT_LANG",      # FLORES-200 target, e.g. rus_Cyrl
+    # engine runners (RUNNER="ollama" | "lmstudio"): a cell whose model runs
+    # inside an engine next to it — engine_cell_server.py "$PORT" <engine> <port> <model>
+    "ENGINE_MODEL",            # the model as the engine names it (qwen2.5:0.5b, google/gemma-4-e4b)
+    "ENGINE_PORT",             # the engine's loopback port (11434, 1234)
 ]
 
 FIELD_HELP = {

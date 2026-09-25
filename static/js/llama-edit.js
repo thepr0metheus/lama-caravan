@@ -415,7 +415,9 @@ export function renderRunnerTabs(pfx) {
                       "seamless": "runnerSeamlessMinus",
                       "translate": "runnerTranslateMinus",
                       "custom": "runnerCustomMinus" };
-  wrap.innerHTML = runnerRegistry().map((r) => {
+  // A runner that says editorTab: false has no tab: an engine cell (Ollama, LM
+  // Studio) is made on the reserve step, choosing the engine and its model.
+  wrap.innerHTML = runnerRegistry().filter((r) => r.editorTab !== false).map((r) => {
     const avail = runnerAvailability(r, pfx);
     const label = (r.icon ? r.icon + " " : "") + t(r.labelKey || r.id);
     const tipParts = [r.benefitsKey ? t(r.benefitsKey) : "", MINUS_KEY[r.id] ? t(MINUS_KEY[r.id]) : ""];

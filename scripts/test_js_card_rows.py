@@ -34,7 +34,7 @@ PROBE = r"""
 import "./_js_globals.mjs";
 import { pathToFileURL } from "node:url";
 const root = process.env.JS_ROOT;
-const { CellRow, AgentRow, FoldSlot, CellWindow, CellEye } = await import(pathToFileURL(root + "/card-rows.js").href);
+const { CellRow, AgentRow, FoldSlot, CellWindow, CellEye, CellFilter } = await import(pathToFileURL(root + "/card-rows.js").href);
 const en = (await import(pathToFileURL(root + "/i18n/en.js").href)).default;
 const A = '<span class="topology-handle server-input" data-topology-llama-input="1" data-llama-port="22002"></span>';
 const L = 'data-node-cell-launch="controller" data-node-cell-port="22002" data-node-cell-runner="llama-server"';
@@ -69,6 +69,11 @@ const cell = {
   reservedWords: en.topologyReservedCellLabel,
   shown: [new CellRow({ ...base, state: "reserved" }).shownName(), new CellRow({ ...base, state: "parked" }).shownName(),
           new CellRow({ ...base, state: "running", name: "" }).shownName()],
+  engine: [facts(new CellRow({ ...base, state: "running", engine: "ollama", busy: true }).html()).cls,
+           facts(new CellRow({ ...base, state: "parked", engine: "lmstudio" }).html()).cls,
+           facts(new CellRow({ ...base, state: "parked", engine: 'x" onclick="y' }).html()).cls,
+           facts(new CellRow({ ...base, state: "parked", engine: "Ollama" }).html()).cls],
+  launcher: ["ollama", "lm-studio2", "", null, "Ollama", "a b", "9x", "x<"].map((x) => CellRow.launcher(x)),
 };
 
 const H = (role) => `<span class="topology-handle output ${role}" data-topology-route-handle="1" data-route-role="${role}"></span>`;
@@ -121,6 +126,9 @@ const windows = {
   noAddress: new CellWindow({ key: "k", name: "n", port: 1, card }).html(),
   escaped: new CellWindow({ key: '"><b>', name: "<i>x", port: '"1', address: "<u>", card }).html(),
   empty: new CellWindow({}).html(),
+  engine: new CellWindow({ key: "h1:22031", name: "qwen3:8b", port: 22031, address: "10.0.0.5:22031", via: "127.0.0.1:11434",
+                           viaTitle: 'to "Ollama"', engine: "ollama", card }).html(),
+  engineOdd: new CellWindow({ key: "k", name: "n", port: 1, via: "<b>", engine: "a b", card }).html(),
   closeWord: en.close, cellWord: en.a11yCell,
 };
 const eyes = {
@@ -131,7 +139,16 @@ const eyes = {
   escaped: new CellEye({ hostId: '"><b>' }).html(),
   words: [en.cellsHideIdleOff, en.cellsHideIdleOn],
 };
-console.log(JSON.stringify({ cell, agent, slot, windows, eyes }));
+const OPTS = [{ id: "", label: "All", count: 5, title: "every" }, { id: "caravan", label: "Caravan", count: 3, title: "only caravan" },
+              { id: "ollama", label: "Ollama", count: 1, up: true, title: "only ollama" },
+              { id: "lmstudio", label: "LM Studio", count: 1, up: false, title: "only lms" }];
+const filters = {
+  full: new CellFilter({ hostId: "h1", chosen: "ollama", options: OPTS }).html(),
+  none: new CellFilter({ hostId: "h1" }).html(),
+  odd: new CellFilter({ hostId: '"><b>', chosen: "", options: [{ id: 'a b', label: "<i>x", count: "7.9", up: "yes", title: '"t' }, { id: "", count: -2 }] }).html(),
+  label: en.cellsFilterLabel,
+};
+console.log(JSON.stringify({ cell, agent, slot, windows, eyes, filters }));
 """
 
 node = find_node()
@@ -178,6 +195,12 @@ check(c["reserved"]["sw"] == ["false", 'data-node-cell-launch="controller" data-
       "зарезервированная — выключен; запускать ли, решает переданное (у доски его не передают — см. снимок карточки)")
 check('"><b>w' not in c["whyEscaped"] and "&quot;&gt;&lt;b&gt;w" in c["whyEscaped"], "причина экранируется")
 check(c["running"]["cls"] == "fold-row cell-row running cpu busy", "работающая на CPU и генерирующая — классы running cpu busy")
+check(c["engine"] == ["fold-row cell-row running engine-ollama busy", "fold-row cell-row parked engine-lmstudio",
+                      "fold-row cell-row parked", "fold-row cell-row parked"],
+      "ячейка в движке — класс engine-<раннер> (цвет запускающего); negative: слово, не годное в имя класса "
+      "(кавычки, заглавные), класса не даёт")
+check(c["launcher"] == ["ollama", "lm-studio2", "", "", "", "", "", ""],
+      "launcher: только строчное слово из букв, цифр и дефиса, с буквы — иначе пусто")
 check(c["running"]["tps"] == "41.7 t/s", "живая скорость лежит в span data-live-rowtps — его и подменяет опрос")
 check(c["parked"]["tps"] == "", "без скорости span пуст, но есть: опросу есть куда писать")
 check(c["reserved"]["name"] == c["reservedWords"] and c["reserved"]["cls"] == "fold-row cell-row reserved",
@@ -250,6 +273,41 @@ check("<i>x" not in w["escaped"] and "&lt;i&gt;x" in w["escaped"] and "<u>" not 
       "имя, адрес, ключ и порт экранируются")
 check('aria-label="Cell :"' in w["empty"] or 'aria-label="' + w["cellWord"] + ' :"' in w["empty"],
       "пустое окно не падает — подпись без имени, как есть")
+check('<div class="cell-window engine-ollama" role="dialog"' in w["engine"]
+      and '<span class="cwh-addr">10.0.0.5:22031</span><span class="cwh-via" data-t="cell-window-via" '
+          'title="to &quot;Ollama&quot;">→ 127.0.0.1:11434</span>' in w["engine"],
+      "окно ячейки в движке — в цвет запускающего; после адреса машины — куда идут запросы (127.0.0.1 движка), "
+      "подсказка экранирована")
+check("cwh-via" not in w["full"] and '<div class="cell-window" role="dialog"' in w["full"],
+      "negative: ячейка каравана — ни строки движка, ни класса")
+check('<div class="cell-window" role="dialog"' in w["engineOdd"] and "→ &lt;b&gt;" in w["engineOdd"],
+      "negative: слово, не годное в имя класса, класса не даёт; адрес движка экранирован")
+
+print("чипы машины (CellFilter):")
+fl = got["filters"]
+check(fl["full"].startswith(f'<div class="node-cell-filter" role="group" aria-label="{fl["label"]}">'),
+      "группа чипов подписана словами из en.js")
+check('<button type="button" class="ncf-chip" data-cell-filter="h1" data-cell-filter-id="" data-t="node-cell-filter" '
+      'data-t-id="h1:all" aria-pressed="false" title="every">All<span class="ncf-count">5</span></button>' in fl["full"],
+      "«все» — пустой id, хук h1:all, счётчик; без точки и без цвета движка")
+check('<button type="button" class="ncf-chip engine-ollama" data-cell-filter="h1" data-cell-filter-id="ollama" '
+      'data-t="node-cell-filter" data-t-id="h1:ollama" aria-pressed="true" title="only ollama">'
+      '<span class="ncf-dot up" aria-hidden="true"></span>Ollama<span class="ncf-count">1</span></button>' in fl["full"],
+      "чип движка — в его цвет, нажат выбранный, точка «работает», счётчик")
+check('class="ncf-chip" data-cell-filter="h1" data-cell-filter-id="caravan"' in fl["full"]
+      and '<span class="ncf-dot" aria-hidden="true"></span>LM Studio' in fl["full"],
+      "negative: у каравана нет цвета движка; у стоящего движка точка без «up»")
+check(fl["full"].count('aria-pressed="true"') == 1, "нажат ровно один чип")
+check(fl["none"] == "", "negative: выбирать не из чего — чипов нет вовсе, а не один «все»")
+odd = fl["odd"]
+check('<b>' not in odd and "&lt;i&gt;x" in odd and 'title="&quot;t"' in odd and 'data-t-id="&quot;&gt;&lt;b&gt;:a b"' in odd,
+      "машина, подпись и подсказка экранированы")
+check('class="ncf-chip" data-cell-filter' in odd and "engine-a b" not in odd and "ncf-dot" not in odd,
+      "negative: слово, не годное в имя класса, цвета не даёт; «up» не булево — точки нет, а не догадка")
+check('<span class="ncf-count">7</span>' in odd and '<span class="ncf-count">0</span>' in odd,
+      "boundary: счётчик — целое неотрицательное (7.9 → 7, −2 → 0)")
+check(odd.count('aria-pressed="true"') == 1 and 'data-t-id="&quot;&gt;&lt;b&gt;:all" aria-pressed="true"' in odd,
+      "без выбора нажат «все»")
 
 print("глаз машины (CellEye):")
 off_words, on_words = e["words"]

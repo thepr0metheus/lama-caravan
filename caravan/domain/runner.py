@@ -99,6 +99,13 @@ class Runner:
     #: the generated command references ${LLAMA_MODELS_DIR} and the launcher's
     #: own fallback points somewhere else.
     needs_models_dir = False
+    #: Whether the cell editor draws a tab for this runner. The engine runners
+    #: have none: an engine cell is made on the reserve step, choosing the
+    #: engine and its model, and the editor's forms are the caravan's own.
+    editor_tab = True
+    #: A cell whose model runs inside an engine next to it (Ollama, LM Studio),
+    #: reserved in that engine with its model — EngineCellMixin says it once.
+    engine_cell = False
 
     # ── what a cell of this kind is ──────────────────────────────────────────
     def model_ref(self, config) -> str:
@@ -222,6 +229,8 @@ class Runner:
             # no context window at all.
             "tokenContext": self.token_context,
             "commandPath": self.command_path,
+            "editorTab": self.editor_tab,
+            "engineCell": self.engine_cell,
         }
         if self.format_requirements:
             row["formatRequirements"] = dict(self.format_requirements)
@@ -681,6 +690,74 @@ class CustomRunner(Runner):
         return command
 
 
+class EngineCellMixin:
+    """A cell whose model runs inside an engine next to it (Ollama, LM Studio).
+
+    The engine listens on 127.0.0.1 only; the cell's own port is the way in
+    (cells/engine_cell_server.py), which loads the model when the cell starts
+    and unloads it when it stops. What the two engines share lives here once —
+    a mixin rather than a base class, because every *Runner class is a row of
+    the registry. The config names the model as the engine does
+    (ENGINE_MODEL) and the engine's loopback port (ENGINE_PORT), both written
+    when the cell is reserved in that engine.
+    """
+    artifacts = ("engine-model",)
+    formats = ("*",)
+    health = "/health"
+    default_health_path = "/health"
+    model_field = "ENGINE_MODEL"
+    shared_picker = "ignored"
+    editor_tab = False
+    engine_cell = True
+    #: The engine's own port when the config does not say.
+    default_engine_port = 0
+
+    def engine_port(self, config) -> int:
+        try:
+            port = int(str((config or {}).get("ENGINE_PORT") or "").strip() or self.default_engine_port)
+        except ValueError:
+            raise AppError(f"ENGINE_PORT is not a port: {(config or {}).get('ENGINE_PORT')!r}", 400)
+        if not 0 < port < 65536:
+            raise AppError(f"ENGINE_PORT is not a port: {port}", 400)
+        return port
+
+    def command(self, config) -> str:
+        """The run_engine.sh line: a scout brings a cell's files into $HOME by
+        the launcher its command names, and a bare `python3 …server.py` names
+        none — the server would never reach the machine."""
+        model = self.model_ref(config)
+        if not model:
+            raise AppError(f"ENGINE_MODEL is required for a {self.id} cell", 400)
+        return (f'bash $HOME/run_engine.sh "$PORT" {self.id} {self.engine_port(config)} '
+                f'{shlex.quote(model)}')
+
+    def prepare(self, merged) -> str:
+        return self.command(merged)
+
+    def preflight_start(self, config, model="") -> None:
+        if not self.model_ref(config):
+            raise AppError(f"{self.id} cell has no model — reserve it with one", 400)
+
+    def artifact_label(self, config) -> str:
+        return self.model_ref(config)
+
+
+class OllamaRunner(EngineCellMixin, Runner):
+    """A model inside Ollama, reached through the cell's port."""
+    id = "ollama"
+    icon = "\U0001f7e0"
+    label_key = "runnerOllama"
+    default_engine_port = 11434
+
+
+class LmStudioRunner(EngineCellMixin, Runner):
+    """A model inside LM Studio, reached through the cell's port."""
+    id = "lmstudio"
+    icon = "\U0001f7e3"
+    label_key = "runnerLmStudio"
+    default_engine_port = 1234
+
+
 class UnknownRunner(Runner):
     """A RUNNER value nothing in the registry answers to.
 
@@ -706,6 +783,8 @@ REGISTRY = (
     SeamlessRunner(),
     TranslateRunner(),
     CustomRunner(),
+    OllamaRunner(),
+    LmStudioRunner(),
 )
 
 _BY_ID = {r.id: r for r in REGISTRY}

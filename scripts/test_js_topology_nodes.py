@@ -56,7 +56,7 @@ const norm = (s) => String(s).replace(/\s+/g, " ").trim();
 const reset = () => { st.setState({ config: {}, runners: [], artifacts: [], models: [], paths: {} });
   st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [] });
   ui.latestSystemMonitor = null;
-  cf.CARD_FOLD.pinned.clear(); cf.CARD_FOLD.densities = {}; cf.CARD_FOLD.peekKey = ""; cf.CARD_FOLD.openKey = ""; cf.CARD_FOLD.hideIdle.clear();
+  cf.CARD_FOLD.pinned.clear(); cf.CARD_FOLD.densities = {}; cf.CARD_FOLD.peekKey = ""; cf.CARD_FOLD.openKey = ""; cf.CARD_FOLD.hideIdle.clear(); cf.CARD_FOLD.launchers = {};
   for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingRemoteStarts, rc._pendingCellActions, rc._reservingCells]) c.clear(); };
 const node = { id: "h1", name: "Host", ip: "10.0.0.5", role: "host", gpus: [{ index: 0, name: "RTX", memoryTotalMiB: 24576 }] };
 const mk = (extra) => ({ port: 22001, isSlot: true, model: "a.gguf", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "a.gguf" }, ...extra });
@@ -2336,8 +2336,9 @@ PINS = [
     ("hide_on_marks_stopped",
      "cf.CARD_FOLD.hideIdle.add(\"h1\");",
      "norm(m.nodeServerCardHtml(node, mk({ phase: \"stopped\" }), { fold: true }))",
-     "\"<span hidden data-cell-hidden=\\\"h1:22001\\\" data-cell-hidden-port=\\\"22001\\\"></span>\"",
-     "positive: глаз машины включён — стоящая убрана, на её месте метка с ключом и портом: без ручки каната, но не бесследно"),
+     "\"<span hidden data-cell-hidden=\\\"h1:22001\\\" data-cell-hidden-port=\\\"22001\\\" data-cell-hidden-by=\\\"idle\\\"></span>\"",
+     "positive: глаз машины включён — стоящая убрана, на её месте метка с ключом, портом и правилом (idle): без ручки "
+     "каната, но не бесследно"),
     ("hide_on_keeps_what_matters",
      "cf.CARD_FOLD.hideIdle.add(\"h1\");",
      "[mk({ phase: \"running\" }), mk({ phase: \"error\" }), mk({ phase: \"stopped\", crash: { count: 1, at: \"12:00\", reason: \"Xid 8\" } })].map((c) => (h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : h.startsWith(\"<span hidden\") ? \"hidden\" : \"?\"))(norm(m.nodeServerCardHtml(node, c, { fold: true }))))",
@@ -2784,6 +2785,149 @@ PINS += [
      "norm(m.nodeEngineCardHtml(node, ENG({ models: [MDL({ loaded: true, expiresAt: \"2318-01-01T00:00:00Z\" })] }))).includes(\"stays loaded\")",
      "true",
      "Ollama по-прежнему — срок через века: скауты до 2.15 staysLoaded не шлют"),
+]
+
+# A cell reserved in an engine (2026-09-25): the registry names the engine
+# runners (engineCell), the machine's report names the engine and its model.
+ENGINE_CELL = (
+    'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true },'
+    ' { id: "ollama", engineCell: true, icon: "🟠", labelKey: "runnerOllama" },'
+    ' { id: "lmstudio", engineCell: true, icon: "🟣", labelKey: "runnerLmStudio" }], artifacts: [], models: [], paths: {} });'
+    ' const EC = (extra = {}, cfg = {}) => ({ port: 22031, isSlot: true, model: "qwen3:8b", phase: "stopped", bootSupported: true, ...extra,'
+    ' slotConfig: { RUNNER: "ollama", CELL_KIND: "command", ENGINE_MODEL: "qwen3:8b", ENGINE_PORT: "11434", ...cfg } });'
+    ' const EN = (mdl = {}) => ({ ...node, engines: [ENG({ models: [MDL({ type: "llm", ...mdl })] })] });'
+    r' const chipsOf = (h) => [...((h.match(/<span class="model-chips">(.*?)<\/span><\/div>/) || [0, ""])[1]).matchAll(/>([^<]+)</g)].map((x) => x[1]);'
+    ' const clsOf = (h) => (h.match(/<article class="([^"]*)"/) || [])[1];'
+)
+
+PINS += [
+    ("enginecell_stopped_card",
+     ENGINE_CELL,
+     '(h => [clsOf(h), chipsOf(h), h.includes(\'data-t="cell-configure"\'), (h.match(/data-node-cell-runner="([^"]*)"/) || [])[1]])(norm(m.nodeServerCardHtml(EN(), EC())))',
+     json.dumps(["node-server configured-cell engine-cell engine-ollama",
+                 ["💬 LLM", "🟠 Ollama", "≈4.9G", "⚖ 8.2B", "🎛 Q4_K_M", ":22031"], False, "ollama"], ensure_ascii=False),
+     "positive: ячейка в Ollama — класс запускающего (оранжевый), работа модели по отчёту движка, значок движка из реестра, "
+     "≈размер файла модели, её параметры и квант; шестерёнки редактора нет — ячейку движка делают на шаге резерва; "
+     "старт знает раннер (ollama), а не «command»"),
+    ("enginecell_running_memory",
+     ENGINE_CELL,
+     '(h => [clsOf(h), chipsOf(h), (h.match(/title="([^"]*)">5.6G/) || [])[1]])(norm(m.nodeServerCardHtml(EN({ loaded: true, vramBytes: 6000000000, memBytes: 6500000000, contextLength: 8192 }), EC({ phase: "running" }))))',
+     json.dumps(["node-server running engine-cell engine-ollama",
+                 ["💬 LLM", "🟠 Ollama", "5.6G", "⚖ 8.2B", "🎛 Q4_K_M", "🪟 8.2k", ":22031"],
+                 _en("cellEngineMemTitle").replace("{engine}", "Ollama")], ensure_ascii=False),
+     "positive: работает — память та, что движок держит под модель (VRAM из его отчёта) и окно модели; negative: без "
+     "gpuIndexes она НЕ «CPU» — процесс ячейки модели не держит"),
+    ("enginecell_name_verbatim",
+     ENGINE_CELL,
+     '(h => [clsOf(h), (h.match(/<strong class="node-model-name" title="([^"]*)"><span>([^<]*)</) || []).slice(1), chipsOf(h)])(norm(m.nodeServerCardHtml({ ...node, engines: [ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, models: [MDL({ name: "google/gemma-4-e4b", type: "vlm", params: "4B", fileBytes: 3000000000 })] })] }, EC({ model: "gemma-4-e4b" }, { RUNNER: "lmstudio", ENGINE_MODEL: "google/gemma-4-e4b", ENGINE_PORT: "1234" }))))',
+     json.dumps(["node-server configured-cell engine-cell engine-lmstudio", ["google/gemma-4-e4b", "google/gemma-4-e4b"],
+                 ["💬 LLM", "🟣 LM Studio", "≈2.8G", "⚖ 4B", "🎛 Q4_K_M", ":22031"]], ensure_ascii=False),
+     "positive: LM Studio — фиолетовый класс; имя модели дословно, как его зовёт движок (google/gemma-4-e4b), а не "
+     "выжатое из него имя файла (gemma-4-e4b)"),
+    ("enginecell_line_and_window",
+     ENGINE_CELL,
+     '(h => [(h.match(/<div class="(fold-row cell-row[^"]*)"/) || [])[1], (h.match(/<span class="fr-name">([^<]*)</) || [])[1], (h.match(/<div class="(cell-window[^"]*)" role="dialog"/) || [])[1], (h.match(/<span class="cwh-via" data-t="cell-window-via" title="([^"]*)">([^<]*)</) || []).slice(1)])(norm(m.nodeServerCardHtml(EN(), EC(), { fold: true })))',
+     json.dumps(["fold-row cell-row parked engine-ollama", "qwen3:8b", "cell-window engine-ollama",
+                 [_en("cellWindowViaTitle").replace("{port}", "22031").replace("{engine}", "Ollama"), "→ 127.0.0.1:11434"]],
+                ensure_ascii=False),
+     "positive: строка и окно — в цвет запускающего; в строке — имя модели движка; окно говорит, куда идут запросы: "
+     "127.0.0.1 движка, куда ведёт только порт ячейки"),
+    ("enginecell_stopped_but_engine_holds_it",
+     ENGINE_CELL,
+     'chipsOf(norm(m.nodeServerCardHtml(EN({ loaded: true, vramBytes: 6000000000 }), EC())))',
+     json.dumps(["💬 LLM", "🟠 Ollama", "≈4.9G", "⚖ 8.2B", "🎛 Q4_K_M", ":22031"], ensure_ascii=False),
+     "boundary: ячейка стоит, а движок держит её модель (загрузил кто-то другой) — у стоящей ячейки ≈размер файла, "
+     "как у любой стоящей, а не чужая загрузка"),
+    ("enginecell_line_name_verbatim",
+     ENGINE_CELL,
+     '(norm(m.nodeServerCardHtml(EN(), EC({ model: "gemma-4-e4b" }, { ENGINE_MODEL: "google/gemma-4-e4b" }), { fold: true })).match(/<span class="fr-name">([^<]*)</) || [])[1]',
+     '"google/gemma-4-e4b"',
+     "positive: и в строке имя модели дословно, как в карточке и в окне"),
+    ("enginecell_engine_not_reported",
+     ENGINE_CELL,
+     '(h => [clsOf(h), chipsOf(h)])(norm(m.nodeServerCardHtml({ ...node, engines: [] }, EC())))',
+     json.dumps(["node-server configured-cell engine-cell engine-ollama", ["🟠 Ollama", ":22031"]], ensure_ascii=False),
+     "negative: движка в отчёте машины нет — ячейка всё равно названа ячейкой Ollama, а работы модели и памяти нет: "
+     "их не у кого спросить, и догадки вместо них не рисуются"),
+    ("enginecell_line_without_report_has_no_device",
+     ENGINE_CELL,
+     '(h => { const line = h.slice(0, h.indexOf("cell-window-backdrop")); return [line.includes("fr-name"), (line.match(/class="mbadge[^"]*"[^>]*>([^<]*)</) || [0, "none"])[1]]; })(norm(m.nodeServerCardHtml({ ...node, engines: [] }, EC(), { fold: true })))',
+     '[true, "none"]',
+     "negative: движка в отчёте нет — в строке нет чипа памяти, и не подставлен чип устройства (⚙ auto): где считает "
+     "движок, говорит движок"),
+    ("enginecell_no_window_via_without_port",
+     ENGINE_CELL,
+     'norm(m.nodeServerCardHtml(EN(), EC({}, { ENGINE_PORT: "" }), { fold: true })).includes("cwh-via")',
+     "false",
+     "boundary: в настройках ячейки нет порта движка — строки «→ 127.0.0.1:…» нет, а не выдуманный порт"),
+    ("enginecell_needs_engine_cell_in_registry",
+     ENGINE_CELL + ' st.setState({ config: {}, runners: [{ id: "llama-server" }, { id: "ollama" }], artifacts: [], models: [], paths: {} });',
+     'clsOf(norm(m.nodeServerCardHtml(EN(), EC({ phase: "running" }))))',
+     '"node-server running cpu-cell"',
+     "as-is: реестр без engineCell (старый контроллер) — прежняя командная ячейка: без gpuIndexes её зовут CPU; признак "
+     "ячейки движка — только в реестре"),
+]
+
+# A machine with a caravan cell (:22001) and a cell in Ollama (:22031), both
+# parked; the lane is drawn as the board draws it.
+LANE = (ENGINE_CELL
+        + ' const laneRaw = (engines, servers) => { st.setTopology({ ...st.topology, nodes: [{ ...node, engines, servers }] }); return m.nodesLaneHtml(); };'
+        ' const lane = (engines, servers) => norm(laneRaw(engines, servers));'
+        r' const chips = (h) => [...h.matchAll(/data-t-id="(h1:[a-z]+)" aria-pressed="(true|false)" title="[^"]*">(<span class="ncf-dot( up)?" aria-hidden="true"><\/span>)?([^<]*)<span class="ncf-count">(\d+)</g)].map((x) => [x[1], x[2] === "true", x[3] ? (x[4] ? "up" : "down") : "", x[5], Number(x[6])]);'
+        r' const marks = (h) => [...h.matchAll(/data-cell-hidden="([^"]*)" data-cell-hidden-port="\d+" data-cell-hidden-by="([^"]*)"/g)].map((x) => [x[1], x[2]]);'
+        ' const shown = (h) => [...new Set([...h.matchAll(/data-t="cell-(?:row|card)" data-t-id="([^"]*)"/g)].map((x) => x[1]))];'
+        ' const TWO = () => [mk({ phase: "stopped" }), EC()];')
+
+PINS += [
+    ("lane_chips_offered",
+     LANE,
+     'chips(lane([ENG({ models: [MDL({ type: "llm" })] })], TWO()))',
+     json.dumps([["h1:all", True, "", _en("cellsFilterAll"), 2], ["h1:caravan", False, "", _en("launcherCaravan"), 1],
+                 ["h1:ollama", False, "up", "Ollama", 1]], ensure_ascii=False),
+     "positive: у машины есть Ollama — чипы: все (нажат), караван, Ollama с точкой «работает»; счётчики — ячейки "
+     "каждого; LM Studio не предложен: его нет ни в отчёте, ни в ячейках"),
+    ("lane_chip_narrows",
+     LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
+     '(h => [marks(h), shown(h), chips(h).filter((c) => c[1]).map((c) => c[0]), h.includes("node-eye-count")])(lane([ENG()], TWO()))',
+     '[[["h1:22001", "launcher"]], ["h1:22031"], ["h1:ollama"], false]',
+     "positive: выбран Ollama — ячейка каравана убрана меткой «launcher» (её кабель уберётся с ней), ячейка Ollama "
+     "видна; глаз не считает убранное чипом"),
+    ("lane_chip_and_eye_count_apart",
+     LANE + ' cf.CARD_FOLD.setLauncher("h1", "caravan"); cf.CARD_FOLD.hideIdle.add("h1");',
+     r'(h => [marks(h), (h.match(/<span class="node-eye-count">(\d+)</) || [])[1]])(lane([ENG()], TWO()))',
+     '[[["h1:22001", "idle"], ["h1:22031", "launcher"]], "1"]',
+     "positive: чип и глаз вместе — каждая метка называет своё правило; глаз считает только свои (1), а не все скрытые (2)"),
+    ("lane_stale_choice_shows_all",
+     LANE + ' cf.CARD_FOLD.setLauncher("h1", "lmstudio");',
+     '(h => [marks(h), chips(h).filter((c) => c[1]).map((c) => c[0])])(lane([ENG()], TWO()))',
+     '[[], ["h1:all"]]',
+     "negative: выбран движок, которого у машины больше нет — видны все ячейки и нажат «все»: список не сужен до "
+     "пустоты без чипа, которым его расширить"),
+    ("lane_no_choice_no_chips",
+     LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
+     '(h => [h.includes("node-cell-filter"), marks(h)])(lane([], [mk({ phase: "stopped" })]))',
+     '[false, []]',
+     "negative: у машины ни движка, ни ячейки в движке — чипов нет, и старый выбор ничего не прячет"),
+    ("lane_cell_without_report_offers_its_engine",
+     LANE,
+     'chips(lane([], TWO()))',
+     json.dumps([["h1:all", True, "", _en("cellsFilterAll"), 2], ["h1:caravan", False, "", _en("launcherCaravan"), 1],
+                 ["h1:ollama", False, "", "Ollama", 1]], ensure_ascii=False),
+     "boundary: движка в отчёте нет, а ячейка в нём есть — чип предложен (имя из реестра), без точки: работает ли "
+     "движок, неизвестно, и это не рисуется как «не работает»"),
+    ("lane_engine_chip_titles",
+     LANE,
+     '(h => [...h.matchAll(/data-t-id="h1:(ollama|lmstudio)" aria-pressed="false" title="([^"]*)"/g)].map((x) => [x[1], x[2]]))(laneRaw([ENG(), ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, state: "stopped" })], TWO()))',
+     json.dumps([["ollama", _en("cellsFilterOnly").replace("{launcher}", "Ollama") + "\n" + _en("cellsFilterEngineUp").replace("{engine}", "Ollama")],
+                 ["lmstudio", _en("cellsFilterOnly").replace("{launcher}", "LM Studio") + "\n" + _en("cellsFilterEngineDown").replace("{engine}", "LM Studio")]],
+                ensure_ascii=False),
+     "подсказка чипа движка — что он покажет и работает ли движок на этой машине"),
+    ("lane_cpu_line_skips_engine_cells",
+     LANE,
+     '(h => (h.match(/<span class="node-gpu-ports">▶ ([^<]*)</) || [0, "none"])[1])(lane([ENG()], [mk({ phase: "running" }), EC({ phase: "running" })]))',
+     '"22001"',
+     "negative: строка CPU машины не зовёт работающую ячейку движка «ячейкой на CPU» — её процесс модели не держит; "
+     "ячейка каравана без карт там, как прежде"),
 ]
 
 _fail = []

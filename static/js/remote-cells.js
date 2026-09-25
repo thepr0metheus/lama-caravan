@@ -1,5 +1,5 @@
 // Remote cell lifecycle: reserve/start/stop, tr- edit form, remote backups.
-import { appConfirm, appPrompt, appPromptChoice } from "./dialogs.js";
+import { appConfirm, appConfirmChoice, appPrompt, appPromptChoice } from "./dialogs.js";
 import { renderCommandPreview } from "./command-preview.js";
 import { refreshFavoritesPanel } from "./favorites.js";
 import {
@@ -19,6 +19,7 @@ import { t } from "./i18n.js";
 import { saveRouters } from "./routers.js";
 import {
   applyConfigToForm,
+  runnerRegistry,
   setEditCurrentCommand,
   suggestedSnapshotName,
   wireCellKindToggle,
@@ -344,11 +345,54 @@ export function nextTopologyCellPort() {
   return port;
 }
 
+// The engines next to a machine's cells that a new cell can run in (decided
+// 2026-09-25): the ones its scout reports whose kind is a runner of engine
+// cells — the registry says which (engineCell), no list is kept here.
+export function reserveEngines(hostId) {
+  const kinds = new Set(runnerRegistry().filter((r) => r.engineCell === true).map((r) => String(r.id)));
+  const node = (topology.nodes || []).find((n) => String(n.id) === String(hostId));
+  return (Array.isArray(node?.engines) ? node.engines : []).filter((e) => kinds.has(String(e.kind || "")));
+}
+
+// What a new cell is reserved with: {} for a cell the caravan runs itself,
+// {engine, model} for one in an engine — or null when the operator cancelled.
+// A machine with no such engine is asked as before. An engine that is not
+// ready, or has no model to choose, is sent without one: the controller's
+// refusal says why (caravan/admin/engine_cells.py), in one place.
+async function reservePlan(hostId, port) {
+  const engines = reserveEngines(hostId);
+  const ask = t("dlgReserveCell", { port: String(port || "?") });
+  const opts = { danger: false, confirmLabel: t("topologyReserveCellLabel"), scene: "create" };
+  if (!engines.length) return (await appConfirm(ask, opts)) ? {} : null;
+  const name = (e) => String(e.label || e.kind);
+  const where = await appConfirmChoice(ask, {
+    ...opts,
+    choiceLabel: t("reserveRunsIn"),
+    choices: [{ value: "", label: t("launcherCaravan") },
+      ...engines.map((e) => ({ value: String(e.kind),
+        label: e.state === "ok" ? name(e) : t("reserveEngineNotReady", { engine: name(e) }) }))],
+  });
+  if (where === null) return null;
+  if (!where) return {};
+  const engine = engines.find((e) => String(e.kind) === where);
+  const models = engine?.state === "ok" && Array.isArray(engine.models) ? engine.models : [];
+  if (!models.length) return { engine: where };
+  const model = await appConfirmChoice(t("dlgReserveModelText", { engine: name(engine) }), {
+    ...opts,
+    title: t("dlgReserveModelTitle", { port: String(port || "?") }),
+    choiceLabel: t("reserveModelLabel"),
+    list: true,
+    choices: models.map((m) => ({ value: String(m.name),
+      label: [m.name, m.params, m.quant, m.remote ? "☁" : ""].filter(Boolean).join(" · ") })),
+  });
+  return model === null ? null : { engine: where, model };
+}
+
 export async function reserveServerCell(hostId, portHint = "") {
   const hostKey = String(hostId || "");
   const pendingPort = Number(portHint || nextTopologyCellPort() || 0);
-  if (!(await appConfirm(t("dlgReserveCell", { port: String(pendingPort || "?") }),
-                         { danger: false, confirmLabel: t("topologyReserveCellLabel"), scene: "create" }))) return;
+  const plan = await reservePlan(hostKey, pendingPort);
+  if (!plan) return;
   if (hostKey && pendingPort) {
     _reservingCells.set(hostKey, { port: pendingPort, startedAt: Date.now() });
     renderTopology();
@@ -356,7 +400,7 @@ export async function reserveServerCell(hostId, portHint = "") {
   try {
     const result = await api("/api/topology/server-slot/add", {
       method: "POST",
-      body: JSON.stringify({ hostId }),
+      body: JSON.stringify({ hostId, ...plan }),
     });
     const created = result?.cell || result?.slot || {};
     const createdHost = String(created.hostId || hostId || "");
@@ -703,7 +747,12 @@ export function bindServerSlotControls(root) {
       // model in a library was asked "disk or library?" here, for the
       // controller's own cells; a scout reads it where it is, and the answer
       // was ignored once those cells moved to it — step 6.9.)
-      const msg = (b.dataset.nodeCellRunner || "llama-server") !== "llama-server"
+      // A cell in an engine starts by loading its model into the engine: a
+      // model's start, as llama's is, not a command's.
+      const runner = b.dataset.nodeCellRunner || "llama-server";
+      const loadsModel = runner === "llama-server"
+        || runnerRegistry().some((r) => r.id === runner && r.engineCell === true);
+      const msg = !loadsModel
         ? t("dlgStartCommand", { port })
         : (model ? t("dlgStartModel", { model, port }) : t("dlgStartPort", { port }));
       if (!(await appConfirm(msg, { danger: false, confirmLabel: t("dlgStartLabel"), scene: "start" }))) return;

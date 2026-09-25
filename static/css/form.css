@@ -775,6 +775,27 @@ button.cmd-dirty::after {
   flex-basis: 100%;
 }
 
+/* A long list of choices (a new cell's model in an engine): one per row, and
+   the list scrolls rather than the dialog growing past the screen. */
+.modal-meta .dlg-choices-list {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  max-height: min(50vh, 360px);
+  overflow-y: auto;
+}
+
+.modal-meta .dlg-choices-list .dlg-choices-label {
+  flex-basis: auto;
+}
+
+.dlg-choices-list .dlg-choice {
+  flex: none;
+  border-radius: 8px;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
 .dlg-choice {
   min-height: 30px;
   padding: 4px 12px;

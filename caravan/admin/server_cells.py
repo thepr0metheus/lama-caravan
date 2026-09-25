@@ -3,6 +3,7 @@ artifacts. Pure data layer — the start/stop actions live in cell_ops.py."""
 import time
 
 from caravan.admin.config_builder import is_command_cell
+from caravan.admin.engine_cells import EngineCellPlan
 from caravan.admin.paths import PORT, SERVER_CELL_BASE_PORT, is_controller_host, canonical_host_id
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.admin.state import topology as topo
@@ -237,11 +238,17 @@ def reserve_server_cell(body):
     host_id = str(body.get("hostId") or "").strip()
     if not host_id:
         raise AppError("hostId is required", 400)
+    refuse_controller_host(host_id)
+    # A cell reserved in an engine next to it (Ollama, LM Studio) is configured
+    # the moment it exists. Its plan is checked against the machine's report
+    # before a port is taken: a refusal leaves no empty cell behind.
+    plan = EngineCellPlan.from_body((topology_store().get("hosts") or {}).get(canonical_host_id(host_id)), body)
+    config = plan.config() if plan else None
     raw_port = body.get("port")
     port = int(raw_port) if raw_port not in (None, "") else next_server_cell_port()
     key = server_slot_key(host_id, port)
     assert_server_cell_port_available(port, exclude_key=key if topo.has_slot(host_id, port) else None)
-    slot = upsert_server_slot(host_id, port, label=body.get("label"))
+    slot = upsert_server_slot(host_id, port, label=body.get("label"), config=config)
     slot["kind"] = "serverCell"
     topo.put_slot(host_id, port, slot)
     save_admin_state()

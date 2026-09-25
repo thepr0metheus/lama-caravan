@@ -1319,6 +1319,14 @@ PINS += [
      '[tabs(true), tabs(false)]',
      '[[false,false],[true,true]]',
      'вкладка seamless открыта в форме машины контроллера; negative: на другой машине закрыта, и подсказка говорит почему'),
+    ('runner_tab_not_for_engines',
+     ' const tabsOf = (runners) => { st.setState({ ...st.state, runners }); const wrap = { innerHTML: "" };'
+     ' F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: (q) => (q === ".runner-tabs" ? wrap : null), querySelectorAll: () => [] },'
+     ' "tr-RUNNER": { value: "llama-server" }, "tr-MODEL_FILE": { value: "" } });'
+     ' try { le.renderRunnerTabs("tr-"); } catch (e) {} return (norm(wrap.innerHTML).match(/data-runner="[^"]+"/g) || []).map((x) => x.slice(13, -1)); };',
+     'tabsOf([{ id: "llama-server", labelKey: "runnerLlama", artifacts: ["llm-gguf"] }, { id: "ollama", labelKey: "runnerOllama", artifacts: ["engine-model"], editorTab: false }, { id: "custom", labelKey: "runnerCustom", artifacts: ["*"], editorTab: true }, { id: "lmstudio", labelKey: "runnerLmStudio", artifacts: ["engine-model"], editorTab: false }, { id: "whisper", labelKey: "runnerWhisper", artifacts: ["whisper-size"] }])',
+     '["llama-server","custom","whisper"]',
+     'negative: у раннеров движков (editorTab: false) вкладки в редакторе нет — ячейку движка делают на шаге резерва; у прочих есть, и у старого реестра без поля тоже'),
     ('frcm_vllm_field_hidden_when_derived',
      _ON + ' const field = (flag) => { onMachine(flag); st.setState({ ...st.state, runners: [{ id: "vllm", labelKey: "runnerVllm", artifacts: ["*"] }] });'
      ' const wrap = { innerHTML: "" }; F({ llamaRemoteEditOverlay: { hidden: false, dataset: {}, querySelector: (q) => (q === ".runner-tabs" ? wrap : null), querySelectorAll: () => [] },'

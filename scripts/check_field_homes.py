@@ -58,6 +58,10 @@ NO_TAB = {
     "TRANSLATE_MODEL": "translate runner panel",
     "TRANSLATE_SRC_LANG": "translate runner panel",
     "TRANSLATE_TGT_LANG": "translate runner panel",
+    # Engine cells are made on the reserve step, choosing the engine and its
+    # model; the editor has no tab for them (Runner.editor_tab is False).
+    "ENGINE_MODEL": "reserve step of an engine cell, not the editor",
+    "ENGINE_PORT": "reserve step of an engine cell (the engine's own port), not the editor",
 }
 
 CONSTANTS = ROOT / "static/js/constants.js"

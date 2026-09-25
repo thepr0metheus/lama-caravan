@@ -64,6 +64,7 @@
 .cwh-name { min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cwh-port { flex-shrink: 0; font: 600 12px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }
 .cwh-addr { flex-shrink: 0; font-size: 11.5px; color: var(--muted); }
+.cwh-via { flex-shrink: 0; font: 600 11.5px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--cell-accent, var(--muted)); }
 /* Sized here in full: the board's buttons carry a 34px minimum height (cards.css). */
 .cwh-close {
   margin-left: auto;

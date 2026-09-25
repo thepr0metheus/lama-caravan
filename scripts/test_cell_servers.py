@@ -45,6 +45,8 @@ SERVERS = {
     "seamless_server.py":   (["does-not/exist", "rus"], "/v1/audio/translations"),
     "translate_server.py":  (["does-not/exist", "eng_Latn", "rus_Cyrl"], "/v1/translate"),
     "tts_server.py":        (["does-not-exist"], "/v1/audio/speech"),
+    # port 1 on loopback: no engine answers there, so the cell waits, and says what it waits on
+    "engine_cell_server.py": (["ollama", "1", "does-not-exist"], "/v1/chat/completions"),
 }
 
 
