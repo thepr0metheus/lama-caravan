@@ -115,6 +115,22 @@ out.hide = (() => {
   return { fresh, a, saved, other, numberKey, b, savedOff, restored, garbage, blockedThrew: threw,
            blockedNow: blocked.hidesIdle("controller") };
 })();
+out.launcher = (() => {
+  const s = store(); const f = new CardFold({ storage: s, automated: false });
+  const fresh = f.launcherOf("controller");
+  const a = f.setLauncher("controller", "ollama"); const saved = s.m.get("boardCellsLauncher");
+  const other = f.launcherOf("box-b");
+  const g = mk(); g.setLauncher(7, "caravan");
+  const numberKey = [g.launcherOf("7"), g.launcherOf(7)];
+  const b = f.setLauncher("controller", ""); const savedOff = s.m.get("boardCellsLauncher");
+  const restored = mk({ boardCellsLauncher: JSON.stringify({ controller: "lmstudio" }) }).launcherOf("controller");
+  const garbage = [mk({ boardCellsLauncher: JSON.stringify(["ollama"]) }).launcherOf("0"),
+                   mk({ boardCellsLauncher: JSON.stringify({ controller: 5 }) }).launcherOf("controller")];
+  const blocked = new CardFold({ storage: broken, automated: false });
+  let threw = false; try { blocked.setLauncher("controller", "ollama"); } catch { threw = true; }
+  return { fresh, a, saved, other, numberKey, b, savedOff, restored, garbage, blockedThrew: threw,
+           blockedNow: blocked.launcherOf("controller") };
+})();
 out.cellIdle = Object.fromEntries([
   ["running", { phase: "running" }], ["stopped", { phase: "stopped" }], ["reserved", { phase: "reserved" }],
   ["error", { phase: "error" }], ["starting", { phase: "starting" }], ["broken", { phase: "broken" }],
@@ -355,6 +371,16 @@ check(not cq["runningUnreachable"], "работает, но недостижим
 check(not cq["nothing"] and not cq["undefinedArg"], "нет фактов — не тихо: незнание не сворачивается")
 
 print("глаз машины — что прячется:")
+la = got["launcher"]
+check(la["fresh"] == "", "без выбора чипы машины показывают все её ячейки")
+check(la["a"] == "ollama" and json.loads(la["saved"]) == {"controller": "ollama"}, "выбор чипа записывается по машине")
+check(la["other"] == "", "выбор одной машины не трогает другую")
+check(la["numberKey"] == ["caravan", "caravan"], "id машины числом и строкой — одно и то же")
+check(la["b"] == "" and json.loads(la["savedOff"]) == {}, "«все» стирает выбор машины, а не пишет пустую строку")
+check(la["restored"] == "lmstudio", "выбор переживает перезагрузку страницы")
+check(la["garbage"] == ["", ""], "не та форма в хранилище (список, число) — все ячейки, без исключения")
+check(la["blockedThrew"] is False and la["blockedNow"] == "ollama",
+      "хранилище недоступно — выбор держится до перезагрузки, без исключения")
 h = got["hide"]
 check(h["fresh"] is False, "без выбора ничего не прячется: глаз по умолчанию показывает всё")
 check(h["a"] is True and json.loads(h["saved"]) == ["controller"], "глаз машины включается и записывается")

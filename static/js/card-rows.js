@@ -12,6 +12,12 @@ import { escapeHtml } from "./utils.js";
  * re-derives them, so the line and the card cannot disagree about a cell.
  */
 export class CellRow {
+  /** The runner of a cell whose model runs inside an engine, fit to name a
+   *  class (engine-ollama) — "" for any other word. */
+  static launcher(id) {
+    return /^[a-z][a-z0-9-]*$/.test(String(id || "")) ? String(id) : "";
+  }
+
   constructor(f = {}) {
     this.key = String(f.key || "");
     this.port = String(f.port || "");
@@ -20,6 +26,9 @@ export class CellRow {
     // "running", "parked" (configured, stopped) or "reserved" (no model yet).
     this.state = f.state === "running" || f.state === "reserved" ? f.state : "parked";
     this.cpu = !!f.cpu;
+    // The runner of a cell whose model runs inside an engine (ollama,
+    // lmstudio): the line wears its launcher's colour. "" for the caravan's own.
+    this.engine = CellRow.launcher(f.engine);
     this.chip = f.chip || "";          // the card's own memory/device chip, as built
     this.launch = f.launch || "";      // the card's ▶ attributes, empty when it cannot start
     this.stop = f.stop || "";          // the card's ⏹ attributes, empty when it cannot stop
@@ -53,7 +62,8 @@ export class CellRow {
     const name = this.shownName();
     const warn = this.warn
       ? `<span class="fr-warn" title="${escapeHtml(t("cellRowWarnTitle"))}">⚠</span>` : "";
-    const cls = ["fold-row", "cell-row", this.state, this.cpu ? "cpu" : "", this.busy ? "busy" : ""]
+    const cls = ["fold-row", "cell-row", this.state, this.cpu ? "cpu" : "", this.engine ? `engine-${this.engine}` : "",
+      this.busy ? "busy" : ""]
       .filter(Boolean).join(" ");
     return `<div class="${cls}" role="button" tabindex="0" data-t="cell-row"`
       + ` data-t-id="${escapeHtml(this.key)}" data-llama-port="${escapeHtml(this.port)}"`
@@ -107,11 +117,16 @@ export class AgentRow {
  * cable's handle stays on the line, which never moves.
  */
 export class CellWindow {
-  constructor({ key, name, port, address = "", card = "" } = {}) {
+  // `via`: where a cell in an engine sends its requests — the engine's
+  // loopback address, which only the cell's port leads to; `viaTitle` says so.
+  constructor({ key, name, port, address = "", via = "", viaTitle = "", engine = "", card = "" } = {}) {
     this.key = String(key || "");
     this.name = String(name || "");
     this.port = String(port || "");
     this.address = String(address || "");
+    this.via = String(via || "");
+    this.viaTitle = String(viaTitle || "");
+    this.engine = CellRow.launcher(engine);
     this.card = card || "";
   }
 
@@ -120,11 +135,13 @@ export class CellWindow {
     const close = escapeHtml(t("close"));
     const label = escapeHtml(`${t("a11yCell")} :${this.port} ${this.name}`.trim());
     const address = this.address ? `<span class="cwh-addr">${escapeHtml(this.address)}</span>` : "";
+    const via = this.via
+      ? `<span class="cwh-via" data-t="cell-window-via" title="${escapeHtml(this.viaTitle)}">→ ${escapeHtml(this.via)}</span>` : "";
     return `<div class="cell-window-backdrop" data-cell-window-close="1" aria-hidden="true"></div>`
-      + `<div class="cell-window" role="dialog" aria-modal="true" aria-label="${label}"`
+      + `<div class="cell-window${this.engine ? ` engine-${this.engine}` : ""}" role="dialog" aria-modal="true" aria-label="${label}"`
       + ` data-t="cell-window" data-t-id="${k}"><div class="cell-window-head">`
       + `<strong class="cwh-name">${escapeHtml(this.name)}</strong>`
-      + `<span class="cwh-port">:${escapeHtml(this.port)}</span>${address}`
+      + `<span class="cwh-port">:${escapeHtml(this.port)}</span>${address}${via}`
       + `<button type="button" class="cwh-close" data-cell-window-close="1" data-t="cell-window-close"`
       + ` data-t-id="${k}" title="${close}" aria-label="${close}">✕</button></div>${this.card}</div>`;
   }
@@ -153,6 +170,42 @@ export class CellEye {
       + `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"`
       + ` stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${this.on ? CellEye.SHUT : CellEye.OPEN}</svg>`
       + `${count}</button>`;
+  }
+}
+
+/**
+ * A machine's chips over its list of cells (2026-09-25): all of them, or only
+ * the ones one launcher runs — the caravan itself, or an engine next to it.
+ * Each chip says how many cells it holds; an engine's carries a dot while its
+ * server answers, and none when the machine did not report it. The pressed
+ * chip is the list shown.
+ */
+export class CellFilter {
+  constructor({ hostId, chosen = "", options = [] } = {}) {
+    this.hostId = String(hostId || "");
+    this.chosen = String(chosen || "");
+    this.options = (Array.isArray(options) ? options : []).map((o) => ({
+      id: String(o?.id || ""),
+      label: String(o?.label || ""),
+      count: Math.max(0, Math.floor(Number(o?.count) || 0)),
+      up: typeof o?.up === "boolean" ? o.up : null,
+      title: String(o?.title || ""),
+    }));
+  }
+
+  html() {
+    if (!this.options.length) return "";
+    const host = escapeHtml(this.hostId);
+    const chips = this.options.map((o) => {
+      // An engine's chip wears its colour; "" (all) and the caravan keep the board's.
+      const engine = o.id && o.id !== "caravan" ? CellRow.launcher(o.id) : "";
+      const dot = o.up === null ? "" : `<span class="ncf-dot${o.up ? " up" : ""}" aria-hidden="true"></span>`;
+      return `<button type="button" class="ncf-chip${engine ? ` engine-${engine}` : ""}" data-cell-filter="${host}"`
+        + ` data-cell-filter-id="${escapeHtml(o.id)}" data-t="node-cell-filter" data-t-id="${host}:${escapeHtml(o.id || "all")}"`
+        + ` aria-pressed="${o.id === this.chosen}" title="${escapeHtml(o.title)}">${dot}${escapeHtml(o.label)}`
+        + `<span class="ncf-count">${o.count}</span></button>`;
+    }).join("");
+    return `<div class="node-cell-filter" role="group" aria-label="${escapeHtml(t("cellsFilterLabel"))}">${chips}</div>`;
   }
 }
 

@@ -125,6 +125,13 @@ llama-server) so every saved config/snapshot/backup keeps working. Non-llama run
 command path: `build_vllm_command` (self-provisioned `~/vllm-venv`, format gates like
 nvfp4 ≥ CC 10.0 / fp8 ≥ 8.9 against the host GPU) and `build_whisper_command` render the managed
 command a cell runs; `effective_command`/`effective_health_path` are what launch/probing consume.
+The runners themselves are classes in `caravan/domain/runner.py` (`REGISTRY`). Two of them,
+`ollama` 🟠 and `lmstudio` 🟣 (2026-09-25), are cells whose model runs inside an engine next to
+them: they share `EngineCellMixin` (a mixin, since every `*Runner` class is a registry row), keep
+the model as the engine names it in `ENGINE_MODEL` and the engine's loopback port in `ENGINE_PORT`
+(its own 11434 / 1234 when empty; a non-port is refused, 0 included), and launch
+`bash $HOME/run_engine.sh "$PORT" <engine> <port> <model>` with the model quoted for the shell. They have no tab in the cell editor (`editor_tab = False`, sent as `editorTab`): an engine
+cell is made on the reserve step, choosing the engine and its model.
 Owns: the runner table and format requirements.
 Key functions: `runner_id`, `uses_command_path`, `build_vllm_command`, `build_whisper_command`,
 `effective_command`, `effective_health_path`.
@@ -359,6 +366,22 @@ one more model act, as a load is. `EngineReport` keeps the download under way
 Key functions: `EngineActions.act`, `EngineActions.serve`, `EngineActions.pull`;
 `POST /api/engines/load|unload|delete|pull|start|stop`.
 
+## `engine_cells.py`
+
+`EngineCellPlan` — a cell reserved to run inside an engine next to it (2026-09-25). The operator
+says where a new cell runs: the caravan itself, Ollama, or LM Studio on that machine; for an engine
+the reserve takes the model too, and the slot is born with `{RUNNER, CELL_KIND: "command",
+ENGINE_MODEL, ENGINE_PORT}` — the runner, the model as the engine names it, and the engine's port
+from the machine's report. The engines a cell can run in are the runners with `engine_cell`
+(`EngineCellMixin`); the registry sends it as `engineCell`. Refused in words, before a port is
+taken: an engine no runner serves, a machine with no report, a scout older than 2.12, an engine not
+reported, an engine not ready (each state its own words: stopped, not answering, asks for a token),
+an engine that did not list its models or has none, no model, a model it does not have. The engine
+is asked about before the model: a board that found nothing to choose from sends no model and hears
+why. No slot `model` is written — the engine's model name is not a file (the garbage collector and
+the start read that field).
+Key functions: `EngineCellPlan.from_body`, `EngineCellPlan.config`, `EngineCellPlan.kinds`.
+
 ## `engine_outputs.py`
 
 The models of engines next to the cells (Ollama, LM Studio — found by the
@@ -591,6 +614,20 @@ never blocks a start: an out-of-date cell beats no cell.
 Before this, each host obtained these files independently — clients from their caravan-scout clone,
 the controller from somebody copying one in by hand — and the copies drifted for months with no
 error anywhere.
+
+`engine_cell_server.py` (2026-09-25) is the cell whose model runs inside an engine next to it —
+Ollama or LM Studio, listening on 127.0.0.1 only. The cell is the way in: it binds the cell's port,
+forwards what it is sent to the engine with the cell's model named in every request (a caller need
+not know what the engine calls it, and `/v1/models` lists only that model), and streams a reply
+through as it arrives. Starting it loads the model and holds it (Ollama: keep_alive -1, set again
+after each request on an OpenAI-style path, which resets Ollama's timer; LM Studio: the REST load,
+which has no idle limit); stopping unloads it. `/health` asks the engine every 5 s whether the model
+is still there and reports an error with the reason when it is not; while the cell waits for the
+engine (up to 90 s — the machine may be bringing both up) it says what it waits on. Standard
+library only; `run_engine.sh` only starts it, and exists because a scout brings a cell's files into
+$HOME by the `run_<name>.sh` its command names — a bare `python3 …server.py` would name none, and
+the server would never reach the machine. Runners `ollama` and `lmstudio` get the launcher,
+`cell_base.py` and this.
 Owns: `cells/` and what `/api/cell-assets` exposes.
 Key functions: `cell_assets_manifest`, `cell_asset_bytes`, `materialize_local_assets`,
 `assets_for_runner`.
@@ -604,7 +641,9 @@ collisions raise 409. `upsert_server_slot` deliberately keeps empty-string confi
 field is a *removed* flag — dropping it would make the edit form re-inherit the controller default),
 and keeps a ≤10-entry command history for command cells (one-click revert). A cell of the
 controller's own host id is refused (`refuse_controller_host`, `CONTROLLER_RUNS_NO_CELLS`): since
-step 6.8 the controller's machine runs its cells through its scout.
+step 6.8 the controller's machine runs its cells through its scout. A reserve that names an engine
+(`{hostId, engine, model}`) is a cell in that engine: `reserve_server_cell` checks its plan
+(`engine_cells.py`) before it takes a port, and the slot is born configured.
 Owns: the `serverSlots` records inside admin state.
 Key functions: `server_slot_key`, `next_server_cell_port`, `used_server_cell_ports`,
 `assert_server_cell_port_available`, `upsert_server_slot`, `reserve_server_cell`,

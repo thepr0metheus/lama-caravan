@@ -21,6 +21,7 @@ export class CardFold {
   static KEY_DENSITY = "boardCardDensity";
   static KEY_PINNED = "boardCardPinned";
   static KEY_HIDE_IDLE = "boardCellsHideIdle";
+  static KEY_LAUNCHER = "boardCellsLauncher";
   // How a folded card of each lane opens. A cell opens in a window on a click
   // (2026-09-25, the operator's choice: the card that floated open on hover,
   // and could be pinned in place, is gone for cells). An agent still floats
@@ -35,6 +36,9 @@ export class CardFold {
     // The machines whose eye hides the cells that are not running (2026-09-25):
     // a choice per machine, as the eye sits on each machine's list of cells.
     this.hideIdle = new Set(this.read(CardFold.KEY_HIDE_IDLE, []));
+    // What each machine's chips narrow its cells to (2026-09-25): "caravan"
+    // or an engine runner's id, by machine; a machine not here shows them all.
+    this.launchers = this.read(CardFold.KEY_LAUNCHER, {});
     // The card floating open now. Kept here, not only as a class on the DOM:
     // the board repaints its lanes wholesale, and a float that vanished with
     // every repaint would flicker shut under a resting pointer.
@@ -90,6 +94,22 @@ export class CardFold {
     else this.hideIdle.add(k);
     this.write(CardFold.KEY_HIDE_IDLE, [...this.hideIdle]);
     return this.hideIdle.has(k);
+  }
+
+  /** The launcher machine `hostId`'s chips narrow its cells to, or "" — all of them. */
+  launcherOf(hostId) {
+    const chosen = this.launchers[String(hostId)];
+    return typeof chosen === "string" ? chosen : "";
+  }
+
+  /** Narrow machine `hostId`'s cells to the ones `launcher` runs; "" shows them all. */
+  setLauncher(hostId, launcher) {
+    const k = String(hostId);
+    const v = String(launcher || "");
+    if (v) this.launchers[k] = v;
+    else delete this.launchers[k];
+    this.write(CardFold.KEY_LAUNCHER, this.launchers);
+    return this.launcherOf(k);
   }
 
   /** Whether a folded card of `lane` opens in a window (not floating over the lane). */

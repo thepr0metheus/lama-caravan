@@ -7,9 +7,9 @@ import { $, escapeHtml } from "./utils.js";
 
 let _resolve = null;
 let _mode = "confirm";
-// The pressed choice of a "prompt-choice" dialog. Every dialog that opens
-// resets it — also one opened over a dialog that never settled — and only a
-// "prompt-choice" settle reads it.
+// The pressed choice of a "prompt-choice" or "confirm-choice" dialog. Every
+// dialog that opens resets it — also one opened over a dialog that never
+// settled — and only the settle of one of those two reads it.
 let _choice = null;
 
 function openDialog(message, opts, mode) {
@@ -28,7 +28,7 @@ function openDialog(message, opts, mode) {
     $("confirmText").textContent = asks ? (opts.text || "") : message;
     const meta = $("confirmMeta");
     if (meta) { meta.hidden = true; meta.innerHTML = ""; }
-    if (meta && mode === "prompt-choice") renderChoices(meta, opts);
+    if (meta && (mode === "prompt-choice" || mode === "confirm-choice")) renderChoices(meta, opts);
     const path = $("confirmPath");
     if (path) path.textContent = opts.detail || "";
     const input = $("confirmInput");
@@ -80,15 +80,16 @@ function openDialog(message, opts, mode) {
   });
 }
 
-// The choices of a "prompt-choice" dialog: one pressed at a time, as radio
-// buttons are; opts.choice is pressed first, else the first one.
+// The choices of a "prompt-choice" or "confirm-choice" dialog: one pressed at
+// a time, as radio buttons are; opts.choice is pressed first, else the first
+// one. opts.list lays a long list out as a column that scrolls.
 function renderChoices(meta, opts) {
   const choices = Array.isArray(opts.choices) ? opts.choices : [];
   if (!choices.length) return;
   const first = choices.some((c) => String(c.value) === String(opts.choice)) ? String(opts.choice) : String(choices[0].value);
   _choice = first;
   meta.hidden = false;
-  meta.innerHTML = `<div class="dlg-choices" role="radiogroup" aria-label="${escapeHtml(opts.choiceLabel || "")}">`
+  meta.innerHTML = `<div class="dlg-choices${opts.list ? " dlg-choices-list" : ""}" role="radiogroup" aria-label="${escapeHtml(opts.choiceLabel || "")}">`
     + (opts.choiceLabel ? `<span class="dlg-choices-label">${escapeHtml(opts.choiceLabel)}</span>` : "")
     + choices.map((c) => `<button type="button" class="dlg-choice" role="radio" data-t="confirm-choice"
         data-t-id="${escapeHtml(String(c.value))}" data-choice="${escapeHtml(String(c.value))}"
@@ -129,6 +130,14 @@ export function appPromptChoice(message, opts = {}) {
   return openDialog(message, opts, "prompt-choice");
 }
 
+// A confirm that also asks one of several choices — where a new cell runs, and
+// for an engine the model it holds (docs/foreign-engines.md, cells in engines).
+// The same opts as appPromptChoice, without the text. Resolves the pressed
+// choice's value as a string, or null on cancel.
+export function appConfirmChoice(message, opts = {}) {
+  return openDialog(message, opts, "confirm-choice");
+}
+
 // Resolve the pending dialog (ok=true → confirmed / input submitted). Returns
 // whether one was pending — closeConfirmModal calls this first so Cancel/
 // Escape/overlay-click resolve the promise instead of leaving it hanging.
@@ -137,6 +146,7 @@ export function settleAppConfirm(ok) {
   _resolve = null;
   const value = _mode === "prompt" ? (ok ? $("confirmInput").value : null)
     : _mode === "prompt-choice" ? (ok ? { value: $("confirmInput").value, choice: _choice } : null)
+      : _mode === "confirm-choice" ? (ok ? _choice : null)
       : !!ok;
   _mode = "confirm";
   $("confirmOverlay").hidden = true;

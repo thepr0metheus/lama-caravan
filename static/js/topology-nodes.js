@@ -1,7 +1,7 @@
 // Host-centric nodes view: server cards, telemetry mounts, incidents, models bar.
 import { drawTopologyCables } from "./cables.js";
 import { CARD_FOLD, CardFold } from "./card-fold.js";
-import { CellEye, CellRow, CellWindow, FoldSlot } from "./card-rows.js";
+import { CellEye, CellFilter, CellRow, CellWindow, FoldSlot } from "./card-rows.js";
 import { nodeTelemetryRowsHtml, renderTopologyIncidents } from "./charts.js";
 import { badge, mbadge, modelsByPath } from "./form.js";
 import { t } from "./i18n.js";
@@ -50,14 +50,18 @@ const _ST_FMT = new Set(["NVFP4", "MXFP4", "AWQ", "GPTQ", "AUTOROUND", "FP8",
 // Runner identity chip shown IN the model-name row of every cell card —
 // replaces the generic "chip" svg so the engine is readable at a glance.
 function runnerChipHtml(runnerId) {
-  const meta = { "llama-server": ["🦙", "llama.cpp"], "vllm": ["⚡", "vLLM"],
-                 "whisper": ["🎙", "whisper"], "moonshine": ["🌙", "moonshine"],
-                 "transcribe": ["📝", "transcribe.cpp"],
-                 "seamless": ["🌐", "seamless"],
-                 "translate": ["🔄", "nllb"],
-                 "custom": ["🛠", "command"] }[runnerId];
+  const known = { "llama-server": ["🦙", "llama.cpp"], "vllm": ["⚡", "vLLM"],
+                  "whisper": ["🎙", "whisper"], "moonshine": ["🌙", "moonshine"],
+                  "transcribe": ["📝", "transcribe.cpp"],
+                  "seamless": ["🌐", "seamless"],
+                  "translate": ["🔄", "nllb"],
+                  "custom": ["🛠", "command"] }[runnerId];
+  // A runner this table does not name speaks for itself, from the registry:
+  // its icon and its name (the engine runners — 🟠 Ollama, 🟣 LM Studio).
+  const row = known ? null : runnerRegistry().find((r) => r.id === runnerId && r.labelKey);
+  const meta = known || (row ? [String(row.icon || ""), t(row.labelKey)] : null);
   if (!meta) return "";
-  return `<span class="mbadge mbadge-cmd node-runner-chip">${meta[0]} ${meta[1]}</span>`;
+  return `<span class="mbadge mbadge-cmd node-runner-chip">${escapeHtml(meta[0])} ${escapeHtml(meta[1])}</span>`;
 }
 
 //: Spelled out, not composed — see the same table in form.js.
@@ -666,7 +670,46 @@ function launchFilesSuffix(roles) {
 // `fold` asks for the lane's folding: a quiet cell becomes a line whose full
 // card floats open on hover (card-fold.js). Without it — the tests, the
 // detail views — the card is drawn exactly as it always was.
-export function nodeServerCardHtml(node, s, { fold = false } = {}) {
+// A machine's chips over its cells (2026-09-25): all of them, the caravan's
+// own, or each engine next to it that can hold a cell — offered when there is
+// a choice to make: the machine reports such an engine, or has a cell in one.
+// A launcher chosen once that the machine no longer offers shows them all, so
+// no list can stay narrowed to nothing with no chip to widen it.
+export function nodeCellFilter(n, servers = []) {
+  const launcher = (srv) => engineRunnerOf(srv)?.id || "caravan";
+  const reported = Array.isArray(n?.engines) ? n.engines : [];
+  const offered = runnerRegistry().filter((r) => r.engineCell === true
+    && (reported.some((e) => String(e.kind || "") === r.id) || servers.some((srv) => launcher(srv) === r.id)));
+  if (!offered.length) return new CellFilter({ hostId: n?.id });
+  const count = (id) => servers.filter((srv) => launcher(srv) === id).length;
+  const caravan = t("launcherCaravan");
+  const options = [
+    { id: "", label: t("cellsFilterAll"), count: servers.length, title: t("cellsFilterAllTitle") },
+    { id: "caravan", label: caravan, count: count("caravan"), title: t("cellsFilterOnly", { launcher: caravan }) },
+    ...offered.map((r) => {
+      const e = reported.find((x) => String(x.kind || "") === r.id) || null;
+      const name = String(e?.label || t(r.labelKey || "") || r.id);
+      const up = e ? e.state === "ok" : null;
+      const state = up === null ? "" : `\n${t(up ? "cellsFilterEngineUp" : "cellsFilterEngineDown", { engine: name })}`;
+      return { id: r.id, label: name, count: count(r.id), up, title: `${t("cellsFilterOnly", { launcher: name })}${state}` };
+    }),
+  ];
+  const want = CARD_FOLD.launcherOf(n?.id);
+  return new CellFilter({ hostId: n?.id, chosen: options.some((o) => o.id === want) ? want : "", options });
+}
+
+// The runner of a cell whose model runs inside an engine next to it (Ollama,
+// LM Studio; 2026-09-25) — the registry says which runners those are — or
+// null for a cell the caravan runs itself. The card, the machine's CPU line
+// and its chips all ask this one question.
+export function engineRunnerOf(srv) {
+  const id = String(srv?.slotConfig?.RUNNER || "").trim().toLowerCase();
+  return id ? runnerRegistry().find((r) => r.id === id && r.engineCell === true) || null : null;
+}
+
+// `only`: the launcher the machine's chips narrow its cells to ("caravan" or
+// an engine runner's id), "" for all — the lane decides it (nodesLaneHtml).
+export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   const isStopping = _stoppingHosts.has(node.id);
   const port = s.port;
   const slotHostId = node.id;
@@ -774,6 +817,18 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
     || !!runnerRegistry().find((r) => r.id === _runner)?.tokenContext;
   const _isSpeechCell = _audioMs > 0
     || ["transcribe", "whisper", "moonshine", "seamless"].includes(_runner);
+  // A cell whose model runs inside an engine next to it (Ollama, LM Studio;
+  // 2026-09-25): the registry says which runners those are, and the machine's
+  // report on that engine says the rest — the model's job, the memory it
+  // holds, its size. The cell's own process holds no model: it is no CPU cell.
+  const engineRunner = engineRunnerOf(s);
+  const engineModelName = engineRunner ? String(_scfg.ENGINE_MODEL || "").trim() : "";
+  const engineRep = engineRunner
+    ? (Array.isArray(node.engines) ? node.engines : []).find((e) => String(e.kind || "") === engineRunner.id) || null
+    : null;
+  const engineModel = engineRep && Array.isArray(engineRep.models)
+    ? engineRep.models.find((m) => m && m.name === engineModelName) || null : null;
+  const engineName = engineRunner ? String(engineRep?.label || t(engineRunner.labelKey || "") || engineRunner.id) : "";
   const ctxChip = _isSpeechCell
     ? (_audioMs > 0 ? mbadge("ctx", `🪟 ${Math.round(_audioMs / 1000)} s`, t("audioWindowChipTitle")) : "")
     : (s.ctxMax
@@ -914,7 +969,17 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
   const _vramClaim = running
     ? _gpuList.filter((g) => g.mib > 0).map((g) => `${g.i}:${g.mib}`).join(",")
     : "";
-  const memBadge = (running && _vramMib)
+  // An engine cell's memory is its engine's for this model: what the engine
+  // says it holds while the cell runs, the file's size while it does not.
+  const engineHeld = running && engineModel?.loaded === true
+    ? (engineModel.vramBytes ?? engineModel.memBytes ?? null) : null;
+  const engineFile = engineModel && !engineModel.remote && Number(engineModel.fileBytes) > 0
+    ? Number(engineModel.fileBytes) : 0;
+  const memBadge = engineRunner
+    ? (engineHeld != null
+        ? mbadge("vram", `${escapeHtml((Number(engineHeld) / 2 ** 30).toFixed(1))}G`, t("cellEngineMemTitle", { engine: engineName }))
+        : (engineFile ? mbadge("vram-est", `≈${escapeHtml((engineFile / 2 ** 30).toFixed(1))}G`, t("vramEstChipTitle")) : ""))
+    : (running && _vramMib)
     ? mbadge("vram", `${escapeHtml((_vramMib / 1024).toFixed(1))}G`, `${t("vramChipTitle")}${_vramSplit ? ` — ${_vramSplit}` : ""}`)
     : ((!running && Number(s.modelSizeBytes) > 0)
         ? mbadge("vram-est", `≈${escapeHtml((Number(s.modelSizeBytes) / 2 ** 30).toFixed(1))}G`, t("vramEstChipTitle"))
@@ -932,10 +997,12 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
   const runnerDefaultsGpu = _runner === "llama-server" || _runner === "vllm" || _runner === "whisper"
     || _runner === "transcribe";
   const runnerCpuOnly = _runner === "moonshine";
-  const isCpuCell = (running && !devGpuTxt && !cfgSaysGpu)
+  const isCpuCell = !engineRunner && ((running && !devGpuTxt && !cfgSaysGpu)
     || (!running && (cfgSaysCpu || runnerCpuOnly) && !isReserved)
-    || (running && runnerCpuOnly);
-  const deviceChip = (running && devGpuTxt)
+    || (running && runnerCpuOnly));
+  // Where an engine computes is the engine's to say: its cell names the engine
+  // (the runner chip) and the memory it holds, not a device of its own.
+  const deviceChip = engineRunner ? "" : (running && devGpuTxt)
     ? mbadge("gpu", `⚡ ${escapeHtml(devGpuTxt)}`)
     : (isCpuCell
         ? mbadge("cpu", "🧮 CPU", t("topologyCpuCellsHint"))
@@ -944,6 +1011,16 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
                 ? mbadge("gpu", "⚡ GPU", t("topologyDeviceCfgGpuHint"))
                 : mbadge("dev", "⚙ auto", t("topologyDeviceAutoHint")))
             : ""));
+  // The model as the engine names it, verbatim — "google/gemma-4-e4b", not a
+  // file name parsed out of it; what it is from the engine's report.
+  const engineBlock = engineRunner ? `
+    <div class="node-model-block" role="button" tabindex="0" data-t="cell-engine-model" data-t-id="${escapeHtml(slotKey)}"
+         data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
+      <div class="node-model-ident">
+        <strong class="node-model-name" title="${escapeHtml(engineModelName)}"><span>${escapeHtml(engineModelName)}</span></strong>
+      </div>
+      ${statusRow || `<div class="node-model-row2"><span class="model-chips">${jobChipsHtml(_runner, s.cellMeta, _scfg) || engineJobChipsHtml(engineModel)}${runnerChipHtml(_runner)}${memBadge}${engineModel?.params ? mbadge("size", `⚖ ${escapeHtml(engineModel.params)}`) : ""}${engineModel?.quant ? mbadge("quant", `🎛 ${escapeHtml(engineModel.quant)}`) : ""}${running && engineModel?.contextLength ? mbadge("ctx", `🪟 ${escapeHtml(formatCtxTokens(Number(engineModel.contextLength)))}`) : ""}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}${crashChip}</span></div>`}
+    </div>` : "";
   const modelBlock = s.model ? `
     <div class="node-model-block" role="button" tabindex="0"
          data-node-detail="${escapeHtml(node.id)}:${escapeHtml(String(port))}" title="${escapeHtml(t("topologyLlamaDetailOpen") || "Show details")}">
@@ -1036,7 +1113,7 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
       </div>
       ${statusRow || `<div class="node-model-row2"><span class="model-chips">${jobChipsHtml("moonshine", s.cellMeta, _scfg)}${runnerChipHtml("moonshine")}${deviceChip}${memBadge}${mbadge("cmd", "❤ /health")}${mbadge("ctx", `:${escapeHtml(String(port))}`)}${schedChip}${staleSrcChip}${crashChip}</span></div>`}
     </div>` : "";
-  const bodyBlock = modelBlock || vllmBlock || whisperBlock || moonshineBlock || commandBlock || emptyCellBlock;
+  const bodyBlock = engineBlock || modelBlock || vllmBlock || whisperBlock || moonshineBlock || commandBlock || emptyCellBlock;
   // No model/command block to host the status (e.g. a bare stopped server) —
   // fall back to the old below-the-body progress panel.
   const progressPanel = (!bodyBlock && statusRow)
@@ -1048,6 +1125,7 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
     isReserved ? "reserved-cell" : "",
     isNewReserved ? "reserved-new" : "",
     isCpuCell ? "cpu-cell" : "",
+    engineRunner ? `engine-cell engine-${CellRow.launcher(engineRunner.id)}` : "",
   ].filter(Boolean).join(" ");
   const pillPhase = isStopping ? "stopping" : (running ? "running" : ((isError || isBroken) ? "failed" : (phase === "stopped" ? "stopped" : (isWarming ? "warming" : "loading"))));
   // Lifecycle breadcrumb — reserved(0) → configured(1) → starting(2) → running(3)
@@ -1071,8 +1149,10 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
          ${canDelete ? `data-t="cell-delete" data-t-id="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}" data-node-slot-del="${escapeHtml(cellHostId)}:${escapeHtml(String(port))}"` : "disabled"}
          title="${escapeHtml(canDelete ? t("nodeRemoveCell") : t("nodeCannotRemoveActive"))}">✕<span class="nab-lbl">${escapeHtml(t("deleteAction"))}</span></button>`;
 
-  // ⚙ Configure — disabled only during starting / stopping / deleting
-  const canConfigure = !isDeleting && !isCellBusy && phase !== "starting";
+  // ⚙ Configure — disabled only during starting / stopping / deleting. An
+  // engine cell has no editor: it is made at the reserve step, engine and
+  // model chosen there, and the editor's forms are the caravan's own runners'.
+  const canConfigure = !engineRunner && !isDeleting && !isCellBusy && phase !== "starting";
   // ⇄ Reassign port — same window as delete: only a parked cell may move.
   const canReassign = (isReserved || phase === "stopped" || isError) && !isDeleting && !isCellBusy;
   const portAttrs = canReassign
@@ -1089,7 +1169,7 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
   // The confirm has to know what it is starting: a command-path cell runs a
   // command, and its "model name" row holds that command line — only the
   // render knows the runner, so hand it to the click handler.
-  const cellRunner = isCmdCell ? "custom"
+  const cellRunner = engineRunner ? engineRunner.id : isCmdCell ? "custom"
     : (String(_scfg.RUNNER || "").toLowerCase() || "llama-server");
   // What a start needs to know, once: the card's ▶ and the folded line's ▶
   // are the same start, and two copies of these attributes would drift. A
@@ -1180,14 +1260,20 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
   // stays: one just reserved, and the one whose window is open. A hidden cell
   // leaves a mark, not nothing: a cable looks for its handle, and must learn
   // the cell was put away, not lost (cables.js).
-  if (fold && CARD_FOLD.hidesIdle(node.id) && CardFold.cellIdle(settle)
-      && !isNewReserved && CARD_FOLD.openKey !== slotKey) {
-    return `<span hidden data-cell-hidden="${escapeHtml(slotKey)}" data-cell-hidden-port="${escapeHtml(String(port))}"></span>`;
+  // The machine's chips hide the cells another launcher runs, on the same
+  // terms. The mark says which rule hid the cell: the eye counts only its own.
+  const kept = isNewReserved || CARD_FOLD.openKey === slotKey;
+  const hiddenBy = !fold || kept ? ""
+    : (only && only !== (engineRunner ? engineRunner.id : "caravan")) ? "launcher"
+      : (CARD_FOLD.hidesIdle(node.id) && CardFold.cellIdle(settle)) ? "idle" : "";
+  if (hiddenBy) {
+    return `<span hidden data-cell-hidden="${escapeHtml(slotKey)}" data-cell-hidden-port="${escapeHtml(String(port))}"`
+      + ` data-cell-hidden-by="${hiddenBy}"></span>`;
   }
   const foldMode = fold ? CARD_FOLD.mode("cells", slotKey, CardFold.cellQuiet(settle)) : "full";
   if (foldMode === "full") return cardHtml(anchorHtml);
   // The same name the card's body shows, by the same precedence as its blocks.
-  const rowName = s.model ? (parsed.label || s.model)
+  const rowName = engineRunner ? engineModelName : s.model ? (parsed.label || s.model)
     : isVllmCell ? vllmName
       : isWhisperCell ? whisperSize
         : isMoonshineCell ? moonshineLang
@@ -1195,7 +1281,8 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
   const row = new CellRow({
     key: slotKey, port, name: rowName, title: s.model ? (s.modelPath || s.model) : rowName,
     state: running ? "running" : (isReserved ? "reserved" : "parked"),
-    cpu: isCpuCell, chip: memBadge || deviceChip, launch: canPlay ? launchAttrs : "",
+    cpu: isCpuCell, engine: engineRunner ? engineRunner.id : "", chip: memBadge || deviceChip,
+    launch: canPlay ? launchAttrs : "",
     stop: canStop ? stopAttrs : "", why: running ? stopTitle : playTitle,
     warn: !!(staleSrcChip || staleModelChip || diskNewerChip),
     tps: running && Number(s.genTps || 0) > 0 ? `${formatTps(s.genTps)} t/s` : "",
@@ -1204,8 +1291,14 @@ export function nodeServerCardHtml(node, s, { fold = false } = {}) {
   // A click on the line opens the card as a window over the board. The window
   // is titled with the line's own name, and the machine's address is named
   // only when the report carries one — ":22007" alone would read as an address.
+  // A cell in an engine names where its requests go: the engine's loopback
+  // port, which only this cell's port leads to.
+  const enginePort = engineRunner ? String(_scfg.ENGINE_PORT || "").trim() : "";
   const cellWindow = new CellWindow({
-    key: slotKey, name: row.shownName(), port, address: (s.clientIp || node.ip) ? addr : "", card: cardHtml(""),
+    key: slotKey, name: row.shownName(), port, address: (s.clientIp || node.ip) ? addr : "",
+    via: enginePort ? `127.0.0.1:${enginePort}` : "",
+    viaTitle: enginePort ? t("cellWindowViaTitle", { engine: engineName, port: String(port) }) : "",
+    engine: engineRunner ? engineRunner.id : "", card: cardHtml(""),
   });
   return new FoldSlot({ key: slotKey, lane: "cells", mode: "line", line: row.html(), card: cellWindow.html(),
                         open: CARD_FOLD.openKey === slotKey }).html();
@@ -1614,8 +1707,9 @@ export function nodesLaneHtml() {
       bodyHtml = `<div class="node-rail">${rail || `<span class="topology-muted" style="font-size:11px">${escapeHtml(t("topologyNoServers"))}</span>`}</div>`;
     } else {
       const startingCard = nodeStartingCardHtml(n);
+      const filter = nodeCellFilter(n, servers);
       const serversHtml = servers.length
-        ? servers.map((s) => nodeServerCardHtml(n, s, { fold: true })).join("")
+        ? servers.map((s) => nodeServerCardHtml(n, s, { fold: true, only: filter.chosen })).join("")
         : "";
       // Cells that run on this host WITHOUT touching a GPU (n-gpu-layers 0,
       // command cells): they never appear in a GPU row's ▶ ports, so give
@@ -1624,7 +1718,8 @@ export function nodesLaneHtml() {
         const ph = srv.phase || (srv.status && srv.status.phase) || "";
         // Same rule as the card's chip: a GPU-pinned cell is never a CPU cell,
         // even in the window where it holds no VRAM yet.
-        return ph === "running" && !(srv.gpuIndexes || []).length && !cellPinnedToGpu(srv);
+        // Nor is a cell in an engine: its own process holds no model.
+        return ph === "running" && !(srv.gpuIndexes || []).length && !cellPinnedToGpu(srv) && !engineRunnerOf(srv);
       }).map((srv) => srv.port).filter(Boolean);
       // The CPU block mirrors a GPU row now: live load% in the head, RAM
       // used/total where a GPU shows VRAM — those two moved out of the node
@@ -1672,9 +1767,9 @@ export function nodesLaneHtml() {
       // The machine's eye over its cells, beside the list's title. The count is
       // read off the marks the cells left, so it is the rule's own answer.
       const eye = new CellEye({
-        hostId: n.id, on: CARD_FOLD.hidesIdle(n.id), hidden: (serversHtml.match(/data-cell-hidden=/g) || []).length,
+        hostId: n.id, on: CARD_FOLD.hidesIdle(n.id), hidden: (serversHtml.match(/data-cell-hidden-by="idle"/g) || []).length,
       }).html();
-      const serversHead = `<div class="node-servers-head">${serversSubtitle}${eye}</div>`;
+      const serversHead = `<div class="node-servers-head">${serversSubtitle}${filter.html()}${eye}</div>`;
       bodyHtml = `<div class="node-body">
           <div class="node-servers">${serversHead}${serversHtml}${startingCard}${addBtn}${nodeEnginesHtml(n)}${serverStatsSlot}</div>
           <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>

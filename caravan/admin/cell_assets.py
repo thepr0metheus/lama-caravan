@@ -45,6 +45,8 @@ CELL_ASSETS = (
     "run_seamless.sh",
     "translate_server.py",
     "run_translate.sh",
+    "engine_cell_server.py",
+    "run_engine.sh",
 )
 
 # Which assets a runner needs in $HOME before its command can run. The command
@@ -60,6 +62,12 @@ RUNNER_ASSETS = {
     "transcribe": ("run_transcribe.sh", "cell_base.py", "transcribe_server.py"),
     "seamless": ("run_seamless.sh", "cell_base.py", "seamless_server.py"),
     "translate": ("run_translate.sh", "cell_base.py", "translate_server.py"),
+    # A cell whose model runs inside an engine next to it. Its server needs
+    # only the standard library; the launcher is there because a scout brings
+    # a cell's files by the run_<name>.sh its command names — the two engines
+    # share it, and a scout that finds it under ollama fetches the same files.
+    "ollama": ("run_engine.sh", "cell_base.py", "engine_cell_server.py"),
+    "lmstudio": ("run_engine.sh", "cell_base.py", "engine_cell_server.py"),
 }
 
 

@@ -79,6 +79,38 @@ const out = {};
 
 # (id, setup, expression, expected JSON string, message). Filled from the pin
 # workflow; see the OOP-rewrite journal (private), phase 7, snapshot 6.
+# A machine whose scout reports three engines: Ollama running with two models,
+# LM Studio stopped (a model still listed: not ready is not ready), and "foo" —
+# an engine no runner of engine cells serves.
+# The dialogs record what they were asked and answer from __answers in turn.
+RSC_ENGINES = (
+    'globalThis.__snap = null; globalThis.__msg = null; globalThis.__asks = [];'
+    ' globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; };'
+    ' globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; };'
+    ' globalThis.__stubReturns["dialogs.appConfirmChoice"] = async (msg, opts) => { globalThis.__asks.push({ msg, opts }); return globalThis.__answers.shift(); };'
+    ' st.setState({ config: {}, runners: [{ id: "llama-server" }, { id: "ollama", engineCell: true }, { id: "lmstudio", engineCell: true }], artifacts: [], models: [], paths: {} });'
+    ' st.topology.nodes = [{ id: "h1", engines: ['
+    '{ kind: "ollama", label: "Ollama", port: 11434, state: "ok", models: [{ name: "qwen2.5:0.5b", params: "494M", quant: "Q4_K_M" }, { name: "gpt-oss:120b-cloud", remote: true }] },'
+    ' { kind: "lmstudio", label: "LM Studio", port: 1234, state: "stopped", models: [{ name: "google/gemma-4-e4b" }] },'
+    ' { kind: "foo", label: "Foo", port: 9, state: "ok", models: [{ name: "f" }] }] }];'
+)
+RSC_RUN = ('await (async () => { await rc.reserveServerCell("h1"); return { calls: calls(), toast: toastText(), '
+           'asks: globalThis.__asks, confirm: globalThis.__msg, reserving: [...rc._reservingCells.entries()], '
+           'fresh: [...rc._newReservedCells], snap: globalThis.__snap }; })()')
+RSC_ASK = {"danger": False, "confirmLabel": en("topologyReserveCellLabel"), "scene": "create"}
+RSC_WHERE = {"msg": en("dlgReserveCell", port=22001), "opts": {**RSC_ASK, "choiceLabel": en("reserveRunsIn"), "choices": [
+    {"value": "", "label": en("launcherCaravan")}, {"value": "ollama", "label": "Ollama"},
+    {"value": "lmstudio", "label": en("reserveEngineNotReady", engine="LM Studio")}]}}
+RSC_MODEL = {"msg": en("dlgReserveModelText", engine="Ollama"), "opts": {
+    **RSC_ASK, "title": en("dlgReserveModelTitle", port=22001), "choiceLabel": en("reserveModelLabel"), "list": True,
+    "choices": [{"value": "qwen2.5:0.5b", "label": "qwen2.5:0.5b · 494M · Q4_K_M"},
+                {"value": "gpt-oss:120b-cloud", "label": "gpt-oss:120b-cloud · ☁"}]}}
+
+
+def rsc_add(body):
+    return [{"path": "/api/topology/server-slot/add", "method": "POST", "body": json.dumps(body, separators=(",", ":"))}]
+
+
 PINS = [
     # ── remote_actions ──
     # ── create a client by hand ──
@@ -282,6 +314,27 @@ PINS = [
      'negative: ▶ у ячейки с моделью в библиотеке — обычное подтверждение старта, без вопроса «с диска или из '
      'библиотеки» и без поля modelFrom на проводе: ответ читали только ячейки контроллера, скаут читает модель на '
      'месте; и ответ сервера «везу модель» больше ничего не говорит'),
+    ('csa_engine_cell_start_speaks_of_the_model',
+     'globalThis.__asked = []; globalThis.__stubReturns["dialogs.appConfirm"] = async (text) => { globalThis.__asked.push(text); return false; };'
+     ' st.setState({ config: {}, runners: [{ id: "llama-server" }, { id: "custom" }, { id: "ollama", engineCell: true }], artifacts: [], models: [], paths: {} });',
+     r'''await (async () => {
+       const ask = async (runner, model) => {
+         const handlers = [];
+         const article = { querySelector: () => (model ? { textContent: ` ${model} ` } : null) };
+         const btn = { dataset: { nodeCellLaunch: "h1", nodeCellPort: "22031", nodeCellRunner: runner },
+                       closest: () => article, addEventListener: (ev, fn) => handlers.push(fn) };
+         const root = { querySelectorAll: (sel) => (sel === "[data-node-cell-launch]" ? [btn] : []) };
+         document.body ||= {}; document.body.dataset ||= { vramHoverBound: "1" };
+         rc.bindServerSlotControls(root);
+         await handlers[0]();
+       };
+       await ask("ollama", "qwen3:8b"); await ask("custom", "bash run.sh"); await ask("lmstudio", "m");
+       return { asked: globalThis.__asked, calls: calls() }; })()''',
+     json.dumps({"asked": [en("dlgStartModel", model="qwen3:8b", port="22031"), en("dlgStartCommand", port="22031"),
+                           en("dlgStartCommand", port="22031")], "calls": []}, ensure_ascii=False),
+     'positive: ▶ у ячейки в Ollama спрашивает о её модели — модель загрузится в память (движка); negative: у командной '
+     'ячейки — о команде, как прежде; раннер, которого реестр не называет ячейкой движка (lmstudio здесь), — тоже о команде; '
+     'отказ в диалоге — ни одного запроса'),
     ('csa_port_nan_body',
      '',
      'await (async () => { await rc.cellServiceAction("h1", "abc", "start"); return { calls: calls(), pending: rc._pendingCellActions.get("h1:abc") ?? null }; })()',
@@ -387,6 +440,65 @@ PINS = [
      'await (async () => { await rc.reserveServerCell(""); return ({ calls: calls(), toast: toastText(), reserving: [...rc._reservingCells.entries()], fresh: [...rc._newReservedCells], snap: globalThis.__snap, confirm: globalThis.__msg }); })()',
      '{"calls": [{"path": "/api/topology/server-slot/add", "method": "POST", "body": "{\\"hostId\\":\\"\\"}"}], "toast": "", "reserving": [], "fresh": [], "snap": [], "confirm": {"msg": "Reserve cell :22001? The port is claimed fleet-wide; the cell can be configured and started later.", "opts": {"danger": false, "confirmLabel": "Reserve cell", "scene": "create"}}}',
      'as-is: КАК ЕСТЬ: пустой hostId не блокируется — диалог показан, на провод {hostId:""}, ни спиннера, ни вспышки новой ячейки'),
+    # ── reserve: where the new cell runs, and an engine cell's model (2026-09-25) ──
+    ('rsc_engines_where_caravan',
+     RSC_ENGINES + ' globalThis.__answers = [""];',
+     RSC_RUN,
+     json.dumps({"calls": rsc_add({"hostId": "h1"}), "toast": "", "asks": [RSC_WHERE], "confirm": None, "reserving": [],
+                 "fresh": ["h1:22001"], "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
+     'positive: машина сообщает движки — первый шаг спрашивает, где работает ячейка: Caravan (он нажат первым), Ollama, '
+     'LM Studio с пометкой «не готов»; foo не предложен — он не раннер ячеек движка; выбран Caravan — на провод прежний '
+     '{hostId}, старый диалог не звали'),
+    ('rsc_engine_model_chosen',
+     RSC_ENGINES + ' globalThis.__answers = ["ollama", "qwen2.5:0.5b"]; globalThis.__fetchReply["/api/topology/server-slot/add"] = { cell: { hostId: "h1", port: 22001 } };',
+     RSC_RUN,
+     json.dumps({"calls": rsc_add({"hostId": "h1", "engine": "ollama", "model": "qwen2.5:0.5b"}), "toast": "",
+                 "asks": [RSC_WHERE, RSC_MODEL], "confirm": None, "reserving": [], "fresh": ["h1:22001"],
+                 "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
+     'positive: выбран Ollama — второй шаг: модели движка списком (имя · параметры · квант, облачная — ☁), заголовок с '
+     'портом, текст с именем движка; на провод {hostId, engine, model}'),
+    ('rsc_engine_not_ready_sent_bare',
+     RSC_ENGINES + ' globalThis.__answers = ["lmstudio"]; globalThis.__fetchReply["/api/topology/server-slot/add"] = { __status: 409, error: "LM Studio is not running on this machine — start its server first" };',
+     RSC_RUN,
+     json.dumps({"calls": rsc_add({"hostId": "h1", "engine": "lmstudio"}),
+                 "toast": "Error: LM Studio is not running on this machine — start its server first",
+                 "asks": [RSC_WHERE], "confirm": None, "reserving": [], "fresh": [],
+                 "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
+     'negative: движок не готов — выбирать модель не из чего, запрос уходит без неё, и причину говорит контроллер (тост его '
+     'словами), а не вторая копия правила на доске'),
+    ('rsc_engine_ok_no_models',
+     RSC_ENGINES + ' globalThis.__answers = ["ollama"]; st.topology.nodes[0].engines[0].models = [];',
+     RSC_RUN,
+     json.dumps({"calls": rsc_add({"hostId": "h1", "engine": "ollama"}), "toast": "", "asks": [RSC_WHERE],
+                 "confirm": None, "reserving": [], "fresh": ["h1:22001"],
+                 "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
+     'boundary: движок работает, но моделей нет — второго шага нет, запрос без модели (контроллер скажет «скачайте»)'),
+    ('rsc_engine_model_cancel',
+     RSC_ENGINES + ' globalThis.__answers = ["ollama", null];',
+     RSC_RUN,
+     json.dumps({"calls": [], "toast": "", "asks": [RSC_WHERE, RSC_MODEL], "confirm": None, "reserving": [], "fresh": [],
+                 "snap": None}),
+     'negative: отмена на шаге модели — ни запроса, ни спиннера, ни рендера'),
+    ('rsc_engine_where_cancel',
+     RSC_ENGINES + ' globalThis.__answers = [null];',
+     RSC_RUN,
+     json.dumps({"calls": [], "toast": "", "asks": [RSC_WHERE], "confirm": None, "reserving": [], "fresh": [], "snap": None}),
+     'negative: отмена на шаге «где» — второго шага нет, ни запроса, ни состояния'),
+    ('rsc_no_engine_cells_old_dialog',
+     RSC_ENGINES + ' globalThis.__answers = []; st.topology.nodes[0].engines = st.topology.nodes[0].engines.slice(2);',
+     'await (async () => { await rc.reserveServerCell("h1"); return { calls: calls(), asks: globalThis.__asks, confirm: globalThis.__msg }; })()',
+     json.dumps({"calls": rsc_add({"hostId": "h1"}), "asks": [], "confirm": {"msg": en("dlgReserveCell", port=22001), "opts": RSC_ASK}}),
+     'negative: у машины только движок, в котором ячейка не живёт (foo) — прежний диалог без выбора'),
+    ('rsc_registry_without_engine_cells',
+     RSC_ENGINES + ' globalThis.__answers = []; st.setState({ config: {}, runners: [{ id: "llama-server" }, { id: "ollama" }], artifacts: [], models: [], paths: {} });',
+     'await (async () => { await rc.reserveServerCell("h1"); return { asks: globalThis.__asks.length, confirm: !!globalThis.__msg, engines: rc.reserveEngines("h1") }; })()',
+     '{"asks": 0, "confirm": true, "engines": []}',
+     'negative: реестр контроллера не называет раннеров ячеек движка — движки не предлагаются, хотя скаут их видит'),
+    ('rsc_other_machine_engines',
+     RSC_ENGINES + ' globalThis.__answers = [];',
+     'await (async () => { await rc.reserveServerCell("h2"); return { asks: globalThis.__asks.length, confirm: !!globalThis.__msg, engines: rc.reserveEngines("h2").length, mine: rc.reserveEngines("h1").map((e) => e.kind) }; })()',
+     '{"asks": 0, "confirm": true, "engines": 0, "mine": ["ollama", "lmstudio"]}',
+     'negative: движки чужой машины не предлагаются — у h2 своих нет, прежний диалог'),
     ('dtca_yes_named',
      'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.clients = [{ id: "c1", agents: [{ id: "a1", name: "Scout" }] }];',
      'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { calls: calls(), toast: toastText(), confirm: globalThis.__msg }; })()',

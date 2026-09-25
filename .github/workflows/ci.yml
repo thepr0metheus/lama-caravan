@@ -33,6 +33,9 @@ jobs:
           python3 scripts/test_port_scan_hosts.py
           python3 scripts/test_engine_outputs.py
           python3 scripts/test_engine_actions.py
+          python3 scripts/test_engine_cell_server.py
+          python3 scripts/test_engine_runners.py
+          python3 scripts/test_engine_cell_reserve.py
           python3 scripts/test_scout_pairing.py
           python3 scripts/test_topology_remote_cells.py
           python3 scripts/test_install_llama_lock.py

@@ -26,7 +26,10 @@ from caravan.common.errors import AppError
 def client_server_slot_add(body: dict) -> dict:
     """Manually declare a persistent server slot (host:port) so a proxy cable
     can attach to it before/independently of the server actually running."""
-    if not body.get("port"):
+    # A cell in an engine is reserved with its plan (engine_cells.py), on a
+    # port of its own or the next free one; the plain slot below would take
+    # the engine's model name for a file.
+    if not body.get("port") or body.get("engine"):
         result = reserve_server_cell(body)
         return {"ok": True, "slot": result["cell"], "cell": result["cell"], "nextPort": result["nextPort"]}
     host_id = str(body.get("hostId") or "").strip()
