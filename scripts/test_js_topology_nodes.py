@@ -2979,6 +2979,50 @@ PINS += [
      "ничего не сказано"),
 ]
 
+# What a machine's next boot does to its NVIDIA card (2026-09-26): the
+# controller's DriverOutlook concludes, the card only words it — at the head
+# of the Compute column.
+DRV = ' const warn = (w, n = node) => norm(m.nodeDriverWarningsHtml({ ...n, driverWarnings: w }));'
+
+PINS += [
+    ("driver_warning_untrusted",
+     DRV,
+     'warn([{ kind: "nextBootNoDriver", reason: "untrusted-key", kernel: "7.0.0-34-generic", package: "linux-modules-nvidia-610-open-7.0.0-34-generic" }])',
+     json.dumps('<div class="node-driver-warning" role="status" data-t="node-driver-warning" data-t-id="h1:nextBootNoDriver">'
+                '<span aria-hidden="true">⚠</span> '
+                + _esc(_en("driverNextBootUntrusted").replace("{kernel}", "7.0.0-34-generic") + " "
+                       + _en("driverInstallPackage").replace("{package}", "linux-modules-nvidia-610-open-7.0.0-34-generic"))
+                + '</div>', ensure_ascii=False),
+     "утро 26 сентября словами: у нового ядра только сборка DKMS с ключом машины, которому Secure Boot не доверяет, — "
+     "и что поставить до перезагрузки; хук с машиной и видом предупреждения"),
+    ("driver_warning_reasons",
+     DRV + r' const text = (h) => (h.match(/<\/span> ([^<]*)<\/div>/) || [0, "none"])[1];',
+     '["missing", "unsigned"].map((r) => text(warn([{ kind: "nextBootNoDriver", reason: r, kernel: "K", package: null }])))',
+     json.dumps([_esc(_en("driverNextBootMissing").replace("{kernel}", "K") + " " + _en("driverInstallGeneric")),
+                 _esc(_en("driverNextBootUnsigned").replace("{kernel}", "K") + " " + _en("driverInstallGeneric"))],
+                ensure_ascii=False),
+     "нет модуля и неподписанный модуль — свои слова; пакет неизвестен — общий совет, без выдуманного имени"),
+    ("driver_warning_reboot",
+     DRV + r' const text = (h) => (h.match(/<\/span> ([^<]*)<\/div>/) || [0, "none"])[1];',
+     '[text(warn([{ kind: "rebootForDriver", installed: "610.57.04", loaded: "610.43.02" }])),'
+     ' (warn([{ kind: "rebootForDriver", installed: "610.57.04", loaded: "610.43.02" }]).match(/data-t-id="([^"]*)"/) || [])[1]]',
+     json.dumps([_esc(_en("driverRebootNeeded").replace("{installed}", "610.57.04").replace("{loaded}", "610.43.02")),
+                 "h1:rebootForDriver"], ensure_ascii=False),
+     "драйвер установлен новый, а в памяти старый — новые ячейки не откроют карту до перезагрузки"),
+    ("driver_warning_nothing",
+     DRV,
+     '[warn([]), warn(null), warn("x"), warn([{ kind: "nextBootNoDriver", reason: "other", kernel: "K" }]), warn([{ kind: "unknown" }]),'
+     ' warn([null])]',
+     json.dumps(["", "", "", "", "", ""]),
+     "negative: предупреждений нет, не список, причина или вид, которых доска не знает, пустая запись — ничего не "
+     "рисуется, а не пустая рамка"),
+    ("driver_warning_escaped",
+     DRV,
+     'warn([{ kind: "nextBootNoDriver", reason: "missing", kernel: "<b>k", package: "<i>p" }]).includes("<b>")',
+     'false',
+     "ядро и пакет из отчёта скаута экранированы"),
+]
+
 # A cell reserved in an engine (2026-09-25): the registry names the engine
 # runners (engineCell), the machine's report names the engine and its model.
 ENGINE_CELL = (
@@ -3165,6 +3209,15 @@ PINS += [
      '[true, true, false, false]',
      "машина без движков и без ячеек в них — полоса и полка каравана всё равно над списком: модели каравана запускает любая "
      "машина; negative: чипов и полос движков нет — выбирать не из чего"),
+    ("lane_driver_warning_heads_compute",
+     LANE,
+     '(h => { const col = (h.match(/<div class="node-gpus">(.*)$/) || [0, ""])[1];'
+     ' return [col.indexOf(\'data-t="node-driver-warning"\') > col.indexOf(\'class="node-subtitle"\'),'
+     ' col.indexOf(\'data-t="node-driver-warning"\') < col.indexOf("node-cpu-row"), h.includes(\'data-t="node-driver-warning"\')]; })'
+     '(norm((() => { st.setTopology({ ...st.topology, nodes: [{ ...node, servers: [mk()], driverWarnings: [{ kind: "rebootForDriver", installed: "2.0", loaded: "1.0" }] }] }); return m.nodesLaneHtml(); })()))',
+     '[true, true, true]',
+     "предупреждение — в голове колонки Compute: под её заголовком, над строкой процессора и картами, где карту "
+     "хватятся"),
     ("lane_cpu_line_skips_engine_cells",
      LANE,
      '(h => (h.match(/<span class="node-gpu-ports">▶ ([^<]*)</) || [0, "none"])[1])(lane([ENG()], [mk({ phase: "running" }), EC({ phase: "running" })]))',

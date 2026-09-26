@@ -105,6 +105,7 @@ jobs:
           python3 scripts/check_context_window.py
           python3 scripts/test_context_window.py
           python3 scripts/test_cell_key.py
+          python3 scripts/test_driver_outlook.py
           python3 scripts/test_route_windows.py
           python3 scripts/test_output_health.py
           python3 scripts/test_subscription_usage.py
@@ -174,6 +175,7 @@ jobs:
           python3 scripts/test_js_data_modules.py
           python3 scripts/test_js_canvas.py
           python3 scripts/test_js_topology_render.py
+          python3 scripts/test_js_model_list.py
           python3 scripts/check_proxy_response_paths.py
           python3 scripts/check_ci_coverage.py
           python3 scripts/check_command_mirrors.py

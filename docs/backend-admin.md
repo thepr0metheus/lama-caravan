@@ -189,6 +189,11 @@ Key functions: `read_gguf_metadata`, `extract_runtime_meta`, `detect_family`,
 `list_models` also lists the files only a usable library holds (`model_locator.py`), in their places
 and marked `libraryOnly` with their `store`; their header facts come from `library_meta.py`, never
 from reading the NAS.
+`ModelList` (one instance, `MODEL_LIST`) is the list the board follows: `/api/state`'s `models`,
+`/api/models/rows` and the topology's `modelsStamp` all read it. It keeps `list_models()` for 5 s
+(a beat per open board asks for the stamp; the walk is 4 ms warm on the controller) and
+`current()` gives the rows and the stamp of the same walk. `stamp_of(rows)` is 16 hex characters of
+the sorted path, kind, size, mtime and `libraryOnly` of each row.
 
 ## `model_locator.py`
 
@@ -686,7 +691,9 @@ health path; slot moves/reservations happen first. A machine is two records unde
 (`HostRecord`, since 2026-09-24): its HOST record in `topology.hosts` is what its scout reports —
 GPUs, compute apps (with the process's name, scout 2.12+), the engines next to its cells (Ollama,
 LM Studio — `EngineReport` in `caravan/domain/engine.py` keeps them typed, and None for a scout
-that cannot look, never "none"), CPU/RAM, cells, build versions, address — and `record_host_report` /
+that cannot look, never "none"), CPU/RAM, cells, build versions, address, and its NVIDIA driver as
+the next boot will meet it (`driver`, scout 2.19+, kept in its own shapes by `DriverOutlook.clean`) —
+and `record_host_report` /
 `host_from_report` replace it with each report; its CLIENT record in `topology.clients` is the
 operator's — name, agents — and no report touches it (old scouts still send agents; they are not
 read). `topology_hosts` computes a host's liveness on read (`online` within `HOST_REPORT_TTL`,
@@ -752,7 +759,16 @@ the rest of each card's memory named by who holds it (`outside`, from `GpuOwners
 `caravan/domain/engine.py`: an engine of the machine by the processes its scout names, else the
 process's own name); a node carries its machine's `engines` as the host record keeps them. The
 controller has no node of its own since step 6.9 — its machine is its scout's host node, marked
-`controllerMachine` (with the controller's own `gpuError` for it). `topology_state`
+`controllerMachine` (with the controller's own `gpuError` for it). A node also carries
+`driverWarnings` — `DriverOutlook` in `caravan/domain/driver_outlook.py` reading its scout's
+`driver` facts (2026-09-26: a kernel the automatic updates installed booted without its
+Canonical-signed modules, and Secure Boot refused the DKMS build signed by the machine's unenrolled
+key): `nextBootNoDriver` when a new kernel boots next and has no nvidia module (`missing`) or one
+Secure Boot will refuse (`unsigned`, `untrusted-key` — signed by the DKMS key the firmware does not
+know), with the `linux-modules-nvidia-<branch>[-open]-<kernel>` package that fixes it when the driver
+package is known; `rebootForDriver` when the driver installed is not the one loaded. It says
+nothing it cannot tell: Secure Boot unknown, a signer it does not know, a key whose enrolment is
+unknown, the same kernel booting next. `topology_state`
 pulls it together: refreshes clients from their agents (skippable via `refresh_clients=False`),
 resolves each proxy's *actual*
 upstream through its router's default output (the route's own upstreamPort is a legacy placeholder),

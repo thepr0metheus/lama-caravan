@@ -18,7 +18,7 @@ from caravan.admin.config_builder import (
 )
 from caravan.admin.llama_metrics import runtime_phase
 from caravan.admin.settings_bundle import passphrase_available
-from caravan.admin.models import (list_chat_templates, list_models, list_st_artifacts,
+from caravan.admin.models import (MODEL_LIST, list_chat_templates, list_st_artifacts,
                                   list_translate_models, list_whisper_sizes)
 from caravan.admin.monitoring import cpu_state, gpu_state, memory_state, runtime_api
 from caravan.admin.paths import ADMIN_SERVICE_NAME, AGENT_PROXY_SERVICE_NAME, IS_CONTAINER, LLAMA_HOME, PROJECT_ROOT, SERVICE_NAME, START_SCRIPT
@@ -146,6 +146,7 @@ def state():
     service = service_status()
     runtime = runtime_api(config)
     runtime["status"] = runtime_phase(service, runtime)
+    models, models_stamp = MODEL_LIST.current()
     return {
         "appVersion": APP_VERSION,
         "container": IS_CONTAINER,
@@ -163,7 +164,10 @@ def state():
             "modelsDir": str(models_dir_from_config(config)),
             "service": SERVICE_NAME,
         },
-        "models": list_models(config),
+        "models": models,
+        # What the board compares with the topology's stamp: equal, and the
+        # list it holds is current (ModelList, the one list both read).
+        "modelsStamp": models_stamp,
         "artifacts": list_st_artifacts(config),
         "whisperOnDisk": list_whisper_sizes(config),
         "translateOnDisk": list_translate_models(config),

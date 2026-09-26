@@ -1,6 +1,8 @@
 """GGUF model catalog: metadata parsing, family detection, local model listing."""
+import hashlib
 import json
 import re
+import time
 from pathlib import Path
 from struct import calcsize, unpack
 
@@ -755,3 +757,53 @@ def list_gguf_models() -> dict:
             "dir": str(rel.parent),
         })
     return {"ok": True, "models": files, "modelsDir": str(models_dir)}
+
+
+class ModelList:
+    """The models the cell editor offers, and a stamp of them for the board
+    (2026-09-26). The board read them once, with /api/state, and its beat
+    reads only the topology: the caravan's shelf, which lists the same rows,
+    never showed a model downloaded after the page opened. The stamp rides
+    the topology on every beat; the rows go only when it moved.
+
+    Kept for a few seconds: a beat per open board asks for the stamp, and a
+    list is a walk of the models folder and the libraries' last measurement
+    (4 ms warm on the controller, 49 rows, 2026-09-26).
+    """
+
+    TTL = 5.0
+
+    def __init__(self, lister=None, clock=time.time):
+        self.lister = lister or (lambda: list_models())
+        self.clock = clock
+        self._rows = None
+        self._at = 0.0
+
+    def rows(self):
+        now = self.clock()
+        if self._rows is None or now - self._at >= self.TTL:
+            self._rows = self.lister()
+            self._at = now
+        return self._rows
+
+    def current(self):
+        """The rows and their stamp, of the same list: read apart, the cache
+        could turn between the two and pair a list with another's stamp."""
+        rows = self.rows()
+        return rows, self.stamp_of(rows)
+
+    def stamp(self):
+        return self.current()[1]
+
+    @staticmethod
+    def stamp_of(rows):
+        """What a list is, in a few characters: a file coming, going, growing
+        or being rewritten changes it; the same files give the same stamp."""
+        facts = sorted([str(r.get("path") or ""), str(r.get("kind") or ""), int(r.get("size") or 0),
+                        int(r.get("mtime") or 0), bool(r.get("libraryOnly"))]
+                       for r in rows or [] if isinstance(r, dict))
+        return hashlib.sha1(json.dumps(facts).encode()).hexdigest()[:16]
+
+
+#: The one list the board follows.
+MODEL_LIST = ModelList()

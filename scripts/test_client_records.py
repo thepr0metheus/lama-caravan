@@ -1029,6 +1029,9 @@ def test_the_payload_keeps_machines_and_clients_apart():
         "cloud_provider_presets_public": lambda: [],
     }
     patch["SCOUT_POLLER"] = T.SCOUT_POLLER
+    from caravan.admin.models import ModelList
+    listed = [{"path": "a/b/Q4/a.gguf", "kind": "model", "size": 4, "mtime": 1}]
+    patch["MODEL_LIST"] = ModelList(lister=lambda: [dict(r) for r in listed])
     saved = {k: getattr(T, k) for k in patch}
     saved_cloud = cloud_api.annotate_cloud_topology
     saved_pull = fc.refresh_hosts_from_scouts
@@ -1059,6 +1062,9 @@ def test_the_payload_keeps_machines_and_clients_apart():
     check([c["id"] for c in payload["clients"]] == ["both", "hand"],
           "negative: машина без клиента не становится клиентом без агентов — её ✕ мог ответить только 404")
     check(payload["hosts"] == hosts, "машины — отдельным списком, с живостью, посчитанной при чтении")
+    check(payload.get("modelsStamp") == ModelList.stamp_of(listed) and len(payload["modelsStamp"]) == 16,
+          "ответ доски несёт отпечаток списка моделей (ModelList): по нему доска дочитывает список, а не держит "
+          "тот, что был при открытии страницы")
     check(not inline and board_read.get("clients") == clients and quiet == 1,
           "чтение доски только пинает фоновый опрос скаутов и не опрашивает их само — выключенная машина больше не добавляет 2 с к каждому опросу доски")
     check(len(kicks) == 1, "negative: ответы на действия (refresh_hosts=False) опрос не пинают")

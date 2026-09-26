@@ -12,6 +12,7 @@ import {
 } from "./cloud.js";
 import { appConfirm, appPrompt } from "./dialogs.js";
 import { applyLanguage, applyTheme, t } from "./i18n.js";
+import { MODEL_LIST } from "./model-list.js";
 import { fetchProxyDailyStats } from "./model-meta.js";
 import {
   formatCtxTokens,
@@ -511,6 +512,9 @@ let _boardRenderedOnce = false;
 
 export async function refreshTopology() {
   setTopology(await api("/api/topology"));
+  // The caravan's shelf lists the models the page holds: a moved stamp brings
+  // them in before the render that would draw the old ones.
+  await MODEL_LIST.follow(topology?.modelsStamp);
   // Structure-aware: full rebuild only when the graph changed, else a cheap
   // in-place patch — and never rebuild mid-interaction (deferred).
   applyTopologyUpdate();
@@ -555,7 +559,14 @@ export function topologyServerPhase(s) {
 // or how they connect. Deliberately EXCLUDES fast-moving numbers (t/s, VRAM,
 // ageSeconds, ctxUsed, download %), which syncTopologyLive() patches in place.
 export function topologyStructureFingerprint() {
-  if (!topology) return "";
+  return Object.values(topologyStructureParts()).join("||");
+}
+
+// The fingerprint by part, named: window.__fpDebug prints which one moved. The
+// names lived in a list of their own there and drifted — hosts and engines were
+// missing, so every part after clients was printed under its neighbour's name.
+export function topologyStructureParts() {
+  if (!topology) return {};
   const server = topology.server || {};
   // Agents and the SETTINGS on their routes go into the fingerprint on equal
   // footing with the assignments themselves: anything missing here doesn't
@@ -586,8 +597,12 @@ export function topologyStructureFingerprint() {
   // Which machines are on the board and whether their scouts answer: a host
   // appearing, or going silent, adds or removes a node's banner — structure.
   // Its age is not; the live patcher moves that.
+  // What a machine's next boot does to its card (driver_outlook.py) is said on
+  // it: a warning coming or going rebuilds the card.
   const hosts = (topology.nodes || [])
-    .map((n) => `${n.id}:${n.online ? 1 : 0}:${n.scoutVersion ? 1 : 0}`)
+    .map((n) => `${n.id}:${n.online ? 1 : 0}:${n.scoutVersion ? 1 : 0}:`
+      + (Array.isArray(n.driverWarnings) ? n.driverWarnings : [])
+        .map((w) => `${w?.kind || ""}${w?.reason || ""}${w?.kernel || ""}${w?.installed || ""}${w?.loaded || ""}`).join("+"))
     .sort().join(",");
   // Autostart is a setting of the card like the model: while ↟ was not here,
   // pressing it left the button spinning until something else changed — the
@@ -630,12 +645,15 @@ export function topologyStructureFingerprint() {
   const llamaVer = (topology.nodes || [])
     .map((n) => `${n.id}:${(n.llamaBinaryVersion || "").slice(0, 40)}:${(n.llamaBinaryMtime || "").slice(0, 19)}:${n.llamaUpdate?.running ? 1 : 0}:${(n.powerSchedule || {}).enabled ? (n.powerSchedule.at || "") : ""}`)
     .sort().join(",");
+  // The models the page holds (model-list.js): the caravan's shelf on each
+  // card lists them, so a new list rebuilds the cards.
+  const models = state?.modelsStamp || "";
   const view = `${topologyNodesViewOn ? 1 : 0}:${[..._collapsedNodes].sort().join("+")}`;
   // In-flight cell actions are structural: adding/clearing one must re-render
   // the card even when the server-side topology has not moved yet.
   const pendingCells = `${[..._pendingCellActions.keys()].sort().join("+")}:${[..._stoppingCells].sort().join("+")}`;
   const modals = `${ui.topologyProxyFormOpen ? 1 : 0}:${topologyQueuePriorityModalOpen ? 1 : 0}:${topologyRouteDetail?.proxyId || ""}`;
-  return [clients, hosts, classicSrv, nodeSrv, gpus, engines, prox, cloud, llamaVer, view, pendingCells, modals].join("||");
+  return { clients, hosts, classicSrv, nodeSrv, gpus, engines, prox, cloud, llamaVer, models, view, pendingCells, modals };
 }
 
 // Decide between a full structural rebuild and a cheap in-place live patch —
@@ -653,7 +671,7 @@ export function applyTopologyUpdate() {
     // forces full rebuilds — the #1 suspect when the board redraws too often.
     if (window.__fpDebug && _lastStructureFingerprint) {
       const a = _lastStructureFingerprint.split("||"), b = fp.split("||");
-      const parts = ["clients", "classicSrv", "nodeSrv", "gpus", "prox", "cloud", "llamaVer", "view", "pendingCells", "modals"];
+      const parts = Object.keys(topologyStructureParts());
       b.forEach((v, i) => { if (v !== a[i]) console.debug(`[fp] ${parts[i]} changed:\n  was: ${a[i]}\n  now: ${v}`); });
     }
     renderTopology();          // structure changed → full rebuild

@@ -65,6 +65,18 @@ PINS = [
      'm.topologyStructureFingerprint() !== globalThis.__fp0',
      'true',
      "defect-history: агент, заведённый руками, ложился в запись и не показывался до перезагрузки"),
+    ("fingerprint_sees_a_driver_warning",
+     'const W = (w) => ({ id: "h1", online: true, scoutVersion: "2.19.0", driverWarnings: w });'
+     ' st.setTopology({ ...st.topology, nodes: [W([])] }); globalThis.__fpd0 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [W([{ kind: "nextBootNoDriver", reason: "missing", kernel: "7.0.0-35-generic" }])] });'
+     ' globalThis.__fpd1 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [W([{ kind: "nextBootNoDriver", reason: "missing", kernel: "7.0.0-35-generic" }])] });'
+     ' globalThis.__fpd2 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, nodes: [W([{ kind: "rebootForDriver", installed: "2.0", loaded: "1.0" }])] });',
+     '[globalThis.__fpd1 !== globalThis.__fpd0, globalThis.__fpd2 === globalThis.__fpd1, m.topologyStructureFingerprint() !== globalThis.__fpd1]',
+     '[true, true, true]',
+     "предупреждение о драйвере появилось или сменилось — карточка перерисовывается; negative: то же самое на следующем "
+     "опросе — не перерисовывается"),
     ("fingerprint_sees_a_changed_window",
      'st.setTopology({ ...st.topology, clients: [CLIENT({ agents: [{ id: "a1" }] })],'
      ' assignments: ROW([{ role: "primary", proxyId: "skynet:proxy:23001", endpoint: "e" }]) });'
@@ -318,6 +330,63 @@ PINS += [
      'true',
      "negative: поле внутри перестраиваемой доски (заметка ячейки, селект роутера) по-прежнему откладывает "
      "перерисовку — иначе она вырвала бы каретку из-под пальцев"),
+]
+
+# The caravan's shelf lists the models the page holds; /api/state brought them
+# once and the beat read only the topology (2026-09-26). The topology carries
+# the list's stamp, the beat brings the rows in when it moved (model-list.js),
+# and the fingerprint sees the new list. To look at the order without a DOM,
+# the render is held back by a focused field whose getter writes down the
+# stamp the page holds at the moment the update is decided. The first
+# refresh marks the page ready on document.body, so the body has a dataset.
+_REFRESH_SETUP = (
+    'document.body = { dataset: {}, setAttribute: () => undefined };'
+    ' globalThis.__fetchCalls = [];'
+    ' globalThis.__fetchReply["/api/topology"] = { proxies: [], clients: [], routers: [], assignments: {}, modelsStamp: "s2" };'
+    ' globalThis.__fetchReply["/api/models/rows"] = { ok: true, models: [{ path: "new.gguf", kind: "model" }], stamp: "s2" };'
+    ' globalThis.__seen = [];'
+    ' Object.defineProperty(document, "activeElement", { configurable: true, get: () => {'
+    ' globalThis.__seen.push(st.state?.modelsStamp); return { matches: () => true, closest: () => null }; } });')
+_REFRESH_RUN = (
+    'await (async () => { try { await m.refreshTopology();'
+    ' return [globalThis.__fetchCalls.map((c) => c.path), (st.state.models || []).map((r) => r.path),'
+    ' st.state.modelsStamp, globalThis.__seen]; }'
+    ' finally { Object.defineProperty(document, "activeElement", { configurable: true, writable: true, value: undefined });'
+    ' delete globalThis.__fetchReply["/api/topology"]; delete globalThis.__fetchReply["/api/models/rows"]; } })()')
+PINS += [
+    ("fingerprint_sees_a_new_model_list",
+     'st.setState({ config: {}, modelsStamp: "a" }); globalThis.__fpm0 = m.topologyStructureFingerprint();'
+     ' st.setState({ config: {}, modelsStamp: "a" }); globalThis.__fpm1 = m.topologyStructureFingerprint();'
+     ' st.setState({ config: {}, modelsStamp: "b" });',
+     '[globalThis.__fpm1 === globalThis.__fpm0, m.topologyStructureFingerprint() !== globalThis.__fpm1]',
+     '[true, true]',
+     "defect-history: модель скачана при открытой доске — список страницы сменился, карточки перестраиваются, "
+     "полка каравана её показывает; negative: тот же список на следующем опросе — не перестраиваются"),
+    ("refresh_brings_the_models_before_the_render",
+     'st.setState({ config: {}, models: [{ path: "old.gguf", kind: "model" }], modelsStamp: "s1" }); ' + _REFRESH_SETUP,
+     _REFRESH_RUN,
+     '[["/api/topology", "/api/models/rows"], ["new.gguf"], "s2", ["s2"]]',
+     "defect-history: отпечаток списка в топологии сдвинулся — опрос дочитывает строки, и решение о перерисовке "
+     "принимается уже над новым списком (иначе полка рисовала бы старый до следующего опроса)"),
+    ("refresh_leaves_a_current_list_alone",
+     'st.setState({ config: {}, models: [{ path: "old.gguf", kind: "model" }], modelsStamp: "s2" }); ' + _REFRESH_SETUP,
+     _REFRESH_RUN,
+     '[["/api/topology"], ["old.gguf"], "s2", ["s2"]]',
+     "negative: отпечаток тот же — опрос не ходит за строками, список страницы как был"),
+]
+
+PINS += [
+    ("fingerprint_parts_are_named_in_one_place",
+     'st.setTopology({ ...st.topology, nodes: [{ id: "h1", online: true }] });',
+     '[Object.keys(m.topologyStructureParts()),'
+     ' Object.values(m.topologyStructureParts()).join("||") === m.topologyStructureFingerprint(),'
+     ' (() => { const saved = st.topology; st.setTopology(null);'
+     ' try { return [m.topologyStructureParts(), m.topologyStructureFingerprint()]; } finally { st.setTopology(saved); } })()]',
+     '[["clients", "hosts", "classicSrv", "nodeSrv", "gpus", "engines", "prox", "cloud", "llamaVer", "models",'
+     ' "view", "pendingCells", "modals"], true, [{}, ""]]',
+     "defect-history: window.__fpDebug называл части своим списком, без hosts и engines, — каждая часть после "
+     "clients печаталась под именем соседки; теперь имена и порядок — сами части, и отпечаток — их склейка; "
+     "boundary: топологии нет — частей нет, отпечаток пустой"),
 ]
 
 _fail = []

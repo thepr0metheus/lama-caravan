@@ -30,6 +30,23 @@
         "usedGb": 18.2
       }
     },
+    "driver": {
+      "dkmsKey": {
+        "enrolled": false,
+        "signer": "linux Secure Boot Module Signature key"
+      },
+      "installed": "610.43.02",
+      "kernelNext": "7.0.0-34-generic",
+      "kernelRunning": "7.0.0-31-generic",
+      "loaded": "610.43.02",
+      "nextModule": {
+        "path": "/lib/modules/7.0.0-34-generic/updates/dkms/nvidia.ko.zst",
+        "signer": "linux Secure Boot Module Signature key",
+        "version": "610.43.02"
+      },
+      "package": "nvidia-driver-610-open",
+      "secureBoot": true
+    },
     "engines": [
       {
         "autostart": false,
@@ -352,6 +369,23 @@
         "totalGb": 62.7,
         "usedGb": 18.2
       }
+    },
+    "driver": {
+      "dkmsKey": {
+        "enrolled": false,
+        "signer": "linux Secure Boot Module Signature key"
+      },
+      "installed": "610.43.02",
+      "kernelNext": "7.0.0-34-generic",
+      "kernelRunning": "7.0.0-31-generic",
+      "loaded": "610.43.02",
+      "nextModule": {
+        "path": "/lib/modules/7.0.0-34-generic/updates/dkms/nvidia.ko.zst",
+        "signer": "linux Secure Boot Module Signature key",
+        "version": "610.43.02"
+      },
+      "package": "nvidia-driver-610-open",
+      "secureBoot": true
     },
     "engines": [
       {
