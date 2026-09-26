@@ -642,6 +642,30 @@ export function nodeLaunchersHtml(n, servers, models = state.models) {
   return `<div class="node-launchers">${groups}</div>`;
 }
 
+// What the machine's next boot does to its NVIDIA card, said before the reboot
+// (2026-09-26: a kernel the automatic updates had installed came up without its
+// signed driver, and nothing had said so). The controller draws the conclusion
+// from the scout's facts (caravan/domain/driver_outlook.py); here it is only
+// worded — at the head of the Compute column, where the card would be missed.
+const DRIVER_NEXT_BOOT = { missing: "driverNextBootMissing", unsigned: "driverNextBootUnsigned",
+                           "untrusted-key": "driverNextBootUntrusted" };
+
+export function nodeDriverWarningsHtml(n) {
+  const list = Array.isArray(n?.driverWarnings) ? n.driverWarnings : [];
+  return list.map((w) => {
+    let text = "";
+    if (w?.kind === "nextBootNoDriver" && DRIVER_NEXT_BOOT[w.reason]) {
+      const fix = w.package ? t("driverInstallPackage", { package: String(w.package) }) : t("driverInstallGeneric");
+      text = `${t(DRIVER_NEXT_BOOT[w.reason], { kernel: String(w.kernel || "") })} ${fix}`;
+    } else if (w?.kind === "rebootForDriver") {
+      text = t("driverRebootNeeded", { installed: String(w.installed || ""), loaded: String(w.loaded || "") });
+    }
+    if (!text) return "";
+    return `<div class="node-driver-warning" role="status" data-t="node-driver-warning"`
+      + ` data-t-id="${escapeHtml(`${n.id}:${w.kind}`)}"><span aria-hidden="true">⚠</span> ${escapeHtml(text)}</div>`;
+  }).join("");
+}
+
 // The handles of a machine's engine models made router outputs: their cables
 // land at the machine's chips, always drawn — the shelf line that names one is
 // gone while its engine does not answer.
@@ -1895,7 +1919,7 @@ export function nodesLaneHtml() {
       const serversHead = `<div class="node-servers-head">${serversSubtitle}${launchers}${filter.html()}${eye}</div>`;
       bodyHtml = `<div class="node-body">
           <div class="node-servers">${serversHead}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
-          <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>
+          <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${nodeDriverWarningsHtml(n)}${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>
         </div>`;
     }
     // A machine card is a real grouping of controls that belong together, and

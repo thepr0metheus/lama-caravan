@@ -429,6 +429,16 @@ def _get_api_models(h, parsed):
         h.send_json(list_gguf_models())
         return
 
+@_route(GET_ROUTES, '/api/models/rows')
+def _get_api_models_rows(h, parsed):
+        # The cell editor's list, for a board whose topology stamp moved:
+        # the caravan's shelf and the picker follow a model downloaded or
+        # deleted without reloading the page (ModelList).
+        from caravan.admin.models import MODEL_LIST
+        rows, stamp = MODEL_LIST.current()
+        h.send_json({"ok": True, "models": rows, "stamp": stamp})
+        return
+
 @_route(GET_ROUTES, '/api/hf/token')
 def _get_api_hf_token(h, parsed):
         token = admin_state.get("hfToken") or ""

@@ -161,10 +161,62 @@ def section_absent():
           "negative: каталога моделей нет и библиотек нет — пустой список, а не ошибка")
 
 
+def section_model_list():
+    """ModelList — the list the board follows (2026-09-26): its stamp rides
+    the topology on every beat, its rows go only when the stamp moved."""
+    print("список, за которым идёт доска:")
+    row = {"path": Q4, "kind": "model", "size": 4000, "mtime": 1700000000, "libraryOnly": False}
+    other = {"path": EMBED, "kind": "model", "size": 50, "mtime": 1700000001}
+    base = models.ModelList.stamp_of([row, other])
+    check(models.ModelList.stamp_of([other, row]) == base and len(base) == 16,
+          "тот же набор файлов в другом порядке — тот же отпечаток (16 знаков)")
+    moved = {name: models.ModelList.stamp_of([{**row, name: value}, other]) for name, value in
+             (("path", Q8), ("kind", "mmproj"), ("size", 4001), ("mtime", 1700000009), ("libraryOnly", True))}
+    check(all(v != base for v in moved.values()) and len(set(moved.values())) == len(moved),
+          "файл переименован, сменил вид, вырос, переписан, ушёл в библиотеку — каждый раз другой отпечаток "
+          f"(got {sorted(k for k, v in moved.items() if v == base)} совпали)")
+    check(models.ModelList.stamp_of([row]) != base and models.ModelList.stamp_of([row, other, {**other, "path": "x.gguf"}]) != base,
+          "файл пропал или появился — другой отпечаток")
+    check(models.ModelList.stamp_of([row, other, "junk", None]) == base,
+          "negative: не-строки списка отпечаток не трогают")
+    check(models.ModelList.stamp_of(None) == models.ModelList.stamp_of([]) != base,
+          "boundary: списка нет — отпечаток пустого списка, а не ошибка")
+
+    now = [1000.0]
+    calls = []
+
+    def lister():
+        calls.append(now[0])
+        return [dict(row)] if len(calls) == 1 else [dict(row), dict(other)]
+
+    listed = models.ModelList(lister=lister, clock=lambda: now[0])
+    first = listed.rows()
+    stamp1 = listed.stamp()
+    now[0] += models.ModelList.TTL - 0.5
+    held = listed.rows()
+    check(held is first and stamp1 == models.ModelList.stamp_of(first) and calls == [1000.0],
+          "пока список свежий (5 с), обход каталога не повторяется: опрос каждой открытой доски спрашивает отпечаток")
+    now[0] += 1.0
+    check(listed.rows() == [row, other] and listed.stamp() == base and len(calls) == 2,
+          "через 5 с — обходится заново, и новая модель двигает отпечаток")
+    now[0] += models.ModelList.TTL
+    rows, stamp = listed.current()
+    check(len(calls) == 3 and stamp == models.ModelList.stamp_of(rows),
+          "current() — строки и отпечаток одного и того же обхода (порознь кэш мог обновиться между ними)")
+    saved = models.list_models
+    try:
+        models.list_models = lambda *a, **k: [dict(other)]
+        check(models.ModelList().rows() == [other],
+              "по умолчанию строки — list_models(), тот же список, что у редактора ячейки в /api/state")
+    finally:
+        models.list_models = saved
+
+
 def main():
     section_rows()
     section_library()
     section_absent()
+    section_model_list()
     print()
     if _fail:
         print(f"models list FAILED ({len(_fail)}):")

@@ -44,6 +44,8 @@ from caravan.admin.telemetry import (
     remote_llama_modalities,
 )
 from caravan.common.errors import AppError
+from caravan.admin.models import MODEL_LIST
+from caravan.domain.driver_outlook import DriverOutlook
 from caravan.domain.engine import GpuOwners
 from caravan.admin.engine_outputs import EngineOutputs
 from caravan.common.context_window import block_window, effective_window, route_window_inputs
@@ -693,6 +695,10 @@ def topology_nodes(config, server_obj, hosts):
             # driver waiting for a reboot): read by this controller on its own
             # machine; a scout does not say.
             "gpuError": (server_obj.get("gpuError") or "") if own else "",
+            # What its next boot does to its NVIDIA card, said before the
+            # reboot (scout 2.19+; 2026-09-26): [] when nothing, or its scout
+            # cannot tell.
+            "driverWarnings": DriverOutlook(host.get("driver")).warnings(),
         })
 
     return nodes
@@ -1011,6 +1017,9 @@ def topology_state(refresh_hosts=True):
         # copies are what went stale when the controller moved off 8090.
         "cellPortRange": {"from": SERVER_CELL_BASE_PORT, "to": SERVER_CELL_UPPER_PORT,
                           "proxyBase": AGENT_PROXY_BASE_PORT},
+        # The stamp of the models the cell editor offers: when it moves, the
+        # board fetches the list again (the caravan's shelf reads it).
+        "modelsStamp": MODEL_LIST.stamp(),
         # Routers — the routing layer between proxies and servers.
         # inputs already derived from routes by normalize_routers.
         "routers": proxy_config.get("routers") or [],

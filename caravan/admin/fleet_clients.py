@@ -44,6 +44,7 @@ from caravan.admin.systemd_ctl import restart_agent_proxy
 from caravan.admin.telemetry import _normalize_modalities
 from caravan.common.errors import AppError
 from caravan.domain.client import FleetClient
+from caravan.domain.driver_outlook import DriverOutlook
 from caravan.domain.engine import EngineReport
 from caravan.admin.launch_files import LaunchFiles
 from caravan.domain.host import HostRecord
@@ -714,6 +715,9 @@ def host_from_report(payload):
         "engines": EngineReport.engines(payload.get("engines")),
         "cpu": cpu,
         "platform": platform,
+        # The NVIDIA driver as the machine's next boot will meet it (scout
+        # 2.19+): None from an older scout, not Linux, or no NVIDIA driver.
+        "driver": DriverOutlook.clean(payload.get("driver")),
         "llamaNode": llama_node,
         "llamaNodes": llama_nodes,
         "llamaBinaryVersion": str(payload.get("llamaBinaryVersion") or "").strip()[:120],
@@ -963,6 +967,7 @@ def scout_payload_from_state(state, agent_url):
         "engines": state.get("engines"),
         "cpu": state.get("cpu") or {},
         "platform": state.get("platform") or "",
+        "driver": state.get("driver"),
         # Carry llama-node status through, otherwise an active refresh
         # between heartbeats would wipe the running remote server.
         "llamaNode": state.get("llamaNode") or {},

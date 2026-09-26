@@ -98,7 +98,8 @@ history filters in history, the cloud-block modal flags in cloud.
 
 The fingerprint covers graph identity only: which cards/handles/cables exist and how they connect
 (clients and their agents, hosts and whether their scouts answer, servers with their **phase**,
-GPUs, proxies, cloud providers, view mode, open modals).
+GPUs, proxies, cloud providers, the stamp of the models list the page holds, view mode, open
+modals).
 It deliberately **excludes** fast-moving numbers. Any phase transition (`downloading` → `loading`
 → `running`) is structural and forces a full rebuild; the numbers inside a phase are live-patched.
 Around rebuilds, `parkLaneStats()` / `mountNodeTelemetry()` (topology-nodes) move the live chart
@@ -108,12 +109,14 @@ Poll cadences:
 
 | endpoint | cadence | driver |
 |---|---|---|
-| `/api/state` | 1.5 s idle / 5 s while the controller service runs (self-rescheduling timeout) | `polling.js` `scheduleLiveRefresh()` |
-| `/api/topology` | piggybacks each live-refresh tick — ≈2 s on the main board; also refetched after most POSTs | `refreshLiveState()` → `refreshTopology()` |
+| `/api/state` | once, when the page opens | `polling.js` `loadState()` |
+| `/api/project-git` | 1.5 s — the live beat (self-rescheduling timeout) | `polling.js` `scheduleLiveRefresh()` |
+| `/api/topology` | piggybacks each live beat on the main board; also refetched after most POSTs | `refreshLiveState()` → `refreshTopology()` |
+| `/api/models/rows` | only when the topology's `modelsStamp` differs from the page's — a model downloaded, moved or deleted since the page opened | `model-list.js` `MODEL_LIST.follow()` in `refreshTopology()` |
 | `/api/topology` (start watch) | every 2 s while a remote server is resolving/downloading/loading; stops itself | `remote-cells.js` `startRemoteStartWatch()` |
 | `/api/system-monitor` | 1 s while a monitor runs; feeds `ui.latestSystemMonitor`; the standalone kanban's only recurring poll (drives its live stats) | `polling.js` `startTopologyMonitor()` / `startSystemMonitor()` |
 | `/api/monitor/nvidia-smi` | user-set 1–30 s, only while the drawer tab is hovered/focused | `polling.js` `startMonitor()` |
-| `/api/proxy-daily-stats` | 60 s, plus once per `refreshTopology()` | `main.js` / `model-meta.js` |
+| `/api/proxy-daily-stats` | once at boot, then 60 s | `main.js` / `model-meta.js` |
 | `/api/model-pricing` | 24 h | `main.js` |
 
 How a config save becomes visible: POST responses may carry fresh state, and callers tolerate
@@ -383,6 +386,23 @@ same code with any prefix; the classic form's Gemma modes, raw view and static f
 - A file only a library holds is offered like any other picker row, in its place among the files
   of this disk, marked `📚 <library>` (`model-in-library`).
 
+## model-list.js
+
+The models the cell editor offers (`state.models`), kept current on an open board.
+`/api/state` brings them once, when the page opens, and the live beat reads only the
+topology: until 2026-09-26 the caravan's shelf on a machine's card never showed a model
+downloaded after the page opened. The topology carries the list's stamp (`modelsStamp`,
+`ModelList` in `caravan/admin/models.py`); `ModelListFollower.follow(stamp)` fetches
+`/api/models/rows` when the page's stamp differs — once, however many beats ask while the rows
+are on their way — and puts the rows and the reply's stamp on the page. Nothing is fetched while
+the page has no state yet (the router page never loads `/api/state`) or when the topology has no
+stamp. A failed fetch leaves the page's list as it was; the next beat asks again.
+`refreshTopology()` awaits it before deciding the render, and the stamp is in the structure
+fingerprint, so the new list rebuilds the cards.
+
+- Owns: the fetch in flight.
+- Key exports: `ModelListFollower`, `MODEL_LIST` (over `state.js`'s state and `api()`).
+
 ## memory.js
 
 VRAM/RAM estimation for the launch form: KV-cache size per cache type, batch buffers, total
@@ -593,7 +613,7 @@ and `isControllerMachine` / `hostPowerTextKey` give that node's reboot, poweroff
 words for the machine the board runs on. Collapsed nodes persist to localStorage.
 
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
-- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeLaunchersHtml`, `nodeCaravanGroupHtml`, `caravanShelfModels`, `nodeEngineGroupsHtml`, `nodeEngineStripHtml`, `nodeEngineShelfHtml`, `engineRamText`.
+- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeLaunchersHtml`, `nodeCaravanGroupHtml`, `caravanShelfModels`, `nodeDriverWarningsHtml`, `nodeEngineGroupsHtml`, `nodeEngineStripHtml`, `nodeEngineShelfHtml`, `engineRamText`.
 - A GPU row names who holds the memory that is no cell's (`outside` from the backend): an engine of
   the machine («Ollama 5.9 GB»), else the process's name, else «outside»; each owner from 64 MiB is a
   hatched band laid after the fleet's share of the bar, and the «who» line lists the cells' ports AND
@@ -627,6 +647,11 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   is seen without pressing anything (the operator, 2026-09-26); an engine the machine does not
   report, offered because a cell of the machine runs in it, is a line saying so
   (`node-engine-missing`) — its cells cannot start.
+- What a machine's next boot does to its NVIDIA card is said at the head of its Compute column
+  (`nodeDriverWarningsHtml`, `node-driver-warning`): the node's `driverWarnings`, concluded by the
+  controller, only worded here — the card that will not come back after a reboot and the package
+  that brings it, or the driver installed but not yet loaded. A warning coming or going is in the
+  board's structure fingerprint.
 - The caravan's group (round 8's A, round 9's C): a strip without a switch — the caravan starts its
   cells, not a server — naming the machine's llama.cpp build, with «download» as a link to the
   Hugging Face page (`node-caravan`, `node-caravan-download`); under it the models the cell editor
