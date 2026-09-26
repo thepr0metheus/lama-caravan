@@ -343,9 +343,9 @@ function engineExposeBtnHtml(n, e, m) {
 
 // What a model's line says while an act on it runs, by the act — the
 // engine's own acts (step 3); a cell's load is its cell's, on its line.
-const ENGINE_ACT_BUSY = { load: "nodeEngineLoading", unload: "nodeEngineUnloading", delete: "nodeEngineDeleting" };
+const ENGINE_ACT_BUSY = { unload: "nodeEngineUnloading", delete: "nodeEngineDeleting" };
 // And what it says the engine refused.
-const ENGINE_ACT_FAILED = { load: "nodeEngineLoadFailed", unload: "nodeEngineUnloadFailed", delete: "nodeEngineDeleteFailed" };
+const ENGINE_ACT_FAILED = { unload: "nodeEngineUnloadFailed", delete: "nodeEngineDeleteFailed" };
 
 // The engine's server itself (step 3г, scout 2.16+) is its strip's switch:
 // on while it runs. The scout offers the one act that makes sense now — stop
@@ -1227,10 +1227,20 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   // render knows the runner, so hand it to the click handler.
   const cellRunner = engineRunner ? engineRunner.id : isCmdCell ? "custom"
     : (String(_scfg.RUNNER || "").toLowerCase() || "llama-server");
+  // The name the card's body shows, by the same precedence as its blocks: the
+  // folded line's name, and what a start or a stop names in its confirm. It
+  // travels with the ▶ and ⏹ attributes — the line's switch has no card
+  // around it to read the name from, and its confirm said only the port.
+  const shownName = engineRunner ? engineModelName : s.model ? (parsed.label || s.model)
+    : isVllmCell ? vllmName
+      : isWhisperCell ? whisperSize
+        : isMoonshineCell ? moonshineLang
+          : isCmdCell ? (cmdText || t("commandCellFallback")) : "";
+  const nameAttr = shownName ? ` data-node-cell-model="${escapeHtml(shownName)}"` : "";
   // What a start needs to know, once: the card's ▶ and the folded line's ▶
   // are the same start, and two copies of these attributes would drift. A
   // model in a library asks nothing more: the scout reads it where it is.
-  const launchAttrs = `data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-runner="${escapeHtml(cellRunner)}"`;
+  const launchAttrs = `data-node-cell-launch="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}" data-node-cell-runner="${escapeHtml(cellRunner)}"${nameAttr}`;
   // Why the start is on or off, once: the card's ▶ and the line's switch say it alike.
   const playTitle = canPlay ? t("nodeStartServer") : (isReserved ? t("nodeConfigureFirst") : t("nodeNotStopped"));
   const playBtn = `<button class="node-action-btn ${canPlay ? "ok" : "muted"}" type="button"
@@ -1241,7 +1251,7 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   const canStop = !isStopped && !isDeleting && !isCellBusy;
   // What a stop needs to know, once — for the same reason as launchAttrs: the
   // card's ⏹ and the line's switch are the same stop.
-  const stopAttrs = `data-node-cell-stop="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"`;
+  const stopAttrs = `data-node-cell-stop="${escapeHtml(cellHostId)}" data-node-cell-port="${escapeHtml(String(port))}"${nameAttr}`;
   const stopTitle = canStop ? t("nodeStopServer") : t("nodeNotRunning");
   const stopBtn = isCtlStopping
     ? `<button class="node-action-btn muted" type="button" disabled title="${escapeHtml(t("nodeStoppingTitle"))}"><span class="topology-spinner stopping-spinner" aria-hidden="true"></span><span class="nab-lbl">${escapeHtml(t("stop"))}</span></button>`
@@ -1328,14 +1338,8 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   }
   const foldMode = fold ? CARD_FOLD.mode("cells", slotKey, CardFold.cellQuiet(settle)) : "full";
   if (foldMode === "full") return cardHtml(anchorHtml);
-  // The same name the card's body shows, by the same precedence as its blocks.
-  const rowName = engineRunner ? engineModelName : s.model ? (parsed.label || s.model)
-    : isVllmCell ? vllmName
-      : isWhisperCell ? whisperSize
-        : isMoonshineCell ? moonshineLang
-          : isCmdCell ? (cmdText || t("commandCellFallback")) : "";
   const row = new CellRow({
-    key: slotKey, port, name: rowName, title: s.model ? (s.modelPath || s.model) : rowName,
+    key: slotKey, port, name: shownName, title: s.model ? (s.modelPath || s.model) : shownName,
     state: running ? "running" : (isReserved ? "reserved" : "parked"),
     cpu: isCpuCell, engine: engineRunner ? engineRunner.id : "", chip: memBadge || deviceChip,
     launch: canPlay ? launchAttrs : "",

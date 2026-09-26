@@ -27,8 +27,11 @@ class EngineReport:
     LISTEN = ("loopback", "network")
     #: Who ufw lets reach its port, as a cell's port says it (scout 2.13+).
     FIREWALL = ("open", "all", "restricted", "blocked", "unknown")
-    #: What the board may do to an engine's model (scout 2.14+; delete 2.17+).
-    ACTIONS = ("load", "unload", "delete")
+    #: What the board may do to an engine's model (scout 2.14+; delete 2.17+):
+    #: unload one it holds, delete one from its disk. No load: a cell in the
+    #: engine loads its model when it starts (2026-09-26), and a scout's
+    #: "load" — its control or a mark of one — is not kept.
+    ACTIONS = ("unload", "delete")
     #: A model downloaded into the engine (scout 2.17+): an act on the engine,
     #: not on one of its models.
     DOWNLOADS = ("pull",)
@@ -36,10 +39,6 @@ class EngineReport:
     SERVER_ACTIONS = ("start", "stop")
     #: Who runs its server (scout 2.16+): this scout's user, or another one.
     RUN_BY = ("user", "other")
-    #: Where the need of a load that would not fit comes from (scout 2.15+):
-    #: the engine's own estimate, the file and the window's cache, the file
-    #: alone — at least that much.
-    BASES = ("engine", "weights+cache", "weights")
 
     @staticmethod
     def text(value, limit=120):
@@ -85,7 +84,7 @@ class EngineReport:
             "state": state,
             "version": cls.text(raw.get("version"), 40),
             # LM Studio's native API ("v1") or its older one ("v0"): which of
-            # them can load and unload a model (docs/foreign-engines.md, step 3).
+            # them can unload a model (docs/foreign-engines.md, step 3).
             "api": cls.text(raw.get("api"), 10),
             # None: the engine listed none (it wants a token, it is silent).
             "models": ([m for m in (cls.model(x) for x in models[:cls.MAX_MODELS]) if m]
@@ -97,9 +96,6 @@ class EngineReport:
             # an engine that did not answer, or LM Studio 0.3.
             "controls": [a for a in cls.ACTIONS + cls.DOWNLOADS + cls.SERVER_ACTIONS
                          if isinstance(raw.get("controls"), list) and a in raw["controls"]],
-            # Whether a load can say how long the model stays unused (scout
-            # 2.15+): Ollama always, LM Studio where its command line is.
-            "holds": raw.get("holds") is True,
             # Who runs its server — "" when the scout's machine did not say —
             # whether it starts with the machine, and its start or stop under
             # way or refused (scout 2.16+).
@@ -172,21 +168,8 @@ class EngineReport:
                 "doneBytes": cls.number(raw.get("doneBytes")), "totalBytes": cls.number(raw.get("totalBytes"))}
 
     @classmethod
-    def short(cls, raw):
-        """{needBytes, freeBytes, basis} of a load the scout did not start
-        because it would not fit into the cards' free memory (2.15+); None
-        when the answer is not that."""
-        if not isinstance(raw, dict):
-            return None
-        need, free = cls.number(raw.get("needBytes")), cls.number(raw.get("freeBytes"))
-        if not need or free is None or need <= free:
-            return None
-        basis = cls.text(raw.get("basis"), 20)
-        return {"needBytes": need, "freeBytes": free, "basis": basis if basis in cls.BASES else ""}
-
-    @classmethod
     def act_mark(cls, raw, when, with_error=False, ops=None):
-        """{op, <when>[, error]} of a load or unload — or of `ops` — or None."""
+        """{op, <when>[, error]} of an unload or a delete — or of `ops` — or None."""
         if not isinstance(raw, dict) or raw.get("op") not in (ops or cls.ACTIONS):
             return None
         mark = {"op": raw["op"], when: cls.number(raw.get(when))}
