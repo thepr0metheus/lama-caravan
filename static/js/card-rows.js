@@ -220,11 +220,14 @@ export class CellFilter {
  * what it has to say. The builder computes each piece — the switch with its
  * attributes and reason, the memory with its live hooks — and nothing here
  * re-derives them. The strip keeps the engine's test hook (node-engine) and
- * the live patch's handle on its memory.
+ * the live patch's handle on its memory. The caravan's own strip is the same
+ * strip (2026-09-26, round 8's A): no switch — the caravan starts its cells,
+ * not a server — its own hook, and no second line when it has nothing to say.
  */
 export class EngineStrip {
   constructor({ key, engine = "", state = "", label = "", version = "", lever = "", boot = "", memory = "",
-                pull = "", where = "", notes = "", title = "" } = {}) {
+                pull = "", where = "", notes = "", title = "", hook = "node-engine" } = {}) {
+    this.hook = String(hook || "node-engine");
     this.key = String(key || "");
     this.engine = CellRow.launcher(engine);
     this.state = String(state || "");
@@ -241,11 +244,11 @@ export class EngineStrip {
 
   html() {
     const version = this.version ? `<span class="es-ver">${escapeHtml(this.version)}</span>` : "";
-    return `<div class="engine-strip${this.engine ? ` engine-${this.engine}` : ""}" data-t="node-engine"`
+    return `<div class="engine-strip${this.engine ? ` engine-${this.engine}` : ""}" data-t="${escapeHtml(this.hook)}"`
       + ` data-t-id="${escapeHtml(this.key)}" data-t-state="${escapeHtml(this.state)}" title="${escapeHtml(this.title)}">`
       + `<div class="es-main">${this.lever}<strong class="es-name">${escapeHtml(this.label)}</strong>${version}`
       + `<span class="es-fill"></span>${this.boot}${this.memory}${this.pull}</div>`
-      + `<div class="es-sub">${this.where}${this.notes}</div></div>`;
+      + `${this.where || this.notes ? `<div class="es-sub">${this.where}${this.notes}</div>` : ""}</div>`;
   }
 }
 

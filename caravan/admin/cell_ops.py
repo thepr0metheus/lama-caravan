@@ -73,6 +73,12 @@ def server_cell_save_config(body: dict) -> dict:
     model = str(config.get("MODEL_FILE") or "").strip() or None
     if not host_id or not port:
         raise AppError("hostId and port are required", 400)
+    # A cell made by its first Apply — the caravan shelf's "+" opens the editor
+    # on a port nobody reserved (2026-09-26) — takes its port here, so the port
+    # is checked here as a reserve checks it. Saving a cell that exists keeps
+    # the port it has.
+    if not topo.has_slot(host_id, port):
+        assert_server_cell_port_available(port)
     slot = upsert_server_slot(host_id, port, config=config, model=model)
     autostart = None
     slot["cacheModels"] = bool(body.get("cacheModels", False))

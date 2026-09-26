@@ -27,6 +27,7 @@ import {
   bindServerSlotControls,
   actOnEngineButton,
   pullEngineButton,
+  openCaravanModelEditor,
   reserveEngineButton,
   serveEngineButton,
   clearPendingRemoteStart,
@@ -343,6 +344,14 @@ export function renderTopology() {
       event.stopPropagation();
       CARD_FOLD.reveal(btn.dataset.engineReserve, btn.dataset.engineKind);
       reserveEngineButton(btn);
+    });
+  });
+  // A caravan model with no cell on this machine: "+" opens the cell editor on
+  // the next free port with the model in it; Apply makes the cell (round 9, C).
+  $("topologyLlamaServers")?.querySelectorAll("[data-caravan-add]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      openCaravanModelEditor(btn.dataset.caravanAdd, btn.dataset.caravanModel);
     });
   });
   // A model of an engine with no cell: unload it or delete its files (step 3).

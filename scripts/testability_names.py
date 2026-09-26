@@ -93,6 +93,8 @@ COMPOSED = {
     "node-engine-start": "topology-nodes.js: engineLeverHtml() on an engine's strip",
     "node-engine-stop": "topology-nodes.js: engineLeverHtml() on an engine's strip",
     "cell-config-search-results": "config-locator.js: the search suggestion list",
+    # The caravan's strip over the chips is an EngineStrip with its own hook.
+    "node-caravan": "topology-nodes.js: nodeCaravanGroupHtml() passes EngineStrip its hook",
 }
 
 LITERAL = re.compile(r'data-t="([a-z][a-z0-9-]*)"')

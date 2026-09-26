@@ -2878,7 +2878,7 @@ PINS += [
                  ["engine-shelf", "shelf-line"]]),
      "полка и её строки — в цвет движка; negative: вид, который не годится в имя класса, цвета не получает"),
     ("view_shelf_under_its_strip",
-     STRIP + r' const view = (n, servers = []) => [...m.nodeEngineViewHtml(n, servers).matchAll(/<div class="node-engine-group">|data-t="(node-engine(?:-missing)?|engine-shelf)" data-t-id="([^"]*)"/g)].map((x) => x[1] ? x[1] + " " + x[2] : "group");',
+     STRIP + r' const view = (n, servers = []) => [...m.nodeEngineGroupsHtml(n, servers).matchAll(/<div class="node-launcher-group">|data-t="(node-engine(?:-missing)?|engine-shelf)" data-t-id="([^"]*)"/g)].map((x) => x[1] ? x[1] + " " + x[2] : "group");',
      '[view({ ...node, engines: [ENG({ models: [MDL()] }), ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, models: [MDL({ name: "g" })] })] }),'
      ' view({ ...node, engines: [ENG({ kind: "foo", models: [MDL()] })] }),'
      ' view({ ...node, engines: [ENG({ state: "stopped", models: null })] }), view({ ...node, engines: [ENG({ kind: "llama-server" })] })]',
@@ -2889,23 +2889,94 @@ PINS += [
      "каравана — ни полосы, ни полки; стоящий движок — полоса без полки"),
     ("view_missing_says_so",
      STRIP,
-     'norm(m.nodeEngineViewHtml({ ...node, engines: null }, [cell("lmstudio", "google/gemma-4-e4b")]))',
-     json.dumps('<div class="node-engine-strips"><div class="node-engine-group"><div class="engine-strip missing engine-lmstudio" data-t="node-engine-missing" data-t-id="h1:lmstudio">'
-                + _esc(_en("engineNotReported").replace("{engine}", "LM Studio")) + '</div></div></div>', ensure_ascii=False),
+     'norm(m.nodeEngineGroupsHtml({ ...node, engines: null }, [cell("lmstudio", "google/gemma-4-e4b")]))',
+     json.dumps('<div class="node-launcher-group"><div class="engine-strip missing engine-lmstudio" data-t="node-engine-missing" data-t-id="h1:lmstudio">'
+                + _esc(_en("engineNotReported").replace("{engine}", "LM Studio")) + '</div></div>', ensure_ascii=False),
      "negative: у машины есть ячейка в LM Studio, а её скаут движка не сообщает — так и сказано над чипами, при любом "
      "чипе (её ячейки не запустятся), имя из реестра; пустое место не рисуется"),
     ("view_order_follows_the_chips",
      STRIP,
-     '[...m.nodeEngineViewHtml({ ...node, engines: [ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, state: "stopped", models: null }), ENG()] }, [])'
+     '[...m.nodeEngineGroupsHtml({ ...node, engines: [ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, state: "stopped", models: null }), ENG()] }, [])'
      '.matchAll(/data-t="node-engine" data-t-id="([^"]*)" data-t-state="([^"]*)"/g)].map((x) => x[1] + " " + x[2])',
      '["h1:ollama:11434 ok", "h1:lmstudio:1234 stopped"]',
      "полосы — в порядке чипов (реестр: Ollama, потом LM Studio), а не в порядке отчёта скаута; стоящий движок — тоже "
      "полоса: его тумблер и есть способ запустить"),
     ("view_needs_the_registry",
      '',
-     'm.nodeEngineViewHtml({ ...node, engines: [ENG({ models: [MDL()] })] }, [])',
+     'm.nodeEngineGroupsHtml({ ...node, engines: [ENG({ models: [MDL()] })] }, [])',
      '""',
      "negative: реестр не называет раннеров ячеек движка (старый контроллер) — ни полосы, ни полки"),
+]
+
+# The caravan's own shelf (2026-09-26: round 8's A for where, round 9's C for
+# what "+" does): the models the cell editor offers less the ones a cell of
+# this machine names, newest first; "+" carries the machine and the model to
+# the editor and makes nothing itself.
+CARAVAN = (STRIP
+           + ' const MM = (path, extra = {}) => ({ path, name: path.split("/").pop(), kind: "model", sizeGb: 1.5, mtime: 100,'
+           ' capability: "text", ggufMeta: {}, detectedFamily: "", ...extra });'
+           ' const cv = (n, servers, models) => norm(m.nodeCaravanGroupHtml(n, servers, models));'
+           r' const lines = (h) => [...h.matchAll(/data-t="engine-model" data-t-id="([^"]*)"/g)].map((x) => x[1]);'
+           r' const plusOf = (h) => (h.match(/<button type="button" class="sl-plus"[^>]*>/) || ["none"])[0];'
+           ' const EIGHT = () => Array.from({ length: 8 }, (_, i) => MM(`m${i}/q/model-${i}.gguf`, { mtime: 100 + i }));')
+
+PINS += [
+    ("caravan_models_which_and_order",
+     CARAVAN,
+     '[m.caravanShelfModels(node, [{ slotConfig: { MODEL_FILE: "a/b.gguf" } }, { slotConfig: {} }], [MM("a/b.gguf", { mtime: 300 }),'
+     ' MM("c/d.gguf", { mtime: 100 }), MM("g/h.gguf", { mtime: 200 }), MM("e/f.gguf", { mtime: 200 }), MM("x/mmproj.gguf", { kind: "mmproj", mtime: 999 }),'
+     ' null, { kind: "model" }]).map((x) => x.path), m.caravanShelfModels(node, [], null), m.caravanShelfModels(node, [], "x"),'
+     ' (() => { st.setState({ ...st.state, models: [MM("s/q/page.gguf")] }); const r = m.caravanShelfModels(node, []).map((x) => x.path);'
+     ' st.setState({ ...st.state, models: [] }); return r; })()]',
+     json.dumps([["e/f.gguf", "g/h.gguf", "c/d.gguf"], None, None, ["s/q/page.gguf"]]),
+     "на полке — модели редактора без ячейки на этой машине, новые первыми (при равном времени — по пути); без списка — "
+     "список страницы (state.models, тот же, что у редактора); negative: модель, которую называет ячейка машины, проектор "
+     "(mmproj), запись без пути — не на полке; список ещё не пришёл — null, а не «моделей нет»"),
+    ("caravan_strip_without_list",
+     CARAVAN,
+     '(h => [(h.match(/data-t="(node-caravan)" data-t-id="([^"]*)"/) || []).slice(1), (h.match(/<span class="es-ver">([^<]*)</) || [0, "none"])[1],'
+     ' (h.match(/<a class="node-engine-serve pull" href="([^"]*)" target="_blank" rel="noopener" data-t="node-caravan-download"/) || [0, "none"])[1],'
+     ' h.includes("fr-switch"), h.includes("engine-shelf")])'
+     '(cv({ ...node, llamaBinaryVersion: "version: 9947 (abc1234)" }, [], null))',
+     json.dumps([["node-caravan", "h1:caravan"], "llama.cpp b9947", "/hf", False, False]),
+     "полоса каравана: свой хук, версия llama.cpp машины, «скачать» — ссылка на страницу Hugging Face; negative: тумблера "
+     "нет (караван запускает ячейки, а не сервер); список моделей не пришёл — полки нет, догадки вместо неё тоже"),
+    ("caravan_shelf_lines",
+     CARAVAN,
+     '(h => [(h.match(/<span class="ncf-count">(\\d+)</) || [0, "none"])[1], lines(h).length, lines(h)[0], plusOf(h),'
+     ' (h.match(/node-engine-more topology-muted">([^<]*)</) || [0, "none"])[1]])(cv(node, [], EIGHT()))',
+     json.dumps(["8", 6, "h1:caravan:m7/q/model-7.gguf",
+                 '<button type="button" class="sl-plus" data-t="engine-model-reserve" data-t-id="h1:caravan:m7/q/model-7.gguf" '
+                 'data-caravan-add="h1" data-caravan-model="m7/q/model-7.gguf" title="'
+                 + _esc(_en("shelfCaravanAddTitle").replace("{model}", "model-7").replace("{port}", "22001"))
+                 + '" aria-label="' + _esc(_en("shelfCaravanAddTitle").replace("{model}", "model-7").replace("{port}", "22001")) + '">',
+                 _esc(_en("shelfCaravanMore").replace("{n}", "2"))], ensure_ascii=False),
+     "подпись считает все модели, строк — шесть, остальное — «ещё N»; «+» несёт машину и путь модели для редактора, "
+     "подсказка — имя без .gguf и порт, который редактор предложит"),
+    ("caravan_line_marks",
+     CARAVAN,
+     '(h => [...h.matchAll(/data-t="engine-model" data-t-id="h1:caravan:([^"]*)">(.*?)<\\/div>/g)].map((x) => [x[1],'
+     ' (x[2].match(/class="shelf-library" title="([^"]*)"/) || [0, ""])[1], [...x[2].matchAll(/data-t="node-engine-job" data-t-id="([^"]*)"/g)].map((y) => y[1]),'
+     ' (x[2].match(/mbadge-vram-est"[^>]*>([^<]*)</) || [0, ""])[1]]))'
+     '(cv(node, [], [MM("lib/q/big.gguf", { mtime: 5, libraryOnly: true, store: { id: "s1", name: "nas-lib" }, sizeGb: 18.25 }),'
+     ' MM("emb/q/e.gguf", { mtime: 4, detectedFamily: "embedding", sizeGb: 0.6 }),'
+     ' MM("asr/q/g.gguf", { mtime: 3, ggufMeta: { sttVariant: "gigaam" }, sizeGb: 0 }), MM("chat/q/c.gguf", { mtime: 2, sizeGb: null })]))',
+     json.dumps([["lib/q/big.gguf", _esc(_en("shelfCaravanLibraryHint").replace("{library}", "nas-lib")), [], "≈18.3G"],
+                 ["emb/q/e.gguf", "", ["embed"], "≈0.6G"], ["asr/q/g.gguf", "", ["asr"], ""], ["chat/q/c.gguf", "", [], ""]],
+                ensure_ascii=False),
+     "модель только в библиотеке — 📚 с её именем; работа — чипом, когда не чат (векторы, речь в текст: то же правило, что "
+     "в списке редактора); ≈размер файла; negative: у чат-модели чипа работы нет, размер ноль или неизвестен — чипа размера нет"),
+    ("caravan_busy_and_said",
+     CARAVAN + ' const said = (h) => (h.match(/node-engine-state topology-muted">([^<]*)</) || [0, "none"])[1];',
+     '[(() => { rc._reservingCells.set("h1", { port: 22040, startedAt: 1 }); const h = cv(node, [], [MM("a/q/x.gguf")]); rc._reservingCells.clear();'
+     ' return [plusOf(h).includes("disabled"), plusOf(h).includes("data-caravan-add"), (plusOf(h).match(/title="([^"]*)"/) || [0, ""])[1]]; })(),'
+     ' said(cv(node, [], [])), said(cv(node, [], [MM("x/q/mmproj.gguf", { kind: "mmproj" })])),'
+     ' said(cv(node, [{ slotConfig: { MODEL_FILE: "a/q/x.gguf" } }], [MM("a/q/x.gguf")])), said(cv(node, [], [MM("a/q/x.gguf")]))]',
+     json.dumps([[True, False, _esc(_en("shelfReserveBusy"))], _esc(_en("shelfCaravanNoModels")), _esc(_en("shelfCaravanNoModels")),
+                 _esc(_en("shelfCaravanAllHaveCells")), "none"], ensure_ascii=False),
+     "на машине идёт резерв — «+» заперт и говорит почему: редактор предложил бы тот же порт; моделей нет (или только "
+     "проекторы) — так и сказано; у каждой модели есть ячейка на этой машине — сказано; negative: есть что показать — "
+     "ничего не сказано"),
 ]
 
 # A cell reserved in an engine (2026-09-25): the registry names the engine
@@ -3055,9 +3126,10 @@ PINS += [
     ("lane_engine_shelf_under_its_strip_over_the_chips",
      LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
      '(h => { const at = (x) => h.indexOf(x); const cellAt = at(\'data-t="cell-row" data-t-id="h1:22031"\');'
-     ' return [at(\'class="node-subtitle\') < at(\'data-t="node-engine"\'), at(\'data-t="node-engine"\') < at(\'data-t="engine-shelf"\'),'
-     ' at(\'data-t="engine-shelf"\') < at(\'data-t="node-cell-filter"\'), at(\'data-t="node-cell-filter"\') < cellAt,'
-     ' (h.match(/data-t="engine-shelf"/g) || []).length,'
+     ' const shelfAt = at(\'data-t="engine-shelf" data-t-id="h1:ollama"\');'
+     ' return [at(\'class="node-subtitle\') < at(\'data-t="node-engine"\'), at(\'data-t="node-engine"\') < shelfAt,'
+     ' shelfAt < at(\'data-t="node-cell-filter"\'), at(\'data-t="node-cell-filter"\') < cellAt,'
+     ' (h.match(/data-t="engine-shelf" data-t-id="h1:ollama"/g) || []).length,'
      ' [...h.matchAll(/data-t="engine-model" data-t-id="([^"]*)"/g)].map((x) => x[1]), h.includes("node-engine-panel"), h.includes("data-engine-menu")]; })'
      '(lane([ENG({ models: [MDL(), MDL({ name: "b" })] })], TWO()))',
      '[true, true, true, true, 1, ["h1:ollama:b"], false, false]',
@@ -3068,14 +3140,15 @@ PINS += [
      LANE,
      '["", "caravan", "lmstudio"].map((c) => { cf.CARD_FOLD.setLauncher("h1", c); const h = lane([ENG({ models: [MDL({ name: "b" })] }), ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, models: [MDL({ name: "g" })] })], TWO());'
      ' return [...h.matchAll(/data-t="(node-engine|engine-shelf|engine-model|node-cell-filter)" data-t-id="([^"]*)"/g)].map((x) => x[1] + " " + x[2]); })',
-     json.dumps([["node-engine h1:ollama:11434", "engine-shelf h1:ollama", "engine-model h1:ollama:b",
+     json.dumps([["engine-shelf h1:caravan", "node-engine h1:ollama:11434", "engine-shelf h1:ollama", "engine-model h1:ollama:b",
                   "node-engine h1:lmstudio:1234", "engine-shelf h1:lmstudio", "engine-model h1:lmstudio:g",
                   "node-cell-filter h1:all", "node-cell-filter h1:caravan", "node-cell-filter h1:ollama", "node-cell-filter h1:lmstudio"]] * 3),
-     "при любом чипе — «все», «караван», другого движка — над чипами оба движка, и под полосой каждого его модели без "
-     "ячейки (выбор оператора: чтобы их было видно); negative: нажатый чип ни полос, ни полок не прячет и не двигает"),
+     "при любом чипе — «все», «караван», другого движка — над чипами полка каравана, потом оба движка, и под полосой "
+     "каждого его модели без ячейки (выбор оператора: чтобы их было видно); negative: нажатый чип ни полос, ни полок не "
+     "прячет и не двигает"),
     ("lane_engine_missing_line",
      LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
-     '(h => [(h.match(/data-t="node-engine-missing"[^>]*>([^<]*)</) || [0, "none"])[1], h.includes("engine-shelf"), shown(h)])(lane([], TWO()))',
+     '(h => [(h.match(/data-t="node-engine-missing"[^>]*>([^<]*)</) || [0, "none"])[1], h.includes(\'data-t="engine-shelf" data-t-id="h1:ollama"\'), shown(h)])(lane([], TWO()))',
      json.dumps([_esc(_en("engineNotReported").replace("{engine}", "Ollama")), False, ["h1:22031"]], ensure_ascii=False),
      "boundary: машина движок не сообщает, а ячейка в нём есть — чип нажат, над ячейкой строка «не сообщает» (её "
      "ячейки не запустятся), полки нет — спросить не у кого"),
@@ -3085,6 +3158,13 @@ PINS += [
      '[1, [["eng:1", "qwen3:8b · Ollama"]]]',
      "positive: кабель выхода модели садится у края строки чипов (якорь назван моделью и движком); якорь один — строка "
      "полки, что называет выход, своего не рисует; у невыведенной модели якоря нет"),
+    ("lane_caravan_without_engines",
+     LANE,
+     '(h => [h.includes(\'data-t="node-caravan" data-t-id="h1:caravan"\'), h.indexOf(\'data-t="node-caravan"\') < h.indexOf(\'data-t="cell-row"\'),'
+     ' h.includes("node-cell-filter"), h.includes(\'data-t="node-engine"\')])(lane([], [mk()]))',
+     '[true, true, false, false]',
+     "машина без движков и без ячеек в них — полоса и полка каравана всё равно над списком: модели каравана запускает любая "
+     "машина; negative: чипов и полос движков нет — выбирать не из чего"),
     ("lane_cpu_line_skips_engine_cells",
      LANE,
      '(h => (h.match(/<span class="node-gpu-ports">▶ ([^<]*)</) || [0, "none"])[1])(lane([ENG()], [mk({ phase: "running" }), EC({ phase: "running" })]))',

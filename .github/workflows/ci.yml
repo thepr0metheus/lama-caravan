@@ -104,6 +104,7 @@ jobs:
           python3 scripts/test_request_body.py
           python3 scripts/check_context_window.py
           python3 scripts/test_context_window.py
+          python3 scripts/test_cell_key.py
           python3 scripts/test_route_windows.py
           python3 scripts/test_output_health.py
           python3 scripts/test_subscription_usage.py

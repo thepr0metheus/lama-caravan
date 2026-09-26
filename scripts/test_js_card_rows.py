@@ -156,6 +156,9 @@ const strips = {
     lever: "<L>", boot: "<B>", memory: "<M>", pull: "<P>", where: "<W>", notes: "<N>", title: 'loads "on demand"' }).html(),
   bare: new EngineStrip({ key: "k", label: "<i>x" }).html(),
   odd: new EngineStrip({ key: '"><b>', engine: "a b", label: "L", state: '"s' }).html(),
+  caravan: new EngineStrip({ key: "h1:caravan", engine: "caravan", hook: "node-caravan", state: "ok", label: "Caravan",
+    version: "b9947", pull: "<P>" }).html(),
+  notesOnly: new EngineStrip({ key: "k", label: "L", notes: "<N>" }).html(),
 };
 const shelf = {
   full: new ShelfLine({ key: "h1:ollama:qwen2.5:0.5b", engine: "ollama", name: "qwen2.5:0.5b", remote: "<R>", job: "<J>",
@@ -344,6 +347,12 @@ check('<span class="es-ver">' not in st["bare"] and '<strong class="es-name">&lt
       "negative: версии нет — её места нет; имя экранировано; без движка — без класса цвета")
 check('class="engine-strip" ' in st["odd"] and 'data-t-id="&quot;&gt;&lt;b&gt;"' in st["odd"] and 'data-t-state="&quot;s"' in st["odd"],
       "negative: слово, не годное в имя класса, цвета не даёт; ключ и состояние экранированы")
+check(st["caravan"] == '<div class="engine-strip engine-caravan" data-t="node-caravan" data-t-id="h1:caravan" data-t-state="ok" '
+      'title=""><div class="es-main"><strong class="es-name">Caravan</strong><span class="es-ver">b9947</span>'
+      '<span class="es-fill"></span><P></div></div>',
+      "строка каравана — та же строка: свой хук (node-caravan), без тумблера; negative: сказать нечего — второй строки нет")
+check('<div class="es-sub"><N></div>' in st["notesOnly"] and '<div class="es-sub">' not in st["bare"],
+      "вторая строка — когда есть где слушает или что сказать; у пустой строки её нет")
 
 print("модель без ячейки (ShelfLine):")
 sl = got["shelf"]
