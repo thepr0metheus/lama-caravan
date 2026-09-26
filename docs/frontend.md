@@ -424,7 +424,10 @@ folds. `nodeServerCardHtml` leaves a hidden mark in place of a hidden cell (`dat
 puts that cell's cable away without reporting it lost; the eye (`CellEye`) says how many it hid.
 A machine's chips (`CellFilter`, 2026-09-25) narrow its cells to one launcher — the caravan or an
 engine — and `launcherOf(hostId)` / `setLauncher(hostId, launcher)` keep that choice per machine;
-their marks say `launcher`, the eye's `idle`, and the eye counts only its own.
+their marks say `launcher`, the eye's `idle`, and the eye counts only its own. `reveal(hostId,
+launcher)` lets a new cell of `launcher` be seen as it comes: the «+» of an engine's model stands
+over the chips, under any of them, and a chip that would hide the new cell gives way to that
+engine's; «all» shows it already and stays.
 
 - Owns: `CARD_FOLD` (densities, pinned set, `peekKey` so a float survives a repaint,
   `openKey` so an open window does, the machines whose eye is shut, each machine's chosen
@@ -432,7 +435,7 @@ their marks say `launcher`, the eye's `idle`, and the eye counts only its own.
   `boardCardPinned`, `boardCellsHideIdle`, `boardCellsLauncher`)
   as a per-browser convenience — a cell's pin saved before the window came is ignored.
 - Key exports: `CardFold` (`OPENS`, `density`, `toggleDensity`, `togglePin`, `hidesIdle`,
-  `toggleHideIdle`, `launcherOf`, `setLauncher`, `opensInWindow`, `mode`, `syncSwitches`, `cellQuiet`, `cellIdle`,
+  `toggleHideIdle`, `launcherOf`, `setLauncher`, `reveal`, `opensInWindow`, `mode`, `syncSwitches`, `cellQuiet`, `cellIdle`,
   `agentQuiet`), `FoldPeek` (`bind`, `openWindow`,
   `closeWindow`), `CARD_FOLD`.
 
@@ -468,8 +471,8 @@ row starts with the anchors of the engine models made router outputs.
 `EngineStrip` is an engine's server over the machine's chips, one per engine, always
 (2026-09-26, the operator's choice B) — the switch that starts or stops it, its name and version,
 ↟ when it starts with the machine, what it holds, ⤓; under them where it listens and what it has
-to say. While an engine's chip is pressed, each model it holds that no cell serves is a
-`ShelfLine` under the cells: the cells' line, dashed, with «+» where a cell's switch stands. «+»
+to say. Right under its strip, whichever chip is pressed, each model it holds that no cell serves
+is a `ShelfLine`: the cells' line, dashed, with «+» where a cell's switch stands. «+»
 makes a cell with that model; it is `disabled` with its reason when no cell can be made now, and
 keeps its test hook. Both only lay out what topology-nodes.js computed.
 
@@ -615,10 +618,11 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   2026-09-26, in place of an engine card and its ▾ panel): every engine the machine's chips offer
   (`offeredEngineRunners` — the chips and the strips ask this one question) has a strip between
   the list's title and the chips, always, whichever chip is pressed — an engine's server is the
-  machine's. `nodeEngineViewHtml(n, servers, chosen)` gives the lane the strips
-  (`nodeEngineStripHtml`, `node-engine`, in the chips' order) and, while an engine's chip is
-  pressed, its shelf under the cells (`nodeEngineShelfHtml`, `engine-shelf`); an engine the machine
-  does not report, offered because a cell of the machine runs in it, is a line saying so
+  machine's. `nodeEngineViewHtml(n, servers)` gives the lane one group per engine
+  (`node-engine-group`, in the chips' order): its strip (`nodeEngineStripHtml`, `node-engine`) and
+  right under it its shelf (`nodeEngineShelfHtml`, `engine-shelf`) — over the chips, so a model
+  waiting for a cell is seen without pressing anything (the operator, 2026-09-26); an engine the
+  machine does not report, offered because a cell of the machine runs in it, is a line saying so
   (`node-engine-missing`) — its cells cannot start. The strip wears the engine's colour: the switch
   (the scout's `controls`: stop a running server, start a stopped one; with neither it is off-limits
   and says why — another user's service, or a scout that cannot), name, version, ↟ «starts with the

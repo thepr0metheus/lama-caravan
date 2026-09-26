@@ -272,12 +272,14 @@ switch starts or stops the engine's server (scout 2.16+): `node-engine-start` /
 `node-engine-downloading` with its progress; `node-engine-vram` says what the
 engine holds on the machine's cards (empty when nothing).
 
-While an engine's chip is pressed (`node-cell-filter`, `data-t-id`
-`<node>:<kind>`), the models it holds that no cell serves stand on a shelf under
-its cells, `engine-shelf` (`<node>:<kind>`), one line each, `engine-model` with
+Right under an engine's strip, over the chips and whichever of them is pressed,
+the models it holds that no cell serves stand on a shelf, `engine-shelf`
+(`<node>:<kind>`), one line each, `engine-model` with
 `data-t-id` `<node>:<kind>:<model>`. A line's `engine-model-reserve` ("+", the
 same id) reserves a cell with that model on the next free port, with no dialog;
-it is `disabled` while a cell is being reserved on the machine or an act runs on
+when the pressed chip would hide the new cell, the engine's chip is pressed
+instead (`node-cell-filter` `<node>:<kind>`, `aria-pressed="true"`). "+" is
+`disabled` while a cell is being reserved on the machine or an act runs on
 the model. A model held outside any cell has `node-engine-unload`; an Ollama
 model that is not loaded has `node-engine-delete`, asked through a danger dialog;
 both with the line's id, replaced by `node-engine-busy` while the act runs. A

@@ -396,7 +396,7 @@ export async function reserveServerCell(hostId, portHint = "") {
 }
 
 // A cell with a model of an engine, from the "+" on its line under the
-// engine's cells (2026-09-26, the operator's choice B): the line says the
+// engine's strip (2026-09-26, the operator's choice B): the line says the
 // engine and the model already, so nothing is asked, and the port is the
 // next free one. One reserve at a time on a machine — a second "+" before the
 // first cell came back would take a second port.
