@@ -1016,6 +1016,8 @@ export default {
   dlgStartModel: ":{port}에서 서버를 시작할까요({model})? 모델이 메모리에 로드됩니다.",
   dlgStartPort: ":{port}에서 서버를 시작할까요?",
   dlgStartCommand: ":{port}에서 셀을 시작할까요? 해당 명령은 호스트에서 실행됩니다.",
+  cellEngineShort: "{model}에는 비디오 메모리 {need}가 필요한데 카드의 여유 공간은 {free}입니다. 들어가지 않는 부분은 RAM으로 가서 느려지거나, 엔진이 로드하지 못합니다. 그래도 :{port}을(를) 시작할까요?",
+  cellStartAnyway: "그래도 시작",
   dlgStartLabel: "시작",
   dlgReserveCell: "셀 :{port}을(를) 예약할까요? 포트는 플릿 전체에서 점유되며, 셀은 나중에 구성하고 시작할 수 있습니다.",
   authRegenConfirm: "플릿 토큰을 재생성할까요? 모든 스카우트는 기존 토큰을 유지한 채 모델 서버에서 다시 추가할 때까지 오프라인으로 표시됩니다 — 그렇게 하면 새 토큰이 전달됩니다.",

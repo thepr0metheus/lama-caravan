@@ -367,6 +367,28 @@ PINS = [
      'defect-history: тумблер свёрнутой строки спрашивал «Start the server on :22001?» без имени модели — искал её в '
      'карточке через closest("article"), а вокруг строки карточки нет; теперь имя едет в атрибутах ▶/⏹ (живая проверка '
      '2026-09-26); negative: у кнопки без имени — вопрос про порт; отказ — ни одного запроса'),
+    ('csa_engine_start_short_asks_then_forces',
+     'globalThis.__asked = [];'
+     ' globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__asked.push({ msg, opts }); return true; };'
+     ' let n = 0; globalThis.__fetchReply["/api/topology/server-cell/action"] = () => (++n === 1'
+     ' ? { ok: false, hostId: "h1", port: 22041, action: "start", short: { model: "big:70b", needBytes: 45097156608, freeBytes: 1048576000, basis: "weights" } }'
+     ' : { ok: true, hostId: "h1", port: 22041, action: "start" });',
+     'await (async () => { await rc.cellServiceAction("h1", 22041, "start"); return { bodies: calls().map((c) => c.body), asked: globalThis.__asked, pending: rc._pendingCellActions.get("h1:22041") ?? null, toast: toastText() }; })()',
+     json.dumps({"bodies": ['{"hostId":"h1","port":22041,"action":"start"}',
+                            '{"hostId":"h1","port":22041,"action":"start","force":true}'],
+                 "asked": [{"msg": en("cellEngineShort", model="big:70b", need="≥ 42.0 GB", free="1000 MB", port="22041"),
+                            "opts": {"confirmLabel": en("cellStartAnyway"), "scene": "start"}}],
+                 "pending": None, "toast": ""}, ensure_ascii=False),
+     'positive: ячейка в движке не влезет — контроллер не стартует её, а спрашивает: вопрос с числами («≥» — только '
+     'файл, не меньше), согласие — тот же старт с force; тоста «не удалось» нет, метка «запускается» снята'),
+    ('csa_engine_start_short_declined',
+     'globalThis.__asked = [];'
+     ' globalThis.__stubReturns["dialogs.appConfirm"] = async (msg) => { globalThis.__asked.push(msg); return false; };'
+     ' globalThis.__fetchReply["/api/topology/server-cell/action"] = { ok: false, short: { model: "google/gemma-4-e4b", needBytes: 7000000000, freeBytes: 4294967296, basis: "engine" } };',
+     'await (async () => { await rc.cellServiceAction("h1", 22041, "start"); return { n: calls().length, asked: globalThis.__asked, pending: rc._pendingCellActions.get("h1:22041") ?? null, toast: toastText() }; })()',
+     json.dumps({"n": 1, "asked": [en("cellEngineShort", model="google/gemma-4-e4b", need="≈ 6.5 GB", free="4.0 GB", port="22041")],
+                 "pending": None, "toast": ""}, ensure_ascii=False),
+     'negative: «нет» — второго старта нет, метка снята, тоста нет; boundary: оценка не по одному файлу — «≈», а не «≥»'),
     ('csa_port_nan_body',
      '',
      'await (async () => { await rc.cellServiceAction("h1", "abc", "start"); return { calls: calls(), pending: rc._pendingCellActions.get("h1:abc") ?? null }; })()',

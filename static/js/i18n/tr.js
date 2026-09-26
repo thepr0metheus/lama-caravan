@@ -1016,6 +1016,8 @@ export default {
   dlgStartModel: ":{port} ({model}) üzerinde sunucu başlatılsın mı? Model belleğe yüklenecek.",
   dlgStartPort: ":{port} üzerinde sunucu başlatılsın mı?",
   dlgStartCommand: ":{port} üzerinde hücre başlatılsın mı? Komutu ana makinede çalışır.",
+  cellEngineShort: "{model} için {need} video belleği gerekiyor; kartlarda {free} boş. Sığmayan kısım RAM'e gider ve daha yavaş çalışır ya da motor onu yükleyemez. :{port} yine de başlatılsın mı?",
+  cellStartAnyway: "Yine de başlat",
   dlgStartLabel: "Başlat",
   dlgReserveCell: ":{port} hücresi ayrılsın mı? Bağlantı noktası filo genelinde ayrılır; hücre daha sonra yapılandırılıp başlatılabilir.",
   authRegenConfirm: "Filo token'ı yeniden oluşturulsun mu? Her scout ESKİ token'ı saklar ve Model sunucuları altında yeniden eklenene kadar çevrimdışı görünür — yeni token'ı böylece teslim edersiniz.",

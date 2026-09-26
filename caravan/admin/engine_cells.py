@@ -81,3 +81,62 @@ class EngineCellPlan:
         found = self.engine()
         port = runners.get(self.kind).engine_port({"ENGINE_PORT": found.get("port")})
         return {"RUNNER": self.kind, "CELL_KIND": "command", "ENGINE_MODEL": self.model, "ENGINE_PORT": str(port)}
+
+
+class EngineCellFit:
+    """Whether the model of a cell in an engine fits into its machine's cards,
+    asked before the cell starts it (2026-09-26: the question the board's load
+    asked moved to the start of the cell that loads the model now).
+
+    "At least": the model's file alone against the free memory of all the
+    machine's cards together — an engine spreads a model across cards, and
+    the file is the least it takes. Nothing is asked when either side is not
+    known (no size, a card that does not say, no card at all), when the model
+    is loaded already (the cell takes it as it is), or when it runs on the
+    engine's cloud.
+    """
+
+    def __init__(self, host, config):
+        self.host = host if isinstance(host, dict) else None
+        cfg = config if isinstance(config, dict) else {}
+        self.kind = str(cfg.get("RUNNER") or "").strip().lower()
+        self.model = str(cfg.get("ENGINE_MODEL") or "").strip()
+
+    def model_row(self):
+        """The model as the machine's engine reports it; None for a cell that
+        is not in an engine, or a model the report does not name."""
+        if self.host is None or not self.model or self.kind not in EngineCellPlan.kinds():
+            return None
+        engine = next((e for e in self.host.get("engines") or []
+                       if isinstance(e, dict) and e.get("kind") == self.kind), None)
+        return next((m for m in (engine or {}).get("models") or []
+                     if isinstance(m, dict) and m.get("name") == self.model), None)
+
+    def free_bytes(self):
+        """Bytes free on all the machine's cards together — None when there is
+        no card, or one does not say (nvidia-smi answers [N/A])."""
+        cards = self.host.get("gpus") if self.host else None
+        if not isinstance(cards, list) or not cards:
+            return None
+        free = 0.0
+        for card in cards:
+            try:
+                free += float((card or {}).get("memoryFreeMiB"))
+            except (TypeError, ValueError):
+                return None
+        return int(free * 1024 * 1024)
+
+    def short(self):
+        """{model, needBytes, freeBytes, basis} when the model would not fit;
+        None when it would, or when it cannot be told."""
+        row = self.model_row()
+        if not row or row.get("loaded") is True or row.get("remote") is True:
+            return None
+        need = row.get("fileBytes")
+        if isinstance(need, bool) or not isinstance(need, int) or need <= 0:
+            return None
+        free = self.free_bytes()
+        if free is None or need <= free:
+            return None
+        return {"model": self.model, "needBytes": need, "freeBytes": free, "basis": "weights"}
+

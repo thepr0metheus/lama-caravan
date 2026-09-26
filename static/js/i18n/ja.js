@@ -1016,6 +1016,8 @@ export default {
   dlgStartModel: "サーバー :{port}（{model}）を起動しますか？モデルがメモリに読み込まれます。",
   dlgStartPort: "サーバー :{port} を起動しますか？",
   dlgStartCommand: ":{port} でセルを起動しますか？そのコマンドはホスト上で実行されます。",
+  cellEngineShort: "{model} には {need} のビデオメモリが必要ですが、カードの空きは {free} です。収まらない分は RAM に置かれて遅くなるか、エンジンが読み込めません。それでも :{port} を起動しますか？",
+  cellStartAnyway: "それでも起動",
   dlgStartLabel: "起動",
   dlgReserveCell: "セル :{port} を予約しますか？ポートはフリート全体で確保され、セルは後で設定・起動できます。",
   authRegenConfirm: "フリートトークンを再生成しますか？すべてのスカウトは古いトークンを保持したままとなり、モデルサーバーで再度追加するまでオフラインと表示されます — それにより新しいトークンが渡されます。",

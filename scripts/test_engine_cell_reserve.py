@@ -13,7 +13,10 @@
   * резерв без движка — прежний: пустая ячейка каравана;
   * id контроллера отказан прежними словами, а не «нет отчёта»;
   * зарезервированная ячейка движка стартует строкой своего раннера и
-    спрашивает здоровье на /health.
+    спрашивает здоровье на /health;
+  * модель, которая не влезет в свободную память карт, не стартует без
+    вопроса: ответ «short» с числами, тот же старт с force — стартует
+    (2026-09-26, вопрос переехал с загрузки с доски на старт ячейки).
 
 Запуск: python3 scripts/test_engine_cell_reserve.py
 """
@@ -23,7 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from caravan.admin import cell_ops, fleet_clients as fc, server_cells as sc  # noqa: E402
-from caravan.admin.engine_cells import EngineCellPlan  # noqa: E402
+from caravan.admin.engine_cells import EngineCellFit, EngineCellPlan  # noqa: E402
 from caravan.admin.model_locator import Locations  # noqa: E402
 from caravan.common.errors import AppError  # noqa: E402
 
@@ -219,10 +222,82 @@ def section_start():
           f"negative: без модели старт отказан до скаута, с подсказкой, где её дают (got {got})")
 
 
+GIB = 1024 ** 3
+MIB = 1024 ** 2
+
+
+def fit_host(file_bytes=45 * GIB, loaded=False, remote=False, cards=("20000", "10000")):
+    """A machine whose Ollama lists one model, with cards that say how much is free."""
+    model = {"name": "qwen2.5:0.5b", "fileBytes": file_bytes, "loaded": loaded, "remote": remote}
+    return {"id": "box-a", "engines": [{**engine(), "models": [model]}],
+            "gpus": [{"name": "RTX", "memoryFreeMiB": c} for c in cards]}
+
+
+def section_fit():
+    print("влезет ли модель ячейки движка на карты:")
+    check(EngineCellFit(fit_host(), OLLAMA_CFG).short()
+          == {"model": "qwen2.5:0.5b", "needBytes": 45 * GIB, "freeBytes": 30000 * MIB, "basis": "weights"},
+          "не влезает в свободное на всех картах вместе — модель, сколько нужно («не меньше» файла), сколько свободно")
+    check(EngineCellFit(fit_host(file_bytes=30000 * MIB), OLLAMA_CFG).short() is None,
+          "boundary: ровно столько, сколько свободно на всех картах вместе, — влезает (движок раскладывает по картам)")
+    check(EngineCellFit(fit_host(file_bytes=30000 * MIB + 1), OLLAMA_CFG).short() is not None,
+          "boundary: на байт больше — не влезает")
+    for why, host, cfg in (
+            ("модель уже загружена — ячейка возьмёт её как есть", fit_host(loaded=True), OLLAMA_CFG),
+            ("облачная модель Ollama — не на этих картах", fit_host(remote=True), OLLAMA_CFG),
+            ("размер файла не сказан", fit_host(file_bytes=None), OLLAMA_CFG),
+            ("размер — не число", fit_host(file_bytes="6000"), OLLAMA_CFG),
+            ("размер — True", fit_host(file_bytes=True), OLLAMA_CFG),
+            ("карта не сказала, сколько свободно", fit_host(cards=("20000", "[N/A]")), OLLAMA_CFG),
+            ("карт нет — видеопамяти не с чем сравнить", fit_host(cards=()), OLLAMA_CFG),
+            ("машина без отчёта", None, OLLAMA_CFG),
+            ("ячейка каравана", fit_host(), {"RUNNER": "llama-server", "MODEL_FILE": "a.gguf"}),
+            ("модели нет в отчёте движка", fit_host(), {**OLLAMA_CFG, "ENGINE_MODEL": "ghost:1b"}),
+            ("у ячейки нет настроек", fit_host(), None)):
+        check(EngineCellFit(host, cfg).short() is None, f"negative: {why} — ничего не спрашивается")
+
+    print("старт ячейки движка, которая не влезет:")
+    slot = {"hostId": "box-a", "port": 22041, "config": dict(OLLAMA_CFG), "kind": "serverCell"}
+
+    class Slots:
+        def slot(self, host_id, port):
+            return slot if (host_id, int(port)) == ("box-a", 22041) else {}
+
+    started, booted = [], []
+    keep = (cell_ops.topology_store, cell_ops.topo, cell_ops.client_llama_start, cell_ops.client_llama_autostart)
+    host = {"box-a": fit_host()}
+    cell_ops.topology_store = lambda: {"hosts": host}
+    cell_ops.topo = Slots()
+    cell_ops.client_llama_start = lambda body: (started.append(body["port"]), {"ok": True})[1]
+    cell_ops.client_llama_autostart = lambda body, enabled: (booted.append((body["port"], enabled)), {"ok": True})[1]
+    try:
+        asked = cell_ops.server_cell_action({"hostId": "box-a", "port": 22041, "action": "start"})
+        check(asked == {"ok": False, "hostId": "box-a", "port": 22041, "action": "start",
+                        "short": {"model": "qwen2.5:0.5b", "needBytes": 45 * GIB, "freeBytes": 30000 * MIB,
+                                  "basis": "weights"}} and started == [],
+              "не влезет — не старт и не отказ: вопрос оператору с числами; до скаута не дошло")
+        check(cell_ops.server_cell_action({"hostId": "box-a", "port": 22041, "action": "restart"}).get("short")
+              is not None and started == [], "перезапуск спрашивает так же")
+        check(cell_ops.server_cell_action({"hostId": "box-a", "port": 22041, "action": "start", "force": "yes"})
+              .get("short") is not None and started == [], "negative: force не true — всё равно вопрос")
+        got = cell_ops.server_cell_action({"hostId": "box-a", "port": 22041, "action": "start", "force": True})
+        check(got.get("ok") is True and "short" not in got and started == [22041],
+              "«запустить всё равно» — тот же старт с force: уходит скауту, не спрашивая")
+        got = cell_ops.server_cell_action({"hostId": "box-a", "port": 22041, "action": "enable"})
+        check(got.get("ok") is True and booted == [(22041, True)] and started == [22041],
+              "автозапуск не спрашивает: при загрузке машины спросить некого")
+        host["box-a"] = fit_host(file_bytes=6 * GIB)
+        got = cell_ops.server_cell_action({"hostId": "box-a", "port": 22041, "action": "start"})
+        check(got.get("ok") is True and started == [22041, 22041], "влезает — стартует сразу, без вопроса")
+    finally:
+        cell_ops.topology_store, cell_ops.topo, cell_ops.client_llama_start, cell_ops.client_llama_autostart = keep
+
+
 def main():
     section_plan()
     section_reserve()
     section_start()
+    section_fit()
     if _fail:
         print(f"\nFAILED ({len(_fail)}):")
         for m in _fail:

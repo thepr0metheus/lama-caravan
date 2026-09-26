@@ -284,8 +284,8 @@ const ENGINE_IDLE_SHOWN = 6;
 const ENGINE_FOREVER_SEC = 365 * 86400;
 
 // Memory as its size reads: gigabytes from one, megabytes below — an engine's
-// 20 MB process written "0.0 GB" read as holding nothing. Also the sizes a
-// load that would not fit asks about (remote-cells.js).
+// 20 MB process written "0.0 GB" read as holding nothing. Also the sizes the
+// start of an engine cell that would not fit asks about (remote-cells.js).
 export function engineSizeText(bytes) {
   const n = Number(bytes);
   return n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.round(n / 1024 ** 2)} MB`;

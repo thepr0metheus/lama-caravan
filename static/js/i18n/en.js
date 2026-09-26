@@ -628,6 +628,8 @@ export default {
   dlgStartModel: "Start the server on :{port} ({model})? The model will load into memory.",
   dlgStartPort: "Start the server on :{port}?",
   dlgStartCommand: "Start the cell on :{port}? Its command runs on the host.",
+  cellEngineShort: "{model} needs {need} of video memory; the cards have {free} free. What does not fit goes to RAM and runs slower, or the engine fails to load it. Start :{port} anyway?",
+  cellStartAnyway: "Start anyway",
   dlgStartLabel: "Start",
   dlgReserveCell: "Reserve cell :{port}? The port is claimed fleet-wide; the cell can be configured and started later.",
   authRegenConfirm: "Regenerate the fleet token? Every scout keeps the OLD one and shows offline until you add it again under Model servers — that hands the new token over.",

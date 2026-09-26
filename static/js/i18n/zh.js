@@ -1016,6 +1016,8 @@ export default {
   dlgStartModel: "在 :{port} 上启动服务器（{model}）？模型将加载到内存中。",
   dlgStartPort: "在 :{port} 上启动服务器？",
   dlgStartCommand: "在 :{port} 启动该单元？它的命令将在主机上执行。",
+  cellEngineShort: "{model} 需要 {need} 显存，显卡上空闲 {free}。放不下的部分会进入内存并变慢，或者引擎无法加载。仍要启动 :{port} 吗？",
+  cellStartAnyway: "仍然启动",
   dlgStartLabel: "启动",
   dlgReserveCell: "预留单元 :{port}？该端口将在整个集群范围内占用；单元可稍后配置并启动。",
   authRegenConfirm: "要重新生成机群令牌吗？每个 scout 都会保留旧令牌，并显示为离线，直到你在模型服务器中重新添加它 — 这样才会把新令牌交给它。",

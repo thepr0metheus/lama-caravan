@@ -29,7 +29,7 @@ import { startMonitor } from "./polling.js";
 import { setTopology, state, topology } from "./state.js";
 import { topologyAssignmentsByAgent, topologyStatusPill } from "./topology-activity.js";
 import {
-  hostAgeText, hostPowerTextKey, isControllerMachine, machineAt, openNodeServerDetail,
+  engineSizeText, hostAgeText, hostPowerTextKey, isControllerMachine, machineAt, openNodeServerDetail,
 } from "./topology-nodes.js";
 import { markTopologyRenderPending, refreshTopology, renderTopology, topologyInteractionActive, topologyServerPhase } from "./topology-render.js";
 import { $, api, escapeHtml, toast } from "./utils.js";
@@ -453,7 +453,9 @@ async function postReserve(hostId, pendingPort, plan) {
   }
 }
 
-export async function cellServiceAction(hostId, port, actionName) {
+// `force`: start a cell in an engine whose model would not fit into the
+// cards' free memory anyway — sent only after the operator said so.
+export async function cellServiceAction(hostId, port, actionName, { force = false } = {}) {
   const cellKey = `${hostId}:${port}`;
   _pendingCellActions.set(cellKey, actionName);
   _patchCellButtonsBusy(hostId, port, actionName);
@@ -464,9 +466,24 @@ export async function cellServiceAction(hostId, port, actionName) {
   try {
     const res = await api("/api/topology/server-cell/action", {
       method: "POST",
-      body: JSON.stringify({ hostId, port: Number(port), action: actionName }),
+      body: JSON.stringify({ hostId, port: Number(port), action: actionName, ...(force ? { force: true } : {}) }),
       signal: AbortSignal.timeout(60000),
     });
+    // A cell in an engine whose model would not fit into the cards' free
+    // memory is not started (2026-09-26): asked about with the numbers — "≥"
+    // when the need is the model's file alone — and started anyway only when
+    // the operator says so.
+    if (res?.short) {
+      _pendingCellActions.delete(cellKey);
+      if (!topologyInteractionActive()) renderTopology();
+      const s = res.short;
+      const need = `${s.basis === "weights" ? "≥" : "≈"} ${engineSizeText(s.needBytes)}`;
+      if (await appConfirm(t("cellEngineShort", { model: s.model, need, free: engineSizeText(s.freeBytes), port: String(port) }),
+        { confirmLabel: t("cellStartAnyway"), scene: "start" })) {
+        await cellServiceAction(hostId, port, actionName, { force: true });
+      }
+      return;
+    }
     // The request can succeed (HTTP 200) but the agent may reject the action —
     // e.g. a client has a single server slot and another cell is still
     // starting/downloading. Surface that instead of silently doing nothing.

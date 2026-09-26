@@ -1016,6 +1016,8 @@ export default {
   dlgStartModel: "Démarrer le serveur sur :{port} ({model}) ? Le modèle sera chargé en mémoire.",
   dlgStartPort: "Démarrer le serveur sur :{port} ?",
   dlgStartCommand: "Démarrer la cellule sur :{port} ? Sa commande s'exécute sur l'hôte.",
+  cellEngineShort: "{model} a besoin de {need} de mémoire vidéo ; les cartes ont {free} de libre. Ce qui ne tient pas va en RAM et tourne plus lentement, ou le moteur ne parvient pas à le charger. Démarrer :{port} quand même ?",
+  cellStartAnyway: "Démarrer quand même",
   dlgStartLabel: "Démarrer",
   dlgReserveCell: "Réserver la cellule :{port} ? Le port est réservé à l'échelle de la flotte ; la cellule pourra être configurée et démarrée plus tard.",
   authRegenConfirm: "Régénérer le jeton de flotte ? Chaque scout garde l'ANCIEN et apparaît hors ligne jusqu'à ce que vous l'ajoutiez de nouveau dans Serveurs de modèles — ce qui lui transmet le nouveau jeton.",

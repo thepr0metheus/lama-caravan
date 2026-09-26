@@ -1016,6 +1016,8 @@ export default {
   dlgStartModel: "Khởi động máy chủ trên :{port} ({model})? Mô hình sẽ được nạp vào bộ nhớ.",
   dlgStartPort: "Khởi động máy chủ trên :{port}?",
   dlgStartCommand: "Khởi động ô tại :{port}? Lệnh của nó chạy trên máy chủ.",
+  cellEngineShort: "{model} cần {need} bộ nhớ video; các card còn trống {free}. Phần không vừa sẽ vào RAM và chạy chậm hơn, hoặc engine không nạp được. Vẫn khởi động :{port}?",
+  cellStartAnyway: "Vẫn khởi động",
   dlgStartLabel: "Bắt đầu",
   dlgReserveCell: "Đặt ô :{port}? Cổng được giữ trong toàn fleet; ô có thể được cấu hình và khởi động sau.",
   authRegenConfirm: "Tạo lại token dàn máy? Mỗi scout sẽ giữ token CŨ và hiện offline cho đến khi bạn thêm lại nó trong Máy chủ model — đó là cách token mới được trao đi.",

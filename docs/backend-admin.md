@@ -382,7 +382,17 @@ an engine that did not list its models or has none, no model, a model it does no
 is asked about before the model: a board that found nothing to choose from sends no model and hears
 why. No slot `model` is written — the engine's model name is not a file (the garbage collector and
 the start read that field).
-Key functions: `EngineCellPlan.from_body`, `EngineCellPlan.config`, `EngineCellPlan.kinds`.
+`EngineCellFit` — whether the model of a cell in an engine fits into its machine's cards, asked
+before the cell starts it (2026-09-26: the question the board's load asked moved to the start of the
+cell that loads the model now). "At least": the model's file (`fileBytes` in the engine's report)
+against the free memory of all the machine's cards together (`memoryFreeMiB`); `short()` is
+`{model, needBytes, freeBytes, basis: "weights"}` when it would not fit, None when it would — and
+None when a side is not known (no size, a card that does not say, no card), when the model is loaded
+already, or when it runs on the engine's cloud. `server_cell_action` answers a `start` or `restart`
+of such a cell with `{ok: false, …, short}` unless the request says `force: true` (a JSON true);
+an autostart has nobody to ask and is not checked.
+Key functions: `EngineCellPlan.from_body`, `EngineCellPlan.config`, `EngineCellPlan.kinds`,
+`EngineCellFit.short`.
 
 ## `engine_outputs.py`
 
