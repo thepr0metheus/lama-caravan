@@ -17,6 +17,8 @@ from caravan.admin.server_cells import (
     server_slot_key,
     upsert_server_slot,
 )
+from caravan.admin.engine_cells import EngineCellFit
+from caravan.admin.paths import canonical_host_id
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.admin.state import topology as topo
 from caravan.admin.status import state
@@ -129,11 +131,21 @@ def server_cell_action(body: dict) -> dict:
     if action_name not in {"start", "stop", "restart", "enable", "disable"}:
         raise AppError("action must be start, stop, restart, enable, or disable", 400)
     refuse_controller_host(host_id)
+    force = body.get("force") is True
     if action_name == "stop":
         result = client_llama_stop({"hostId": host_id, "port": port})
         return {"ok": result.get("ok", False), "hostId": host_id, "port": port, "action": action_name, "result": result}
     if action_name in {"start", "restart", "enable", "disable"}:
         slot = topo.slot(host_id, port)
+        if action_name in {"start", "restart"} and not force:
+            # A cell in an engine whose model would not fit into the cards'
+            # free memory does not start: the answer is a question to the
+            # operator, and the same start with `force` starts anyway. An
+            # autostart has nobody to ask, and is not checked.
+            host = (topology_store().get("hosts") or {}).get(canonical_host_id(host_id))
+            short = EngineCellFit(host, slot.get("config")).short()
+            if short:
+                return {"ok": False, "hostId": host_id, "port": port, "action": action_name, "short": short}
         body = scout_start_body(host_id, port, slot, check=action_name != "disable")
         if action_name in {"enable", "disable"}:
             # The scout keeps the request that starts the cell and starts it

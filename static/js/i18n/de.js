@@ -1016,6 +1016,8 @@ export default {
   dlgStartModel: "Server auf :{port} ({model}) starten? Das Modell wird in den Speicher geladen.",
   dlgStartPort: "Server auf :{port} starten?",
   dlgStartCommand: "Zelle auf :{port} starten? Ihr Befehl läuft auf dem Host.",
+  cellEngineShort: "{model} braucht {need} Grafikspeicher; auf den Karten sind {free} frei. Was nicht passt, landet im RAM und läuft langsamer, oder die Engine kann es nicht laden. :{port} trotzdem starten?",
+  cellStartAnyway: "Trotzdem starten",
   dlgStartLabel: "Starten",
   dlgReserveCell: "Zelle :{port} reservieren? Der Port wird flottenweit belegt; die Zelle kann später konfiguriert und gestartet werden.",
   authRegenConfirm: "Flotten-Token neu erzeugen? Jeder Scout behält den ALTEN und erscheint offline, bis du ihn erneut unter Modell-Server hinzufügst — das übergibt ihm den neuen Token.",

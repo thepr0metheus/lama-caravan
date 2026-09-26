@@ -788,7 +788,9 @@ cells: nothing is asked — the line names the engine and the model — and the 
 one; one reserve at a time on a machine. Both send through one path (the machine's spinner until
 the new cell is on the board, its flash, the controller's refusal as the toast). `actOnEngineModel`
 unloads a model (confirmed like a stop) or deletes it (the danger look, the machine named); it sends
-no other act — no model is loaded from the board.
+no other act — no model is loaded from the board. `cellServiceAction` asks when a start comes back
+`short` — a cell in an engine whose model would not fit into the cards' free memory: the numbers
+("≥" when the need is the model's file alone), and on "start anyway" the same start with `force`.
 
 - Owns: the pending-op collections — `_pendingRemoteStarts` (Map), `_stoppingHosts`, `_deletingSlots`, `_reservingCells`, `_newReservedCells`, `_stoppingCells`, `_expandedCellCfgs` — plus `_remoteStartWatchTimer`, `_nvidiaSmiSource`, the `_tr*` form state.
 - Key exports: `reserveServerCell`, `reserveEngines`, `reserveEngineCell`, `reserveEngineButton`, `actOnEngineModel`, `serveEngine`, `pullEngineModel`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.

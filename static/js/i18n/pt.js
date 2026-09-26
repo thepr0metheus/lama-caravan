@@ -1016,6 +1016,8 @@ export default {
   dlgStartModel: "Iniciar o servidor em :{port} ({model})? O modelo será carregado na memória.",
   dlgStartPort: "Iniciar o servidor em :{port}?",
   dlgStartCommand: "Iniciar a célula em :{port}? O comando dela roda no host.",
+  cellEngineShort: "{model} precisa de {need} de memória de vídeo; as placas têm {free} livres. O que não couber vai para a RAM e roda mais devagar, ou o motor não consegue carregá-lo. Iniciar :{port} mesmo assim?",
+  cellStartAnyway: "Iniciar mesmo assim",
   dlgStartLabel: "Iniciar",
   dlgReserveCell: "Reservar a célula :{port}? A porta fica reservada em toda a frota; a célula pode ser configurada e iniciada depois.",
   authRegenConfirm: "Regenerar o token da frota? Cada scout mantém o token ANTIGO e aparece offline até você adicioná-lo novamente em Servidores de modelos — é isso que entrega o novo token.",

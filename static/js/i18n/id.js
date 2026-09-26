@@ -1016,6 +1016,8 @@ export default {
   dlgStartModel: "Mulai server di :{port} ({model})? Model akan dimuat ke memori.",
   dlgStartPort: "Mulai server di :{port}?",
   dlgStartCommand: "Jalankan sel di :{port}? Perintahnya dijalankan di host.",
+  cellEngineShort: "{model} butuh {need} memori video; kartu punya {free} kosong. Yang tidak muat pindah ke RAM dan berjalan lebih lambat, atau engine gagal memuatnya. Tetap jalankan :{port}?",
+  cellStartAnyway: "Tetap jalankan",
   dlgStartLabel: "Mulai",
   dlgReserveCell: "Pesan sel :{port}? Port diklaim untuk seluruh armada; sel dapat dikonfigurasi dan dimulai nanti.",
   authRegenConfirm: "Buat ulang token armada? Setiap scout akan tetap menyimpan token LAMA dan tampil offline sampai Anda menambahkannya lagi di Server model — begitulah cara token baru diserahkan.",
