@@ -765,8 +765,10 @@ export function bindServerSlotControls(root) {
   root.querySelectorAll("[data-node-cell-launch]").forEach((b) =>
     b.addEventListener("click", async () => {
       const port = b.dataset.nodeCellPort;
-      const model = b.closest("article")?.querySelector(".node-model-name")?.textContent?.trim();
-      // For a command-path cell that .node-model-name row is the command line,
+      // The name the card shows comes with the button: the folded line's
+      // switch carries the card's ▶ attributes and has no card around it.
+      const model = b.dataset.nodeCellModel || "";
+      // For a command-path cell that shown name is the command line,
       // so the model wording announced "bash ~/run_tts.sh $PORT cosyvoice" as a
       // model and promised it would load into memory — neither is true. (A
       // model in a library was asked "disk or library?" here, for the
@@ -786,7 +788,7 @@ export function bindServerSlotControls(root) {
   root.querySelectorAll("[data-node-cell-stop]").forEach((b) =>
     b.addEventListener("click", async () => {
       const port = b.dataset.nodeCellPort;
-      const model = b.closest("article")?.querySelector(".node-model-name")?.textContent?.trim();
+      const model = b.dataset.nodeCellModel || "";
       const msg = model ? t("dlgStopModel", { model, port }) : t("dlgStopPort", { port });
       if (!(await appConfirm(msg, { confirmLabel: t("stop"), scene: "stop" }))) return;
       cellServiceAction(b.dataset.nodeCellStop, port, "stop");

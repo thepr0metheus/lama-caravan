@@ -1,24 +1,23 @@
-"""A model of an engine next to the cells (Ollama, LM Studio) loaded or
-unloaded from the board: the controller asks the machine's scout, which does
-it on its own thread (scout 2.14+). docs/foreign-engines.md, step 3."""
+"""A model of an engine next to the cells (Ollama, LM Studio) unloaded or
+deleted from the board, downloaded into it, and the engine's server started or
+stopped: the controller asks the machine's scout, which does it on its own
+thread (scout 2.14+). docs/foreign-engines.md, step 3."""
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.common.errors import AppError
 from caravan.domain.engine import EngineReport
 
 
 class EngineActions:
-    """Load or unload a model of an engine on a machine with a scout.
+    """Unload a model of an engine on a machine with a scout, or delete it.
 
     The scout answers at once, the model marked as being acted on, and does
     the act on its own thread; its answer carries the machine's engines as
     they are now, and they go into the host record straight away — the board
-    shows "loading…" on the next read, not after the next report. What the
+    shows "unloading…" on the next read, not after the next report. What the
     act came to arrives with the reports after it.
 
-    A load that would not fit into the cards' free memory is not started by
-    the scout (2.15+): the answer is `short` — how much it needs, how much is
-    free — and the board asks the operator; the same load with `force`
-    starts anyway.
+    No model is loaded from here (2026-09-26): a cell in the engine loads
+    its model when it starts.
     """
 
     ACTIONS = EngineReport.ACTIONS
@@ -43,27 +42,17 @@ class EngineActions:
             raise AppError(f"{host_id} reports no {kind}", 404)
         return engine
 
-    def act(self, host_id, op, kind, model, context_length=None, force=False, hold=None):
+    def act(self, host_id, op, kind, model):
         host_id, kind, model = (str(x or "").strip() for x in (host_id, kind, model))
         if op not in self.ACTIONS:
             raise AppError(f"unknown engine action {op!r}", 400)
         if not host_id or not kind or not model:
             raise AppError("hostId, kind and model are required", 400)
         engine = self.engine(host_id, kind)
-        body = {"kind": kind, "port": engine.get("port"), "model": model}
-        if context_length not in (None, ""):
-            body["contextLength"] = context_length
-        if force is True:
-            body["force"] = True
-        if hold not in (None, ""):
-            body["hold"] = hold
-        answer = self._scout_for(host_id).post(f"/api/engines/{op}", body, timeout=self.TIMEOUT)
+        answer = self._scout_for(host_id).post(f"/api/engines/{op}", {"kind": kind, "port": engine.get("port"),
+                                                                      "model": model}, timeout=self.TIMEOUT)
         self.keep(host_id, answer)
-        done = {"hostId": host_id, "kind": kind, "model": model, "op": op}
-        short = EngineReport.short((answer or {}).get("short")) if (answer or {}).get("ok") is False else None
-        if short:
-            return {"ok": False, **done, "short": short}
-        return {"ok": True, **done}
+        return {"ok": True, "hostId": host_id, "kind": kind, "model": model, "op": op}
 
     def pull(self, host_id, kind, model):
         """Download a model into the engine (scout 2.17+): the scout answers

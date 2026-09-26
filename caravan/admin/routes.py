@@ -1468,16 +1468,15 @@ def _post_api_engine_outputs_expose(h, parsed, body):
         h.send_json({"ok": True, **result, "topology": topology_state(refresh_hosts=False)})
         return
 
-@_route(POST_ROUTES, '/api/engines/load', '/api/engines/unload', '/api/engines/delete')
+@_route(POST_ROUTES, '/api/engines/unload', '/api/engines/delete')
 def _post_api_engines_act(h, parsed, body):
-        # A model of an engine next to a machine's cells, loaded or unloaded
-        # through its scout (docs/foreign-engines.md, step 3).
+        # A model of an engine next to a machine's cells, unloaded or deleted
+        # through its scout (docs/foreign-engines.md, step 3). No load: a cell
+        # in the engine loads its model when it starts (2026-09-26).
         from caravan.admin.engine_actions import EngineActions
         from caravan.admin.fleet_clients import _scout
         op = parsed.path.rsplit("/", 1)[-1]
-        result = EngineActions(_scout, topology_hosts).act(body.get("hostId"), op, body.get("kind"), body.get("model"),
-                                                           body.get("contextLength"), force=body.get("force") is True,
-                                                           hold=body.get("hold"))
+        result = EngineActions(_scout, topology_hosts).act(body.get("hostId"), op, body.get("kind"), body.get("model"))
         h.send_json({**result, "topology": topology_state(refresh_hosts=False)})
         return
 

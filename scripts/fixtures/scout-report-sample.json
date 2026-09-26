@@ -34,7 +34,6 @@
       {
         "autostart": false,
         "controls": [
-          "load",
           "unload",
           "delete",
           "pull"
@@ -49,7 +48,6 @@
           "allowedFrom": [],
           "state": "open"
         },
-        "holds": true,
         "kind": "ollama",
         "label": "Ollama",
         "listen": "network",
@@ -109,13 +107,11 @@
         "api": "v1",
         "autostart": false,
         "controls": [
-          "load",
           "unload",
           "pull",
           "stop"
         ],
         "firewall": null,
-        "holds": true,
         "kind": "lmstudio",
         "label": "LM Studio",
         "listen": "loopback",
@@ -361,7 +357,6 @@
       {
         "autostart": false,
         "controls": [
-          "load",
           "unload",
           "delete",
           "pull"
@@ -376,7 +371,6 @@
           "allowedFrom": [],
           "state": "open"
         },
-        "holds": true,
         "kind": "ollama",
         "label": "Ollama",
         "listen": "network",
@@ -436,13 +430,11 @@
         "api": "v1",
         "autostart": false,
         "controls": [
-          "load",
           "unload",
           "pull",
           "stop"
         ],
         "firewall": null,
-        "holds": true,
         "kind": "lmstudio",
         "label": "LM Studio",
         "listen": "loopback",

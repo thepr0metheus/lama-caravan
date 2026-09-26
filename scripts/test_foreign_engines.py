@@ -48,7 +48,7 @@ ENGINE = {"kind": "ollama", "label": "Ollama", "port": 11434, "listen": "network
 def test_engine_report():
     print("что контроллер хранит о движке:")
     kept = EngineReport.engines([copy.deepcopy(ENGINE)])
-    same(kept, [{**ENGINE, "api": "", "firewall": None, "controls": [], "holds": False, "runBy": "", "autostart": False,
+    same(kept, [{**ENGINE, "api": "", "firewall": None, "controls": [], "runBy": "", "autostart": False,
                  "serverAction": None, "serverError": None,
                  "downloading": None, "downloadError": None}],
          "движок как сказал скаут — все поля; api и файрвол пусты, когда не сказаны")
@@ -91,16 +91,18 @@ def test_engine_report():
          "negative: не сказан, чужое состояние, без состояния, не словарь — None (не знаю), а не «открыт»")
     same(len(one(firewall={"state": "restricted", "allowedFrom": [f"10.0.{i}.0/24" for i in range(20)]})
              ["firewall"]["allowedFrom"]), 8, "boundary: не больше 8 источников")
-    same([one(controls=c)["controls"] for c in (["load", "unload"], ["unload", "reboot", "load"], ["unload"], [], None, "load")],
-         [["load", "unload"], ["load", "unload"], ["unload"], [], [], []],
-         "что можно делать (скаут 2.14): только известные действия, в своём порядке; не сказано — ничего (не «всё»)")
-    acted = EngineReport.model({"name": "a", "action": {"op": "load", "since": "1790000000", "x": 1},
-                                "actionError": {"op": "unload", "error": "e" * 400, "at": 5}})
+    same([one(controls=c)["controls"] for c in (["load", "unload"], ["unload", "reboot", "load"], ["unload"], [], None, "unload")],
+         [["unload"], ["unload"], ["unload"], [], [], []],
+         "что можно делать (скаут 2.14): только известные действия, в своём порядке; не сказано — ничего (не «всё»); "
+         "загрузку скаута (до 2.18) не храним — с доски модель не грузят (2026-09-26)")
+    acted = EngineReport.model({"name": "a", "action": {"op": "unload", "since": "1790000000", "x": 1},
+                                "actionError": {"op": "delete", "error": "e" * 400, "at": 5}})
     same((acted["action"], acted["actionError"]),
-         ({"op": "load", "since": 1790000000}, {"op": "unload", "at": 5, "error": "e" * 300}),
+         ({"op": "unload", "since": 1790000000}, {"op": "delete", "at": 5, "error": "e" * 300}),
          "идущее действие и последняя ошибка — как сказал скаут; ошибка — до 300 знаков")
-    same([EngineReport.model({"name": "a", "action": a})["action"] for a in ({"op": "stop"}, "load", {}, None)],
-         [None, None, None, None], "negative: чужое действие, не словарь, пусто — None, а не «идёт»")
+    same([EngineReport.model({"name": "a", "action": a})["action"] for a in ({"op": "stop"}, {"op": "load", "since": 1}, "unload", {}, None)],
+         [None, None, None, None, None],
+         "negative: чужое действие, загрузка (её с доски нет), не словарь, пусто — None, а не «идёт»")
     m = EngineReport.model({"name": "a", "loaded": "yes", "memBytes": "12", "vramBytes": None, "remote": "true",
                             "contextLength": True})
     same((m["loaded"], m["memBytes"], m["vramBytes"], m["remote"], m["contextLength"]), (None, 12, None, False, None),
@@ -109,10 +111,10 @@ def test_engine_report():
     same(EngineReport.model({"name": "a", "loaded": False})["loaded"], False, "не загружена — False, не None")
     same(len(EngineReport.model({"name": "x" * 500})["name"]), 200, "boundary: имя модели — до 200 знаков")
     same([one(controls=c)["controls"] for c in (["stop", "load", "unload"], ["start"], ["start", "reboot"])],
-         [["load", "unload", "stop"], ["start"], ["start"]],
+         [["unload", "stop"], ["start"], ["start"]],
          "сервер движка (скаут 2.16): пуск и остановка — тоже из известных действий, после действий над моделями")
     same([one(controls=c)["controls"] for c in (["pull", "delete", "load"], ["pull"])],
-         [["load", "delete", "pull"], ["pull"]],
+         [["delete", "pull"], ["pull"]],
          "скачать в движок и удалить модель (скаут 2.17) — тоже из известных действий, в своём порядке")
     dl = one(downloading={"model": "qwen3:4b", "since": "7", "doneBytes": 500, "totalBytes": None, "x": 1},
              downloadError={"model": "qwen3:8b", "error": "e" * 400, "at": 9})
@@ -123,7 +125,7 @@ def test_engine_report():
     same([one(downloading=d)["downloading"] for d in ({"since": 1}, {"model": ""}, "qwen3", None)], [None, None, None, None],
          "negative: без имени модели, не словарь — никакого скачивания")
     same(EngineReport.model({"name": "a", "action": {"op": "delete", "since": 1}})["action"], {"op": "delete", "since": 1},
-         "удаление модели идёт — та же метка, что загрузка")
+         "удаление модели идёт — та же метка, что выгрузка")
     same([one(state="stopped", models=None)[k] for k in ("state", "models")], ["stopped", None],
          "остановленный движок (скаут 2.16) хранится: его можно запустить; модели неизвестны — None")
     same([one(runBy=r)["runBy"] for r in ("user", "other", "root", None)], ["user", "other", "", ""],
@@ -137,21 +139,12 @@ def test_engine_report():
     same([one(serverAction={"op": a, "since": 1})["serverAction"] for a in ("load", "reboot")], [None, None],
          "negative: у сервера только пуск и остановка — загрузка модели сюда не попадает")
     same(EngineReport.model({"name": "a", "action": {"op": "start", "since": 1}})["action"], None,
-         "negative: у модели только загрузка и выгрузка — пуск сервера сюда не попадает")
-    same([one(holds=h)["holds"] for h in (True, "true", 1, None)], [True, False, False, False],
-         "можно ли сказать, сколько держать (скаут 2.15): только настоящее true; не сказано — нельзя")
+         "negative: у модели только выгрузка и удаление — пуск сервера сюда не попадает")
+    same("holds" in one(holds=True), False,
+         "negative: «можно ли сказать, сколько держать» (скаут 2.15) не хранится — срок задавала только загрузка с доски")
     same([EngineReport.model({"name": "a", "staysLoaded": v})["staysLoaded"] for v in (True, False, "true", None)],
          [True, False, None, None],
          "держит, пока не выгрузят (LM Studio, скаут 2.15): true/false как сказано; не булево — не знаю (None)")
-    same([EngineReport.short(x) for x in (
-            {"needBytes": "45097156608", "freeBytes": 1048576000, "basis": "weights", "error": "…"},
-            {"needBytes": 10, "freeBytes": 0, "basis": "someone's"},
-            {"needBytes": 10, "freeBytes": 10, "basis": "engine"},
-            {"needBytes": None, "freeBytes": 5}, {"needBytes": 10, "freeBytes": None}, "short")],
-         [{"needBytes": 45097156608, "freeBytes": 1048576000, "basis": "weights"},
-          {"needBytes": 10, "freeBytes": 0, "basis": ""}, None, None, None, None],
-         "«не влезет» (скаут 2.15): сколько нужно и свободно — числами, откуда число — из трёх известных; "
-         "ноль свободно — настоящее «ноль»; влезает или не сказано — это не «не влезет»")
 
 
 def test_gpu_owners():
@@ -183,7 +176,7 @@ def test_report_to_record():
     rec = fc.host_from_report(copy.deepcopy(payload))
     same([a["name"] for a in rec["computeApps"]], ["ollama", ""],
          "имя процесса на карте хранится; скаут без него — «»")
-    same(rec["engines"], [{**ENGINE, "api": "", "firewall": None, "controls": [], "holds": False, "runBy": "", "autostart": False,
+    same(rec["engines"], [{**ENGINE, "api": "", "firewall": None, "controls": [], "runBy": "", "autostart": False,
                  "serverAction": None, "serverError": None,
                  "downloading": None, "downloadError": None}], "движки — в записи машины")
     older = fc.host_from_report({"host": {"id": "box-a"}})
@@ -220,7 +213,7 @@ def test_node_carries_engines():
     host = {"id": "box-a", "name": "Box A", "ip": "10.0.0.5", "state": "online", "cpu": {},
             "gpus": [{"index": "0", "uuid": "u0", "name": "G", "memoryTotalMiB": "24576"}],
             "computeApps": [{"gpuUuid": "u0", "pid": 5151, "name": "ollama", "usedMiB": 3500}],
-            "engines": [{**ENGINE, "api": "", "firewall": None, "controls": [], "holds": False, "runBy": "", "autostart": False,
+            "engines": [{**ENGINE, "api": "", "firewall": None, "controls": [], "runBy": "", "autostart": False,
                  "serverAction": None, "serverError": None,
                  "downloading": None, "downloadError": None}]}
     import caravan.admin.engine_outputs as EO
@@ -234,7 +227,7 @@ def test_node_carries_engines():
     finally:
         T.topo.power_schedules, EO.topology_store = saved
     same([n["engines"] for n in nodes],
-         [[{**ENGINE, "api": "", "firewall": None, "controls": [], "holds": False, "runBy": "", "autostart": False,
+         [[{**ENGINE, "api": "", "firewall": None, "controls": [], "runBy": "", "autostart": False,
                  "serverAction": None, "serverError": None,
                  "downloading": None, "downloadError": None, "blockedBy": "", "reachable": True,
             "models": [{**MODEL, "outputId": exposed_id, "exposed": True}]}], None],

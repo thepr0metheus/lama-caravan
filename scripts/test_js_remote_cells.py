@@ -311,7 +311,7 @@ PINS = [
        const handlers = [];
        const btn = { dataset: { nodeCellLaunch: "h1", nodeCellPort: "22001", nodeCellRunner: "llama-server",
                                 nodeCellLibrary: "NAS", nodeCellLibraryFiles: "model, mmproj" },
-                     closest: () => null, addEventListener: (ev, fn) => handlers.push(fn) };
+                     addEventListener: (ev, fn) => handlers.push(fn) };
        const root = { querySelectorAll: (sel) => (sel === "[data-node-cell-launch]" ? [btn] : []) };
        // The vram hover binds once per page, on the body's dataset.
        document.body ||= {}; document.body.dataset ||= { vramHoverBound: "1" };
@@ -331,9 +331,8 @@ PINS = [
      r'''await (async () => {
        const ask = async (runner, model) => {
          const handlers = [];
-         const article = { querySelector: () => (model ? { textContent: ` ${model} ` } : null) };
-         const btn = { dataset: { nodeCellLaunch: "h1", nodeCellPort: "22031", nodeCellRunner: runner },
-                       closest: () => article, addEventListener: (ev, fn) => handlers.push(fn) };
+         const btn = { dataset: { nodeCellLaunch: "h1", nodeCellPort: "22031", nodeCellRunner: runner, nodeCellModel: model },
+                       addEventListener: (ev, fn) => handlers.push(fn) };
          const root = { querySelectorAll: (sel) => (sel === "[data-node-cell-launch]" ? [btn] : []) };
          document.body ||= {}; document.body.dataset ||= { vramHoverBound: "1" };
          rc.bindServerSlotControls(root);
@@ -346,6 +345,28 @@ PINS = [
      'positive: ▶ у ячейки в Ollama спрашивает о её модели — модель загрузится в память (движка); negative: у командной '
      'ячейки — о команде, как прежде; раннер, которого реестр не называет ячейкой движка (lmstudio здесь), — тоже о команде; '
      'отказ в диалоге — ни одного запроса'),
+    ('csa_line_switch_names_its_model',
+     'globalThis.__asked = []; globalThis.__stubReturns["dialogs.appConfirm"] = async (text) => { globalThis.__asked.push(text); return false; };',
+     r'''await (async () => {
+       const press = async (sel, dataset) => {
+         const handlers = [];
+         // A folded line's switch: its dataset is the card's, and no card is around it — no closest().
+         const btn = { dataset, addEventListener: (ev, fn) => handlers.push(fn) };
+         const root = { querySelectorAll: (q) => (q === sel ? [btn] : []) };
+         document.body ||= {}; document.body.dataset ||= { vramHoverBound: "1" };
+         rc.bindServerSlotControls(root);
+         await handlers[0]();
+       };
+       await press("[data-node-cell-launch]", { nodeCellLaunch: "h1", nodeCellPort: "22001", nodeCellRunner: "llama-server", nodeCellModel: "Qwen3-Embedding-0.6B" });
+       await press("[data-node-cell-stop]", { nodeCellStop: "h1", nodeCellPort: "22001", nodeCellModel: "Qwen3-Embedding-0.6B" });
+       await press("[data-node-cell-stop]", { nodeCellStop: "h1", nodeCellPort: "22002" });
+       return { asked: globalThis.__asked, calls: calls() }; })()''',
+     json.dumps({"asked": [en("dlgStartModel", model="Qwen3-Embedding-0.6B", port="22001"),
+                           en("dlgStopModel", model="Qwen3-Embedding-0.6B", port="22001"),
+                           en("dlgStopPort", port="22002")], "calls": []}, ensure_ascii=False),
+     'defect-history: тумблер свёрнутой строки спрашивал «Start the server on :22001?» без имени модели — искал её в '
+     'карточке через closest("article"), а вокруг строки карточки нет; теперь имя едет в атрибутах ▶/⏹ (живая проверка '
+     '2026-09-26); negative: у кнопки без имени — вопрос про порт; отказ — ни одного запроса'),
     ('csa_port_nan_body',
      '',
      'await (async () => { await rc.cellServiceAction("h1", "abc", "start"); return { calls: calls(), pending: rc._pendingCellActions.get("h1:abc") ?? null }; })()',
