@@ -89,12 +89,9 @@ COMPOSED = {
     "cell-job-translate": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-job-speech-translate": "topology-nodes.js: jobChipsHtml() on the cell card",
     "cell-config-search": "config-locator.js: the settings search input above the tabs",
-    # An engine model's load / unload button — one of the two, by what the model is.
-    "node-engine-load": "topology-nodes.js: engineActHtml() on an engine's model row",
-    "node-engine-unload": "topology-nodes.js: engineActHtml() on an engine's model row",
-    # An engine's server start / stop button in its card's header — one of the two.
-    "node-engine-start": "topology-nodes.js: engineServerHtml() in an engine card's header",
-    "node-engine-stop": "topology-nodes.js: engineServerHtml() in an engine card's header",
+    # The switch on an engine's strip starts or stops its server — one of the two.
+    "node-engine-start": "topology-nodes.js: engineLeverHtml() on an engine's strip",
+    "node-engine-stop": "topology-nodes.js: engineLeverHtml() on an engine's strip",
     "cell-config-search-results": "config-locator.js: the search suggestion list",
 }
 

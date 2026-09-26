@@ -206,7 +206,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 355 values. Regenerate with
+Generated from the source, not from memory — 356 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Fifty of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -234,7 +234,8 @@ that is why there is a script and not a one-liner.
 **model** — `model-file-stale`, `model-in-library`, `model-job-asr`, `model-job-embed`, `model-job-llm`, `model-job-speech-translate`, `model-job-translate`, `model-job-tts`
 
 **models** — `models-delete-selected`, `models-filter`, `models-filter-clear`, `models-filter-empty`, `models-filters`, `models-folder-item`, `models-fresh-at`, `models-fresh-auto`, `models-fresh-check`, `models-fresh-get`, `models-fresh-keep`, `models-fresh-stamp`, `models-hf-open`, `models-library-file`, `models-model-select`, `models-move-branch`, `models-move-dest`, `models-move-dismiss`, `models-move-menu`, `models-move-open`, `models-move-progress`, `models-move-selected`, `models-move-stayed`, `models-move-stop`, `models-move-target`, `models-moves-summary`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-place-all`, `models-place-card`, `models-place-open`, `models-search`, `models-selection`, `models-staged-download`, `models-staged-progress`, `models-staged-revert`, `models-store`, `models-store-add`, `models-store-add-cancel`, `models-store-add-open`, `models-store-add-path`, `models-store-add-row`, `models-store-files`, `models-store-meta`, `models-store-remove`, `models-store-repath`, `models-store-repath-cancel`, `models-store-repath-input`, `models-store-repath-row`, `models-store-repath-save`, `models-store-state`, `models-store-why`, `models-store-why-command`, `models-stores`, `models-stores-error`, `models-summary`, `models-summary-bar`, `models-summary-facts`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-tree-head`, `models-unused-select-all`, `models-unused-summary`
-**node** — `node-cell-filter`, `node-disconnect`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-downloading`, `node-engine-expose`, `node-engine-job`, `node-engine-load`, `node-engine-menu`, `node-engine-panel`, `node-engine-pull`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-hide-idle`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
+**engine** — `engine-model`, `engine-model-reserve`, `engine-shelf`
+**node** — `node-cell-filter`, `node-disconnect`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-downloading`, `node-engine-expose`, `node-engine-job`, `node-engine-missing`, `node-engine-pull`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-hide-idle`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
 **host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `cell-ctx-native`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
 **scout** — `scout-add-address`, `scout-add-connect`, `scout-add-port`, `scout-add-status`
 **setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
@@ -256,33 +257,35 @@ nothing is `disabled`. Two hooks exist only after a step: `models-store-add-row`
 (its path box and buttons) after `models-store-add-open` is clicked, and the
 selection bar `models-selection` is `hidden` while nothing is picked.
 
-On the board, the engines next to a machine's cells (Ollama, LM Studio — scout
-2.12+) open from their chips: a reported engine's chip has `node-engine-menu`
-beside it (`data-t-id` `<node>:<kind>`, `aria-expanded`), and the panel it opens,
-`node-engine-panel` with the same id, holds a `node-engine` with `data-t-id`
-`<node>:<kind>:<port>` (`ollama`, `lmstudio`) and `data-t-state` for how it
-answered: `ok`, `auth` (it wants a token) or `unreachable` (its port is silent).
-No chip and no panel is a machine whose scout found none, or cannot look. A
-model is not made a router output from the board any more; one made already
-keeps its switch `node-engine-expose` (`data-t-id` the output's id `eng:<hash>`,
-`aria-pressed="true"`) to turn it off.
-`node-engine-load` and `node-engine-unload` load a model into the engine or
-unload it (scout 2.14+); their `data-t-id` is `<node>:<kind>:<model>`, and
-while the act runs the row carries `node-engine-busy` with the same id instead.
-A load where the engine can be told how long to hold the model (scout 2.15+)
-asks in a dialog with choices: each is a `confirm-choice` whose `data-t-id` is
-its value in seconds (`-1` — until unloaded), pressed one `aria-checked="true"`.
-An engine's server itself (scout 2.16+) is started or stopped from its card's
-header: `node-engine-start` / `node-engine-stop`, `data-t-id`
-`<node>:<kind>:<port>`, replaced by `node-engine-server-busy` while it runs;
-a stopped engine's card has `data-t-state="stopped"`. A model is downloaded
-into the engine from its header, `node-engine-pull` (scout 2.17+), and while it
-downloads the card carries `node-engine-downloading` with its progress; an
-Ollama model that is not loaded has `node-engine-delete` on its row (`data-t-id`
-`<node>:<kind>:<model>`), asked through a danger dialog. The card's header says
-what the engine holds on the machine's cards, `node-engine-vram` (empty when
-nothing); a model the engine types has its job, `node-engine-job`, `data-t-id`
-the job (`embed`, `llm`).
+On the board, every engine next to a machine's cells that its chips offer
+(Ollama, LM Studio — scout 2.12+) has a strip between the list's title and the
+chips, always: `node-engine` with `data-t-id` `<node>:<kind>:<port>` and
+`data-t-state` for how it answered — `ok`, `stopped`, `auth` (it wants a token)
+or `unreachable` (its port is silent). An engine the machine does not report,
+offered because a cell of the machine runs in it, is a line
+`node-engine-missing` (`<node>:<kind>`) instead of the strip. The strip's
+switch starts or stops the engine's server (scout 2.16+): `node-engine-start` /
+`node-engine-stop`, `data-t-id` `<node>:<kind>:<port>`, beside
+`node-engine-server-busy` while it runs; a switch the scout offers no act for is
+`disabled`. A model is downloaded into the engine from the strip,
+`node-engine-pull` (scout 2.17+), and while it downloads the strip carries
+`node-engine-downloading` with its progress; `node-engine-vram` says what the
+engine holds on the machine's cards (empty when nothing).
+
+While an engine's chip is pressed (`node-cell-filter`, `data-t-id`
+`<node>:<kind>`), the models it holds that no cell serves stand on a shelf under
+its cells, `engine-shelf` (`<node>:<kind>`), one line each, `engine-model` with
+`data-t-id` `<node>:<kind>:<model>`. A line's `engine-model-reserve` ("+", the
+same id) reserves a cell with that model on the next free port, with no dialog;
+it is `disabled` while a cell is being reserved on the machine or an act runs on
+the model. A model held outside any cell has `node-engine-unload`; an Ollama
+model that is not loaded has `node-engine-delete`, asked through a danger dialog;
+both with the line's id, replaced by `node-engine-busy` while the act runs. A
+model the engine types other than a chat model has its job, `node-engine-job`,
+`data-t-id` the job (`embed`). No model is loaded from the board: a cell in its
+engine loads it when it starts. A model made a router output before that keeps
+its switch `node-engine-expose` on the strip (`data-t-id` the output's id
+`eng:<hash>`, `aria-pressed="true"`) to turn it off.
 
 ## Hooks that carry a value but are never visible
 

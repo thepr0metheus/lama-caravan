@@ -758,8 +758,8 @@ button.cmd-dirty::after {
   white-space: nowrap;
 }
 
-/* A prompt's choices (dialogs.js, "prompt-choice"): an engine model's load
-   asks how long it stays unused. One row across the meta grid, not a tile. */
+/* A dialog's choices (dialogs.js, appConfirmChoice): where a new cell runs.
+   One row across the meta grid, not a tile. */
 .modal-meta .dlg-choices {
   grid-column: 1 / -1;
   display: flex;

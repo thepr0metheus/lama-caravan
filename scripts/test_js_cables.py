@@ -60,8 +60,8 @@ const SEL = {
   cloud: (acc) => `[data-topology-cloud-input][data-account-id="${acc}"]`,
 };
 const TOPO = (extra = {}) => ({
-  clients: [{ id: "box-a", name: "Box A", agents: [{ id: "hermes" }] }],
-  assignments: { "box-a": { assignments: [{ agentId: "hermes", routes: [
+  clients: [{ id: "box-a", name: "Box A", agents: [{ id: "hotel" }] }],
+  assignments: { "box-a": { assignments: [{ agentId: "hotel", routes: [
     { role: "primary", proxyId: "ctl:proxy:23001" }, { role: "fallback", proxyId: "ctl:proxy:23002" }, { role: "embeddings", proxyId: "ctl:proxy:23009" }] }] } },
   proxies: [
     { id: "ctl:proxy:23001", port: 23001, routerId: "router:default", lastRequestAt: 1, priority: 2 },
@@ -77,7 +77,7 @@ const TOPO = (extra = {}) => ({
 });
 const DOM = () => { globalThis.__q = {
   [SEL.board]: R(0, 0, 1000, 600),
-  [SEL.handle("box-a", "hermes", "primary")]: R(100, 100), [SEL.handle("box-a", "hermes", "fallback")]: R(100, 140), [SEL.handle("box-a", "hermes", "embeddings")]: R(100, 180),
+  [SEL.handle("box-a", "hotel", "primary")]: R(100, 100), [SEL.handle("box-a", "hotel", "fallback")]: R(100, 140), [SEL.handle("box-a", "hotel", "embeddings")]: R(100, 180),
   [SEL.rin("router:default")]: R(400, 120), [SEL.rout("router:default")]: R(440, 120),
   [SEL.llama(22001)]: R(700, 100), [SEL.cloud("acct")]: R(700, 200),
 }; };
@@ -102,41 +102,41 @@ PINS = [
     ("point_for_board_offset_and_missing", '', '(() => { globalThis.__q[SEL.board] = R(10, 20, 500, 500); const a = m.topologyPointFor(R(100, 100, 40, 20), "left"); delete globalThis.__q[SEL.board]; return [a, m.topologyPointFor(R(1, 1), "left"), m.topologyPointFor(null)]; })()',
      '[{"x":90,"y":90},null,null]', "смещение доски вычитается; без доски или элемента — null"),
     # ── classes ──
-    ("proxy_and_route_class", '', '[m.topologyProxyClass("ctl:proxy:23001"), m.topologyProxyClass(""), m.topologyRouteClass("box a", "hermes", undefined)]', '["proxy-ctl-proxy-23001","proxy-","route-box-a-hermes-"]',
+    ("proxy_and_route_class", '', '[m.topologyProxyClass("ctl:proxy:23001"), m.topologyProxyClass(""), m.topologyRouteClass("box a", "hotel", undefined)]', '["proxy-ctl-proxy-23001","proxy-","route-box-a-hotel-"]',
      "классы: всё, кроме [A-Za-z0-9_-], — в дефис"),
-    ("accent_deterministic", '', '[m.topologyAccentStyle("hermes") === m.topologyAccentStyle("hermes"), m.topologyAccentStyle("hermes") !== m.topologyAccentStyle("scout"), m.topologyAccentColor("hermes", 0.5).endsWith("/ 0.5)"), m.topologyAccentStyle("") === m.topologyAccentStyle("item"), /^--topology-accent: hsl\\(\\d+ 70% 62%\\); --topology-accent-soft: hsl\\(\\d+ 70% 62% \\/ 0\\.13\\);$/.test(m.topologyAccentStyle("x"))]',
+    ("accent_deterministic", '', '[m.topologyAccentStyle("hotel") === m.topologyAccentStyle("hotel"), m.topologyAccentStyle("hotel") !== m.topologyAccentStyle("scout"), m.topologyAccentColor("hotel", 0.5).endsWith("/ 0.5)"), m.topologyAccentStyle("") === m.topologyAccentStyle("item"), /^--topology-accent: hsl\\(\\d+ 70% 62%\\); --topology-accent-soft: hsl\\(\\d+ 70% 62% \\/ 0\\.13\\);$/.test(m.topologyAccentStyle("x"))]',
      '[true,true,true,true,true]', "акцент по ключу: детерминирован, разный для разных ключей, пустой ключ = item, формат стиля"),
     # ── drawTopologyCables ──
     ("draw_paths_and_viewbox", '', '(() => { m.drawTopologyCables(); return [svg().attrs.viewBox, paths().length]; })()',
      '["0 0 1000 600",4]', "viewBox из доски; нарисованы 2 кабеля клиента + 2 выхода роутера, 2 пропущены"),
     ("draw_segment1_classes", '', '(() => { m.drawTopologyCables(); return paths().slice(0, 2); })()',
-     '["topology-cable primary idle priority proxy-ctl-proxy-23001 route-box-a-hermes-primary","topology-cable fallback unverified idle proxy-ctl-proxy-23002 route-box-a-hermes-fallback"]',
+     '["topology-cable primary idle priority proxy-ctl-proxy-23001 route-box-a-hotel-primary","topology-cable fallback unverified idle proxy-ctl-proxy-23002 route-box-a-hotel-fallback"]',
      "primary с приоритетом и трафиком — priority, idle без активности; fallback без единого запроса — unverified; классы прокси и маршрута для подсветки"),
     ("draw_unverified_has_title", '', '(() => { m.drawTopologyCables(); return (svg().innerHTML.match(/<title>/g) || []).length; })()', '1', "подсказка «не подтверждён» стоит ровно на непроверенном кабеле"),
     ("draw_segment3_classes", '', '(() => { m.drawTopologyCables(); return paths().slice(2); })()',
      '["topology-cable router idle","topology-cable router cloud idle"]', "выходы роутера: локальный и облачный, оба idle без активности"),
     ("draw_active_cable_lights", 'st.ui.latestSystemMonitor = MON(23001);', '(() => { m.drawTopologyCables(); return paths()[0]; })()',
-     '"topology-cable primary priority activity-active health-ok proxy-ctl-proxy-23001 route-box-a-hermes-primary"', "активный запрос на порту — кабель без idle, с классами активности и здоровья (анимируется)"),
+     '"topology-cable primary priority activity-active health-ok proxy-ctl-proxy-23001 route-box-a-hotel-primary"', "активный запрос на порту — кабель без idle, с классами активности и здоровья (анимируется)"),
     ("draw_drops_named_with_reasons", '', '(() => { m.drawTopologyCables(); return m.cableDrops.map((d) => ({ ...d })); })()',
-     '[{"what":"box-a/hermes embeddings -> router","routeHandleFound":true,"proxyId":"ctl:proxy:23009","proxyResolved":true,"routerId":"(unresolved)","routerInputFound":false},{"what":"router router:default -> srv:22077","routerOutputFound":true,"upstream":":22077","upstreamInputFound":false}]',
+     '[{"what":"box-a/hotel embeddings -> router","routeHandleFound":true,"proxyId":"ctl:proxy:23009","proxyResolved":true,"routerId":"(unresolved)","routerInputFound":false},{"what":"router router:default -> srv:22077","routerOutputFound":true,"upstream":":22077","upstreamInputFound":false}]',
      "defect-class: невырисованный кабель НАЗВАН — и почему: прокси без роутера, выход без ячейки на доске"),
     ("draw_hidden_cell_put_away", "globalThis.__q['[data-cell-hidden-port=\"22077\"]'] = {};",
      '(() => { m.drawTopologyCables(); return [m.cableDrops.map((d) => d.what), paths().length]; })()',
-     '[["box-a/hermes embeddings -> router"],4]',
+     '[["box-a/hotel embeddings -> router"],4]',
      "positive: ячейку спрятал глаз её машины — её кабель убран вместе с ней и НЕ записан потерянным; прочие как были"),
     ("draw_hidden_other_port_still_dropped", "globalThis.__q['[data-cell-hidden-port=\"22099\"]'] = {};",
      '(() => { m.drawTopologyCables(); return m.cableDrops.map((d) => d.what); })()',
-     '["box-a/hermes embeddings -> router","router router:default -> srv:22077"]',
+     '["box-a/hotel embeddings -> router","router router:default -> srv:22077"]',
      "negative: метка другой ячейки не прячет потерю этой — выход без ячейки на доске по-прежнему назван"),
     ("draw_drop_warned_once", 'st.topology.assignments["box-a"].assignments[0].routes[2].proxyId = "ctl:proxy:" + Math.random().toString(36).slice(2);',
-     '(() => { m.drawTopologyCables(); m.drawTopologyCables(); return [globalThis.__warns.filter((w) => w === "box-a/hermes embeddings -> router").length, m.cableDrops[0].proxyResolved]; })()',
+     '(() => { m.drawTopologyCables(); m.drawTopologyCables(); return [globalThis.__warns.filter((w) => w === "box-a/hotel embeddings -> router").length, m.cableDrops[0].proxyResolved]; })()',
      '[1,false]', "предупреждение в консоль — один раз на новую сигнатуру пропуска (дедуп переживает перерисовки), повторная отрисовка не дублирует"),
     ("draw_drops_rebuilt_each_draw", '', '(() => { m.drawTopologyCables(); globalThis.__q[SEL.rin("router:default")] = null; st.topology.proxies[2].routerId = "router:default"; m.drawTopologyCables(); return [m.cableDrops.length, m.cableDrops.map((d) => d.what)]; })()',
-     '[4,["box-a/hermes primary -> router","box-a/hermes fallback -> router","box-a/hermes embeddings -> router","router router:default -> srv:22077"]]',
+     '[4,["box-a/hotel primary -> router","box-a/hotel fallback -> router","box-a/hotel embeddings -> router","router router:default -> srv:22077"]]',
      "список пропусков пересобирается на каждой отрисовке: пропал вход роутера — пропали все три кабеля клиента"),
-    ("draw_ignores_an_old_live_report", 'st.setTopology(TOPO({ clients: [{ id: "box-a", agents: [{ id: "hermes" }], assignments: [{ agentId: "hermes", routes: [{ role: "primary", proxyId: "ctl:proxy:23001" }] }] }] }));',
+    ("draw_ignores_an_old_live_report", 'st.setTopology(TOPO({ clients: [{ id: "box-a", agents: [{ id: "hotel" }], assignments: [{ agentId: "hotel", routes: [{ role: "primary", proxyId: "ctl:proxy:23001" }] }] }] }));',
      '(() => { m.drawTopologyCables(); return paths().slice(0, 2); })()',
-     '["topology-cable primary idle priority proxy-ctl-proxy-23001 route-box-a-hermes-primary","topology-cable fallback unverified idle proxy-ctl-proxy-23002 route-box-a-hermes-fallback"]', "negative: живой отчёт, оставшийся в записи от старого скаута, ничего не решает — фолбэк без трафика нарисован как любой другой (unverified), а не «приглушён»"),
+     '["topology-cable primary idle priority proxy-ctl-proxy-23001 route-box-a-hotel-primary","topology-cable fallback unverified idle proxy-ctl-proxy-23002 route-box-a-hotel-fallback"]', "negative: живой отчёт, оставшийся в записи от старого скаута, ничего не решает — фолбэк без трафика нарисован как любой другой (unverified), а не «приглушён»"),
     ("draw_without_svg_or_board", '', '(() => { delete globalThis.__fields.topologyCables; m.drawTopologyCables(); globalThis.__fields = { topologyCables: svgEl() }; delete globalThis.__q[SEL.board]; m.drawTopologyCables(); return [svg().innerHTML, m.cableDrops.length]; })()',
      '["",0]', "negative: без svg или без доски — ничего не рисуется и не отмечается"),
     # ── an engine's model as an output (step 2, docs/foreign-engines.md) ──

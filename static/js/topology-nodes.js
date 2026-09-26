@@ -1,7 +1,7 @@
 // Host-centric nodes view: server cards, telemetry mounts, incidents, models bar.
 import { drawTopologyCables } from "./cables.js";
 import { CARD_FOLD, CardFold } from "./card-fold.js";
-import { CellEye, CellFilter, CellRow, CellWindow, FoldSlot } from "./card-rows.js";
+import { CellEye, CellFilter, CellRow, CellWindow, EngineStrip, FoldSlot, ShelfLine } from "./card-rows.js";
 import { nodeTelemetryRowsHtml, renderTopologyIncidents } from "./charts.js";
 import { badge, mbadge, modelsByPath } from "./form.js";
 import { t } from "./i18n.js";
@@ -275,10 +275,9 @@ export function nodeGpuRowHtml(node, g) {
 }
 
 // Engines on a machine that are not its cells — Ollama, LM Studio — as its
-// scout finds them (scout 2.12+): read-only cards under the cells. None (an
-// older scout, which cannot look) and [] (it looked, none) draw nothing.
-// How each kind is opened to the network when it listens on 127.0.0.1 only:
-// the words are the engine's own, not translated.
+// scout finds them (scout 2.12+): a strip each over the machine's chips, and a
+// shelf of an engine's models under the cells while its chip is pressed. None
+// (an older scout, which cannot look) and [] (it looked, none) draw nothing.
 // Installed-but-not-loaded models shown before "+N more installed".
 const ENGINE_IDLE_SHOWN = 6;
 // Ollama's keep_alive -1 is an expiry decades away: "stays loaded".
@@ -292,7 +291,7 @@ export function engineSizeText(bytes) {
   return n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.round(n / 1024 ** 2)} MB`;
 }
 
-// What an engine's processes hold, as its card and the live patch write it.
+// What an engine's processes hold, as its strip and the live patch write it.
 export function engineRamText(e) {
   return e?.ramBytes != null ? `RAM ${engineSizeText(e.ramBytes)}` : "";
 }
@@ -310,12 +309,14 @@ export function engineVramText(n, e) {
 // What an engine's model DOES, as the engine types it (LM Studio: llm, vlm,
 // embedding) — the cells' job chip, in the same words. An engine that does not
 // type its models (Ollama) draws none rather than a guessed one.
-function engineJobChipsHtml(m) {
-  return jobsFromKinds(m?.type ? [m.type] : []).map((job) => `<span class="mbadge mbadge-job node-job-chip"
+// `skip`: jobs a line leaves unsaid — a model in an engine is a chat model
+// unless it says otherwise, and a chip on every line would say only that.
+function engineJobChipsHtml(m, { skip = [] } = {}) {
+  return jobsFromKinds(m?.type ? [m.type] : []).filter((job) => !skip.includes(job)).map((job) => `<span class="mbadge mbadge-job node-job-chip"
       data-t="node-engine-job" data-t-id="${escapeHtml(job)}">${JOB_MARKS[job] || ""} ${escapeHtml(t(JOB_LABELS[job]))}</span>`).join("");
 }
 
-// A download into the engine (step 3д, scout 2.17+), as its card and the live
+// A download into the engine (step 3д, scout 2.17+), as its strip and the live
 // patch write it: how much has come of how much, once the engine says; "" when
 // nothing downloads.
 export function engineDownloadText(e) {
@@ -340,55 +341,40 @@ function engineExposeBtnHtml(n, e, m) {
       title="${escapeHtml(t("nodeEngineUnexposeTitle"))}">⇄ ${escapeHtml(t("nodeEngineExposed"))}</button>`;
 }
 
-// Driving a model from the board (step 3): load it into the engine or unload
-// it — only what the engine's scout offers (`controls`, scout 2.14+), never an
-// Ollama cloud model. While an act runs the row says so instead of offering
-// another; what the engine refused last stays on the row in its own words.
-// What a model's row says while an act on it runs, by the act.
+// What a model's line says while an act on it runs, by the act — the
+// engine's own acts (step 3); a cell's load is its cell's, on its line.
 const ENGINE_ACT_BUSY = { load: "nodeEngineLoading", unload: "nodeEngineUnloading", delete: "nodeEngineDeleting" };
 // And what it says the engine refused.
 const ENGINE_ACT_FAILED = { load: "nodeEngineLoadFailed", unload: "nodeEngineUnloadFailed", delete: "nodeEngineDeleteFailed" };
 
-function engineActHtml(n, e, m) {
-  const id = escapeHtml(`${n.id}:${e.kind}:${m.name}`);
-  if (m.action?.op) {
-    const busy = t(ENGINE_ACT_BUSY[m.action.op] || "nodeEngineUnloading");
-    return `<span class="node-engine-busy" data-t="node-engine-busy" data-t-id="${id}"><span class="topology-spinner" aria-hidden="true"></span> ${escapeHtml(busy)}</span>`;
-  }
-  const can = (op) => (Array.isArray(e.controls) ? e.controls : []).includes(op);
-  const op = m.loaded === true ? "unload" : (!m.remote && m.loaded === false ? "load" : "");
-  if (!op || !can(op)) return "";
-  const label = op === "load" ? `▶ ${t("nodeEngineLoad")}` : `⏏ ${t("nodeEngineUnload")}`;
-  const hook = op === "load" ? "node-engine-load" : "node-engine-unload";
-  return `<button class="node-engine-act ${op}" type="button" data-t="${hook}" data-t-id="${id}"
-      data-engine-act="${op}" data-engine-host="${escapeHtml(String(n.id))}" data-engine-kind="${escapeHtml(String(e.kind || ""))}"
-      data-engine-holds="${e.holds === true ? "1" : ""}"
-      data-engine-label="${escapeHtml(String(e.label || e.kind || ""))}" data-engine-model="${escapeHtml(m.name)}"
-      title="${escapeHtml(t(op === "load" ? "nodeEngineLoadTitle" : "nodeEngineUnloadTitle"))}">${escapeHtml(label)}</button>`;
-}
-
-// The engine's server itself (step 3г, scout 2.16+): stopped or started from
-// its card's header — only what its controls offer — and while that runs,
-// "starting…" / "stopping…" in the button's place.
-function engineServerHtml(n, e) {
+// The engine's server itself (step 3г, scout 2.16+) is its strip's switch:
+// on while it runs. The scout offers the one act that makes sense now — stop
+// a running server, start a stopped one — and the switch does that act; with
+// none on offer (an older scout, another user's service) it is off-limits and
+// says why. While an act runs, "starting…" / "stopping…" beside it.
+function engineLeverHtml(n, e) {
   const id = escapeHtml(`${n.id}:${e.kind}:${e.port}`);
-  if (e.serverAction?.op) {
-    const busy = t(e.serverAction.op === "start" ? "nodeEngineStarting" : "nodeEngineStopping");
-    return `<span class="node-engine-busy" data-t="node-engine-server-busy" data-t-id="${id}"><span class="topology-spinner" aria-hidden="true"></span> ${escapeHtml(busy)}</span>`;
-  }
   const controls = Array.isArray(e.controls) ? e.controls : [];
   const op = controls.includes("stop") ? "stop" : (controls.includes("start") ? "start" : "");
-  if (!op) return "";
-  const hook = op === "start" ? "node-engine-start" : "node-engine-stop";
-  const label = op === "start" ? `▶ ${t("nodeEngineStart")}` : `⏹ ${t("nodeEngineStop")}`;
-  return `<button class="node-engine-serve ${op}" type="button" data-t="${hook}" data-t-id="${id}"
-      data-engine-serve="${op}" data-engine-host="${escapeHtml(String(n.id))}" data-engine-kind="${escapeHtml(String(e.kind || ""))}"
-      data-engine-label="${escapeHtml(String(e.label || e.kind || ""))}" data-engine-machine="${escapeHtml(String(n.name || n.id))}"
-      title="${escapeHtml(t(op === "start" ? "nodeEngineStartTitle" : "nodeEngineStopTitle"))}">${escapeHtml(label)}</button>`;
+  const on = op ? op === "stop" : e.state === "ok";
+  const knob = '<span class="fr-knob" aria-hidden="true"></span>';
+  if (e.serverAction?.op) {
+    const busy = escapeHtml(t(e.serverAction.op === "start" ? "nodeEngineStarting" : "nodeEngineStopping"));
+    return `<button type="button" class="fr-switch" role="switch" aria-checked="${on}" disabled title="${busy}" aria-label="${busy}">${knob}</button>`
+      + `<span class="node-engine-busy" data-t="node-engine-server-busy" data-t-id="${id}"><span class="topology-spinner" aria-hidden="true"></span> ${busy}</span>`;
+  }
+  const why = escapeHtml(op ? t(op === "start" ? "nodeEngineStartTitle" : "nodeEngineStopTitle")
+    : t(e.runBy === "other" ? "nodeEngineRunByOther" : "engineServerFixed"));
+  const attrs = op
+    ? `data-t="${op === "start" ? "node-engine-start" : "node-engine-stop"}" data-t-id="${id}" data-engine-serve="${op}"`
+      + ` data-engine-host="${escapeHtml(String(n.id))}" data-engine-kind="${escapeHtml(String(e.kind || ""))}"`
+      + ` data-engine-label="${escapeHtml(String(e.label || e.kind || ""))}" data-engine-machine="${escapeHtml(String(n.name || n.id))}"`
+    : "disabled";
+  return `<button type="button" class="fr-switch" role="switch" aria-checked="${on}" ${attrs} title="${why}" aria-label="${why}">${knob}</button>`;
 }
 
-// A model downloaded into the engine (step 3д, scout 2.17+): in its card's
-// header, where the engine offers it and nothing downloads there yet.
+// A model downloaded into the engine (step 3д, scout 2.17+): on its strip,
+// where the engine offers it and nothing downloads there yet.
 function enginePullHtml(n, e) {
   const controls = Array.isArray(e.controls) ? e.controls : [];
   if (!controls.includes("pull") || e.downloading?.model) return "";
@@ -398,11 +384,27 @@ function enginePullHtml(n, e) {
       title="${escapeHtml(t("nodeEnginePullTitle"))}">⤓ ${escapeHtml(t("nodeEnginePull"))}</button>`;
 }
 
-// Under the header: what the server refused last, in its words; that another
-// user runs it (a system service — the operator's to stop); that it starts
-// with the machine (started from the board).
-function engineServerNotesHtml(e) {
+// Where it listens: on 127.0.0.1 only — the isolation its cells rely on —
+// or on the network, with its port's firewall badge, as a cell's port has.
+function engineWhereHtml(e) {
+  const port = escapeHtml(String(e.port));
+  if (e.listen === "loopback") {
+    return `<span class="node-engine-listen" title="${escapeHtml(t("nodeEngineLoopbackHint"))}">${escapeHtml(t("nodeEngineLoopback"))}</span>`
+      + `<code class="es-addr">127.0.0.1:${port}</code>`;
+  }
+  return `<code class="es-addr">:${port}</code>${e.listen === "network" ? firewallBadge(e.firewall) : ""}`;
+}
+
+// Under the strip's first line: how the engine answered when not as it
+// should, what the server refused last, in its words, a download under way
+// (patched live) or refused, that another user runs it (a system service —
+// the operator's to stop), and a model it serves as a router output with no
+// cell, with the switch that turns that output off.
+function engineNotesHtml(n, e) {
   const bits = [];
+  if (e.state === "stopped") bits.push(`<span class="node-engine-state">${escapeHtml(t("nodeEngineStopped"))}</span>`);
+  else if (e.state === "auth") bits.push(`<span class="node-engine-state warn">${escapeHtml(t("nodeEngineAuth"))}</span>`);
+  else if (e.state === "unreachable") bits.push(`<span class="node-engine-state err">${escapeHtml(t("nodeEngineUnreachable"))}</span>`);
   const err = e.serverError;
   if (err?.op) {
     const text = t(err.op === "start" ? "nodeEngineStartFailed" : "nodeEngineStopFailed", { error: err.error || "" });
@@ -416,21 +418,28 @@ function engineServerNotesHtml(e) {
     bits.push(`<span class="node-engine-act-error" title="${escapeHtml(failed.error || "")}">⚠ ${escapeHtml(text)}</span>`);
   }
   if (e.runBy === "other") bits.push(`<span class="node-engine-note">${escapeHtml(t("nodeEngineRunByOther"))}</span>`);
-  if (e.autostart === true) bits.push(`<span class="node-engine-note">${escapeHtml(t("nodeEngineAutostart"))}</span>`);
-  return bits.length ? `<div class="node-engine-server-notes">${bits.join("")}</div>` : "";
+  (Array.isArray(e.models) ? e.models : []).filter((m) => m && m.exposed === true && m.outputId).forEach((m) => {
+    bits.push(`<span class="node-engine-note es-output">${escapeHtml(t("engineOutputNote", { model: m.name }))}</span>${engineExposeBtnHtml(n, e, m)}`);
+  });
+  return bits.join("");
 }
 
-// A model's files deleted from the engine's disk (step 3д, scout 2.17+): only
-// where the engine offers it (Ollama), only a model that is not loaded, not
-// while another act on it runs.
-function engineDeleteHtml(n, e, m) {
-  const controls = Array.isArray(e.controls) ? e.controls : [];
-  if (!controls.includes("delete") || m.loaded !== false || m.action?.op) return "";
-  return `<button class="node-engine-act delete" type="button" data-t="node-engine-delete" data-t-id="${escapeHtml(`${n.id}:${e.kind}:${m.name}`)}"
-      data-engine-act="delete" data-engine-host="${escapeHtml(String(n.id))}" data-engine-kind="${escapeHtml(String(e.kind || ""))}"
-      data-engine-holds="" data-engine-label="${escapeHtml(String(e.label || e.kind || ""))}" data-engine-model="${escapeHtml(m.name)}"
-      data-engine-machine="${escapeHtml(String(n.name || n.id))}"
-      title="${escapeHtml(t("nodeEngineDeleteTitle"))}">🗑 ${escapeHtml(t("nodeEngineDelete"))}</button>`;
+// An engine's server as a strip over the machine's chips (2026-09-26, the
+// operator's choice B, in place of the engine's card).
+export function nodeEngineStripHtml(n, e) {
+  const ram = e.ramBytes != null
+    ? `<span class="node-engine-ram" data-live-engine-ram title="${escapeHtml(t("nodeEngineRamTitle"))}">${escapeHtml(engineRamText(e))}</span>` : "";
+  // Always the slot, so the live patch can fill it when the engine takes the
+  // card and empty it when it lets go — without rebuilding the strip.
+  const vram = `<span class="node-engine-ram" data-t="node-engine-vram" data-live-engine-vram title="${escapeHtml(t("nodeEngineVramTitle"))}">${escapeHtml(engineVramText(n, e))}</span>`;
+  const boot = e.autostart === true
+    ? `<span class="es-boot" title="${escapeHtml(t("nodeEngineAutostart"))}">↟</span>` : "";
+  return new EngineStrip({
+    key: `${n.id}:${e.kind}:${e.port}`, engine: String(e.kind || ""), state: String(e.state || ""),
+    label: String(e.label || e.kind || ""), version: String(e.version || ""), lever: engineLeverHtml(n, e), boot,
+    memory: vram + ram, pull: enginePullHtml(n, e), where: engineWhereHtml(e), notes: engineNotesHtml(n, e),
+    title: t("nodeEngineOnDemandHint"),
+  }).html();
 }
 
 function engineActErrorHtml(m) {
@@ -440,104 +449,140 @@ function engineActErrorHtml(m) {
   return `<span class="node-engine-act-error" title="${escapeHtml(err.error || "")}">⚠ ${escapeHtml(text)}</span>`;
 }
 
-function engineModelRowHtml(m, n = {}, e = {}) {
-  const meta = [m.params, m.quant].filter(Boolean).join(" · ");
+// What a model the engine holds takes, as its line's chip says it on hover:
+// its video memory, the part in RAM from 64 MiB, its window, and when
+// keep_alive lets it go — a clock time, which a line rebuilt only when
+// something changes cannot let go stale the way "in 4 min" would.
+function engineHeldBits(m) {
   const bits = [];
-  if (m.loaded === true) {
-    if (m.vramBytes != null) bits.push(`VRAM ${engineSizeText(m.vramBytes)}`);
-    if (m.memBytes != null && m.vramBytes != null && m.memBytes - m.vramBytes >= 64 * 1024 ** 2) {
-      bits.push(`RAM ${engineSizeText(m.memBytes - m.vramBytes)}`);
-    }
-    if (m.contextLength != null) bits.push(`🪟 ${formatCtxTokens(m.contextLength)}`);
-    // When keep_alive lets it go — as a clock time, which a card rebuilt
-    // only when something changes cannot let go stale the way "in 4 min" would.
-    const at = m.expiresAt ? Date.parse(m.expiresAt) : NaN;
-    // Kept until unloaded: LM Studio says it (staysLoaded, scout 2.15), Ollama
-    // by an expiry decades away.
-    if (m.staysLoaded === true || at - Date.now() > ENGINE_FOREVER_SEC * 1000) bits.push(t("nodeEngineStaysLoaded"));
-    else if (at > Date.now()) {
-      bits.push(t("nodeEngineUnloadsAt", { t: new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }));
-    }
-  } else if (m.fileBytes != null && !m.remote) {
-    bits.push(engineSizeText(m.fileBytes));
+  if (m.vramBytes != null) bits.push(`VRAM ${engineSizeText(m.vramBytes)}`);
+  if (m.memBytes != null && m.vramBytes != null && m.memBytes - m.vramBytes >= 64 * 1024 ** 2) {
+    bits.push(`RAM ${engineSizeText(m.memBytes - m.vramBytes)}`);
   }
-  const cloud = m.remote
-    ? ` <span class="node-engine-cloud" title="${escapeHtml(t("nodeEngineCloudModelHint"))}">☁ ${escapeHtml(t("nodeEngineCloudModel"))}</span>` : "";
-  // An output's cable lands at its machine's chips (engineOutputAnchorsHtml),
-  // where it stays while this panel is shut.
-  return `<li class="node-engine-model${m.loaded === true ? " loaded" : ""}${m.exposed === true ? " exposed" : ""}">
-      <span class="node-engine-dot" aria-hidden="true"></span>
-      <span class="node-engine-model-name" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}</span>${cloud}
-      ${engineJobChipsHtml(m)}${meta ? `<span class="node-engine-model-meta">${escapeHtml(meta)}</span>` : ""}
-      ${bits.length ? `<span class="node-engine-model-mem">${bits.map((b) => escapeHtml(b)).join(" · ")}</span>` : ""}
-      ${engineActHtml(n, e, m)}${engineDeleteHtml(n, e, m)}${engineExposeBtnHtml(n, e, m)}
-      ${engineActErrorHtml(m)}
-    </li>`;
+  if (m.contextLength != null) bits.push(`🪟 ${formatCtxTokens(m.contextLength)}`);
+  const at = m.expiresAt ? Date.parse(m.expiresAt) : NaN;
+  // Kept until unloaded: LM Studio says it (staysLoaded, scout 2.15), Ollama
+  // by an expiry decades away.
+  if (m.staysLoaded === true || at - Date.now() > ENGINE_FOREVER_SEC * 1000) bits.push(t("nodeEngineStaysLoaded"));
+  else if (at > Date.now()) {
+    bits.push(t("nodeEngineUnloadsAt", { t: new Date(at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }));
+  }
+  return bits;
 }
 
-export function nodeEngineCardHtml(n, e) {
+// The acts on a model with no cell: while one runs, its words instead; a
+// model held outside any cell can be unloaded, one lying on the disk deleted
+// where the engine offers it (Ollama) — the delete waits under the pointer.
+// Loading is not among them: a model is reached through a cell, and its "+".
+function shelfActsHtml(n, e, m) {
+  const key = escapeHtml(`${n.id}:${e.kind}:${m.name}`);
+  if (m.action?.op) {
+    const busy = escapeHtml(t(ENGINE_ACT_BUSY[m.action.op] || "nodeEngineUnloading"));
+    return `<span class="node-engine-busy" data-t="node-engine-busy" data-t-id="${key}"><span class="topology-spinner" aria-hidden="true"></span> ${busy}</span>`;
+  }
+  const controls = Array.isArray(e.controls) ? e.controls : [];
+  const common = `data-engine-host="${escapeHtml(String(n.id))}" data-engine-kind="${escapeHtml(String(e.kind || ""))}"`
+    + ` data-engine-label="${escapeHtml(String(e.label || e.kind || ""))}" data-engine-model="${escapeHtml(m.name)}"`;
+  if (m.loaded === true && controls.includes("unload")) {
+    const why = escapeHtml(t("nodeEngineUnloadTitle"));
+    return `<button class="node-engine-act unload" type="button" data-t="node-engine-unload" data-t-id="${key}"`
+      + ` data-engine-act="unload" ${common} title="${why}" aria-label="${why}">⏏</button>`;
+  }
+  if (m.loaded === false && controls.includes("delete")) {
+    const why = escapeHtml(t("nodeEngineDeleteTitle"));
+    return `<button class="node-engine-act delete sl-del" type="button" data-t="node-engine-delete" data-t-id="${key}"`
+      + ` data-engine-act="delete" ${common}`
+      + ` data-engine-machine="${escapeHtml(String(n.name || n.id))}" title="${why}" aria-label="${why}">🗑</button>`;
+  }
+  return "";
+}
+
+function shelfLineHtml(n, e, m) {
   const kind = String(e.kind || "");
-  const loopback = e.listen === "loopback"
-    ? `<span class="node-engine-listen" title="${escapeHtml(t("nodeEngineLoopbackHint"))}">${escapeHtml(t("nodeEngineLoopback"))}</span>` : "";
-  const ram = e.ramBytes != null
-    ? `<span class="node-engine-ram" data-live-engine-ram title="${escapeHtml(t("nodeEngineRamTitle"))}">${escapeHtml(engineRamText(e))}</span>` : "";
-  // Always the slot, so the live patch can fill it when the engine takes the
-  // card and empty it when it lets go — without rebuilding the card.
-  const vram = `<span class="node-engine-ram" data-t="node-engine-vram" data-live-engine-vram title="${escapeHtml(t("nodeEngineVramTitle"))}">${escapeHtml(engineVramText(n, e))}</span>`;
-  let body = "";
-  if (e.state === "stopped") body = `<div class="node-engine-state">${escapeHtml(t("nodeEngineStopped"))}</div>`;
-  else if (e.state === "auth") body = `<div class="node-engine-state warn">${escapeHtml(t("nodeEngineAuth"))}</div>`;
-  else if (e.state === "unreachable") body = `<div class="node-engine-state err">${escapeHtml(t("nodeEngineUnreachable"))}</div>`;
-  else {
-    const models = Array.isArray(e.models) ? e.models : [];
-    const loaded = models.filter((m) => m.loaded === true);
-    const idle = models.filter((m) => m.loaded !== true);
-    // An output's model is always listed, loaded or not: the operator can turn
-    // it off only here.
-    const outputs = idle.filter((m) => m.exposed === true);
-    const rest = idle.filter((m) => m.exposed !== true);
-    const shown = [...outputs, ...rest.slice(0, Math.max(0, ENGINE_IDLE_SHOWN - outputs.length))];
-    const rows = [...loaded, ...shown].map((m) => engineModelRowHtml(m, n, e)).join("");
-    const more = idle.length > shown.length
-      ? `<div class="node-engine-more topology-muted">${escapeHtml(t("nodeEngineMoreInstalled", { n: idle.length - shown.length }))}</div>` : "";
-    const unknown = e.installedKnown === false
-      ? `<div class="node-engine-state">${escapeHtml(t("nodeEngineInstalledUnknown"))}</div>` : "";
-    const none = !models.length && e.installedKnown !== false
-      ? `<div class="node-engine-state topology-muted">${escapeHtml(t("nodeEngineNoModels"))}</div>` : "";
-    body = `${rows ? `<ul class="node-engine-models">${rows}</ul>` : ""}${more}${unknown}${none}`;
-  }
-  const id = `${n.id}:${kind}:${e.port}`;
-  return `<article class="node-engine" data-t="node-engine" data-t-id="${escapeHtml(id)}" data-t-state="${escapeHtml(String(e.state || ""))}">
-      <header class="node-engine-head" title="${escapeHtml(t("nodeEngineOnDemandHint"))}">
-        <strong>${escapeHtml(e.label || kind)}</strong>
-        ${e.version ? `<span class="topology-muted">${escapeHtml(e.version)}</span>` : ""}
-        <code>:${escapeHtml(String(e.port))}</code>
-        ${loopback}${e.listen === "network" ? firewallBadge(e.firewall) : ""}
-        <span style="flex:1"></span>
-        ${vram}${ram}${enginePullHtml(n, e)}${engineServerHtml(n, e)}
-      </header>
-      ${engineServerNotesHtml(e)}
-      ${body}
-    </article>`;
+  const key = `${n.id}:${kind}:${m.name}`;
+  // One reserve at a time on a machine: a second "+" before the first cell
+  // came back would take a second port.
+  const reserving = _reservingCells.has(String(n.id));
+  const busyOp = m.action?.op || "";
+  const reserve = reserving || busyOp ? ""
+    : `data-engine-reserve="${escapeHtml(String(n.id))}" data-engine-kind="${escapeHtml(kind)}"`
+      + ` data-engine-model="${escapeHtml(m.name)}"`;
+  const why = reserving ? t("shelfReserveBusy")
+    : busyOp ? t(ENGINE_ACT_BUSY[busyOp] || "nodeEngineUnloading") : t("shelfReserveTitle", { model: m.name });
+  const held = m.loaded === true ? (m.vramBytes ?? m.memBytes ?? null) : null;
+  const memory = held != null
+    ? mbadge("vram", `${escapeHtml((Number(held) / 2 ** 30).toFixed(1))}G`, engineHeldBits(m).join(" · "))
+    : (m.fileBytes != null && !m.remote
+      ? mbadge("vram-est", `≈${escapeHtml((Number(m.fileBytes) / 2 ** 30).toFixed(1))}G`, t("vramEstChipTitle")) : "");
+  const remote = m.remote
+    ? `<span class="node-engine-cloud" title="${escapeHtml(t("nodeEngineCloudModelHint"))}">☁</span>` : "";
+  return new ShelfLine({
+    key, engine: kind, name: m.name, remote, job: engineJobChipsHtml(m, { skip: ["llm"] }), params: m.params || "",
+    memory, reserve, why, acts: shelfActsHtml(n, e, m), error: engineActErrorHtml(m), loaded: m.loaded === true,
+  }).html();
 }
 
-// The panel of the engine whose ▾ is open at its machine's chips (2026-09-26,
-// in place of the block of engines under the cells): the engine's card, as it
-// was — its server, memory, downloads and models. "" when none is open here.
-export function nodeEnginePanelHtml(n) {
-  const [host, kind] = String(CARD_FOLD.engineKey || "").split(/:(?=[^:]*$)/);
-  if (!kind || host !== String(n?.id ?? "")) return "";
-  const e = (Array.isArray(n?.engines) ? n.engines : []).find((x) => String(x.kind || "") === kind);
-  if (!e) return "";
+// The models an engine holds that no cell serves (2026-09-26, variant B):
+// dashed lines under its cells, each with "+" to make one. Held outside any
+// cell first (they take memory now), then a model still a router output, then
+// the rest up to six and "+N more installed" — every model is still in the
+// reserve dialog. An engine that is not answering has no list to show: its
+// strip says why. When every model has a cell, that is said, not left blank.
+export function nodeEngineShelfHtml(n, e, servers = []) {
+  if (e.state !== "ok" || !Array.isArray(e.models)) return "";
+  const kind = String(e.kind || "");
+  const label = String(e.label || kind);
+  const served = new Set(servers.filter((srv) => engineRunnerOf(srv)?.id === kind)
+    .map((srv) => String(srv?.slotConfig?.ENGINE_MODEL || "").trim()));
+  const free = e.models.filter((m) => m && !served.has(m.name));
+  const loaded = free.filter((m) => m.loaded === true);
+  const idle = free.filter((m) => m.loaded !== true);
+  const outputs = idle.filter((m) => m.exposed === true);
+  const rest = idle.filter((m) => m.exposed !== true);
+  const shown = [...outputs, ...rest.slice(0, Math.max(0, ENGINE_IDLE_SHOWN - outputs.length))];
+  const lines = [...loaded, ...shown].map((m) => shelfLineHtml(n, e, m)).join("");
+  const caption = free.length
+    ? `<div class="engine-shelf-caption"><span class="ncf-dot up" aria-hidden="true"></span>${escapeHtml(t("shelfCaption", { engine: label }))}`
+      + `<span class="ncf-count">${free.length}</span></div>` : "";
+  const more = idle.length > shown.length
+    ? `<div class="node-engine-more topology-muted">${escapeHtml(t("nodeEngineMoreInstalled", { n: idle.length - shown.length }))}</div>` : "";
+  const unknown = e.installedKnown === false
+    ? `<div class="node-engine-state">${escapeHtml(t("nodeEngineInstalledUnknown"))}</div>` : "";
+  const said = !e.models.length
+    ? (e.installedKnown !== false ? `<div class="node-engine-state topology-muted">${escapeHtml(t("nodeEngineNoModels"))}</div>` : "")
+    : (!free.length ? `<div class="node-engine-state topology-muted">${escapeHtml(t("shelfAllHaveCells", { engine: label }))}</div>` : "");
   const colour = CellRow.launcher(kind);
-  return `<div class="node-engine-panel${colour ? ` engine-${colour}` : ""}" data-t="node-engine-panel" data-t-id="${escapeHtml(`${n.id}:${kind}`)}">
-      ${nodeEngineCardHtml(n, e)}
-    </div>`;
+  return `<div class="engine-shelf${colour ? ` engine-${colour}` : ""}" data-t="engine-shelf" data-t-id="${escapeHtml(`${n.id}:${kind}`)}">`
+    + `${caption}${lines}${more}${unknown}${said}</div>`;
+}
+
+// What the lane shows of a machine's engines (the operator's choice,
+// 2026-09-26): the strip of every engine its chips offer, always, right over
+// the chips — an engine's server is the machine's, whichever cells the chips
+// show — and under the cells the shelf of models with no cell of the engine
+// whose chip is pressed. An engine the machine does not report, offered because
+// a cell of the machine runs in it, is named so — its cells cannot start — not
+// left as an empty space.
+export function nodeEngineViewHtml(n, servers, chosen) {
+  const reported = Array.isArray(n?.engines) ? n.engines : [];
+  const runners = offeredEngineRunners(n, servers);
+  const strips = runners.map((r) => {
+    const e = reported.find((x) => String(x.kind || "") === r.id);
+    if (e) return nodeEngineStripHtml(n, e);
+    const colour = CellRow.launcher(r.id);
+    return `<div class="engine-strip missing${colour ? ` engine-${colour}` : ""}" data-t="node-engine-missing"`
+      + ` data-t-id="${escapeHtml(`${n.id}:${r.id}`)}">${escapeHtml(t("engineNotReported", { engine: t(r.labelKey || "") || r.id }))}</div>`;
+  }).join("");
+  const chosenEngine = runners.some((r) => r.id === chosen) ? reported.find((x) => String(x.kind || "") === chosen) : null;
+  return {
+    strips: strips ? `<div class="node-engine-strips">${strips}</div>` : "",
+    shelf: chosenEngine ? nodeEngineShelfHtml(n, chosenEngine, servers) : "",
+  };
 }
 
 // The handles of a machine's engine models made router outputs: their cables
-// land at the machine's chips, always drawn — the panel that lists the models
-// is shut most of the time.
+// land at the machine's chips, always drawn — the strip that names them shows
+// only while their engine's chip is pressed.
 function engineOutputAnchorsHtml(n) {
   return (Array.isArray(n?.engines) ? n.engines : []).flatMap((e) => (Array.isArray(e.models) ? e.models : [])
     .filter((m) => m && m.exposed === true && m.outputId)
@@ -679,8 +724,7 @@ function launchFilesSuffix(roles) {
 export function nodeCellFilter(n, servers = []) {
   const launcher = (srv) => engineRunnerOf(srv)?.id || "caravan";
   const reported = Array.isArray(n?.engines) ? n.engines : [];
-  const offered = runnerRegistry().filter((r) => r.engineCell === true
-    && (reported.some((e) => String(e.kind || "") === r.id) || servers.some((srv) => launcher(srv) === r.id)));
+  const offered = offeredEngineRunners(n, servers);
   if (!offered.length) return new CellFilter({ hostId: n?.id });
   const count = (id) => servers.filter((srv) => launcher(srv) === id).length;
   const caravan = t("launcherCaravan");
@@ -692,16 +736,22 @@ export function nodeCellFilter(n, servers = []) {
       const name = String(e?.label || t(r.labelKey || "") || r.id);
       const up = e ? e.state === "ok" : null;
       const state = up === null ? "" : `\n${t(up ? "cellsFilterEngineUp" : "cellsFilterEngineDown", { engine: name })}`;
-      // A reported engine has a panel; one known only from its cells has
-      // nothing to show in one.
-      return { id: r.id, label: name, count: count(r.id), up, title: `${t("cellsFilterOnly", { launcher: name })}${state}`,
-               menu: !!e, open: !!e && CARD_FOLD.engineKey === `${n?.id}:${r.id}`,
-               menuTitle: t("engineMenuTitle", { engine: name }) };
+      return { id: r.id, label: name, count: count(r.id), up, title: `${t("cellsFilterOnly", { launcher: name })}${state}` };
     }),
   ];
   const want = CARD_FOLD.launcherOf(n?.id);
   return new CellFilter({ hostId: n?.id, chosen: options.some((o) => o.id === want) ? want : "", options,
                           anchors: engineOutputAnchorsHtml(n) });
+}
+
+// The engines next to a machine that can hold its cells and are offered on
+// its chips: the registry's runners of engine cells (engineCell) that the
+// machine reports, or that one of its cells runs in. The chips and the strips
+// over the cells ask this one question.
+function offeredEngineRunners(n, servers = []) {
+  const reported = Array.isArray(n?.engines) ? n.engines : [];
+  return runnerRegistry().filter((r) => r.engineCell === true
+    && (reported.some((e) => String(e.kind || "") === r.id) || servers.some((srv) => engineRunnerOf(srv)?.id === r.id)));
 }
 
 // The runner of a cell whose model runs inside an engine next to it (Ollama,
@@ -1714,6 +1764,7 @@ export function nodesLaneHtml() {
     } else {
       const startingCard = nodeStartingCardHtml(n);
       const filter = nodeCellFilter(n, servers);
+      const engineView = nodeEngineViewHtml(n, servers, filter.chosen);
       const serversHtml = servers.length
         ? servers.map((s) => nodeServerCardHtml(n, s, { fold: true, only: filter.chosen })).join("")
         : "";
@@ -1775,9 +1826,9 @@ export function nodesLaneHtml() {
       const eye = new CellEye({
         hostId: n.id, on: CARD_FOLD.hidesIdle(n.id), hidden: (serversHtml.match(/data-cell-hidden-by="idle"/g) || []).length,
       }).html();
-      const serversHead = `<div class="node-servers-head">${serversSubtitle}${filter.html()}${eye}</div>`;
+      const serversHead = `<div class="node-servers-head">${serversSubtitle}${engineView.strips}${filter.html()}${eye}</div>`;
       bodyHtml = `<div class="node-body">
-          <div class="node-servers">${serversHead}${nodeEnginePanelHtml(n)}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
+          <div class="node-servers">${serversHead}${serversHtml}${engineView.shelf}${startingCard}${addBtn}${serverStatsSlot}</div>
           <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>
         </div>`;
     }

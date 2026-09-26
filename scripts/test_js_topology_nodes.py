@@ -56,7 +56,7 @@ const norm = (s) => String(s).replace(/\s+/g, " ").trim();
 const reset = () => { st.setState({ config: {}, runners: [], artifacts: [], models: [], paths: {} });
   st.setTopology({ proxies: [], clients: [], routers: [], assignments: {}, llamas: [] });
   ui.latestSystemMonitor = null;
-  cf.CARD_FOLD.pinned.clear(); cf.CARD_FOLD.densities = {}; cf.CARD_FOLD.peekKey = ""; cf.CARD_FOLD.openKey = ""; cf.CARD_FOLD.hideIdle.clear(); cf.CARD_FOLD.launchers = {}; cf.CARD_FOLD.engineKey = "";
+  cf.CARD_FOLD.pinned.clear(); cf.CARD_FOLD.densities = {}; cf.CARD_FOLD.peekKey = ""; cf.CARD_FOLD.openKey = ""; cf.CARD_FOLD.hideIdle.clear(); cf.CARD_FOLD.launchers = {};
   for (const c of [rc._stoppingHosts, rc._stoppingCells, rc._deletingSlots, rc._newReservedCells, rc._pendingRemoteStarts, rc._pendingCellActions, rc._reservingCells]) c.clear(); };
 const node = { id: "h1", name: "Host", ip: "10.0.0.5", role: "host", gpus: [{ index: 0, name: "RTX", memoryTotalMiB: 24576 }] };
 const mk = (extra) => ({ port: 22001, isSlot: true, model: "a.gguf", slotConfig: { RUNNER: "llama-server", MODEL_FILE: "a.gguf" }, ...extra });
@@ -2414,6 +2414,12 @@ def _ago(age):
     return _en("nodeScoutLastReport").replace("{ago}", age)
 
 
+def _esc(text):
+    """What escapeHtml (utils.js) makes of a text inside an element or an attribute."""
+    return (text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+            .replace("'", "&#39;"))
+
+
 PINS += [
     ("fold_switch_words",
      "",
@@ -2549,252 +2555,366 @@ PINS += [
      "positive: молчащий хост приглушён, и баннер стоит сразу под его шапкой"),
 ]
 
-# The engines next to the cells (scout 2.12+): read-only cards under the
-# cells, and the memory their processes hold (docs/foreign-engines.md, step 1).
+# The engines next to the cells (scout 2.12+) and the memory their processes
+# hold (docs/foreign-engines.md, step 1): the helpers the strip and the live
+# patch share.
 PINS += [
-    ("engines_panel_none",
-     'cf.CARD_FOLD.engineKey = "h1:ollama";',
-     '[m.nodeEnginePanelHtml({ id: "h1", engines: null }), m.nodeEnginePanelHtml({ id: "h1", engines: [] }), m.nodeEnginePanelHtml({ id: "h1" }), m.nodeEnginePanelHtml({ id: "h2", engines: [ENG()] }), m.nodeEnginePanelHtml({ id: "h1", engines: [ENG({ kind: "lmstudio" })] }), (cf.CARD_FOLD.engineKey = "", m.nodeEnginePanelHtml({ id: "h1", engines: [ENG()] }))]',
-     '["", "", "", "", "", ""]',
-     "negative: панели нет — движков нет (None: старый скаут не умеет смотреть; []: смотрел — нет; без поля), ▾ открыт "
-     "у другой машины, открыт ▾ движка, которого машина не сообщает, ни один ▾ не открыт"),
-    ("engines_card_ok_full",
-     "",
-     "norm(m.nodeEngineCardHtml(node, ENG({ models: [MDL({ name: \"llama3.2:3b\", params: \"3.2B\", loaded: true, memBytes: 6591830464, vramBytes: 5333539264, contextLength: 4096, expiresAt: SOON }), MDL(), MDL({ name: \"gpt-oss:120b-cloud\", params: \"116.8B\", quant: \"MXFP4\", fileBytes: 384, remote: true })] })))",
-     "\"<article class=\\\"node-engine\\\" data-t=\\\"node-engine\\\" data-t-id=\\\"h1:ollama:11434\\\" data-t-state=\\\"ok\\\"> <header class=\\\"node-engine-head\\\" title=\\\"Loads models on demand: it can take memory after a cell has started\\\"> <strong>Ollama</strong> <span class=\\\"topology-muted\\\">0.12.3</span> <code>:11434</code> <span style=\\\"flex:1\\\"></span> <span class=\\\"node-engine-ram\\\" data-t=\\\"node-engine-vram\\\" data-live-engine-vram title=\\\"Video memory the engine&#39;s processes hold on this machine&#39;s cards (nvidia-smi)\\\"></span><span class=\\\"node-engine-ram\\\" data-live-engine-ram title=\\\"Memory held by the engine&#39;s processes\\\">RAM 1.2 GB</span> </header> <ul class=\\\"node-engine-models\\\"><li class=\\\"node-engine-model loaded\\\"> <span class=\\\"node-engine-dot\\\" aria-hidden=\\\"true\\\"></span> <span class=\\\"node-engine-model-name\\\" title=\\\"llama3.2:3b\\\">llama3.2:3b</span> <span class=\\\"node-engine-model-meta\\\">3.2B · Q4_K_M</span> <span class=\\\"node-engine-model-mem\\\">VRAM 5.0 GB · RAM 1.2 GB · 🪟 4.1k · unloads at 10:25 PM</span> </li><li class=\\\"node-engine-model\\\"> <span class=\\\"node-engine-dot\\\" aria-hidden=\\\"true\\\"></span> <span class=\\\"node-engine-model-name\\\" title=\\\"qwen3:8b\\\">qwen3:8b</span> <span class=\\\"node-engine-model-meta\\\">8.2B · Q4_K_M</span> <span class=\\\"node-engine-model-mem\\\">4.9 GB</span> </li><li class=\\\"node-engine-model\\\"> <span class=\\\"node-engine-dot\\\" aria-hidden=\\\"true\\\"></span> <span class=\\\"node-engine-model-name\\\" title=\\\"gpt-oss:120b-cloud\\\">gpt-oss:120b-cloud</span> <span class=\\\"node-engine-cloud\\\" title=\\\"Runs on Ollama&#39;s servers, not on this machine\\\">☁ cloud</span> <span class=\\\"node-engine-model-meta\\\">116.8B · MXFP4</span> </li></ul> </article>\"",
-     "positive: Якорь: карточка Ollama — версия, порт, RAM процессов; загруженная модель с VRAM, RAM-частью, окном и временем выгрузки; установленная — размер файла; облачная — ☁ и без размера"),
-    ("engines_loopback_chip",
-     "",
-     "[ENG({ listen: \"loopback\" }), ENG({ kind: \"lmstudio\", label: \"LM Studio\", port: 1234, listen: \"loopback\" }), ENG({ listen: \"network\" }), ENG({ listen: \"\" })].map((e) => (norm(m.nodeEngineCardHtml(node, e)).match(/<span class=\"node-engine-listen\"[^>]*>[^<]*<\\/span>/) || [\"\"])[0])",
-     json.dumps([f'<span class="node-engine-listen" title="{_en("nodeEngineLoopbackHint")}">{_en("nodeEngineLoopback")}</span>'] * 2
-                + ["", ""], ensure_ascii=False),
-     "positive: слушает только 127.0.0.1 — плашка «только эта машина»; подсказка одна для обоих движков: это изоляция, "
-     "путь внутрь — ячейка в движке (а не «откройте в сеть»); сеть и «не знаю» — без плашки (неизвестное не рисуется петлёй)"),
-    ("engines_states",
-     "",
-     "[ENG({ state: \"auth\", models: null }), ENG({ state: \"unreachable\", models: null, version: \"\" })].map((e) => (h => [h.match(/data-t-state=\"([^\"]*)\"/)[1], h.match(/<div class=\"node-engine-state[^\"]*\">([^<]*)<\\/div>/)[1], h.includes(\"node-engine-models\")])(norm(m.nodeEngineCardHtml(node, e))))",
-     "[[\"auth\", \"asks for an API token — its models are not listed\", false], [\"unreachable\", \"does not answer on its port\", false]]",
-     "negative: просит токен / молчит — своё состояние словами и в data-t-state, списка моделей нет (не «моделей нет»)"),
-    ("engines_more_installed",
-     "",
-     "(h => [(h.match(/<li class=\"node-engine-model/g) || []).length, (h.match(/<div class=\"node-engine-more topology-muted\">([^<]*)<\\/div>/) || [])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ models: [...Array(8)].map((_, i) => MDL({ name: `m${i}` })) }))))",
-     "[6, \"+2 more installed\"]",
-     "boundary: установленных 8 — видно 6, остальные — «+2 more installed»"),
-    ("engines_installed_unknown",
-     "",
-     "(h => [h.includes(\"did not answer\"), h.includes(\"no models installed\"), (h.match(/<li /g) || []).length])(norm(m.nodeEngineCardHtml(node, ENG({ installedKnown: false, models: [MDL({ loaded: true })] }))))",
-     "[true, false, 1]",
-     "negative: список установленных не ответил — сказано словами; «моделей не установлено» не пишется; загруженная видна"),
-    ("engines_installed_unknown_and_empty",
-     "",
-     "(h => [h.includes(\"did not answer\"), h.includes(\"no models installed\")])(norm(m.nodeEngineCardHtml(node, ENG({ installedKnown: false, models: [] }))))",
-     "[true, false]",
-     "negative: список установленных не ответил, и ничего не загружено — «не ответил», а не «моделей не установлено»"),
-    ("engines_no_models",
-     "",
-     "(norm(m.nodeEngineCardHtml(node, ENG({ models: [] }))).match(/<div class=\"node-engine-state[^\"]*\">([^<]*)<\\/div>/) || [])[1]",
-     "\"no models installed\"",
-     "positive: ответил и пуст — «no models installed»"),
-    ("engines_loaded_unknown_memory",
-     "",
-     "(norm(m.nodeEngineCardHtml(node, ENG({ models: [MDL({ loaded: true })] }))).match(/<span class=\"node-engine-model-mem\">([^<]*)<\\/span>/) || [\"none\"])[0]",
-     "\"none\"",
-     "negative: загружена, но движок не сказал память и окно — ни «VRAM 0.0 GB», ни «0» не рисуются"),
-    ("engines_expiry",
-     "",
-     "[\"2318-08-01T00:00:00Z\", \"2020-01-01T00:00:00Z\", \"garbage\", SOON].map((x) => (norm(m.nodeEngineCardHtml(node, ENG({ models: [MDL({ loaded: true, vramBytes: 1073741824, expiresAt: x })] }))).match(/<span class=\"node-engine-model-mem\">([^<]*)<\\/span>/) || [\"\", \"\"])[1])",
-     "[\"VRAM 1.0 GB · stays loaded\", \"VRAM 1.0 GB\", \"VRAM 1.0 GB\", \"VRAM 1.0 GB · unloads at 10:25 PM\"]",
-     "boundary: срок выгрузки через век (keep_alive -1) — «stays loaded»; прошедший и нечитаемый — ничего; ближний — время часов, а не «через N мин» (не стареет между перерисовками)"),
-    ("engines_ram_part",
-     "",
-     "[[5333539264, 5333539264 + 67108864], [5333539264, 5333539264 + 67108863]].map(([v, mem]) => (norm(m.nodeEngineCardHtml(node, ENG({ models: [MDL({ loaded: true, vramBytes: v, memBytes: mem })] }))).match(/<span class=\"node-engine-model-mem\">([^<]*)<\\/span>/) || [\"\", \"\"])[1])",
-     "[\"VRAM 5.0 GB · RAM 64 MB\", \"VRAM 5.0 GB\"]",
-     "boundary: часть модели в RAM показывается от 64 МиБ (ровно 64 — да, на байт меньше — нет)"),
     ("engine_ram_text",
      "",
      "[m.engineRamText({ ramBytes: null }), m.engineRamText({}), m.engineRamText({ ramBytes: 1288490189 }), m.engineRamText(null), m.engineRamText({ ramBytes: 20611072 }), m.engineRamText({ ramBytes: 1073741823 }), m.engineRamText({ ramBytes: 1073741824 }), m.engineRamText({ ramBytes: 0 })]",
      "[\"\", \"\", \"RAM 1.2 GB\", \"\", \"RAM 20 MB\", \"RAM 1024 MB\", \"RAM 1.0 GB\", \"RAM 0 MB\"]",
      "negative: RAM процессов движка — только когда сказана; null, нет поля, нет движка — пусто. boundary: меньше гигабайта — в МБ (20 МБ, а не «0.0 GB», что читалось как ноль; живая проверка 2026-09-25), от 1 ГиБ — в GB; сказанный ноль — «0 MB»"),
-    ("engines_escaped",
-     "",
-     "(h => [h.includes(\"&lt;b&gt;x\"), h.includes(\"<b>x\")])(norm(m.nodeEngineCardHtml(node, ENG({ label: \"<b>x\", models: [MDL({ name: \"<b>x\" })] }))))",
-     "[true, false]",
-     "positive: имя движка и модели экранируются"),
-    ("engines_no_version_no_ram",
-     "",
-     "(h => [h.includes('class=\"topology-muted\">'), h.includes('data-live-engine-ram')])(norm(m.nodeEngineCardHtml(node, ENG({ version: \"\", ramBytes: null }))).split(\"</header>\")[0])",
-     "[false, false]",
-     "negative: движок без версии (LM Studio её не говорит) и без RAM (ps не ответил) — в шапке ни пустой версии, ни «RAM 0.0 GB»"),
-]
-
-# A model of an engine as a router output (step 2): its switch and the
-# anchor its cable lands on.
-PINS += [
-    ("engines_expose_switch_off",
-     "",
-     "(norm(m.nodeEngineCardHtml(node, ENG({ reachable: true, models: [MDL({ outputId: \"eng:1\", exposed: false })] }))).match(/<button class=\"node-engine-expose[^>]*>[^<]*<\\/button>/) || [\"none\"])[0]",
-     '"none"',
-     "negative: сделать модель движка выходом с доски нельзя (2026-09-26, решение оператора: путь к модели — ячейка в "
-     "движке) — у невыведенной модели переключателя нет"),
-    ("engines_expose_switch_on",
-     "",
-     "(h => [(h.match(/<button class=\"node-engine-expose[^>]*>[^<]*<\\/button>/) || [\"none\"])[0], (h.match(/<span class=\"topology-handle[^>]*><\\/span>/) || [\"none\"])[0], /node-engine-model[^\"]* exposed/.test(h)])(norm(m.nodeEngineCardHtml(node, ENG({ reachable: true, models: [MDL({ outputId: \"eng:1\", exposed: true })] }))))",
-     "[\"<button class=\\\"node-engine-expose on\\\" type=\\\"button\\\" data-t=\\\"node-engine-expose\\\" data-t-id=\\\"eng:1\\\" data-engine-expose=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-model=\\\"qwen3:8b\\\" data-engine-exposed=\\\"1\\\" aria-pressed=\\\"true\\\" title=\\\"Stop routing to this model: the router&#39;s cables to it wait for it to come back\\\">⇄ output</button>\", \"none\", true]",
-     "positive: уже сделанный выход снимается здесь: переключатель нажат, строка помечена exposed; якоря у строки нет — "
-     "кабель садится у чипов машины: панель большую часть времени закрыта"),
-    ("engines_expose_blocked",
-     "",
-     "[false, true].map((on) => (h => [/<button class=\"node-engine-expose[^>]* disabled>/.test(h), (h.match(/title=\"([^\"]*)\"(?: disabled)?>⇄/) || [])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ reachable: false, listen: \"loopback\", models: [MDL({ outputId: \"eng:1\", exposed: on })] })))))",
-     '[[false, null], [false, "Stop routing to this model: the router&#39;s cables to it wait for it to come back"]]',
-     "negative: движок на 127.0.0.1 чужой машины — включать нечего (ни переключателя, ни совета «откройте в сеть»); "
-     "уже сделанный выход — выключить можно"),
-    ("engines_expose_none_for_remote",
-     "",
-     "[MDL({ outputId: \"eng:1\", remote: true }), MDL({ outputId: \"\" }), MDL({})].map((mm) => norm(m.nodeEngineCardHtml(node, ENG({ models: [mm] }))).includes(\"node-engine-expose\"))",
-     "[false, false, false]",
-     "negative: облачная модель Ollama, модель без id выхода (контроллер старее) — переключателя нет"),
-    ("engines_exposed_idle_shown_first",
-     "",
-     "(h => [(h.match(/<li class=\"node-engine-model/g) || []).length, (h.match(/title=\"(m\\d)\">m\\d<\\/span>/g) || []).map((x) => x.slice(7, 9)), (h.match(/<div class=\"node-engine-more topology-muted\">([^<]*)<\\/div>/) || [])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ models: [...Array(8)].map((_, i) => MDL({ name: `m${i}`, outputId: `eng:${i}`, exposed: i === 7 })) }))))",
-     "[6, [\"m7\", \"m0\", \"m1\", \"m2\", \"m3\", \"m4\"], \"+2 more installed\"]",
-     "boundary: незагруженная модель-выход стоит первой среди установленных, даже восьмой по списку: снять её можно только здесь; всего 6, остальные — «+2»"),
-]
-
-# An engine behind its machine's firewall (scout 2.13).
-PINS += [
-    ("engines_firewall_blocked_switch",
-     "st.setTopology({ ...st.topology, server: { ip: \"10.0.0.1\" } });",
-     "(h => [/<button class=\"node-engine-expose[^>]* disabled>/.test(h), (h.match(/title=\"([^\"]*)\" disabled>⇄/) || [])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ reachable: false, blockedBy: \"firewall\", firewall: { state: \"blocked\", allowedFrom: [] }, models: [MDL({ outputId: \"eng:1\" })] }))))",
-     '[false, null]',
-     "negative: файрвол машины не пускает контроллер (скаут 2.13) — переключателя нет: выход с доски не делают"),
-    ("engines_firewall_badge",
-     "",
-     "[ENG({ firewall: { state: \"blocked\", allowedFrom: [] } }), ENG({ listen: \"loopback\", firewall: { state: \"blocked\", allowedFrom: [] } }), ENG({ firewall: null }), ENG({ firewall: { state: \"restricted\", allowedFrom: [\"10.0.0.0/24\"] } })].map((e) => (norm(m.nodeEngineCardHtml(node, e)).split(\"</header>\")[0].match(/<span class=\"node-fw-badge[^\"]*\"/) || [\"none\"])[0])",
-     "[\"<span class=\\\"node-fw-badge fw-blocked\\\"\", \"none\", \"none\", \"<span class=\\\"node-fw-badge fw-restricted\\\"\"]",
-     "бейдж файрвола — у движка, открытого в сеть, как у порта ячейки; на 127.0.0.1 и без чтения ufw — нет бейджа"),
-]
-
-# Driving an engine's model from the board (step 3, scout 2.14).
-PINS += [
-    ("engines_act_load_button",
-     "",
-     "(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: false })] }))).match(/<button class=\"node-engine-act[^>]*>[^<]*<\\/button>/) || [\"none\"])[0]",
-     "\"<button class=\\\"node-engine-act load\\\" type=\\\"button\\\" data-t=\\\"node-engine-load\\\" data-t-id=\\\"h1:ollama:qwen3:8b\\\" data-engine-act=\\\"load\\\" data-engine-host=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-holds=\\\"\\\" data-engine-label=\\\"Ollama\\\" data-engine-model=\\\"qwen3:8b\\\" title=\\\"Load this model into the engine&#39;s memory\\\">▶ load</button>\"",
-     "positive: незагруженная модель движка, который это умеет (скаут 2.14), — «▶ load» с id машины/движка/модели для клика"),
-    ("engines_act_unload_button",
-     "",
-     "(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: true })] }))).match(/<button class=\"node-engine-act[^>]*>[^<]*<\\/button>/) || [\"none\"])[0]",
-     "\"<button class=\\\"node-engine-act unload\\\" type=\\\"button\\\" data-t=\\\"node-engine-unload\\\" data-t-id=\\\"h1:ollama:qwen3:8b\\\" data-engine-act=\\\"unload\\\" data-engine-host=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-holds=\\\"\\\" data-engine-label=\\\"Ollama\\\" data-engine-model=\\\"qwen3:8b\\\" title=\\\"Unload this model from the engine&#39;s memory\\\">⏏ unload</button>\"",
-     "positive: загруженная — «⏏ unload»"),
-    ("engines_act_none",
-     "",
-     "[ENG({ controls: [], models: [MDL({ loaded: false })] }), ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: false, remote: true })] }), ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: null })] }), ENG({ controls: [\"unload\"], models: [MDL({ loaded: false })] }), ENG({ models: [MDL({ loaded: true })] })].map((e) => norm(m.nodeEngineCardHtml(node, e)).includes(\"node-engine-act \"))",
-     "[false, false, false, false, false]",
-     "negative: без кнопки — движок не умеет (controls пуст или нет нужного действия), облачная модель Ollama, «загружена ли» не сказано, скаут до 2.14"),
-    ("engines_act_busy",
-     "",
-     "(h => [[...h.matchAll(/<span class=\"node-engine-busy\"[^>]*>.*?<\\/span> ([^<]*)<\\/span>/g)].map((x) => x[1]), h.includes(\"data-engine-act\")])(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: false, action: { op: \"load\", since: 1 } }), MDL({ name: \"b\", loaded: true, action: { op: \"unload\", since: 1 } })] }))))",
-     "[[\"unloading…\", \"loading…\"], false]",
-     "пока действие идёт — «loading…»/«unloading…» вместо кнопки: второе действие над той же моделью не предлагается"),
-    ("engines_act_error",
-     "",
-     "(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: false, actionError: { op: \"load\", error: \"CUDA error: out of memory\", at: 1 } })] }))).match(/<span class=\"node-engine-act-error\"[^>]*>[^<]*<\\/span>/) || [\"none\"])[0]",
-     "\"<span class=\\\"node-engine-act-error\\\" title=\\\"CUDA error: out of memory\\\">⚠ could not load: CUDA error: out of memory</span>\"",
-     "отказ движка остаётся на строке его словами (в подсказке — целиком)"),
-    ("engines_act_holds_marked",
-     "",
-     "[true, false, \"yes\", undefined].map((h) => (norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\"], holds: h, models: [MDL({ loaded: false })] }))).match(/data-engine-holds=\"([^\"]*)\"/) || [0, \"none\"])[1])",
-     "[\"1\", \"\", \"\", \"\"]",
-     "движок умеет срок (скаут 2.15, holds) — кнопка несёт это в диалог; только настоящее true"),
-    ("engines_stays_loaded_lmstudio",
-     "",
-     "[true, false, null].map((v) => { const h = norm(m.nodeEngineCardHtml(node, ENG({ models: [MDL({ loaded: true, expiresAt: \"\", staysLoaded: v })] }))); return h.includes(\"stays loaded\"); })",
-     "[true, false, false]",
-     "LM Studio говорит «держит, пока не выгрузят» сам (staysLoaded, скаут 2.15) — строка это пишет; false или не сказано — не пишет"),
-    ("engines_server_stop_button",
-     "",
-     "(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\", \"stop\"], runBy: \"user\" }))).match(/<button class=\"node-engine-serve[^>]*>[^<]*<\\/button>/) || [\"none\"])[0]",
-     "\"<button class=\\\"node-engine-serve stop\\\" type=\\\"button\\\" data-t=\\\"node-engine-stop\\\" data-t-id=\\\"h1:ollama:11434\\\" data-engine-serve=\\\"stop\\\" data-engine-host=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-label=\\\"Ollama\\\" data-engine-machine=\\\"Host\\\" title=\\\"Stop this engine&#39;s server on its machine\\\">⏹ stop</button>\"",
-     "сервер пользователя скаута (скаут 2.16) — «⏹ stop» в шапке карточки: машина, движок, его имя и имя машины для вопроса"),
-    ("engines_server_stopped_card",
-     "",
-     "(h => [(h.match(/data-t=\"node-engine-start\"[^>]*>([^<]*)</) || [0, \"none\"])[1], (h.match(/<div class=\"node-engine-state\">([^<]*)</) || [0, \"none\"])[1], h.includes(\"node-engine-models\"), h.includes(\"data-engine-act\"), (h.match(/data-t-state=\"([^\"]*)\"/) || [0, \"\"])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ state: \"stopped\", models: null, controls: [\"start\"], pids: [], ramBytes: null, version: \"\" }))))",
-     "[\"▶ start\", \"Stopped — ▶ start runs its server again.\", false, false, \"stopped\"]",
-     "остановленный движок: «▶ start» в шапке, «Stopped» вместо моделей, ни одной кнопки моделей; состояние карточки — stopped"),
-    ("engines_server_none",
-     "",
-     "[ENG({ controls: [\"load\", \"unload\"], runBy: \"other\" }), ENG({ controls: [\"load\", \"unload\"] }), ENG({ controls: [\"reboot\"] }), ENG({ controls: undefined })].map((e) => norm(m.nodeEngineCardHtml(node, e)).includes(\"data-engine-serve\"))",
-     "[false, false, false, false]",
-     "negative: без кнопки сервера — его запускает другой пользователь, машина не сказала, controls без start/stop, скаут до 2.16"),
-    ("engines_server_busy_replaces_button",
-     "",
-     "(h => [(h.match(/data-t=\"node-engine-server-busy\"[^>]*>.*?<\\/span> ([^<]*)</) || [0, \"none\"])[1], h.includes(\"data-engine-serve\")])(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\", \"stop\"], serverAction: { op: \"stop\", since: 1 } }))))",
-     "[\"stopping…\", false]",
-     "пока идёт остановка — «stopping…» вместо кнопки: второй раз не предлагается"),
-    ("engines_server_notes",
-     "",
-     "(h => [...h.matchAll(/<span class=\"(node-engine-act-error|node-engine-note)\"[^>]*>([^<]*)</g)].map((x) => x[2]))(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"start\"], state: \"stopped\", models: null, runBy: \"other\", autostart: true, serverError: { op: \"start\", error: \"it did not answer on port 11434 in 60 s\", at: 5 } }))))",
-     "[\"⚠ could not start: it did not answer on port 11434 in 60 s\", \"run by another user (a system service) — stop it on its machine\", \"starts with the machine\"]",
-     "под шапкой — отказ его словами, «запускает другой пользователь», «поднимается с машиной»"),
-    ("engines_server_both_said",
-     "",
-     "[(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"start\", \"stop\"] }))).match(/data-engine-serve=\"([^\"]*)\"/) || [0, \"none\"])[1], norm(m.nodeEngineCardHtml(node, ENG({ autostart: \"yes\" }))).includes(\"node-engine-note\")]",
-     "[\"stop\", false]",
-     "boundary: сказаны и пуск, и остановка — кнопка остановки (работающий побеждает); «с машиной» — только настоящее true"),
-    ("engines_pull_button",
-     "",
-     "[(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\", \"pull\"] }))).match(/<button class=\"node-engine-serve pull\"[^>]*>[^<]*<\\/button>/) || [\"none\"])[0], norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"pull\"], downloading: { model: \"x\", since: 1, doneBytes: null, totalBytes: null } }))).includes(\"data-engine-pull\"), norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\"] }))).includes(\"data-engine-pull\")]",
-     "[\"<button class=\\\"node-engine-serve pull\\\" type=\\\"button\\\" data-t=\\\"node-engine-pull\\\" data-t-id=\\\"h1:ollama:11434\\\" data-engine-pull data-engine-host=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-label=\\\"Ollama\\\" title=\\\"Download a model into this engine\\\">⤓ download</button>\", false, false]",
-     "скачать в движок (скаут 2.17) — «⤓ download» в шапке; negative: пока скачивается или движок не умеет — кнопки нет"),
     ("engines_download_progress",
      "",
      "[m.engineDownloadText(ENG({ downloading: { model: \"qwen3:4b\", since: 1, doneBytes: 500 * 1024 ** 2, totalBytes: 2.5 * 1024 ** 3 } })), m.engineDownloadText(ENG({ downloading: { model: \"qwen3:4b\", since: 1, doneBytes: null, totalBytes: null } })), m.engineDownloadText(ENG({ downloading: { model: \"q\", since: 1, doneBytes: 3, totalBytes: 0 } })), m.engineDownloadText(ENG({ downloading: { model: \"r\", since: 1, doneBytes: null, totalBytes: 2.5 * 1024 ** 3 } })), m.engineDownloadText(ENG()), m.engineDownloadText(null)]",
      "[\"⤓ downloading qwen3:4b · 500 MB of 2.5 GB (19%)\", \"⤓ downloading qwen3:4b…\", \"⤓ downloading q…\", \"⤓ downloading r…\", \"\", \"\"]",
      "прогресс скачивания: сколько из скольких и процент; размер не сказан (или ноль) — «…», а не «0%»; не скачивается — пусто"),
-    ("engines_download_line_and_error",
-     "",
-     "(h => [(h.match(/<span class=\"node-engine-download\"[^>]*data-live-engine-download>([^<]*)</) || [0, \"none\"])[1], (h.match(/<span class=\"node-engine-act-error\"[^>]*>([^<]*)</) || [0, \"none\"])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ downloading: { model: \"qwen3:4b\", since: 1, doneBytes: null, totalBytes: null }, downloadError: { model: \"qwen3:8b\", error: \"max retries exceeded\", at: 5 } }))))",
-     "[\"⤓ downloading qwen3:4b…\", \"⚠ could not download qwen3:8b: max retries exceeded\"]",
-     "под шапкой — строка скачивания (живая: её обновляет патч без перестройки) и последний отказ словами движка"),
-    ("engines_delete_button",
-     "",
-     "[(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\", \"delete\"], models: [MDL({ loaded: false })] }))).match(/<button class=\"node-engine-act delete\"[^>]*>[^<]*<\\/button>/) || [\"none\"])[0], ...[MDL({ loaded: true }), MDL({ loaded: null }), MDL({ loaded: false, action: { op: \"load\", since: 1 } })].map((x) => norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\", \"delete\"], models: [x] }))).includes(\"node-engine-act delete\")), norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\"], models: [MDL({ loaded: false })] }))).includes(\"node-engine-act delete\")]",
-     "[\"<button class=\\\"node-engine-act delete\\\" type=\\\"button\\\" data-t=\\\"node-engine-delete\\\" data-t-id=\\\"h1:ollama:qwen3:8b\\\" data-engine-act=\\\"delete\\\" data-engine-host=\\\"h1\\\" data-engine-kind=\\\"ollama\\\" data-engine-holds=\\\"\\\" data-engine-label=\\\"Ollama\\\" data-engine-model=\\\"qwen3:8b\\\" data-engine-machine=\\\"Host\\\" title=\\\"Delete this model&#39;s files from the engine&#39;s disk\\\">🗑 delete</button>\", false, false, false, false]",
-     "удалить модель (Ollama, скаут 2.17) — только выгруженную; negative: загруженная, «загружена ли» не сказано, идёт другое действие, движок не умеет (LM Studio)"),
-    ("engines_delete_busy_and_failed",
-     "",
-     "(h => [(h.match(/<span class=\"node-engine-busy\"[^>]*>.*?<\\/span> ([^<]*)<\\/span>/) || [0, \"none\"])[1], (h.match(/<span class=\"node-engine-act-error\"[^>]*>([^<]*)</) || [0, \"none\"])[1]])(norm(m.nodeEngineCardHtml(node, ENG({ controls: [\"load\", \"unload\", \"delete\"], models: [MDL({ loaded: false, action: { op: \"delete\", since: 1 } }), MDL({ name: \"b\", loaded: false, actionError: { op: \"delete\", error: \"model 'b' not found\", at: 2 } })] }))))",
-     "[\"deleting…\", \"⚠ could not delete: model &#39;b&#39; not found\"]",
-     "пока удаляется — «deleting…»; отказ удалить — «could not delete» его словами"),
     ("engines_vram_from_the_card_owners",
      "",
      "(() => { const n = { id: \"h1\", gpus: [{ outside: [{ name: \"LM Studio\", engine: \"lmstudio\", mib: 900 }, { name: \"python\", engine: \"\", mib: 900 }] }, { outside: [{ name: \"LM Studio\", engine: \"lmstudio\", mib: 100 }, { name: \"Ollama\", engine: \"ollama\", mib: 400 }, { name: \"LM Studio\", engine: \"lmstudio\", mib: 60 }] }] }; return [m.engineVramText(n, { kind: \"lmstudio\" }), m.engineVramText(n, { kind: \"ollama\" }), m.engineVramText(n, { kind: \"vllm\" }), m.engineVramText({ id: \"h2\" }, { kind: \"lmstudio\" }), m.engineVramText(n, null)]; })()",
      "[\"VRAM 1000 MB\", \"VRAM 400 MB\", \"\", \"\", \"\"]",
      "память движка на картах — те же владельцы, что на полосе видеокарты, сумма по картам (меньше 64 MiB не считается, как и на полосе); чужой процесс не его; нет карт — пусто, а не «0»"),
-    ("engines_vram_in_the_header",
-     "",
-     "(h => (h.match(/data-live-engine-vram[^>]*>([^<]*)</) || [0, \"none\"])[1])(norm(m.nodeEngineCardHtml({ ...node, gpus: [{ outside: [{ name: \"LM Studio\", engine: \"lmstudio\", mib: 1190 }] }] }, ENG({ kind: \"lmstudio\", label: \"LM Studio\" }))))",
-     "\"VRAM 1.2 GB\"",
-     "у LM Studio нет памяти по моделям — шапка его карточки говорит, сколько он держит на картах (то же число, что полоса)"),
-    ("engines_job_chip_by_the_engines_type",
-     "",
-     "[\"embedding\", \"llm\", \"vlm\", \"\", \"sorcery\"].map((type) => { const h = norm(m.nodeEngineCardHtml(node, ENG({ models: [MDL({ type })] }))); return (h.match(/data-t=\"node-engine-job\" data-t-id=\"([^\"]*)\">([^<]*)</) || [0, \"none\", \"\"]).slice(1).join(\"|\"); })",
-     "[\"embed|🧬 text → vectors\", \"llm|💬 LLM\", \"llm|💬 LLM\", \"none|\", \"none|\"]",
-     "работа модели движка — словами ячеек: эмбеддинги видно (их выход — слот эмбеддингов на канбане); тип не сказан (Ollama) или непонятен — чипа нет, а не догадка"),
-    ("engines_stays_loaded_ollama_kept",
-     "",
-     "norm(m.nodeEngineCardHtml(node, ENG({ models: [MDL({ loaded: true, expiresAt: \"2318-01-01T00:00:00Z\" })] }))).includes(\"stays loaded\")",
-     "true",
-     "Ollama по-прежнему — срок через века: скауты до 2.15 staysLoaded не шлют"),
+]
+
+# While an engine's chip is pressed, its server is a strip over its cells and
+# its models with no cell are dashed lines under them, each with "+" that
+# makes one (2026-09-26, the operator's choice B — in place of the engine's
+# card and its ▾ panel). The registry names the runners of engine cells.
+ENGINE_REG = ('st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true },'
+              ' { id: "ollama", engineCell: true, icon: "🟠", labelKey: "runnerOllama" },'
+              ' { id: "lmstudio", engineCell: true, icon: "🟣", labelKey: "runnerLmStudio" }], artifacts: [], models: [], paths: {} });')
+STRIP = (ENGINE_REG
+         + ' const strip = (e, n = node) => norm(m.nodeEngineStripHtml(n, e));'
+         ' const shelf = (e, servers = [], n = node) => norm(m.nodeEngineShelfHtml(n, e, servers));'
+         ' const lever = (h) => (h.match(/<button type="button" class="fr-switch"[^>]*>/) || ["none"])[0];'
+         ' const plus = (h) => (h.match(/<button type="button" class="sl-plus"[^>]*>/) || ["none"])[0];'
+         r' const names = (h) => [...h.matchAll(/<span class="sl-name" title="[^"]*">([^<]*)</g)].map((x) => x[1]);'
+         ' const cell = (runner, model) => ({ port: 22031, isSlot: true, slotConfig: { RUNNER: runner, ENGINE_MODEL: model } });')
+GPU_OLLAMA = '{ ...node, gpus: [{ outside: [{ name: "Ollama", engine: "ollama", mib: 1190 }] }] }'
+
+PINS += [
+    ("strip_ok_full",
+     STRIP,
+     f'strip(ENG({{ controls: ["unload", "stop", "pull", "delete"], runBy: "user", autostart: true }}), {GPU_OLLAMA})',
+     json.dumps("<div class=\"engine-strip engine-ollama\" data-t=\"node-engine\" data-t-id=\"h1:ollama:11434\" data-t-state=\"ok\" title=\"Loads models on demand: it can take memory after a cell has started\">"
+                "<div class=\"es-main\">"
+                "<button type=\"button\" class=\"fr-switch\" role=\"switch\" aria-checked=\"true\" data-t=\"node-engine-stop\" data-t-id=\"h1:ollama:11434\" data-engine-serve=\"stop\" data-engine-host=\"h1\" data-engine-kind=\"ollama\" data-engine-label=\"Ollama\" data-engine-machine=\"Host\" title=\"Stop this engine&#39;s server on its machine\" aria-label=\"Stop this engine&#39;s server on its machine\">"
+                "<span class=\"fr-knob\" aria-hidden=\"true\"></span></button>"
+                "<strong class=\"es-name\">Ollama</strong><span class=\"es-ver\">0.12.3</span>"
+                "<span class=\"es-fill\"></span><span class=\"es-boot\" title=\"starts with the machine\">↟</span>"
+                "<span class=\"node-engine-ram\" data-t=\"node-engine-vram\" data-live-engine-vram title=\"Video memory the engine&#39;s processes hold on this machine&#39;s cards (nvidia-smi)\">VRAM 1.2 GB</span>"
+                "<span class=\"node-engine-ram\" data-live-engine-ram title=\"Memory held by the engine&#39;s processes\">RAM 1.2 GB</span>"
+                "<button class=\"node-engine-serve pull\" type=\"button\" data-t=\"node-engine-pull\" data-t-id=\"h1:ollama:11434\" data-engine-pull data-engine-host=\"h1\" data-engine-kind=\"ollama\" data-engine-label=\"Ollama\" title=\"Download a model into this engine\">⤓ download</button>"
+                "</div><div class=\"es-sub\"><code class=\"es-addr\">:11434</code></div></div>", ensure_ascii=False),
+     "positive: Якорь: полоса Ollama — тумблер «работает» (остановит сервер), имя, версия, ↟ «с машиной», VRAM на картах "
+     "и RAM процессов, ⤓ скачать; второй строкой — где слушает (порт в сети, без бейджа: ufw не прочитан); подсказка — "
+     "«грузит модели по требованию»"),
+    ("strip_lever_by_controls",
+     STRIP,
+     '[ENG({ controls: ["stop"] }), ENG({ controls: ["start"], state: "stopped" }), ENG({ controls: ["start", "stop"] }),'
+     ' ENG({ controls: [], runBy: "other" }), ENG({ controls: undefined }), ENG({ controls: undefined, state: "stopped" }),'
+     ' ENG({ controls: ["reboot"], state: "unreachable" })].map((e) => (b => [(b.match(/aria-checked="([^"]*)"/) || [])[1],'
+     ' (b.match(/data-engine-serve="([^"]*)"/) || [0, "none"])[1], / disabled /.test(b), (b.match(/ title="([^"]*)"/) || [])[1]])(lever(strip(e))))',
+     json.dumps([["true", "stop", False, _esc(_en("nodeEngineStopTitle"))],
+                 ["false", "start", False, _esc(_en("nodeEngineStartTitle"))],
+                 ["true", "stop", False, _esc(_en("nodeEngineStopTitle"))],
+                 ["true", "none", True, _esc(_en("nodeEngineRunByOther"))],
+                 ["true", "none", True, _esc(_en("engineServerFixed"))],
+                 ["false", "none", True, _esc(_en("engineServerFixed"))],
+                 ["false", "none", True, _esc(_en("engineServerFixed"))]], ensure_ascii=False),
+     "тумблер делает то, что скаут предлагает: работает — остановить, стоит — запустить, предложены оба — остановить "
+     "(работающий побеждает); negative: не предложено ничего — тумблер заперт и говорит почему (чужая служба; скаут не "
+     "умеет), а его положение — состояние движка, а не выдумка"),
+    ("strip_lever_busy",
+     STRIP,
+     '[ENG({ controls: ["stop"], serverAction: { op: "stop", since: 1 } }), ENG({ controls: ["start"], state: "stopped", serverAction: { op: "start", since: 1 } })]'
+     '.map((e) => (h => [/ disabled /.test(lever(h)), h.includes("data-engine-serve"), (h.match(/data-t="node-engine-server-busy"[^>]*>.*?<\\/span> ([^<]*)</) || [0, "none"])[1]])(strip(e)))',
+     json.dumps([[True, False, _en("nodeEngineStopping")], [True, False, _en("nodeEngineStarting")]], ensure_ascii=False),
+     "пока идёт остановка или пуск — тумблер заперт, рядом «stopping…»/«starting…»: второй раз не предлагается"),
+    ("strip_where",
+     STRIP,
+     '[ENG({ listen: "loopback" }), ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, listen: "loopback" }),'
+     ' ENG({ firewall: { state: "blocked", allowedFrom: [] } }), ENG({ firewall: { state: "restricted", allowedFrom: ["10.0.0.0/24"] } }),'
+     ' ENG({ firewall: null }), ENG({ listen: "", firewall: { state: "blocked", allowedFrom: [] } }),'
+     ' ENG({ listen: "loopback", firewall: { state: "blocked", allowedFrom: [] } })].map((e) => (h => [(h.match(/<code class="es-addr">([^<]*)</) || [])[1],'
+     ' h.includes("node-engine-listen"), (h.match(/node-fw-badge ([a-z-]+)/) || [0, "none"])[1]])(strip(e)))',
+     json.dumps([["127.0.0.1:11434", True, "none"], ["127.0.0.1:1234", True, "none"], [":11434", False, "fw-blocked"],
+                 [":11434", False, "fw-restricted"], [":11434", False, "none"], [":11434", False, "none"],
+                 ["127.0.0.1:11434", True, "none"]]),
+     "где слушает: только 127.0.0.1 — плашка и адрес петли (изоляция, путь внутрь — ячейка); в сети — порт и бейдж "
+     "файрвола, как у порта ячейки; negative: ufw не прочитан — без бейджа; «не знаю, где слушает» — не петля и не "
+     "бейдж; у петли бейджа нет"),
+    ("strip_loopback_words",
+     STRIP,
+     '(strip(ENG({ listen: "loopback" })).match(/<span class="node-engine-listen"[^>]*>[^<]*<\\/span>/) || ["none"])[0]',
+     json.dumps(f'<span class="node-engine-listen" title="{_esc(_en("nodeEngineLoopbackHint"))}">{_esc(_en("nodeEngineLoopback"))}</span>',
+                ensure_ascii=False),
+     "плашка петли говорит, что это изоляция и что путь внутрь — ячейка в движке (а не «откройте в сеть»)"),
+    ("strip_states",
+     STRIP,
+     '[ENG({ state: "stopped", models: null }), ENG({ state: "auth", models: null }), ENG({ state: "unreachable", models: null, version: "" }), ENG()]'
+     '.map((e) => (h => [(h.match(/data-t-state="([^"]*)"/) || [])[1], (h.match(/<span class="(node-engine-state[^"]*)">([^<]*)</) || [0, "none", ""]).slice(1)])(strip(e)))',
+     json.dumps([["stopped", ["node-engine-state", _en("nodeEngineStopped")]],
+                 ["auth", ["node-engine-state warn", _en("nodeEngineAuth")]],
+                 ["unreachable", ["node-engine-state err", _en("nodeEngineUnreachable")]],
+                 ["ok", ["none", ""]]], ensure_ascii=False),
+     "не работает, просит токен, молчит — своё состояние словами под полосой и в data-t-state; negative: работает — "
+     "ничего не сказано"),
+    ("strip_notes_in_order",
+     STRIP,
+     '(h => [...h.slice(h.indexOf(\'<div class="es-sub">\')).matchAll(/<span class="(node-engine-[a-z-]+)[^"]*"[^>]*>([^<]*)</g)].map((x) => [x[1], x[2]]))'
+     '(strip(ENG({ controls: ["start"], state: "stopped", models: null, runBy: "other", serverError: { op: "start", error: "it did not answer on port 11434 in 60 s", at: 5 },'
+     ' downloading: { model: "qwen3:4b", since: 1, doneBytes: null, totalBytes: null }, downloadError: { model: "qwen3:8b", error: "max retries exceeded", at: 5 } })))',
+     json.dumps([["node-engine-state", _en("nodeEngineStopped")],
+                 ["node-engine-act-error", "⚠ " + _en("nodeEngineStartFailed").replace("{error}", "it did not answer on port 11434 in 60 s")],
+                 ["node-engine-download", "⤓ " + _en("nodeEnginePulling").replace("{model}", "qwen3:4b") + "…"],
+                 ["node-engine-act-error", "⚠ " + _en("nodeEnginePullFailed").replace("{model}", "qwen3:8b").replace("{error}", "max retries exceeded")],
+                 ["node-engine-note", _en("nodeEngineRunByOther")]], ensure_ascii=False),
+     "под полосой по порядку: состояние, отказ сервера его словами, скачивание (живая строка), отказ скачать, «запускает "
+     "другой пользователь»"),
+    ("strip_download_is_live",
+     STRIP,
+     '(strip(ENG({ downloading: { model: "qwen3:4b", since: 1, doneBytes: null, totalBytes: null } })).match(/<span class="node-engine-download"[^>]*>/) || ["none"])[0]',
+     json.dumps('<span class="node-engine-download" data-t="node-engine-downloading" data-live-engine-download>'),
+     "строку скачивания обновляет живой патч без перестройки полосы — у неё его ручка"),
+    ("strip_autostart_mark",
+     STRIP,
+     '[true, "yes", false, undefined].map((a) => (strip(ENG({ autostart: a })).match(/<span class="es-boot" title="([^"]*)">↟<\\/span>/) || [0, "none"])[1])',
+     json.dumps([_esc(_en("nodeEngineAutostart")), "none", "none", "none"], ensure_ascii=False),
+     "↟ «поднимается с машиной» — только на настоящее true, как у ячеек"),
+    ("strip_memory",
+     STRIP,
+     f'[strip(ENG({{ ramBytes: null }})), strip(ENG({{ kind: "lmstudio", label: "LM Studio" }}), {{ ...node, gpus: [{{ outside: [{{ name: "LM Studio", engine: "lmstudio", mib: 1190 }}] }}] }})]'
+     '.map((h) => [(h.match(/data-live-engine-vram[^>]*>([^<]*)</) || [0, "none"])[1], (h.match(/data-live-engine-ram[^>]*>([^<]*)</) || [0, "none"])[1]])',
+     json.dumps([["", "none"], ["VRAM 1.2 GB", "RAM 1.2 GB"]]),
+     "память: место под VRAM есть всегда — живой патч заполнит его, когда движок займёт карту (у LM Studio нет памяти "
+     "по моделям — полоса говорит, сколько он держит, то же число, что полоса видеокарты); negative: RAM не сказана — "
+     "её нет, а не «RAM 0»"),
+    ("strip_version",
+     STRIP,
+     '[strip(ENG({ version: "" })).includes("es-ver"), (strip(ENG()).match(/<span class="es-ver">([^<]*)</) || [])[1]]',
+     '[false, "0.12.3"]',
+     "negative: движок без версии (LM Studio её не говорит) — пустой версии нет; positive: сказана — после имени"),
+    ("strip_pull",
+     STRIP,
+     '[(strip(ENG({ controls: ["pull"] })).match(/<button class="node-engine-serve pull"[^>]*>[^<]*<\\/button>/) || ["none"])[0],'
+     ' strip(ENG({ controls: ["pull"], downloading: { model: "x", since: 1, doneBytes: null, totalBytes: null } })).includes("data-engine-pull"),'
+     ' strip(ENG({ controls: ["stop"] })).includes("data-engine-pull")]',
+     json.dumps(['<button class="node-engine-serve pull" type="button" data-t="node-engine-pull" data-t-id="h1:ollama:11434" '
+                 'data-engine-pull data-engine-host="h1" data-engine-kind="ollama" data-engine-label="Ollama" '
+                 f'title="{_esc(_en("nodeEnginePullTitle"))}">⤓ {_en("nodeEnginePull")}</button>', False, False],
+                ensure_ascii=False),
+     "скачать в движок (скаут 2.17) — «⤓» на полосе; negative: пока скачивается или движок не умеет — кнопки нет"),
+    ("strip_output_without_a_cell",
+     STRIP,
+     '(h => [[...h.matchAll(/<span class="node-engine-note es-output">([^<]*)</g)].map((x) => x[1]), h.match(/<button class="node-engine-expose[^>]*>[^<]*<\\/button>/g) || []])'
+     '(strip(ENG({ models: [MDL({ outputId: "eng:1", exposed: true }), MDL({ name: "b", outputId: "eng:2", exposed: false }), MDL({ name: "c", exposed: true })] })))',
+     json.dumps([[_esc(_en("engineOutputNote").replace("{model}", "qwen3:8b"))],
+                 ['<button class="node-engine-expose on" type="button" data-t="node-engine-expose" data-t-id="eng:1" '
+                  'data-engine-expose="h1" data-engine-kind="ollama" data-engine-model="qwen3:8b" data-engine-exposed="1" '
+                  f'aria-pressed="true" title="{_esc(_en("nodeEngineUnexposeTitle"))}">⇄ {_en("nodeEngineExposed")}</button>']],
+                ensure_ascii=False),
+     "модель, сделанная выходом раньше (без ячейки), названа на полосе, и её выход здесь снимается; negative: "
+     "невыведенная модель и модель без id выхода — ни строки, ни переключателя (новые выходы с доски не делают)"),
+    ("strip_escaped",
+     STRIP,
+     '(h => [h.includes("&lt;b&gt;x"), h.includes("<b>x")])(strip(ENG({ label: "<b>x", version: "<b>x" })))',
+     '[true, false]',
+     "имя и версия движка экранируются"),
+    ("shelf_full",
+     STRIP,
+     'shelf(ENG({ controls: ["unload", "delete"], models: [MDL({ name: "llama3.2:3b", params: "3.2B", loaded: true, memBytes: 6591830464, vramBytes: 5333539264, contextLength: 4096, expiresAt: SOON }),'
+     ' MDL(), MDL({ name: "gpt-oss:120b-cloud", params: "116.8B", quant: "MXFP4", fileBytes: 384, remote: true })] }))',
+     json.dumps("<div class=\"engine-shelf engine-ollama\" data-t=\"engine-shelf\" data-t-id=\"h1:ollama\">"
+                "<div class=\"engine-shelf-caption\"><span class=\"ncf-dot up\" aria-hidden=\"true\">"
+                "</span>In Ollama, no cell yet<span class=\"ncf-count\">3</span></div>"
+                "<div class=\"shelf-line engine-ollama loaded\" data-t=\"engine-model\" data-t-id=\"h1:ollama:llama3.2:3b\">"
+                "<button type=\"button\" class=\"sl-plus\" data-t=\"engine-model-reserve\" data-t-id=\"h1:ollama:llama3.2:3b\" data-engine-reserve=\"h1\" data-engine-kind=\"ollama\" data-engine-model=\"llama3.2:3b\" title=\"A cell with llama3.2:3b, on the next free port\" aria-label=\"A cell with llama3.2:3b, on the next free port\">+</button>"
+                "<span class=\"sl-name\" title=\"llama3.2:3b\">llama3.2:3b</span>"
+                "<span class=\"sl-params\">3.2B</span>"
+                "<button class=\"node-engine-act unload\" type=\"button\" data-t=\"node-engine-unload\" data-t-id=\"h1:ollama:llama3.2:3b\" data-engine-act=\"unload\" data-engine-host=\"h1\" data-engine-kind=\"ollama\" data-engine-label=\"Ollama\" data-engine-model=\"llama3.2:3b\" title=\"Unload this model from the engine&#39;s memory\" aria-label=\"Unload this model from the engine&#39;s memory\">⏏</button>"
+                "<span class=\"mbadge mbadge-vram\" title=\"VRAM 5.0 GB · RAM 1.2 GB · 🪟 4.1k · unloads at 10:25 PM\">5.0G</span>"
+                "</div>"
+                "<div class=\"shelf-line engine-ollama\" data-t=\"engine-model\" data-t-id=\"h1:ollama:qwen3:8b\">"
+                "<button type=\"button\" class=\"sl-plus\" data-t=\"engine-model-reserve\" data-t-id=\"h1:ollama:qwen3:8b\" data-engine-reserve=\"h1\" data-engine-kind=\"ollama\" data-engine-model=\"qwen3:8b\" title=\"A cell with qwen3:8b, on the next free port\" aria-label=\"A cell with qwen3:8b, on the next free port\">+</button>"
+                "<span class=\"sl-name\" title=\"qwen3:8b\">qwen3:8b</span><span class=\"sl-params\">8.2B</span>"
+                "<button class=\"node-engine-act delete sl-del\" type=\"button\" data-t=\"node-engine-delete\" data-t-id=\"h1:ollama:qwen3:8b\" data-engine-act=\"delete\" data-engine-host=\"h1\" data-engine-kind=\"ollama\" data-engine-label=\"Ollama\" data-engine-model=\"qwen3:8b\" data-engine-machine=\"Host\" title=\"Delete this model&#39;s files from the engine&#39;s disk\" aria-label=\"Delete this model&#39;s files from the engine&#39;s disk\">🗑</button>"
+                "<span class=\"mbadge mbadge-vram-est\" title=\"Estimated from the model file size on disk — actual VRAM adds context/KV overhead\">≈4.9G</span>"
+                "</div>"
+                "<div class=\"shelf-line engine-ollama\" data-t=\"engine-model\" data-t-id=\"h1:ollama:gpt-oss:120b-cloud\">"
+                "<button type=\"button\" class=\"sl-plus\" data-t=\"engine-model-reserve\" data-t-id=\"h1:ollama:gpt-oss:120b-cloud\" data-engine-reserve=\"h1\" data-engine-kind=\"ollama\" data-engine-model=\"gpt-oss:120b-cloud\" title=\"A cell with gpt-oss:120b-cloud, on the next free port\" aria-label=\"A cell with gpt-oss:120b-cloud, on the next free port\">+</button>"
+                "<span class=\"sl-name\" title=\"gpt-oss:120b-cloud\">gpt-oss:120b-cloud</span>"
+                "<span class=\"node-engine-cloud\" title=\"Runs on Ollama&#39;s servers, not on this machine\">☁</span>"
+                "<span class=\"sl-params\">116.8B</span>"
+                "<button class=\"node-engine-act delete sl-del\" type=\"button\" data-t=\"node-engine-delete\" data-t-id=\"h1:ollama:gpt-oss:120b-cloud\" data-engine-act=\"delete\" data-engine-host=\"h1\" data-engine-kind=\"ollama\" data-engine-label=\"Ollama\" data-engine-model=\"gpt-oss:120b-cloud\" data-engine-machine=\"Host\" title=\"Delete this model&#39;s files from the engine&#39;s disk\" aria-label=\"Delete this model&#39;s files from the engine&#39;s disk\">🗑</button>"
+                "</div></div>", ensure_ascii=False),
+     "positive: Якорь: модели Ollama без ячейки — подпись с их числом; загруженная первой (⏏, память, которую держит, с "
+     "подробностями в подсказке), установленная — ≈размер файла и 🗑 под указателем, облачная — ☁ без размера; у каждой "
+     "«+» — ячейка с ней на следующем свободном порту"),
+    ("shelf_skips_models_with_cells",
+     STRIP,
+     '[names(shelf(ENG({ models: [MDL(), MDL({ name: "b" }), MDL({ name: "c" })] }), [cell("ollama", "qwen3:8b"), cell("llama-server", "b"), cell("lmstudio", "c")])),'
+     ' names(shelf(ENG({ models: [MDL(), MDL({ name: "b" }), MDL({ name: "c" })] }), [cell("OLLAMA", " c ")]))]',
+     '[["b", "c"], ["qwen3:8b", "b"]]',
+     "модель, у которой есть ячейка в этом движке, на полке не стоит — её строка — ячейка; negative: ячейка каравана "
+     "с тем же именем и ячейка в другом движке её не прячут; boundary: раннер заглавными и имя с пробелами — та же ячейка"),
+    ("shelf_order_and_cap",
+     STRIP,
+     '(h => [names(h), (h.match(/<div class="node-engine-more topology-muted">([^<]*)</) || [])[1], (h.match(/<span class="ncf-count">(\\d+)</) || [])[1]])'
+     '(shelf(ENG({ models: [...Array(9)].map((_, i) => MDL({ name: `m${i}`, loaded: i === 8, outputId: `eng:${i}`, exposed: i === 7 })) })))',
+     json.dumps([["m8", "m7", "m0", "m1", "m2", "m3", "m4"], _en("nodeEngineMoreInstalled").replace("{n}", "2"), "9"],
+                ensure_ascii=False),
+     "boundary: сперва загруженная (держит память сейчас), потом модель-выход (девятая по списку), потом остальные — "
+     "шесть незагруженных, остальные «+2»; подпись считает все модели без ячейки (9)"),
+    ("shelf_said_instead_of_blank",
+     STRIP,
+     '[shelf(ENG({ models: [] })), shelf(ENG({ models: [], installedKnown: false })), shelf(ENG({ models: [MDL()] }), [cell("ollama", "qwen3:8b")]),'
+     ' shelf(ENG({ installedKnown: false, models: [MDL({ loaded: true })] }))].map((h) => [[...h.matchAll(/<div class="node-engine-state[^"]*">([^<]*)</g)].map((x) => x[1]),'
+     ' (h.match(/data-t="engine-model"/g) || []).length, h.includes("engine-shelf-caption")])',
+     json.dumps([[[_en("nodeEngineNoModels")], 0, False], [[_en("nodeEngineInstalledUnknown")], 0, False],
+                 [[_esc(_en("shelfAllHaveCells").replace("{engine}", "Ollama"))], 0, False],
+                 [[_en("nodeEngineInstalledUnknown")], 1, True]], ensure_ascii=False),
+     "пустая полка говорит почему: моделей нет; список не ответил (а не «моделей нет»); у каждой модели есть ячейка; "
+     "список не ответил, а загруженная видна"),
+    ("shelf_nothing_when_not_answering",
+     STRIP,
+     '[ENG({ state: "stopped", models: null }), ENG({ state: "auth", models: null }), ENG({ state: "unreachable", models: [MDL()] }), ENG({ models: null })].map((e) => shelf(e))',
+     '["", "", "", ""]',
+     "negative: движок не работает, просит токен или молчит — полки нет (почему — говорит полоса), даже со старым "
+     "списком; работает, но списка нет — тоже"),
+    ("shelf_plus_reserves",
+     STRIP,
+     'plus(shelf(ENG({ models: [MDL()] })))',
+     json.dumps('<button type="button" class="sl-plus" data-t="engine-model-reserve" data-t-id="h1:ollama:qwen3:8b" '
+                'data-engine-reserve="h1" data-engine-kind="ollama" data-engine-model="qwen3:8b" '
+                f'title="{_esc(_en("shelfReserveTitle").replace("{model}", "qwen3:8b"))}" '
+                f'aria-label="{_esc(_en("shelfReserveTitle").replace("{model}", "qwen3:8b"))}">', ensure_ascii=False),
+     "«+» несёт машину, движок и модель — то, что уходит в резерв без вопросов; подсказка говорит, что будет"),
+    ("shelf_plus_waits_for_a_reserve",
+     STRIP + ' rc._reservingCells.set("h1", { port: 22040, startedAt: 1 });',
+     '[shelf(ENG({ models: [MDL()] })), shelf(ENG({ models: [MDL()] }), [], { ...node, id: "h9" })].map((h) => (b => [/ disabled /.test(b), b.includes("data-engine-reserve"), (b.match(/ title="([^"]*)"/) || [])[1], (b.match(/data-t="engine-model-reserve" data-t-id="([^"]*)"/) || [0, "none"])[1]])(plus(h)))',
+     json.dumps([[True, False, _esc(_en("shelfReserveBusy")), "h1:ollama:qwen3:8b"],
+                 [False, True, _esc(_en("shelfReserveTitle").replace("{model}", "qwen3:8b")), "h9:ollama:qwen3:8b"]],
+                ensure_ascii=False),
+     "пока на машине резервируется ячейка — «+» заперт и говорит почему (второй занял бы второй порт), а хук теста у "
+     "него остаётся; negative: резерв на другой машине этой не мешает"),
+    ("shelf_plus_waits_for_an_act",
+     STRIP,
+     '(h => [(b => [/ disabled /.test(b), (b.match(/ title="([^"]*)"/) || [])[1]])(plus(h)), (h.match(/data-t="node-engine-busy"[^>]*>.*?<\\/span> ([^<]*)</) || [0, "none"])[1], h.includes("data-engine-act")])'
+     '(shelf(ENG({ controls: ["unload", "delete"], models: [MDL({ loaded: true, action: { op: "unload", since: 1 } })] })))',
+     json.dumps([[True, _en("nodeEngineUnloading")], _en("nodeEngineUnloading"), False], ensure_ascii=False),
+     "пока модель выгружается — «+» заперт, вместо кнопок «unloading…»: второе действие над ней не предлагается"),
+    ("shelf_acts",
+     STRIP + r' const acts = (mm, controls) => (shelf(ENG({ controls, models: [mm] })).match(/<button class="node-engine-act[^>]*>[^<]*<\/button>/g) || []);',
+     '[acts(MDL({ loaded: true }), ["unload", "delete"]), acts(MDL({ loaded: false }), ["unload", "delete"]), acts(MDL({ loaded: false }), ["unload"]),'
+     ' acts(MDL({ loaded: null }), ["unload", "delete"]), acts(MDL({ loaded: true }), ["delete"]), acts(MDL({ loaded: true }), undefined)]',
+     json.dumps([['<button class="node-engine-act unload" type="button" data-t="node-engine-unload" data-t-id="h1:ollama:qwen3:8b" '
+                  'data-engine-act="unload" data-engine-host="h1" data-engine-kind="ollama" data-engine-label="Ollama" '
+                  f'data-engine-model="qwen3:8b" title="{_esc(_en("nodeEngineUnloadTitle"))}" '
+                  f'aria-label="{_esc(_en("nodeEngineUnloadTitle"))}">⏏</button>'],
+                 ['<button class="node-engine-act delete sl-del" type="button" data-t="node-engine-delete" data-t-id="h1:ollama:qwen3:8b" '
+                  'data-engine-act="delete" data-engine-host="h1" data-engine-kind="ollama" data-engine-label="Ollama" '
+                  'data-engine-model="qwen3:8b" data-engine-machine="Host" '
+                  f'title="{_esc(_en("nodeEngineDeleteTitle"))}" aria-label="{_esc(_en("nodeEngineDeleteTitle"))}">🗑</button>'],
+                 [], [], [], []], ensure_ascii=False),
+     "загруженную без ячейки можно выгрузить (⏏), лежащую на диске — удалить (🗑, с именем машины для окна); "
+     "negative: движок не умеет (LM Studio не удаляет), «загружена ли» не сказано, скаут не прислал controls — кнопки "
+     "нет; загрузки нет вовсе — путь к модели через «+»"),
+    ("shelf_act_errors",
+     STRIP,
+     '[...shelf(ENG({ controls: ["unload", "delete"], models: [MDL({ loaded: false, actionError: { op: "delete", error: "model \'b\' not found", at: 2 } }),'
+     ' MDL({ name: "u", loaded: true, actionError: { op: "unload", error: "busy", at: 3 } }), MDL({ name: "l", loaded: false, actionError: { op: "load", error: "CUDA error: out of memory", at: 4 } })] }))'
+     '.matchAll(/<span class="node-engine-act-error" title="([^"]*)">([^<]*)</g)].map((x) => [x[1], x[2]])',
+     json.dumps([["busy", "⚠ " + _en("nodeEngineUnloadFailed").replace("{error}", "busy")],
+                 ["model &#39;b&#39; not found", "⚠ " + _esc(_en("nodeEngineDeleteFailed").replace("{error}", "model 'b' not found"))],
+                 ["CUDA error: out of memory", "⚠ " + _en("nodeEngineLoadFailed").replace("{error}", "CUDA error: out of memory")]],
+                ensure_ascii=False),
+     "отказ движка остаётся на строке его словами (в подсказке — целиком), и прежний отказ загрузки тоже"),
+    ("shelf_memory_chip",
+     STRIP + r' const chip = (mm) => (h => [(h.match(/class="mbadge mbadge-([a-z-]+)"/) || [0, "none"])[1], (h.match(/class="mbadge[^"]*"(?: title="([^"]*)")?>([^<]*)</) || [0, "", ""]).slice(1)])(shelf(ENG({ models: [mm] })));',
+     '[chip(MDL({ loaded: true, vramBytes: 5333539264, memBytes: 6591830464, contextLength: 4096, expiresAt: SOON })), chip(MDL({ loaded: true, memBytes: 6591830464 })),'
+     ' chip(MDL()), chip(MDL({ loaded: true })), chip(MDL({ remote: true, fileBytes: 384 })), chip(MDL({ fileBytes: null }))]',
+     json.dumps([["vram", ["VRAM 5.0 GB · RAM 1.2 GB · 🪟 4.1k · " + _en("nodeEngineUnloadsAt").replace("{t}", "10:25 PM"), "5.0G"]],
+                 ["vram", [None, "6.1G"]],
+                 ["vram-est", [_esc(_en("vramEstChipTitle")), "≈4.9G"]],
+                 ["vram-est", [_esc(_en("vramEstChipTitle")), "≈4.9G"]],
+                 ["none", ["", ""]], ["none", ["", ""]]], ensure_ascii=False),
+     "память на строке: загруженная — сколько держит (видеопамять, иначе вся память; подробности в подсказке); "
+     "установленная — ≈размер файла, как у стоящей ячейки; boundary: загружена, но память не сказана — оценка с «≈», а не "
+     "«0»; negative: облачная и без размера — чипа нет"),
+    ("shelf_held_bits",
+     STRIP + r' const held = (mm) => (shelf(ENG({ models: [MDL({ loaded: true, vramBytes: 1073741824, ...mm })] })).match(/class="mbadge mbadge-vram" title="([^"]*)"/) || [0, "none"])[1];',
+     '[held({ expiresAt: "2318-08-01T00:00:00Z" }), held({ expiresAt: "2020-01-01T00:00:00Z" }), held({ expiresAt: "garbage" }), held({ expiresAt: SOON }),'
+     ' held({ expiresAt: "", staysLoaded: true }), held({ expiresAt: "", staysLoaded: false }),'
+     ' held({ vramBytes: 5333539264, memBytes: 5333539264 + 67108864 }), held({ vramBytes: 5333539264, memBytes: 5333539264 + 67108863 })]',
+     json.dumps(["VRAM 1.0 GB · " + _en("nodeEngineStaysLoaded"), "VRAM 1.0 GB", "VRAM 1.0 GB",
+                 "VRAM 1.0 GB · " + _en("nodeEngineUnloadsAt").replace("{t}", "10:25 PM"),
+                 "VRAM 1.0 GB · " + _en("nodeEngineStaysLoaded"), "VRAM 1.0 GB",
+                 "VRAM 5.0 GB · RAM 64 MB", "VRAM 5.0 GB"], ensure_ascii=False),
+     "boundary: срок через век (Ollama, keep_alive -1) и «держит, пока не выгрузят» (LM Studio, staysLoaded) — «stays "
+     "loaded»; прошедший и нечитаемый — ничего; ближний — время часов; часть в RAM — от 64 МиБ (ровно — да, на байт "
+     "меньше — нет)"),
+    ("shelf_job_chip",
+     STRIP,
+     '["embedding", "llm", "vlm", "", "sorcery"].map((type) => (shelf(ENG({ models: [MDL({ type })] })).match(/data-t="node-engine-job" data-t-id="([^"]*)">([^<]*)</) || [0, "none", ""]).slice(1).join("|"))',
+     json.dumps(["embed|🧬 " + _en("jobEmbed"), "none|", "none|", "none|", "none|"], ensure_ascii=False),
+     "строка говорит только то, что отличает: эмбеддинги помечены (их выход — слот эмбеддингов); чат-модель (llm, vlm) "
+     "— обычное дело строки, без чипа; тип не сказан (Ollama) или непонятен — без догадки"),
+    ("shelf_cloud_mark",
+     STRIP,
+     '(h => [(h.match(/<span class="node-engine-cloud" title="([^"]*)">([^<]*)</) || [0, "none", ""]).slice(1), h.includes("mbadge")])'
+     '(shelf(ENG({ models: [MDL({ name: "gpt-oss:120b-cloud", remote: true, fileBytes: 384 })] })))',
+     json.dumps([[_esc(_en("nodeEngineCloudModelHint")), "☁"], False], ensure_ascii=False),
+     "облачная модель Ollama — ☁ с подсказкой «на серверах Ollama», без размера на диске"),
+    ("shelf_escaped",
+     STRIP,
+     '(h => [h.includes("&lt;b&gt;x"), h.includes("<b>x")])(shelf(ENG({ label: "<b>x", controls: ["unload", "delete"], models: [MDL({ name: "<b>x", params: "<b>x" })] })))',
+     '[true, false]',
+     "имя модели, её параметры и имя движка экранируются — и в тексте, и в атрибутах кнопок"),
+    ("shelf_engine_colour",
+     STRIP,
+     '[ENG(), ENG({ kind: "lmstudio", label: "LM Studio" }), ENG({ kind: "Bad Kind" })].map((e) => (h => [(h.match(/<div class="(engine-shelf[^"]*)"/) || [])[1], (h.match(/<div class="(shelf-line[^"]*)"/) || [])[1]])(shelf({ ...e, models: [MDL()] })))',
+     json.dumps([["engine-shelf engine-ollama", "shelf-line engine-ollama"],
+                 ["engine-shelf engine-lmstudio", "shelf-line engine-lmstudio"],
+                 ["engine-shelf", "shelf-line"]]),
+     "полка и её строки — в цвет движка; negative: вид, который не годится в имя класса, цвета не получает"),
+    ("view_by_chosen",
+     STRIP + r' const view = (n, chosen, servers = []) => { const v = m.nodeEngineViewHtml(n, servers, chosen); return [[...v.strips.matchAll(/data-t="(node-engine(?:-missing)?)" data-t-id="([^"]*)"/g)].map((x) => x[1] + " " + x[2]), (v.shelf.match(/data-t="engine-shelf" data-t-id="([^"]*)"/) || [0, ""])[1]]; };'
+     ' const ON = { ...node, engines: [ENG({ models: [MDL()] })] };',
+     '[view(ON, "ollama"), view(ON, ""), view(ON, "caravan"), view(ON, "lmstudio"), view({ ...node, engines: [ENG({ kind: "foo", models: [MDL()] })] }, "foo"),'
+     ' view({ ...node, engines: [ENG({ state: "stopped", models: null })] }, "ollama"), view({ ...node, engines: [ENG({ kind: "llama-server" })] }, "llama-server")]',
+     json.dumps([[["node-engine h1:ollama:11434"], "h1:ollama"], [["node-engine h1:ollama:11434"], ""],
+                 [["node-engine h1:ollama:11434"], ""], [["node-engine h1:ollama:11434"], ""], [[], ""],
+                 [["node-engine h1:ollama:11434"], ""], [[], ""]]),
+     "полоса движка — всегда, какой бы чип ни был нажат (выбор оператора: сервер движка — машины, а не списка); полка — "
+     "только под чипом своего движка; negative: чип движка, которого машина не предлагает (lmstudio), полки не даёт; "
+     "движок, в котором ячейки не живут (foo), и раннер каравана — ни полосы, ни полки; стоящий движок — полоса без полки"),
+    ("view_missing_says_so",
+     STRIP,
+     'norm(m.nodeEngineViewHtml({ ...node, engines: null }, [cell("lmstudio", "google/gemma-4-e4b")], "").strips)',
+     json.dumps('<div class="node-engine-strips"><div class="engine-strip missing engine-lmstudio" data-t="node-engine-missing" data-t-id="h1:lmstudio">'
+                + _esc(_en("engineNotReported").replace("{engine}", "LM Studio")) + '</div></div>', ensure_ascii=False),
+     "negative: у машины есть ячейка в LM Studio, а её скаут движка не сообщает — так и сказано над чипами, при любом "
+     "чипе (её ячейки не запустятся), имя из реестра; пустое место не рисуется"),
+    ("view_order_follows_the_chips",
+     STRIP,
+     '[...m.nodeEngineViewHtml({ ...node, engines: [ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, state: "stopped", models: null }), ENG()] }, [], "").strips'
+     '.matchAll(/data-t="node-engine" data-t-id="([^"]*)" data-t-state="([^"]*)"/g)].map((x) => x[1] + " " + x[2])',
+     '["h1:ollama:11434 ok", "h1:lmstudio:1234 stopped"]',
+     "полосы — в порядке чипов (реестр: Ollama, потом LM Studio), а не в порядке отчёта скаута; стоящий движок — тоже "
+     "полоса: его тумблер и есть способ запустить"),
+    ("view_needs_the_registry",
+     '',
+     'm.nodeEngineViewHtml({ ...node, engines: [ENG({ models: [MDL()] })] }, [], "ollama")',
+     '{"strips": "", "shelf": ""}',
+     "negative: реестр не называет раннеров ячеек движка (старый контроллер) — ни полосы, ни полки"),
 ]
 
 # A cell reserved in an engine (2026-09-25): the registry names the engine
 # runners (engineCell), the machine's report names the engine and its model.
 ENGINE_CELL = (
-    'st.setState({ config: {}, runners: [{ id: "llama-server", tokenContext: true },'
-    ' { id: "ollama", engineCell: true, icon: "🟠", labelKey: "runnerOllama" },'
-    ' { id: "lmstudio", engineCell: true, icon: "🟣", labelKey: "runnerLmStudio" }], artifacts: [], models: [], paths: {} });'
-    ' const EC = (extra = {}, cfg = {}) => ({ port: 22031, isSlot: true, model: "qwen3:8b", phase: "stopped", bootSupported: true, ...extra,'
+    ENGINE_REG
+    + ' const EC = (extra = {}, cfg = {}) => ({ port: 22031, isSlot: true, model: "qwen3:8b", phase: "stopped", bootSupported: true, ...extra,'
     ' slotConfig: { RUNNER: "ollama", CELL_KIND: "command", ENGINE_MODEL: "qwen3:8b", ENGINE_PORT: "11434", ...cfg } });'
     ' const EN = (mdl = {}) => ({ ...node, engines: [ENG({ models: [MDL({ type: "llm", ...mdl })] })] });'
     r' const chipsOf = (h) => [...((h.match(/<span class="model-chips">(.*?)<\/span><\/div>/) || [0, ""])[1]).matchAll(/>([^<]+)</g)].map((x) => x[1]);'
@@ -2923,28 +3043,35 @@ PINS += [
                  ["lmstudio", _en("cellsFilterOnly").replace("{launcher}", "LM Studio") + "\n" + _en("cellsFilterEngineDown").replace("{engine}", "LM Studio")]],
                 ensure_ascii=False),
      "подсказка чипа движка — что он покажет и работает ли движок на этой машине"),
-    ("lane_engine_panel_open",
-     LANE + ' cf.CARD_FOLD.engineKey = "h1:ollama";',
-     '(h => [h.includes(\'data-t="node-engines"\'), h.indexOf(\'data-t="node-engine-panel"\') > h.indexOf(\'data-t="node-cell-filter"\'), h.indexOf(\'data-t="node-engine-panel"\') < h.indexOf(\'data-t="cell-row"\'), (h.match(/data-t="node-engine"/g) || []).length, (h.match(/<div class="(node-engine-panel[^"]*)"/) || [])[1], (h.match(/data-t="node-engine-menu" data-t-id="h1:ollama" aria-expanded="(true|false)" title="[^"]*" aria-label="[^"]*">([^<]*)</) || []).slice(1)])(lane([ENG()], TWO()))',
-     '[false, true, true, 1, "node-engine-panel engine-ollama", ["true", "▴"]]',
-     "positive: блока движков под ячейками нет; открыт ▾ Ollama — панель с карточкой движка под чипами, до ячеек, в "
-     "цвет движка; кнопка нажата и смотрит вверх"),
-    ("lane_engine_panel_closed",
+    ("lane_engine_strip_and_shelf_around_the_cells",
+     LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
+     '(h => { const at = (x) => h.indexOf(x); const cellAt = at(\'data-t="cell-row" data-t-id="h1:22031"\');'
+     ' return [at(\'class="node-subtitle\') < at(\'data-t="node-engine"\'), at(\'data-t="node-engine"\') < at(\'data-t="node-cell-filter"\'),'
+     ' at(\'data-t="node-cell-filter"\') < cellAt, at(\'data-t="engine-shelf"\') > cellAt,'
+     ' [...h.matchAll(/data-t="engine-model" data-t-id="([^"]*)"/g)].map((x) => x[1]), h.includes("node-engine-panel"), h.includes("data-engine-menu")]; })'
+     '(lane([ENG({ models: [MDL(), MDL({ name: "b" })] })], TWO()))',
+     '[true, true, true, true, ["h1:ollama:b"], false, false]',
+     "positive: полоса сервера — между заголовком списка и чипами; нажат чип Ollama — под его ячейками модели без "
+     "ячейки (qwen3:8b уже в ячейке :22031 — её на полке нет); negative: ни панели, ни ▾ больше нет"),
+    ("lane_engine_strips_always",
      LANE,
-     '(h => [h.includes("node-engine-panel"), (h.match(/data-t="node-engine"/g) || []).length, (h.match(/data-t="node-engine-menu" data-t-id="h1:ollama" aria-expanded="(true|false)" title="([^"]*)" aria-label="[^"]*">([^<]*)</) || []).slice(1)])(lane([ENG()], TWO()))',
-     json.dumps([False, 0, ["false", _en("engineMenuTitle").replace("{engine}", "Ollama"), "▾"]], ensure_ascii=False),
-     "negative: ни один ▾ не открыт — ни панели, ни карточки движка; ▾ говорит, что внутри"),
-    ("lane_engine_menu_only_when_reported",
-     LANE,
-     '(h => [h.includes(\'data-t-id="h1:ollama" aria-pressed\'), h.includes("data-engine-menu")])(lane([], TWO()))',
-     '[true, false]',
-     "negative: движок известен только по ячейке (в отчёте его нет) — чип есть, ▾ нет: показать в панели нечего"),
+     '["", "caravan"].map((c) => { cf.CARD_FOLD.setLauncher("h1", c); const h = lane([ENG({ models: [MDL({ name: "b" })] }), ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, models: [MDL({ name: "g" })] })], TWO());'
+     ' return [[...h.matchAll(/data-t="node-engine" data-t-id="([^"]*)"/g)].map((x) => x[1]), h.includes(\'data-t="engine-shelf"\')]; })',
+     '[[["h1:ollama:11434", "h1:lmstudio:1234"], false], [["h1:ollama:11434", "h1:lmstudio:1234"], false]]',
+     "при «все» и «караван» — полосы обоих движков над чипами (их серверы — машины); полок нет: полка — у чипа своего "
+     "движка"),
+    ("lane_engine_missing_line",
+     LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
+     '(h => [(h.match(/data-t="node-engine-missing"[^>]*>([^<]*)</) || [0, "none"])[1], h.includes("engine-shelf"), shown(h)])(lane([], TWO()))',
+     json.dumps([_esc(_en("engineNotReported").replace("{engine}", "Ollama")), False, ["h1:22031"]], ensure_ascii=False),
+     "boundary: машина движок не сообщает, а ячейка в нём есть — чип нажат, над ячейкой строка «не сообщает» (её "
+     "ячейки не запустятся), полки нет — спросить не у кого"),
     ("lane_output_anchors_at_chips",
-     LANE + ' cf.CARD_FOLD.engineKey = "h1:ollama";',
+     LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
      '(h => { const chipsRow = (h.match(/<div class="node-cell-filter"[^>]*>(.*?)<button/) || [0, ""])[1]; return [(h.match(/data-topology-engine-input="1"/g) || []).length, [...chipsRow.matchAll(/data-output-id="([^"]*)" title="([^"]*)"/g)].map((x) => [x[1], x[2]])]; })(lane([ENG({ models: [MDL({ outputId: "eng:1", exposed: true }), MDL({ name: "b", outputId: "eng:2", exposed: false })] })], TWO()))',
      '[1, [["eng:1", "qwen3:8b · Ollama"]]]',
-     "positive: кабель выхода модели садится у края строки чипов (якорь назван моделью и движком); при открытой панели "
-     "якорь один — строка модели своего не рисует; у невыведенной модели якоря нет"),
+     "positive: кабель выхода модели садится у края строки чипов (якорь назван моделью и движком); при нажатом чипе "
+     "движка якорь один — полоса, что называет выход, своего не рисует; у невыведенной модели якоря нет"),
     ("lane_cpu_line_skips_engine_cells",
      LANE,
      '(h => (h.match(/<span class="node-gpu-ports">▶ ([^<]*)</) || [0, "none"])[1])(lane([ENG()], [mk({ phase: "running" }), EC({ phase: "running" })]))',
