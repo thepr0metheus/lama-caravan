@@ -954,35 +954,20 @@
     color-mix(in srgb,var(--warn,#d9a441) 38%,transparent) 3px 6px); }
 .node-vram-outside + .node-vram-outside { box-shadow:inset 1px 0 0 rgba(13,17,23,.6); }
 .node-gpu-outside { color:var(--warn,#d9a441); }
-/* An engine next to the cells (Ollama, LM Studio): its card, in the amber of
-   the memory it holds on the cards — opened by the ▾ at its machine's chip
-   (.node-engine-panel, nodes.css), where it wears the engine's colour. */
-.node-engine { border:1px solid color-mix(in srgb,var(--warn,#d9a441) 30%,var(--line)); border-radius:8px;
-  padding:7px 10px; background:color-mix(in srgb,var(--warn,#d9a441) 5%,transparent); font-size:12px; }
-.node-engine-head { display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
-.node-engine-head code { font-size:11px; color:var(--muted,#888); }
+/* An engine next to the cells (Ollama, LM Studio), while its chip is pressed
+   (2026-09-26, variant B): its server as a strip over its cells and its models
+   with no cell as dashed lines under them (.engine-strip, .shelf-line —
+   nodes.css). The pieces both use: */
 .node-engine-listen { font-size:10px; padding:1px 6px; border-radius:3px; cursor:help;
-  color:var(--warn,#d9a441); background:color-mix(in srgb,var(--warn,#d9a441) 14%,transparent); }
+  color:var(--cell-accent, var(--warn,#d9a441)); background:color-mix(in srgb,var(--cell-accent, var(--warn,#d9a441)) 14%,transparent); }
 .node-engine-ram { font-size:11px; color:var(--muted,#888); font-variant-numeric:tabular-nums; }
-.node-engine-state { margin-top:6px; font-size:11px; color:var(--muted,#888); }
+.node-engine-state { font-size:11px; color:var(--muted,#888); }
 .node-engine-state.warn { color:var(--warn,#d9a441); }
 .node-engine-state.err { color:var(--bad,#ff8585); }
-.node-engine-models { list-style:none; margin:6px 0 0; padding:0; display:flex; flex-direction:column; gap:3px; }
-.node-engine-model { display:flex; align-items:baseline; gap:6px; min-width:0; flex-wrap:wrap; }
-.node-engine-dot { width:7px; height:7px; border-radius:50%; flex:none; align-self:center;
-  box-shadow:inset 0 0 0 1px var(--muted,#888); }
-.node-engine-model.loaded .node-engine-dot { background:var(--good,#69d090); box-shadow:none; }
-.node-engine-model-name { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
-.node-engine-model:not(.loaded) .node-engine-model-name { font-weight:400; color:var(--muted,#aaa); }
-.node-engine-model-meta, .node-engine-model-mem { font-size:11px; color:var(--muted,#888); font-variant-numeric:tabular-nums; }
-.node-engine-model-mem { margin-left:auto; }
 .node-engine-cloud { font-size:10px; padding:0 5px; border-radius:3px; cursor:help;
   color:var(--fallback,#60a5fa); background:color-mix(in srgb,var(--fallback,#60a5fa) 14%,transparent); }
-.node-engine-more { margin-top:4px; font-size:11px; }
-/* A model the router routes to: its cable lands at the machine's chips
-   (nodes.css); the switch at its row's end is the only way to stop it here. */
-.node-engine-model { position:relative; }
-.node-engine-model.exposed .node-engine-model-name { color:var(--text,#ddd); }
+.node-engine-more { font-size:11px; padding:0 4px; }
+/* A model an engine serves as a router output: only the switch that stops it. */
 .node-engine-expose { font-size:10px; padding:1px 6px; border-radius:4px; min-height:0; line-height:1.4;
   border:1px solid var(--line); background:transparent; color:var(--muted,#888); cursor:pointer; }
 .node-engine-expose:hover:not(:disabled) { border-color:var(--accent); color:var(--text,#ddd); }
@@ -990,29 +975,22 @@
   color:var(--accent); background:color-mix(in srgb,var(--accent) 12%,transparent); }
 .node-engine-expose:disabled { opacity:.45; cursor:not-allowed; }
 .node-engine-expose:focus-visible { outline:2px solid var(--accent-strong); outline-offset:1px; }
-/* Driving a model (step 3): load / unload, the act under way, and what the
-   engine refused last — in its own words, on the row it was about. */
-.node-engine-act { font-size:10px; padding:1px 6px; border-radius:4px; min-height:0; line-height:1.4;
+/* An act on a model with no cell (step 3): unload, delete, the act under way,
+   and what the engine refused last — in its own words, on its line. */
+.node-engine-act { font-size:11px; padding:1px 6px; border-radius:4px; min-height:0; line-height:1.4;
   border:1px solid var(--line); background:transparent; color:var(--muted,#888); cursor:pointer; }
-.node-engine-act.load:hover { border-color:var(--good,#69d090); color:var(--good,#69d090); }
 .node-engine-act.unload:hover { border-color:var(--warn,#d9a441); color:var(--warn,#d9a441); }
+.node-engine-act.delete:hover { border-color:var(--bad,#ff8585); color:var(--bad,#ff8585); }
 .node-engine-act:focus-visible { outline:2px solid var(--accent-strong); outline-offset:1px; }
 .node-engine-busy { font-size:10px; color:var(--muted,#888); display:inline-flex; align-items:center; gap:4px; }
 .node-engine-act-error { flex-basis:100%; font-size:11px; color:var(--bad,#ff8585);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:help; }
-/* The engine's server (step 3g): start/stop in its card's header, and the
-   notes under it — what it refused, who runs it, that it starts with the
-   machine. */
-.node-engine-serve { font-size:10px; padding:1px 6px; border-radius:4px; min-height:0; line-height:1.4; margin-left:6px;
+/* A download into the engine (its strip's ⤓), and the notes under the strip. */
+.node-engine-serve { font-size:10px; padding:1px 6px; border-radius:4px; min-height:0; line-height:1.4;
   border:1px solid var(--line); background:transparent; color:var(--muted,#888); cursor:pointer; }
-.node-engine-serve.start:hover { border-color:var(--good,#69d090); color:var(--good,#69d090); }
-.node-engine-serve.stop:hover { border-color:var(--bad,#ff8585); color:var(--bad,#ff8585); }
-.node-engine-serve:focus-visible { outline:2px solid var(--accent-strong); outline-offset:1px; }
-.node-engine-head .node-engine-busy { margin-left:6px; }
-.node-engine-server-notes { display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:4px; }
-.node-engine-note { font-size:11px; color:var(--muted,#888); }
 .node-engine-serve.pull:hover { border-color:var(--accent-strong); color:var(--accent-strong); }
-.node-engine-act.delete:hover { border-color:var(--bad,#ff8585); color:var(--bad,#ff8585); }
+.node-engine-serve:focus-visible { outline:2px solid var(--accent-strong); outline-offset:1px; }
+.node-engine-note { font-size:11px; color:var(--muted,#888); }
 .node-engine-download { font-size:11px; color:var(--accent-strong); font-variant-numeric:tabular-nums; }
 /* CPU block: a RAM bar mirroring the GPU's VRAM bar, and the CPU-cell blue
    (#4593ff) throughout — accent stripe, fill, and a faint wash — so the block

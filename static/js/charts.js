@@ -267,7 +267,7 @@ export function nodeActivityFilter(nodeId) {
 //
 // It used to sort the route LABELS by the same live-first-then-name rule the
 // lane uses for cards — the same rule on a different key, which is not the same
-// order at all: a card named "hermes" holds a port labelled "skynet Hemi proxy",
+// order at all: a card named "hotel" holds a port labelled "sierra Hemi proxy",
 // so the strip put it under "s" while the lane had it under "h". Two pictures of
 // one fleet, and the eye cannot carry a row from one to the other. The card
 // order is the reference, and it comes from the same function the kanban uses

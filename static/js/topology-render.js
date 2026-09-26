@@ -27,6 +27,7 @@ import {
   bindServerSlotControls,
   actOnEngineButton,
   pullEngineButton,
+  reserveEngineButton,
   serveEngineButton,
   clearPendingRemoteStart,
   deleteTopologyClientAgent,
@@ -334,14 +335,14 @@ export function renderTopology() {
       renderTopology();
     });
   });
-  // An engine's ▾ beside its chip: its panel — the server and the models.
-  $("topologyLlamaServers")?.querySelectorAll("[data-engine-menu]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      CARD_FOLD.toggleEngineMenu(btn.dataset.engineMenu);
-      renderTopology();
+  // A model of an engine with no cell yet: "+" makes its cell (variant B).
+  $("topologyLlamaServers")?.querySelectorAll("[data-engine-reserve]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.stopPropagation();
+      reserveEngineButton(btn);
     });
   });
-  // An engine's model next to the cells: load it or unload it (step 3).
+  // A model of an engine with no cell: unload it or delete its files (step 3).
   $("topologyLlamaServers")?.querySelectorAll("[data-engine-act]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -355,14 +356,14 @@ export function renderTopology() {
       pullEngineButton(btn);
     });
   });
-  // An engine's server itself: start it or stop it (step 3г).
+  // An engine's server itself, its strip's switch: start it or stop it (step 3г).
   $("topologyLlamaServers")?.querySelectorAll("[data-engine-serve]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
       event.stopPropagation();
       serveEngineButton(btn);
     });
   });
-  // An engine's model next to the cells: make it a router output, or stop.
+  // A model an engine serves as a router output: stop that (the board makes no new ones).
   $("topologyLlamaServers")?.querySelectorAll("[data-engine-expose]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -703,13 +704,14 @@ export function syncTopologyLive() {
       if (sp) sp.style.width = `${rp}%`;
     }
     // An engine's memory moves between reports; what it has loaded and how
-    // it answers are structure (the fingerprint) and rebuild its card.
+    // it answers are structure (the fingerprint) and rebuild its strip — drawn
+    // only while its chip is pressed.
     (Array.isArray(n.engines) ? n.engines : []).forEach((e) => {
-      const card = nodeEl.querySelector(`[data-t="node-engine"][data-t-id="${CSS.escape(`${n.id}:${e.kind}:${e.port}`)}"]`);
-      if (card) {
-        _liveSet(card, "[data-live-engine-ram]", engineRamText(e));
-        _liveSet(card, "[data-live-engine-vram]", engineVramText(n, e));
-        _liveSet(card, "[data-live-engine-download]", engineDownloadText(e));
+      const strip = nodeEl.querySelector(`[data-t="node-engine"][data-t-id="${CSS.escape(`${n.id}:${e.kind}:${e.port}`)}"]`);
+      if (strip) {
+        _liveSet(strip, "[data-live-engine-ram]", engineRamText(e));
+        _liveSet(strip, "[data-live-engine-vram]", engineVramText(n, e));
+        _liveSet(strip, "[data-live-engine-download]", engineDownloadText(e));
       }
     });
 

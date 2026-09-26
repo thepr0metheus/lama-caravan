@@ -34,7 +34,7 @@ PROBE = r"""
 import "./_js_globals.mjs";
 import { pathToFileURL } from "node:url";
 const root = process.env.JS_ROOT;
-const { CellRow, AgentRow, FoldSlot, CellWindow, CellEye, CellFilter } = await import(pathToFileURL(root + "/card-rows.js").href);
+const { CellRow, AgentRow, FoldSlot, CellWindow, CellEye, CellFilter, EngineStrip, ShelfLine } = await import(pathToFileURL(root + "/card-rows.js").href);
 const en = (await import(pathToFileURL(root + "/i18n/en.js").href)).default;
 const A = '<span class="topology-handle server-input" data-topology-llama-input="1" data-llama-port="22002"></span>';
 const L = 'data-node-cell-launch="controller" data-node-cell-port="22002" data-node-cell-runner="llama-server"';
@@ -79,7 +79,7 @@ const cell = {
 const H = (role) => `<span class="topology-handle output ${role}" data-topology-route-handle="1" data-route-role="${role}"></span>`;
 const ok = { cls: "route-confirmed-tag", glyph: "✓", tip: "taTitleConfirmedRoute" };
 const q = { cls: "route-unverified-tag", glyph: "?", tip: "taTitleUnverifiedRoute" };
-const hermes = new AgentRow({ key: "agent:c1:hermes", name: "hermes", kind: "manual", routes: [
+const hotel = new AgentRow({ key: "agent:c1:hotel", name: "hotel", kind: "manual", routes: [
   { role: "primary", port: "23001", address: "http://10.0.0.20:23001/v1", face: ok, model: "hemi-proxy", locked: true, waitSec: 1800, limit: 256000, anchor: H("primary") },
   { role: "fallback", port: "23002", face: q, anchor: H("fallback"), muted: true },  // an old field: ignored
 ] }).html();
@@ -87,19 +87,19 @@ const bare = new AgentRow({ key: "agent:c1:scribe", name: "scribe", kind: "manua
   { role: "primary", port: "23101", face: ok, anchor: H("primary") }, null, { role: "fallback", port: "" },
 ] }).html();
 const agent = {
-  hook: [(hermes.match(/data-t="([^"]+)"/) || [])[1], (hermes.match(/data-t-id="([^"]+)"/) || [])[1]],
-  routes: (hermes.match(/class="ar-route /g) || []).length,
-  anchors: (hermes.match(/data-topology-route-handle/g) || []).length,
-  fallbackMark: hermes.includes(">↪ :23002<"),
-  primaryPort: hermes.includes(">:23001<") && hermes.includes('title="http://10.0.0.20:23001/v1"'),
-  model: hermes.includes('<span class="ar-model">hemi-proxy 🔒</span>'),
-  wait: hermes.includes(`<span class="ar-meta">${en.routeWaitLabel.replace("{sec}", "1800")}</span>`),
-  limit: hermes.includes(`<span class="ar-meta">${en.routeCtxLimit.replace("{value}", "256000")}</span>`),
-  faces: [hermes.includes(`<span class="route-confirmed-tag" title="${en.taTitleConfirmedRoute}">✓</span>`),
-          hermes.includes(`<span class="route-unverified-tag" title="${en.taTitleUnverifiedRoute}">?</span>`)],
-  noStateHook: !hermes.includes('data-t="route-state"'),
-  muted: hermes.includes("muted"),
-  kind: hermes.includes('<span class="ar-kind">manual</span>'),
+  hook: [(hotel.match(/data-t="([^"]+)"/) || [])[1], (hotel.match(/data-t-id="([^"]+)"/) || [])[1]],
+  routes: (hotel.match(/class="ar-route /g) || []).length,
+  anchors: (hotel.match(/data-topology-route-handle/g) || []).length,
+  fallbackMark: hotel.includes(">↪ :23002<"),
+  primaryPort: hotel.includes(">:23001<") && hotel.includes('title="http://10.0.0.20:23001/v1"'),
+  model: hotel.includes('<span class="ar-model">hemi-proxy 🔒</span>'),
+  wait: hotel.includes(`<span class="ar-meta">${en.routeWaitLabel.replace("{sec}", "1800")}</span>`),
+  limit: hotel.includes(`<span class="ar-meta">${en.routeCtxLimit.replace("{value}", "256000")}</span>`),
+  faces: [hotel.includes(`<span class="route-confirmed-tag" title="${en.taTitleConfirmedRoute}">✓</span>`),
+          hotel.includes(`<span class="route-unverified-tag" title="${en.taTitleUnverifiedRoute}">?</span>`)],
+  noStateHook: !hotel.includes('data-t="route-state"'),
+  muted: hotel.includes("muted"),
+  kind: hotel.includes('<span class="ar-kind">manual</span>'),
   bareRoutes: (bare.match(/class="ar-route /g) || []).length,
   bareEmpty: [bare.includes("ar-model"), bare.includes("ar-meta"), bare.includes("—")],
   escaped: new AgentRow({ key: "k", name: '"><b>x', kind: "<i>", routes: [] }).html(),
@@ -147,14 +147,24 @@ const filters = {
   none: new CellFilter({ hostId: "h1" }).html(),
   odd: new CellFilter({ hostId: '"><b>', chosen: "", options: [{ id: 'a b', label: "<i>x", count: "7.9", up: "yes", title: '"t' }, { id: "", count: -2 }] }).html(),
   label: en.cellsFilterLabel,
-  menu: new CellFilter({ hostId: "h1", options: [{ id: "", label: "All", count: 2 },
-    { id: "ollama", label: "Ollama", count: 1, up: true, menu: true, open: true, menuTitle: 'Ollama: "x"' },
-    { id: "lmstudio", label: "LM Studio", count: 1, menu: true, menuTitle: "LM Studio" },
-    { id: "caravan", label: "Caravan", count: 1, menu: true, menuTitle: "c" },
-    { id: "odd one", label: "Odd", count: 0, menu: true, menuTitle: "o" }],
+  anchored: new CellFilter({ hostId: "h1", options: [{ id: "", label: "All", count: 2 }, { id: "ollama", label: "Ollama", count: 1, up: true }],
     anchors: '<span class="topology-handle engine-input" data-output-id="eng:1"></span>' }).html(),
+  oldMenu: new CellFilter({ hostId: "h1", options: [{ id: "ollama", label: "Ollama", count: 1, menu: true, open: true, menuTitle: "x" }] }).html(),
 };
-console.log(JSON.stringify({ cell, agent, slot, windows, eyes, filters }));
+const strips = {
+  full: new EngineStrip({ key: "h1:ollama:11434", engine: "ollama", state: "ok", label: "Ollama", version: "0.34.4",
+    lever: "<L>", boot: "<B>", memory: "<M>", pull: "<P>", where: "<W>", notes: "<N>", title: 'loads "on demand"' }).html(),
+  bare: new EngineStrip({ key: "k", label: "<i>x" }).html(),
+  odd: new EngineStrip({ key: '"><b>', engine: "a b", label: "L", state: '"s' }).html(),
+};
+const shelf = {
+  full: new ShelfLine({ key: "h1:ollama:qwen2.5:0.5b", engine: "ollama", name: "qwen2.5:0.5b", remote: "<R>", job: "<J>",
+    params: "494.03M", memory: "<M>", reserve: 'data-engine-reserve="h1"', why: 'A cell with "q"',
+    acts: "<A>", error: "<E>", loaded: true }).html(),
+  noReserve: new ShelfLine({ key: "k", engine: "lmstudio", name: "m", why: "busy" }).html(),
+  escaped: new ShelfLine({ key: '"><b>', engine: "a b", name: "<i>x", params: "<u>", why: '"w' }).html(),
+};
+console.log(JSON.stringify({ cell, agent, slot, windows, eyes, filters, strips, shelf }));
 """
 
 node = find_node()
@@ -222,7 +232,7 @@ check(c["shown"] == [c["reservedWords"], "gemma-4-31B-it", ""],
       "показанное имя — одно правило для строки и окна: у зарезервированной слово из en.js, у прочих имя как есть, пустое пустым")
 
 print("строка агента:")
-check(a["hook"] == ["agent-row", "agent:c1:hermes"], "у строки агента свой хук agent-row с ключом агента")
+check(a["hook"] == ["agent-row", "agent:c1:hotel"], "у строки агента свой хук agent-row с ключом агента")
 check(a["routes"] == 2 and a["anchors"] == 2, "две ветки — две строки маршрута и ровно две ручки каната")
 check(a["primaryPort"] and a["fallbackMark"], "основной — «:23001» с полным адресом в подсказке; запасной — «↪ :23002»")
 check(a["model"], "заданная модель с закрытым замком — «hemi-proxy 🔒»")
@@ -315,21 +325,43 @@ check('<span class="ncf-count">7</span>' in odd and '<span class="ncf-count">0</
 check(odd.count('aria-pressed="true"') == 1 and 'data-t-id="&quot;&gt;&lt;b&gt;:all" aria-pressed="true"' in odd,
       "без выбора нажат «все»")
 
-mn = fl["menu"]
-check('<span class="ncf-group"><button type="button" class="ncf-chip engine-ollama" data-cell-filter="h1" data-cell-filter-id="ollama"' in mn
-      and '<button type="button" class="ncf-menu engine-ollama" data-engine-menu="h1:ollama" data-t="node-engine-menu" '
-          'data-t-id="h1:ollama" aria-expanded="true" title="Ollama: &quot;x&quot;" aria-label="Ollama: &quot;x&quot;">▴</button></span>' in mn,
-      "у чипа движка — ▾ в одной группе с ним, в его цвет; открыт — нажат и смотрит вверх; подсказка экранирована")
-check('data-engine-menu="h1:lmstudio" data-t="node-engine-menu" data-t-id="h1:lmstudio" aria-expanded="false" '
-      'title="LM Studio" aria-label="LM Studio">▾</button>' in mn,
-      "закрытый ▾ — aria-expanded false и стрелка вниз")
-check('data-engine-menu="h1:caravan"' not in mn and "odd one" not in mn.split("ncf-menu")[0] and 'data-engine-menu="h1:odd' not in mn,
-      "negative: у каравана и у слова, не годного в класс, ▾ нет — меню только у движка")
-check(mn.startswith('<div class="node-cell-filter" role="group" aria-label="' + fl["label"] + '">'
+an = fl["anchored"]
+check(an.startswith('<div class="node-cell-filter" role="group" aria-label="' + fl["label"] + '">'
                     '<span class="topology-handle engine-input" data-output-id="eng:1"></span><button'),
       "якоря выходов — первыми в строке чипов, у её края")
-check('ncf-group' not in fl["full"] and "data-engine-menu" not in fl["full"],
-      "negative: без menu у варианта ▾ не рисуется — чип как был")
+check("ncf-menu" not in fl["oldMenu"] and "data-engine-menu" not in fl["oldMenu"] and "ncf-group" not in fl["oldMenu"],
+      "negative: ▾ у чипа движка больше нет (2026-09-26, вариант B) — даже если его попросить старыми опциями")
+
+print("строка сервера движка (EngineStrip):")
+st = got["strips"]
+check(st["full"] == '<div class="engine-strip engine-ollama" data-t="node-engine" data-t-id="h1:ollama:11434" data-t-state="ok" '
+      'title="loads &quot;on demand&quot;"><div class="es-main"><L><strong class="es-name">Ollama</strong>'
+      '<span class="es-ver">0.34.4</span><span class="es-fill"></span><B><M><P></div><div class="es-sub"><W><N></div></div>',
+      "строка сервера: в цвет движка; хук node-engine с id и состоянием (им же пользуется живая правка памяти); "
+      "первая строка — тумблер, имя, версия, ↟, память, ⤓; вторая — где слушает и что сказать; подсказка экранирована")
+check('<span class="es-ver">' not in st["bare"] and '<strong class="es-name">&lt;i&gt;x</strong>' in st["bare"]
+      and st["bare"].startswith('<div class="engine-strip" data-t="node-engine"'),
+      "negative: версии нет — её места нет; имя экранировано; без движка — без класса цвета")
+check('class="engine-strip" ' in st["odd"] and 'data-t-id="&quot;&gt;&lt;b&gt;"' in st["odd"] and 'data-t-state="&quot;s"' in st["odd"],
+      "negative: слово, не годное в имя класса, цвета не даёт; ключ и состояние экранированы")
+
+print("модель без ячейки (ShelfLine):")
+sl = got["shelf"]
+check(sl["full"] == '<div class="shelf-line engine-ollama loaded" data-t="engine-model" data-t-id="h1:ollama:qwen2.5:0.5b">'
+      '<button type="button" class="sl-plus" data-t="engine-model-reserve" data-t-id="h1:ollama:qwen2.5:0.5b" data-engine-reserve="h1" '
+      'title="A cell with &quot;q&quot;" aria-label="A cell with &quot;q&quot;">+</button>'
+      '<span class="sl-name" title="qwen2.5:0.5b">qwen2.5:0.5b</span><R><J><span class="sl-params">494.03M</span><A><M><E></div>',
+      "пунктирная строка: «+» с атрибутами резерва и словами, что он сделает; имя; облако и работа; параметры; "
+      "действия; память; отказ — в этом порядке; держит память — класс loaded")
+check('<button type="button" class="sl-plus" data-t="engine-model-reserve" data-t-id="k" disabled title="busy" aria-label="busy">+</button>' in sl["noReserve"]
+      and "loaded" not in sl["noReserve"] and "sl-params" not in sl["noReserve"] and 'class="shelf-line engine-lmstudio"' in sl["noReserve"],
+      "negative: резерва сейчас нет — «+» выключен и говорит почему, а хук остаётся (живая проверка 2026-09-26: без "
+      "него тест не находит кнопку именно тогда, когда её стоит проверить); не держит память — без loaded; параметров "
+      "нет — их места нет")
+esc = sl["escaped"]
+check("<i>" not in esc and "<u>" not in esc and "&lt;i&gt;x" in esc and 'data-t-id="&quot;&gt;&lt;b&gt;"' in esc
+      and 'class="shelf-line" ' in esc and 'title="&quot;w"' in esc,
+      "имя, параметры, ключ и подсказка экранированы; слово, не годное в класс, цвета не даёт")
 
 print("глаз машины (CellEye):")
 off_words, on_words = e["words"]

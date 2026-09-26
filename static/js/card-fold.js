@@ -46,9 +46,6 @@ export class CardFold {
     // The cell whose window is open now — here for the same reason: the
     // window is drawn inside its lane, and a repaint redraws the lane.
     this.openKey = "";
-    // The engine whose panel is open under its machine's chips ("<machine>:
-    // <runner>"), for the same reason; one at a time, not kept across pages.
-    this.engineKey = "";
   }
 
   static defaultStorage() {
@@ -113,14 +110,6 @@ export class CardFold {
     else delete this.launchers[k];
     this.write(CardFold.KEY_LAUNCHER, this.launchers);
     return this.launcherOf(k);
-  }
-
-  /** Open the panel of engine `key` ("<machine>:<runner>"), or close it when
-   *  it is the one open; opening one closes any other. Whether it is open now. */
-  toggleEngineMenu(key) {
-    const k = String(key || "");
-    this.engineKey = this.engineKey === k ? "" : k;
-    return !!k && this.engineKey === k;
   }
 
   /** Whether a folded card of `lane` opens in a window (not floating over the lane). */

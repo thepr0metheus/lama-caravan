@@ -111,6 +111,17 @@ def rsc_add(body):
     return [{"path": "/api/topology/server-slot/add", "method": "POST", "body": json.dumps(body, separators=(",", ":"))}]
 
 
+# The "+" on an engine model's line reserves with no dialog at all: every dialog
+# records that it was asked, and the spinner is caught at its first render.
+ERC_SETUP = (
+    'globalThis.__snap = null; globalThis.__asked = [];'
+    ' globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; };'
+    ' for (const d of ["appConfirm", "appConfirmChoice", "appPrompt"]) globalThis.__stubReturns["dialogs." + d] = async () => { globalThis.__asked.push(d); return null; };'
+)
+ERC_RESULT = ('{ calls: calls(), toast: toastText(), asked: globalThis.__asked, reserving: [...rc._reservingCells.entries()], '
+              'fresh: [...rc._newReservedCells], snap: globalThis.__snap }')
+
+
 PINS = [
     # ── remote_actions ──
     # ── create a client by hand ──
@@ -611,9 +622,9 @@ PINS = [
      'boundary: nodeStartingCardHtml: без clientIp/port/modelName → адрес = node.ip без порта, строки модели нет'),
     # ── second-pair-of-eyes tranche: exports the snapshot had never named ──
     ('rename_agent_wire',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "  Hermes  ";',
+     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "  Hotel  ";',
      'await (async () => { await rc.renameTopologyAgent("box-a", "ag1", "old"); return calls(); })()',
-     '[{"path": "/api/topology/client/agent-alias", "method": "POST", "body": "{\\"hostId\\":\\"box-a\\",\\"agentId\\":\\"ag1\\",\\"name\\":\\"Hermes\\"}"}]',
+     '[{"path": "/api/topology/client/agent-alias", "method": "POST", "body": "{\\"hostId\\":\\"box-a\\",\\"agentId\\":\\"ag1\\",\\"name\\":\\"Hotel\\"}"}]',
      'positive: переименование агента — псевдоним обрезается и уходит с hostId и agentId'),
     ('rename_agent_cancelled',
      'globalThis.__stubReturns["dialogs.appPrompt"] = async () => null;',
@@ -770,37 +781,9 @@ PINS = [
      '(rc.renderNvidiaSmiSourceButtons(), [...globalThis.__fields.nvidiaSmiSources.innerHTML.matchAll(/data-smi-source="([^"]*)"/g)].map((x) => x[1]))',
      '["local", "h1"]',
      'positive: источники nvidia-smi — контроллер и машины, чей скаут отвечает и видит карту; молчащая, безкарточная и строка клиента — нет'),
-    # ── an engine's model next to the cells: load and unload (step 3) ──
-    ('engine_load_keeps_the_engines_window',
-     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appPrompt"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return ""; };',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load"); return { calls: calls(), toast: toastText(), asked: globalThis.__msg }; })()',
-     json.dumps({"calls": [{"path": "/api/engines/load", "method": "POST",
-                            "body": "{\"hostId\":\"box-a\",\"kind\":\"ollama\",\"model\":\"qwen3:8b\"}"}],
-                 "toast": "",
-                 "asked": {"msg": en("nodeEngineLoadPrompt", model="qwen3:8b"),
-                           "opts": {"value": "", "confirmLabel": en("nodeEngineLoad")}}}, ensure_ascii=False),
-     'positive: загрузка спрашивает окно; пусто — окно самого движка, на провод без contextLength'),
-    ('engine_load_with_a_window',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => " 8192 ";',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load"); return calls(); })()',
-     json.dumps([{"path": "/api/engines/load", "method": "POST",
-                  "body": "{\"hostId\":\"box-a\",\"kind\":\"ollama\",\"model\":\"qwen3:8b\",\"contextLength\":8192}"}]),
-     'positive: окно уходит числом, а не строкой; пробелы вокруг обрезаны'),
-    ('engine_load_typo_refused',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "8k";',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load"); return { calls: calls(), toast: toastText() }; })()',
-     json.dumps({"calls": [], "toast": en("nodeEngineContextNotANumber")}, ensure_ascii=False),
-     'negative: опечатка — не «окно движка»: отказ словами, и ничего не уходит'),
-    ('engine_load_zero_refused',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "0";',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load"); return { calls: calls(), toast: toastText() }; })()',
-     json.dumps({"calls": [], "toast": en("nodeEngineContextNotANumber")}, ensure_ascii=False),
-     'boundary: ноль — не окно в ноль токенов и не «окно движка»'),
-    ('engine_load_cancelled',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => null;',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load"); return { calls: calls(), toast: toastText() }; })()',
-     '{"calls": [], "toast": ""}',
-     'negative: отменённый диалог не шлёт ничего'),
+    # ── an engine's model next to the cells: unload and delete (step 3) ──
+    # Loading left the board on 2026-09-26 (the operator's choice B): a model
+    # is reached through a cell in its engine, which loads it when it starts.
     ('engine_unload_confirmed_like_a_stop',
      'globalThis.__msg = null; globalThis.__asked = 0;'
      ' globalThis.__stubReturns["dialogs.appPrompt"] = async () => { globalThis.__asked += 1; return "4096"; };'
@@ -817,86 +800,33 @@ PINS = [
      'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "unload"); return { calls: calls(), toast: toastText() }; })()',
      '{"calls": [], "toast": ""}',
      'negative: отказ в подтверждении — ничего не уходит'),
-    ('engine_act_takes_the_board_it_answers_with',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "";'
-     ' globalThis.__fetchReply["/api/engines/load"] = { ok: true, topology: { proxies: [], clients: [], routers: [], assignments: {},'
-     ' nodes: [{ id: "box-a", engines: [{ kind: "ollama", models: [{ name: "qwen3:8b", action: { op: "load", since: 7 } }] }] }] } };',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load"); return st.topology.nodes[0].engines[0].models[0].action; })()',
-     '{"op": "load", "since": 7}',
-     'positive: доска из ответа — сразу в состояние: модель «загружается» до следующего опроса'),
-    ('engine_load_asks_how_long_to_hold',
-     'globalThis.__msg = null; globalThis.__plain = 0;'
-     ' globalThis.__stubReturns["dialogs.appPrompt"] = async () => { globalThis.__plain += 1; return ""; };'
-     ' globalThis.__stubReturns["dialogs.appPromptChoice"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return { value: " 4096 ", choice: "900" }; };',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load", true); return { calls: calls(), asked: globalThis.__msg, plain: globalThis.__plain }; })()',
-     json.dumps({"calls": [{"path": "/api/engines/load", "method": "POST",
-                            "body": "{\"hostId\":\"box-a\",\"kind\":\"ollama\",\"model\":\"qwen3:8b\",\"contextLength\":4096,\"hold\":900}"}],
-                 "asked": {"msg": en("nodeEngineLoadPrompt", model="qwen3:8b"),
-                           "opts": {"value": "", "confirmLabel": en("nodeEngineLoad"), "choiceLabel": en("nodeEngineHoldLabel"),
-                                    "choice": "-1",
-                                    "choices": [{"value": "900", "label": en("nodeEngineHoldMinutes", n=15)},
-                                                {"value": "3600", "label": en("nodeEngineHoldHours", n=1)},
-                                                {"value": "14400", "label": en("nodeEngineHoldHours", n=4)},
-                                                {"value": "-1", "label": en("nodeEngineHoldUntilUnloaded")}]}},
-                 "plain": 0}, ensure_ascii=False),
-     'positive: движок умеет срок (holds) — окно и срок одним диалогом; по умолчанию «пока не выгружу»; срок — числом секунд'),
-    ('engine_button_carries_its_row',
-     'globalThis.__seen = [];'
-     ' globalThis.__stubReturns["dialogs.appPromptChoice"] = async () => { globalThis.__seen.push("choice"); return { value: "", choice: "3600" }; };'
-     ' globalThis.__stubReturns["dialogs.appPrompt"] = async () => { globalThis.__seen.push("plain"); return ""; };',
-     'await (async () => { const b = (holds, act = "load") => ({ dataset: { engineHost: "box-a", engineKind: "lmstudio", engineLabel: "LM Studio", engineModel: "qwen/qwen3-0.6b", engineAct: act, engineHolds: holds } });'
-     ' await rc.actOnEngineButton(b("1")); await rc.actOnEngineButton(b("")); await rc.actOnEngineButton(b("0")); await rc.actOnEngineButton(b("", "unload"));'
-     ' return { seen: globalThis.__seen, sent: calls().map((c) => [c.path, c.body]) }; })()',
-     json.dumps({"seen": ["choice", "plain", "plain"],
-                 "sent": [["/api/engines/load", "{\"hostId\":\"box-a\",\"kind\":\"lmstudio\",\"model\":\"qwen/qwen3-0.6b\",\"hold\":3600}"],
-                          ["/api/engines/load", "{\"hostId\":\"box-a\",\"kind\":\"lmstudio\",\"model\":\"qwen/qwen3-0.6b\"}"],
-                          ["/api/engines/load", "{\"hostId\":\"box-a\",\"kind\":\"lmstudio\",\"model\":\"qwen/qwen3-0.6b\"}"],
-                          ["/api/engines/unload", "{\"hostId\":\"box-a\",\"kind\":\"lmstudio\",\"model\":\"qwen/qwen3-0.6b\"}"]]}),
-     'кнопка строки несёт машину, движок, модель, действие и умеет ли движок срок: только «1» — диалог со сроком; выгрузка — выгрузка'),
-    ('engine_load_until_unloaded_is_said',
-     'globalThis.__stubReturns["dialogs.appPromptChoice"] = async () => ({ value: "", choice: "-1" });',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load", true); return calls().map((c) => c.body); })()',
-     json.dumps(["{\"hostId\":\"box-a\",\"kind\":\"ollama\",\"model\":\"qwen3:8b\",\"hold\":-1}"]),
-     'boundary: «пока не выгружу» уходит явным -1, а не пропуском поля'),
-    ('engine_load_choice_typo_refused',
-     'globalThis.__stubReturns["dialogs.appPromptChoice"] = async () => ({ value: "8k", choice: "900" });',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load", true); return { calls: calls(), toast: toastText() }; })()',
-     json.dumps({"calls": [], "toast": en("nodeEngineContextNotANumber")}, ensure_ascii=False),
-     'negative: опечатка в окне и при выборе срока — отказ словами, ничего не уходит'),
-    ('engine_load_choice_cancelled',
-     'globalThis.__stubReturns["dialogs.appPromptChoice"] = async () => null;',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load", true); return calls(); })()',
-     '[]',
-     'negative: отменённый диалог со сроком не шлёт ничего'),
-    ('engine_load_short_asks_then_forces',
+    ('engine_load_is_not_the_boards',
      'globalThis.__asked = [];'
-     ' globalThis.__stubReturns["dialogs.appPrompt"] = async () => "";'
-     ' globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__asked.push({ msg, opts }); return true; };'
-     ' let n = 0; globalThis.__fetchReply["/api/engines/load"] = () => (++n === 1'
-     ' ? { ok: false, op: "load", short: { needBytes: 45097156608, freeBytes: 1048576000, basis: "weights" } }'
-     ' : { ok: true, topology: { proxies: [], clients: [], routers: [], assignments: {}, nodes: [{ id: "box-a" }] } });',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "big:70b", "load"); return { bodies: calls().map((c) => c.body), asked: globalThis.__asked, nodes: st.topology.nodes.map((x) => x.id) }; })()',
-     json.dumps({"bodies": ["{\"hostId\":\"box-a\",\"kind\":\"ollama\",\"model\":\"big:70b\"}",
-                            "{\"hostId\":\"box-a\",\"kind\":\"ollama\",\"model\":\"big:70b\",\"force\":true}"],
-                 "asked": [{"msg": en("nodeEngineShort", model="big:70b", need="≥ 42.0 GB", free="1000 MB"),
-                            "opts": {"confirmLabel": en("nodeEngineLoadAnyway")}}],
-                 "nodes": ["box-a"]}, ensure_ascii=False),
-     'positive: не влезет — спросить с числами («≥» — только файл, не меньше); согласие — та же загрузка с force'),
-    ('engine_load_short_declined',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "";'
-     ' globalThis.__stubReturns["dialogs.appConfirm"] = async () => false;'
-     ' globalThis.__fetchReply["/api/engines/load"] = { ok: false, op: "load", short: { needBytes: 7000000000, freeBytes: 4294967296, basis: "engine" } };',
-     'await (async () => { await rc.actOnEngineModel("box-a", "lmstudio", "LM Studio", "google/gemma-4-e4b", "load"); return { n: calls().length, toast: toastText() }; })()',
-     '{"n": 1, "toast": ""}',
-     'negative: «нет» — второй загрузки нет, и ничего не сломано'),
-    ('engine_load_short_estimate_says_about',
-     'globalThis.__asked = null;'
-     ' globalThis.__stubReturns["dialogs.appPrompt"] = async () => "";'
-     ' globalThis.__stubReturns["dialogs.appConfirm"] = async (msg) => { globalThis.__asked = msg; return false; };'
-     ' globalThis.__fetchReply["/api/engines/load"] = { ok: false, op: "load", short: { needBytes: 7000000000, freeBytes: 4294967296, basis: "engine" } };',
-     'await (async () => { await rc.actOnEngineModel("box-a", "lmstudio", "LM Studio", "google/gemma-4-e4b", "load"); return globalThis.__asked; })()',
-     json.dumps(en("nodeEngineShort", model="google/gemma-4-e4b", need="≈ 6.5 GB", free="4.0 GB"), ensure_ascii=False),
-     'оценка самого движка — «≈», а не «≥»'),
+     ' for (const d of ["appConfirm", "appConfirmChoice", "appPrompt"]) globalThis.__stubReturns["dialogs." + d] = async () => { globalThis.__asked.push(d); return true; };',
+     'await (async () => { for (const op of ["load", "pull", "", undefined]) await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", op); return { calls: calls(), toast: toastText(), asked: globalThis.__asked }; })()',
+     '{"calls": [], "toast": "", "asked": []}',
+     'negative: загрузки с доски нет — модель доходит до дела через ячейку в своём движке; «load» и любое другое '
+     'действие не спрашивают и не шлют ничего'),
+    ('engine_act_takes_the_board_it_answers_with',
+     'globalThis.__fetchReply["/api/engines/unload"] = { ok: true, topology: { proxies: [], clients: [], routers: [], assignments: {},'
+     ' nodes: [{ id: "box-a", engines: [{ kind: "ollama", models: [{ name: "qwen3:8b", action: { op: "unload", since: 7 } }] }] }] } };',
+     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "unload"); return st.topology.nodes[0].engines[0].models[0].action; })()',
+     '{"op": "unload", "since": 7}',
+     'positive: доска из ответа — сразу в состояние: модель «выгружается» до следующего опроса'),
+    ('engine_button_carries_its_line',
+     'globalThis.__msgs = []; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg) => { globalThis.__msgs.push(msg); return true; };',
+     'await (async () => { const b = (act, machine) => ({ dataset: { engineHost: "box-a", engineKind: "lmstudio", engineLabel: "LM Studio", engineModel: "qwen/qwen3-0.6b", engineAct: act, ...(machine === undefined ? {} : { engineMachine: machine }) } });'
+     ' await rc.actOnEngineButton(b("unload")); await rc.actOnEngineButton(b("delete", "Box A")); await rc.actOnEngineButton(b("delete")); await rc.actOnEngineButton(b("load"));'
+     ' return { msgs: globalThis.__msgs, sent: calls().map((c) => [c.path, c.body]) }; })()',
+     json.dumps({"msgs": [en("nodeEngineUnloadConfirm", model="qwen/qwen3-0.6b", engine="LM Studio"),
+                          en("nodeEngineDeleteConfirm", model="qwen/qwen3-0.6b", engine="LM Studio", machine="Box A"),
+                          en("nodeEngineDeleteConfirm", model="qwen/qwen3-0.6b", engine="LM Studio", machine="box-a")],
+                 "sent": [["/api/engines/unload", "{\"hostId\":\"box-a\",\"kind\":\"lmstudio\",\"model\":\"qwen/qwen3-0.6b\"}"],
+                          ["/api/engines/delete", "{\"hostId\":\"box-a\",\"kind\":\"lmstudio\",\"model\":\"qwen/qwen3-0.6b\"}"],
+                          ["/api/engines/delete", "{\"hostId\":\"box-a\",\"kind\":\"lmstudio\",\"model\":\"qwen/qwen3-0.6b\"}"]]},
+                ensure_ascii=False),
+     'кнопка строки несёт машину, движок, модель и действие; окно удаления называет машину её именем, а без имени — её '
+     'id; «load» с кнопки не шлёт ничего'),
     ('engine_server_stop_confirmed',
      'globalThis.__msg = null;'
      ' globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; };'
@@ -948,23 +878,68 @@ PINS = [
     ('engine_delete_confirmed_as_danger',
      'globalThis.__msg = null;'
      ' globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; };',
-     'await (async () => { await rc.actOnEngineButton({ dataset: { engineHost: "box-a", engineKind: "ollama", engineLabel: "Ollama", engineModel: "qwen2.5:0.5b", engineAct: "delete", engineHolds: "", engineMachine: "Box A" } }); return { calls: calls(), confirm: globalThis.__msg }; })()',
+     'await (async () => { await rc.actOnEngineButton({ dataset: { engineHost: "box-a", engineKind: "ollama", engineLabel: "Ollama", engineModel: "qwen2.5:0.5b", engineAct: "delete", engineMachine: "Box A" } }); return { calls: calls(), confirm: globalThis.__msg }; })()',
      json.dumps({"calls": [{"path": "/api/engines/delete", "method": "POST", "body": "{\"hostId\":\"box-a\",\"kind\":\"ollama\",\"model\":\"qwen2.5:0.5b\"}"}],
                  "confirm": {"msg": en("nodeEngineDeleteConfirm", model="qwen2.5:0.5b", engine="Ollama", machine="Box A"),
                              "opts": {"confirmLabel": en("nodeEngineDelete")}}}, ensure_ascii=False),
      'positive: удалить модель — только через окно (вид «опасно», без «stop»), называет модель, движок и машину'),
     ('engine_delete_declined',
      'globalThis.__stubReturns["dialogs.appConfirm"] = async () => false;',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen2.5:0.5b", "delete", false, "Box A"); return calls(); })()',
+     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen2.5:0.5b", "delete", "Box A"); return calls(); })()',
      '[]',
      'negative: «нет» — ничего не удалено'),
+    ('engine_delete_without_a_name_says_the_id',
+     'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg) => { globalThis.__msg = msg; return false; };',
+     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen2.5:0.5b", "delete"); return globalThis.__msg; })()',
+     json.dumps(en("nodeEngineDeleteConfirm", model="qwen2.5:0.5b", engine="Ollama", machine="box-a"), ensure_ascii=False),
+     'boundary: у машины нет имени — окно называет её id, а не пустое место'),
     ('engine_act_refusal_in_its_words',
-     'globalThis.__stubReturns["dialogs.appPrompt"] = async () => "";'
-     ' globalThis.__fetchReply["/api/engines/load"] = { __status: 409, error: "qwen3:8b is loaded already" };',
-     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "load"); return { toast: toastText(), nodes: st.topology.nodes.length }; })()',
-     '{"toast": "qwen3:8b is loaded already", "nodes": 0}',
+     'globalThis.__fetchReply["/api/engines/unload"] = { __status: 409, error: "qwen3:8b is not loaded" };',
+     'await (async () => { await rc.actOnEngineModel("box-a", "ollama", "Ollama", "qwen3:8b", "unload"); return { toast: toastText(), nodes: st.topology.nodes.length }; })()',
+     '{"toast": "qwen3:8b is not loaded", "nodes": 0}',
      'negative: отказ — словами отказавшего, доска не тронута'),
-
+    # ── a cell in an engine from the "+" on its model's line (2026-09-26, the operator's choice B) ──
+    ('erc_plus_asks_nothing',
+     ERC_SETUP + ' globalThis.__fetchReply["/api/topology/server-slot/add"] = { cell: { hostId: "h1", port: 22001 } };',
+     'await (async () => { await rc.reserveEngineCell("h1", "ollama", "qwen2.5:0.5b"); return ' + ERC_RESULT + '; })()',
+     json.dumps({"calls": rsc_add({"hostId": "h1", "engine": "ollama", "model": "qwen2.5:0.5b"}), "toast": "", "asked": [],
+                 "reserving": [], "fresh": ["h1:22001"], "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
+     'positive: «+» у модели не спрашивает ничего — строка уже назвала движок и модель; на провод {hostId, engine, '
+     'model}; спиннер машины на следующем свободном порту, пока ячейка не на доске; вспышка новой ячейки'),
+    ('erc_plus_takes_the_next_free_port',
+     ERC_SETUP + ' st.topology.nodes = [{ id: "h1", servers: [{ port: 22001 }] }]; st.topology.proxies = [{ port: 22002 }];',
+     'await (async () => { await rc.reserveEngineCell("h1", "lmstudio", "google/gemma-4-e4b"); return { snap: globalThis.__snap, fresh: [...rc._newReservedCells] }; })()',
+     '{"snap": [["h1", {"port": 22003, "startedAt": 1700000100000}]], "fresh": ["h1:22003"]}',
+     'boundary: порт — следующий свободный по всему флоту: мимо ячейки 22001 и прокси 22002'),
+    ('erc_one_reserve_at_a_time',
+     ERC_SETUP + ' rc._reservingCells.set("h1", { port: 22005, startedAt: 1 });',
+     'await (async () => { await rc.reserveEngineCell("h1", "ollama", "qwen2.5:0.5b"); return ' + ERC_RESULT + '; })()',
+     json.dumps({"calls": [], "toast": "", "asked": [], "reserving": [["h1", {"port": 22005, "startedAt": 1}]], "fresh": [],
+                 "snap": None}),
+     'negative: машина уже резервирует ячейку — второй «+» не берёт второй порт: ни запроса, ни рендера, прежний '
+     'спиннер не тронут'),
+    ('erc_other_machine_does_not_block',
+     ERC_SETUP + ' rc._reservingCells.set("h2", { port: 22005, startedAt: 1 });',
+     'await (async () => { await rc.reserveEngineCell("h1", "ollama", "qwen2.5:0.5b"); return calls().length; })()',
+     '1',
+     'boundary: резерв на другой машине этой не мешает'),
+    ('erc_missing_parts_send_nothing',
+     ERC_SETUP,
+     'await (async () => { await rc.reserveEngineCell("", "ollama", "m"); await rc.reserveEngineCell("h1", "", "m"); await rc.reserveEngineCell("h1", "ollama", ""); return ' + ERC_RESULT + '; })()',
+     json.dumps({"calls": [], "toast": "", "asked": [], "reserving": [], "fresh": [], "snap": None}),
+     'negative: без машины, движка или модели — ничего: ячейка в движке резервируется только с моделью'),
+    ('erc_refusal_in_its_words',
+     ERC_SETUP + ' globalThis.__fetchReply["/api/topology/server-slot/add"] = { __status: 409, error: "Ollama has no model qwen9 on this machine" };',
+     'await (async () => { await rc.reserveEngineCell("h1", "ollama", "qwen9"); return ' + ERC_RESULT + '; })()',
+     json.dumps({"calls": rsc_add({"hostId": "h1", "engine": "ollama", "model": "qwen9"}),
+                 "toast": "Error: Ollama has no model qwen9 on this machine", "asked": [], "reserving": [], "fresh": [],
+                 "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
+     'negative: отказ контроллера (engine_cells.py) — его словами; спиннер снят, вспышки нет'),
+    ('erc_button_carries_its_line',
+     ERC_SETUP,
+     'await (async () => { await rc.reserveEngineButton({ dataset: { engineReserve: "h1", engineKind: "lmstudio", engineModel: "google/gemma-4-e4b" } }); return calls(); })()',
+     json.dumps(rsc_add({"hostId": "h1", "engine": "lmstudio", "model": "google/gemma-4-e4b"})),
+     'positive: кнопка «+» несёт машину, движок и модель — так, как их пишет shelfLineHtml'),
 ]
 
 _fail = []

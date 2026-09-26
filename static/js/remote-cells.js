@@ -1,5 +1,5 @@
 // Remote cell lifecycle: reserve/start/stop, tr- edit form, remote backups.
-import { appConfirm, appConfirmChoice, appPrompt, appPromptChoice } from "./dialogs.js";
+import { appConfirm, appConfirmChoice, appPrompt } from "./dialogs.js";
 import { renderCommandPreview } from "./command-preview.js";
 import { refreshFavoritesPanel } from "./favorites.js";
 import {
@@ -29,7 +29,7 @@ import { startMonitor } from "./polling.js";
 import { setTopology, state, topology } from "./state.js";
 import { topologyAssignmentsByAgent, topologyStatusPill } from "./topology-activity.js";
 import {
-  engineSizeText, hostAgeText, hostPowerTextKey, isControllerMachine, machineAt, openNodeServerDetail,
+  hostAgeText, hostPowerTextKey, isControllerMachine, machineAt, openNodeServerDetail,
 } from "./topology-nodes.js";
 import { markTopologyRenderPending, refreshTopology, renderTopology, topologyInteractionActive, topologyServerPhase } from "./topology-render.js";
 import { $, api, escapeHtml, toast } from "./utils.js";
@@ -389,10 +389,35 @@ async function reservePlan(hostId, port) {
 }
 
 export async function reserveServerCell(hostId, portHint = "") {
-  const hostKey = String(hostId || "");
   const pendingPort = Number(portHint || nextTopologyCellPort() || 0);
-  const plan = await reservePlan(hostKey, pendingPort);
+  const plan = await reservePlan(String(hostId || ""), pendingPort);
   if (!plan) return;
+  await postReserve(hostId, pendingPort, plan);
+}
+
+// A cell with a model of an engine, from the "+" on its line under the
+// engine's cells (2026-09-26, the operator's choice B): the line says the
+// engine and the model already, so nothing is asked, and the port is the
+// next free one. One reserve at a time on a machine — a second "+" before the
+// first cell came back would take a second port.
+export async function reserveEngineCell(hostId, kind, model) {
+  const hostKey = String(hostId || "");
+  if (!hostKey || !kind || !model || _reservingCells.has(hostKey)) return;
+  await postReserve(hostId, Number(nextTopologyCellPort() || 0), { engine: String(kind), model: String(model) });
+}
+
+// The "+" on a model's line, as its markup says it (shelfLineHtml in
+// topology-nodes.js).
+export function reserveEngineButton(btn) {
+  const d = btn.dataset;
+  return reserveEngineCell(d.engineReserve, d.engineKind, d.engineModel);
+}
+
+// What a reserve sends and shows, once for every way into it: the machine's
+// spinner until the new cell is on the board, the new cell's flash, and the
+// controller's refusal in its own words.
+async function postReserve(hostId, pendingPort, plan) {
+  const hostKey = String(hostId || "");
   if (hostKey && pendingPort) {
     _reservingCells.set(hostKey, { port: pendingPort, startedAt: Date.now() });
     renderTopology();
@@ -862,7 +887,7 @@ export async function submitLlamaStop(hostId) {
 }
 
 // The server of an engine next to a machine's cells started or stopped from
-// its card (step 3г, scout 2.16+). A stop is confirmed like stopping a cell —
+// its strip's switch (step 3г, scout 2.16+). A stop is confirmed like stopping a cell —
 // its loaded models go with it; a start is not: it takes memory only when a
 // model loads. The server answers with the board as it is now, the engine
 // already marked as starting or stopping.
@@ -880,20 +905,18 @@ export async function serveEngine(hostId, kind, label, machine, op) {
   }
 }
 
-// A start/stop button in an engine card's header, as its markup says it
-// (engineServerHtml in topology-nodes.js).
+// The switch on an engine's strip, as its markup says it (engineLeverHtml in
+// topology-nodes.js).
 export function serveEngineButton(btn) {
   const d = btn.dataset;
   return serveEngine(d.engineHost, d.engineKind, d.engineLabel, d.engineMachine, d.engineServe);
 }
 
-// A load/unload button on an engine model's row, as its markup says it
-// (engineActHtml in topology-nodes.js): which machine, engine and model, the
-// act, and whether the engine can be told how long to hold the model.
+// An unload or delete on a model's line, as its markup says it (shelfActsHtml
+// in topology-nodes.js): which machine, engine and model, and the act.
 export function actOnEngineButton(btn) {
   const d = btn.dataset;
-  return actOnEngineModel(d.engineHost, d.engineKind, d.engineLabel, d.engineModel, d.engineAct,
-    d.engineHolds === "1", d.engineMachine || d.engineHost);
+  return actOnEngineModel(d.engineHost, d.engineKind, d.engineLabel, d.engineModel, d.engineAct, d.engineMachine);
 }
 
 // What to download into each engine, as the prompt hints it.
@@ -901,7 +924,7 @@ const ENGINE_PULL_HINTS = { ollama: "nodeEnginePullHintOllama", lmstudio: "nodeE
 
 // A model downloaded into an engine next to a machine's cells (step 3д, scout
 // 2.17+): its name asked — one word, a typo sends nothing — and the download
-// runs on the machine, its progress on the engine's card.
+// runs on the machine, its progress on the engine's strip.
 export async function pullEngineModel(hostId, kind, label) {
   const hint = ENGINE_PULL_HINTS[kind] ? t(ENGINE_PULL_HINTS[kind]) : "";
   const answer = await appPrompt(t("nodeEnginePullPrompt", { engine: label, hint }),
@@ -918,75 +941,35 @@ export async function pullEngineModel(hostId, kind, label) {
   }
 }
 
-// The download button in an engine card's header, as its markup says it.
+// The download button on an engine's strip, as its markup says it.
 export function pullEngineButton(btn) {
   const d = btn.dataset;
   return pullEngineModel(d.engineHost, d.engineKind, d.engineLabel);
 }
 
-// How long a model loaded from the board stays unused before its engine lets
-// it go (docs/foreign-engines.md, 3б): seconds, -1 — until it is unloaded.
-// Offered only where the engine can be told (its `holds`, scout 2.15+).
-export const ENGINE_HOLDS = [
-  { value: 900, label: () => t("nodeEngineHoldMinutes", { n: 15 }) },
-  { value: 3600, label: () => t("nodeEngineHoldHours", { n: 1 }) },
-  { value: 14400, label: () => t("nodeEngineHoldHours", { n: 4 }) },
-  { value: -1, label: () => t("nodeEngineHoldUntilUnloaded") },
-];
-
-// Load a model of an engine next to a machine's cells, or unload it (step 3):
-// the load asks for a window (empty keeps the engine's own) and, where the
-// engine can be told, how long the model stays unused; the unload is
-// confirmed like stopping a cell. A load that would not fit into the cards'
-// free memory is not started by the scout (2.15): it is asked about, and
-// loaded anyway only when the operator says so. The server answers with the
+// Unload a model of an engine next to a machine's cells, or delete its files
+// (step 3): an unload is confirmed like stopping a cell, a delete with the
+// danger look and the machine named. Loading is not the board's any more: a
+// model is reached through a cell in its engine, which loads it when the cell
+// starts (2026-09-26); any other act is not sent. The server answers with the
 // board as it is now — the model already marked as being acted on.
-export async function actOnEngineModel(hostId, kind, label, model, op, holds = false, machine = "") {
-  let contextLength = null;
-  let hold = null;
-  if (op === "load") {
-    const opts = { value: "", confirmLabel: t("nodeEngineLoad") };
-    const answer = holds
-      ? await appPromptChoice(t("nodeEngineLoadPrompt", { model }), {
-        ...opts, choiceLabel: t("nodeEngineHoldLabel"), choice: "-1",
-        choices: ENGINE_HOLDS.map((h) => ({ value: String(h.value), label: h.label() })),
-      })
-      : await appPrompt(t("nodeEngineLoadPrompt", { model }), opts);
-    if (answer === null) return;
-    const text = String(holds ? answer.value : answer).trim();
-    if (text !== "") {
-      // A typo is not "the engine's default": say it, and send nothing.
-      if (!/^[1-9]\d*$/.test(text)) { toast(t("nodeEngineContextNotANumber")); return; }
-      contextLength = Number(text);
-    }
-    if (holds) hold = Number(answer.choice);
-  } else if (op === "delete") {
+export async function actOnEngineModel(hostId, kind, label, model, op, machine = "") {
+  if (op === "delete") {
     // Its files go from the disk: the danger look, and the machine named.
     if (!(await appConfirm(t("nodeEngineDeleteConfirm", { model, engine: label, machine: machine || hostId }),
       { confirmLabel: t("nodeEngineDelete") }))) {
       return;
     }
-  } else if (!(await appConfirm(t("nodeEngineUnloadConfirm", { model, engine: label }),
-    { confirmLabel: t("nodeEngineUnload"), scene: "stop" }))) {
+  } else if (op === "unload") {
+    if (!(await appConfirm(t("nodeEngineUnloadConfirm", { model, engine: label }),
+      { confirmLabel: t("nodeEngineUnload"), scene: "stop" }))) {
+      return;
+    }
+  } else {
     return;
   }
-  const send = (force) => api(`/api/engines/${op}`, {
-    method: "POST",
-    body: JSON.stringify({
-      hostId, kind, model, ...(contextLength ? { contextLength } : {}),
-      ...(Number.isFinite(hold) ? { hold } : {}), ...(force ? { force: true } : {}),
-    }),
-  });
   try {
-    let res = await send(false);
-    if (res.short) {
-      const s = res.short;
-      const need = `${s.basis === "weights" ? "≥" : "≈"} ${engineSizeText(s.needBytes)}`;
-      const anyway = await appConfirm(t("nodeEngineShort", { model, need, free: engineSizeText(s.freeBytes) }),
-        { confirmLabel: t("nodeEngineLoadAnyway") });
-      if (!anyway) return;
-      res = await send(true);
-    }
+    const res = await api(`/api/engines/${op}`, { method: "POST", body: JSON.stringify({ hostId, kind, model }) });
     if (res.topology) setTopology(res.topology);
     renderTopology();
   } catch (err) {

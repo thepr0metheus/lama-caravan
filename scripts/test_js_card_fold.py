@@ -131,15 +131,6 @@ out.launcher = (() => {
   return { fresh, a, saved, other, numberKey, b, savedOff, restored, garbage, blockedThrew: threw,
            blockedNow: blocked.launcherOf("controller") };
 })();
-out.engineMenu = (() => {
-  const s = store(); const f = new CardFold({ storage: s, automated: false });
-  const fresh = f.engineKey;
-  const a = f.toggleEngineMenu("h1:ollama"); const afterA = f.engineKey;
-  const b = f.toggleEngineMenu("h1:lmstudio"); const afterB = f.engineKey;
-  const c = f.toggleEngineMenu("h1:lmstudio"); const afterC = f.engineKey;
-  const d = f.toggleEngineMenu(""); const afterD = f.engineKey;
-  return { fresh, a, afterA, b, afterB, c, afterC, d, afterD, stored: [...s.m.keys()].filter((k) => /engine/i.test(k)) };
-})();
 out.cellIdle = Object.fromEntries([
   ["running", { phase: "running" }], ["stopped", { phase: "stopped" }], ["reserved", { phase: "reserved" }],
   ["error", { phase: "error" }], ["starting", { phase: "starting" }], ["broken", { phase: "broken" }],
@@ -380,12 +371,6 @@ check(not cq["runningUnreachable"], "работает, но недостижим
 check(not cq["nothing"] and not cq["undefinedArg"], "нет фактов — не тихо: незнание не сворачивается")
 
 print("глаз машины — что прячется:")
-em = got["engineMenu"]
-check(em["fresh"] == "" and em["a"] is True and em["afterA"] == "h1:ollama", "▾ движка открывает его панель")
-check(em["b"] is True and em["afterB"] == "h1:lmstudio", "другой ▾ открывает свою панель и закрывает прежнюю — одна за раз")
-check(em["c"] is False and em["afterC"] == "", "повторный щелчок по тому же ▾ закрывает панель")
-check(em["d"] is False and em["afterD"] == "", "negative: пустой ключ ничего не открывает")
-check(em["stored"] == [], "negative: открытая панель в хранилище браузера не пишется — только на эту страницу")
 la = got["launcher"]
 check(la["fresh"] == "", "без выбора чипы машины показывают все её ячейки")
 check(la["a"] == "ollama" and json.loads(la["saved"]) == {"controller": "ollama"}, "выбор чипа записывается по машине")

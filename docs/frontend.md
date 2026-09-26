@@ -213,7 +213,7 @@ first `opts.choice`, `opts.list` for a long list shown as a scrolling column) an
 pressed value as a string, or null on cancel — where a new cell runs, and an engine cell's model.
 
 - Owns: the pending-dialog resolver.
-- Key exports: `appConfirm`, `appConfirmChoice`, `appPrompt`, `appPromptChoice`.
+- Key exports: `appConfirm`, `appConfirmChoice`, `appPrompt`.
 
 ## dialog-llamas.js
 
@@ -432,7 +432,7 @@ their marks say `launcher`, the eye's `idle`, and the eye counts only its own.
   `boardCardPinned`, `boardCellsHideIdle`, `boardCellsLauncher`)
   as a per-browser convenience — a cell's pin saved before the window came is ignored.
 - Key exports: `CardFold` (`OPENS`, `density`, `toggleDensity`, `togglePin`, `hidesIdle`,
-  `toggleHideIdle`, `launcherOf`, `setLauncher`, `toggleEngineMenu`, `opensInWindow`, `mode`, `syncSwitches`, `cellQuiet`, `cellIdle`,
+  `toggleHideIdle`, `launcherOf`, `setLauncher`, `opensInWindow`, `mode`, `syncSwitches`, `cellQuiet`, `cellIdle`,
   `agentQuiet`), `FoldPeek` (`bind`, `openWindow`,
   `closeWindow`), `CARD_FOLD`.
 
@@ -462,11 +462,18 @@ request; without it the card is drawn byte for byte as before. Styles: `static/c
 - Owns: nothing mutable.
 `CellFilter` draws a machine's chips over its cells: each says how many cells it holds, an
 engine's wears its colour and a dot while its server answers (none when the machine did not
-report it), and the pressed one is the list shown; with nothing to choose it draws nothing. A
-reported engine's chip has a ▾ beside it (`node-engine-menu`, ▴ while its panel is open), and the
+report it), and the pressed one is the list shown; with nothing to choose it draws nothing. The
 row starts with the anchors of the engine models made router outputs.
 
-- Key exports: `CellRow`, `AgentRow`, `CellWindow`, `CellEye`, `CellFilter`, `FoldSlot`.
+`EngineStrip` is an engine's server over the machine's chips, one per engine, always
+(2026-09-26, the operator's choice B) — the switch that starts or stops it, its name and version,
+↟ when it starts with the machine, what it holds, ⤓; under them where it listens and what it has
+to say. While an engine's chip is pressed, each model it holds that no cell serves is a
+`ShelfLine` under the cells: the cells' line, dashed, with «+» where a cell's switch stands. «+»
+makes a cell with that model; it is `disabled` with its reason when no cell can be made now, and
+keeps its test hook. Both only lay out what topology-nodes.js computed.
+
+- Key exports: `CellRow`, `AgentRow`, `CellWindow`, `CellEye`, `CellFilter`, `EngineStrip`, `ShelfLine`, `FoldSlot`.
 
 ## split-mode.js
 
@@ -581,7 +588,7 @@ and `isControllerMachine` / `hostPowerTextKey` give that node's reboot, poweroff
 words for the machine the board runs on. Collapsed nodes persist to localStorage.
 
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
-- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeEnginePanelHtml`, `nodeEngineCardHtml`, `engineRamText`.
+- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeEngineViewHtml`, `nodeEngineStripHtml`, `nodeEngineShelfHtml`, `engineRamText`.
 - A GPU row names who holds the memory that is no cell's (`outside` from the backend): an engine of
   the machine («Ollama 5.9 GB»), else the process's name, else «outside»; each owner from 64 MiB is a
   hatched band laid after the fleet's share of the bar, and the «who» line lists the cells' ports AND
@@ -604,48 +611,51 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   in that the machine reports or has a cell in — offered only when there is such an engine. The
   lane passes the chosen launcher to each card (`only`); a launcher the machine no longer offers
   shows all, so no list stays narrowed with no chip to widen it.
-- The engines next to a machine's cells (Ollama, LM Studio — scout 2.12+) have no block under the
-  cells since 2026-09-26: a reported engine's chip carries a ▾ (`node-engine-menu`), and the ▾ opens
-  its card in a panel under the chips (`nodeEnginePanelHtml`, `node-engine-panel` / `node-engine`,
-  one open at a time — `CARD_FOLD.engineKey`, not kept across pages), in the engine's colour: version,
-  port, «this machine only» when it listens on 127.0.0.1 (the isolation the cells rely on — the hint
-  says a cell in the engine is the way in), the RAM its processes hold (patched live), loaded models
-  with their VRAM, RAM part, window and when keep_alive unloads them (a clock time), then up to six
-  installed ones and «+N more installed»; «wants a token» and «does not answer» instead of a list. An
-  engine's state and what it has loaded are in the board's structure fingerprint; its memory is not.
+- The engines next to a machine's cells (Ollama, LM Studio — scout 2.12+; the operator's choice B,
+  2026-09-26, in place of an engine card and its ▾ panel): every engine the machine's chips offer
+  (`offeredEngineRunners` — the chips and the strips ask this one question) has a strip between
+  the list's title and the chips, always, whichever chip is pressed — an engine's server is the
+  machine's. `nodeEngineViewHtml(n, servers, chosen)` gives the lane the strips
+  (`nodeEngineStripHtml`, `node-engine`, in the chips' order) and, while an engine's chip is
+  pressed, its shelf under the cells (`nodeEngineShelfHtml`, `engine-shelf`); an engine the machine
+  does not report, offered because a cell of the machine runs in it, is a line saying so
+  (`node-engine-missing`) — its cells cannot start. The strip wears the engine's colour: the switch
+  (the scout's `controls`: stop a running server, start a stopped one; with neither it is off-limits
+  and says why — another user's service, or a scout that cannot), name, version, ↟ «starts with the
+  machine», VRAM on the machine's cards (`engineVramText`: the owners the GPU bars name, summed,
+  patched live) and the RAM its processes hold (patched live), ⤓ download; under them where it
+  listens — «this machine only» and `127.0.0.1:<port>` (the isolation the cells rely on — the hint
+  says a cell in the engine is the way in), or `:<port>` with its firewall badge — then «stopped»,
+  «wants a token» or «does not answer», what the server or a download refused last in its words, a
+  download under way (`engineDownloadText`, patched live), «run by another user». An engine's state
+  and what it has loaded are in the board's structure fingerprint; its memory is not.
+- The shelf lists the models the engine holds that no cell of this engine serves (a cell's
+  `ENGINE_MODEL`): held outside any cell first (they take memory now), then a model still a router
+  output, then up to six others and «+N more installed»; the caption counts them all. A line: «+»,
+  the name verbatim, ☁ for an Ollama cloud model, a job chip only when it is not chat (embeddings),
+  the parameters, what it holds while loaded (its window and when keep_alive lets it go in the
+  chip's hint — a clock time; LM Studio's «stays loaded» from the scout, Ollama's from an expiry
+  centuries away) or ≈ the file's size. «+» reserves a cell with the model on the next free port,
+  no dialog (`reserveEngineCell` in remote-cells.js); it waits while a cell is being reserved on the
+  machine or an act runs on the model. A model held outside any cell can be unloaded (⏏, confirmed
+  like stopping a cell); an Ollama model that is not loaded deleted (🗑, under the pointer, through a
+  danger dialog naming the model, the engine and the machine; LM Studio offers no delete). No model
+  is loaded from the board: a cell in its engine loads it when it starts. An engine that does not
+  answer has no shelf — its strip says why; one whose list did not answer, or that has no models,
+  or whose every model has a cell, says so.
 - A model is no longer made a router output from the board (the operator's choice, 2026-09-26: a cell
   in the engine is the way to its model; `POST /api/engine-outputs/expose` still takes one). A model
-  made one already keeps its switch (`node-engine-expose`, pressed) to turn it off, and is listed
-  first; the anchor its router cable lands on (`data-topology-engine-input` by output id) sits at the
-  edge of its machine's chips, so the cable is drawn while the panel is shut. An engine open to the
-  network wears its port's firewall badge, as a cell's port does. On the kanban an engine's output is
-  labelled «model · engine» and is lit by the output a request was routed to (`routedOutputId`), not by
-  its engine's host:port.
-- A model is loaded or unloaded from its row (`node-engine-load` / `node-engine-unload`, only what the
-  engine's `controls` offer, scout 2.14+): the load asks for a window — empty keeps the engine's own —
-  and the unload is confirmed like stopping a cell (`actOnEngineModel` in remote-cells.js). While the
-  act runs the row says «loading…» instead of offering another; what the engine refused last stays on
-  the row in its own words. Where the engine can be told how long to hold the model (`holds`, scout
-  2.15+) the same dialog offers 15 min / 1 h / 4 h / until unloaded (`appPromptChoice` in dialogs.js,
-  `ENGINE_HOLDS`). A load that would not fit into the cards' free memory comes back as `short` and is
-  asked about — «≥» when the need is the file alone, «≈» when it is an estimate — and loaded with
-  `force` only on «load anyway». LM Studio's «stays loaded» comes from the scout (`staysLoaded`),
-  Ollama's from an expiry centuries away.
-- An engine's server is started or stopped from its card's header (`node-engine-start` /
+  made one already is named on its engine's strip with its switch (`node-engine-expose`, pressed) to
+  turn it off, and stands first among the idle ones on the shelf; the anchor its router cable lands
+  on (`data-topology-engine-input` by output id) sits at the edge of its machine's chips, so the
+  cable is drawn whichever chip is pressed. On the kanban an engine's output is labelled
+  «model · engine» and is lit by the output a request was routed to (`routedOutputId`), not by its
+  engine's host:port.
+- An engine's server is started or stopped with its strip's switch (`node-engine-start` /
   `node-engine-stop`, scout 2.16+, `serveEngine` in remote-cells.js): the stop is confirmed like
-  stopping a cell, the start is not. A stopped engine keeps its card (`data-t-state="stopped"`) with
-  only «▶ start»; under the header — what the server refused last, «run by another user» (a system
-  service, the operator's to stop) and «starts with the machine».
-- A model is downloaded into an engine from its header (`node-engine-pull`, scout 2.17+,
-  `pullEngineModel`): its name asked, with the engine's own hint; the progress line under the header
-  (`engineDownloadText`) is patched live — the bytes do not rebuild the card, the download's start and
-  end do. An Ollama model that is not loaded can be deleted from its row (`node-engine-delete`), through
-  a danger dialog naming the model, the engine and the machine; LM Studio offers no delete.
-- An engine card's header says what the engine holds on the machine's cards (`engineVramText`: the
-  same owners the GPU bars name, summed over the cards, patched live) — LM Studio says no memory per
-  model. A model the engine types (LM Studio: llm, vlm, embedding) carries the cells' job chip in the
-  same words (`jobsFromKinds`); an embedding model stays offered as an output — the kanban's embeddings
-  slot takes any local output.
+  stopping a cell, the start is not. A model is downloaded into an engine from its strip
+  (`node-engine-pull`, scout 2.17+, `pullEngineModel`): its name asked, with the engine's own hint;
+  the bytes do not rebuild the strip, the download's start and end do.
 - `machineAt(address)` — the machine behind an address its cells answer at, `{ key, name }`: its node and
   the node's name (the computer's hostname, from its scout); loopback and the controller's own address
   are the controller's machine (its node, else `topology.server.hostname`); an unknown address is said
@@ -773,10 +783,15 @@ in (`reserveEngines`: the scout's engines whose kind is a runner with `engineCel
 then each engine — one not ready is marked so; for an engine the next step lists its models. An
 engine not ready, or without models, is sent without a model and the controller's refusal is the
 toast (`caravan/admin/engine_cells.py` holds the words). A machine without such an engine gets the
-old confirm.
+old confirm. `reserveEngineCell(hostId, kind, model)` is the «+» on a model's line under an engine's
+cells: nothing is asked — the line names the engine and the model — and the port is the next free
+one; one reserve at a time on a machine. Both send through one path (the machine's spinner until
+the new cell is on the board, its flash, the controller's refusal as the toast). `actOnEngineModel`
+unloads a model (confirmed like a stop) or deletes it (the danger look, the machine named); it sends
+no other act — no model is loaded from the board.
 
 - Owns: the pending-op collections — `_pendingRemoteStarts` (Map), `_stoppingHosts`, `_deletingSlots`, `_reservingCells`, `_newReservedCells`, `_stoppingCells`, `_expandedCellCfgs` — plus `_remoteStartWatchTimer`, `_nvidiaSmiSource`, the `_tr*` form state.
-- Key exports: `reserveServerCell`, `reserveEngines`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.
+- Key exports: `reserveServerCell`, `reserveEngines`, `reserveEngineCell`, `reserveEngineButton`, `actOnEngineModel`, `serveEngine`, `pullEngineModel`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.
 
 ## cloud.js
 

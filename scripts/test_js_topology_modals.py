@@ -55,14 +55,14 @@ const toastEl = () => ({ textContent: "", classList: { add() {}, remove() {} } }
 const toastText = () => globalThis.__fields.toast.textContent;
 const calls = () => globalThis.__fetchCalls.map((c) => ({ path: c.path, method: c.method, body: c.body === null ? null : JSON.parse(c.body) }));
 const PROXIES = () => [
-  { id: "ctl:proxy:23001", port: 23001, label: "hermes", upstreamHost: "127.0.0.1", upstreamPort: 22001, priority: 3, clientTimeoutSeconds: 1800 },
+  { id: "ctl:proxy:23001", port: 23001, label: "hotel", upstreamHost: "127.0.0.1", upstreamPort: 22001, priority: 3, clientTimeoutSeconds: 1800 },
   { id: "ctl:proxy:23003", port: 23003, label: "scout", upstreamHost: "127.0.0.1", upstreamPort: 22003, priority: 7 },
   { id: "ctl:proxy:23005", port: 23005, label: "plain", upstreamHost: "127.0.0.1", upstreamPort: 22005, cloudFallbackProviderId: "cb:terra" },
   { id: "ctl:proxy:23007", port: 23007, label: "cloudy", upstreamType: "cloud", providerId: "cb:terra" },
 ];
 const ROUTER = () => ({ id: "router:sched", name: "sched", outputs: [{ id: "srv:22001", label: "a" }, { id: "cb:terra", label: "☁ terra" }],
   rules: { default: "srv:22001", schedule: [{ days: ["mon", "tue"], from: "09:00", to: "17:59", output: "cb:terra" }] } });
-const TOPO = (extra = {}) => ({ proxies: PROXIES(), clients: [{ id: "box-a", name: "Box A", agents: [{ id: "hermes", name: "Hermes" }] }], routers: [ROUTER()], assignments: {}, proxyPolicy: { cloudFallbackPct: 20, priorityPreemptPct: 50, queueAbortPct: 85, preemptGraceSec: 20 }, ...extra });
+const TOPO = (extra = {}) => ({ proxies: PROXIES(), clients: [{ id: "box-a", name: "Box A", agents: [{ id: "hotel", name: "Hotel" }] }], routers: [ROUTER()], assignments: {}, proxyPolicy: { cloudFallbackPct: 20, priorityPreemptPct: 50, queueAbortPct: 85, preemptGraceSec: 20 }, ...extra });
 const reset = () => {
   st.setState({ config: {} }); st.setTopology(TOPO()); st.ui.latestSystemMonitor = null;
   m.closeQueuePriorityModal(); m.closePriorityModal(); m.closeRawConfigViewer();
@@ -121,7 +121,7 @@ PINS = [
     # ── queue and priorities: rendering ──
     ("queue_modal_closed", '', 'm.renderTopologyQueuePriorityModal()', '""', "negative: модал очереди закрыт — пусто"),
     ("queue_modal_policy_and_edits", 'm.openQueuePriorityModal(); m.topologyQueuePriorityEdits.cloudFallbackPct = 30;',
-     '(h => [h.includes("qp-handle-pct\\">30%"), h.includes("qp-handle-pct\\">50%"), h.includes("qp-handle-pct\\">85%"), h.includes("hermes · wait_timeout=1800s → ↑☁ 540s · 👑 900s · ✕ 1530s")])(m.renderTopologyQueuePriorityModal())',
+     '(h => [h.includes("qp-handle-pct\\">30%"), h.includes("qp-handle-pct\\">50%"), h.includes("qp-handle-pct\\">85%"), h.includes("hotel · wait_timeout=1800s → ↑☁ 540s · 👑 900s · ✕ 1530s")])(m.renderTopologyQueuePriorityModal())',
      '[true,true,true,true]', "проценты: правка поверх политики; пример в секундах по первому локальному прокси с таймаутом"),
     ("queue_timelines_rows", 'm.openQueuePriorityModal();',
      '(h => [(h.match(/data-qp-proxy-row="/g) || []).length, h.includes(\'data-qp-proxy-row="23007"\'), h.includes("wait_timeout=1800s</span>"), h.includes("wait_timeout=3600s (default)"), (h.match(/qp-handle-inactive/g) || []).length])(m._renderQueueThresholdTimelines(20, 50, 85))',
@@ -174,7 +174,7 @@ PINS = [
      'await (async () => { await m.editTopologyClientAlias("box-a", "Box A"); const a = [calls()[0].body.name, toastText()]; globalThis.__stubReturns["dialogs.appPrompt"] = async () => null; await m.editTopologyClientAlias("box-a", "Box A"); return [...a, calls().length]; })()',
      '["","client name reset",1]', "пустое имя — сброс; отмена — ни запроса"),
     # ── logs ──
-    ("log_summary", '', 'm.topologyLogSummary({ timeIso: "10:00", event: "proxy", item: { route: "hermes", port: 23001, status: 502, error: "upstream down" } })', '"10:00 · proxy · hermes · :23001 · status 502 · upstream down"', "сводка строки лога — поля через «·», пустые пропущены"),
+    ("log_summary", '', 'm.topologyLogSummary({ timeIso: "10:00", event: "proxy", item: { route: "hotel", port: 23001, status: 502, error: "upstream down" } })', '"10:00 · proxy · hotel · :23001 · status 502 · upstream down"', "сводка строки лога — поля через «·», пустые пропущены"),
     ("log_summary_empty", '', 'm.topologyLogSummary({})', '""', "negative: пустая строка лога — пусто"),
     ("log_detail_sections", '', '(h => [h.includes("Upstream error body"), h.includes("&quot;code&quot;: 400"), h.includes("model: gpt-5.6"), h.includes("<td>1234 ms</td>"), h.includes("waited: 800 m"), h.includes("Raw JSON"), h.includes("log-detail-value")])(m.renderTopologyLogDetail({ upstreamErrorBody: "{\\"code\\":400}", cloudMeta: { model: "gpt-5.6", toolCount: 2 }, item: { status: 400, error: "bad", durationMs: 1234, queue: { queuedMs: 800 } } }))',
      '[true,true,true,true,true,true,false]', "детали: тело ошибки красиво, пилюли облака, таблица полей, очередь, raw; отдельная строка ошибки не дублируется при теле"),

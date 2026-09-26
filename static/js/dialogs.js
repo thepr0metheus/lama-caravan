@@ -7,9 +7,9 @@ import { $, escapeHtml } from "./utils.js";
 
 let _resolve = null;
 let _mode = "confirm";
-// The pressed choice of a "prompt-choice" or "confirm-choice" dialog. Every
-// dialog that opens resets it — also one opened over a dialog that never
-// settled — and only the settle of one of those two reads it.
+// The pressed choice of a "confirm-choice" dialog. Every dialog that opens
+// resets it — also one opened over a dialog that never settled — and only a
+// "confirm-choice" settle reads it.
 let _choice = null;
 
 function openDialog(message, opts, mode) {
@@ -17,8 +17,8 @@ function openDialog(message, opts, mode) {
     _resolve = resolve;
     _mode = mode;
     _choice = null;
-    // Both prompt modes ask for text; "prompt-choice" also offers choices.
-    const asks = mode === "prompt" || mode === "prompt-choice";
+    // A prompt asks for text; a "confirm-choice" offers choices instead.
+    const asks = mode === "prompt";
     const dlg = $("confirmOverlay").querySelector(".modal");
     dlg.dataset.tone = asks || opts.danger === false ? "ask" : "danger";
     // Scene hint for the animated llama (dialog-llamas.js); falls back by tone.
@@ -28,7 +28,7 @@ function openDialog(message, opts, mode) {
     $("confirmText").textContent = asks ? (opts.text || "") : message;
     const meta = $("confirmMeta");
     if (meta) { meta.hidden = true; meta.innerHTML = ""; }
-    if (meta && (mode === "prompt-choice" || mode === "confirm-choice")) renderChoices(meta, opts);
+    if (meta && mode === "confirm-choice") renderChoices(meta, opts);
     const path = $("confirmPath");
     if (path) path.textContent = opts.detail || "";
     const input = $("confirmInput");
@@ -80,7 +80,7 @@ function openDialog(message, opts, mode) {
   });
 }
 
-// The choices of a "prompt-choice" or "confirm-choice" dialog: one pressed at
+// The choices of a "confirm-choice" dialog: one pressed at
 // a time, as radio buttons are; opts.choice is pressed first, else the first
 // one. opts.list lays a long list out as a column that scrolls.
 function renderChoices(meta, opts) {
@@ -111,8 +111,11 @@ export function appConfirm(message, opts = {}) {
 // (A mode whose answer is one of several buttons — appChoose — served one
 // question: where a controller cell's start reads its model from. The question
 // went with the controller's cells in step 6.9, and the mode with it. A prompt
-// that also offers choices — appPromptChoice, below — answers text AND a choice;
-// its buttons are choices inside the dialog, not answers that close it.)
+// that also offered choices — appPromptChoice — served an engine model's load,
+// and went when the board stopped loading engine models itself: a model is
+// reached through a cell in its engine (2026-09-26). The choices of
+// appConfirmChoice, below, are choices inside the dialog, not answers that
+// close it.)
 
 // window.prompt() replacement: resolves the entered string, or null on cancel.
 // The message becomes the dialog title (native prompts have no separate body);
@@ -121,19 +124,11 @@ export function appPrompt(message, opts = {}) {
   return openDialog(message, opts, "prompt");
 }
 
-// A prompt that also asks one of several choices — an engine model's load:
-// its window, and how long it stays unused (docs/foreign-engines.md, 3б).
-// opts.choices: [{value, label}], opts.choice: pressed first, opts.choiceLabel:
-// what they choose. Resolves {value, choice} — the text and the pressed
-// choice's value as a string — or null on cancel.
-export function appPromptChoice(message, opts = {}) {
-  return openDialog(message, opts, "prompt-choice");
-}
-
 // A confirm that also asks one of several choices — where a new cell runs, and
 // for an engine the model it holds (docs/foreign-engines.md, cells in engines).
-// The same opts as appPromptChoice, without the text. Resolves the pressed
-// choice's value as a string, or null on cancel.
+// opts.choices: [{value, label}], opts.choice: pressed first, opts.choiceLabel:
+// what they choose, opts.list: a long list as a scrolling column. Resolves the
+// pressed choice's value as a string, or null on cancel.
 export function appConfirmChoice(message, opts = {}) {
   return openDialog(message, opts, "confirm-choice");
 }
@@ -145,7 +140,6 @@ export function settleAppConfirm(ok) {
   const resolve = _resolve;
   _resolve = null;
   const value = _mode === "prompt" ? (ok ? $("confirmInput").value : null)
-    : _mode === "prompt-choice" ? (ok ? { value: $("confirmInput").value, choice: _choice } : null)
       : _mode === "confirm-choice" ? (ok ? _choice : null)
       : !!ok;
   _mode = "confirm";

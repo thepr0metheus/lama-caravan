@@ -178,13 +178,9 @@ export class CellEye {
  * the ones one launcher runs — the caravan itself, or an engine next to it.
  * Each chip says how many cells it holds; an engine's carries a dot while its
  * server answers, and none when the machine did not report it. The pressed
- * chip is the list shown.
- *
- * An engine the machine reports has a ▾ beside its chip: the panel with its
- * server and its models (2026-09-26, the operator's choice — the block of
- * engines under the cells is gone). `anchors` are the handles of the models
- * already made router outputs: their cables land at the chips' edge, as a
- * cell's land at its line.
+ * chip is the list shown. `anchors` are the handles of the engine models made
+ * router outputs directly: their cables land at the chips' edge, as a cell's
+ * land at its line.
  */
 export class CellFilter {
   constructor({ hostId, chosen = "", options = [], anchors = "" } = {}) {
@@ -197,9 +193,6 @@ export class CellFilter {
       count: Math.max(0, Math.floor(Number(o?.count) || 0)),
       up: typeof o?.up === "boolean" ? o.up : null,
       title: String(o?.title || ""),
-      menu: o?.menu === true,
-      open: o?.open === true,
-      menuTitle: String(o?.menuTitle || ""),
     }));
   }
 
@@ -209,21 +202,88 @@ export class CellFilter {
     const chips = this.options.map((o) => {
       // An engine's chip wears its colour; "" (all) and the caravan keep the board's.
       const engine = o.id && o.id !== "caravan" ? CellRow.launcher(o.id) : "";
-      const colour = engine ? ` engine-${engine}` : "";
       const dot = o.up === null ? "" : `<span class="ncf-dot${o.up ? " up" : ""}" aria-hidden="true"></span>`;
-      const chip = `<button type="button" class="ncf-chip${colour}" data-cell-filter="${host}"`
+      return `<button type="button" class="ncf-chip${engine ? ` engine-${engine}` : ""}" data-cell-filter="${host}"`
         + ` data-cell-filter-id="${escapeHtml(o.id)}" data-t="node-cell-filter" data-t-id="${host}:${escapeHtml(o.id || "all")}"`
         + ` aria-pressed="${o.id === this.chosen}" title="${escapeHtml(o.title)}">${dot}${escapeHtml(o.label)}`
         + `<span class="ncf-count">${o.count}</span></button>`;
-      if (!engine || !o.menu) return chip;
-      const key = escapeHtml(`${this.hostId}:${engine}`);
-      const words = escapeHtml(o.menuTitle);
-      return `<span class="ncf-group">${chip}<button type="button" class="ncf-menu${colour}" data-engine-menu="${key}"`
-        + ` data-t="node-engine-menu" data-t-id="${key}" aria-expanded="${o.open}" title="${words}" aria-label="${words}">`
-        + `${o.open ? "▴" : "▾"}</button></span>`;
     }).join("");
     return `<div class="node-cell-filter" role="group" aria-label="${escapeHtml(t("cellsFilterLabel"))}">`
       + `${this.anchors}${chips}</div>`;
+  }
+}
+
+/**
+ * An engine's server, in one strip over its machine's chips (2026-09-26, the
+ * operator's choice B, always shown): the switch starts or stops it, then
+ * its name, what it holds and a download; under them where it listens and
+ * what it has to say. The builder computes each piece — the switch with its
+ * attributes and reason, the memory with its live hooks — and nothing here
+ * re-derives them. The strip keeps the engine's test hook (node-engine) and
+ * the live patch's handle on its memory.
+ */
+export class EngineStrip {
+  constructor({ key, engine = "", state = "", label = "", version = "", lever = "", boot = "", memory = "",
+                pull = "", where = "", notes = "", title = "" } = {}) {
+    this.key = String(key || "");
+    this.engine = CellRow.launcher(engine);
+    this.state = String(state || "");
+    this.label = String(label || "");
+    this.version = String(version || "");
+    this.lever = lever || "";
+    this.boot = boot || "";
+    this.memory = memory || "";
+    this.pull = pull || "";
+    this.where = where || "";
+    this.notes = notes || "";
+    this.title = String(title || "");
+  }
+
+  html() {
+    const version = this.version ? `<span class="es-ver">${escapeHtml(this.version)}</span>` : "";
+    return `<div class="engine-strip${this.engine ? ` engine-${this.engine}` : ""}" data-t="node-engine"`
+      + ` data-t-id="${escapeHtml(this.key)}" data-t-state="${escapeHtml(this.state)}" title="${escapeHtml(this.title)}">`
+      + `<div class="es-main">${this.lever}<strong class="es-name">${escapeHtml(this.label)}</strong>${version}`
+      + `<span class="es-fill"></span>${this.boot}${this.memory}${this.pull}</div>`
+      + `<div class="es-sub">${this.where}${this.notes}</div></div>`;
+  }
+}
+
+/**
+ * A model its engine holds and no cell serves yet: a line of the cells' shape,
+ * dashed, with "+" where a cell's switch stands — "+" makes the cell, with
+ * this model, on the next free port. It has no port, so no cable lands on it.
+ * The builder hands over what the model is and what may be done to it; the
+ * delete waits under the pointer, the unload of a model held outside any cell
+ * does not. "+" keeps its test hook while it waits — disabled, saying why —
+ * so a test finds it in the one state worth checking.
+ */
+export class ShelfLine {
+  constructor({ key, engine = "", name = "", remote = "", job = "", params = "", memory = "", reserve = "", why = "",
+                acts = "", error = "", loaded = false } = {}) {
+    this.key = String(key || "");
+    this.engine = CellRow.launcher(engine);
+    this.name = String(name || "");
+    this.remote = remote || "";
+    this.job = job || "";
+    this.params = String(params || "");
+    this.memory = memory || "";
+    this.reserve = reserve || "";    // what "+" reserves with, "" when no cell can be made now
+    this.why = String(why || "");
+    this.acts = acts || "";
+    this.error = error || "";
+    this.loaded = !!loaded;
+  }
+
+  html() {
+    const why = escapeHtml(this.why);
+    const plus = `<button type="button" class="sl-plus" data-t="engine-model-reserve" data-t-id="${escapeHtml(this.key)}"`
+      + ` ${this.reserve || "disabled"} title="${why}" aria-label="${why}">+</button>`;
+    const params = this.params ? `<span class="sl-params">${escapeHtml(this.params)}</span>` : "";
+    return `<div class="shelf-line${this.engine ? ` engine-${this.engine}` : ""}${this.loaded ? " loaded" : ""}"`
+      + ` data-t="engine-model" data-t-id="${escapeHtml(this.key)}">${plus}`
+      + `<span class="sl-name" title="${escapeHtml(this.name)}">${escapeHtml(this.name)}</span>${this.remote}${this.job}`
+      + `${params}${this.acts}${this.memory}${this.error}</div>`;
   }
 }
 
