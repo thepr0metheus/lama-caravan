@@ -181,6 +181,40 @@ def section_saving_settings():
           "скаут не принял — настройки всё равно сохранены, а ответ говорит, что автозапуск остался со старыми")
 
 
+def section_a_cell_made_by_apply():
+    print("ячейка, которую создаёт первый Apply (полка каравана, «+»):")
+    asked = []
+    taken = {22013}
+
+    def port_check(port, exclude_key=None):
+        asked.append(int(port))
+        if int(port) in taken:
+            raise AppError(f"server cell port {port} is already reserved", 409)
+    keep = cell_ops.assert_server_cell_port_available
+    cell_ops.assert_server_cell_port_available = port_check
+    try:
+        store = {"hosts": {"box-a": {"id": "box-a", "autostart": []}}}
+        slots = {("box-a", 22021): {"config": dict(LLAMA_CFG), "model": "org/model-q4.gguf"}}
+        with Stubs(store, FakeScout({"ok": True}), slots) as st:
+            new = cell_ops.server_cell_save_config({"hostId": "box-a", "port": 22031,
+                                                    "config": {**LLAMA_CFG, "PORT": "22031"}})
+            asked_new = list(asked)
+            cell_ops.server_cell_save_config({"hostId": "box-a", "port": 22021, "config": dict(LLAMA_CFG)})
+            asked_existing = asked[len(asked_new):]
+            refused = refusal(lambda: cell_ops.server_cell_save_config({"hostId": "box-a", "port": 22013,
+                                                                        "config": {**LLAMA_CFG, "PORT": "22013"}}))
+            saved = dict(st.slots)
+    finally:
+        cell_ops.assert_server_cell_port_available = keep
+    check(new.get("ok") is True and asked_new == [22031] and ("box-a", 22031) in saved
+          and saved[("box-a", 22031)]["model"] == "org/model-q4.gguf",
+          "positive: новой ячейки ещё нет — порт проверяется, как при резерве, и Apply создаёт её сразу с моделью")
+    check(asked_existing == [],
+          "negative: у существующей ячейки порт её собственный — не проверяется, иначе её же порт считался бы занятым")
+    check(refused == (409, "server cell port 22013 is already reserved") and ("box-a", 22013) not in saved,
+          "negative: порт уже занят (другой ячейкой, маршрутом, исключением) — отказ его словами, ничего не сохранено")
+
+
 def section_the_controller_runs_no_cells():
     print("у контроллера своих ячеек нет (шаг 6.9):")
     from caravan.admin import server_cells as sc
@@ -211,6 +245,7 @@ def main():
     section_report_mapping()
     section_the_boot_button()
     section_saving_settings()
+    section_a_cell_made_by_apply()
     section_the_controller_runs_no_cells()
     if _fail:
         print(f"\nFAILED ({len(_fail)}):")

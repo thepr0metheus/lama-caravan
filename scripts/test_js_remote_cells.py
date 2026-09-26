@@ -983,6 +983,23 @@ PINS = [
      'await (async () => { await rc.reserveEngineButton({ dataset: { engineReserve: "h1", engineKind: "lmstudio", engineModel: "google/gemma-4-e4b" } }); return calls(); })()',
      json.dumps(rsc_add({"hostId": "h1", "engine": "lmstudio", "model": "google/gemma-4-e4b"})),
      'positive: кнопка «+» несёт машину, движок и модель — так, как их пишет shelfLineHtml'),
+    # ── a model chosen on the caravan's shelf goes into the cell editor ──
+    ('preselect_known_model',
+     'const ev = []; F({ "tr-MODEL_FILE": { _opts: ["a/q/x.gguf", "b/q/y.gguf"], _v: "b/q/y.gguf",'
+     ' get value() { return this._v; }, set value(v) { this._v = this._opts.includes(v) ? v : ""; },'
+     ' dispatchEvent(e) { ev.push([e.type, e.bubbles]); return true; } } }); globalThis.__ev = ev;',
+     '[rc.preselectModel("tr-", "a/q/x.gguf"), globalThis.__fields["tr-MODEL_FILE"].value, globalThis.__ev]',
+     '[true, "a/q/x.gguf", [["change", true]]]',
+     'positive: модель с полки встаёт в поле и поле узнаёт о смене, как от выбора руками — его слушатели подтянут '
+     'проектор, черновик MTP и раннер'),
+    ('preselect_unknown_model',
+     'const ev = []; F({ "tr-MODEL_FILE": { _opts: ["a/q/x.gguf"], _v: "a/q/x.gguf",'
+     ' get value() { return this._v; }, set value(v) { this._v = this._opts.includes(v) ? v : ""; },'
+     ' dispatchEvent(e) { ev.push(e.type); return true; } } }); globalThis.__ev = ev;',
+     '[rc.preselectModel("tr-", "gone/q/z.gguf"), globalThis.__ev, rc.preselectModel("tr-", ""), rc.preselectModel("xx-", "a/q/x.gguf")]',
+     '[false, [], false, false]',
+     'negative: модели нет в списке поля — false и ни одного события, выбор остаётся оператору; пустая модель и форма '
+     'без поля — false'),
 ]
 
 _fail = []

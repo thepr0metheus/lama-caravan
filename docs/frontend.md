@@ -469,7 +469,9 @@ report it), and the pressed one is the list shown; with nothing to choose it dra
 row starts with the anchors of the engine models made router outputs.
 
 `EngineStrip` is an engine's server over the machine's chips, one per engine, always
-(2026-09-26, the operator's choice B) — the switch that starts or stops it, its name and version,
+(2026-09-26, the operator's choice B) — and the caravan's own strip, the same strip with its own
+hook (`hook`), no switch and no second line when it has nothing to say — the switch that starts or
+stops it, its name and version,
 ↟ when it starts with the machine, what it holds, ⤓; under them where it listens and what it has
 to say. Right under its strip, whichever chip is pressed, each model it holds that no cell serves
 is a `ShelfLine`: the cells' line, dashed, with «+» where a cell's switch stands. «+»
@@ -591,7 +593,7 @@ and `isControllerMachine` / `hostPowerTextKey` give that node's reboot, poweroff
 words for the machine the board runs on. Collapsed nodes persist to localStorage.
 
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
-- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeEngineViewHtml`, `nodeEngineStripHtml`, `nodeEngineShelfHtml`, `engineRamText`.
+- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeLaunchersHtml`, `nodeCaravanGroupHtml`, `caravanShelfModels`, `nodeEngineGroupsHtml`, `nodeEngineStripHtml`, `nodeEngineShelfHtml`, `engineRamText`.
 - A GPU row names who holds the memory that is no cell's (`outside` from the backend): an engine of
   the machine («Ollama 5.9 GB»), else the process's name, else «outside»; each owner from 64 MiB is a
   hatched band laid after the fleet's share of the bar, and the «who» line lists the cells' ports AND
@@ -618,12 +620,23 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   2026-09-26, in place of an engine card and its ▾ panel): every engine the machine's chips offer
   (`offeredEngineRunners` — the chips and the strips ask this one question) has a strip between
   the list's title and the chips, always, whichever chip is pressed — an engine's server is the
-  machine's. `nodeEngineViewHtml(n, servers)` gives the lane one group per engine
-  (`node-engine-group`, in the chips' order): its strip (`nodeEngineStripHtml`, `node-engine`) and
-  right under it its shelf (`nodeEngineShelfHtml`, `engine-shelf`) — over the chips, so a model
-  waiting for a cell is seen without pressing anything (the operator, 2026-09-26); an engine the
-  machine does not report, offered because a cell of the machine runs in it, is a line saying so
-  (`node-engine-missing`) — its cells cannot start. The strip wears the engine's colour: the switch
+  machine's. `nodeLaunchersHtml(n, servers)` gives the lane, over the chips, one group per
+  launcher (`node-launcher-group`): the caravan first (`nodeCaravanGroupHtml`), then each engine in
+  the chips' order (`nodeEngineGroupsHtml`) — its strip (`nodeEngineStripHtml`, `node-engine`) and
+  right under it its shelf (`nodeEngineShelfHtml`, `engine-shelf`) — so a model waiting for a cell
+  is seen without pressing anything (the operator, 2026-09-26); an engine the machine does not
+  report, offered because a cell of the machine runs in it, is a line saying so
+  (`node-engine-missing`) — its cells cannot start.
+- The caravan's group (round 8's A, round 9's C): a strip without a switch — the caravan starts its
+  cells, not a server — naming the machine's llama.cpp build, with «download» as a link to the
+  Hugging Face page (`node-caravan`, `node-caravan-download`); under it the models the cell editor
+  offers (`state.models`: this controller's and its libraries' — any machine runs any of them, its
+  scout fetches the file) less the ones a cell of this machine names (`caravanShelfModels`), newest
+  first, six and «+N more». A line: «+», the file's name, 📚 for a model only a library holds, its
+  job when it is not chat (the editor list's own rule, `jobsForArtifact`), ≈ its file's size. «+»
+  opens the cell editor with the model (`openCaravanModelEditor`), shut while a reserve on the
+  machine is taking the port the editor would offer. A list that has not come draws no shelf; an
+  empty one, or one whose every model has a cell here, says so. The strip wears the engine's colour: the switch
   (the scout's `controls`: stop a running server, start a stopped one; with neither it is off-limits
   and says why — another user's service, or a scout that cannot), name, version, ↟ «starts with the
   machine», VRAM on the machine's cards (`engineVramText`: the owners the GPU bars name, summed,
@@ -796,8 +809,17 @@ no other act — no model is loaded from the board. `cellServiceAction` asks whe
 `short` — a cell in an engine whose model would not fit into the cards' free memory: the numbers
 ("≥" when the need is the model's file alone), and on "start anyway" the same start with `force`.
 
+`openCaravanModelEditor(hostId, model)` is the «+» on a caravan model's line (2026-09-26, the
+operator's choice C of round 9): the `tr-` editor opens on the next free port with the model
+already picked, and its Apply makes the cell — `save-config` creates a cell that does not exist
+yet, checking its port as a reserve does; «+» alone makes nothing. `preselectModel(pfx, model)`
+puts the model in as a pick made in the form: the field's own change listeners bring the
+projector, the MTP draft, the runner (a GigaAM file lands on transcribe.cpp) and the insight; a
+model the field does not hold is left for the operator to pick. A saved cell reveals the caravan's
+cells on its machine's chips (`CARD_FOLD.reveal`), so the new cell is not saved out of sight.
+
 - Owns: the pending-op collections — `_pendingRemoteStarts` (Map), `_stoppingHosts`, `_deletingSlots`, `_reservingCells`, `_newReservedCells`, `_stoppingCells`, `_expandedCellCfgs` — plus `_remoteStartWatchTimer`, `_nvidiaSmiSource`, the `_tr*` form state.
-- Key exports: `reserveServerCell`, `reserveEngines`, `reserveEngineCell`, `reserveEngineButton`, `actOnEngineModel`, `serveEngine`, `pullEngineModel`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.
+- Key exports: `reserveServerCell`, `reserveEngines`, `reserveEngineCell`, `reserveEngineButton`, `openCaravanModelEditor`, `preselectModel`, `actOnEngineModel`, `serveEngine`, `pullEngineModel`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.
 
 ## cloud.js
 

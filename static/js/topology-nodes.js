@@ -34,7 +34,7 @@ import {
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
 import { runnerRegistry } from "./llama-edit.js";
-import { JOB_LABELS, JOB_MARKS, jobsForCell, jobsFromKinds } from "./model-jobs.js";
+import { JOB_LABELS, JOB_MARKS, jobsForArtifact, jobsForCell, jobsFromKinds } from "./model-jobs.js";
 import { $, api, copyText, escapeHtml, inferSpecType, toast } from "./utils.js";
 
 // ── Host-centric node view (Stage 3a) ────────────────────────────────────────
@@ -280,6 +280,8 @@ export function nodeGpuRowHtml(node, g) {
 // (an older scout, which cannot look) and [] (it looked, none) draw nothing.
 // Installed-but-not-loaded models shown before "+N more installed".
 const ENGINE_IDLE_SHOWN = 6;
+// The caravan's shelf shows as many, then "+N more".
+const CARAVAN_SHELF_SHOWN = 6;
 // Ollama's keep_alive -1 is an expiry decades away: "stays loaded".
 const ENGINE_FOREVER_SEC = 365 * 86400;
 
@@ -556,23 +558,88 @@ export function nodeEngineShelfHtml(n, e, servers = []) {
     + `${caption}${lines}${more}${unknown}${said}</div>`;
 }
 
-// What the lane shows of a machine's engines, right over its chips and
-// whichever chip is pressed (the operator's choice, 2026-09-26, twice): every
-// engine the chips offer, its server's strip and under it the shelf of the
-// models it holds that no cell serves — an engine's server is the machine's,
-// and a model waiting for a cell is seen without looking for it. An engine the
-// machine does not report, offered because a cell of the machine runs in it,
-// is named so — its cells cannot start — not left as an empty space.
-export function nodeEngineViewHtml(n, servers) {
+// Every engine the machine's chips offer, as a group each (the operator's
+// choice, 2026-09-26, twice): its server's strip and right under it the shelf
+// of the models it holds that no cell serves — an engine's server is the
+// machine's, and a model waiting for a cell is seen without looking for it. An
+// engine the machine does not report, offered because a cell of the machine
+// runs in it, is named so — its cells cannot start — not left as an empty space.
+export function nodeEngineGroupsHtml(n, servers) {
   const reported = Array.isArray(n?.engines) ? n.engines : [];
-  const engines = offeredEngineRunners(n, servers).map((r) => {
+  return offeredEngineRunners(n, servers).map((r) => {
     const e = reported.find((x) => String(x.kind || "") === r.id);
-    if (e) return `<div class="node-engine-group">${nodeEngineStripHtml(n, e)}${nodeEngineShelfHtml(n, e, servers)}</div>`;
+    if (e) return `<div class="node-launcher-group">${nodeEngineStripHtml(n, e)}${nodeEngineShelfHtml(n, e, servers)}</div>`;
     const colour = CellRow.launcher(r.id);
-    return `<div class="node-engine-group"><div class="engine-strip missing${colour ? ` engine-${colour}` : ""}" data-t="node-engine-missing"`
+    return `<div class="node-launcher-group"><div class="engine-strip missing${colour ? ` engine-${colour}` : ""}" data-t="node-engine-missing"`
       + ` data-t-id="${escapeHtml(`${n.id}:${r.id}`)}">${escapeHtml(t("engineNotReported", { engine: t(r.labelKey || "") || r.id }))}</div></div>`;
   }).join("");
-  return engines ? `<div class="node-engine-strips">${engines}</div>` : "";
+}
+
+// The caravan's own models with no cell on this machine (2026-09-26: the
+// operator chose round 8's A for where, round 9's C for what "+" does). The
+// models are the ones the cell editor offers — this controller's and its
+// libraries' (state.models): any machine runs any of them, its scout fetches
+// the file — less the ones a cell of this machine already names. Newest first:
+// the model just downloaded is the one to try. None when the list has not come
+// yet; a list that came empty is said so.
+export function caravanShelfModels(n, servers = [], models = state.models) {
+  if (!Array.isArray(models)) return null;
+  const named = new Set(servers.map((srv) => String(srv?.slotConfig?.MODEL_FILE || "").trim()).filter(Boolean));
+  return models.filter((m) => m && m.kind === "model" && m.path && !named.has(String(m.path)))
+    .sort((a, b) => (Number(b.mtime) || 0) - (Number(a.mtime) || 0) || String(a.path).localeCompare(String(b.path)));
+}
+
+function caravanShelfLineHtml(n, m, reserving) {
+  const path = String(m.path);
+  const name = String(m.name || path.split("/").pop() || path).replace(/\.gguf$/i, "");
+  const key = `${n.id}:caravan:${path}`;
+  // "+" makes nothing: it opens the cell editor on the next free port with the
+  // model in it, and Apply makes the cell. Shut while a reserve on this machine
+  // is taking the port the editor would offer.
+  const port = nextTopologyCellPort();
+  const open = reserving ? ""
+    : `data-caravan-add="${escapeHtml(String(n.id))}" data-caravan-model="${escapeHtml(path)}"`;
+  const why = reserving ? t("shelfReserveBusy") : t("shelfCaravanAddTitle", { model: name, port: String(port) });
+  const library = m.libraryOnly
+    ? `<span class="shelf-library" title="${escapeHtml(t("shelfCaravanLibraryHint", { library: String(m.store?.name || "") }))}">📚</span>` : "";
+  const jobs = jobsForArtifact(m.kind, m.ggufMeta?.sttVariant, "", m.detectedFamily).filter((job) => job !== "llm");
+  const job = jobs.map((j) => `<span class="mbadge mbadge-job node-job-chip" data-t="node-engine-job" data-t-id="${escapeHtml(j)}">`
+    + `${JOB_MARKS[j] || ""} ${escapeHtml(t(JOB_LABELS[j]))}</span>`).join("");
+  const size = Number(m.sizeGb);
+  const memory = Number.isFinite(size) && size > 0
+    ? mbadge("vram-est", `≈${escapeHtml(size.toFixed(1))}G`, t("vramEstChipTitle")) : "";
+  return new ShelfLine({ key, engine: "caravan", name, remote: library, job, memory, reserve: open, why }).html();
+}
+
+export function nodeCaravanGroupHtml(n, servers = [], models = state.models) {
+  const build = parseLlamaBuildVersion(n?.llamaBinaryVersion || "");
+  const pull = `<a class="node-engine-serve pull" href="/hf" target="_blank" rel="noopener" data-t="node-caravan-download"`
+    + ` data-t-id="${escapeHtml(String(n.id))}" title="${escapeHtml(t("caravanPullTitle"))}">⤓ ${escapeHtml(t("nodeEnginePull"))}</a>`;
+  const strip = new EngineStrip({ key: `${n.id}:caravan`, engine: "caravan", hook: "node-caravan", state: "ok",
+                                  label: t("launcherCaravan"), version: build ? `llama.cpp b${build.build}` : "", pull }).html();
+  const rows = caravanShelfModels(n, servers, models);
+  if (rows === null) return `<div class="node-launcher-group">${strip}</div>`;
+  const reserving = _reservingCells.has(String(n.id));
+  const label = t("launcherCaravan");
+  const lines = rows.slice(0, CARAVAN_SHELF_SHOWN).map((m) => caravanShelfLineHtml(n, m, reserving)).join("");
+  const caption = rows.length
+    ? `<div class="engine-shelf-caption"><span class="ncf-dot up" aria-hidden="true"></span>${escapeHtml(t("shelfCaption", { engine: label }))}`
+      + `<span class="ncf-count">${rows.length}</span></div>` : "";
+  const more = rows.length > CARAVAN_SHELF_SHOWN
+    ? `<div class="node-engine-more topology-muted">${escapeHtml(t("shelfCaravanMore", { n: rows.length - CARAVAN_SHELF_SHOWN }))}</div>` : "";
+  const said = !models.some((m) => m && m.kind === "model")
+    ? `<div class="node-engine-state topology-muted">${escapeHtml(t("shelfCaravanNoModels"))}</div>`
+    : (!rows.length ? `<div class="node-engine-state topology-muted">${escapeHtml(t("shelfCaravanAllHaveCells"))}</div>` : "");
+  const shelf = `<div class="engine-shelf engine-caravan" data-t="engine-shelf" data-t-id="${escapeHtml(`${n.id}:caravan`)}">`
+    + `${caption}${lines}${more}${said}</div>`;
+  return `<div class="node-launcher-group">${strip}${shelf}</div>`;
+}
+
+// What the lane shows right over a machine's chips, whichever chip is pressed:
+// a group for each launcher of its cells — the caravan first, then the engines.
+export function nodeLaunchersHtml(n, servers, models = state.models) {
+  const groups = nodeCaravanGroupHtml(n, servers, models) + nodeEngineGroupsHtml(n, servers);
+  return `<div class="node-launchers">${groups}</div>`;
 }
 
 // The handles of a machine's engine models made router outputs: their cables
@@ -1763,7 +1830,7 @@ export function nodesLaneHtml() {
     } else {
       const startingCard = nodeStartingCardHtml(n);
       const filter = nodeCellFilter(n, servers);
-      const engines = nodeEngineViewHtml(n, servers);
+      const launchers = nodeLaunchersHtml(n, servers);
       const serversHtml = servers.length
         ? servers.map((s) => nodeServerCardHtml(n, s, { fold: true, only: filter.chosen })).join("")
         : "";
@@ -1825,7 +1892,7 @@ export function nodesLaneHtml() {
       const eye = new CellEye({
         hostId: n.id, on: CARD_FOLD.hidesIdle(n.id), hidden: (serversHtml.match(/data-cell-hidden-by="idle"/g) || []).length,
       }).html();
-      const serversHead = `<div class="node-servers-head">${serversSubtitle}${engines}${filter.html()}${eye}</div>`;
+      const serversHead = `<div class="node-servers-head">${serversSubtitle}${launchers}${filter.html()}${eye}</div>`;
       bodyHtml = `<div class="node-body">
           <div class="node-servers">${serversHead}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
           <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>

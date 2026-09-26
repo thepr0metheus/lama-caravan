@@ -206,9 +206,9 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 356 values. Regenerate with
+Generated from the source, not from memory — 358 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
-source disagree. Fifty of them are composed at runtime (`…-picker`,
+source disagree. Forty-six of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
 that is why there is a script and not a one-liner.
 
@@ -235,7 +235,7 @@ that is why there is a script and not a one-liner.
 
 **models** — `models-delete-selected`, `models-filter`, `models-filter-clear`, `models-filter-empty`, `models-filters`, `models-folder-item`, `models-fresh-at`, `models-fresh-auto`, `models-fresh-check`, `models-fresh-get`, `models-fresh-keep`, `models-fresh-stamp`, `models-hf-open`, `models-library-file`, `models-model-select`, `models-move-branch`, `models-move-dest`, `models-move-dismiss`, `models-move-menu`, `models-move-open`, `models-move-progress`, `models-move-selected`, `models-move-stayed`, `models-move-stop`, `models-move-target`, `models-moves-summary`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-place-all`, `models-place-card`, `models-place-open`, `models-search`, `models-selection`, `models-staged-download`, `models-staged-progress`, `models-staged-revert`, `models-store`, `models-store-add`, `models-store-add-cancel`, `models-store-add-open`, `models-store-add-path`, `models-store-add-row`, `models-store-files`, `models-store-meta`, `models-store-remove`, `models-store-repath`, `models-store-repath-cancel`, `models-store-repath-input`, `models-store-repath-row`, `models-store-repath-save`, `models-store-state`, `models-store-why`, `models-store-why-command`, `models-stores`, `models-stores-error`, `models-summary`, `models-summary-bar`, `models-summary-facts`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-tree-head`, `models-unused-select-all`, `models-unused-summary`
 **engine** — `engine-model`, `engine-model-reserve`, `engine-shelf`
-**node** — `node-cell-filter`, `node-disconnect`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-downloading`, `node-engine-expose`, `node-engine-job`, `node-engine-missing`, `node-engine-pull`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-hide-idle`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
+**node** — `node-caravan`, `node-caravan-download`, `node-cell-filter`, `node-disconnect`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-downloading`, `node-engine-expose`, `node-engine-job`, `node-engine-missing`, `node-engine-pull`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-hide-idle`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
 **host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `cell-ctx-native`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
 **scout** — `scout-add-address`, `scout-add-connect`, `scout-add-port`, `scout-add-status`
 **setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
@@ -271,6 +271,14 @@ switch starts or stops the engine's server (scout 2.16+): `node-engine-start` /
 `node-engine-pull` (scout 2.17+), and while it downloads the strip carries
 `node-engine-downloading` with its progress; `node-engine-vram` says what the
 engine holds on the machine's cards (empty when nothing).
+
+The caravan's own strip comes first over the chips, `node-caravan` (`data-t-id`
+`<node>:caravan`), with `node-caravan-download` (a link to the Hugging Face page,
+same id as the node). Its shelf is `engine-shelf` (`<node>:caravan`) with the same
+line hooks as an engine's, `engine-model` and `engine-model-reserve`, `data-t-id`
+`<node>:caravan:<model path>`; «+» there opens the cell editor with that model
+on the next free port (`data-caravan-add` the node, `data-caravan-model` the
+path) and makes nothing until Apply.
 
 Right under an engine's strip, over the chips and whichever of them is pressed,
 the models it holds that no cell serves stand on a shelf, `engine-shelf`

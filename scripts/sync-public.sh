@@ -48,7 +48,7 @@ DRY=0
 # private on 2026-09-05; the public reference for modules is docs/frontend.md.
 # docs/scout-split.md and docs/foreign-engines.md are working plans of the
 # same kind (2026-09-24, 2026-09-25).
-EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|docs/oop-rewrite\.md|docs/clients-page\.md|docs/scout-split\.md|docs/foreign-engines\.md|scripts/refactor/|tests/golden/)'
+EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|docs/oop-rewrite\.md|docs/clients-page\.md|docs/scout-split\.md|docs/foreign-engines\.md|docs/cell-keys\.md|scripts/refactor/|tests/golden/)'
 
 # Anything matching this in the public tree stops the sync. Machine names and
 # addresses are the operator's, not the project's; "Revoice" is a private

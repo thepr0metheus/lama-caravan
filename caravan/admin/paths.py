@@ -63,6 +63,10 @@ CLOUD_PROVIDERS_FILE = Path(os.environ.get("CLOUD_PROVIDERS_FILE")
     or _default("config/cloud-providers.json", PROJECT_ROOT / "cloud-providers.json"))
 PROVIDER_SECRETS_FILE = Path(os.environ.get("PROVIDER_SECRETS_FILE")
     or _default("secrets/provider-secrets.json", Path.home() / ".config" / "llamacpp-easy-admin" / "provider-secrets.json"))
+# The master of the cells' keys (caravan/common/cell_key.py): the proxy derives
+# each cell's key from it, the admin hands a cell its key when it starts one.
+CELL_KEY_FILE = Path(os.environ.get("CARAVAN_CELL_KEY_FILE")
+    or _default("secrets/cell-key", Path.home() / ".config" / "llamacpp-easy-admin" / "cell-key"))
 MODEL_CATALOG_FILE = Path(os.environ.get("MODEL_CATALOG_FILE")
     or _default("state/model-catalog.json", PROJECT_ROOT / "model-catalog.json"))
 TOKEN_HISTORY_FILE = Path(os.environ.get("TOKEN_HISTORY_FILE")
