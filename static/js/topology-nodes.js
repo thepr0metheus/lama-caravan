@@ -523,7 +523,7 @@ function shelfLineHtml(n, e, m) {
 }
 
 // The models an engine holds that no cell serves (2026-09-26, variant B):
-// dashed lines under its cells, each with "+" to make one. Held outside any
+// dashed lines under its server's strip, each with "+" to make one. Held outside any
 // cell first (they take memory now), then a model still a router output, then
 // the rest up to six and "+N more installed" — every model is still in the
 // reserve dialog. An engine that is not answering has no list to show: its
@@ -556,33 +556,28 @@ export function nodeEngineShelfHtml(n, e, servers = []) {
     + `${caption}${lines}${more}${unknown}${said}</div>`;
 }
 
-// What the lane shows of a machine's engines (the operator's choice,
-// 2026-09-26): the strip of every engine its chips offer, always, right over
-// the chips — an engine's server is the machine's, whichever cells the chips
-// show — and under the cells the shelf of models with no cell of the engine
-// whose chip is pressed. An engine the machine does not report, offered because
-// a cell of the machine runs in it, is named so — its cells cannot start — not
-// left as an empty space.
-export function nodeEngineViewHtml(n, servers, chosen) {
+// What the lane shows of a machine's engines, right over its chips and
+// whichever chip is pressed (the operator's choice, 2026-09-26, twice): every
+// engine the chips offer, its server's strip and under it the shelf of the
+// models it holds that no cell serves — an engine's server is the machine's,
+// and a model waiting for a cell is seen without looking for it. An engine the
+// machine does not report, offered because a cell of the machine runs in it,
+// is named so — its cells cannot start — not left as an empty space.
+export function nodeEngineViewHtml(n, servers) {
   const reported = Array.isArray(n?.engines) ? n.engines : [];
-  const runners = offeredEngineRunners(n, servers);
-  const strips = runners.map((r) => {
+  const engines = offeredEngineRunners(n, servers).map((r) => {
     const e = reported.find((x) => String(x.kind || "") === r.id);
-    if (e) return nodeEngineStripHtml(n, e);
+    if (e) return `<div class="node-engine-group">${nodeEngineStripHtml(n, e)}${nodeEngineShelfHtml(n, e, servers)}</div>`;
     const colour = CellRow.launcher(r.id);
-    return `<div class="engine-strip missing${colour ? ` engine-${colour}` : ""}" data-t="node-engine-missing"`
-      + ` data-t-id="${escapeHtml(`${n.id}:${r.id}`)}">${escapeHtml(t("engineNotReported", { engine: t(r.labelKey || "") || r.id }))}</div>`;
+    return `<div class="node-engine-group"><div class="engine-strip missing${colour ? ` engine-${colour}` : ""}" data-t="node-engine-missing"`
+      + ` data-t-id="${escapeHtml(`${n.id}:${r.id}`)}">${escapeHtml(t("engineNotReported", { engine: t(r.labelKey || "") || r.id }))}</div></div>`;
   }).join("");
-  const chosenEngine = runners.some((r) => r.id === chosen) ? reported.find((x) => String(x.kind || "") === chosen) : null;
-  return {
-    strips: strips ? `<div class="node-engine-strips">${strips}</div>` : "",
-    shelf: chosenEngine ? nodeEngineShelfHtml(n, chosenEngine, servers) : "",
-  };
+  return engines ? `<div class="node-engine-strips">${engines}</div>` : "";
 }
 
 // The handles of a machine's engine models made router outputs: their cables
-// land at the machine's chips, always drawn — the strip that names them shows
-// only while their engine's chip is pressed.
+// land at the machine's chips, always drawn — the shelf line that names one is
+// gone while its engine does not answer.
 function engineOutputAnchorsHtml(n) {
   return (Array.isArray(n?.engines) ? n.engines : []).flatMap((e) => (Array.isArray(e.models) ? e.models : [])
     .filter((m) => m && m.exposed === true && m.outputId)
@@ -1768,7 +1763,7 @@ export function nodesLaneHtml() {
     } else {
       const startingCard = nodeStartingCardHtml(n);
       const filter = nodeCellFilter(n, servers);
-      const engineView = nodeEngineViewHtml(n, servers, filter.chosen);
+      const engines = nodeEngineViewHtml(n, servers);
       const serversHtml = servers.length
         ? servers.map((s) => nodeServerCardHtml(n, s, { fold: true, only: filter.chosen })).join("")
         : "";
@@ -1830,9 +1825,9 @@ export function nodesLaneHtml() {
       const eye = new CellEye({
         hostId: n.id, on: CARD_FOLD.hidesIdle(n.id), hidden: (serversHtml.match(/data-cell-hidden-by="idle"/g) || []).length,
       }).html();
-      const serversHead = `<div class="node-servers-head">${serversSubtitle}${engineView.strips}${filter.html()}${eye}</div>`;
+      const serversHead = `<div class="node-servers-head">${serversSubtitle}${engines}${filter.html()}${eye}</div>`;
       bodyHtml = `<div class="node-body">
-          <div class="node-servers">${serversHead}${serversHtml}${engineView.shelf}${startingCard}${addBtn}${serverStatsSlot}</div>
+          <div class="node-servers">${serversHead}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
           <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>
         </div>`;
     }

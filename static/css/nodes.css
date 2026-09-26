@@ -72,8 +72,10 @@
 .node-cell-filter > .topology-handle.engine-input { left:-24px; height:22px; }
 /* The machine's engines, always, between the list's title and its chips
    (the operator's choice, 2026-09-26): an engine's server is the machine's,
-   whichever cells the chips show. */
-.node-engine-strips { order:2; flex-basis:100%; display:flex; flex-direction:column; gap:6px; padding-top:2px; }
+   whichever cells the chips show, and its models with no cell stand right
+   under it. One engine to a group, a wider gap between the groups. */
+.node-engine-strips { order:2; flex-basis:100%; display:flex; flex-direction:column; gap:10px; padding-top:2px; }
+.node-engine-group { display:flex; flex-direction:column; gap:6px; min-width:0; }
 /* An engine's strip (card-rows.js EngineStrip): the switch that starts or
    stops its server, its name, what it holds and ⤓; under them where it listens
    and what it has to say. In the engine's colour, as its cells are. */

@@ -336,9 +336,12 @@ export function renderTopology() {
     });
   });
   // A model of an engine with no cell yet: "+" makes its cell (variant B).
+  // The "+" stands over the chips, under any of them: a chip that would hide
+  // the new cell gives way to its engine's, so the cell is seen as it comes.
   $("topologyLlamaServers")?.querySelectorAll("[data-engine-reserve]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
       event.stopPropagation();
+      CARD_FOLD.reveal(btn.dataset.engineReserve, btn.dataset.engineKind);
       reserveEngineButton(btn);
     });
   });

@@ -131,6 +131,16 @@ out.launcher = (() => {
   return { fresh, a, saved, other, numberKey, b, savedOff, restored, garbage, blockedThrew: threw,
            blockedNow: blocked.launcherOf("controller") };
 })();
+out.reveal = (() => {
+  const s = store(); const f = new CardFold({ storage: s, automated: false });
+  const all = f.reveal("h1", "ollama"); const savedAll = s.m.get("boardCellsLauncher") ?? null;
+  f.setLauncher("h1", "caravan"); const fromCaravan = f.reveal("h1", "ollama"); const saved = s.m.get("boardCellsLauncher");
+  f.setLauncher("h1", "lmstudio"); const fromOther = f.reveal("h1", "ollama");
+  f.setLauncher("h1", "ollama"); const same = f.reveal("h1", "ollama");
+  f.setLauncher("h2", "caravan"); f.setLauncher("h1", "caravan"); f.reveal("h1", "lmstudio");
+  const otherMachine = f.launcherOf("h2");
+  return { all, savedAll, fromCaravan, saved, fromOther, same, otherMachine };
+})();
 out.cellIdle = Object.fromEntries([
   ["running", { phase: "running" }], ["stopped", { phase: "stopped" }], ["reserved", { phase: "reserved" }],
   ["error", { phase: "error" }], ["starting", { phase: "starting" }], ["broken", { phase: "broken" }],
@@ -381,6 +391,15 @@ check(la["restored"] == "lmstudio", "выбор переживает перез�
 check(la["garbage"] == ["", ""], "не та форма в хранилище (список, число) — все ячейки, без исключения")
 check(la["blockedThrew"] is False and la["blockedNow"] == "ollama",
       "хранилище недоступно — выбор держится до перезагрузки, без исключения")
+rv = got["reveal"]
+check(rv["all"] == "" and rv["savedAll"] is None,
+      "negative: нажат «все» — новая ячейка и так видна, выбор не трогается и не пишется")
+check(rv["fromCaravan"] == "ollama" and json.loads(rv["saved"]) == {"h1": "ollama"},
+      "positive: «+» модели Ollama при чипе «караван» — чип уступает Ollama, иначе новая ячейка спрятана; "
+      "записано, как щелчок по чипу")
+check(rv["fromOther"] == "ollama", "positive: при чипе другого движка — тоже уступает")
+check(rv["same"] == "ollama", "negative: нажат чип того же движка — остаётся")
+check(rv["otherMachine"] == "caravan", "negative: чипы другой машины не трогаются")
 h = got["hide"]
 check(h["fresh"] is False, "без выбора ничего не прячется: глаз по умолчанию показывает всё")
 check(h["a"] is True and json.loads(h["saved"]) == ["controller"], "глаз машины включается и записывается")

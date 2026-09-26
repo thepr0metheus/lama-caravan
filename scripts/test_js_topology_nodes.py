@@ -2877,35 +2877,34 @@ PINS += [
                  ["engine-shelf engine-lmstudio", "shelf-line engine-lmstudio"],
                  ["engine-shelf", "shelf-line"]]),
      "полка и её строки — в цвет движка; negative: вид, который не годится в имя класса, цвета не получает"),
-    ("view_by_chosen",
-     STRIP + r' const view = (n, chosen, servers = []) => { const v = m.nodeEngineViewHtml(n, servers, chosen); return [[...v.strips.matchAll(/data-t="(node-engine(?:-missing)?)" data-t-id="([^"]*)"/g)].map((x) => x[1] + " " + x[2]), (v.shelf.match(/data-t="engine-shelf" data-t-id="([^"]*)"/) || [0, ""])[1]]; };'
-     ' const ON = { ...node, engines: [ENG({ models: [MDL()] })] };',
-     '[view(ON, "ollama"), view(ON, ""), view(ON, "caravan"), view(ON, "lmstudio"), view({ ...node, engines: [ENG({ kind: "foo", models: [MDL()] })] }, "foo"),'
-     ' view({ ...node, engines: [ENG({ state: "stopped", models: null })] }, "ollama"), view({ ...node, engines: [ENG({ kind: "llama-server" })] }, "llama-server")]',
-     json.dumps([[["node-engine h1:ollama:11434"], "h1:ollama"], [["node-engine h1:ollama:11434"], ""],
-                 [["node-engine h1:ollama:11434"], ""], [["node-engine h1:ollama:11434"], ""], [[], ""],
-                 [["node-engine h1:ollama:11434"], ""], [[], ""]]),
-     "полоса движка — всегда, какой бы чип ни был нажат (выбор оператора: сервер движка — машины, а не списка); полка — "
-     "только под чипом своего движка; negative: чип движка, которого машина не предлагает (lmstudio), полки не даёт; "
-     "движок, в котором ячейки не живут (foo), и раннер каравана — ни полосы, ни полки; стоящий движок — полоса без полки"),
+    ("view_shelf_under_its_strip",
+     STRIP + r' const view = (n, servers = []) => [...m.nodeEngineViewHtml(n, servers).matchAll(/<div class="node-engine-group">|data-t="(node-engine(?:-missing)?|engine-shelf)" data-t-id="([^"]*)"/g)].map((x) => x[1] ? x[1] + " " + x[2] : "group");',
+     '[view({ ...node, engines: [ENG({ models: [MDL()] }), ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, models: [MDL({ name: "g" })] })] }),'
+     ' view({ ...node, engines: [ENG({ kind: "foo", models: [MDL()] })] }),'
+     ' view({ ...node, engines: [ENG({ state: "stopped", models: null })] }), view({ ...node, engines: [ENG({ kind: "llama-server" })] })]',
+     json.dumps([["group", "node-engine h1:ollama:11434", "engine-shelf h1:ollama", "group", "node-engine h1:lmstudio:1234", "engine-shelf h1:lmstudio"],
+                 [], ["group", "node-engine h1:ollama:11434"], []]),
+     "полка движка — сразу под его полосой, в одной группе, до следующего движка (выбор оператора, 2026-09-26: модель "
+     "без ячейки видна, её не надо искать под чипом); negative: движок, в котором ячейки не живут (foo), и раннер "
+     "каравана — ни полосы, ни полки; стоящий движок — полоса без полки"),
     ("view_missing_says_so",
      STRIP,
-     'norm(m.nodeEngineViewHtml({ ...node, engines: null }, [cell("lmstudio", "google/gemma-4-e4b")], "").strips)',
-     json.dumps('<div class="node-engine-strips"><div class="engine-strip missing engine-lmstudio" data-t="node-engine-missing" data-t-id="h1:lmstudio">'
-                + _esc(_en("engineNotReported").replace("{engine}", "LM Studio")) + '</div></div>', ensure_ascii=False),
+     'norm(m.nodeEngineViewHtml({ ...node, engines: null }, [cell("lmstudio", "google/gemma-4-e4b")]))',
+     json.dumps('<div class="node-engine-strips"><div class="node-engine-group"><div class="engine-strip missing engine-lmstudio" data-t="node-engine-missing" data-t-id="h1:lmstudio">'
+                + _esc(_en("engineNotReported").replace("{engine}", "LM Studio")) + '</div></div></div>', ensure_ascii=False),
      "negative: у машины есть ячейка в LM Studio, а её скаут движка не сообщает — так и сказано над чипами, при любом "
      "чипе (её ячейки не запустятся), имя из реестра; пустое место не рисуется"),
     ("view_order_follows_the_chips",
      STRIP,
-     '[...m.nodeEngineViewHtml({ ...node, engines: [ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, state: "stopped", models: null }), ENG()] }, [], "").strips'
+     '[...m.nodeEngineViewHtml({ ...node, engines: [ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, state: "stopped", models: null }), ENG()] }, [])'
      '.matchAll(/data-t="node-engine" data-t-id="([^"]*)" data-t-state="([^"]*)"/g)].map((x) => x[1] + " " + x[2])',
      '["h1:ollama:11434 ok", "h1:lmstudio:1234 stopped"]',
      "полосы — в порядке чипов (реестр: Ollama, потом LM Studio), а не в порядке отчёта скаута; стоящий движок — тоже "
      "полоса: его тумблер и есть способ запустить"),
     ("view_needs_the_registry",
      '',
-     'm.nodeEngineViewHtml({ ...node, engines: [ENG({ models: [MDL()] })] }, [], "ollama")',
-     '{"strips": "", "shelf": ""}',
+     'm.nodeEngineViewHtml({ ...node, engines: [ENG({ models: [MDL()] })] }, [])',
+     '""',
      "negative: реестр не называет раннеров ячеек движка (старый контроллер) — ни полосы, ни полки"),
 ]
 
@@ -3053,23 +3052,27 @@ PINS += [
                  ["lmstudio", _en("cellsFilterOnly").replace("{launcher}", "LM Studio") + "\n" + _en("cellsFilterEngineDown").replace("{engine}", "LM Studio")]],
                 ensure_ascii=False),
      "подсказка чипа движка — что он покажет и работает ли движок на этой машине"),
-    ("lane_engine_strip_and_shelf_around_the_cells",
+    ("lane_engine_shelf_under_its_strip_over_the_chips",
      LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
      '(h => { const at = (x) => h.indexOf(x); const cellAt = at(\'data-t="cell-row" data-t-id="h1:22031"\');'
-     ' return [at(\'class="node-subtitle\') < at(\'data-t="node-engine"\'), at(\'data-t="node-engine"\') < at(\'data-t="node-cell-filter"\'),'
-     ' at(\'data-t="node-cell-filter"\') < cellAt, at(\'data-t="engine-shelf"\') > cellAt,'
+     ' return [at(\'class="node-subtitle\') < at(\'data-t="node-engine"\'), at(\'data-t="node-engine"\') < at(\'data-t="engine-shelf"\'),'
+     ' at(\'data-t="engine-shelf"\') < at(\'data-t="node-cell-filter"\'), at(\'data-t="node-cell-filter"\') < cellAt,'
+     ' (h.match(/data-t="engine-shelf"/g) || []).length,'
      ' [...h.matchAll(/data-t="engine-model" data-t-id="([^"]*)"/g)].map((x) => x[1]), h.includes("node-engine-panel"), h.includes("data-engine-menu")]; })'
      '(lane([ENG({ models: [MDL(), MDL({ name: "b" })] })], TWO()))',
-     '[true, true, true, true, ["h1:ollama:b"], false, false]',
-     "positive: полоса сервера — между заголовком списка и чипами; нажат чип Ollama — под его ячейками модели без "
-     "ячейки (qwen3:8b уже в ячейке :22031 — её на полке нет); negative: ни панели, ни ▾ больше нет"),
-    ("lane_engine_strips_always",
+     '[true, true, true, true, 1, ["h1:ollama:b"], false, false]',
+     "positive: заголовок списка, полоса сервера, под ней модели без ячейки (qwen3:8b уже в ячейке :22031 — её на полке "
+     "нет), потом чипы и ячейки — полка над чипами, чтобы её было видно; negative: под ячейками второй полки нет, ни "
+     "панели, ни ▾ больше нет"),
+    ("lane_engine_strips_and_shelves_always",
      LANE,
-     '["", "caravan"].map((c) => { cf.CARD_FOLD.setLauncher("h1", c); const h = lane([ENG({ models: [MDL({ name: "b" })] }), ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, models: [MDL({ name: "g" })] })], TWO());'
-     ' return [[...h.matchAll(/data-t="node-engine" data-t-id="([^"]*)"/g)].map((x) => x[1]), h.includes(\'data-t="engine-shelf"\')]; })',
-     '[[["h1:ollama:11434", "h1:lmstudio:1234"], false], [["h1:ollama:11434", "h1:lmstudio:1234"], false]]',
-     "при «все» и «караван» — полосы обоих движков над чипами (их серверы — машины); полок нет: полка — у чипа своего "
-     "движка"),
+     '["", "caravan", "lmstudio"].map((c) => { cf.CARD_FOLD.setLauncher("h1", c); const h = lane([ENG({ models: [MDL({ name: "b" })] }), ENG({ kind: "lmstudio", label: "LM Studio", port: 1234, models: [MDL({ name: "g" })] })], TWO());'
+     ' return [...h.matchAll(/data-t="(node-engine|engine-shelf|engine-model|node-cell-filter)" data-t-id="([^"]*)"/g)].map((x) => x[1] + " " + x[2]); })',
+     json.dumps([["node-engine h1:ollama:11434", "engine-shelf h1:ollama", "engine-model h1:ollama:b",
+                  "node-engine h1:lmstudio:1234", "engine-shelf h1:lmstudio", "engine-model h1:lmstudio:g",
+                  "node-cell-filter h1:all", "node-cell-filter h1:caravan", "node-cell-filter h1:ollama", "node-cell-filter h1:lmstudio"]] * 3),
+     "при любом чипе — «все», «караван», другого движка — над чипами оба движка, и под полосой каждого его модели без "
+     "ячейки (выбор оператора: чтобы их было видно); negative: нажатый чип ни полос, ни полок не прячет и не двигает"),
     ("lane_engine_missing_line",
      LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
      '(h => [(h.match(/data-t="node-engine-missing"[^>]*>([^<]*)</) || [0, "none"])[1], h.includes("engine-shelf"), shown(h)])(lane([], TWO()))',
@@ -3080,8 +3083,8 @@ PINS += [
      LANE + ' cf.CARD_FOLD.setLauncher("h1", "ollama");',
      '(h => { const chipsRow = (h.match(/<div class="node-cell-filter"[^>]*>(.*?)<button/) || [0, ""])[1]; return [(h.match(/data-topology-engine-input="1"/g) || []).length, [...chipsRow.matchAll(/data-output-id="([^"]*)" title="([^"]*)"/g)].map((x) => [x[1], x[2]])]; })(lane([ENG({ models: [MDL({ outputId: "eng:1", exposed: true }), MDL({ name: "b", outputId: "eng:2", exposed: false })] })], TWO()))',
      '[1, [["eng:1", "qwen3:8b · Ollama"]]]',
-     "positive: кабель выхода модели садится у края строки чипов (якорь назван моделью и движком); при нажатом чипе "
-     "движка якорь один — полоса, что называет выход, своего не рисует; у невыведенной модели якоря нет"),
+     "positive: кабель выхода модели садится у края строки чипов (якорь назван моделью и движком); якорь один — строка "
+     "полки, что называет выход, своего не рисует; у невыведенной модели якоря нет"),
     ("lane_cpu_line_skips_engine_cells",
      LANE,
      '(h => (h.match(/<span class="node-gpu-ports">▶ ([^<]*)</) || [0, "none"])[1])(lane([ENG()], [mk({ phase: "running" }), EC({ phase: "running" })]))',

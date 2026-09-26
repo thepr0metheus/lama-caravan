@@ -112,6 +112,15 @@ export class CardFold {
     return this.launcherOf(k);
   }
 
+  /** Let machine `hostId`'s chips show a new cell `launcher` runs, as it comes:
+   *  a chip that would hide it gives way to that launcher's (2026-09-26 — the
+   *  "+" of an engine's model stands over the chips, under any of them); "all"
+   *  shows it already and stays. */
+  reveal(hostId, launcher) {
+    const chosen = this.launcherOf(hostId);
+    return chosen && chosen !== String(launcher || "") ? this.setLauncher(hostId, launcher) : chosen;
+  }
+
   /** Whether a folded card of `lane` opens in a window (not floating over the lane). */
   opensInWindow(lane) { return CardFold.OPENS[lane] === "window"; }
 
