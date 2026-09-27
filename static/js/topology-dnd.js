@@ -232,7 +232,10 @@ export function bindTopologyDragAndDrop() {
       const res = await api(`/api/cloud-blocks/refs?id=${encodeURIComponent(blockId)}`);
       const refs = res.refs || {};
       (refs.bridges || []).forEach((b) => refLines.push(t("refBridge", { port: String(b.port) }) + (b.label ? ` · ${b.label}` : "")));
+      (refs.routes || []).forEach((r) => refLines.push(t("refAgentRoute", { port: String(r.port) }) + (r.label ? ` · ${r.label}` : "")));
+      (refs.fallbacks || []).forEach((r) => refLines.push(t("refCloudFallback", { port: String(r.port) }) + (r.label ? ` · ${r.label}` : "")));
       (refs.queueRoles || []).forEach((q) => refLines.push(t("refQueueRole", { role: q.role })));
+      (refs.rescueRoles || []).forEach((q) => refLines.push(t("refRescueRole", { role: q.role })));
       (refs.rules || []).forEach((r) => refLines.push(t("refRule", { rule: r.rule })));
       if ((refs.edges || []).length) refLines.push(t("refCables", { n: String(refs.edges.length) }));
     } catch (_) { /* advisory only — deletion must not depend on the preflight */ }

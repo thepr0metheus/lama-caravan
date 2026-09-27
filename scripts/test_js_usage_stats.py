@@ -69,6 +69,14 @@ m.subscriptionUsageCache.set("acc", { data: { ok: true, limits: LIM(0), credits:
 const panel = m.subscriptionUsageHtml("acc");
 out.banner_order = [panel.indexOf("sub-usage-banner"), panel.indexOf("sub-usage-row")];
 
+// ── «30 дней через караван»: одна строка, модели по щелчку ──
+out.compact = [0, 999, 1000, 1500, 359627986, 1e9, 12345678901, null].map(m.compactCount);
+globalThis.__fetchReply["/api/cloud-accounts/proxy-spend"] = { spend: { sub: { windowDays: 30, total: 698.73, requests: 5429,
+  promptTokens: 359000000, completionTokens: 627986, byModel: [{ model: "GPT-5.6-TERRA", cost: 547.38 }] } } };
+await m.fetchProxySpend();
+out.spend = { closed: m.proxySpendHtml("sub"), open: m.proxySpendHtml("sub", { open: true, subscription: true }),
+  openApi: m.proxySpendHtml("sub", { open: true }), none: m.proxySpendHtml("other") };
+
 // ── возврат на вкладку перечитывает то, что устарело ──
 const NOW = 1_000_000;
 const MIN = m.RETURN_REFRESH_MIN_AGE_MS;
@@ -187,6 +195,20 @@ check(got["refresh_forgets"] == [True, None, True],
 check(got["refresh_unknown_kind"] is False and got["refresh_no_id"] is False,
       "negative: неизвестный вид чтения или пустой id — ничего не делаем и говорим об этом false")
 check(0 <= got["banner_order"][0] < got["banner_order"][1], f"в панели баннер стоит ВЫШЕ шкал (получено {got['banner_order']})")
+
+print("30 дней через караван:")
+check(got["compact"] == ["0", "999", "1K", "1.5K", "360M", "1B", "12.3B", "0"],
+      f"числа коротко и одинаково на любом языке; граница 1000 → 1K; пусто — 0 (got {got['compact']})")
+sp = got["spend"]
+check('data-spend-toggle="sub"' in sp["closed"] and 'aria-expanded="false"' in sp["closed"]
+      and "5.4K" in sp["closed"] and "360M" in sp["closed"] and "≈ $699 at API prices" in sp["closed"]
+      and "GPT-5.6-TERRA" not in sp["closed"],
+      "defect-history (оператор: «путает»): одна строка — запросы, токены и «≈ $699 по ценам API»; моделей в закрытой строке нет")
+check("GPT-5.6-TERRA" in sp["open"] and 'aria-expanded="true"' in sp["open"] and "The subscription covers this" in sp["open"],
+      "по щелчку — модели и, у подписки, чья это цена: подписка это покрывает")
+check("GPT-5.6-TERRA" in sp["openApi"] and "The subscription covers this" not in sp["openApi"],
+      "negative: у аккаунта с ключом API пояснения про подписку нет — там это близко к настоящему расходу")
+check(sp["none"] == "", "negative: трафика не было — строки нет")
 
 print()
 if _fail:

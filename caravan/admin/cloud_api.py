@@ -19,6 +19,7 @@ from caravan.admin.cloud import (
     save_provider_secrets,
 )
 from caravan.admin import model_catalog
+from caravan.admin.cloud_sync import CloudModelSync
 from caravan.admin.oauth import refresh_oauth_token
 from caravan.admin.paths import AGENT_PROXY_LOG_DIR
 from caravan.admin.pricing import fetch_model_pricing
@@ -544,46 +545,23 @@ def fetch_subscription_models(account_id):
     ]
     return models
 
-# Model ids that make no sense as chat routing targets: TTS/STT, embeddings,
-# moderation, image/video/audio generators, legacy completion bases. Matched as
-# a delimited token so chat models like "...-instruct" or "chat-latest" pass.
-NON_CHAT_MODEL_RE = re.compile(
-    r"(?:^|[-/_.:])(tts|whisper|embed|embedding|embeddings|moderation|dall-e|dalle|sora|image"
-    r"|audio|transcribe|realtime|search|babbage|davinci|computer-use)(?:$|[-/_.:0-9])", re.I)
+# One sync for the process: both refresh paths (the background one and "↻")
+# apply their list through it, and "↻" reads back what its own list did.
+CLOUD_SYNC = CloudModelSync()
 
 
 def auto_create_blocks(account_id):
-    """Fetch all models for an account and create a block for each missing one.
-    Non-chat models (TTS, embeddings, moderation, image/video…) are skipped —
-    they'd only clutter the routing lists; add one by hand if you need it."""
+    """"↻ Check now": fetch the account's list and apply it to its blocks right
+    away (CloudModelSync) — the same thing the background refresh does every
+    ten minutes while the board is open."""
     account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == str(account_id or "")), None)
     if not account:
         raise AppError("unknown account", 404)
-    is_subscription = (account.get("accountType") or "") == "openai-subscription"
-    models = fetch_subscription_models(account_id) if is_subscription else fetch_account_models(account_id)
-    model_catalog.store_models(account_id, models)   # "Fetch models" refreshes the catalog too
-    skipped = sum(1 for m in models if NON_CHAT_MODEL_RE.search(str(m.get("id") or "")))
-    models = [m for m in models if not NON_CHAT_MODEL_RE.search(str(m.get("id") or ""))]
-    if not models:
-        return {"created": 0, "total": 0, "skipped": skipped}
-    data = load_cloud_data()
-    existing_ids = {b["id"] for b in data["blocks"]}
-    existing_models = {b["model"] for b in data["blocks"] if b.get("accountId") == account_id}
-    created = 0
-    for m in models:
-        mid = m["id"]
-        if mid in existing_models:
-            continue
-        slug = re.sub(r"[^A-Za-z0-9_-]", "-", mid)[:40].strip("-") or "model"
-        bid, n = slug, 1
-        while bid in existing_ids:
-            bid, n = f"{slug}-{n}", n + 1
-        data["blocks"].append({"id": bid, "accountId": account_id, "name": mid, "model": mid, "modelMode": "rewrite"})
-        existing_ids.add(bid)
-        created += 1
-    if created:
-        save_cloud_data(data)
-    return {"created": created, "total": len(models), "skipped": skipped}
+    models = refresh_account_models_cache(account_id, account)
+    model_catalog.store_models(account_id, models)
+    report = CLOUD_SYNC.last(account_id)
+    return {"created": len(report["created"]), "total": report["total"], "skipped": report["skipped"],
+            "gone": len(report["gone"]), "removed": len(report["removed"])}
 
 
 def refresh_account_models_cache(account_id, account=None):
@@ -595,6 +573,9 @@ def refresh_account_models_cache(account_id, account=None):
     is_subscription = ((account.get("accountType") or "") == "openai-subscription"
                        or "chatgpt.com" in str(account.get("baseUrl") or ""))
     models = fetch_subscription_models(account_id) if is_subscription else fetch_account_models(account_id)
+    # A list that arrived is applied to the account's blocks: new models added,
+    # dropped ones counted and — with nothing pointing at them — removed.
+    CLOUD_SYNC.apply(account_id, models)
     return models
 
 
@@ -606,6 +587,11 @@ def annotate_cloud_topology(accounts_state, blocks_state):
     creds_by_id = {a.get("id"): bool(a.get("hasCredential")) for a in (accounts_state or [])}
     for account in (accounts_state or []):
         acc_id = account.get("id")
+        # When the account's list was last checked — the card says so where
+        # the "Fetch models" button used to be. Absent: never checked.
+        entry = model_catalog.cached_models_entry(acc_id) if acc_id else None
+        if entry and entry.get("fetchedAt"):
+            account["modelsCheckedAt"] = int(entry["fetchedAt"])
         if not acc_id or not creds_by_id.get(acc_id):
             continue
         if model_catalog.models_stale(acc_id) and not model_catalog.endpoint_blocked(f"{acc_id}:models"):

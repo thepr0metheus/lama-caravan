@@ -1,7 +1,8 @@
 // Cloud provider accounts/blocks modals and OAuth login flow.
+import { ProviderModels } from "./cloud-models.js";
 import { badge, option } from "./form.js";
 import { t } from "./i18n.js";
-import { formatPricePer1M, modelPricing } from "./model-meta.js";
+import { modelPricing } from "./model-meta.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
 import {
@@ -80,6 +81,15 @@ function bindCloudCardDelegates(cpEl) {
       refreshUsageReading(kind, btn.dataset[dataKey]);
       return;
     }
+    const spend = e.target.closest("[data-spend-toggle]");
+    if (spend) {
+      e.stopPropagation();
+      const id = spend.dataset.spendToggle;
+      (ui.spendOpen ||= {})[id] = !ui.spendOpen[id];
+      ui._lastCloudProvidersKey = "";   // the open state lives outside the render key
+      renderTopologyCloudProviders();
+      return;
+    }
     const toggle = e.target.closest("[data-cloud-models-toggle]");
     if (toggle) {
       e.stopPropagation();
@@ -106,22 +116,27 @@ function bindCloudCardDelegates(cpEl) {
     }
     const fetchBtn = e.target.closest("[data-cloud-fetch-models]");
     if (fetchBtn) {
+      // "↻ check now": the list is checked by itself every ten minutes while
+      // the board is open; this asks at once and says what it found.
       e.stopPropagation();
       const id = fetchBtn.dataset.cloudFetchModels;
-      fetchBtn.textContent = t("fetchingModels"); fetchBtn.disabled = true;
+      fetchBtn.disabled = true;
+      fetchBtn.classList.add("spinning");
       try {
         const res = await api("/api/cloud-accounts/auto-create-blocks", { method: "POST", body: JSON.stringify({ id }) });
-        if (res.topology) setTopology(res.topology);
-        toast(res.created > 0 ? `${res.created} model${res.created !== 1 ? "s" : ""} added (${res.total} available)` : `models up to date (${res.total} available)`);
+        await refreshTopology();
+        toast(t("cloudChecked", { total: String(res.total || 0), created: String(res.created || 0),
+          gone: String(res.gone || 0), removed: String(res.removed || 0) }));
+        ui._lastCloudProvidersKey = "";
         renderTopology();
-      } catch (err) { toast(`fetch failed: ${err.message}`); fetchBtn.textContent = t("fetchModelsBtn"); fetchBtn.disabled = false; }
+      } catch (err) { toast(`${t("cloudCheckFailed")}: ${err.message}`); fetchBtn.disabled = false; fetchBtn.classList.remove("spinning"); }
       return;
     }
     const mint = e.target.closest("[data-bridge-mint]");
     if (mint) {
       e.stopPropagation();
-      const sel = cpEl.querySelector(`select[data-bridge-block="${mint.dataset.bridgeMint}"]`);
-      const blockId = sel?.value;
+      // The "+ port" on a model's row: that model on its own open port.
+      const blockId = mint.dataset.bridgeMint;
       if (!blockId) return;
       mint.disabled = true;
       try {
@@ -150,14 +165,21 @@ function bindCloudCardDelegates(cpEl) {
       } catch (err) { toast(err.message); }
       return;
     }
+    const restore = e.target.closest("[data-cloud-restore]");
+    if (restore) {
+      e.stopPropagation();
+      const [accountId, id] = String(restore.dataset.cloudRestore).split("|");
+      restore.disabled = true;
+      try {
+        const res = await api("/api/cloud-blocks/restore", { method: "POST", body: JSON.stringify({ accountId, id }) });
+        if (res.topology) setTopology(res.topology);
+        toast(t("cloudRestored", { model: res.block?.model || id }));
+        renderTopology();
+      } catch (err) { toast(err.message); restore.disabled = false; }
+      return;
+    }
     const row = e.target.closest("[data-cloud-block]");
     if (row) openCloudBlockModal(row.dataset.cloudBlock, null);
-  });
-  cpEl.addEventListener("change", (e) => {
-    const sel = e.target.closest("select[data-bridge-block]");
-    // Unsaved choice — survives the poll-tick rebuilds (the render below puts
-    // the selected attribute back from ui state).
-    if (sel) (ui.bridgeBlockChoice ||= {})[sel.dataset.bridgeBlock] = sel.value;
   });
   cpEl.addEventListener("keydown", (e) => {
     const row = e.target.closest("[data-cloud-block]");
@@ -183,7 +205,10 @@ export function renderTopologyCloudProviders() {
     .filter((p) => p.kind === "service")
     .map((p) => `${p.port}:${p.providerId}`).join(",");
   // Fetched model lists drive the "not listed by provider" marks — arrival must re-render.
-  const modelsKey = accounts.map((a) => `${a.id}:${(topologyCloudModelCache.get(a.id) || []).length}`).join("|");
+  const modelsKey = accounts.map((a) => `${a.id}:${(topologyCloudModelCache.get(a.id) || []).length}`).join("|")
+    // …and so do the sync's removals ("↶"), and the cables that reach a model.
+    + JSON.stringify(topology?.cloudRemoved || [])
+    + (topology?.routers || []).map((r) => (r.graph?.edges || []).filter((e) => String(e?.to || "").startsWith("out:cb:")).map((e) => e.to).join(",")).join("|");
   // Endpoint-health panel (breaker trips / retries / codex version) re-renders too.
   const healthKey = JSON.stringify(topology?.cloudApiHealth || {});
   // The mint button shows the port the next bridge will get — its change must re-render.
@@ -200,19 +225,6 @@ export function renderTopologyCloudProviders() {
     return;
   }
   cpEl.innerHTML = accounts.map((acct) => {
-    // Expensive → cheap (price is what you scan this list for); unknown-price
-    // models sink to the bottom, name breaks ties.
-    const _rank = (m) => {
-      const p = modelPricing[m || ""];
-      return p ? [Number(p.inputPer1M) || 0, Number(p.outputPer1M) || 0] : [-1, -1];
-    };
-    const acctBlocks = blocks
-      .filter((b) => b.accountId === acct.id)
-      .sort((a, b) => {
-        const ra = _rank(a.model), rb = _rank(b.model);
-        return (rb[0] - ra[0]) || (rb[1] - ra[1])
-          || String(a.model || a.name || a.id).localeCompare(String(b.model || b.name || b.id), undefined, { numeric: true, sensitivity: "base" });
-      });
     const isSubscription = acct.accountType === "openai-subscription" || String(acct.baseUrl || "").includes("chatgpt.com");
     const credLine = acct.hasCredential
       ? (acct.credentialKind === "noKey"
@@ -223,23 +235,6 @@ export function renderTopologyCloudProviders() {
       : t("topologyCloudNeedsKey");
     const iconType = isSubscription ? "openai-subscription" : (acct.type || "");
     const meta = CLOUD_PICKER_META[iconType] || CLOUD_PICKER_META[acct.type || ""] || {};
-    // Server-annotated truth (topology.cloudProviders[].unlisted, backed by the
-    // 1h model-catalog cache); the page-load frontend cache doubles as fallback.
-    const listedModels = topologyCloudModelCache.get(acct.id) || [];
-    const blockRows = acctBlocks.map((b) => {
-      const p = modelPricing[b.model || ""] || null;
-      const pricingHtml = p
-        ? `<span class="cloud-block-pricing">${formatPricePer1M(p.inputPer1M)} / ${formatPricePer1M(p.outputPer1M)} /1M</span>`
-        : "";
-      const stale = !!b.unlisted || (listedModels.length > 0 && b.model && !listedModels.some((m) => m.id === b.model));
-      return `
-      <div class="cloud-block-row${stale ? " stale" : ""}" data-cloud-block="${escapeHtml(b.id)}" role="button" tabindex="0" title="${escapeHtml(stale ? t("cloudModelUnlisted") : (b.model || b.id))}">
-        <span class="cloud-block-model">${escapeHtml(b.model || "—")}</span>
-        ${stale ? `<span class="cloud-block-stale">⚠ ${escapeHtml(t("cloudModelUnlisted"))}</span>` : ""}
-        ${pricingHtml}
-      </div>
-      `;
-    }).join("");
     // Usage/spend panel (fetched async). Subscription → ChatGPT Plus limits/credits;
     // OpenRouter → key limits via /auth/key; API accounts → official spend via Costs API.
     const isOpenRouter = acct.type === "openrouter" || String(acct.baseUrl || "").includes("openrouter.ai");
@@ -255,66 +250,12 @@ export function renderTopologyCloudProviders() {
     }
     // Local proxy spend-meter (our token counts × pricing) — for every cloud account.
     fetchProxySpend();
-    usagePanel += proxySpendHtml(acct.id);
+    usagePanel += proxySpendHtml(acct.id, { open: !!ui.spendOpen?.[acct.id], subscription: isSubscription });
     // Tripped upstream endpoints (breaker) + effective codex client_version.
     usagePanel += cloudApiIssuesHtml(acct, isSubscription);
     // Data-plane cloud failures over 24h (routed traffic that came back 4xx/5xx).
     fetchUpstreamErrors();
     usagePanel += upstreamErrorsHtml(acct.id);
-    // Bridge ports: OpenAI-compatible entry points for EXTERNAL consumers
-    // (a voice app, an IDE plugin, …) pinned to one of this account's model blocks. Not agents:
-    // kind="service" routes never join the kanban graph.
-    const blockById = new Map(acctBlocks.map((b) => [b.id, b]));
-    const bridges = (topology?.proxies || [])
-      .filter((p) => p.kind === "service" && blockById.has(p.providerId))
-      .sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
-    const bridgeRows = bridges.map((p) => {
-      const blk = blockById.get(p.providerId);
-      const model = blk?.model || p.providerId;
-      const url = `http://${location.hostname}:${p.port}`;
-      const mp = modelPricing[model];
-      const priceHtml = String(model).endsWith(":free")
-        ? `<span class="cloud-bridge-price free">FREE</span>`
-        : (mp && (mp.inputPer1M || mp.outputPer1M))
-          ? `<span class="cloud-bridge-price">${formatPricePer1M(mp.inputPer1M)}/${formatPricePer1M(mp.outputPer1M)}</span>`
-          : "";
-      return `<div class="cloud-bridge-row${blk?.unlisted ? " unlisted" : ""}">
-        <code class="cloud-bridge-port">:${escapeHtml(String(p.port))}</code>
-        <span class="cloud-bridge-model" title="${escapeHtml(blk?.unlisted ? t("cloudModelUnlisted") : `${p.label || ""} → ${model}`)}">→ ${escapeHtml(model)}${blk?.unlisted ? " ⚠" : ""}</span>
-        ${priceHtml}
-        <button class="icon-action compact" type="button" data-bridge-copy="${escapeHtml(url)}" title="${escapeHtml(t("cloudBridgeCopy"))}">⧉</button>
-        <button class="icon-action compact" type="button" data-bridge-delete="${escapeHtml(String(p.port))}" title="${escapeHtml(t("cloudBridgeDelete"))}">✕</button>
-      </div>`;
-    }).join("");
-    // The board fully re-renders on poll ticks — an unsaved dropdown choice
-    // must live in ui state or every rebuild would reset it to the first row.
-    const chosenBlock = ui.bridgeBlockChoice?.[acct.id] || "";
-    // Native <option> can't carry styled tags, but plain text works — append
-    // the $in/$out price (or FREE) so the price is visible right in the picker.
-    const bridgeOptions = acctBlocks
-      .map((b) => {
-        const model = b.model || b.name || b.id;
-        const mp = modelPricing[b.model || ""];
-        const suffix = (String(b.model || "").endsWith(":free") ? " · FREE"
-          : (mp && (mp.inputPer1M || mp.outputPer1M))
-            ? ` · ${formatPricePer1M(mp.inputPer1M)}/${formatPricePer1M(mp.outputPer1M)}`
-            : "") + (b.unlisted ? " ⚠" : "");
-        return `<option value="${escapeHtml(b.id)}"${b.id === chosenBlock ? " selected" : ""}>${escapeHtml(model + suffix)}</option>`;
-      }).join("");
-    // The port the server will really give (topology.nextAppPort, the mint's
-    // own rule). It showed the next CELL port — 22xxx — while bridges land in
-    // the proxy range, 23xxx. Unknown, it promises no number at all.
-    const nextBridgePort = topology?.nextAppPort;
-    const bridgePanel = acct.hasCredential && acctBlocks.length ? `
-      <div class="cloud-bridges">
-        <div class="cloud-bridges-head" title="${escapeHtml(t("cloudBridgeHint"))}">${escapeHtml(t("cloudBridgePorts"))}</div>
-        ${bridgeRows}
-        <div class="cloud-bridge-add">
-          <select class="cloud-bridge-block" data-bridge-block="${escapeHtml(acct.id)}" title="${escapeHtml(t("cloudBridgeHint"))}">${bridgeOptions}</select>
-          <button class="ghost-start-btn cloud-bridge-ghost-btn" type="button" data-bridge-mint="${escapeHtml(acct.id)}" title="${escapeHtml(t("cloudBridgeOpen"))}">＋ ${escapeHtml(t("cloudBridgeReserveLabel"))}${nextBridgePort ? ` :${escapeHtml(String(nextBridgePort))}` : ""}</button>
-        </div>
-      </div>` : "";
-    usagePanel += bridgePanel;
     // One cable handle per PROVIDER (account). The router output attaches here;
     // the actual model is chosen inside the router. The model list is hidden until
     // hover (slide-out flyout with prices).
@@ -330,14 +271,9 @@ export function renderTopologyCloudProviders() {
         </div>
         <div class="cloud-key-line ${acct.hasCredential ? "set" : "unset"}">${escapeHtml(credLine)}</div>
         ${usagePanel}
-        <button class="cloud-models-toggle-row" type="button" data-cloud-models-toggle="${escapeHtml(acct.id)}">
-          ${modelsOpen ? `${escapeHtml(t("cloudModelsHide"))} ⌃` : `${escapeHtml(t("cloudModelsShowAll", { n: String(acctBlocks.length) }))} ⌄`}
-        </button>
-        <div class="cloud-models-flyout">
-          ${blockRows ? `<div class="cloud-account-blocks">${blockRows}</div>` : `<div class="topology-muted" style="font-size:11px">${t("clNoModelsYet")}</div>`}
-          <button class="cloud-add-model-btn" type="button" data-cloud-fetch-models="${escapeHtml(acct.id)}" title="${escapeHtml(t("clTitleFetchModels"))}">${escapeHtml(t("fetchModelsBtn"))}</button>
-          <button class="cloud-add-model-btn" type="button" data-cloud-add-block="${escapeHtml(acct.id)}">＋ ${escapeHtml(t("topologyCloudBlockModalTitleNew"))}</button>
-        </div>
+        ${new ProviderModels({ account: acct, blocks, routers: topology?.routers || [], proxies: topology?.proxies || [],
+          removed: topology?.cloudRemoved || [], open: modelsOpen, nextPort: topology?.nextAppPort,
+          hostname: location.hostname }).html()}
       </article>
     `;
   }).join("") + (() => {

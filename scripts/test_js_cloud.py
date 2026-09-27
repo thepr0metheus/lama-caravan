@@ -49,6 +49,7 @@ st.setState({ config: {} });
 st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} });
 const mm = await import(pathToFileURL(process.env.JS_ROOT + "/model-meta.js").href);
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/cloud.js").href);
+const cm = await import(pathToFileURL(process.env.JS_ROOT + "/cloud-models.js").href);
 globalThis.location.hostname = "ctl";
 // Форма модала читается через document.querySelector(selector): словарь по селектору,
 // чего нет — null, как в браузере.
@@ -226,30 +227,59 @@ PINS = [
      '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [h.includes("no cloud providers — click + to add one"), h.includes("data-topo-add-cloud"), (h.match(/cloud-account-card/g) || []).length]; })()',
      '[true,true,0]', "без аккаунтов — подсказка и кнопка добавления"),
     ("lane_cards_and_price_order", '',
-     '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [(h.match(/cloud-account-card/g) || []).length, h.indexOf("gpt-5.6-terra") < h.indexOf("gpt-5.6-luna"), h.includes("$10.00 / $30.00 /1M") || h.includes("/1M"), h.includes("needs-key"), h.includes("key set ••••ab12"), h.includes("Show all 2 models")]; })()',
+     '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [(h.match(/cloud-account-card/g) || []).length, h.indexOf("gpt-5.6-terra") < h.indexOf("gpt-5.6-luna"), h.includes("$10.00 / $30.00 /1M") || h.includes("/1M"), h.includes("needs-key"), h.includes("key set ••••ab12"), h.includes(\'<span class="cloud-models-n">2</span>\')]; })()',
      '[3,true,true,true,true,true]',
      "карточка на аккаунт; блоки от дорогих к дешёвым; без ключа — needs-key; счётчик моделей"),
     ("lane_marks_model_missing_from_provider_list",
+     'st.setTopology(TOPO({ cloudProviders: BLOCKS().map((b) => (b.id === "gpt-5-6-luna" ? { ...b, unlisted: true } : b)) }));',
+     '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [(h.match(/cloud-block-row stale/g) || []).length, (h.match(/class="cloud-chip gone"/g) || []).length, h.includes("cloud-models-gone")]; })()',
+     '[1,1,true]', "модель, которой провайдер больше не отдаёт, помечена «gone» — ровно одна, и счёт в шапке списка"),
+    ("lane_page_cache_alone_marks_nothing",
      'm.topologyCloudModelCache.set("openai-subscription", [{ id: "gpt-5.6-terra" }]);',
-     '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [(h.match(/cloud-block-row stale/g) || []).length, h.includes("not listed by provider")]; })()',
-     '[1,true]', "модель, которой провайдер больше не отдаёт, помечена — ровно одна"),
+     '(() => { m.renderTopologyCloudProviders(); return (lane().match(/cloud-block-row stale/g) || []).length; })()',
+     '0', "negative: список страницы сам не метит — «ушла» говорит сервер, который сверяет списки каждые 10 минут"),
     ("lane_bridges_on_their_block_orphans_in_strip",
      'st.setTopology(TOPO({ proxies: BRIDGES() }));',
-     '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [h.includes(":8083"), h.includes("http://ctl:8083"), h.includes("cloud-orphan-bridges"), h.includes(":8084"), h.includes(":23001"), h.includes(\'data-bridge-mint="openai-subscription"\')]; })()',
-     '[true,true,true,true,false,true]',
-     "мост стоит на карточке блока с URL хоста; мост без блока — в полосе сирот; прокси агента (не service) в лейне нет"),
+     '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [h.includes(":8083"), h.includes("http://ctl:8083"), h.includes("cloud-orphan-bridges"), h.includes(":8084"), h.includes(":23001"), h.includes(\'data-bridge-mint="gpt-5-6-luna"\'), h.includes(\'data-bridge-mint="gpt-5-6-terra"\')]; })()',
+     '[true,true,true,true,false,true,false]',
+     "решение оператора (2026-09-27): порт модели — на её строке: у terra свой :8083 с адресом хоста, у luna — «＋ port»; "
+     "мост без модели — в полосе сирот; прокси агента (не service) в лейне нет"),
     ("lane_bridge_button_promises_the_servers_port",
      'st.setTopology(TOPO({ nextAppPort: 23004 }));',
-     '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [h.includes("Bridge port :23004</button>"), h.includes(":22")]; })()',
-     '[true,false]', "defect-history: кнопка моста обещает порт, который выдаст сервер (topology.nextAppPort) — раньше номер следующей ЯЧЕЙКИ"),
+     '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [h.includes("(:23004)"), h.includes(":22")]; })()',
+     '[true,false]', "defect-history: «＋ port» обещает порт, который выдаст сервер (topology.nextAppPort) — раньше номер следующей ЯЧЕЙКИ"),
     ("lane_bridge_button_without_a_known_port",
      '',
-     '(() => { m.renderTopologyCloudProviders(); return lane().includes("Bridge port</button>"); })()',
+     '(() => { m.renderTopologyCloudProviders(); return lane().includes("(:…)"); })()',
      'true', "negative: порт неизвестен — кнопка без номера, а не с чужим"),
-    ("lane_bridge_choice_survives_rerender",
-     'st.ui.bridgeBlockChoice = { "openai-subscription": "gpt-5-6-luna" };',
-     '(() => { m.renderTopologyCloudProviders(); return lane().includes(\'<option value="gpt-5-6-luna" selected>\'); })()',
-     'true', "несохранённый выбор блока для моста живёт в ui и возвращается в select"),
+    ("lane_removed_models_with_undo",
+     'st.setTopology(TOPO({ cloudRemoved: [{ accountId: "ollama", id: "old-7b", model: "old-7b", at: 1 }] }));',
+     '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [(h.match(/data-cloud-restore="ollama\\|old-7b"/g) || []).length, (h.match(/class="cloud-removed"/g) || []).length]; })()',
+     '[1,1]', "убранные сами — одной строкой на карточке своего аккаунта, у каждой ↶; на других карточках строки нет"),
+    ("restore_brings_it_back",
+     'globalThis.__fetchReply["/api/cloud-blocks/restore"] = { ok: true, block: { id: "old-7b", model: "old-7b" } };',
+     'await (async () => { const lane = { innerHTML: "", dataset: {}, handlers: [], addEventListener(type, fn) { if (type === "click") this.handlers.push(fn); }, querySelector: () => null };'
+     ' globalThis.__fields.topologyCloudProviders = lane; st.ui._lastCloudProvidersKey = ""; m.renderTopologyCloudProviders();'
+     ' const btn = { dataset: { cloudRestore: "ollama|old-7b" }, disabled: false };'
+     ' for (const h of lane.handlers) await h({ stopPropagation() {}, target: { closest: (s) => (s === "[data-cloud-restore]" ? btn : null) } });'
+     ' await settle(); return [calls().map((c) => [c.path, c.body]), toastText()]; })()',
+     '[[["/api/cloud-blocks/restore",{"accountId":"ollama","id":"old-7b"}]],"old-7b is back"]',
+     "↶ шлёт машину и id убранной модели и говорит, что она вернулась"),
+    ("provider_models_groups_and_marks",
+     '',
+     '(() => { const blocks = [{ id: "h", accountId: "a", model: "h" }, { id: "k", accountId: "a", model: "k", exposed: true },'
+     ' { id: "n", accountId: "a", model: "n", newSince: 1000 }, { id: "g", accountId: "a", model: "g", unlisted: true, newSince: 1000 },'
+     ' { id: "o", accountId: "a", model: "o", newSince: 1 }, { id: "x", accountId: "b", model: "x" }];'
+     ' const routers = [{ rules: { default: "cb:k" }, graph: { edges: [{ to: "out:cb:g" }, { to: "out:cb:g" }, { to: "out:cb:k" }, { to: "srv:1" }] } }];'
+     ' const pm = new cm.ProviderModels({ account: { id: "a" }, blocks, routers, now: (1000 + 7 * 24 * 3600) * 1000 - 1 });'
+     ' const rows = pm.rows().map((r) => [r.block.id, r.gone, r.fresh, r.shown, r.cables, r.isDefault]);'
+     ' const edge = new cm.ProviderModels({ account: { id: "a" }, blocks, routers, now: (1000 + 7 * 24 * 3600) * 1000 }).summary().fresh;'
+     ' return [rows, pm.summary(), edge]; })()',
+     json.dumps([[["g", True, False, False, 2, False], ["n", False, True, False, 0, False], ["k", False, False, True, 1, True],
+                  ["h", False, False, False, 0, False], ["o", False, False, False, 0, False]],
+                 {"total": 5, "shown": 1, "fresh": 1, "gone": 1}, 0]),
+     "строки по вниманию: ушедшая (два каната в неё), новая, на канбане (и «по умолчанию»), скрытые; ушедшая не «новая»; "
+     "модели чужого аккаунта не в списке; boundary: «новая» ровно 7 суток — на миллисекунду раньше ещё да, ровно в 7 суток уже нет"),
     ("usage_refresh_once_per_click_after_renders",
      '',
      'await (async () => { const lane = { innerHTML: "", dataset: {}, handlers: [], addEventListener(type, fn) { if (type === "click") this.handlers.push(fn); }, querySelector: () => null };'

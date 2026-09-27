@@ -117,9 +117,30 @@ export function upstreamErrorsHtml(accountId) {
   return `<div class="cloud-api-issues${recovered ? " all-resolved" : ""}"><div class="cloud-api-issues-title">⚠ ${escapeHtml(t("cloudUpstreamErrorsTitle"))}</div>${items}${okRow}</div>`;
 }
 
-export function proxySpendHtml(accountId) {
+// A count said short and the same in every language: 359627986 → "360M".
+export function compactCount(n) {
+  const v = Number(n) || 0;
+  const [div, unit] = v >= 1e9 ? [1e9, "B"] : v >= 1e6 ? [1e6, "M"] : v >= 1e3 ? [1e3, "K"] : [1, ""];
+  if (!unit) return String(Math.round(v));
+  const short = v / div;
+  return `${short >= 100 ? Math.round(short) : Number(short.toFixed(1))}${unit}`;
+}
+
+// What the proxy's traffic to this account would cost at API prices over the
+// window — one line, the models behind it on a click. It stood as a block of
+// rows under a bare "$698.73" (2026-09-27, the operator: "it confuses"); for a
+// subscription the figure is not a bill, and the line says whose price it is.
+export function proxySpendHtml(accountId, { open = false, subscription = false } = {}) {
   const s = (proxySpendData || {})[accountId];
   if (!s || (!s.total && !s.requests)) return "";
+  const tokens = (Number(s.promptTokens) || 0) + (Number(s.completionTokens) || 0);
+  const line = `<button class="spend-line" type="button" data-spend-toggle="${escapeHtml(accountId)}" aria-expanded="${open}"`
+    + ` title="${escapeHtml(t("spendEstimateTitle"))}">`
+    + `<span class="spend-line-what">⇄ ${escapeHtml(t("spendWindow", { days: String(s.windowDays || 30) }))}</span>`
+    + `<span class="spend-line-count">${escapeHtml(t("spendReqTok", { req: compactCount(s.requests), tok: compactCount(tokens) }))}</span>`
+    + `<strong class="spend-line-cost">${escapeHtml(t("spendAtApiPrices", { cost: `$${Math.round(Number(s.total) || 0).toLocaleString("en-US")}` }))}</strong>`
+    + `<span class="spend-line-caret" aria-hidden="true">${open ? "▾" : "▸"}</span></button>`;
+  if (!open) return `<div class="sub-usage-panel spend-panel">${line}</div>`;
   const models = (s.byModel || []).slice(0, 3)
     .map((m) => {
       // Spend rows carry uppercase display names; the pricing map is keyed by
@@ -129,7 +150,8 @@ export function proxySpendHtml(accountId) {
         ? `<span class="sub-usage-rate">${formatPricePer1M(mp.inputPer1M)}/${formatPricePer1M(mp.outputPer1M)}</span>` : "";
       return `<div class="sub-usage-row spend-row"><span class="sub-usage-label">${escapeHtml(m.model)}</span>${rate}<span class="sub-usage-pct">$${Number(m.cost || 0).toFixed(3)}</span></div>`;
     }).join("");
-  return `<div class="sub-usage-panel"><div class="sub-usage-credits"><span>⇄ via proxy · ${s.windowDays}d</span><strong>$${Number(s.total || 0).toFixed(2)}</strong></div>${models}<div class="sub-usage-row"><span class="muted">${s.requests} req · ${(s.promptTokens + s.completionTokens).toLocaleString()} tok</span></div></div>`;
+  const note = subscription ? `<div class="spend-note">${escapeHtml(t("spendSubscriptionNote"))}</div>` : "";
+  return `<div class="sub-usage-panel spend-panel open">${line}${models}${note}</div>`;
 }
 // ── Usage & spend statistics modal (cloud $ spent + local tokens × manual rate) ──
 export let usageStatsData = null, usageStatsLoading = false;

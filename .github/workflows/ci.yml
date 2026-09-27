@@ -103,6 +103,8 @@ jobs:
           python3 scripts/test_proxy_models.py
           python3 scripts/test_cloud_context.py
           python3 scripts/test_cloud_accounts.py
+          python3 scripts/test_cloud_refs.py
+          python3 scripts/test_cloud_sync.py
           python3 scripts/test_request_body.py
           python3 scripts/check_context_window.py
           python3 scripts/test_context_window.py

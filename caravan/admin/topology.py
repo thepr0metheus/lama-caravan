@@ -9,6 +9,7 @@ import time
 
 from caravan.admin.controller_machine import ControllerMachine
 from caravan.admin.proxy_stats import proxy_ports_last_seen
+from caravan.admin import model_catalog
 from caravan.admin.cloud import cloud_accounts_state, cloud_blocks_state, cloud_provider_presets_public
 from caravan.admin.config_builder import models_dir_from_config, parse_config
 from caravan.admin.cell_assets import cell_source_state
@@ -1048,6 +1049,12 @@ def topology_state(refresh_hosts=True):
         # Tripped upstream endpoints + effective codex client_version — the
         # provider cards render this as the "API issues" panel.
         "cloudApiHealth": cloud_api_health,
+        # Blocks the model sync removed within the last day (the provider
+        # dropped the model and nothing pointed at it) — the board says so,
+        # with "↶" to bring one back.
+        "cloudRemoved": [{"accountId": acc, "id": (r.get("block") or {}).get("id"),
+                          "model": (r.get("block") or {}).get("model"), "at": r.get("at")}
+                         for acc, rows in model_catalog.removed_blocks().items() for r in rows],
         "cloudProviderPresets": cloud_provider_presets_public(),
         "time": int(time.time()),
     }
