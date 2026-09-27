@@ -206,7 +206,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 358 values. Regenerate with
+Generated from the source, not from memory — 357 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Forty-six of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -214,7 +214,7 @@ that is why there is a script and not a one-liner.
 
 **agent** — `agent-bind-menu`, `agent-bind-taken`, `agent-no-route`, `agent-proxy-bind`, `agent-remove`, `agent-rename`, `agent-row`
 **app** — `app-toast`
-**board** — `board-agent-card`, `board-cell-add`, `board-client-caption`, `board-clients-lane`, `board-cloud-lane`, `board-density`, `board-gpus-lane`, `board-incidents-list`, `board-incidents-open`, `board-llama-suspect-banner`, `board-llama-suspect-row`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-scout-add`, `board-system-open`
+**board** — `board-agent-card`, `board-client-caption`, `board-clients-lane`, `board-cloud-lane`, `board-density`, `board-gpus-lane`, `board-incidents-list`, `board-incidents-open`, `board-llama-suspect-banner`, `board-llama-suspect-row`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-scout-add`, `board-system-open`
 **cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-engine-model`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-stale`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-row`, `cell-row-start`, `cell-row-stop`, `cell-source-stale`, `cell-start`, `cell-stop`, `cell-window`, `cell-window-close`, `cell-window-via`
 
 **client** — `client-add`
@@ -374,10 +374,10 @@ agent with no route — that one also carries `agent-no-route`) never folds.
 
 ## Repeated elements carry their own name
 
-`cell-card`, `cell-configure` and `board-cell-add` each expose the identity
-their `data-t-id` carries — `Cell controller:22001`, `Configure:
-controller:22001`, `Reserve cell :22024 — skynet`. Before this they were
-announced identically 22, 22 and 2 times over.
+`cell-card` and `cell-configure` each expose the identity their `data-t-id`
+carries — `Cell controller:22001`, `Configure: controller:22001`. Before this
+they were announced identically 22 and 22 times over. (`board-cell-add`, the
+Reserve-cell stub, did the same until it left in 1.3.393.)
 
 ## `login-*` and `setup-*` live on different pages
 
@@ -517,11 +517,14 @@ stopped   → cell-start
 reserved  → neither; configure it first
 ```
 
-Reserved is where a cell begins. `board-cell-add` (the ＋ button on a host, one
-per host, `data-t-id` = host id) reserves the next free port; `cell-configure` on
-that card opens the editor in add mode. So "a card offers exactly one of
-start/stop" is the wrong assertion — it is right for the two states a configured
-cell can be in, and reserved is neither of them.
+A caravan cell begins at `node-caravan-add` («＋ Add model», one per machine,
+`data-t-id` = host id): the editor opens on the next free port, named in the
+button's `title`, and Apply makes a configured cell — there is no reserved step
+in between any more (the Reserve-cell stub, `board-cell-add`, left in 1.3.393,
+the operator's call). A cell can still be reserved: an engine shelf's
+`engine-model-reserve` holds a port for a model in an engine. So "a card offers
+exactly one of start/stop" is the wrong assertion — it is right for the two
+states a configured cell can be in, and reserved is neither of them.
 
 ## Host id and display name are different strings
 

@@ -3246,6 +3246,14 @@ PINS += [
      "просьба оператора (2026-09-27): между верхними блоками (караван, движки, их полки) и созданными ячейками — "
      "разделитель «Ячейки», один на машину, над чипами и строками ячеек; boundary: у машины без движков чипов нет, "
      "разделитель всё равно над ячейками"),
+    ("lane_no_reserve_stub",
+     LANE,
+     '[(h => [h.includes(\'data-t="board-cell-add"\'), h.includes("ghost-server"), h.includes("data-node-reserve"),'
+     ' (h.match(/data-t="node-caravan-add"/g) || []).length])(lane([ENG({ models: [MDL()] })], TWO())),'
+     ' (h => [h.includes("ghost-server"), (h.match(/data-t="node-caravan-add"/g) || []).length])(lane([], []))]',
+     '[[false, false, false, 1], [false, 1]]',
+     "решение оператора (2026-09-27): заглушки «Reserve cell» под ячейками больше нет — ячейка каравана начинается с "
+     "«＋ Add model», одной на машину; boundary: и у машины без ячеек нет заглушки, «＋ Add model» на месте"),
     ("lane_driver_warning_heads_compute",
      LANE,
      '(h => { const col = (h.match(/<div class="node-gpus">(.*)$/) || [0, ""])[1];'

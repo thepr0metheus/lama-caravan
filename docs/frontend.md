@@ -830,15 +830,13 @@ form offer what only that tree backs: a safetensors folder in the picker, the se
 its language, a vLLM path derived from the picked folder, and the content of a script its command
 names; any other machine keeps them held back.
 
-`reserveServerCell` asks where the new cell runs when the machine reports an engine a cell can run
-in (`reserveEngines`: the scout's engines whose kind is a runner with `engineCell`): Caravan first,
-then each engine — one not ready is marked so; for an engine the next step lists its models. An
-engine not ready, or without models, is sent without a model and the controller's refusal is the
-toast (`caravan/admin/engine_cells.py` holds the words). A machine without such an engine gets the
-old confirm. `reserveEngineCell(hostId, kind, model)` is the «+» on a model's line under an engine's
-cells: nothing is asked — the line names the engine and the model — and the port is the next free
-one; one reserve at a time on a machine. Both send through one path (the machine's spinner until
-the new cell is on the board, its flash, the controller's refusal as the toast). `actOnEngineModel`
+`reserveEngineCell(hostId, kind, model)` is the «+» on a model's line under an engine's cells:
+nothing is asked — the line names the engine and the model — and the port is the next free one;
+one reserve at a time on a machine. It sends through `postReserve` (the machine's spinner until the
+new cell is on the board, its flash, the controller's refusal as the toast —
+`caravan/admin/engine_cells.py` holds the words). The Reserve-cell stub under a machine's cells,
+with its "where does the new cell run" dialog (`reserveServerCell`, `reserveEngines`), left in
+1.3.393 (the operator's call): a caravan cell begins at «＋ Add model», an engine's at its shelf. `actOnEngineModel`
 unloads a model (confirmed like a stop) or deletes it (the danger look, the machine named); it sends
 no other act — no model is loaded from the board. `cellServiceAction` asks when a start comes back
 `short` — a cell in an engine whose model would not fit into the cards' free memory: the numbers
@@ -860,7 +858,7 @@ cell reveals the caravan's cells on its machine's chips (`CARD_FOLD.reveal`), so
 not saved out of sight.
 
 - Owns: the pending-op collections — `_pendingRemoteStarts` (Map), `_stoppingHosts`, `_deletingSlots`, `_reservingCells`, `_newReservedCells`, `_stoppingCells`, `_expandedCellCfgs` — plus `_remoteStartWatchTimer`, `_nvidiaSmiSource`, the `_tr*` form state.
-- Key exports: `reserveServerCell`, `reserveEngines`, `reserveEngineCell`, `reserveEngineButton`, `openCaravanModelEditor`, `preselectModel`, `actOnEngineModel`, `serveEngine`, `pullEngineModel`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.
+- Key exports: `reserveEngineCell`, `reserveEngineButton`, `openCaravanModelEditor`, `preselectModel`, `actOnEngineModel`, `serveEngine`, `pullEngineModel`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.
 
 ## cloud.js
 

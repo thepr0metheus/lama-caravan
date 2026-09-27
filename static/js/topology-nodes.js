@@ -812,8 +812,8 @@ export function serverLifecycleBar(lcIdx, lcActiveStep, uptimeTxt = "", cfgAttrs
       const label = escapeHtml(stepLabels[lbl] || lbl)
         + (i === 2 && uptimeTxt ? `<span class="lc-uptime">${escapeHtml(uptimeTxt)}</span>` : "")
         + (i === 0 && reservedPort ? `<span class="lc-port">:${escapeHtml(String(reservedPort))}</span>` : "");
-      // Reserved step carries the :port now — drop its redundant dot (the ghost
-      // card, which has no port, keeps the dot for symmetry).
+      // Reserved step carries the :port now — drop its redundant dot (a step
+      // without a port keeps the dot for symmetry).
       const inner = `${(i === 0 && reservedPort) ? "" : `<span class="lc-dot"></span>`}<span class="lc-lbl">${label}</span>`;
       const node = (i === 1 && cfgAttrs)
         ? `<button class="lc-node lc-cfg-btn ${nodeState} lc-${colorKey}${cfgLive}" type="button" ${cfgAttrs} title="${escapeHtml(t("nodeConfigure"))}">${inner}</button>`
@@ -1831,21 +1831,6 @@ export function nodesLaneHtml() {
     const verChip = `<span class="node-power-ctl">${rebootBtn}${powerSchedBtn}${powerOffBtn}</span>`;
     const servers = (n.servers || []);
     const collapsed = _collapsedNodes.has(n.id);
-    const nextCellPort = nextTopologyCellPort();
-    const reservePending = _reservingCells.get(String(n.id));
-    const reservePort = reservePending?.port || nextCellPort;
-    const reserveBusy = !!reservePending;
-    const addBtn = `<article class="node-server ghost-server${reserveBusy ? " reserving" : ""}">
-      ${serverLifecycleBar(-1, "none")}
-      <div class="ghost-server-body">
-        <button class="ghost-start-btn" type="button"
-          data-t="board-cell-add" data-t-id="${escapeHtml(n.id)}"
-          aria-label="${escapeHtml(t("topologyReserveCellLabel"))} :${escapeHtml(String(reservePort))}"
-          data-node-reserve="${escapeHtml(n.id)}"
-          data-node-reserve-port="${escapeHtml(String(reservePort))}"
-          ${reserveBusy ? "disabled" : ""}>${reserveBusy ? `<span class="topology-spinner" aria-hidden="true"></span> ${escapeHtml(t("topologyReservingCellLabel"))} :${escapeHtml(String(reservePort))}` : `＋ ${escapeHtml(t("topologyReserveCellLabel"))} :${escapeHtml(String(reservePort))}`}</button>
-      </div>
-    </article>`;
     // When collapsed, keep a left-edge rail of cable anchors (one per server)
     // so proxy cables stay attached.
     let bodyHtml;
@@ -1929,7 +1914,7 @@ export function nodesLaneHtml() {
       const divider = `<div class="node-cells-divider" role="separator"><span>${escapeHtml(t("cellsDividerLabel"))}</span></div>`;
       const serversHead = `<div class="node-servers-head">${serversSubtitle}${launchers}${divider}${filter.html()}${eye}</div>`;
       bodyHtml = `<div class="node-body">
-          <div class="node-servers">${serversHead}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
+          <div class="node-servers">${serversHead}${serversHtml}${startingCard}${serverStatsSlot}</div>
           <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${nodeDriverWarningsHtml(n)}${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>
         </div>`;
     }
