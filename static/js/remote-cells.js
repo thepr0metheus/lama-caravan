@@ -6,6 +6,7 @@ import { refreshFavoritesPanel } from "./favorites.js";
 import {
   badge,
   maybeAutofillModelHelpersPfx,
+  mcAwaitPick,
   mcOpen,
   modelsByPath,
   readConfigForm,
@@ -1298,6 +1299,8 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
 
   // Populate model dropdowns (same models as the controller since admin serves them)
   _trCachedModels = new Set(); // reset until the async fetch arrives
+  // A pick awaited by an earlier "+ Add model" is not this opening's.
+  if ($("tr-MODEL_FILE")?.dataset) delete $("tr-MODEL_FILE").dataset.pickPending;
   renderModelSelects("tr-");
 
   // B: clean-slate defaults — only carry the params that make sense cross-host.
@@ -1359,6 +1362,12 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
   // from a previous host config. Re-run autofill so the right projector is selected
   // for the current MODEL_FILE (same logic as when the user changes the model).
   maybeAutofillModelHelpersPfx("tr-");
+  // "+ Add model": the model is the operator's to pick (2026-09-27, the
+  // operator's word) — no default stands in the field, so a list closed
+  // without a pick does not Apply as a cell of whatever model was last used.
+  // Its change listeners clear the projector and the draft that came with it,
+  // and it stays empty when the machine's cached list redraws the selects.
+  if (pickModel) mcAwaitPick($("tr-MODEL_FILE"));
 
   // Current command + New-command diff baseline (mirrors the controller modal):
   // an existing remote cell shows its own current command; a brand-new add has none.
@@ -1452,16 +1461,19 @@ export async function submitRemoteLlamaStart() {
       : (!modelPath
           ? t("dlgStartPort", { port: String(port) })
           : t("dlgStartModel", { model: modelPath.split("/").pop(), port: String(port) }));
-  if (!(await appConfirm(_startMsg, {
-    danger: false,
-    confirmLabel: _isCellSave ? "OK" : t("dlgStartLabel"),
-    scene: "start",
-  }))) return;
+  // What is missing is said before anything is asked: "Apply?" and then
+  // "select a model" was two dialogs for nothing (an empty model is what
+  // "+ Add model" opens with).
   if (isCommand) {
     if (!(config.COMMAND || "").trim()) { toast(t("enterCommand")); return; }
   } else if (runnerId === "vllm") {
     if (!(config.VLLM_MODEL || "").trim()) { toast(t("selectModel")); return; }
   } else if (!isCommandPath && !modelPath) { toast(t("selectModel")); return; }
+  if (!(await appConfirm(_startMsg, {
+    danger: false,
+    confirmLabel: _isCellSave ? "OK" : t("dlgStartLabel"),
+    scene: "start",
+  }))) return;
 
   // Cell mode: save config without starting (same as controller "Apply")
   if (_trCellPort) {

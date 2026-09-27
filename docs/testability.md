@@ -206,7 +206,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 360 values. Regenerate with
+Generated from the source, not from memory — 358 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Forty-six of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -214,7 +214,7 @@ that is why there is a script and not a one-liner.
 
 **agent** — `agent-bind-menu`, `agent-bind-taken`, `agent-no-route`, `agent-proxy-bind`, `agent-remove`, `agent-rename`, `agent-row`
 **app** — `app-toast`
-**board** — `board-agent-card`, `board-cell-add`, `board-client-caption`, `board-clients-lane`, `board-cloud-lane`, `board-density`, `board-gpus-lane`, `board-hf-open`, `board-incidents-list`, `board-incidents-open`, `board-llama-suspect-banner`, `board-llama-suspect-row`, `board-models-bar`, `board-models-open`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-scout-add`, `board-system-open`
+**board** — `board-agent-card`, `board-cell-add`, `board-client-caption`, `board-clients-lane`, `board-cloud-lane`, `board-density`, `board-gpus-lane`, `board-incidents-list`, `board-incidents-open`, `board-llama-suspect-banner`, `board-llama-suspect-row`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-scout-add`, `board-system-open`
 **cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-engine-model`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-stale`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-row`, `cell-row-start`, `cell-row-stop`, `cell-source-stale`, `cell-start`, `cell-stop`, `cell-window`, `cell-window-close`, `cell-window-via`
 
 **client** — `client-add`
@@ -235,7 +235,7 @@ that is why there is a script and not a one-liner.
 
 **models** — `models-delete-selected`, `models-filter`, `models-filter-clear`, `models-filter-empty`, `models-filters`, `models-folder-item`, `models-fresh-at`, `models-fresh-auto`, `models-fresh-check`, `models-fresh-get`, `models-fresh-keep`, `models-fresh-stamp`, `models-hf-open`, `models-library-file`, `models-model-select`, `models-move-branch`, `models-move-dest`, `models-move-dismiss`, `models-move-menu`, `models-move-open`, `models-move-progress`, `models-move-selected`, `models-move-stayed`, `models-move-stop`, `models-move-target`, `models-moves-summary`, `models-path-cancel`, `models-path-edit`, `models-path-edit-row`, `models-path-input`, `models-path-save`, `models-path-value`, `models-picked-summary`, `models-place-all`, `models-place-card`, `models-place-open`, `models-search`, `models-selection`, `models-staged-download`, `models-staged-progress`, `models-staged-revert`, `models-store`, `models-store-add`, `models-store-add-cancel`, `models-store-add-open`, `models-store-add-path`, `models-store-add-row`, `models-store-files`, `models-store-meta`, `models-store-remove`, `models-store-repath`, `models-store-repath-cancel`, `models-store-repath-input`, `models-store-repath-row`, `models-store-repath-save`, `models-store-state`, `models-store-why`, `models-store-why-command`, `models-stores`, `models-stores-error`, `models-summary`, `models-summary-bar`, `models-summary-facts`, `models-tree`, `models-tree-group`, `models-tree-group-toggle`, `models-tree-head`, `models-unused-select-all`, `models-unused-summary`
 **engine** — `engine-model`, `engine-model-reserve`, `engine-shelf`
-**node** — `node-caravan`, `node-caravan-add`, `node-caravan-download`, `node-cell-filter`, `node-disconnect`, `node-driver-warning`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-downloading`, `node-engine-expose`, `node-engine-job`, `node-engine-missing`, `node-engine-pull`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-hide-idle`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
+**node** — `node-caravan`, `node-caravan-add`, `node-caravan-hf`, `node-caravan-models`, `node-cell-filter`, `node-disconnect`, `node-driver-warning`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-downloading`, `node-engine-expose`, `node-engine-job`, `node-engine-missing`, `node-engine-pull`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-hide-idle`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
 **host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `cell-ctx-native`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
 **scout** — `scout-add-address`, `scout-add-connect`, `scout-add-port`, `scout-add-status`
 **setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
@@ -279,8 +279,10 @@ accepts; `rebootForDriver` — the driver installed is not the one loaded). One
 line each, `role="status"`; none when there is nothing to say.
 
 The caravan's own strip comes first over the chips, `node-caravan` (`data-t-id`
-`<node>:caravan`), with `node-caravan-download` (a link to the Hugging Face page,
-same id as the node). Under it, `node-caravan-add` (`data-t-id` the node) is
+`<node>:caravan`); its second line holds `node-caravan-models` and `node-caravan-hf`
+(links to the models page and the Hugging Face page, `data-t-id` the node — the bar
+that stood over the machines, `board-models-bar` with `board-models-open` and
+`board-hf-open`, is gone). Under it, `node-caravan-add` (`data-t-id` the node) is
 «＋ Add model»: it opens the cell editor on the next free port with the model
 list open (`data-caravan-add` the node; absent, and the button disabled, while a
 reserve on the machine is under way) and makes nothing until Apply.

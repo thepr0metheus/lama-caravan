@@ -6,7 +6,7 @@ import { syncFavoriteMirrors } from "./favorites.js";
 // functions only (llama-edit.js also imports this module) — the runtime cycle
 // is safe because nothing here runs at module load.
 import { _applyDeviceToEnv, _envDeviceState } from "./llama-edit.js";
-import { modelsByPath, renderAsideVramBar, renderModelInsight } from "./form.js";
+import { modelChoiceOf, modelsByPath, renderAsideVramBar, renderModelInsight } from "./form.js";
 import { t } from "./i18n.js";
 import { _trClientCpu, _trClientGpus } from "./remote-cells.js";
 import { SplitMode } from "./split-mode.js";
@@ -67,9 +67,13 @@ export function estimateBatchBuffersGb(row, pfx = "") {
 
 export function selectedModelRows(pfx = "") {
   const byPath = modelsByPath();
-  const selected = byPath.get($(pfx + "MODEL_FILE")?.value || state.config.MODEL_FILE);
-  const selectedMmproj = $(pfx + "MMPROJ_FILE")?.value || state.config.MMPROJ_FILE;
-  return { selected, selectedMmprojRow: byPath.get(selectedMmproj) };
+  // The form's own word on what is chosen: a pick awaited by "+ Add model" is
+  // no model. Reading the field with the config behind it estimated the
+  // config's model instead — the editor opened on the default model's 29.8 GB
+  // "won't fit" and its projector hint with nothing chosen (live check,
+  // 2026-09-27).
+  const choice = modelChoiceOf(pfx);
+  return { selected: byPath.get(choice.model), selectedMmprojRow: byPath.get(choice.mmproj) };
 }
 
 export function estimateRuntimeMemoryGb(pfx = "") {
@@ -683,8 +687,11 @@ export function computeFitRuntimeGb(pfx = "") {
 }
 // llama keeps driving the estimate bar from renderModelInsight (it has the
 // richer per-file breakdown); every other runner gets it from here, so the bar
-// looks and reads the same for all of them.
+// looks and reads the same for all of them. A llama cell with no model chosen
+// has nothing to estimate, and the bar says so — left alone, it kept the last
+// model's numbers.
 export function refreshAsidePanels(pfx = "") {
   if (_runnerOf(pfx) !== "llama-server") renderAsideVramBar(pfx, computeFitRuntimeGb(pfx), true);
+  else if (!selectedModelRows(pfx).selected) renderAsideVramBar(pfx, 0);
 }
 

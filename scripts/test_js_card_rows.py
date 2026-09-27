@@ -159,6 +159,8 @@ const strips = {
   caravan: new EngineStrip({ key: "h1:caravan", engine: "caravan", hook: "node-caravan", state: "ok", label: "Caravan",
     version: "b9947", pull: "<P>" }).html(),
   notesOnly: new EngineStrip({ key: "k", label: "L", notes: "<N>" }).html(),
+  buildAndLinks: new EngineStrip({ key: "h1:caravan", engine: "caravan", hook: "node-caravan", state: "ok", label: "Caravan",
+    version: "llama.cpp", build: "<C>", links: "<K>" }).html(),
 };
 const shelf = {
   full: new ShelfLine({ key: "h1:ollama:qwen2.5:0.5b", engine: "ollama", name: "qwen2.5:0.5b", remote: "<R>", job: "<J>",
@@ -353,6 +355,11 @@ check(st["caravan"] == '<div class="engine-strip engine-caravan" data-t="node-ca
       "строка каравана — та же строка: свой хук (node-caravan), без тумблера; negative: сказать нечего — второй строки нет")
 check('<div class="es-sub"><N></div>' in st["notesOnly"] and '<div class="es-sub">' not in st["bare"],
       "вторая строка — когда есть где слушает или что сказать; у пустой строки её нет")
+check(st["buildAndLinks"] == '<div class="engine-strip engine-caravan" data-t="node-caravan" data-t-id="h1:caravan" data-t-state="ok" '
+      'title=""><div class="es-main"><strong class="es-name">Caravan</strong><span class="es-ver">llama.cpp</span><C>'
+      '<span class="es-fill"></span></div><div class="es-sub"><K></div></div>',
+      "строка каравана (2026-09-27): значок сборки — сразу за «llama.cpp», со своими кнопками; ссылки — второй строкой, "
+      "она есть и без «где слушает»")
 
 print("модель без ячейки (ShelfLine):")
 sl = got["shelf"]

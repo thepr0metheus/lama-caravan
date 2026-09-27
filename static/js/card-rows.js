@@ -225,20 +225,22 @@ export class CellFilter {
  * not a server — its own hook, and no second line when it has nothing to say.
  */
 export class EngineStrip {
-  constructor({ key, engine = "", state = "", label = "", version = "", lever = "", boot = "", memory = "",
-                pull = "", where = "", notes = "", title = "", hook = "node-engine" } = {}) {
+  constructor({ key, engine = "", state = "", label = "", version = "", build = "", lever = "", boot = "", memory = "",
+                pull = "", where = "", notes = "", links = "", title = "", hook = "node-engine" } = {}) {
     this.hook = String(hook || "node-engine");
     this.key = String(key || "");
     this.engine = CellRow.launcher(engine);
     this.state = String(state || "");
     this.label = String(label || "");
     this.version = String(version || "");
+    this.build = build || "";        // the launcher's build as a chip, with its own buttons (the caravan's llama.cpp)
     this.lever = lever || "";
     this.boot = boot || "";
     this.memory = memory || "";
     this.pull = pull || "";
     this.where = where || "";
     this.notes = notes || "";
+    this.links = links || "";        // the second line's links (the caravan's pages)
     this.title = String(title || "");
   }
 
@@ -246,9 +248,9 @@ export class EngineStrip {
     const version = this.version ? `<span class="es-ver">${escapeHtml(this.version)}</span>` : "";
     return `<div class="engine-strip${this.engine ? ` engine-${this.engine}` : ""}" data-t="${escapeHtml(this.hook)}"`
       + ` data-t-id="${escapeHtml(this.key)}" data-t-state="${escapeHtml(this.state)}" title="${escapeHtml(this.title)}">`
-      + `<div class="es-main">${this.lever}<strong class="es-name">${escapeHtml(this.label)}</strong>${version}`
+      + `<div class="es-main">${this.lever}<strong class="es-name">${escapeHtml(this.label)}</strong>${version}${this.build}`
       + `<span class="es-fill"></span>${this.boot}${this.memory}${this.pull}</div>`
-      + `${this.where || this.notes ? `<div class="es-sub">${this.where}${this.notes}</div>` : ""}</div>`;
+      + `${this.where || this.notes || this.links ? `<div class="es-sub">${this.where}${this.notes}${this.links}</div>` : ""}</div>`;
   }
 }
 

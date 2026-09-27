@@ -54,6 +54,11 @@ import { pathToFileURL } from "node:url";
 const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
 const cst = await import(pathToFileURL(process.env.JS_ROOT + "/constants.js").href);
 st.setState({ config: { KV_OFFLOAD: "0" }, paths: { modelsDir: "/srv/models/", llamaHome: "/opt/llama" }, chatTemplates: [], models: [] });
+// remote-cells is a stub here; its values are given before the import: the cached-models
+// set, and the machine the cell form targets — no cards, no RAM reported until a pin adds them.
+const TR_GPUS = [];
+globalThis.__stubValues = { ...(globalThis.__stubValues || {}), "remote-cells._trCachedModels": new Set(),
+  "remote-cells._trClientGpus": TR_GPUS, "remote-cells._trClientCpu": {} };
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/form.js").href);
 const F = (o) => { globalThis.__fields = o; return m.readConfigForm(""); };
 const base = { PORT: { value: " 22001 " }, MODEL_FILE: { value: "a.gguf" }, MMPROJ_FILE: { value: "mm.gguf" }, SPEC_DRAFT_MODEL_FILE: { value: "d.gguf" },
@@ -104,6 +109,24 @@ const combo = (hidden) => { const w = { clicks: 0 }; const trigger = { click: ()
   w.select = { previousElementSibling: { classList: { contains: (c) => c === "mc-wrap" },
     querySelector: (sel) => (sel === ".mc-panel" ? { hidden } : sel === ".mc-trigger" ? trigger : null) } }; return w; };
 const shut = combo(true), open = combo(false);
+// What the model fields keep when the selects are drawn again, and a pick awaited ("+ Add model").
+{
+  const saved = st.state;
+  st.setState({ ...st.state, config: { MODEL_FILE: "cfg.gguf", MMPROJ_FILE: "cfg-mm.gguf", SPEC_DRAFT_MODEL_FILE: "cfg-d.gguf" } });
+  const keep = globalThis.__fields;
+  globalThis.__fields = { "tr-MODEL_FILE": { value: "", dataset: {} }, "tr-MMPROJ_FILE": { value: "" }, "tr-SPEC_DRAFT_MODEL_FILE": { value: "x-d.gguf" } };
+  out.choice = { normal: m.modelChoiceOf("tr-") };
+  globalThis.__fields["tr-MODEL_FILE"].value = "own.gguf";
+  out.choice.own = m.modelChoiceOf("tr-").model;
+  globalThis.__fields["tr-MODEL_FILE"].dataset.pickPending = "1";
+  out.choice.pending = m.modelChoiceOf("tr-");
+  globalThis.__fields = keep;
+  st.setState(saved);
+  const ev = []; const sel = { value: "a.gguf", dataset: {}, dispatchEvent: (e) => { ev.push(e.type); return true; } };
+  out.awaitPick = [m.mcAwaitPick(sel), sel.value, sel.dataset.pickPending, ev.slice()];
+  m.mcSelectItem(sel, ""); out.awaitPick.push(sel.dataset.pickPending);
+  m.mcSelectItem(sel, "b.gguf"); out.awaitPick.push(sel.dataset.pickPending ?? null, sel.value, m.mcAwaitPick(null));
+}
 out.mcOpen = [m.mcOpen(shut.select), shut.clicks, m.mcOpen(open.select), open.clicks, m.mcOpen(null),
   m.mcOpen({ previousElementSibling: { classList: { contains: () => false } } })];
 cst.dirtyOptionalToggles.add("FIT"); out.dirtyFit = pick(F(base)).FIT; cst.dirtyOptionalToggles.delete("FIT");
@@ -207,6 +230,65 @@ out.ctxNative.applyNothing = [m.applyCtxNative("te-"), globalThis.__fields["te-C
   };
   out.stRows = [pickFor(true), pickFor(false)];
 }
+// The redraw of a form awaiting a pick: the config's model (here gone from the
+// disk, so the list would carry it as a "missing" row) does not come back.
+{
+  const drawTr = (pending) => {
+    const kids = [];
+    const list = { innerHTML: "", appendChild: (el) => kids.push(el) };
+    const trigger = { innerHTML: "", appendChild() {} };
+    const wrap = { classList: { contains: (c) => c === "mc-wrap", toggle() {}, add() {} },
+                   querySelector: (q) => (q === ".mc-list" ? list : q === ".mc-trigger" ? trigger : null) };
+    const other = () => {
+      const l = { innerHTML: "", appendChild() {} }, tr = { innerHTML: "", appendChild() {} };
+      return { value: "", dataset: {}, innerHTML: "", appendChild() {},
+               previousElementSibling: { classList: { contains: (c) => c === "mc-wrap", toggle() {}, add() {} },
+                                         querySelector: (q) => (q === ".mc-list" ? l : q === ".mc-trigger" ? tr : null) } };
+    };
+    const saved = st.state;
+    st.setState({ ...st.state, config: { MODEL_FILE: "gone/q/absent.gguf" }, artifacts: [],
+                  models: [{ path: "x/q/x.gguf", kind: "model", sizeGb: 4 }] });
+    const opts = [];
+    globalThis.__fields = { "tr-MODEL_FILE": { value: "", dataset: pending ? { pickPending: "1" } : {}, innerHTML: "",
+                                               appendChild: (o) => opts.push([o.value, o.selected]), previousElementSibling: wrap },
+                            "tr-MMPROJ_FILE": other(), "tr-SPEC_DRAFT_MODEL_FILE": other() };
+    (globalThis.__stubReturns ||= {})["llama-edit.runnerRegistry"] = () => [];
+    globalThis.__stubReturns["remote-cells.formOnControllerMachine"] = () => true;
+    const made = document.createElement;
+    document.createElement = () => ({ className: "", dataset: {}, style: {}, classList: { add() {}, toggle() {} }, setAttribute() {},
+                                      addEventListener() {}, appendChild() {}, innerHTML: "", textContent: "" });
+    try { m.renderModelSelects("tr-"); } catch (e) { out.redrawError = String((e && e.message) || e); }
+    document.createElement = made;
+    delete globalThis.__stubReturns["remote-cells.formOnControllerMachine"];
+    st.setState(saved);
+    return [kids.some((el) => el.dataset.value === "gone/q/absent.gguf"), opts[0] || null];
+  };
+  out.redraw = [drawTr(false), drawTr(true)];
+}
+// The estimate while "+ Add model" awaits a pick: of no model — not of the
+// config's, which the field fell back to (form and memory both real here).
+{
+  const saved = st.state;
+  st.setState({ ...st.state, config: { MODEL_FILE: "big.gguf" },
+    models: [{ path: "big.gguf", sizeGb: 29.8, capability: "vision_likely", ggufMeta: { blockCount: 60 } }] });
+  const keep = globalThis.__fields;
+  TR_GPUS.push({ index: 0, name: "Card", memoryTotalMiB: 32768, memoryFreeMiB: 32768, memoryUsedMiB: 0 });
+  const box = { innerHTML: "", querySelector: () => null, querySelectorAll: () => [] }, aside = { innerHTML: "" };
+  globalThis.__fields = { "tr-modelInsight": box, "tr-asideVramBar": aside,
+    "tr-MODEL_FILE": { value: "", dataset: { pickPending: "1" } }, "tr-MMPROJ_FILE": { value: "" } };
+  const draw = () => {
+    box.innerHTML = "stale"; aside.innerHTML = "stale";
+    try { m.renderModelInsight("tr-"); } catch (e) { return "threw: " + String((e && e.message) || e); }
+    return [box.innerHTML.includes("29.8 GB"), box.innerHTML.includes("chooseProjectorHint") || box.innerHTML.includes("multimodal"),
+            box.innerHTML === "", aside.innerHTML.includes("aside-vram-empty"), aside.innerHTML === "stale"];
+  };
+  out.awaitEstimate = { pending: draw() };
+  delete globalThis.__fields["tr-MODEL_FILE"].dataset.pickPending;
+  out.awaitEstimate.normal = draw();
+  TR_GPUS.length = 0;
+  globalThis.__fields = keep;
+  st.setState(saved);
+}
 console.log(JSON.stringify(out));
 """
 
@@ -235,7 +317,8 @@ if run.returncode != 0:
 got = json.loads(run.stdout.strip().splitlines()[-1])
 
 print("модуль:")
-check(got["exports"] == 40, "form.js экспортирует 40 функций (пересчитай при изменении охвата; +mcOpen, раунд 10)")
+check(got["exports"] == 42, "form.js экспортирует 42 функции (пересчитай при изменении охвата; +mcOpen, раунд 10; "
+      "+modelChoiceOf, +mcAwaitPick)")
 check(got["classicGone"] == [],
       f"negative: помощников классической формы одиночного сервера больше нет — Gemma-режимы, автошаблон, "
       f"сырой вывод; она ушла с ячейками контроллера в шаге 6.9 (got {got['classicGone']})")
@@ -314,6 +397,28 @@ check(fmt["mtime"][3] == "Nov 14, 2023" and fmt["mtime"][4] == "Nov 14, 2023", "
 print("mcFilterList:")
 check(got["filter"]["q"] == [False, True, True], "фильтр регистронезависим; элемент без data-search прячется")
 check(got["filter"]["blank"] == [False, False, False], "пустой запрос показывает всё")
+
+print("modelChoiceOf / mcAwaitPick:")
+check(got["choice"]["normal"] == {"model": "cfg.gguf", "mmproj": "cfg-mm.gguf", "draft": "x-d.gguf"}
+      and got["choice"]["own"] == "own.gguf",
+      "перерисовка держит значения формы, пустое поле — из конфига (как было); своё значение важнее конфига")
+check(got["choice"]["pending"] == {"model": "", "mmproj": "", "draft": ""},
+      "defect-history: форма «＋ Add model» ждёт выбора — все три поля пустые при перерисовке; раньше модель конфига "
+      "возвращалась в поле, когда приходил список с машины, и Apply создавал ячейку с ней")
+check(got.get("redraw") == [[True, ["gone/q/absent.gguf", True]], [False, ["", True]]] and "redrawError" not in got,
+      "перерисовка списков: обычная форма с пустым полем берёт модель конфига (её нет на диске — строка «пропала», "
+      "она и выбрана); negative: форма, ждущая выбора, модель конфига не возвращает, а первой в скрытом поле стоит "
+      "пустая выбранная опция — без неё браузер сам выбирал первую модель списка (живая проверка 1.3.388) "
+      f"(got {got.get('redraw')}, {got.get('redrawError', '')})")
+check(got["awaitPick"] == [True, "", "1", ["change"], "1", None, "b.gguf", False],
+      "mcAwaitPick: поле пустое, выбор ждёт, поле узнаёт о смене; выбор «пусто» ожидания не снимает, выбор модели — "
+      "снимает; negative: поля нет — false")
+
+check(got.get("awaitEstimate") == {"pending": [False, False, True, True, False], "normal": [True, True, False, False, False]},
+      "defect-history: пока «＋ Add model» ждёт выбора, оценка пуста, а полоса памяти говорит «выберите модель» — "
+      "раньше редактор показывал размер, «не влезет» и подсказку про проектор модели конфига (живая проверка "
+      "1.3.390); negative: обычная форма с пустым полем — модель конфига, как было: размер и подсказка на месте, "
+      f"полоса рисуется (у машины карта на 32 ГБ) (got {got.get('awaitEstimate')})")
 
 print("mcOpen:")
 check(got["mcOpen"] == [True, 1, False, 0, False, False],
