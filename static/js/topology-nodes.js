@@ -317,18 +317,6 @@ function engineJobChipsHtml(m, { skip = [] } = {}) {
       data-t="node-engine-job" data-t-id="${escapeHtml(job)}">${JOB_MARKS[job] || ""} ${escapeHtml(t(JOB_LABELS[job]))}</span>`).join("");
 }
 
-// A download into the engine (step 3д, scout 2.17+), as its strip and the live
-// patch write it: how much has come of how much, once the engine says; "" when
-// nothing downloads.
-export function engineDownloadText(e) {
-  const d = e?.downloading;
-  if (!d?.model) return "";
-  const head = `⤓ ${t("nodeEnginePulling", { model: d.model })}`;
-  if (d.doneBytes == null || !d.totalBytes) return `${head}…`;
-  const pct = Math.min(100, Math.floor((Number(d.doneBytes) / Number(d.totalBytes)) * 100));
-  return `${head} · ${t("nodeEnginePullProgress", { done: engineSizeText(d.doneBytes), total: engineSizeText(d.totalBytes) })} (${pct}%)`;
-}
-
 // A model made a router output directly (step 2, docs/foreign-engines.md) can
 // only be turned off from the board now: an engine's model is reached through
 // a cell in it (2026-09-26, the operator's choice — no new outputs here; the
@@ -374,16 +362,10 @@ function engineLeverHtml(n, e) {
   return `<button type="button" class="fr-switch" role="switch" aria-checked="${on}" ${attrs} title="${why}" aria-label="${why}">${knob}</button>`;
 }
 
-// A model downloaded into the engine (step 3д, scout 2.17+): on its strip,
-// where the engine offers it and nothing downloads there yet.
-function enginePullHtml(n, e) {
-  const controls = Array.isArray(e.controls) ? e.controls : [];
-  if (!controls.includes("pull") || e.downloading?.model) return "";
-  return `<button class="node-engine-serve pull" type="button" data-t="node-engine-pull" data-t-id="${escapeHtml(`${n.id}:${e.kind}:${e.port}`)}"
-      data-engine-pull data-engine-host="${escapeHtml(String(n.id))}" data-engine-kind="${escapeHtml(String(e.kind || ""))}"
-      data-engine-label="${escapeHtml(String(e.label || e.kind || ""))}"
-      title="${escapeHtml(t("nodeEnginePullTitle"))}">⤓ ${escapeHtml(t("nodeEnginePull"))}</button>`;
-}
+// Nothing is downloaded into an engine from the board (the operator's call,
+// 2026-09-27): a model gets into Ollama or LM Studio by the engine's own
+// means, and the strip shows what is there. A scout that still offers "pull"
+// among its controls is not taken up on it.
 
 // Where it listens: on 127.0.0.1 only — the isolation its cells rely on —
 // or on the network, with its port's firewall badge, as a cell's port has.
@@ -397,10 +379,9 @@ function engineWhereHtml(e) {
 }
 
 // Under the strip's first line: how the engine answered when not as it
-// should, what the server refused last, in its words, a download under way
-// (patched live) or refused, that another user runs it (a system service —
-// the operator's to stop), and a model it serves as a router output with no
-// cell, with the switch that turns that output off.
+// should, what the server refused last, in its words, that another user runs
+// it (a system service — the operator's to stop), and a model it serves as a
+// router output with no cell, with the switch that turns that output off.
 function engineNotesHtml(n, e) {
   const bits = [];
   if (e.state === "stopped") bits.push(`<span class="node-engine-state">${escapeHtml(t("nodeEngineStopped"))}</span>`);
@@ -410,13 +391,6 @@ function engineNotesHtml(n, e) {
   if (err?.op) {
     const text = t(err.op === "start" ? "nodeEngineStartFailed" : "nodeEngineStopFailed", { error: err.error || "" });
     bits.push(`<span class="node-engine-act-error" title="${escapeHtml(err.error || "")}">⚠ ${escapeHtml(text)}</span>`);
-  }
-  const down = engineDownloadText(e);
-  if (down) bits.push(`<span class="node-engine-download" data-t="node-engine-downloading" data-live-engine-download>${escapeHtml(down)}</span>`);
-  const failed = e.downloadError;
-  if (failed?.model) {
-    const text = t("nodeEnginePullFailed", { model: failed.model, error: failed.error || "" });
-    bits.push(`<span class="node-engine-act-error" title="${escapeHtml(failed.error || "")}">⚠ ${escapeHtml(text)}</span>`);
   }
   if (e.runBy === "other") bits.push(`<span class="node-engine-note">${escapeHtml(t("nodeEngineRunByOther"))}</span>`);
   (Array.isArray(e.models) ? e.models : []).filter((m) => m && m.exposed === true && m.outputId).forEach((m) => {
@@ -438,7 +412,7 @@ export function nodeEngineStripHtml(n, e) {
   return new EngineStrip({
     key: `${n.id}:${e.kind}:${e.port}`, engine: String(e.kind || ""), state: String(e.state || ""),
     label: String(e.label || e.kind || ""), version: String(e.version || ""), lever: engineLeverHtml(n, e), boot,
-    memory: vram + ram, pull: enginePullHtml(n, e), where: engineWhereHtml(e), notes: engineNotesHtml(n, e),
+    memory: vram + ram, where: engineWhereHtml(e), notes: engineNotesHtml(n, e),
     title: t("nodeEngineOnDemandHint"),
   }).html();
 }

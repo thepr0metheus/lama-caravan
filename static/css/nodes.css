@@ -97,11 +97,8 @@
   background:color-mix(in srgb, var(--warn,#f59e0b) 8%, transparent); }
 /* A caravan model that lives only in a library. */
 .shelf-library { flex-shrink:0; font-size:12px; line-height:1; cursor:help; }
-/* The caravan's download is a link to the Hugging Face page, dressed as the
-   engines' download button beside it. */
-a.node-engine-serve.pull { display:inline-flex; align-items:center; text-decoration:none; }
 /* An engine's strip (card-rows.js EngineStrip): the switch that starts or
-   stops its server, its name, what it holds and ⤓; under them where it listens
+   stops its server, its name and what it holds; under them where it listens
    and what it has to say. In the engine's colour, as its cells are. */
 .engine-strip {
   --cell-accent: var(--warn, #d9a441);

@@ -1,5 +1,5 @@
 // Cloud provider accounts/blocks modals and OAuth login flow.
-import { GoneModelCables, NewModelAnnouncer, ProviderModels } from "./cloud-models.js";
+import { GoneModelCables, NewModelAnnouncer, PortCloser, ProviderModels } from "./cloud-models.js";
 import { badge, option } from "./form.js";
 import { t } from "./i18n.js";
 import { modelPricing } from "./model-meta.js";
@@ -17,6 +17,7 @@ import {
   openRouterLimitsHtml,
   proxySpendFetchedAt,
   proxySpendHtml,
+  proxySpendOf,
   refreshUsageReading,
   subscriptionUsageCache,
   subscriptionUsageHtml,
@@ -79,15 +80,6 @@ function bindCloudCardDelegates(cpEl) {
       if (!btn) continue;
       e.stopPropagation();
       refreshUsageReading(kind, btn.dataset[dataKey]);
-      return;
-    }
-    const spend = e.target.closest("[data-spend-toggle]");
-    if (spend) {
-      e.stopPropagation();
-      const id = spend.dataset.spendToggle;
-      (ui.spendOpen ||= {})[id] = !ui.spendOpen[id];
-      ui._lastCloudProvidersKey = "";   // the open state lives outside the render key
-      renderTopologyCloudProviders();
       return;
     }
     const toggle = e.target.closest("[data-cloud-models-toggle]");
@@ -156,13 +148,12 @@ function bindCloudCardDelegates(cpEl) {
     }
     const del = e.target.closest("[data-bridge-delete]");
     if (del) {
+      // The model's port: the last one takes it off the kanban, and the
+      // closer asks what happens to what still leads to it.
       e.stopPropagation();
-      if (!(await appConfirm(t("cloudBridgeDeleteConfirm", { port: del.dataset.bridgeDelete })))) return;
-      try {
-        await api("/api/cloud-accounts/bridge-port-delete", { method: "POST", body: JSON.stringify({ port: Number(del.dataset.bridgeDelete) }) });
-        await refreshTopology();
-        renderTopology();
-      } catch (err) { toast(err.message); }
+      const port = Number(del.dataset.bridgeDelete);
+      const route = (topology?.proxies || []).find((p) => Number(p.port) === port);
+      await PORT_CLOSER.close(route?.providerId || "", port);
       return;
     }
     const restore = e.target.closest("[data-cloud-restore]");
@@ -260,7 +251,7 @@ export function renderTopologyCloudProviders() {
     }
     // Local proxy spend-meter (our token counts × pricing) — for every cloud account.
     fetchProxySpend();
-    usagePanel += proxySpendHtml(acct.id, { open: !!ui.spendOpen?.[acct.id], subscription: isSubscription });
+    usagePanel += proxySpendHtml(acct.id, { subscription: isSubscription });
     // Tripped upstream endpoints (breaker).
     usagePanel += cloudApiIssuesHtml(acct, isSubscription);
     // Data-plane cloud failures over 24h (routed traffic that came back 4xx/5xx).
@@ -283,7 +274,7 @@ export function renderTopologyCloudProviders() {
         ${usagePanel}
         ${new ProviderModels({ account: acct, blocks, routers: topology?.routers || [], proxies: topology?.proxies || [],
           removed: topology?.cloudRemoved || [], open: modelsOpen, nextPort: topology?.nextAppPort,
-          hostname: location.hostname }).html()}
+          hostname: location.hostname, spend: proxySpendOf(acct.id) }).html()}
       </article>
     `;
   }).join("") + (() => {
@@ -551,6 +542,8 @@ export async function fetchCloudAccountModels(accountId, opts) {
 const drawBoard = (top) => { setTopology(top); renderTopology(); };
 export const NEW_MODELS = new NewModelAnnouncer({ apply: drawBoard });
 export const GONE_CABLES = new GoneModelCables({ apply: drawBoard });
+// Closing a model's port — the ✕ on the card, unticking it on the kanban.
+export const PORT_CLOSER = new PortCloser({ apply: drawBoard });
 
 export function prefetchAllSubscriptionModels() {
   const accounts = topology?.cloudAccounts || [];

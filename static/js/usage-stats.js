@@ -1,6 +1,5 @@
 // Usage & spend statistics modal, pricing edits, provider cost fetches.
 import { renderTopologyCloudProviders } from "./cloud.js";
-import { formatPricePer1M, modelPricing } from "./model-meta.js";
 import { t } from "./i18n.js";
 import { topology, ui } from "./state.js";
 import { renderTopology } from "./topology-render.js";
@@ -130,28 +129,25 @@ export function compactCount(n) {
 // window — one line, the models behind it on a click. It stood as a block of
 // rows under a bare "$698.73" (2026-09-27, the operator: "it confuses"); for a
 // subscription the figure is not a bill, and the line says whose price it is.
-export function proxySpendHtml(accountId, { open = false, subscription = false } = {}) {
+// "30 days via the caravan": one line, the total. Each model's share stands
+// on its own row in the models list (cloud-models.js, the operator's ask of
+// 2026-09-27 — the breakdown here repeated the rows below it). On a
+// subscription the line says whose price it is: the subscription covers it.
+export function proxySpendHtml(accountId, { subscription = false } = {}) {
   const s = (proxySpendData || {})[accountId];
   if (!s || (!s.total && !s.requests)) return "";
   const tokens = (Number(s.promptTokens) || 0) + (Number(s.completionTokens) || 0);
-  const line = `<button class="spend-line" type="button" data-spend-toggle="${escapeHtml(accountId)}" aria-expanded="${open}"`
-    + ` title="${escapeHtml(t("spendEstimateTitle"))}">`
+  const title = [t("spendEstimateTitle"), subscription ? t("spendSubscriptionNote") : ""].filter(Boolean).join(" ");
+  return `<div class="sub-usage-panel spend-panel"><div class="spend-line" title="${escapeHtml(title)}">`
     + `<span class="spend-line-what">⇄ ${escapeHtml(t("spendWindow", { days: String(s.windowDays || 30) }))}</span>`
     + `<span class="spend-line-count">${escapeHtml(t("spendReqTok", { req: compactCount(s.requests), tok: compactCount(tokens) }))}</span>`
     + `<strong class="spend-line-cost">${escapeHtml(t("spendAtApiPrices", { cost: `$${Math.round(Number(s.total) || 0).toLocaleString("en-US")}` }))}</strong>`
-    + `<span class="spend-line-caret" aria-hidden="true">${open ? "▾" : "▸"}</span></button>`;
-  if (!open) return `<div class="sub-usage-panel spend-panel">${line}</div>`;
-  const models = (s.byModel || []).slice(0, 3)
-    .map((m) => {
-      // Spend rows carry uppercase display names; the pricing map is keyed by
-      // the lowercase slug — look it up case-insensitively.
-      const mp = modelPricing[m.model] || modelPricing[String(m.model || "").toLowerCase()];
-      const rate = (mp && (mp.inputPer1M || mp.outputPer1M))
-        ? `<span class="sub-usage-rate">${formatPricePer1M(mp.inputPer1M)}/${formatPricePer1M(mp.outputPer1M)}</span>` : "";
-      return `<div class="sub-usage-row spend-row"><span class="sub-usage-label">${escapeHtml(m.model)}</span>${rate}<span class="sub-usage-pct">$${Number(m.cost || 0).toFixed(3)}</span></div>`;
-    }).join("");
-  const note = subscription ? `<div class="spend-note">${escapeHtml(t("spendSubscriptionNote"))}</div>` : "";
-  return `<div class="sub-usage-panel spend-panel open">${line}${models}${note}</div>`;
+    + `</div></div>`;
+}
+
+// The account's 30-day spend record, or null — what the models' rows read.
+export function proxySpendOf(accountId) {
+  return (proxySpendData || {})[accountId] || null;
 }
 // ── Usage & spend statistics modal (cloud $ spent + local tokens × manual rate) ──
 export let usageStatsData = null, usageStatsLoading = false;

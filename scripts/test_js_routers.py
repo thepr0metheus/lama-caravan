@@ -47,7 +47,13 @@ Date.now = () => 1_700_000_100_000;
 // saveRouters держит «муравьиную дорожку» ещё 350 мс, если запись была быстрой:
 // пусть часы говорят, что прошла секунда, — снимок не ждёт анимацию.
 let _perf = 0; globalThis.performance = { now: () => (_perf += 1000) };
+// The closer of models' ports lives in cloud.js (stubbed): an object, so its
+// stand-in is a value — it writes down what it was asked and answers `answer`.
+globalThis.__stubValues = { ...(globalThis.__stubValues || {}),
+  "cloud.PORT_CLOSER": { calls: [], answer: null, close(id, port) { this.calls.push([id, port ?? null]); return Promise.resolve(this.answer); } } };
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/routers.js").href);
+const en = (await import(pathToFileURL(process.env.JS_ROOT + "/i18n/en.js").href)).default;
+const fill = (s, v) => String(s).replace(/\{(\w+)\}/g, (_, k) => v[k]);
 // Тост — то, что видит оператор: третий след действия рядом с проводом и
 // состоянием. Без элемента настоящий toast() падает на null, и харнесс выдавал
 // бы свой артефакт за поведение модуля.
@@ -261,6 +267,34 @@ PINS = [
      "панель канбана говорит то же, что карточка провайдера: «1/5» с подсказкой «1 на канбане · Модели 5», метки «новых» и «ушли»; "
      "в списке — метка «новая», показанные первыми, новые следом (иначе в длинном списке их не найти), дальше по цене, при равной — по имени; "
      "boundary: модель старше недели — уже не новая"),
+    ("kanban_untick_goes_through_the_closer",
+     '',
+     'await (async () => { const pc = globalThis.__stubValues["cloud.PORT_CLOSER"]; pc.calls = []; pc.answer = null; let renders = 0;'
+     ' globalThis.__stubReturns["topology-render.renderTopology"] = () => { renders++; };'
+     ' try { st.setTopology({ ...st.topology, cloudProviders: [{ id: "b", accountId: "acc", model: "m" }] });'
+     ' m.setCloudModelExposed("b", false); await m._cloudExposeChain; const cancelled = [pc.calls.slice(), renders];'
+     ' pc.answer = { closed: [23004] }; renders = 0; m.setCloudModelExposed("b", false); await m._cloudExposeChain;'
+     ' return [cancelled, pc.calls.length, renders, calls().length]; }'
+     ' finally { delete globalThis.__stubReturns["topology-render.renderTopology"]; } })()',
+     '[[[["b",null]],1],2,0,0]',
+     "снять галочку = закрыть порты модели через окно закрытия (оно спросит про канаты); отмена — доска перерисована, галочка вернулась; "
+     "закрыто — рисует ответ окна; negative: сам канбан ничего не шлёт"),
+    ("kanban_tick_opens_a_port",
+     '',
+     'await (async () => { globalThis.__fetchReply["/api/cloud-blocks/expose"] = { ok: true, port: 23012, topology: { ...st.topology, marker: 1 } };'
+     ' try { st.setTopology({ ...st.topology, cloudProviders: [{ id: "b", accountId: "acc", model: "gpt-x" }] });'
+     ' m.setCloudModelExposed("b", true); await m._cloudExposeChain;'
+     ' return [calls().map((c) => [c.path, JSON.parse(c.body)]), toastText() === fill(en.portOpened, { model: "gpt-x", port: "23012" }), st.topology.marker]; }'
+     ' finally { delete globalThis.__fetchReply["/api/cloud-blocks/expose"]; } })()',
+     '[[["/api/cloud-blocks/expose",{"id":"b","exposed":true}]],true,1]',
+     "поставить галочку = открыть модели свой порт; тост называет порт; доска — из ответа"),
+    ("servers_block_shows_each_cloud_models_port",
+     'st.setTopology({ ...st.topology, ...CLOUD(), proxies: [{ port: 23004, kind: "service", providerId: "gpt-5-6-terra" }], routers: [ROUTER()] });',
+     '(() => { m.topologyOutputsCloudExpanded["openai-subscription"] = true; try { const all = (h) => [...h.matchAll(/router-out-port">([^<]*)</g)].map((x) => x[1]);'
+     ' const withPort = all(m.renderServersBlockHtml(st.topology.routers[0])); st.setTopology({ ...st.topology, proxies: [] });'
+     ' return [withPort, all(m.renderServersBlockHtml(st.topology.routers[0]))]; } finally { delete m.topologyOutputsCloudExpanded["openai-subscription"]; } })()',
+     '[[":23004",":23004"],[]]',
+     "облачная модель на канбане — со своим портом, и он виден: у выхода и в списке моделей провайдера; negative: порта нет — номера нет"),
     ("panel_without_cloud_says_so",
      'st.setTopology({ ...st.topology, routers: [ROUTER({ outputs: [] })] });',
      '(h => [h.includes("router-cfg-muted"), (h.match(/router-out-radio/g) || []).length])(m.renderServersBlockHtml(st.topology.routers[0]))',

@@ -963,13 +963,8 @@
 .node-engine-busy { font-size:10px; color:var(--muted,#888); display:inline-flex; align-items:center; gap:4px; }
 .node-engine-act-error { flex-basis:100%; font-size:11px; color:var(--bad,#ff8585);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; cursor:help; }
-/* A download into the engine (its strip's ⤓), and the notes under the strip. */
-.node-engine-serve { font-size:10px; padding:1px 6px; border-radius:4px; min-height:0; line-height:1.4;
-  border:1px solid var(--line); background:transparent; color:var(--muted,#888); cursor:pointer; }
-.node-engine-serve.pull:hover { border-color:var(--accent-strong); color:var(--accent-strong); }
-.node-engine-serve:focus-visible { outline:2px solid var(--accent-strong); outline-offset:1px; }
+/* The notes under an engine's strip. */
 .node-engine-note { font-size:11px; color:var(--muted,#888); }
-.node-engine-download { font-size:11px; color:var(--accent-strong); font-variant-numeric:tabular-nums; }
 /* CPU block: a RAM bar mirroring the GPU's VRAM bar, and the CPU-cell blue
    (#4593ff) throughout — accent stripe, fill, and a faint wash — so the block
    matches the cells that run on it. */

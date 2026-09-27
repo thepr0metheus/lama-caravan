@@ -1,7 +1,11 @@
 """A model of an engine next to the cells (Ollama, LM Studio) unloaded or
-deleted from the board, downloaded into it, and the engine's server started or
-stopped: the controller asks the machine's scout, which does it on its own
-thread (scout 2.14+). docs/foreign-engines.md, step 3."""
+deleted from the board, and the engine's server started or stopped: the
+controller asks the machine's scout, which does it on its own thread (scout
+2.14+). docs/foreign-engines.md, step 3.
+
+Nothing is downloaded into an engine through the caravan (the operator's
+call, 2026-09-27): a model gets into Ollama or LM Studio by the engine's own
+means, and the board shows what is there."""
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.common.errors import AppError
 from caravan.domain.engine import EngineReport
@@ -53,19 +57,6 @@ class EngineActions:
                                                                       "model": model}, timeout=self.TIMEOUT)
         self.keep(host_id, answer)
         return {"ok": True, "hostId": host_id, "kind": kind, "model": model, "op": op}
-
-    def pull(self, host_id, kind, model):
-        """Download a model into the engine (scout 2.17+): the scout answers
-        at once, the engine marked `downloading`, and fetches on its own
-        thread — the progress comes with the reports after it."""
-        host_id, kind, model = (str(x or "").strip() for x in (host_id, kind, model))
-        if not host_id or not kind or not model:
-            raise AppError("hostId, kind and model are required", 400)
-        engine = self.engine(host_id, kind)
-        answer = self._scout_for(host_id).post("/api/engines/pull", {"kind": kind, "port": engine.get("port"),
-                                                                    "model": model}, timeout=self.TIMEOUT)
-        self.keep(host_id, answer)
-        return {"ok": True, "hostId": host_id, "kind": kind, "model": model, "op": "pull"}
 
     def serve(self, host_id, op, kind):
         """Start the engine's server, or stop it (scout 2.16+): the scout

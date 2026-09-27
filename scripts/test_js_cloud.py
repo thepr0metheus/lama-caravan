@@ -142,6 +142,30 @@ const GM_TOP = (extra = []) => ({ cloudAccounts: [{ id: "a", name: "OpenAI" }],
     { id: "sol7", accountId: "a", model: "gpt-7-sol", exposed: true },
     ...extra,
   ] });
+// Closing a model's port: sol has two ports, luna one, terra none; two cables lead to sol.
+const PC_T = 1790000000;
+const PC_TOP = () => ({ cloudAccounts: [{ id: "a", name: "OpenAI" }],
+  routers: [{ rules: {}, graph: { edges: [{ to: "out:cb:sol" }, { to: "out:cb:sol" }] } }],
+  proxies: [{ port: 23009, kind: "service", providerId: "sol", lastRequestAt: 0 },
+    { port: 23004, kind: "service", providerId: "sol", lastRequestAt: PC_T },
+    { port: 23005, kind: "service", providerId: "luna", lastRequestAt: 0 }],
+  cloudProviders: [{ id: "sol", accountId: "a", model: "gpt-6-sol", exposed: true },
+    { id: "luna", accountId: "a", model: "gpt-6-luna", exposed: true }, { id: "terra", accountId: "a", model: "gpt-5.6-terra" }] });
+const PCL = (over = {}) => {
+  const log = { asks: [], confirms: [], calls: [], notes: [], applied: [] };
+  const c = new cm.PortCloser({
+    dialog: async (msg, opts) => { log.asks.push({ msg, opts }); return "answer" in over ? over.answer : null; },
+    confirm: async (msg, opts) => { log.confirms.push({ msg, opts }); return "ok" in over ? over.ok : true; },
+    call: async (path, o) => {
+      log.calls.push(o ? [path, JSON.parse(o.body)] : [path]);
+      if (path.startsWith("/api/cloud-blocks/refs")) { if (over.refsFail) throw new Error("refs down"); return "refs" in over ? over.refs : { held: { cables: 0, rules: [] } }; }
+      if (over.fail) throw new Error("controller is down");
+      return "res" in over ? over.res : { closed: [0], topology: { t: 9 } };
+    },
+    notify: (x) => log.notes.push(x), apply: (top) => log.applied.push(top), now: () => NM_NOW });
+  return [c, log];
+};
+const pcWhen = (at) => new Date(at * 1000).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const GMC = (over = {}) => {
   const log = { asks: [], calls: [], notes: [], applied: [] };
   const g = new cm.GoneModelCables({
@@ -473,6 +497,103 @@ PINS = [
      '["codex client_version: 0.160.0 · floor",null,false,null,"codex client_version: 0.161.0",true,true,false,false]',
      "версия Codex — под ⚙, в окне аккаунта подписки (решение оператора, вариант A), а не на карточке; "
      "negative: у другого провайдера её нет; версия неизвестна — строки нет (а не «undefined»); без источника — без « · »"),
+    ("port_closer_keeps_the_model_when_a_port_remains",
+     '',
+     'await (async () => { const [c, log] = PCL(); const r = await c.close("sol", 23009, PC_TOP()); const { msg, opts } = log.confirms[0];'
+     ' return [msg === fill(en.portCloseKeep, { model: "gpt-6-sol", ports: ":23004" }) + " " + en.portNoRequest,'
+     ' opts.title === fill(en.portCloseTitle, { port: ":23009" }), opts.danger, opts.confirmLabel === en.portCloseApply,'
+     ' log.asks.length, log.calls, log.notes[0] === fill(en.portClosed, { port: ":23009" }), log.applied, !!r]; })()',
+     '[true,true,true,true,0,[["/api/cloud-accounts/bridge-port-delete",{"port":23009}]],true,[{"t":9}],true]',
+     "закрыть один из двух портов: простой вопрос «останется на канбане на :23004» и когда через порт шёл запрос; "
+     "про канаты не спрашивает — модель с канбана не уходит; ответ — доска"),
+    ("port_closer_last_port_nothing_held",
+     '',
+     'await (async () => { const [c, log] = PCL(); await c.close("luna", 23005, PC_TOP()); const { msg } = log.confirms[0];'
+     ' return [msg === fill(en.portCloseConfirm, { model: "gpt-6-luna" }) + " " + en.portNoRequest, log.calls]; })()',
+     '[true,[["/api/cloud-blocks/refs?id=luna"],["/api/cloud-accounts/bridge-port-delete",{"port":23005}]]]',
+     "последний порт модели, которую ничего не держит: сначала спрашивает у контроллера, что держит, потом — «уйдёт с канбана»"),
+    ("port_closer_last_port_held_asks_where",
+     '',
+     'await (async () => { const top = PC_TOP(); top.proxies = top.proxies.filter((p) => p.port !== 23009);'
+     ' const [c, log] = PCL({ refs: { held: { cables: 2, rules: ["default", "failover"] } }, answer: "luna", res: { closed: [23004], onto: "luna", moved: 4, topology: { t: 1 } } });'
+     ' await c.close("sol", 23004, top); const { msg, opts } = log.asks[0];'
+     ' return [msg === [fill(en.portCloseHeld, { model: "gpt-6-sol", cables: "2", rules: "2" }), en.portCloseDefault, fill(en.portLastRequest, { when: pcWhen(PC_T) })].join(" "),'
+     ' opts.choiceLabel === en.portCloseChoiceLabel, opts.danger, opts.choices.map((x) => x.value), opts.choices[0].label === "gpt-6-luna · " + en.cloudChipKanban,'
+     ' opts.choices[2].label === en.portCloseCut, log.calls[1], log.notes[0] === fill(en.portClosedMoved, { port: ":23004", model: "gpt-6-luna", n: "4" })]; })()',
+     '[true,true,true,["luna","terra","__cut__"],true,true,["/api/cloud-accounts/bridge-port-delete",{"port":23004,"resolution":{"moveTo":"luna"}}],true]',
+     "последний порт, а канаты и «по умолчанию» ещё ведут к модели: окно спрашивает куда — модели провайдера (ближайшая по имени, "
+     "на канбане раньше) и «отсоединить»; ответ уходит резолюцией; тост называет, куда и сколько перенесено"),
+    ("port_closer_cut",
+     '',
+     'await (async () => { const top = PC_TOP(); top.proxies = top.proxies.filter((p) => p.port !== 23009);'
+     ' const [c, log] = PCL({ refs: { held: { cables: 2, rules: [] } }, answer: "__cut__", res: { closed: [23004], cut: 2, topology: {} } });'
+     ' await c.close("sol", 23004, top); return [log.calls[1][1], log.notes[0] === fill(en.portClosedCut, { port: ":23004", n: "2" }), log.asks[0].msg.includes(en.portCloseDefault)]; })()',
+     '[{"port":23004,"resolution":{"cut":true}},true,false]',
+     "«отсоединить» — резолюция cut, тост со счётом; negative: не «по умолчанию» — строки про него нет"),
+    ("port_closer_kanban_closes_all_ports",
+     '',
+     'await (async () => { const [c, log] = PCL(); await c.close("sol", null, PC_TOP());'
+     ' return [log.confirms[0].opts.title === fill(en.portCloseTitle, { port: ":23004, :23009" }), log.calls[1]]; })()',
+     '[true,["/api/cloud-blocks/expose",{"id":"sol","exposed":false}]]',
+     "снять галочку на канбане = закрыть все порты модели: один вопрос на оба, запрос — снять с канбана"),
+    ("port_closer_says_no_and_fails_safe",
+     '',
+     'await (async () => { const [a, la] = PCL({ ok: false }); const ra = await a.close("sol", 23009, PC_TOP());'
+     ' const [b, lb] = PCL({ refs: { held: { cables: 1, rules: [] } }, answer: null }); const rb = await b.close("luna", 23005, PC_TOP());'
+     ' const [c, lc] = PCL({ refsFail: true }); const rc = await c.close("luna", 23005, PC_TOP());'
+     ' const [d, ld] = PCL({ refs: {} }); const rd = await d.close("luna", 23005, PC_TOP());'
+     ' const [e, le] = PCL({ fail: true }); const re = await e.close("sol", 23009, PC_TOP());'
+     ' const [f, lf] = PCL(); const rf = await f.close("terra", 23099, PC_TOP());'
+     ' return [ra, la.calls.length, rb, lb.calls.length, rc, lc.notes, rd, ld.notes[0] === en.portCloseUnknown, ld.calls.length,'
+     ' re, le.notes, le.applied.length, rf, lf.confirms.length + lf.calls.length]; })()',
+     '[null,0,null,1,null,["refs down"],null,true,1,null,["controller is down"],0,null,0]',
+     "negative: «отмена» в вопросе и в окне — ничего не шлёт; контроллер не сказал, что держит модель, — порт остаётся (а не закрывается вслепую); "
+     "отказ при закрытии — тост с причиной, доска не трогается; порта нет — ничего не спрашивает"),
+    ("port_closer_last_request_line",
+     '',
+     '[cm.PortCloser.lastRequestLine(PC_TOP(), [23004, 23009]) === fill(en.portLastRequest, { when: pcWhen(PC_T) }),'
+     ' cm.PortCloser.lastRequestLine(PC_TOP(), [23005]) === en.portNoRequest, cm.PortCloser.lastRequestLine(null, [1]) === en.portNoRequest]',
+     '[true,true,true]',
+     "когда через порт шёл последний запрос (за приложением может кто-то сидеть); negative: не шёл или не знаем — так и сказано, а не «0»"),
+    ("card_x_closes_through_the_closer",
+     '',
+     'await (async () => { const lane = { innerHTML: "", dataset: {}, handlers: [], addEventListener(type, fn) { if (type === "click") this.handlers.push(fn); }, querySelector: () => null };'
+     ' globalThis.__fields.topologyCloudProviders = lane; st.setTopology(TOPO({ proxies: [{ port: 23004, kind: "service", providerId: "gpt-5-6-terra" }] }));'
+     ' m.renderTopologyCloudProviders(); const seen = []; m.PORT_CLOSER.close = async (id, port) => { seen.push([id, port]); return null; };'
+     ' try { let sp = 0; const ev = { stopPropagation: () => sp++, target: { closest: (s) => (s === "[data-bridge-delete]" ? { dataset: { bridgeDelete: "23004" } } : null) } };'
+     ' for (const h of lane.handlers) await h(ev); return [seen, sp, m.PORT_CLOSER instanceof cm.PortCloser, calls().length]; }'
+     ' finally { delete m.PORT_CLOSER.close; } })()',
+     '[[["gpt-5-6-terra",23004]],1,true,0]',
+     "✕ у порта на карточке закрывает через окно закрытия (модель берётся из маршрута порта), сам ничего не шлёт"),
+    ("card_row_chip_says_on_kanban_only",
+     '',
+     '(() => { const pm = new cm.ProviderModels({ account: { id: "a", hasCredential: true }, blocks: PC_TOP().cloudProviders, routers: [], proxies: PC_TOP().proxies, now: NM_NOW });'
+     ' const rows = pm.rows(); const row = (id) => pm.rowHtml(rows.find((r) => r.block.id === id), true);'
+     ' return [row("sol").includes(\'class="cloud-chip shown"\'), row("terra").includes("cloud-chip hidden"), row("terra").includes(\'class="cloud-chip shown"\'), row("terra").includes("data-bridge-mint")]; })()',
+     '[true,false,false,true]',
+     "у модели с портом — «на канбане»; у модели без порта метки нет — её место на канбане открывает «＋ port»"),
+    ("provider_models_spend_on_their_rows",
+     '',
+     '(() => { const spend = { windowDays: 30, total: 700, requests: 60, byModel: [{ model: "GPT-5.6-TERRA", cost: 547.38, requests: 40 },'
+     ' { model: "gpt-6-luna", cost: 0, requests: 12 }, { model: "gpt-4o", cost: 3.2, requests: 5 }, { model: "mystery", cost: 0, requests: 3 }] };'
+     ' const pm = new cm.ProviderModels({ account: { id: "a" }, blocks: PC_TOP().cloudProviders,'
+     ' routers: [], proxies: [], now: NM_NOW, spend }); const rows = pm.rows(); const cell = (id) => (pm.rowHtml(rows.find((r) => r.block.id === id)).match(/<span class="cloud-block-spend" title="([^"]*)">([^<]*)</) || [0, null, null]);'
+     ' const html = pm.html();'
+     ' return [cell("terra")[2] === fill(en.cloudModelSpend, { cost: "$547", days: "30" }), cell("terra")[1] === fill(en.cloudModelSpendTitle, { days: "30", req: "40" }),'
+     ' cell("luna")[2] === fill(en.cloudModelSpendReq, { req: "12", days: "30" }), cell("sol")[2],'
+     ' [...html.matchAll(/<span class="cloud-spend-item"><code>([^<]*)<\\/code> ([^<]*)</g)].map((x) => [x[1], x[2]]),'
+     ' html.includes(fill(en.cloudSpendElsewhere, { days: "30" }))]; })()',
+     json.dumps([True, True, True, None, [["gpt-4o", "≈ $3"], ["mystery", "3 req"]], True]),
+     "доля модели за 30 дней — в её строке (оператор: «зачем строки дублировать»), по имени без учёта регистра; цены нет — "
+     "число запросов, а не «$0»; negative: трафика не было — пусто; модели не из списка — одной строкой под ним, чтобы итог сходился"),
+    ("provider_models_money_and_no_spend",
+     '',
+     '(() => { const M = cm.ProviderModels.money; const bare = new cm.ProviderModels({ account: { id: "a" }, blocks: PC_TOP().cloudProviders, now: NM_NOW });'
+     ' return [M(547.38), M(1234.5), M(0.4), M(0.004), M(0), bare.html().includes("cloud-block-spend"), bare.html().includes("cloud-spend-elsewhere"),'
+     ' new cm.ProviderModels({ account: { id: "a" }, blocks: [], spend: { byModel: "junk" } }).spentOn("x")]; })()',
+     '["$547","$1,235","$0.40","<$0.01","<$0.01",false,false,null]',
+     "деньги в строках: от доллара — целыми (как итоговая строка), меньше — центами, совсем мало — «<$0.01», а не «$0»; "
+     "negative: записи о трафике нет или она испорчена — ни долей, ни строки «ещё»"),
     ("new_model_nothing_open",
      '',
      '(() => { const seen = []; const N = cm.NewModelAnnouncer.nothingOpen; const drawn = { getClientRects: () => [{}] };'

@@ -707,9 +707,9 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   engine's host:port.
 - An engine's server is started or stopped with its strip's switch (`node-engine-start` /
   `node-engine-stop`, scout 2.16+, `serveEngine` in remote-cells.js): the stop is confirmed like
-  stopping a cell, the start is not. A model is downloaded into an engine from its strip
-  (`node-engine-pull`, scout 2.17+, `pullEngineModel`): its name asked, with the engine's own hint;
-  the bytes do not rebuild the strip, the download's start and end do.
+  stopping a cell, the start is not. Nothing is downloaded into an engine from the board (the
+  operator's call, 2026-09-27): a model gets into Ollama or LM Studio by the engine's own means, and
+  a scout that still offers "pull", or reports a download, is not taken up on it.
 - `machineAt(address)` — the machine behind an address its cells answer at, `{ key, name }`: its node and
   the node's name (the computer's hostname, from its scout); loopback and the controller's own address
   are the controller's machine (its node, else `topology.server.hostname`); an unknown address is said
@@ -785,7 +785,11 @@ dropped on 2026-09-27, nothing called it): local llama servers plus cloud provid
 target carrying one shared default radio. A cloud provider's head reads its models the way the
 provider card does (`ProviderModels`, cloud-models.js): "shown/total" with "N on kanban · Models M"
 on hover, and the new and gone counts; its checklist marks new models and lists the shown ones
-first, the new ones next (a long list hid them), then by price.
+first, the new ones next (a long list hid them), then by price. A cloud model is on the kanban while
+it has a port of its own, so its row and its checklist line show that port; ticking a model opens
+one (`POST /api/cloud-blocks/expose`), unticking goes through `PORT_CLOSER` (cloud.js), which asks
+about the cables and rules that still lead to it — a cancelled answer redraws, and the tick comes
+back.
 `saveRouters(mutator)` deep-copies `topology.routers`, applies the mutation, POSTs to
 `/api/agent-proxies/routers`, applies the returned topology when present and re-renders — with a
 marching-ants "saving" indicator (`_setRoutersSaving`) since the workspace auto-persists.
@@ -865,7 +869,7 @@ cell reveals the caravan's cells on its machine's chips (`CARD_FOLD.reveal`), so
 not saved out of sight.
 
 - Owns: the pending-op collections — `_pendingRemoteStarts` (Map), `_stoppingHosts`, `_deletingSlots`, `_reservingCells`, `_newReservedCells`, `_stoppingCells`, `_expandedCellCfgs` — plus `_remoteStartWatchTimer`, `_nvidiaSmiSource`, the `_tr*` form state.
-- Key exports: `reserveEngineCell`, `reserveEngineButton`, `openCaravanModelEditor`, `preselectModel`, `actOnEngineModel`, `serveEngine`, `pullEngineModel`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.
+- Key exports: `reserveEngineCell`, `reserveEngineButton`, `openCaravanModelEditor`, `preselectModel`, `actOnEngineModel`, `serveEngine`, `submitRemoteLlamaStart`, `submitLlamaStop`, `startRemoteStartWatch`, `remoteStartupInFlight`, `openLlamaRemoteEdit`, `bindServerSlotControls`, `formOnControllerMachine`.
 
 ## cloud.js
 
@@ -879,7 +883,7 @@ The codex `client_version` the caravan sends to chatgpt.com (and where it came f
 when it is unknown. `isSubscriptionAccount` is the one test for a ChatGPT subscription account.
 
 - Owns: `topologyCloudBlockModalOpen`, `topologyCloudBlockForm`, `topologyCloudBusy`, `topologyCloudModelCache`, `MODEL_LIST_ASKS` (a `ModelListAsks`: after a refused ask the page waits 60 s before asking that account again — it asks on every poll, and a failing account was asked every 1.5 s; opening the model editor asks regardless). Accounts nobody is signed into are not asked at all.
-- Key exports: `renderTopologyCloudProviders`, `openCloudProviderModal`, `openCloudAccountModal`, `saveCloudAccount`, `saveCloudBlock`, `startCloudOauthLogin`, `prefetchAllSubscriptionModels`, `NEW_MODELS`, `GONE_CABLES`, `isSubscriptionAccount`, `codexVersionHtml`.
+- Key exports: `renderTopologyCloudProviders`, `openCloudProviderModal`, `openCloudAccountModal`, `saveCloudAccount`, `saveCloudBlock`, `startCloudOauthLogin`, `prefetchAllSubscriptionModels`, `NEW_MODELS`, `GONE_CABLES`, `PORT_CLOSER`, `isSubscriptionAccount`, `codexVersionHtml`.
 
 ## cloud-models.js
 
@@ -895,6 +899,12 @@ with a credential (the operator's call: a port by button, open in the LAN, no ke
 removals (`topology.cloudRemoved`) stand in one line with "↶" each (`data-cloud-restore`), and
 "＋ Add by id" opens the block editor for a model the provider does not list. Rows go attention
 first: gone, new, on the kanban, hidden; dearer first within a group.
+
+A row also carries the model's share of the account's 30 days through the caravan
+(`spend`, from `proxySpendOf`), matched by name whatever its case: the cost at API prices
+(`ProviderModels.money` — whole dollars from a dollar up, cents below, "<$0.01" rather than $0), or,
+when no price is known and the spend says 0, the request count instead of "$0". Models that got
+traffic but are not in the list stand in one line under it, so the total still adds up.
 
 `ModelNames` says how alike two model names are: the words of the name without the vendor and the
 versions (`openai/gpt-6.1-sol` → gpt, sol), counted in common; both offers below rank by it.
@@ -914,23 +924,39 @@ about again on that page.
 
 `GoneModelCables` is "⇄ Move cables…" on the row of a gone model something still leads to (cables
 or the default), shown while the provider has a listed model left: the same move, onto a model the
-operator picks — the closest by name first, then the ones on the kanban, then the card's order. With
-nothing pointing at the gone model afterwards, the sync removes it by itself (and keeps it a day for
-"↶"). The instances are `cloud.js`'s `NEW_MODELS` and `GONE_CABLES`; their answers come back with
-the board and are drawn at once.
+operator picks. With nothing pointing at the gone model afterwards, the sync removes it by itself
+(and keeps it a day for "↶"). Where cables may go is `CableTargets` — the provider's listed models,
+the closest by name first, then the ones on the kanban, then the card's order — one ranking for both
+offers that move them.
+
+A cloud model is on the kanban while it has a port of its own (the operator's rule, 2026-09-27;
+`caravan/admin/cloud_ports.py`): `ProviderModels.portsOf(proxies, model)` lists them, the row's
+"＋ port" puts a model on the kanban, and a model without a port carries no chip. `PortCloser`
+closes ports — the ✕ beside one on the card, or unticking a model on the kanban (all its ports): a
+port that is not the last closes with a plain question; the last one asks the controller what
+holds the model (`held` from `GET /api/cloud-blocks/refs`, the rule stays on the server) and, if
+cables or rules do, asks where they go — onto a `CableTargets` model (one without a port gets one)
+or disconnect — and sends that as `resolution`. Every question says when a request last came
+through the port, since an app may be behind it; a cancelled answer sends nothing. The instances
+are `cloud.js`'s `NEW_MODELS`, `GONE_CABLES` and `PORT_CLOSER`; their answers come back with the
+board and are drawn at once.
 
 - Owns: the window's `asking` and `failed`.
-- Key exports: `ProviderModels`, `ModelNames`, `NewModelAnnouncer`, `GoneModelCables`, `NEW_FOR_MS`.
+- Key exports: `ProviderModels`, `ModelNames`, `CableTargets`, `NewModelAnnouncer`, `GoneModelCables`, `PortCloser`, `NEW_FOR_MS`.
 
 ## usage-stats.js
 
 The usage & spend modal: overview/account/local scopes (scope, expanded row and day range live in
 `ui.usageStats*`), model tables, pricing edits (`saveApiPrice`, `saveLocalPricing`) and provider
 cost fetches — API costs, OpenRouter limits, proxy spend, subscription usage — cached with no TTL
-(fetched once, refreshed via button).
+(fetched once, refreshed via button). A provider card's "⇄ 30 days via the caravan" is one line
+(`proxySpendHtml`): requests, tokens and the total at API prices, its hover saying on a
+subscription that the subscription covers it. There is no breakdown under it any more (the
+operator's ask, 2026-09-27: it repeated the rows below): each model's share stands on its own row
+(`proxySpendOf` → `ProviderModels`, cloud-models.js).
 
 - Owns: `usageStatsData`, `apiCostsCache`, `openrouterLimitsCache`, `proxySpendData`, `subscriptionUsageCache`, `usageStatsApiPriceEdit`.
-- Key exports: `openUsageStatsModal`, `renderUsageStatsModal`, `fetchUsageStats`, `fetchApiCosts`, `saveApiPrice`, `saveLocalPricing`.
+- Key exports: `openUsageStatsModal`, `renderUsageStatsModal`, `fetchUsageStats`, `fetchApiCosts`, `saveApiPrice`, `saveLocalPricing`, `proxySpendHtml`, `proxySpendOf`.
 
 ## history.js
 

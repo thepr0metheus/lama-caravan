@@ -106,6 +106,7 @@ jobs:
           python3 scripts/test_cloud_refs.py
           python3 scripts/test_output_refs.py
           python3 scripts/test_cloud_move_cables.py
+          python3 scripts/test_cloud_ports.py
           python3 scripts/test_cloud_sync.py
           python3 scripts/test_request_body.py
           python3 scripts/check_context_window.py

@@ -437,7 +437,7 @@ newest 20 of those copies are kept (`ProxyStore.backups_kept`) and older ones ar
 next write — there was no limit, and a copy per save left 13 678 of them beside the file (2026-09-20). Reads
 migrate the legacy pre-rename schema (`switchboards`/`sb:default` → routers) idempotently.
 `sync_router_outputs` auto-derives every router's outputs: one `srv:<port>` per live local llama
-server + one `cb:<blockId>` per **exposed** cloud block (with a one-time migration from legacy
+server + one `cb:<blockId>` per cloud block **with a port of its own** (`cloud_ports.py`; with a one-time migration from legacy
 `cloud:<accountId>` outputs), keeping `rules.default` pointed at a local server.
 `save_agent_proxy_config` validates + dedupes routes by port, writes, opens the firewall door of a
 port that appeared and closes the door of one that went (`port_door.py`), and makes sure the proxy
@@ -459,7 +459,9 @@ swapped ports, one pass) — both rewrite through `output_refs.py`.
 the rule lists (`schedule`, `bySource`), `failover`, and graph edges whose end is `out:<output id>`.
 `rewrite(new_id_of)` changes them in place — an edge keeps its id, so the roles a queue or a 🛟
 backup node holds by edge id stay — and returns how many places changed; `rules_naming` and
-`edges_touching` read the same table. Remap, swap, the legacy cloud-output upgrade, the list of what
+`edges_touching` read the same table, and `drop` removes every place naming an output (a model
+leaving the kanban with its cables disconnected; the default goes too, and the router's save takes
+its first output). Remap, swap, the legacy cloud-output upgrade, the list of what
 points at a cloud model (`cloud_refs.py`) and the move of a model's cables all go through it: four
 copies of the list had drifted, and the legacy upgrade never looked at the reserve default, audio
 or embeddings.
@@ -473,13 +475,14 @@ model-blocks in `cloud-providers.json` (with migration from the legacy flat `pro
 and credentials in `provider-secrets.json` written 0600. `CLOUD_PROVIDER_PRESETS` defines the known
 account types (openai-subscription with its PKCE OAuth config, openai, ollama, anthropic,
 openrouter, custom) including auth header/prefix and test path. `account_auth_headers` builds
-request headers from either an API key or the stored OAuth access token. Blocks carry `exposed`,
-which is what turns them into router outputs.
+request headers from either an API key or the stored OAuth access token. What turns a block into a
+router output is a port of its own (`cloud_ports.py`); `cloud_blocks_state` reads that and hands the
+board `exposed` as "has a port" — the block no longer stores the flag.
 Owns: `cloud-providers.json`, `provider-secrets.json`, `CLOUD_PROVIDER_PRESETS`.
 Key functions: `load_cloud_data`/`save_cloud_data`, `load_provider_secrets`/`save_provider_secrets`,
 `account_secret_entry`, `upsert_cloud_account`/`upsert_cloud_block` + deletes,
-`set_cloud_block_exposed`, `mark_cloud_blocks_announced` (the "new model" window was answered for
-these; `announced` survives saves like `newSince` and `manual`), `account_auth_headers`,
+`mark_cloud_blocks_announced` (the "new model" window was answered for these; `announced`
+survives saves like `newSince` and `manual`), `account_auth_headers`,
 `account_credential_summary`,
 `cloud_accounts_state`/`cloud_blocks_state` (secret-free views for the UI).
 
@@ -613,6 +616,27 @@ output (`proxies_config.cloud_block_output`) goes into every router first, becau
 drops a rule naming an output it lacks. An app's own port stays on its model.
 Owns: —.
 Key names: `CloudModelRefs`, `CloudModelRewire`.
+
+## `cloud_ports.py`
+
+A cloud model's own ports — and with them its place on the kanban (the operator's rule,
+2026-09-27): a model is on the kanban while at least one route of kind `service` whose `providerId`
+is the model leads to it; without one it is not, and no cable reaches it there. The old `exposed`
+flag on the model block, set by the kanban's checklist apart from the ports, is gone: six models
+were on the kanban with two ports among them. `CloudModelPorts(cfg)` reads one snapshot of
+`agent-proxies.json` — `of(model)` (its ports), `on_kanban()`, `held(model)` (cables and the rules
+that stop reaching it if it leaves: default, schedule, by source, failover, audio, embeddings; not
+a stashed `dormantDefault`, which waits for its output by design), `cut(model)` (drop them all,
+through `output_refs.py`). `CloudPortDesk` works on the files: `open` (the first port, or a new one
+from the proxy range), `close(model, ports, resolution)` and `close_port(port, resolution)` —
+closing the last port of a held model needs `{moveTo}` (onto another model of the same provider,
+which gets a port if it had none) or `{cut: true}`, else 409 — `move_cables(src, dst)` (the "new
+model" window and "⇄ Move cables…"; `dst` gets a port), and `adopt_flags()`, the one-time change
+run at the controller's start: every model the old flag put on the kanban gets a port of its own,
+so no cable, default or rule loses its model; a port that cannot be opened leaves its flag for the
+next start.
+Owns: —.
+Key names: `CloudModelPorts`, `CloudPortDesk`.
 
 ## `cloud_sync.py`
 
