@@ -870,7 +870,7 @@ block modal (model selection per account), model-list fetches with caching, save
 account modal's open/form state lives in `ui` (`topologyCloudModalOpen`, `topologyCloudPickerOpen`,
 `topologyCloudForm`); the block modal's flags are module-local because only cloud.js writes them.
 
-- Owns: `topologyCloudBlockModalOpen`, `topologyCloudBlockForm`, `topologyCloudBusy`, `topologyCloudModelCache`.
+- Owns: `topologyCloudBlockModalOpen`, `topologyCloudBlockForm`, `topologyCloudBusy`, `topologyCloudModelCache`, `MODEL_LIST_ASKS` (a `ModelListAsks`: after a refused ask the page waits 60 s before asking that account again — it asks on every poll, and a failing account was asked every 1.5 s; opening the model editor asks regardless). Accounts nobody is signed into are not asked at all.
 - Key exports: `renderTopologyCloudProviders`, `openCloudProviderModal`, `openCloudAccountModal`, `saveCloudAccount`, `saveCloudBlock`, `startCloudOauthLogin`, `prefetchAllSubscriptionModels`.
 
 ## usage-stats.js

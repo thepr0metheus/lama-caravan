@@ -3,8 +3,10 @@
 Native deployments run the proxy as its own systemd --user unit and the admin
 restarts it with `systemctl --user`. Inside the Docker image there is no
 systemd, so the admin process owns the proxy as a child instead: spawned at
-startup, respawned by a watchdog when it dies, restarted in place when a
-config save asks for it (systemd_ctl.restart_agent_proxy branches here).
+startup and respawned by a watchdog when it dies. A config save only makes
+sure it runs (systemd_ctl.ensure_agent_proxy_running branches here): the
+child reads its config file by itself, and a bounce would cut every request
+in flight.
 
 The child's stdout/stderr append to logs/proxy.log under the data dir so
 `docker logs` stays the admin's own story; status() feeds the System modal
@@ -62,25 +64,6 @@ def start():
         if not _watchdog_started:
             threading.Thread(target=_watchdog, name="proxy-watchdog", daemon=True).start()
             _watchdog_started = True
-
-
-def restart(timeout=15):
-    """Kill + respawn, shaped like a procs.run result so systemctl call sites
-    can consume it unchanged ({ok, code, stdout, stderr})."""
-    with _lock:
-        if _proc is not None and _proc.poll() is None:
-            _proc.terminate()
-            try:
-                _proc.wait(timeout=timeout)
-            except subprocess.TimeoutExpired:
-                _proc.kill()
-                try:
-                    _proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    return {"ok": False, "code": -1, "stdout": "",
-                            "stderr": "proxy child ignored SIGKILL"}
-        _spawn_locked()
-        return {"ok": True, "code": 0, "stdout": f"proxy respawned, pid {_proc.pid}", "stderr": ""}
 
 
 def status():

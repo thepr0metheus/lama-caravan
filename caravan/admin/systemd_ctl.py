@@ -21,13 +21,20 @@ def user_systemd_env():
 def systemctl(*args, timeout=20):
     return run(["systemctl", "--user", *args], timeout=timeout, env=user_systemd_env())
 
-def restart_agent_proxy(timeout=30):
-    """Bounce the proxy daemon after a routes/cabling save. Native deployments
-    restart its systemd --user unit; in the container it's a supervised child."""
+def ensure_agent_proxy_running(timeout=30):
+    """Start the proxy daemon if it is down; a running one is left alone.
+
+    A routes save used to RESTART it, and a restart cuts every request in
+    flight on every port — an agent's stream dropped because a bridge was
+    minted next door. The daemon reads agent-proxies.json by itself (routes,
+    policy and routers per request, listeners reconciled every ~2 s), so a
+    save needs it running, not bounced. Native: its systemd --user unit, where
+    `start` on an active unit does nothing; the container: its supervisor."""
     if IS_CONTAINER:
         from caravan.admin import proxy_supervisor
-        return proxy_supervisor.restart()
-    return systemctl("restart", AGENT_PROXY_SERVICE_NAME, timeout=timeout)
+        proxy_supervisor.start()
+        return {"ok": True, "code": 0, "stdout": "", "stderr": ""}
+    return systemctl("start", AGENT_PROXY_SERVICE_NAME, timeout=timeout)
 
 def listening_pid(port):
     """(pid, comm) of whoever LISTENs on the port; (0, "") when free. Only the

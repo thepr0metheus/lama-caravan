@@ -151,6 +151,10 @@ BREAKAGES = {
     "check_cell_self_capture": (
         [], "cells/whisper_server.py",
         '                    state["downloaded"]', '                    self.state["downloaded"]'),
+    # A provider's refusal sent as the board's own 401: the page goes to /login.
+    "check_board_401": (
+        [], "caravan/admin/cloud_api.py",
+        'sign in again in the account\'s ⚙", 502)', 'sign in again in the account\'s ⚙", 401)'),
     "check_cell_python_floor": (
         [], "cells/tts_server.py",
         "from __future__ import annotations\n", ""),

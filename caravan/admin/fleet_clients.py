@@ -40,7 +40,6 @@ from caravan.admin.server_cells import (
 )
 from caravan.admin.state import save_admin_state, topology_store
 from caravan.admin.state import topology as topo
-from caravan.admin.systemd_ctl import restart_agent_proxy
 from caravan.admin.telemetry import _normalize_modalities
 from caravan.common.errors import AppError
 from caravan.domain.client import FleetClient

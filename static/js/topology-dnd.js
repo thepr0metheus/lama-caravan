@@ -64,7 +64,6 @@ import {
 import { flushPendingTopologyRender, renderTopology } from "./topology-render.js";
 import {
   fetchUsageStats,
-  refreshUsageReading,
   saveApiPrice,
   saveLocalPricing,
   usageStatsApiPriceEdit,
@@ -194,24 +193,6 @@ export function bindTopologyDragAndDrop() {
     $("confirmDelete").classList.add("danger");
     ui.pendingConfirm = () => { closeConfirmModal(); deleteCloudAccount().catch((err) => toast(err.message)); };
     $("confirmOverlay").hidden = false;
-  });
-  // The ↻ buttons on a cloud card. One table instead of three identical blocks:
-  // each was `cache.delete(id); fetch(id)` under a different attribute, and the
-  // tab-return refresher (usage-stats.js) would have made it a fourth copy of
-  // the same two lines. The button and the refresher now call the same action.
-  const USAGE_REFRESH_BUTTONS = [
-    ["data-usage-refresh", "usageRefresh", "subscription"],
-    ["data-api-costs-refresh", "apiCostsRefresh", "apiCosts"],
-    ["data-or-limits-refresh", "orLimitsRefresh", "openrouter"],
-  ];
-  document.getElementById("topologyCloudProviders")?.addEventListener("click", (e) => {
-    for (const [attr, dataKey, kind] of USAGE_REFRESH_BUTTONS) {
-      const btn = e.target.closest(`[${attr}]`);
-      if (!btn) continue;
-      e.stopPropagation();
-      refreshUsageReading(kind, btn.dataset[dataKey]);
-      return;
-    }
   });
   document.querySelectorAll("[data-cloud-field]").forEach((input) => {
     const evt = input.tagName === "SELECT" ? "change" : "input";

@@ -60,6 +60,31 @@ RESERVE = {
 }
 
 
+def refusals():
+    """fetch_subscription_usage against a chatgpt.com that answers 401, 403 and 500."""
+    import io
+    import urllib.error
+    import caravan.admin.cloud_api as ca
+    saved = ca.load_cloud_data, ca._subscription_auth_headers, ca.model_catalog.guarded_call, ca.urllib.request.urlopen
+    ca.load_cloud_data = lambda: {"accounts": [{"id": "sub"}], "blocks": []}
+    ca._subscription_auth_headers = lambda account: ("token", "acct")
+    ca.model_catalog.guarded_call = lambda key, fn: fn()
+    out = {}
+    try:
+        for code in (401, 403, 500):
+            def urlopen(req, timeout=0, code=code):
+                raise urllib.error.HTTPError(req.full_url, code, "refused", {}, io.BytesIO(b""))
+            ca.urllib.request.urlopen = urlopen
+            try:
+                ca.fetch_subscription_usage("sub")
+                out[code] = None
+            except ca.AppError as e:
+                out[code] = (e.status, str(e))
+    finally:
+        ca.load_cloud_data, ca._subscription_auth_headers, ca.model_catalog.guarded_call, ca.urllib.request.urlopen = saved
+    return out
+
+
 def main():
     print("a plan with credits (the docstring's capture):")
     got = _normalize_subscription_usage(WITH_CREDITS)
@@ -89,6 +114,13 @@ def main():
 
     check(_normalize_subscription_usage({})["ok"] is True and _normalize_subscription_usage({})["limits"] == [],
           "an empty answer is ok with no windows — nothing invented")
+
+    print("when chatgpt.com refuses:")
+    got = refusals()
+    check(all(got[c][0] == 502 and "sign in again" in got[c][1] for c in (401, 403)),
+          "defect-history: провайдер отказал токену — это 502 с подсказкой войти заново, а не 401 доски: "
+          f"401 отправлял страницу на /login, и истёкший вход в ChatGPT выкидывал с доски (got {got[401]}, {got[403]})")
+    check(got[500] == (502, "usage endpoint: HTTP 500"), f"negative: прочий отказ — как был (got {got[500]})")
     if _fail:
         print(f"FAILED ({len(_fail)}):")
         for msg in _fail:

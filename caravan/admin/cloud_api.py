@@ -690,7 +690,10 @@ def fetch_subscription_usage(account_id):
                 return json.loads(r.read().decode())
         except urllib.error.HTTPError as e:
             if e.code in (401, 403):
-                raise AppError(f"auth error: {e.code}", 401)
+                # The PROVIDER refused its token — not the board's own 401,
+                # which sends the page to /login: an expired ChatGPT sign-in
+                # threw the operator out of the board.
+                raise AppError(f"ChatGPT refused the sign-in (HTTP {e.code}) — sign in again in the account's ⚙", 502)
             raise AppError(f"usage endpoint: HTTP {e.code}", 502)
         except AppError:
             raise

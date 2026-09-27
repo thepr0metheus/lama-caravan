@@ -51,7 +51,6 @@ def harness(assignments=None, routes=None, clients=None, hosts=None):
     fc.normalize_routers = lambda _r, _routes: []
     fc.write_agent_proxy_payload = lambda payload: routes.__setitem__(slice(None), payload["routes"])
     fc.save_admin_state = lambda: None
-    fc.restart_agent_proxy = lambda **kw: None
     return store, routes
 
 
@@ -298,6 +297,135 @@ def _check_agent_port_steps(pc, BASE, taken, listening):
     check(pc._next_agent_port({BASE}) == BASE + 6, "и ядро: порт, который уже слушают, не выдаётся")
     taken.clear(); listening.clear()
     check(pc._next_agent_port({BASE, BASE + 2}) == BASE + 4, "negative: шаг ровно два — чётные не выдаются")
+
+
+def test_next_app_port_is_the_mints_own():
+    """The number a bridge's button promises: the port mint_bridge_port takes.
+
+    It showed the next CELL port (22xxx) while the bridge landed in the proxy
+    range; now the board reads the mint's own rule from the topology.
+    """
+    import caravan.admin.proxies_config as pc
+    from caravan.admin.paths import AGENT_PROXY_BASE_PORT as BASE
+    print("порт, который обещает кнопка моста:")
+    _saved = pc._all_taken_ports, pc.port_is_listening
+    pc._all_taken_ports = lambda routes=None: {BASE, BASE + 1}
+    pc.port_is_listening = lambda port: port == BASE + 2
+    try:
+        got = pc.next_app_port([])
+        check(got == BASE + 3 and got == pc._next_free_proxy_port([]),
+              f"defect-history: диапазон прокси, по одному, мимо занятых и слушаемых — тот же порт, что возьмёт "
+              f"выпуск моста (было: следующий порт ячейки 22xxx) (got {got})")
+
+        def unreadable(routes=None):
+            raise RuntimeError("register unreadable")
+        pc._all_taken_ports = unreadable
+        try:
+            unknown = pc.next_app_port([])
+        except Exception as e:  # the pin says what escaped, instead of the run dying on it
+            unknown = f"raised {type(e).__name__}"
+        check(unknown is None, f"negative: не посчитать — None, и кнопка не обещает никакого номера (got {unknown})")
+    finally:
+        pc._all_taken_ports, pc.port_is_listening = _saved
+
+
+def test_a_routes_save_keeps_the_proxy_running():
+    """A routes save asks for a RUNNING proxy — `start`, never `restart`.
+
+    A restart cut every request in flight on every port: minting a bridge
+    dropped an agent's stream next door. The daemon re-reads its file itself.
+    """
+    import caravan.admin.proxies_config as pc
+    import caravan.admin.systemd_ctl as sc
+    from caravan.admin.paths import AGENT_PROXY_SERVICE_NAME
+    from caravan.common.errors import AppError
+    print("сохранение маршрутов не перезапускает прокси:")
+    asked, written = [], []
+    saved = pc.load_agent_proxy_config, pc.write_agent_proxy_payload, sc.systemctl, sc.IS_CONTAINER, pc.PORT_DOOR
+    pc.load_agent_proxy_config = lambda: {"routes": [], "policy": {}, "routers": [], "stopRequests": []}
+    pc.write_agent_proxy_payload = lambda payload: written.append(payload)
+    pc.PORT_DOOR = _DoorLog()   # never the machine's real firewall from a test
+    sc.IS_CONTAINER = False
+
+    def systemctl(*args, **kw):
+        asked.append(args)
+        return {"ok": True, "stderr": ""}
+    sc.systemctl = systemctl
+    try:
+        pc.save_agent_proxy_config([{"port": 23050, "label": "x"}])
+        check(asked == [("start", AGENT_PROXY_SERVICE_NAME)] and len(written) == 1,
+              "defect-history: файл записан, прокси только «запущен, если лежит» — рестарт рвал все запросы "
+              f"на всех портах (got {asked})")
+        sc.systemctl = lambda *args, **kw: {"ok": False, "stderr": "unit not found"}
+        try:
+            pc.save_agent_proxy_config([{"port": 23051, "label": "y"}])
+            err = None
+        except AppError as e:
+            err = (e.status, str(e))
+        check(err == (500, "unit not found"), f"negative: прокси не запустить — сохранение так и говорит (got {err})")
+    finally:
+        pc.load_agent_proxy_config, pc.write_agent_proxy_payload, sc.systemctl, sc.IS_CONTAINER, pc.PORT_DOOR = saved
+
+
+class _DoorLog:
+    """Stands in for PORT_DOOR: writes down what the firewall would be asked."""
+
+    def __init__(self):
+        self.calls = []
+
+    def open(self, port):
+        self.calls.append(("open", port))
+
+    def close(self, port):
+        self.calls.append(("close", port))
+
+
+def test_the_port_door_follows_the_route():
+    """A route's port opens with the route and closes when it goes.
+
+    Three mints opened ufw and nothing closed it, so every port ever handed
+    out stayed open. The save now compares the ports before and after.
+    """
+    import caravan.admin.proxies_config as pc
+    import caravan.admin.systemd_ctl as sc
+    from caravan.admin.port_door import ProxyPortDoor
+    print("дверь порта в ufw идёт за маршрутом:")
+    ran = []
+    door = ProxyPortDoor(run=lambda argv, timeout: ran.append(argv), in_container=False)
+    door.open(23004)
+    door.close("23004")
+    check(ran == [["sudo", "-n", "ufw", "allow", "23004"], ["sudo", "-n", "ufw", "delete", "allow", "23004"]],
+          f"открыть — allow, закрыть — delete allow, без пароля (sudo -n) (got {ran})")
+    ProxyPortDoor(run=lambda argv, timeout: ran.append(argv), in_container=True).open(23004)
+    check(len(ran) == 2, "negative: в контейнере ufw нет — дверь ничего не трогает")
+
+    def refusing(argv, timeout):
+        raise OSError("no sudo rule")
+    try:
+        ProxyPortDoor(run=refusing, in_container=False).close(23004)
+        quiet = True
+    except Exception:
+        quiet = False
+    check(quiet, "as-is: без правила sudo — молча, как было: маршрут работает и без двери")
+
+    log = _DoorLog()
+    stored = [{"port": 23001, "label": "a"}, {"port": 23002, "label": "b"}]
+    saved = pc.load_agent_proxy_config, pc.write_agent_proxy_payload, pc.PORT_DOOR, sc.systemctl, sc.IS_CONTAINER
+    pc.load_agent_proxy_config = lambda: {"routes": [dict(r) for r in stored], "policy": {}, "routers": [],
+                                          "stopRequests": []}
+    pc.write_agent_proxy_payload = lambda payload: None
+    pc.PORT_DOOR = log
+    sc.systemctl = lambda *a, **kw: {"ok": True, "stderr": ""}
+    sc.IS_CONTAINER = False
+    try:
+        pc.save_agent_proxy_config([{"port": 23002, "label": "b"}, {"port": 23005, "label": "c"}])
+        check(log.calls == [("open", 23005), ("close", 23001)],
+              f"defect-history: новый маршрут открыл свой порт, ушедший — закрыл (раньше не закрывал никто) (got {log.calls})")
+        log.calls.clear()
+        pc.save_agent_proxy_config([{"port": 23001, "label": "a2"}, {"port": 23002, "label": "b"}])
+        check(log.calls == [], f"negative: порты те же — к ufw не обращаемся (got {log.calls})")
+    finally:
+        pc.load_agent_proxy_config, pc.write_agent_proxy_payload, pc.PORT_DOOR, sc.systemctl, sc.IS_CONTAINER = saved
 
 
 def test_bind_writes_the_role_it_was_given():
@@ -634,7 +762,6 @@ def test_saving_the_window_reaches_the_port_without_a_heartbeat():
     fc.topology_store = lambda: store
     fc.read_agent_proxy_payload = lambda: {"routes": live}
     fc.write_agent_proxy_payload = lambda payload: None
-    fc.restart_agent_proxy = lambda **kw: None
 
     T.set_agent_route_context({"hostId": "h", "agentId": "a", "role": "primary",
                                "contextLength": 8192})
@@ -1027,6 +1154,7 @@ def test_the_payload_keeps_machines_and_clients_apart():
         "annotate_route_windows": lambda *a: None,
         "topology_nodes": lambda *a: [],
         "cloud_provider_presets_public": lambda: [],
+        "next_app_port": lambda routes: 23007 if routes == [] else None,
     }
     patch["SCOUT_POLLER"] = T.SCOUT_POLLER
     from caravan.admin.models import ModelList
@@ -1062,6 +1190,9 @@ def test_the_payload_keeps_machines_and_clients_apart():
     check([c["id"] for c in payload["clients"]] == ["both", "hand"],
           "negative: машина без клиента не становится клиентом без агентов — её ✕ мог ответить только 404")
     check(payload["hosts"] == hosts, "машины — отдельным списком, с живостью, посчитанной при чтении")
+    check(payload.get("nextAppPort") == 23007,
+          "ответ доски несёт порт следующего моста — по правилу выпуска и по маршрутам из конфига прокси "
+          f"(got {payload.get('nextAppPort')})")
     check(payload.get("modelsStamp") == ModelList.stamp_of(listed) and len(payload["modelsStamp"]) == 16,
           "ответ доски несёт отпечаток списка моделей (ModelList): по нему доска дочитывает список, а не держит "
           "тот, что был при открытии страницы")
@@ -1254,7 +1385,8 @@ for fn in (test_the_pull_keeps_the_scout_version, test_bind_refuses_an_agent_the
                       test_route_context_is_per_consumer, test_manual_client_is_an_ordinary_client,
            test_manual_client_id_rules, test_report_changes_only_the_machine, test_new_port_comes_from_the_agent_base,
            test_bind_writes_the_role_it_was_given, test_normalizer_rebuilds_the_row,            test_delete_is_explicit, test_staleness_is_a_display_state,
-           test_machines_stand_by_address):
+           test_machines_stand_by_address, test_next_app_port_is_the_mints_own,
+           test_a_routes_save_keeps_the_proxy_running, test_the_port_door_follows_the_route):
     fn()
 
 print()
