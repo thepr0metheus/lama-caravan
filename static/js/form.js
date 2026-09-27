@@ -389,6 +389,19 @@ export function makeModelCombobox(selectEl) {
   document.addEventListener("click", (e) => { if (!wrap.contains(e.target) && !panel.hidden) closePanel(); }, true);
 }
 
+// Opens a model combobox's list, as a click on the field does. "+ Add model"
+// on a machine's card (2026-09-27, round 10: the operator chose A) opens the
+// cell editor with the model to pick first. False when the field has no list,
+// or its list is open already — a click would close it.
+export function mcOpen(selectEl) {
+  const wrap = selectEl?.previousElementSibling;
+  if (!wrap?.classList.contains("mc-wrap")) return false;
+  const panel = wrap.querySelector(".mc-panel");
+  if (!panel || !panel.hidden) return false;
+  wrap.querySelector(".mc-trigger")?.click();
+  return true;
+}
+
 export function mcFilterList(list, query) {
   const q = (query || "").toLowerCase();
   Array.from(list.children).forEach((item) => {

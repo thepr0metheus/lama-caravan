@@ -99,6 +99,13 @@ out.prefixed = m.readConfigForm("tr-").PORT;
 const items = [{ dataset: { search: "Qwen3 8B" }, hidden: false }, { dataset: { search: "gemma" }, hidden: false }, { dataset: {}, hidden: false }];
 m.mcFilterList({ children: items }, "QWEN"); out.filter = { q: items.map((i) => i.hidden) };
 m.mcFilterList({ children: items }, ""); out.filter.blank = items.map((i) => i.hidden);
+// A model combobox's list, opened as a click on the field opens it ("+ Add model").
+const combo = (hidden) => { const w = { clicks: 0 }; const trigger = { click: () => { w.clicks += 1; } };
+  w.select = { previousElementSibling: { classList: { contains: (c) => c === "mc-wrap" },
+    querySelector: (sel) => (sel === ".mc-panel" ? { hidden } : sel === ".mc-trigger" ? trigger : null) } }; return w; };
+const shut = combo(true), open = combo(false);
+out.mcOpen = [m.mcOpen(shut.select), shut.clicks, m.mcOpen(open.select), open.clicks, m.mcOpen(null),
+  m.mcOpen({ previousElementSibling: { classList: { contains: () => false } } })];
 cst.dirtyOptionalToggles.add("FIT"); out.dirtyFit = pick(F(base)).FIT; cst.dirtyOptionalToggles.delete("FIT");
 st.setState({ ...st.state, chatTemplates: [{ name: "OpenClaw Qwen", path: "/t/oq.jinja" }],
   models: [{ path: "a.gguf", suggestedMmproj: "mm-a.gguf" }], config: { ...st.state.config, MODEL_FILE: "a.gguf" } });
@@ -228,7 +235,7 @@ if run.returncode != 0:
 got = json.loads(run.stdout.strip().splitlines()[-1])
 
 print("модуль:")
-check(got["exports"] == 39, "form.js экспортирует 39 функций (пересчитай при изменении охвата)")
+check(got["exports"] == 40, "form.js экспортирует 40 функций (пересчитай при изменении охвата; +mcOpen, раунд 10)")
 check(got["classicGone"] == [],
       f"negative: помощников классической формы одиночного сервера больше нет — Gemma-режимы, автошаблон, "
       f"сырой вывод; она ушла с ячейками контроллера в шаге 6.9 (got {got['classicGone']})")
@@ -307,6 +314,11 @@ check(fmt["mtime"][3] == "Nov 14, 2023" and fmt["mtime"][4] == "Nov 14, 2023", "
 print("mcFilterList:")
 check(got["filter"]["q"] == [False, True, True], "фильтр регистронезависим; элемент без data-search прячется")
 check(got["filter"]["blank"] == [False, False, False], "пустой запрос показывает всё")
+
+print("mcOpen:")
+check(got["mcOpen"] == [True, 1, False, 0, False, False],
+      "список модели открывается одним щелчком по полю, как руками («＋ Add model», раунд 10); negative: уже открыт — "
+      "не щёлкает (щелчок бы закрыл); поля нет или это не комбобокс — false")
 
 print("🎓 у CTX_SIZE — обученное окно одним нажатием:")
 cn = got["ctxNative"]
