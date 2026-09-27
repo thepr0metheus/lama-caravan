@@ -1,5 +1,6 @@
 // Router cards, outputs panel, router detail popover.
 import { _cvPos, _cvView, canvasNodes, renderRouterNodeConfig } from "./canvas.js";
+import { PORT_CLOSER } from "./cloud.js";
 import { ProviderModels } from "./cloud-models.js";
 import { badge, option } from "./form.js";
 import { helpTip, t } from "./i18n.js";
@@ -241,10 +242,13 @@ export function renderServersBlockHtml(router) {
     const blk = isCloud ? _blockForOut(out) : null;
     const priceHtml = isCloud ? _outPriceTag(out) : "";
     const badge = isDef ? `<span class="router-out-badge">default</span>` : "";
+    // A cloud model is here because it has a port of its own — say which.
+    const own = isCloud ? ProviderModels.portsOf(topology?.proxies, out.providerId)[0] : null;
     return `<label class="router-out-row ${isDef ? "is-default" : ""}${blk?.unlisted ? " unlisted" : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}">
       <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
       ${isCloud ? "" : liveDot(out)}
       <span class="router-out-name">${escapeHtml(topologyRouterOutputLabel(out))}</span>
+      ${own ? `<span class="router-out-port">:${escapeHtml(String(own.port))}</span>` : ""}
       ${_unlistedTag(blk)}
       ${badge}
       ${priceHtml}
@@ -275,7 +279,8 @@ export function renderServersBlockHtml(router) {
   const cloudHtml = accounts.map((acc) => {
     // What each model is to the fleet — new, gone, shown — is the provider
     // card's reading (cloud-models.js), so the kanban and the card agree.
-    const models = new ProviderModels({ account: acc, blocks, routers: topology?.routers || [], now: Date.now() });
+    const models = new ProviderModels({ account: acc, blocks, routers: topology?.routers || [], proxies: topology?.proxies || [],
+      now: Date.now() });
     const sum = models.summary();
     const fresh = new Set(models.rows().filter((r) => r.fresh).map((r) => r.block.id));
     const accBlocks = models.blocks;
@@ -311,6 +316,7 @@ export function renderServersBlockHtml(router) {
                 <input type="checkbox" data-router-expose="${escapeHtml(b.id)}" ${b.exposed ? "checked" : ""}>
                 <div class="router-prov-model-info">
                   <span class="router-prov-model-name">${escapeHtml(b.model || b.name || b.id)}</span>
+                  ${b.exposed && models.ports(b.id)[0] ? `<span class="router-out-port">:${escapeHtml(String(models.ports(b.id)[0].port))}</span>` : ""}
                   ${priceHtml}
                 </div>
                 ${fresh.has(b.id) ? `<span class="cloud-chip fresh">${escapeHtml(t("cloudChipNew"))}</span>` : ""}
@@ -336,8 +342,12 @@ export function renderServersBlockHtml(router) {
     </div>`;
 }
 
-// Tick/untick a cloud model in the Outputs panel → routable cloud output (cb:<blockId>).
-// Lets you tick several models in one go: the native checkbox reflects each click
+// Tick/untick a cloud model in the Outputs panel. A model is on the kanban
+// while it has a port of its own (caravan/admin/cloud_ports.py): ticking
+// opens one, unticking closes its ports — through the closer, which asks
+// what happens to the cables and rules that still lead to it (a cancelled
+// answer redraws, so the tick comes back).
+// Ticks can come several in one go: the native checkbox reflects each click
 // instantly, saves are chained so they apply in click order (the last response is
 // always the authoritative full topology — no out-of-order clobbering), and the
 // panel re-render is debounced so the checklist rebuilds once after you pause
@@ -348,13 +358,20 @@ export let _cloudExposeRenderTimer = null;
 export function setCloudModelExposed(blockId, exposed) {
   const block = (topology?.cloudProviders || []).find((b) => b.id === blockId);
   if (block?.accountId) topologyOutputsCloudExpanded[block.accountId] = true;
+  if (!exposed) {
+    _cloudExposeChain = _cloudExposeChain.then(async () => {
+      if (!(await PORT_CLOSER.close(blockId))) renderTopology();
+    });
+    return;
+  }
   _cloudExposeChain = _cloudExposeChain.then(async () => {
     try {
-      const res = await api("/api/cloud-blocks/expose", { method: "POST", body: JSON.stringify({ id: blockId, exposed: !!exposed }) });
+      const res = await api("/api/cloud-blocks/expose", { method: "POST", body: JSON.stringify({ id: blockId, exposed: true }) });
       if (res.topology) setTopology(res.topology);
+      if (res.port) toast(t("portOpened", { model: block?.model || blockId, port: String(res.port) }));
       clearTimeout(_cloudExposeRenderTimer);
       _cloudExposeRenderTimer = setTimeout(renderTopology, 250);
-    } catch (e) { toast(e.message); }
+    } catch (e) { toast(e.message); renderTopology(); }
   });
 }
 

@@ -204,7 +204,11 @@ def sync_router_outputs(routers, server_obj, cloud_accounts=None, cloud_blocks=N
     rules.default valid. Returns True if changed."""
     account_ids = [a.get("id") for a in (cloud_accounts or []) if a.get("id")]
     if migrate_legacy_cloud_outputs(routers, account_ids):
-        cloud_blocks = cloud_blocks_state()   # re-read: exposure just changed
+        # The upgraded models go on the kanban the way every model does now:
+        # with a port of their own (cloud_ports.py).
+        from caravan.admin.cloud_ports import CloudPortDesk
+        CloudPortDesk().adopt_flags()
+        cloud_blocks = cloud_blocks_state()   # re-read: they are on the kanban now
     local = _router_local_outputs(server_obj)
     cloud = _router_cloud_outputs(cloud_accounts, cloud_blocks)
     desired = [normalize_router_output(o) for o in (local + list(engine_outputs or []) + cloud)]
@@ -452,12 +456,12 @@ def next_app_port(routes):
     the bridge landed at 23xxx.
     """
     try:
-        return _next_free_proxy_port(routes or [])
+        return next_free_proxy_port(routes or [])
     except Exception:
         return None
 
 
-def _next_free_proxy_port(routes):
+def next_free_proxy_port(routes):
     """Smallest free port in the PROXY range for a bridge or app port.
 
     These used to count from SERVER_CELL_BASE_PORT: with one flat range that was
@@ -477,6 +481,22 @@ def _next_free_proxy_port(routes):
             raise AppError("no free proxy port left", 500)
     return port
 
+def bridge_route(block, port, label=""):
+    """A cloud model's own port: a route of kind "service" straight to the
+    model, no router behind it. Its existence is what puts the model on the
+    kanban (cloud_ports.py)."""
+    block_id = str(block.get("id") or "")
+    model = str(block.get("model") or block.get("name") or block_id)
+    return {
+        "label": (str(label or "").strip() or f"bridge {model}")[:80],
+        "port": int(port),
+        "kind": "service",
+        "upstreamType": "cloud",
+        "providerId": block_id,
+        "routerId": "",   # explicit: unassigned — absent would auto-bind router:default
+        "mode": "open",
+    }
+
 def mint_bridge_port(block_id, label=""):
     """Create a bridge port for a cloud model block and return the saved route."""
     block_id = str(block_id or "").strip()
@@ -492,17 +512,8 @@ def mint_bridge_port(block_id, label=""):
         raise AppError("model block has no account", 400)
     payload = load_agent_proxy_config()
     routes = payload.get("routes") or []
-    port = _next_free_proxy_port(routes)
-    model = str(block.get("model") or block.get("name") or block_id)
-    route = {
-        "label": (str(label or "").strip() or f"bridge {model}")[:80],
-        "port": port,
-        "kind": "service",
-        "upstreamType": "cloud",
-        "providerId": block_id,
-        "routerId": "",   # explicit: unassigned — absent would auto-bind router:default
-        "mode": "open",
-    }
+    port = next_free_proxy_port(routes)
+    route = bridge_route(block, port, label)
     routes.append(route)
     saved = save_agent_proxy_config(routes, payload.get("routers"))
     return next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
@@ -519,7 +530,7 @@ def mint_app_port(name):
         raise AppError("name is required", 400)
     payload = load_agent_proxy_config()
     routes = payload.get("routes") or []
-    port = _next_free_proxy_port(routes)
+    port = next_free_proxy_port(routes)
     api_key = "lcv1_" + secrets.token_hex(16)
     route = {
         "label": name,
@@ -640,22 +651,6 @@ def delete_proxy_route(port, force=False):
     save_agent_proxy_config([r for r in routes if r is not target], routers)
     return {"deleted": port, "label": str(target.get("label") or "")}
 
-
-def delete_bridge_port(port):
-    """Remove a bridge port. Refuses agent routes — those belong to the board."""
-    try:
-        port = int(port)
-    except (TypeError, ValueError):
-        raise AppError("port must be a number", 400)
-    payload = load_agent_proxy_config()
-    routes = payload.get("routes") or []
-    target = next((r for r in routes if isinstance(r, dict) and int(r.get("port") or 0) == port), None)
-    if not target:
-        raise AppError(f"no proxy route on port {port}", 404)
-    if str(target.get("kind") or "") != "service":
-        raise AppError("not a bridge port — agent routes are managed on the board", 400)
-    save_agent_proxy_config([r for r in routes if r is not target], payload.get("routers"))
-    return {"deleted": port}
 
 def set_agent_proxy_policy(policy):
     payload = load_agent_proxy_config()

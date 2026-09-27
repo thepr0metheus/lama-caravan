@@ -28,7 +28,6 @@ import {
   _stoppingCells,
   bindServerSlotControls,
   actOnEngineButton,
-  pullEngineButton,
   openCaravanModelEditor,
   reserveEngineButton,
   serveEngineButton,
@@ -76,7 +75,6 @@ import {
 import {
   _collapsedNodes,
   applyNodesViewMode,
-  engineDownloadText,
   engineRamText,
   engineVramText,
   gpuOutsideBar,
@@ -359,13 +357,6 @@ export function renderTopology() {
     btn.addEventListener("click", (event) => {
       event.stopPropagation();
       actOnEngineButton(btn);
-    });
-  });
-  // A model downloaded into an engine (step 3д).
-  $("topologyLlamaServers")?.querySelectorAll("[data-engine-pull]").forEach((btn) => {
-    btn.addEventListener("click", (event) => {
-      event.stopPropagation();
-      pullEngineButton(btn);
     });
   });
   // An engine's server itself, its strip's switch: start it or stop it (step 3г).
@@ -743,7 +734,6 @@ export function syncTopologyLive() {
       if (strip) {
         _liveSet(strip, "[data-live-engine-ram]", engineRamText(e));
         _liveSet(strip, "[data-live-engine-vram]", engineVramText(n, e));
-        _liveSet(strip, "[data-live-engine-download]", engineDownloadText(e));
       }
     });
 

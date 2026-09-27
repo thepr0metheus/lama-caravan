@@ -57,8 +57,9 @@ def test_block_shape():
                                          "baseUrl": "https://example.invalid"}], "blocks": []})
     got = cloud.normalize_cloud_block({"id": "blk", "accountId": "acc", "name": "B",
                                        "model": "vendor/model-a", "exposed": True}, {"acc"})
-    check(sorted(got.keys()) == ["accountId", "contextAuto", "exposed", "id", "model", "modelMode", "name"],
-          f"a block that states no window keeps seven keys (got {sorted(got.keys())})")
+    check(sorted(got.keys()) == ["accountId", "contextAuto", "id", "model", "modelMode", "name"],
+          f"a block that states no window keeps six keys; the old `exposed` flag is not one of them — "
+          f"on the kanban is a port of the model's own now (got {sorted(got.keys())})")
     got2 = cloud.normalize_cloud_block({"id": "blk", "accountId": "acc", "model": "m",
                                         "contextLength": 131072}, {"acc"})
     check(got2.get("contextLength") == 131072, "a stated contextLength is kept")
@@ -158,7 +159,7 @@ def test_upsert_preserves():
     # A re-fetch upserts without either field; neither may be lost.
     again = cloud.upsert_cloud_block({"id": "b", "accountId": "acc", "model": "m"})
     check(again.get("contextLength") == 65536, f"a stated window survives a re-fetch (got {again.get('contextLength')})")
-    check(again.get("exposed") is True, "and so does the exposed choice")
+    check("exposed" not in again, "negative: a flag a caller still sends is not stored (cloud_ports.py)")
     # The editor always sends the field, so a blank one REMOVES it.
     cleared = cloud.upsert_cloud_block({"id": "b", "accountId": "acc", "model": "m",
                                         "contextLength": "", "exposed": True})

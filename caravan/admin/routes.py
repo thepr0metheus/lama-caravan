@@ -219,7 +219,6 @@ from caravan.admin.router_dsl import (
     recompute_cloud_fallback_eligibility,
 )
 from caravan.admin.proxies_config import (
-    delete_bridge_port,
     load_agent_proxy_config,
     mint_bridge_port,
     normalize_routers,
@@ -249,7 +248,6 @@ from caravan.admin.cloud import (
     save_cloud_data,
     save_provider_secrets,
     mark_cloud_blocks_announced,
-    set_cloud_block_exposed,
     upsert_cloud_account,
     upsert_cloud_block,
 )
@@ -1345,7 +1343,11 @@ def _post_api_app_port(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/cloud-accounts/bridge-port-delete')
 def _post_api_cloud_bridge_port_delete(h, parsed, body):
-        h.send_json({"ok": True, **delete_bridge_port(body.get("port"))})
+        # A model's last port takes it off the kanban: when cables or rules
+        # hold it, `resolution` says where they go (cloud_ports.py), else 409.
+        from caravan.admin.cloud_ports import CloudPortDesk
+        done = CloudPortDesk().close_port(body.get("port"), body.get("resolution"))
+        h.send_json({"ok": True, "deleted": int(body.get("port")), **done, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-accounts/auto-create-blocks')
@@ -1438,10 +1440,16 @@ def _post_api_port_exclusions(h, parsed, body):
 
 @_route(GET_ROUTES, '/api/cloud-blocks/refs')
 def _get_api_cloud_blocks_refs(h, parsed):
+        from caravan.admin.cloud_ports import CloudModelPorts
         from caravan.admin.cloud_refs import CloudModelRefs
         query = urllib.parse.parse_qs(parsed.query or "")
         block_id = (query.get("id") or [""])[0].strip()
-        h.send_json({"ok": True, "refs": CloudModelRefs.load().of(block_id)})
+        cfg = load_agent_proxy_config()
+        ports = CloudModelPorts(cfg)
+        # `held`: what the kanban holds on the model — what closing its last
+        # port must first move or disconnect (the rule lives in cloud_ports.py).
+        h.send_json({"ok": True, "refs": CloudModelRefs(cfg).of(block_id),
+                     "held": ports.held(block_id), "ports": ports.of(block_id)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-api-health/retry')
@@ -1453,8 +1461,14 @@ def _post_api_cloud_api_health_retry(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/cloud-blocks/save')
 def _post_api_cloud_blocks_save(h, parsed, body):
-        block = upsert_cloud_block(body.get("block") or {})
-        h.send_json({"ok": True, "block": block, "topology": topology_state(refresh_hosts=False)})
+        wanted = body.get("block") or {}
+        block = upsert_cloud_block(wanted)
+        port = None
+        if isinstance(wanted, dict) and wanted.get("exposed"):
+            # "Show it on the kanban" = a port of its own (cloud_ports.py).
+            from caravan.admin.cloud_ports import CloudPortDesk
+            port = CloudPortDesk().open(block["id"])
+        h.send_json({"ok": True, "block": block, "port": port, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-blocks/restore')
@@ -1474,35 +1488,41 @@ def _post_api_cloud_blocks_delete(h, parsed, body):
 
 @_route(POST_ROUTES, '/api/cloud-blocks/move-cables')
 def _post_api_cloud_blocks_move_cables(h, parsed, body):
-        # The "new model" window: everything that pointed at one model of a
-        # provider now points at another of the same provider, roles kept.
-        from caravan.admin.cloud_refs import CloudModelRewire
+        # The "new model" window and "⇄ Move cables…": everything that pointed
+        # at one model of a provider now points at another of the same
+        # provider, roles kept; that one is on the kanban from now on — with a
+        # port of its own if it had none (cloud_ports.py).
+        from caravan.admin.cloud_ports import CloudPortDesk
         src, dst = str(body.get("from") or "").strip(), str(body.get("to") or "").strip()
-        blocks = {b.get("id"): b for b in load_cloud_data()["blocks"]}
-        if src not in blocks or dst not in blocks or src == dst:
-            raise AppError("move cables: name two different models", 400)
-        if blocks[src].get("accountId") != blocks[dst].get("accountId"):
-            raise AppError("move cables: both models must be of one provider", 400)
-        from caravan.admin.proxies_config import cloud_block_output
-        mark_cloud_blocks_announced([dst], expose=True)   # the new model is on the kanban from now on
-        payload = load_agent_proxy_config()
-        output = cloud_block_output(cloud_accounts_state(), blocks[dst])
-        moved = CloudModelRewire(payload).move(src, dst, output=output)
-        if moved:
-            save_agent_proxy_config(payload.get("routes") or [], payload.get("routers"))
+        moved = CloudPortDesk().move_cables(src, dst)
+        mark_cloud_blocks_announced([dst])
         h.send_json({"ok": True, "moved": moved, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-blocks/announced')
 def _post_api_cloud_blocks_announced(h, parsed, body):
-        mark_cloud_blocks_announced(body.get("ids") or [], expose=bool(body.get("expose")))
+        ids = [str(i) for i in (body.get("ids") or [])]
+        mark_cloud_blocks_announced(ids)
+        if body.get("expose"):
+            # "Just add it": on the kanban = a port of its own.
+            from caravan.admin.cloud_ports import CloudPortDesk
+            for block_id in ids:
+                CloudPortDesk().open(block_id)
         h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-blocks/expose')
 def _post_api_cloud_blocks_expose(h, parsed, body):
-        set_cloud_block_exposed(body.get("id"), bool(body.get("exposed")))
-        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
+        # The kanban's tick: on = the model gets a port of its own; off = all its
+        # ports close, and what the routers hold on it goes where `resolution`
+        # says (cloud_ports.py), or the answer is 409.
+        from caravan.admin.cloud_ports import CloudPortDesk
+        desk = CloudPortDesk()
+        if body.get("exposed"):
+            done = {"port": desk.open(str(body.get("id") or "").strip())}
+        else:
+            done = desk.close(body.get("id"), None, body.get("resolution"))
+        h.send_json({"ok": True, **done, "topology": topology_state(refresh_hosts=False)})
         return
 
 @_route(POST_ROUTES, '/api/engine-outputs/expose')
@@ -1524,16 +1544,6 @@ def _post_api_engines_act(h, parsed, body):
         from caravan.admin.fleet_clients import _scout
         op = parsed.path.rsplit("/", 1)[-1]
         result = EngineActions(_scout, topology_hosts).act(body.get("hostId"), op, body.get("kind"), body.get("model"))
-        h.send_json({**result, "topology": topology_state(refresh_hosts=False)})
-        return
-
-@_route(POST_ROUTES, '/api/engines/pull')
-def _post_api_engines_pull(h, parsed, body):
-        # A model downloaded into an engine next to a machine's cells, through
-        # its scout (docs/foreign-engines.md, step 3д).
-        from caravan.admin.engine_actions import EngineActions
-        from caravan.admin.fleet_clients import _scout
-        result = EngineActions(_scout, topology_hosts).pull(body.get("hostId"), body.get("kind"), body.get("model"))
         h.send_json({**result, "topology": topology_state(refresh_hosts=False)})
         return
 

@@ -341,9 +341,11 @@ print("строка сервера движка (EngineStrip):")
 st = got["strips"]
 check(st["full"] == '<div class="engine-strip engine-ollama" data-t="node-engine" data-t-id="h1:ollama:11434" data-t-state="ok" '
       'title="loads &quot;on demand&quot;"><div class="es-main"><L><strong class="es-name">Ollama</strong>'
-      '<span class="es-ver">0.34.4</span><span class="es-fill"></span><B><M><P></div><div class="es-sub"><W><N></div></div>',
+      '<span class="es-ver">0.34.4</span><span class="es-fill"></span><B><M></div><div class="es-sub"><W><N></div></div>',
       "строка сервера: в цвет движка; хук node-engine с id и состоянием (им же пользуется живая правка памяти); "
-      "первая строка — тумблер, имя, версия, ↟, память, ⤓; вторая — где слушает и что сказать; подсказка экранирована")
+      "первая строка — тумблер, имя, версия, ↟, память; вторая — где слушает и что сказать; подсказка экранирована; "
+      "defect-guard: места для ⤓ нет — скачивания в движок через караван нет (оператор, 2026-09-27), "
+      "и переданное по-старому не рисуется")
 check('<span class="es-ver">' not in st["bare"] and '<strong class="es-name">&lt;i&gt;x</strong>' in st["bare"]
       and st["bare"].startswith('<div class="engine-strip" data-t="node-engine"'),
       "negative: версии нет — её места нет; имя экранировано; без движка — без класса цвета")
@@ -351,7 +353,7 @@ check('class="engine-strip" ' in st["odd"] and 'data-t-id="&quot;&gt;&lt;b&gt;"'
       "negative: слово, не годное в имя класса, цвета не даёт; ключ и состояние экранированы")
 check(st["caravan"] == '<div class="engine-strip engine-caravan" data-t="node-caravan" data-t-id="h1:caravan" data-t-state="ok" '
       'title=""><div class="es-main"><strong class="es-name">Caravan</strong><span class="es-ver">b9947</span>'
-      '<span class="es-fill"></span><P></div></div>',
+      '<span class="es-fill"></span></div></div>',
       "строка каравана — та же строка: свой хук (node-caravan), без тумблера; negative: сказать нечего — второй строки нет")
 check('<div class="es-sub"><N></div>' in st["notesOnly"] and '<div class="es-sub">' not in st["bare"],
       "вторая строка — когда есть где слушает или что сказать; у пустой строки её нет")

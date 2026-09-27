@@ -1039,28 +1039,34 @@ button.topology-detail-action.danger:focus {
 .cloud-bridge-port { color: var(--accent, #4da392); }
 .cloud-bridge-model { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .cloud-model-port { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; font-size: 11px; }
+/* min-height: 0 — the global `button { min-height: 34px }` made a row with
+   "＋ port" (or "⇄ Move cables…") half again as tall as its neighbours. */
 .cloud-port-add {
   flex-shrink: 0; font: inherit; font-size: 10.5px; padding: 1px 7px; border-radius: 7px; cursor: pointer;
+  min-height: 0; line-height: 1.5;
   border: 1px dashed color-mix(in srgb, var(--muted) 55%, transparent); background: none; color: var(--muted);
 }
 .cloud-port-add:hover { color: var(--accent, #4da392); border-color: var(--accent, #4da392); }
 /* "⇄ Move cables…" on a gone model something still leads to. */
 .cloud-move-cables {
   flex-shrink: 0; font: inherit; font-size: 10.5px; padding: 1px 7px; border-radius: 7px; cursor: pointer;
+  min-height: 0; line-height: 1.5;
   border: 1px solid color-mix(in srgb, var(--bad) 55%, transparent); background: none; color: var(--bad);
 }
 .cloud-move-cables:hover { background: color-mix(in srgb, var(--bad) 12%, transparent); }
 
-/* "30 days via the caravan": one line, the models behind it on a click. */
+/* "30 days via the caravan": one line, the total; each model's share is on
+   its row in the models list (.cloud-block-spend). */
 .spend-panel { padding: 0; }
-.spend-line { display: flex; align-items: baseline; gap: 8px; width: 100%; background: none; border: none; cursor: pointer;
-  padding: 6px 10px; font: inherit; font-size: 11.5px; color: var(--fg, #dde); text-align: left; }
-.spend-line:hover { background: color-mix(in srgb, var(--accent, #4da392) 6%, transparent); }
+.spend-line { display: flex; align-items: baseline; gap: 8px; width: 100%; cursor: help;
+  padding: 6px 10px; font-size: 11.5px; color: var(--fg, #dde); }
 .spend-line-count { color: var(--muted); white-space: nowrap; }
 .spend-line-cost { margin-left: auto; white-space: nowrap; font-weight: 600; }
-.spend-line-caret { color: var(--muted); font-size: 10px; }
-.spend-panel.open .spend-row { padding: 2px 10px; }
-.spend-note { font-size: 10.5px; color: var(--muted); padding: 2px 10px 6px; }
+.cloud-block-spend { flex-shrink: 0; white-space: nowrap; font-size: 11px; color: var(--fg, #dde);
+  font-variant-numeric: tabular-nums; cursor: help; }
+.cloud-spend-elsewhere { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 6px 10px;
+  font-size: 11px; color: var(--muted); }
+.cloud-spend-item code { font-size: 10.5px; }
 
 /* The models section: one head line (count, what is shown, new, gone, when the
    list was last checked, ↻ to check now), then the rows. */

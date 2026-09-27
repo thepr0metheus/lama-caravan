@@ -248,8 +248,8 @@ def normalize_cloud_block(block, account_ids):
     name = str(block.get("name") or bid).strip()
     model = str(block.get("model") or "").strip()
     model_mode = "passthrough" if str(block.get("modelMode") or "rewrite") == "passthrough" else "rewrite"
-    # `exposed` = the user ticked this model in the router Outputs panel → it becomes a
-    # routable cloud output (cb:<blockId>). Off by default; curated per provider.
+    # Whether the model is on the kanban is not stored here: it is on the
+    # kanban while it has a port of its own (cloud_ports.py, 2026-09-27).
     # A context window the OPERATOR states for this model. Needed because some
     # providers publish none at all — api.openai.com answers with exactly the
     # five fields the spec defines — and a stated number is knowledge, while a
@@ -269,8 +269,7 @@ def normalize_cloud_block(block, account_ids):
     # a guessed one (docs/why.md). The operator's own figure stays the rule;
     # this switch is how they hand that decision to the provider on purpose.
     out = {"id": bid, "accountId": account_id, "name": name, "model": model,
-           "modelMode": model_mode, "exposed": bool(block.get("exposed", False)),
-           "contextAuto": bool(block.get("contextAuto", False))}
+           "modelMode": model_mode, "contextAuto": bool(block.get("contextAuto", False))}
     if declared is not None:
         out["contextLength"] = declared
     # What the model sync keeps on a block (cloud_sync.py): when it appeared in
@@ -317,8 +316,8 @@ def delete_cloud_account(account_id):
 def upsert_cloud_block(block):
     data = load_cloud_data()
     account_ids = {a["id"] for a in data["accounts"]}
-    # Preserve a prior `exposed` choice, and a prior stated context window,
-    # across a re-fetch unless the caller set them. A caller that omits a field
+    # Preserve a prior stated context window and the sync's marks across a
+    # re-fetch unless the caller set them. A caller that omits a field
     # is not asking for it to be cleared — only the editor, which always sends
     # both, can do that (it sends contextLength blank to remove it).
     bid = str(block.get("id") or "").strip() if isinstance(block, dict) else ""
@@ -331,8 +330,6 @@ def upsert_cloud_block(block):
         for key in ("newSince", "goneCount", "manual", "announced"):
             if key not in block and prev.get(key):
                 block = {**block, key: prev[key]}
-        if "exposed" not in block:
-            block = {**block, "exposed": bool(prev.get("exposed", False))}
         if "contextLength" not in block and prev.get("contextLength") is not None:
             block = {**block, "contextLength": prev.get("contextLength")}
         if "contextAuto" not in block:
@@ -349,34 +346,16 @@ def delete_cloud_block(block_id):
     data["blocks"] = [b for b in data["blocks"] if b.get("id") != block_id]
     save_cloud_data(data)
 
-def mark_cloud_blocks_announced(block_ids, expose=False):
+def mark_cloud_blocks_announced(block_ids):
     """The "new model" window was answered for these: it will not ask again.
-    With `expose`, they are also shown on the kanban ("just add it")."""
+    (Putting one on the kanban — "just add it" — is opening its port:
+    cloud_ports.CloudPortDesk.open.)"""
     ids = {str(i) for i in (block_ids or [])}
     data = load_cloud_data()
     changed = False
     for b in data["blocks"]:
-        if b.get("id") in ids:
-            if not b.get("announced"):
-                b["announced"] = True
-                changed = True
-            if expose and not b.get("exposed"):
-                b["exposed"] = True
-                changed = True
-    if changed:
-        save_cloud_data(data)
-    return changed
-
-
-def set_cloud_block_exposed(block_id, exposed):
-    """Tick/untick a model in the router Outputs panel. Exposed blocks become routable
-    cloud outputs (cb:<blockId>). Returns True if the flag changed."""
-    block_id = str(block_id or "").strip()
-    data = load_cloud_data()
-    changed = False
-    for b in data["blocks"]:
-        if b.get("id") == block_id and bool(b.get("exposed", False)) != bool(exposed):
-            b["exposed"] = bool(exposed)
+        if b.get("id") in ids and not b.get("announced"):
+            b["announced"] = True
             changed = True
     if changed:
         save_cloud_data(data)
@@ -433,8 +412,13 @@ def cloud_accounts_state():
     return result
 
 def cloud_blocks_state():
+    # Imported here, not at the top: the ports live in agent-proxies.json, and
+    # the module that reads it imports this one.
+    from caravan.admin.cloud_ports import CloudModelPorts
+    from caravan.admin.proxies_config import load_agent_proxy_config
     data = load_cloud_data()
     accounts = {a["id"]: a for a in data["accounts"]}
+    on_kanban = CloudModelPorts(load_agent_proxy_config()).on_kanban()
     result = []
     # The credential summary is a property of the ACCOUNT, and there are four of
     # them against five hundred blocks — so it is resolved once per account, not
@@ -450,7 +434,8 @@ def cloud_blocks_state():
         row = {
             "id": b["id"], "accountId": b.get("accountId"), "name": b.get("name"),
             "model": b.get("model"), "modelMode": b.get("modelMode") or "rewrite",
-            "exposed": bool(b.get("exposed", False)),
+            # On the kanban = a port of its own leads to it (cloud_ports.py).
+            "exposed": b["id"] in on_kanban,
             # The editor opens on these and always saves them back, so a row
             # without them made every edit of a block wipe its stated window
             # and switch off "use the number the model reports".

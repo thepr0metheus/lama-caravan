@@ -65,6 +65,15 @@ def main():
             print(f"cloud: contextAuto stamped on {_stamped} blocks that relied on the provider's figure", flush=True)
     except Exception as exc:
         print(f"cloud: contextAuto migration skipped ({exc})", flush=True)
+    # A cloud model is on the kanban while it has a port of its own (2026-09-27):
+    # every model the old flag put there gets one, so no cable loses its model.
+    try:
+        from caravan.admin.cloud_ports import CloudPortDesk
+        _opened = CloudPortDesk().adopt_flags()
+        if _opened:
+            print(f"cloud: ports {_opened} opened for the models already on the kanban", flush=True)
+    except Exception as exc:
+        print(f"cloud: kanban ports migration skipped ({exc})", flush=True)
 
     sampler = threading.Thread(target=monitor_sampler_loop, daemon=True)
     sampler.start()

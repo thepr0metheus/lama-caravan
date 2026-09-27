@@ -892,34 +892,6 @@ export function actOnEngineButton(btn) {
   return actOnEngineModel(d.engineHost, d.engineKind, d.engineLabel, d.engineModel, d.engineAct, d.engineMachine);
 }
 
-// What to download into each engine, as the prompt hints it.
-const ENGINE_PULL_HINTS = { ollama: "nodeEnginePullHintOllama", lmstudio: "nodeEnginePullHintLmStudio" };
-
-// A model downloaded into an engine next to a machine's cells (step 3д, scout
-// 2.17+): its name asked — one word, a typo sends nothing — and the download
-// runs on the machine, its progress on the engine's strip.
-export async function pullEngineModel(hostId, kind, label) {
-  const hint = ENGINE_PULL_HINTS[kind] ? t(ENGINE_PULL_HINTS[kind]) : "";
-  const answer = await appPrompt(t("nodeEnginePullPrompt", { engine: label, hint }),
-    { value: "", confirmLabel: t("nodeEnginePull") });
-  if (answer === null) return;
-  const model = String(answer).trim();
-  if (!/^[^\s\x00-\x1f\x7f]{1,300}$/.test(model)) { toast(t("nodeEngineModelNameBad")); return; }
-  try {
-    const res = await api("/api/engines/pull", { method: "POST", body: JSON.stringify({ hostId, kind, model }) });
-    if (res.topology) setTopology(res.topology);
-    renderTopology();
-  } catch (err) {
-    toast(err.message);
-  }
-}
-
-// The download button on an engine's strip, as its markup says it.
-export function pullEngineButton(btn) {
-  const d = btn.dataset;
-  return pullEngineModel(d.engineHost, d.engineKind, d.engineLabel);
-}
-
 // Unload a model of an engine next to a machine's cells, or delete its files
 // (step 3): an unload is confirmed like stopping a cell, a delete with the
 // danger look and the machine named. Loading is not the board's any more: a

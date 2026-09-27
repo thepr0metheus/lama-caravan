@@ -104,6 +104,22 @@ def main():
     check(RouterOutputRefs(bare).rewrite(to("srv:1", "srv:7")) == 0 and bare == {"id": "r"},
           "negative: пустой маршрутизатор не получает ключей")
 
+    print("drop: всё, что ведёт к выходу, уходит")
+    router = copy.deepcopy(ROUTER)
+    n = RouterOutputRefs(router).drop("srv:1")
+    rules, edges = router["rules"], [e["id"] if isinstance(e, dict) else e for e in router["graph"]["edges"]]
+    check(not any(k in rules for k in ("default", "dormantDefault", "audioOutput", "embeddingsOutput")),
+          "правила-ключи, что называли выход, сняты (default тоже — сохранение возьмёт первый выход)")
+    check(rules["schedule"] == [{"output": "srv:2"}, "junk"] and rules["bySource"] == [] and rules["failover"] == ["srv:2"],
+          "строки списков и место в failover — только его; чужое и мусор остаются")
+    check(edges == ["e3", "e4", "junk"], f"канаты с его концом ушли, чужие и вход с похожим именем остались (got {edges})")
+    check(n == 9, f"девять мест: 4 ключа, 2 строки, failover, 2 каната (got {n})")
+    check(router["outputs"] == ROUTER["outputs"], "список выходов — не ссылка, drop его не трогает")
+    same = copy.deepcopy(ROUTER)
+    check(RouterOutputRefs(same).drop("srv:9") == 0 and same == ROUTER, "negative: выхода не называет никто — ноль, ничего не тронуто")
+    bare = {"id": "r"}
+    check(RouterOutputRefs(bare).drop("srv:1") == 0 and bare == {"id": "r"}, "negative: пустой маршрутизатор не получает ключей")
+
     print("remap: ячейка переехала на другой порт")
     store = FakeStore([copy.deepcopy(ROUTER)])
     store.patch()

@@ -570,6 +570,8 @@ select.cv-pin { width: 100%; }
 .router-prov.open .router-prov-head { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
 .router-prov-caret { flex: 0 0 auto; width: 12px; font-size: 11px; color: var(--accent); font-weight: 700; }
 .router-prov-name { font-size: 12px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A cloud model's own port — why it is on the kanban at all. */
+.router-out-port { flex: 0 0 auto; font-family: ui-monospace, Menlo, monospace; font-size: 10px; color: var(--muted); }
 .router-prov-count {
   flex: 0 0 auto; margin-left: auto; font-size: 10px; color: var(--muted);
   background: var(--field); border: 1px solid var(--line); border-radius: 9px; padding: 0 6px;

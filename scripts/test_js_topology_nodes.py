@@ -2548,11 +2548,11 @@ PINS += [
      "[m.engineRamText({ ramBytes: null }), m.engineRamText({}), m.engineRamText({ ramBytes: 1288490189 }), m.engineRamText(null), m.engineRamText({ ramBytes: 20611072 }), m.engineRamText({ ramBytes: 1073741823 }), m.engineRamText({ ramBytes: 1073741824 }), m.engineRamText({ ramBytes: 0 })]",
      "[\"\", \"\", \"RAM 1.2 GB\", \"\", \"RAM 20 MB\", \"RAM 1024 MB\", \"RAM 1.0 GB\", \"RAM 0 MB\"]",
      "negative: RAM процессов движка — только когда сказана; null, нет поля, нет движка — пусто. boundary: меньше гигабайта — в МБ (20 МБ, а не «0.0 GB», что читалось как ноль; живая проверка 2026-09-25), от 1 ГиБ — в GB; сказанный ноль — «0 MB»"),
-    ("engines_download_progress",
+    ("engines_no_download_line",
      "",
-     "[m.engineDownloadText(ENG({ downloading: { model: \"qwen3:4b\", since: 1, doneBytes: 500 * 1024 ** 2, totalBytes: 2.5 * 1024 ** 3 } })), m.engineDownloadText(ENG({ downloading: { model: \"qwen3:4b\", since: 1, doneBytes: null, totalBytes: null } })), m.engineDownloadText(ENG({ downloading: { model: \"q\", since: 1, doneBytes: 3, totalBytes: 0 } })), m.engineDownloadText(ENG({ downloading: { model: \"r\", since: 1, doneBytes: null, totalBytes: 2.5 * 1024 ** 3 } })), m.engineDownloadText(ENG()), m.engineDownloadText(null)]",
-     "[\"⤓ downloading qwen3:4b · 500 MB of 2.5 GB (19%)\", \"⤓ downloading qwen3:4b…\", \"⤓ downloading q…\", \"⤓ downloading r…\", \"\", \"\"]",
-     "прогресс скачивания: сколько из скольких и процент; размер не сказан (или ноль) — «…», а не «0%»; не скачивается — пусто"),
+     "typeof m.engineDownloadText",
+     json.dumps("undefined"),
+     "defect-guard: строки «скачивается в движок» нет — скачивания через караван нет (оператор, 2026-09-27)"),
     ("engines_vram_from_the_card_owners",
      "",
      "(() => { const n = { id: \"h1\", gpus: [{ outside: [{ name: \"LM Studio\", engine: \"lmstudio\", mib: 900 }, { name: \"python\", engine: \"\", mib: 900 }] }, { outside: [{ name: \"LM Studio\", engine: \"lmstudio\", mib: 100 }, { name: \"Ollama\", engine: \"ollama\", mib: 400 }, { name: \"LM Studio\", engine: \"lmstudio\", mib: 60 }] }] }; return [m.engineVramText(n, { kind: \"lmstudio\" }), m.engineVramText(n, { kind: \"ollama\" }), m.engineVramText(n, { kind: \"vllm\" }), m.engineVramText({ id: \"h2\" }, { kind: \"lmstudio\" }), m.engineVramText(n, null)]; })()",
@@ -2588,11 +2588,10 @@ PINS += [
                 "<span class=\"es-fill\"></span><span class=\"es-boot\" title=\"starts with the machine\">↟</span>"
                 "<span class=\"node-engine-ram\" data-t=\"node-engine-vram\" data-live-engine-vram title=\"Video memory the engine&#39;s processes hold on this machine&#39;s cards (nvidia-smi)\">VRAM 1.2 GB</span>"
                 "<span class=\"node-engine-ram\" data-live-engine-ram title=\"Memory held by the engine&#39;s processes\">RAM 1.2 GB</span>"
-                "<button class=\"node-engine-serve pull\" type=\"button\" data-t=\"node-engine-pull\" data-t-id=\"h1:ollama:11434\" data-engine-pull data-engine-host=\"h1\" data-engine-kind=\"ollama\" data-engine-label=\"Ollama\" title=\"Download a model into this engine\">⤓ download</button>"
                 "</div><div class=\"es-sub\"><code class=\"es-addr\">:11434</code></div></div>", ensure_ascii=False),
      "positive: Якорь: полоса Ollama — тумблер «работает» (остановит сервер), имя, версия, ↟ «с машиной», VRAM на картах "
-     "и RAM процессов, ⤓ скачать; второй строкой — где слушает (порт в сети, без бейджа: ufw не прочитан); подсказка — "
-     "«грузит модели по требованию»"),
+     "и RAM процессов; второй строкой — где слушает (порт в сети, без бейджа: ufw не прочитан); подсказка — "
+     "«грузит модели по требованию»; negative: скаут предлагает «pull» — ⤓ нет (скачивания через караван нет, 2026-09-27)"),
     ("strip_lever_by_controls",
      STRIP,
      '[ENG({ controls: ["stop"] }), ENG({ controls: ["start"], state: "stopped" }), ENG({ controls: ["start", "stop"] }),'
@@ -2651,16 +2650,15 @@ PINS += [
      ' downloading: { model: "qwen3:4b", since: 1, doneBytes: null, totalBytes: null }, downloadError: { model: "qwen3:8b", error: "max retries exceeded", at: 5 } })))',
      json.dumps([["node-engine-state", _en("nodeEngineStopped")],
                  ["node-engine-act-error", "⚠ " + _en("nodeEngineStartFailed").replace("{error}", "it did not answer on port 11434 in 60 s")],
-                 ["node-engine-download", "⤓ " + _en("nodeEnginePulling").replace("{model}", "qwen3:4b") + "…"],
-                 ["node-engine-act-error", "⚠ " + _en("nodeEnginePullFailed").replace("{model}", "qwen3:8b").replace("{error}", "max retries exceeded")],
                  ["node-engine-note", _en("nodeEngineRunByOther")]], ensure_ascii=False),
-     "под полосой по порядку: состояние, отказ сервера его словами, скачивание (живая строка), отказ скачать, «запускает "
-     "другой пользователь»"),
-    ("strip_download_is_live",
+     "под полосой по порядку: состояние, отказ сервера его словами, «запускает другой пользователь»; negative: скачивание "
+     "и отказ скачать, о которых скаут ещё сообщает, не рисуются"),
+    ("strip_download_not_drawn",
      STRIP,
-     '(strip(ENG({ downloading: { model: "qwen3:4b", since: 1, doneBytes: null, totalBytes: null } })).match(/<span class="node-engine-download"[^>]*>/) || ["none"])[0]',
-     json.dumps('<span class="node-engine-download" data-t="node-engine-downloading" data-live-engine-download>'),
-     "строку скачивания обновляет живой патч без перестройки полосы — у неё его ручка"),
+     '[strip(ENG({ downloading: { model: "qwen3:4b", since: 1, doneBytes: 1, totalBytes: 2 }, downloadError: { model: "x", error: "e", at: 1 } }))'
+     '.match(/node-engine-download|data-live-engine-download|qwen3:4b|⤓/g) || []]',
+     json.dumps([[]]),
+     "negative: скаут, что ещё сообщает о скачивании или его отказе, на полосе ничего не рисует — ни строки, ни ⤓"),
     ("strip_autostart_mark",
      STRIP,
      '[true, "yes", false, undefined].map((a) => (strip(ENG({ autostart: a })).match(/<span class="es-boot" title="([^"]*)">↟<\\/span>/) || [0, "none"])[1])',
@@ -2679,16 +2677,12 @@ PINS += [
      '[strip(ENG({ version: "" })).includes("es-ver"), (strip(ENG()).match(/<span class="es-ver">([^<]*)</) || [])[1]]',
      '[false, "0.12.3"]',
      "negative: движок без версии (LM Studio её не говорит) — пустой версии нет; positive: сказана — после имени"),
-    ("strip_pull",
+    ("strip_no_pull",
      STRIP,
-     '[(strip(ENG({ controls: ["pull"] })).match(/<button class="node-engine-serve pull"[^>]*>[^<]*<\\/button>/) || ["none"])[0],'
-     ' strip(ENG({ controls: ["pull"], downloading: { model: "x", since: 1, doneBytes: null, totalBytes: null } })).includes("data-engine-pull"),'
-     ' strip(ENG({ controls: ["stop"] })).includes("data-engine-pull")]',
-     json.dumps(['<button class="node-engine-serve pull" type="button" data-t="node-engine-pull" data-t-id="h1:ollama:11434" '
-                 'data-engine-pull data-engine-host="h1" data-engine-kind="ollama" data-engine-label="Ollama" '
-                 f'title="{_esc(_en("nodeEnginePullTitle"))}">⤓ {_en("nodeEnginePull")}</button>', False, False],
-                ensure_ascii=False),
-     "скачать в движок (скаут 2.17) — «⤓» на полосе; negative: пока скачивается или движок не умеет — кнопки нет"),
+     '[strip(ENG({ controls: ["pull"] })).includes("data-engine-pull"), strip(ENG({ controls: ["pull", "stop"] })).includes("node-engine-serve")]',
+     json.dumps([False, False]),
+     "defect-guard: скаут всё ещё предлагает «pull» — кнопки «⤓ download» нет: модель попадает в Ollama и LM Studio "
+     "их собственными средствами (оператор, 2026-09-27)"),
     ("strip_output_without_a_cell",
      STRIP,
      '(h => [[...h.matchAll(/<span class="node-engine-note es-output">([^<]*)</g)].map((x) => x[1]), h.match(/<button class="node-engine-expose[^>]*>[^<]*<\\/button>/g) || []])'

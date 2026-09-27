@@ -313,7 +313,7 @@ def test_next_app_port_is_the_mints_own():
     pc.port_is_listening = lambda port: port == BASE + 2
     try:
         got = pc.next_app_port([])
-        check(got == BASE + 3 and got == pc._next_free_proxy_port([]),
+        check(got == BASE + 3 and got == pc.next_free_proxy_port([]),
               f"defect-history: диапазон прокси, по одному, мимо занятых и слушаемых — тот же порт, что возьмёт "
               f"выпуск моста (было: следующий порт ячейки 22xxx) (got {got})")
 

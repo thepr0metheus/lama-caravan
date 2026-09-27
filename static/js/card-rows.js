@@ -226,7 +226,7 @@ export class CellFilter {
  */
 export class EngineStrip {
   constructor({ key, engine = "", state = "", label = "", version = "", build = "", lever = "", boot = "", memory = "",
-                pull = "", where = "", notes = "", links = "", title = "", hook = "node-engine" } = {}) {
+                where = "", notes = "", links = "", title = "", hook = "node-engine" } = {}) {
     this.hook = String(hook || "node-engine");
     this.key = String(key || "");
     this.engine = CellRow.launcher(engine);
@@ -237,7 +237,6 @@ export class EngineStrip {
     this.lever = lever || "";
     this.boot = boot || "";
     this.memory = memory || "";
-    this.pull = pull || "";
     this.where = where || "";
     this.notes = notes || "";
     this.links = links || "";        // the second line's links (the caravan's pages)
@@ -249,7 +248,7 @@ export class EngineStrip {
     return `<div class="engine-strip${this.engine ? ` engine-${this.engine}` : ""}" data-t="${escapeHtml(this.hook)}"`
       + ` data-t-id="${escapeHtml(this.key)}" data-t-state="${escapeHtml(this.state)}" title="${escapeHtml(this.title)}">`
       + `<div class="es-main">${this.lever}<strong class="es-name">${escapeHtml(this.label)}</strong>${version}${this.build}`
-      + `<span class="es-fill"></span>${this.boot}${this.memory}${this.pull}</div>`
+      + `<span class="es-fill"></span>${this.boot}${this.memory}</div>`
       + `${this.where || this.notes || this.links ? `<div class="es-sub">${this.where}${this.notes}${this.links}</div>` : ""}</div>`;
   }
 }

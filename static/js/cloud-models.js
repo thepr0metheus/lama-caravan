@@ -8,7 +8,7 @@
 // says what the model is (new, gone, on the kanban or hidden, the default),
 // how many cables reach it, its price, and its own port for an app — opened
 // by a button on the row, open in the LAN, no key (the operator's call).
-import { appConfirmChoice } from "./dialogs.js";
+import { appConfirm, appConfirmChoice } from "./dialogs.js";
 import { t } from "./i18n.js";
 import { formatPricePer1M, modelPricing } from "./model-meta.js";
 import { topology } from "./state.js";
@@ -19,7 +19,7 @@ export const NEW_FOR_MS = 7 * 24 * 3600 * 1000;
 
 export class ProviderModels {
   constructor({ account, blocks = [], routers = [], proxies = [], removed = [], now = Date.now(), open = false,
-    nextPort = null, hostname = "" } = {}) {
+    nextPort = null, hostname = "", spend = null } = {}) {
     this.account = account || {};
     this.blocks = blocks.filter((b) => b.accountId === this.account.id);
     this.routers = routers;
@@ -29,6 +29,51 @@ export class ProviderModels {
     this.open = open;
     this.nextPort = nextPort;
     this.hostname = hostname;
+    // The account's 30 days through the caravan (usage-stats.js): each model's
+    // share goes on its own row, what matches no row goes in one line below.
+    this.spend = spend && Array.isArray(spend.byModel) ? spend : null;
+  }
+
+  // Dollars as the rows say them: whole from a dollar up, cents below, and a
+  // share too small to show said so rather than as $0.
+  static money(cost) {
+    const c = Number(cost) || 0;
+    if (c >= 1) return `$${Math.round(c).toLocaleString("en-US")}`;
+    if (c >= 0.01) return `$${c.toFixed(2)}`;
+    return "<$0.01";
+  }
+
+  // A model's line of the spend, matched by name whatever its case; null
+  // when nothing went to it through the caravan.
+  spentOn(model) {
+    const key = String(model || "").toLowerCase();
+    return (this.spend?.byModel || []).find((m) => String(m.model || "").toLowerCase() === key) || null;
+  }
+
+  // Its share on a row: the cost at API prices, or — no price known (the
+  // spend says 0) — how many requests, never "$0".
+  spendHtml(model) {
+    const m = this.spentOn(model);
+    if (!m || !(Number(m.requests) > 0 || Number(m.cost) > 0)) return "";
+    const days = String(this.spend.windowDays || 30);
+    const req = String(Number(m.requests) || 0);
+    const text = Number(m.cost) > 0
+      ? t("cloudModelSpend", { cost: ProviderModels.money(m.cost), days })
+      : t("cloudModelSpendReq", { req, days });
+    return `<span class="cloud-block-spend" title="${escapeHtml(t("cloudModelSpendTitle", { days, req }))}">${escapeHtml(text)}</span>`;
+  }
+
+  // What went through the caravan to a model this list does not have (gone
+  // and removed, or named by the client): one line, so the total adds up.
+  elsewhereHtml() {
+    if (!this.spend) return "";
+    const known = new Set(this.blocks.map((b) => String(b.model || "").toLowerCase()));
+    const rest = this.spend.byModel.filter((m) => !known.has(String(m.model || "").toLowerCase())
+      && (Number(m.cost) > 0 || Number(m.requests) > 0));
+    if (!rest.length) return "";
+    const items = rest.map((m) => `<span class="cloud-spend-item"><code>${escapeHtml(m.model || "?")}</code> `
+      + `${escapeHtml(Number(m.cost) > 0 ? `≈ ${ProviderModels.money(m.cost)}` : t("spendReqOnly", { req: String(Number(m.requests) || 0) }))}</span>`).join("");
+    return `<div class="cloud-spend-elsewhere"><span class="cloud-removed-title">${escapeHtml(t("cloudSpendElsewhere", { days: String(this.spend.windowDays || 30) }))}</span>${items}</div>`;
   }
 
   // Cables into a model: kanban edges that land on its output, in every router.
@@ -41,10 +86,15 @@ export class ProviderModels {
     return this.routers.some((r) => (r.rules || {}).default === `cb:${blockId}`);
   }
 
-  // A model's own ports for apps (bridges, route kind "service").
-  ports(blockId) {
-    return this.proxies.filter((p) => p.kind === "service" && p.providerId === blockId)
+  // A model's own ports (route kind "service"), lowest first. Having one is
+  // what puts a model on the kanban (caravan/admin/cloud_ports.py).
+  static portsOf(proxies, blockId) {
+    return (proxies || []).filter((p) => p.kind === "service" && p.providerId === blockId)
       .sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
+  }
+
+  ports(blockId) {
+    return ProviderModels.portsOf(this.proxies, blockId);
   }
 
   price(model) {
@@ -115,11 +165,12 @@ export class ProviderModels {
     const chips = [
       r.gone ? this.chip(t("cloudChipGone"), "gone") : "",
       r.fresh ? this.chip(t("cloudChipNew"), "fresh") : "",
-      this.chip(r.shown ? t("cloudChipKanban") : t("cloudChipHidden"), r.shown ? "shown" : "hidden"),
+      r.shown ? this.chip(t("cloudChipKanban"), "shown") : "",
       r.isDefault ? this.chip(t("cloudChipDefault"), "default") : "",
     ].join("");
     const cables = r.cables ? `<span class="cloud-block-cables">${escapeHtml(t("cloudModelCables", { n: String(r.cables) }))}</span>` : "";
-    const price = r.price ? `<span class="cloud-block-pricing${r.price === "FREE" ? " free" : ""}">${escapeHtml(r.price)}</span>` : "";
+    const price = (r.price ? `<span class="cloud-block-pricing${r.price === "FREE" ? " free" : ""}">${escapeHtml(r.price)}</span>` : "")
+      + this.spendHtml(b.model);
     const ports = r.ports.length
       ? r.ports.map((p) => {
         const url = `http://${this.hostname}:${p.port}`;
@@ -159,7 +210,7 @@ export class ProviderModels {
       ? `<div class="cloud-account-blocks">${rows.map((r) => this.rowHtml(r, movable)).join("")}</div>`
       : `<div class="topology-muted cloud-models-empty">${escapeHtml(t("clNoModelsYet"))}</div>`;
     return `${this.headHtml()}${this.removedHtml()}
-      <div class="cloud-models-flyout">${list}
+      <div class="cloud-models-flyout">${list}${this.elsewhereHtml()}
         <button class="cloud-add-model-btn" type="button" data-cloud-add-block="${escapeHtml(this.account.id)}">${escapeHtml(t("cloudAddById"))}</button>
       </div>`;
   }
@@ -284,6 +335,32 @@ export class NewModelAnnouncer {
   }
 }
 
+// Where a model's cables may go: the provider's other models it still lists
+// — the closest by name first, then the ones on the kanban, then the card's
+// order. One ranking for both offers that move them: off a gone model, and
+// off a model whose last port closes.
+export class CableTargets {
+  // The model's row, its provider and the targets; null when the model or
+  // its provider is not on the board.
+  static of(blockId, top, now = Date.now()) {
+    const block = (top?.cloudProviders || []).find((b) => b.id === blockId);
+    const account = block && (top.cloudAccounts || []).find((a) => a.id === block.accountId);
+    if (!account) return null;
+    const rows = new ProviderModels({ account, blocks: top.cloudProviders, routers: top.routers || [], now }).rows();
+    const onto = rows.filter((r) => !r.gone && r.block.id !== blockId)
+      .map((r) => ({ r, k: ModelNames.likeness(block.model, r.block.model) }))
+      .sort((a, b) => (b.k - a.k) || (Number(b.r.shown) - Number(a.r.shown))).map((x) => x.r);
+    return { account, from: rows.find((r) => r.block.id === blockId), onto };
+  }
+
+  static label(row) {
+    const parts = [row.block.model || row.block.id];
+    if (row.shown) parts.push(t("cloudChipKanban"));
+    if (row.cables) parts.push(t("cloudModelCables", { n: String(row.cables) }));
+    return parts.join(" · ");
+  }
+}
+
 // "⇄ Move cables…" on a model the provider dropped while something still
 // leads to it (variant A): its cables and rules move onto another model of
 // the same provider in one step — the closest by name first, then the ones
@@ -298,24 +375,12 @@ export class GoneModelCables {
     this.now = now;
   }
 
-  // The gone model's row, its provider and where its cables can go; null
-  // when the model or its provider is not on the board.
   targets(blockId, top) {
-    const block = (top?.cloudProviders || []).find((b) => b.id === blockId);
-    const account = block && (top.cloudAccounts || []).find((a) => a.id === block.accountId);
-    if (!account) return null;
-    const rows = new ProviderModels({ account, blocks: top.cloudProviders, routers: top.routers || [], now: this.now() }).rows();
-    const onto = rows.filter((r) => !r.gone && r.block.id !== blockId)
-      .map((r) => ({ r, k: ModelNames.likeness(block.model, r.block.model) }))
-      .sort((a, b) => (b.k - a.k) || (Number(b.r.shown) - Number(a.r.shown))).map((x) => x.r);
-    return { account, from: rows.find((r) => r.block.id === blockId), onto };
+    return CableTargets.of(blockId, top, this.now());
   }
 
   label(row) {
-    const parts = [row.block.model || row.block.id];
-    if (row.shown) parts.push(t("cloudChipKanban"));
-    if (row.cables) parts.push(t("cloudModelCables", { n: String(row.cables) }));
-    return parts.join(" · ");
+    return CableTargets.label(row);
   }
 
   // Resolves the model the cables went to, or null: cancelled, nowhere to
@@ -342,3 +407,95 @@ export class GoneModelCables {
     }
   }
 }
+
+// Closing a model's port: the ✕ beside it on the card, or unticking the
+// model on the kanban (which closes all of its ports). The last port takes
+// the model off the kanban (the operator's rule, 2026-09-27), and whatever
+// still leads to it has to go somewhere first: the window asks — onto
+// another model of the provider (CableTargets; one without a port gets one)
+// or disconnect. What "leads to it" is the controller's reading (`held` from
+// the refs route), not a second list kept here. A port that is not the last
+// one closes with a plain question; so does a last one nothing holds. Each
+// says when a request last came through, since an app may be behind it.
+export class PortCloser {
+  static CUT = "__cut__";
+
+  constructor({ dialog = appConfirmChoice, confirm = appConfirm, call = api, notify = toast, apply = () => {},
+    now = () => Date.now() } = {}) {
+    this.dialog = dialog;
+    this.confirm = confirm;
+    this.call = call;
+    this.notify = notify;
+    this.apply = apply;
+    this.now = now;
+  }
+
+  static lastRequestLine(top, ports) {
+    const at = Math.max(0, ...(top?.proxies || []).filter((p) => ports.includes(Number(p.port)))
+      .map((p) => Number(p.lastRequestAt) || 0));
+    if (!at) return t("portNoRequest");
+    const when = new Date(at * 1000).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+    return t("portLastRequest", { when });
+  }
+
+  // Close one port (`port`) or all of the model's ports (null). Resolves the
+  // controller's answer, or null when nothing was closed.
+  async close(blockId, port = null, top = topology) {
+    const mine = ProviderModels.portsOf(top?.proxies, blockId).map((p) => Number(p.port));
+    const closing = port === null ? mine : mine.filter((p) => p === Number(port));
+    if (!closing.length) return null;
+    const block = (top?.cloudProviders || []).find((b) => b.id === blockId);
+    const model = block?.model || blockId;
+    const named = closing.map((p) => `:${p}`).join(", ");
+    const last = PortCloser.lastRequestLine(top, closing);
+    const title = t("portCloseTitle", { port: named });
+    const opts = { title, danger: true, confirmLabel: t("portCloseApply") };
+    let resolution = null;
+    if (closing.length < mine.length) {
+      const stays = mine.filter((p) => !closing.includes(p)).map((p) => `:${p}`).join(", ");
+      if (!(await this.confirm(`${t("portCloseKeep", { model, ports: stays })} ${last}`, opts))) return null;
+    } else {
+      let held;
+      try {
+        held = (await this.call(`/api/cloud-blocks/refs?id=${encodeURIComponent(blockId)}`))?.held;
+      } catch (err) {
+        this.notify(err.message);
+        return null;
+      }
+      if (!held) {
+        this.notify(t("portCloseUnknown"));
+        return null;
+      }
+      const rules = held.rules || [];
+      if (!held.cables && !rules.length) {
+        if (!(await this.confirm(`${t("portCloseConfirm", { model })} ${last}`, opts))) return null;
+      } else {
+        const onto = CableTargets.of(blockId, top, this.now())?.onto || [];
+        const text = [t("portCloseHeld", { model, cables: String(held.cables), rules: String(rules.length) }),
+          rules.includes("default") ? t("portCloseDefault") : "", last].filter(Boolean).join(" ");
+        const choice = await this.dialog(text, { ...opts, list: onto.length > 3, choiceLabel: t("portCloseChoiceLabel"),
+          choices: [...onto.map((r) => ({ value: r.block.id, label: CableTargets.label(r) })),
+            { value: PortCloser.CUT, label: t("portCloseCut") }] });
+        if (!choice) return null;
+        resolution = choice === PortCloser.CUT ? { cut: true } : { moveTo: choice };
+      }
+    }
+    const post = (path, body) => this.call(path, { method: "POST", body: JSON.stringify(body) });
+    const extra = resolution ? { resolution } : {};
+    try {
+      const res = port === null
+        ? await post("/api/cloud-blocks/expose", { id: blockId, exposed: false, ...extra })
+        : await post("/api/cloud-accounts/bridge-port-delete", { port: closing[0], ...extra });
+      const onto = (top?.cloudProviders || []).find((b) => b.id === res?.onto);
+      this.notify(res?.onto
+        ? t("portClosedMoved", { port: named, model: onto?.model || res.onto, n: String(res.moved ?? 0) })
+        : res?.cut ? t("portClosedCut", { port: named, n: String(res.cut) }) : t("portClosed", { port: named }));
+      if (res?.topology) this.apply(res.topology);
+      return res;
+    } catch (err) {
+      this.notify(err.message);
+      return null;
+    }
+  }
+}
+
