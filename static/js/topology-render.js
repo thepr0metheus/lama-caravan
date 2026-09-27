@@ -87,7 +87,6 @@ import {
   nodesLaneHtml,
   nodeSparklineSvg,
   parkLaneStats,
-  renderModelsBar,
   toggleCtrlServerStats,
   toggleNodeCollapsed,
   topologyNodesViewOn,
@@ -206,7 +205,6 @@ export function renderTopology() {
   ].join("");
 
   applyNodesViewMode();
-  renderModelsBar();
   const llamaServersEl = $("topologyLlamaServers");
   if (llamaServersEl) llamaServersEl.innerHTML = nodesLaneHtml();
   mountNodeTelemetry();  // relocate live controller charts into the controller node

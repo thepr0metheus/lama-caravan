@@ -40,6 +40,12 @@ const TR_CPU = { ram: { totalGb: 64, usedGb: 60 } };
 globalThis.__stubValues = { ...(globalThis.__stubValues || {}), "remote-cells._trClientCpu": TR_CPU,
   "remote-cells._trClientGpus": [{ index: 0, memoryTotalMiB: 8192, memoryFreeMiB: 8192, memoryUsedMiB: 0 }] };
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/memory.js").href);
+// form.js is a stub: its model lookups answer as the real ones do with no model
+// listed and none chosen, until a block below says otherwise.
+Object.assign((globalThis.__stubReturns ||= {}), {
+  "form.modelsByPath": () => new Map(),
+  "form.modelChoiceOf": () => ({ model: "", mmproj: "", draft: "" }),
+});
 const g = (total, free, used) => ({ memoryTotalMiB: total, memoryFreeMiB: free, memoryUsedMiB: used });
 const gx = (index) => ({ index, memoryTotalMiB: 24576, memoryFreeMiB: 24576, memoryUsedMiB: 0 });
 const out = {
@@ -63,7 +69,7 @@ const out = {
   // is what applies it, and that one card leaves the flag unsaid.
   applied: await (async () => {
     const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
-    st.setState({ gpu: { gpus: [gx(0), gx(1)] }, memory: { availableMiB: 65536 }, cpu: { physicalCores: 8, availableCores: 8 } });
+    st.setState({ gpu: { gpus: [gx(0), gx(1)] }, memory: { availableMiB: 65536 }, cpu: { physicalCores: 8, availableCores: 8 }, config: {} });
     st.setTopology(null);
     const run = (sel, before) => {
       globalThis.__fields = Object.fromEntries(
@@ -85,7 +91,7 @@ const out = {
   tile: await (async () => {
     const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
     const shown = (gpus, device, ngl) => {
-      st.setState({ gpu: { gpus }, memory: { availableMiB: 65536 }, cpu: { physicalCores: 8, availableCores: 8 } });
+      st.setState({ gpu: { gpus }, memory: { availableMiB: 65536 }, cpu: { physicalCores: 8, availableCores: 8 }, config: {} });
       const box = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
       globalThis.__fields = { computeTarget: box, DEVICE: { value: device },
                               N_GPU_LAYERS: { value: ngl }, SPLIT_MODE: { value: "row" } };
@@ -107,6 +113,8 @@ const out = {
   const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
   st.setState({ gpu: { gpus: [] }, memory: { availableMiB: 65536 }, cpu: {}, config: {} });
   (globalThis.__stubReturns ||= {})["form.modelsByPath"] = () => new Map([["m.gguf", { path: "m.gguf", sizeGb: 20, ggufMeta: { blockCount: 40 } }]]);
+  // The form's word on the chosen model (form.js is a stub here): the field's value.
+  globalThis.__stubReturns["form.modelChoiceOf"] = (pfx) => ({ model: globalThis.__fields[pfx + "MODEL_FILE"]?.value || "", mmproj: "", draft: "" });
   const plan = (usedGb) => {
     TR_CPU.ram.usedGb = usedGb;
     const box = { innerHTML: "", querySelectorAll: () => [], querySelector: () => null };
@@ -116,6 +124,29 @@ const out = {
     return [box.innerHTML.includes("plan-readout"), readout === " bad"];
   };
   out.ramShort = { machineFull: plan(60), machineRoomy: plan(4) };
+}
+// Which model the estimate is of: the one the form names as chosen, and none
+// while "+ Add model" awaits a pick — not the field with the config behind it.
+// The aside's bar per runner, and a llama cell with no model chosen.
+{
+  const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
+  const cst = await import(pathToFileURL(process.env.JS_ROOT + "/constants.js").href);
+  st.setState({ gpu: { gpus: [] }, memory: { availableMiB: 65536 }, cpu: {}, config: { MODEL_FILE: "m.gguf" } });
+  const choose = (model) => { globalThis.__stubReturns["form.modelChoiceOf"] = () => ({ model, mmproj: "", draft: "" }); };
+  globalThis.__fields = { "tr-MODEL_FILE": { value: "" } };
+  choose(""); out.rows = { awaited: m.selectedModelRows("tr-").selected?.path ?? null };
+  choose("m.gguf"); out.rows.chosen = m.selectedModelRows("tr-").selected?.path ?? null;
+  const calls = [];
+  globalThis.__stubReturns["form.renderAsideVramBar"] = (...a) => { calls.push(a); };
+  const aside = (runner, model) => {
+    calls.length = 0;
+    choose(model);
+    globalThis.__fields = { "tr-RUNNER": { value: runner } };
+    m.refreshAsidePanels("tr-");
+    return calls.map((c) => c.slice());
+  };
+  out.aside = { llamaNone: aside("llama-server", ""), llamaModel: aside("llama-server", "m.gguf"),
+                moonshine: aside("moonshine", ""), moonshineGb: cst.moonshineModelGb };
 }
 console.log(JSON.stringify(out));
 """
@@ -198,6 +229,19 @@ check(rs["machineFull"] == [True, True],
       f"(было: сравнивалось с RAM контроллера, и нехватка на другой машине не показывалась) (got {rs['machineFull']})")
 check(rs["machineRoomy"] == [True, False],
       f"negative: у машины свободно 60 ГБ — план не красный (got {rs['machineRoomy']})")
+
+print("какую модель оценивает форма и что говорит полоса памяти:")
+check(got["rows"] == {"awaited": None, "chosen": "m.gguf"},
+      "defect-history: оценка — о модели, которую форма называет выбранной (modelChoiceOf); пока «＋ Add model» ждёт "
+      "выбора, модели нет — раньше пустое поле читалось вместе с конфигом, и редактор показывал 29.8 ГБ «не влезет» "
+      f"и подсказку про проектор модели по умолчанию (живая проверка 1.3.390) (got {got['rows']})")
+aside = got["aside"]
+check(aside["llamaNone"] == [["tr-", 0]],
+      f"llama без модели — полоса говорит «выберите модель», а не держит цифры прошлой модели (got {aside['llamaNone']})")
+check(aside["llamaModel"] == [],
+      "negative: llama с моделью — полосу рисует renderModelInsight (разбивка по файлам), здесь её не трогают")
+check(aside["moonshine"] == [["tr-", aside["moonshineGb"], True]] and aside["moonshineGb"] > 0,
+      "другие раннеры — полоса отсюда, с картиной машины и без модели (allowEmpty)")
 
 print()
 if _fail:

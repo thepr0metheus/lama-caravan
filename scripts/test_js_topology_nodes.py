@@ -2231,22 +2231,6 @@ PINS = [
      'norm(m.nodeSparklineSvg([[0, 0], [0, 1]], 1)).match(/stroke="([^"]*)"/)[1]',
      '"undefined"',
      'as-is: as-is: без color печатается слово «undefined» в stroke'),
-    ('models_bar_is_two_ways_in',
-     'globalThis.__fields = { topologyModelsBar: { innerHTML: "old" } };',
-     r"""(() => { m.renderModelsBar(); const h = norm(globalThis.__fields.topologyModelsBar.innerHTML); return [
-       h.includes('<a class="models-bar-link models-bar-models" href="/models" target="_blank" rel="noopener" title="'),
-       /data-t="board-models-open"> ?<span aria-hidden="true">📦<\/span><span>Models<\/span>/.test(h),
-       h.includes('<a class="models-bar-link models-bar-hf" href="/hf" target="_blank" rel="noopener" title="HuggingFace model browser" data-t="board-hf-open">'),
-       h.includes('<span aria-hidden="true">🤗</span><span>Hugging Face</span>'),
-       /href="\/models"[^>]*title="[^"]+"/.test(h),
-       (h.match(/<a /g) || []).length, h.includes("✎"), h.includes("models-bar-path"), h.includes("<input"), h.includes("help-tip")]; })()""",
-     '[true,true,true,true,true,2,false,false,false,false]',
-     'полоса моделей на доске — два входа и ничего больше: 📦 «Модели» ведёт на /models (хранилища, дерево, перенос, уборка) с подсказкой, что там; 🤗 Hugging Face — на /hf; обе в новой вкладке, доска остаётся. Пути, ✎ и «?» нет: путей теперь несколько, и правит их /models'),
-    ('models_bar_without_its_element_is_quiet',
-     'globalThis.__fields = {};',
-     '(() => { m.renderModelsBar(); return "quiet"; })()',
-     '"quiet"',
-     'negative: полосы на странице нет — отрисовка молча ничего не делает, а не падает'),
     # ── fold: the lane's folded line (card-fold.js, card-rows.js) ──
     ("fold_default_unchanged",
      "",
@@ -2908,6 +2892,43 @@ PINS += [
      "negative: реестр не называет раннеров ячеек движка (старый контроллер) — ни полосы, ни полки"),
 ]
 
+PINS += [
+    # ── a machine's llama.cpp build (2026-09-27: moved from its header to the caravan's strip) ──
+    ('llama_build_chip_in_sync',
+     'st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc1234)" } });',
+     'norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", llamaBinaryMtime: "2026-08-11T12:00:00", servers: [] }))',
+     json.dumps('<span class="llama-ver-chip" title="version: 9947 (abc1234) · 2026-08-11T12:00:00">b9947<span class="llama-ver-date"> 2026-08-11</span></span>'
+                '<button class="llama-ver-refresh" type="button" data-update-client-llama="h1" title="' + _esc(_en("updateClientLlama"))
+                + '" aria-label="' + _esc(_en("updateClientLlama")) + '">⇪</button>', ensure_ascii=False),
+     'сборка машины та же, что у контроллера: номер и дата (полная версия — в подсказке), ⇪ — обновить; negative: ни ⬆, ни «устарел»'),
+    ('llama_build_chip_outdated_and_building',
+     'st.setState({ ...st.state, llamaCpp: { version: "version: 9950 (def5678)" } });',
+     '[norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", llamaBinaryMtime: "", servers: [] })).startsWith(\'<span class="llama-ver-chip outdated"\'),'
+     ' norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", servers: [] })).includes("b9947 ⬆</span>"),'
+     ' (norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", servers: [], llamaUpdate: { running: true, lastLine: "[ 40%] ggml" } })).match(/<span class="llama-ver-building" title="([^"]*)">([^<]*)</) || []).slice(1),'
+     ' norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", servers: [], llamaUpdate: { running: true } })).includes("data-update-client-llama"),'
+     ']',
+     json.dumps([True, True, ["[ 40%] ggml", "⏳ " + _en("clientLlamaBuilding")], False], ensure_ascii=False),
+     'другой коммит, чем у контроллера, — ⬆ и оранжевый значок; идёт сборка — ⏳ с последней строкой в подсказке вместо ⇪'),
+    ('llama_build_chip_same_commit_other_length',
+     'st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc1234)" } });',
+     '[norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc123456)", servers: [] })).includes("outdated"),'
+     ' norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9901 (abc12)", servers: [] })).includes("outdated")]',
+     '[false, false]',
+     'boundary: хеш того же коммита другой длины (клоны сокращают по-разному) — не «устарел», и номер сборки тогда не в счёт; '
+     'сравнение по началу, строгое равенство красило синхронный флот'),
+    ('llama_build_chip_stale_and_absent',
+     'st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc1234)" } });',
+     '[norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", llamaBinaryMtime: "2023-11-14T22:10:00",'
+     ' servers: [{ port: 22001, uptimeSec: 600 }] })).includes(\'<span class="llama-ver-stale" title="\'),'
+     ' norm(m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "version: 9947 (abc1234)", llamaBinaryMtime: "2023-11-14T22:10:00",'
+     ' servers: [{ port: 22001, uptimeSec: 60 }] })).includes("llama-ver-stale"),'
+     ' m.llamaBuildChipHtml({ id: "h1", servers: [] }), m.llamaBuildChipHtml({ id: "h1", llamaBinaryVersion: "garbage", servers: [] })]',
+     '[true, false, "", ""]',
+     'ячейка запущена раньше, чем пересобран бинарь на диске, — ⟳ «устарел»; negative: запущена после — метки нет; машина '
+     'не сообщает сборку (или сообщает мусор) — значка нет вовсе, а не пустой'),
+]
+
 # The caravan on a machine's card (2026-09-27, round 10: the operator chose A):
 # the strip, and under it one line, "+ Add model" — not the list of models. It
 # counts the models the cell editor offers less the ones a cell of this
@@ -2933,15 +2954,25 @@ PINS += [
      "без списка — список страницы (state.models, тот же, что у редактора); negative: модель, которую называет ячейка "
      "машины, проектор (mmproj), запись без пути — не в счёт; список ещё не пришёл — null, а не «моделей нет»"),
     ("caravan_strip_without_list",
-     CARAVAN,
+     CARAVAN + ' st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc1234)" } });',
      '(h => [(h.match(/data-t="(node-caravan)" data-t-id="([^"]*)"/) || []).slice(1), (h.match(/<span class="es-ver">([^<]*)</) || [0, "none"])[1],'
-     ' (h.match(/<a class="node-engine-serve pull" href="([^"]*)" target="_blank" rel="noopener" data-t="node-caravan-download"/) || [0, "none"])[1],'
-     ' h.includes("fr-switch"), addOf(h).includes("data-caravan-add"), countOf(h), h.includes("node-engine-state")])'
+     ' (h.match(/<span class="llama-ver-chip" title="[^"]*">([^<]*)</) || [0, "none"])[1], h.includes("data-update-client-llama=\\"h1\\""),'
+     ' [...h.matchAll(/<a class="models-bar-link [^"]*" href="([^"]*)" target="_blank" rel="noopener" title="[^"]+" data-t="([^"]*)" data-t-id="([^"]*)"/g)].map((x) => x.slice(1)),'
+     ' h.includes("node-caravan-download"), h.includes("node-engine-serve"), h.includes("fr-switch"), addOf(h).includes("data-caravan-add"),'
+     ' countOf(h), h.includes("node-engine-state")])'
      '(cv({ ...node, llamaBinaryVersion: "version: 9947 (abc1234)" }, [], null))',
-     json.dumps([["node-caravan", "h1:caravan"], "llama.cpp b9947", "/hf", False, True, "none", False]),
-     "полоса каравана: свой хук, версия llama.cpp машины, «скачать» — ссылка на страницу Hugging Face; «＋ Add model» есть и "
-     "до прихода списка (его модели — в редакторе); negative: тумблера нет (караван запускает ячейки, а не сервер); список "
-     "не пришёл — ни счёта, ни «моделей нет» вместо него"),
+     json.dumps([["node-caravan", "h1:caravan"], "llama.cpp", "b9947", True,
+                 [["/models", "node-caravan-models", "h1"], ["/hf", "node-caravan-hf", "h1"]],
+                 False, False, False, True, "none", False]),
+     "полоса каравана (2026-09-27, перенос оператора): llama.cpp и значок сборки машины с ⇪ (он ушёл из шапки), второй "
+     "строкой — 📦 Models и 🤗 Hugging Face (строка над машинами ушла сюда); negative: «download» больше нет — его место "
+     "занял Hugging Face; тумблера нет (караван запускает ячейки, а не сервер); «＋ Add model» есть и до прихода списка, "
+     "без счёта и без «моделей нет»"),
+    ("caravan_strip_without_build",
+     CARAVAN,
+     '(h => [h.includes("es-ver"), h.includes("llama-ver-chip"), h.includes("node-caravan-models")])(cv(node, [], []))',
+     '[false, false, true]',
+     "boundary: машина не сообщает сборку llama.cpp — ни «llama.cpp», ни пустого значка; ссылки на месте"),
     ("caravan_add_button",
      CARAVAN,
      '(h => [addOf(h), (h.match(/<span class="caravan-add-label">([^<]*)</) || [0, "none"])[1], countOf(h),'
@@ -3198,6 +3229,23 @@ PINS += [
      '[true, true, false, false]',
      "машина без движков и без ячеек в них — полоса каравана и «＋ Add model» всё равно над списком: модели каравана "
      "запускает любая машина; negative: чипов и полос движков нет — выбирать не из чего"),
+    ("lane_build_on_the_caravan_strip",
+     LANE + ' st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc1234)" } });'
+     ' st.setTopology({ ...st.topology, nodes: [{ ...node, llamaBinaryVersion: "version: 9947 (abc1234)", engines: [], servers: [mk()] }] });',
+     '(h => { const head = h.slice(0, h.indexOf(\'data-t="node-caravan"\')); return [head.includes("llama-ver-chip"),'
+     ' head.includes("node-power-ctl"), (h.match(/llama-ver-chip/g) || []).length, h.indexOf("llama-ver-chip") > h.indexOf(\'data-t="node-caravan"\')]; })(norm(m.nodesLaneHtml()))',
+     '[false, true, 1, true]',
+     "сборка llama.cpp — одна, в полосе каравана, а не в шапке машины; negative: в шапке остались кнопки питания"),
+    ("lane_cells_divider",
+     LANE,
+     '[(h => [(h.match(/<div class="node-cells-divider" role="separator"><span>([^<]*)</) || [0, "none"])[1],'
+     ' h.indexOf("node-cells-divider") > h.lastIndexOf("node-launcher-group"), h.indexOf("node-cells-divider") < h.indexOf("node-cell-filter"),'
+     ' h.indexOf("node-cells-divider") < h.indexOf(\'data-t="cell-row"\'), (h.match(/node-cells-divider/g) || []).length])(lane([ENG({ models: [MDL()] })], TWO())),'
+     ' (h => [h.includes("node-cells-divider"), h.indexOf("node-cells-divider") < h.indexOf(\'data-t="cell-row"\'), h.includes("node-cell-filter")])(lane([], [mk()]))]',
+     json.dumps([[_en("cellsDividerLabel"), True, True, True, 1], [True, True, False]], ensure_ascii=False),
+     "просьба оператора (2026-09-27): между верхними блоками (караван, движки, их полки) и созданными ячейками — "
+     "разделитель «Ячейки», один на машину, над чипами и строками ячеек; boundary: у машины без движков чипов нет, "
+     "разделитель всё равно над ячейками"),
     ("lane_driver_warning_heads_compute",
      LANE,
      '(h => { const col = (h.match(/<div class="node-gpus">(.*)$/) || [0, ""])[1];'

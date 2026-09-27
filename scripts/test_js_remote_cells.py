@@ -983,6 +983,14 @@ PINS = [
      'await (async () => { await rc.reserveEngineButton({ dataset: { engineReserve: "h1", engineKind: "lmstudio", engineModel: "google/gemma-4-e4b" } }); return calls(); })()',
      json.dumps(rsc_add({"hostId": "h1", "engine": "lmstudio", "model": "google/gemma-4-e4b"})),
      'positive: кнопка «+» несёт машину, движок и модель — так, как их пишет shelfLineHtml'),
+    # ── Apply without a model: said first, nothing asked, nothing sent ──
+    ('apply_without_model_says_so_first',
+     'let asked = 0; globalThis.__stubReturns["dialogs.appConfirm"] = async () => { asked += 1; return true; };'
+     ' globalThis.__asked = () => asked; F({ "tr-PORT": { value: "22013" }, "tr-MODEL_FILE": { value: "" } });',
+     'await (async () => { await rc.submitRemoteLlamaStart(); return [toastText(), globalThis.__asked(), calls()]; })()',
+     json.dumps([en("selectModel"), 0, []], ensure_ascii=False),
+     'модель не выбрана («＋ Add model» открывает пустое поле) — сразу «выберите модель», без вопроса «применить?» и без '
+     'запроса (раньше сначала спрашивалось, потом отказывалось)'),
 ]
 
 _fail = []

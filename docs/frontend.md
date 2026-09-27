@@ -490,7 +490,8 @@ row starts with the anchors of the engine models made router outputs.
 
 `EngineStrip` is an engine's server over the machine's chips, one per engine, always
 (2026-09-26, the operator's choice B) — and the caravan's own strip, the same strip with its own
-hook (`hook`), no switch and no second line when it has nothing to say — the switch that starts or
+hook (`hook`), no switch, the machine's llama.cpp build as a chip with its buttons (`build`) and
+the caravan's pages on its second line (`links`, 2026-09-27) — the switch that starts or
 stops it, its name and version,
 ↟ when it starts with the machine, what it holds, ⤓; under them where it listens and what it has
 to say. Right under its strip, whichever chip is pressed, each model it holds that no cell serves
@@ -604,8 +605,9 @@ Stateless — its open/editing flags live in `ui` (`topologyProxyFormOpen`, `top
 ## topology-nodes.js
 
 The host-centric nodes view: per-node cards with server cards (lifecycle bar, error
-classification, uptime), GPU rows with VRAM bars and sparklines, the incidents modal, and the
-models bar — two ways in, to `/models` and to `/hf`, both in a new tab. `parkLaneStats()` / `mountNodeTelemetry()` move the live Server
+classification, uptime), GPU rows with VRAM bars and sparklines, and the incidents modal. The ways
+in to `/models` and to `/hf` are on each machine's caravan strip (2026-09-27; they were a bar over
+the machines), both in a new tab. `parkLaneStats()` / `mountNodeTelemetry()` move the live Server
 stats card (CPU, RAM, network, disk, processes of the machine the controller runs on) out of and back
 into the node of that machine (`controllerMachine`) around `innerHTML` rebuilds so its canvases
 survive. The controller has no node of its own since step 6.9: its machine is its scout's host node,
@@ -613,7 +615,7 @@ and `isControllerMachine` / `hostPowerTextKey` give that node's reboot, poweroff
 words for the machine the board runs on. Collapsed nodes persist to localStorage.
 
 - Owns: `topologyNodesViewOn`, `_collapsedNodes`, `_incidentsModalOpen`.
-- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `renderModelsBar`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeLaunchersHtml`, `nodeCaravanGroupHtml`, `caravanModelsWithoutCell`, `nodeDriverWarningsHtml`, `nodeEngineGroupsHtml`, `nodeEngineStripHtml`, `nodeEngineShelfHtml`, `engineRamText`.
+- Key exports: `nodesLaneHtml`, `nodeServerCardHtml`, `applyNodesViewMode`, `mountNodeTelemetry`, `parkLaneStats`, `classifyLlamaError`, `llamaBuildChipHtml`, `hostAgeText`, `hostSilenceHtml`, `isControllerMachine`, `hostPowerTextKey`, `engineRunnerOf`, `nodeCellFilter`, `gpuOutsideOwners`, `gpuWhoHtml`, `gpuOutsideBar`, `nodeLaunchersHtml`, `nodeCaravanGroupHtml`, `caravanModelsWithoutCell`, `nodeDriverWarningsHtml`, `nodeEngineGroupsHtml`, `nodeEngineStripHtml`, `nodeEngineShelfHtml`, `engineRamText`.
 - A GPU row names who holds the memory that is no cell's (`outside` from the backend): an engine of
   the machine («Ollama 5.9 GB»), else the process's name, else «outside»; each owner from 64 MiB is a
   hatched band laid after the fleet's share of the bar, and the «who» line lists the cells' ports AND
@@ -653,8 +655,16 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   that brings it, or the driver installed but not yet loaded. A warning coming or going is in the
   board's structure fingerprint.
 - The caravan's group (round 10's A, 2026-09-27): a strip without a switch — the caravan starts its
-  cells, not a server — naming the machine's llama.cpp build, with «download» as a link to the
-  Hugging Face page (`node-caravan`, `node-caravan-download`); under it not the list of its models
+  cells, not a server (`node-caravan`). Its first line: «llama.cpp» and the machine's build chip
+  (`llamaBuildChipHtml`, moved from the machine's header on 2026-09-27, the operator's move): the build
+  and its date, ⬆ when it is not the controller's commit (commits compared by prefix — clones
+  abbreviate differently), ⇪ to converge it (⏳ while the scout builds), ⟳ when a running cell
+  predates the binary on disk; nothing when the machine reports no build. Its second line: 📦 Models
+  and 🤗 Hugging Face (`node-caravan-models`, `node-caravan-hf`), the bar that stood over the
+  machines — Hugging Face took the strip's «download»; the header keeps only the machine's power.
+  Under all the machine's launcher groups a divider, «Cells» (`node-cells-divider`, 2026-09-27,
+  the operator's ask), parts what can be started from what is made — the chips and the cells.
+  Under the strip not the list of its models
   but one line, «＋ Add model» (`node-caravan-add`). It opens the cell editor on the next free port
   with the model list already open (`openCaravanModelEditor`), shut while a reserve on the machine
   is taking the port the editor would offer, and counts the models the cell editor offers
@@ -838,7 +848,13 @@ no other act — no model is loaded from the board. `cellServiceAction` asks whe
 choice A of round 10): the `tr-` editor opens on the next free port, and once the dialog is on
 screen its model list opens (`mcOpen` in form.js, a click on the field as a hand makes it), so the
 model is the first thing picked; the field's own change listeners bring the projector, the MTP
-draft, the runner and the insight. Its Apply makes the cell — `save-config` creates a cell that
+draft, the runner and the insight. Until then the pick is awaited (`mcAwaitPick`): the field is
+empty, and `modelChoiceOf` — the form's one word on what is chosen, which the selects' redraw and
+memory.js's `selectedModelRows` both ask — answers "no model" for the model, projector and draft
+while the mark stands, so neither the machine's cached list arriving nor the estimate brings the
+config's model back; the hidden select keeps an empty option selected (a browser picks the first
+option of a list rebuilt with none selected), and the memory bar says "select a model". The first
+model picked lifts the mark; Apply without one says so before any confirm. Its Apply makes the cell — `save-config` creates a cell that
 does not exist yet, checking its port as a reserve does; the button alone makes nothing. A saved
 cell reveals the caravan's cells on its machine's chips (`CARD_FOLD.reveal`), so the new cell is
 not saved out of sight.

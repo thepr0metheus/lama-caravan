@@ -47,7 +47,7 @@ function indexSteps() {
     { anchor: "#topologyLlamaServers", title: t("tourIxServersT"), body: t("tourIxServersB") },
     { anchor: "#topologyLlamaServers .node-server:not(.ghost-server)", title: t("tourIxCellLifeT"), body: t("tourIxCellLifeB") },
     { anchor: "[data-node-reserve]", title: t("tourIxCellNewT"), body: t("tourIxCellNewB") },
-    { anchor: "#topologyModelsBar", title: t("tourIxModelsT"), body: t("tourIxModelsB") },
+    { anchor: ".caravan-links", title: t("tourIxModelsT"), body: t("tourIxModelsB") },
     { anchor: "#topologyCloudProviders", title: t("tourIxCloudT"), body: t("tourIxCloudB") },
     { anchor: "#usageStatsBtn", title: t("tourIxStatsT"), body: t("tourIxStatsB") },
     { anchor: "#topologyRequestHistoryBtn", title: t("tourIxHistoryT"), body: t("tourIxHistoryB") },

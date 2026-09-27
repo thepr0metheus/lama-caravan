@@ -14,24 +14,13 @@
   --danger: #e05555;
 }
 
-/* ── Models bar: two ways in ──────────────────────────────────────────────────
+/* ── The two ways in: /models and /hf ─────────────────────────────────────────
    The board does not edit where models live — they live in several stores
-   now, and /models is where those are seen and changed. What stays here is
-   the way to each page: what is on the disks, and what can be downloaded.
-   The tint is the pill's own; the text keeps the theme's colour, so both read
-   the same on a light board and a dark one. */
-.topology-models-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 8px;
-  margin: 0 0 6px;
-  background: color-mix(in srgb, var(--card,#1a1a2e) 60%, transparent);
-  border: 1px solid color-mix(in srgb, var(--line,#333) 60%, transparent);
-  border-radius: 6px;
-  font-size: 12px;
-  min-height: 30px;
-}
+   now, and /models is where those are seen and changed. What the board has is
+   the way to each page, on the caravan's strip of every machine (2026-09-27;
+   it was a bar over the machines): what is on the disks, and what can be
+   downloaded. The tint is the pill's own; the text keeps the theme's colour,
+   so both read the same on a light board and a dark one. */
 .models-bar-link {
   --tint: var(--accent,#6ea8fe);
   display: inline-flex;

@@ -586,6 +586,74 @@ export function caravanModelsWithoutCell(n, servers = [], models = state.models)
     .sort((a, b) => (Number(b.mtime) || 0) - (Number(a.mtime) || 0) || String(a.path).localeCompare(String(b.path)));
 }
 
+// A machine's llama.cpp build, as the caravan's strip shows it (2026-09-27:
+// the operator moved it there from the machine's header): the build and its
+// date, ⬆ when it is not the controller's commit, ⇪ that converges it (⏳
+// while the scout builds), and ⟳ when a running cell started before the binary
+// on disk was rebuilt. Nothing when the machine reports no build.
+export function llamaBuildChipHtml(n) {
+  // The controller's llama.cpp build is the fleet's reference: a machine on
+  // another commit is "outdated", and its ⇪ converges it onto this one.
+  const ctrlBuild = parseLlamaBuildVersion(state.llamaCpp?.version || "");
+  const nodeVerStr = n.llamaBinaryVersion || "";
+  const nodeMtime = n.llamaBinaryMtime || "";
+  const nodeBuild = parseLlamaBuildVersion(nodeVerStr);
+  const verLabel = nodeBuild ? `b${nodeBuild.build}` : "";
+  // Build date: keep only the date part (first 10 ISO characters, no time)
+  const verDate = nodeMtime ? nodeMtime.slice(0, 10) : "";
+  // Outdated = different commit hash (most reliable) OR lower build number when
+  // commits are unavailable. Same commit hash → in sync regardless of build number
+  // (happens when one clone is shallow and the other is full). Hashes are short
+  // git abbrevs whose LENGTH varies per clone (7 vs 9 chars for the same commit),
+  // so equality is prefix-based — strict !== flagged in-sync fleets as outdated.
+  const sameCommit = (a, b) => !!a && !!b && (a.startsWith(b) || b.startsWith(a));
+  const verOutdated = nodeBuild && ctrlBuild && (
+    (nodeBuild.commit && ctrlBuild.commit)
+      ? !sameCommit(nodeBuild.commit, ctrlBuild.commit)
+      : nodeBuild.build < ctrlBuild.build       // fallback: numeric comparison
+  );
+  const verChipTitle = [nodeVerStr, nodeMtime].filter(Boolean).join(" · ");
+  // One-click llama.cpp update (converges the machine onto the controller's
+  // commit via its scout's background job); while the scout reports a
+  // running job the button gives way to a building indicator.
+  const upd = n.llamaUpdate || {};
+  const updateBtn = nodeVerStr
+    ? (upd.running
+      ? `<span class="llama-ver-building" title="${escapeHtml(String(upd.lastLine || ""))}">⏳ ${escapeHtml(t("clientLlamaBuilding"))}</span>`
+      : `<button class="llama-ver-refresh" type="button" data-update-client-llama="${escapeHtml(String(n.id))}" title="${escapeHtml(t("updateClientLlama"))}" aria-label="${escapeHtml(t("updateClientLlama"))}">⇪</button>`)
+    : "";
+  // Stale binary: a server that started BEFORE the binary on disk was last
+  // rebuilt still runs the old build — restart it to apply.
+  const nodeMtimeEpoch = nodeMtime ? Date.parse(nodeMtime) / 1000 : 0;
+  const staleBinary = nodeMtimeEpoch > 0 && (n.servers || []).some((s) => {
+    const upSec = Number(s.uptimeSec || 0);
+    return upSec > 0 && (Date.now() / 1000 - upSec) < nodeMtimeEpoch;
+  });
+  const staleBadge = staleBinary
+    ? `<span class="llama-ver-stale" title="${escapeHtml(t("staleBinaryTitle"))}">⟳ ${escapeHtml(t("staleBinaryBadge"))}</span>`
+    : "";
+  return verLabel
+    ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}`
+      + `${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${verOutdated ? " ⬆" : ""}</span>${updateBtn}${staleBadge}`
+    : "";
+}
+
+// The caravan's two pages, on the second line of its strip (2026-09-27: the
+// operator moved them there from over the machines): the models on the disks
+// and in the libraries, and Hugging Face to download more — the strip's
+// «download» went with the move. The same pages on every machine's strip: a
+// model belongs to the caravan, and any machine runs it.
+function caravanLinksHtml(n) {
+  const id = escapeHtml(String(n.id));
+  return `<span class="caravan-links">`
+    + `<a class="models-bar-link models-bar-models" href="/models" target="_blank" rel="noopener" title="${escapeHtml(t("modelsPageSub"))}"`
+    + ` data-t="node-caravan-models" data-t-id="${id}"><span aria-hidden="true">📦</span><span>${escapeHtml(t("topologyModelsLabel"))}</span>`
+    + `<span class="models-bar-arrow" aria-hidden="true">↗</span></a>`
+    + `<a class="models-bar-link models-bar-hf" href="/hf" target="_blank" rel="noopener" title="${escapeHtml(t("hfBrowserTitle"))}"`
+    + ` data-t="node-caravan-hf" data-t-id="${id}"><span aria-hidden="true">🤗</span><span>Hugging Face</span>`
+    + `<span class="models-bar-arrow" aria-hidden="true">↗</span></a></span>`;
+}
+
 // The caravan on a machine's card (2026-09-27, round 10: the operator chose
 // A): its strip, and under it not the list of its models but one line, "+ Add
 // model". It opens the cell editor on the next free port with the model list
@@ -594,11 +662,10 @@ export function caravanModelsWithoutCell(n, servers = [], models = state.models)
 // left without a cell, is said under it. Shut while a reserve on this machine
 // is taking the port the editor would offer.
 export function nodeCaravanGroupHtml(n, servers = [], models = state.models) {
-  const build = parseLlamaBuildVersion(n?.llamaBinaryVersion || "");
-  const pull = `<a class="node-engine-serve pull" href="/hf" target="_blank" rel="noopener" data-t="node-caravan-download"`
-    + ` data-t-id="${escapeHtml(String(n.id))}" title="${escapeHtml(t("caravanPullTitle"))}">⤓ ${escapeHtml(t("nodeEnginePull"))}</a>`;
+  const build = llamaBuildChipHtml(n);
   const strip = new EngineStrip({ key: `${n.id}:caravan`, engine: "caravan", hook: "node-caravan", state: "ok",
-                                  label: t("launcherCaravan"), version: build ? `llama.cpp b${build.build}` : "", pull }).html();
+                                  label: t("launcherCaravan"), version: build ? "llama.cpp" : "", build,
+                                  links: caravanLinksHtml(n) }).html();
   const rows = caravanModelsWithoutCell(n, servers, models);
   const id = escapeHtml(String(n.id));
   const reserving = _reservingCells.has(String(n.id));
@@ -1740,50 +1807,9 @@ export function nodesLaneHtml() {
   // this lane skipped would be on no screen at all — nor could its first cell
   // be reserved, the ＋ lives here.
   const nodes = topology.nodes || [];
-  // The controller's llama.cpp build is the fleet's reference: a machine on
-  // another commit is "outdated", and its ⇪ converges it onto this one.
-  const ctrlBuild = parseLlamaBuildVersion(state.llamaCpp?.version || "");
 
   const sections = nodes.map((n) => {
     const cpu = n.cpu || {}, ram = cpu.ram || {};
-    // llama.cpp version chip
-    const nodeVerStr = n.llamaBinaryVersion || "";
-    const nodeMtime = n.llamaBinaryMtime || "";
-    const nodeBuild = parseLlamaBuildVersion(nodeVerStr);
-    const verLabel = nodeBuild ? `b${nodeBuild.build}` : "";
-    // Build date: keep only the date part (first 10 ISO characters, no time)
-    const verDate = nodeMtime ? nodeMtime.slice(0, 10) : "";
-    // Outdated = different commit hash (most reliable) OR lower build number when
-    // commits are unavailable. Same commit hash → in sync regardless of build number
-    // (happens when one clone is shallow and the other is full). Hashes are short
-    // git abbrevs whose LENGTH varies per clone (7 vs 9 chars for the same commit),
-    // so equality is prefix-based — strict !== flagged in-sync fleets as outdated.
-    const sameCommit = (a, b) => !!a && !!b && (a.startsWith(b) || b.startsWith(a));
-    const verOutdated = nodeBuild && ctrlBuild && (
-      (nodeBuild.commit && ctrlBuild.commit)
-        ? !sameCommit(nodeBuild.commit, ctrlBuild.commit)
-        : nodeBuild.build < ctrlBuild.build       // fallback: numeric comparison
-    );
-    const verChipTitle = [nodeVerStr, nodeMtime].filter(Boolean).join(" · ");
-    // One-click llama.cpp update (converges the machine onto the controller's
-    // commit via its scout's background job); while the scout reports a
-    // running job the button gives way to a building indicator.
-    const upd = n.llamaUpdate || {};
-    const updateBtn = nodeVerStr
-      ? (upd.running
-        ? `<span class="llama-ver-building" title="${escapeHtml(String(upd.lastLine || ""))}">⏳ ${escapeHtml(t("clientLlamaBuilding"))}</span>`
-        : `<button class="llama-ver-refresh" type="button" data-update-client-llama="${escapeHtml(String(n.id))}" title="${escapeHtml(t("updateClientLlama"))}" aria-label="${escapeHtml(t("updateClientLlama"))}">⇪</button>`)
-      : "";
-    // Stale binary: a server that started BEFORE the binary on disk was last
-    // rebuilt still runs the old build — restart it to apply.
-    const nodeMtimeEpoch = nodeMtime ? Date.parse(nodeMtime) / 1000 : 0;
-    const staleBinary = nodeMtimeEpoch > 0 && (n.servers || []).some((s) => {
-      const upSec = Number(s.uptimeSec || 0);
-      return upSec > 0 && (Date.now() / 1000 - upSec) < nodeMtimeEpoch;
-    });
-    const staleBadge = staleBinary
-      ? `<span class="llama-ver-stale" title="${escapeHtml(t("staleBinaryTitle"))}">⟳ ${escapeHtml(t("staleBinaryBadge"))}</span>`
-      : "";
     // Power-cycle this host. Some faults are not fixable in software — a host
     // drops a RAM stick on some boots and comes back with half its memory, which
     // starves cells until the machine is rebooted. Reboot only, never shutdown:
@@ -1800,9 +1826,9 @@ export function nodesLaneHtml() {
     const ps = n.powerSchedule || {};
     const psArmed = !!ps.enabled;
     const powerSchedBtn = `<button class="llama-ver-refresh node-power-sched${psArmed ? " armed" : ""}" type="button" data-t="node-power-schedule" data-t-id="${escapeHtml(String(n.id))}" data-power-schedule-host="${escapeHtml(String(n.id))}" title="${escapeHtml(psArmed ? t("hostPowerSchedArmedTitle", { at: ps.at || "", daily: ps.daily ? t("hostPowerSchedDaily") : t("hostPowerSchedOnce") }) : t("hostPowerSchedTitle"))}" aria-label="${escapeHtml(t("hostPowerSchedTitle"))}">⏰︎</button>`;
-    const verChip = verLabel
-      ? `<span class="llama-ver-chip${verOutdated ? " outdated" : ""}" title="${escapeHtml(verChipTitle)}">${escapeHtml(verLabel)}${verDate ? `<span class="llama-ver-date"> ${escapeHtml(verDate)}</span>` : ""}${verOutdated ? " ⬆" : ""}</span>${updateBtn}${staleBadge}<span class="node-power-ctl">${rebootBtn}${powerSchedBtn}${powerOffBtn}</span>`
-      : `<span class="node-power-ctl">${rebootBtn}${powerSchedBtn}${powerOffBtn}</span>`;
+    // The machine's llama.cpp build left the header for the caravan's strip
+    // (2026-09-27, the operator's move); its power stays here.
+    const verChip = `<span class="node-power-ctl">${rebootBtn}${powerSchedBtn}${powerOffBtn}</span>`;
     const servers = (n.servers || []);
     const collapsed = _collapsedNodes.has(n.id);
     const nextCellPort = nextTopologyCellPort();
@@ -1897,7 +1923,11 @@ export function nodesLaneHtml() {
       const eye = new CellEye({
         hostId: n.id, on: CARD_FOLD.hidesIdle(n.id), hidden: (serversHtml.match(/data-cell-hidden-by="idle"/g) || []).length,
       }).html();
-      const serversHead = `<div class="node-servers-head">${serversSubtitle}${launchers}${filter.html()}${eye}</div>`;
+      // Between what can be started and what is made (2026-09-27, the
+      // operator's ask): the caravan, the engines and their shelves above,
+      // the machine's cells — their chips and their lines — below.
+      const divider = `<div class="node-cells-divider" role="separator"><span>${escapeHtml(t("cellsDividerLabel"))}</span></div>`;
+      const serversHead = `<div class="node-servers-head">${serversSubtitle}${launchers}${divider}${filter.html()}${eye}</div>`;
       bodyHtml = `<div class="node-body">
           <div class="node-servers">${serversHead}${serversHtml}${startingCard}${addBtn}${serverStatsSlot}</div>
           <div class="node-gpus"><div class="node-subtitle">${escapeHtml(t("topologyGpusSection"))}</div>${nodeDriverWarningsHtml(n)}${gpusHtml}${nodeTelemetryRowsHtml(n)}</div>
@@ -2011,13 +2041,4 @@ export function closeIncidentsModal() {
 // second editor for what /models edits, with the stores next to it. What stays
 // is the way to each page: what is on the disks, and what can be downloaded.
 // Both open in a new tab — the board keeps running where it was.
-export function renderModelsBar() {
-  const el = $("topologyModelsBar");
-  if (!el) return;
-  el.innerHTML = `
-    <a class="models-bar-link models-bar-models" href="/models" target="_blank" rel="noopener" title="${escapeHtml(t("modelsPageSub"))}" data-t="board-models-open">
-      <span aria-hidden="true">📦</span><span>${escapeHtml(t("topologyModelsLabel"))}</span><span class="models-bar-arrow" aria-hidden="true">↗</span></a>
-    <a class="models-bar-link models-bar-hf" href="/hf" target="_blank" rel="noopener" title="${escapeHtml(t("hfBrowserTitle"))}" data-t="board-hf-open">
-      <span aria-hidden="true">🤗</span><span>Hugging Face</span><span class="models-bar-arrow" aria-hidden="true">↗</span></a>`;
-}
 

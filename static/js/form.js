@@ -37,6 +37,7 @@ import {
   selectedModelRows,
   vramFit,
   offloadSplit,
+  refreshAsidePanels,
   vramFitForPfx,
 } from "./memory.js";
 import { JOB_LABELS, JOB_MARKS, jobsForArtifact } from "./model-jobs.js";
@@ -389,6 +390,15 @@ export function makeModelCombobox(selectEl) {
   document.addEventListener("click", (e) => { if (!wrap.contains(e.target) && !panel.hidden) closePanel(); }, true);
 }
 
+// A model field left for the operator to pick ("+ Add model", 2026-09-27):
+// empty, and kept empty through redraws until a model is picked (modelChoiceOf).
+export function mcAwaitPick(selectEl) {
+  if (!selectEl) return false;
+  selectEl.dataset.pickPending = "1";
+  mcSelectItem(selectEl, "");
+  return true;
+}
+
 // Opens a model combobox's list, as a click on the field does. "+ Add model"
 // on a machine's card (2026-09-27, round 10: the operator chose A) opens the
 // cell editor with the model to pick first. False when the field has no list,
@@ -411,6 +421,8 @@ export function mcFilterList(list, query) {
 
 export function mcSelectItem(selectEl, value) {
   if (!selectEl) return;
+  // A model picked is no longer a pick awaited (mcAwaitPick).
+  if (value && selectEl.dataset) delete selectEl.dataset.pickPending;
   selectEl.value = value;
   selectEl.dispatchEvent(new Event("change", { bubbles: true }));
   const wrap = selectEl.previousElementSibling;
@@ -604,6 +616,21 @@ export function updateModelComboboxItems(selectEl, items, currentValue) {
 }
 // ── End model combobox ────────────────────────────────────────────────────────
 
+// What a form's model fields hold when its selects are drawn again (e.g. once
+// a machine's cached list arrives): the form's own values, an empty one
+// filled from the config — except in a form whose model is the operator's to
+// pick ("+ Add model", mcAwaitPick): there an empty field is a pick not made
+// yet, and the config's model came back in it on every redraw (2026-09-27).
+export function modelChoiceOf(pfx = "") {
+  const modelEl = $(pfx + "MODEL_FILE");
+  if (modelEl?.dataset?.pickPending === "1") return { model: "", mmproj: "", draft: "" };
+  return {
+    model: modelEl?.value || state.config.MODEL_FILE || "",
+    mmproj: $(pfx + "MMPROJ_FILE")?.value || state.config.MMPROJ_FILE || "",
+    draft: $(pfx + "SPEC_DRAFT_MODEL_FILE")?.value || state.config.SPEC_DRAFT_MODEL_FILE || "",
+  };
+}
+
 export function renderModelSelects(pfx = "") {
   const models = state.models || [];
   // Preserve the form's current selection if the element already has a value (e.g. after
@@ -611,9 +638,10 @@ export function renderModelSelects(pfx = "") {
   const modelEl = $(pfx + "MODEL_FILE");
   const mmprojEl = $(pfx + "MMPROJ_FILE");
   const draftEl = $(pfx + "SPEC_DRAFT_MODEL_FILE");
-  const currentModel = modelEl?.value || state.config.MODEL_FILE || "";
-  let currentMmproj = mmprojEl?.value || state.config.MMPROJ_FILE || "";
-  let currentDraft = draftEl?.value || state.config.SPEC_DRAFT_MODEL_FILE || "";
+  const choice = modelChoiceOf(pfx);
+  const currentModel = choice.model;
+  let currentMmproj = choice.mmproj;
+  let currentDraft = choice.draft;
   if (!modelEl || !mmprojEl) return;
 
   // Init custom dropdowns (idempotent — wraps once, updates on subsequent calls)
@@ -759,6 +787,10 @@ export function renderModelSelects(pfx = "") {
   }
   // Keep hidden <select> in sync for .value reads and option checks elsewhere
   modelEl.innerHTML = "";
+  // A pick awaited (mcAwaitPick): an empty option, selected — without one a
+  // browser selects the list's first model the moment the options are rebuilt,
+  // and the field was never empty on screen (the 1.3.388 live check).
+  if (modelEl.dataset?.pickPending === "1") modelEl.appendChild(option("", "", true));
   modelItems.forEach((item) => modelEl.appendChild(option(item.value, item.value, item.value === currentModel)));
   updateModelComboboxItems(modelEl, modelItems, currentModel);
 
@@ -981,6 +1013,7 @@ export function renderModelInsight(pfx = "") {
   const { selected, selectedMmprojRow } = selectedModelRows(pfx);
   if (!selected) {
     box.innerHTML = "";
+    refreshAsidePanels(pfx);   // no model, no estimate — the bar says so
     return;
   }
 
