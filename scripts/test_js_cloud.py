@@ -458,6 +458,21 @@ PINS = [
      ' finally { delete m.GONE_CABLES.offer; } })()',
      '[["old"],1,false,null,true]',
      "щелчок по «⇄ Перецепить…» предлагает перенос этой модели, а не открывает её окно (строка под кнопкой не срабатывает); кнопка снова доступна после ответа"),
+    ("codex_version_under_the_gear",
+     'st.setTopology(TOPO({ cloudApiHealth: { codexClientVersion: { value: "0.160.0", source: "floor" } } }));',
+     '(() => { const line = (h) => (h.match(/cloud-api-version"[^>]*>([^<]*)</) || [])[1] || null;'
+     ' m.openCloudAccountModal("openai-subscription"); const sub = line(m.renderTopologyCloudAccountModal()); m.closeCloudProviderModal();'
+     ' m.openCloudAccountModal("ollama"); const other = line(m.renderTopologyCloudAccountModal()); m.closeCloudProviderModal();'
+     ' m.renderTopologyCloudProviders(); const card = lane().includes("cloud-api-version");'
+     ' st.setTopology(TOPO()); m.openCloudAccountModal("openai-subscription"); const none = line(m.renderTopologyCloudAccountModal()); m.closeCloudProviderModal();'
+     ' st.setTopology(TOPO({ cloudApiHealth: { codexClientVersion: { value: "0.161.0" } } })); m.openCloudAccountModal("openai-subscription");'
+     ' const noSource = line(m.renderTopologyCloudAccountModal()); m.closeCloudProviderModal();'
+     ' return [sub, other, card, none, noSource, m.isSubscriptionAccount({ baseUrl: "https://chatgpt.com/backend-api" }),'
+     ' m.isSubscriptionAccount({ accountType: "openai-subscription" }), m.isSubscriptionAccount({ accountType: "openai", baseUrl: "https://api.openai.com/v1" }),'
+     ' m.isSubscriptionAccount(null)]; })()',
+     '["codex client_version: 0.160.0 · floor",null,false,null,"codex client_version: 0.161.0",true,true,false,false]',
+     "версия Codex — под ⚙, в окне аккаунта подписки (решение оператора, вариант A), а не на карточке; "
+     "negative: у другого провайдера её нет; версия неизвестна — строки нет (а не «undefined»); без источника — без « · »"),
     ("new_model_nothing_open",
      '',
      '(() => { const seen = []; const N = cm.NewModelAnnouncer.nothingOpen; const drawn = { getClientRects: () => [{}] };'
