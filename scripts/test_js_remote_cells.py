@@ -79,34 +79,6 @@ const out = {};
 
 # (id, setup, expression, expected JSON string, message). Filled from the pin
 # workflow; see the OOP-rewrite journal (private), phase 7, snapshot 6.
-# A machine whose scout reports three engines: Ollama running with two models,
-# LM Studio stopped (a model still listed: not ready is not ready), and "foo" —
-# an engine no runner of engine cells serves.
-# The dialogs record what they were asked and answer from __answers in turn.
-RSC_ENGINES = (
-    'globalThis.__snap = null; globalThis.__msg = null; globalThis.__asks = [];'
-    ' globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; };'
-    ' globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; };'
-    ' globalThis.__stubReturns["dialogs.appConfirmChoice"] = async (msg, opts) => { globalThis.__asks.push({ msg, opts }); return globalThis.__answers.shift(); };'
-    ' st.setState({ config: {}, runners: [{ id: "llama-server" }, { id: "ollama", engineCell: true }, { id: "lmstudio", engineCell: true }], artifacts: [], models: [], paths: {} });'
-    ' st.topology.nodes = [{ id: "h1", engines: ['
-    '{ kind: "ollama", label: "Ollama", port: 11434, state: "ok", models: [{ name: "qwen2.5:0.5b", params: "494M", quant: "Q4_K_M" }, { name: "gpt-oss:120b-cloud", remote: true }] },'
-    ' { kind: "lmstudio", label: "LM Studio", port: 1234, state: "stopped", models: [{ name: "google/gemma-4-e4b" }] },'
-    ' { kind: "foo", label: "Foo", port: 9, state: "ok", models: [{ name: "f" }] }] }];'
-)
-RSC_RUN = ('await (async () => { await rc.reserveServerCell("h1"); return { calls: calls(), toast: toastText(), '
-           'asks: globalThis.__asks, confirm: globalThis.__msg, reserving: [...rc._reservingCells.entries()], '
-           'fresh: [...rc._newReservedCells], snap: globalThis.__snap }; })()')
-RSC_ASK = {"danger": False, "confirmLabel": en("topologyReserveCellLabel"), "scene": "create"}
-RSC_WHERE = {"msg": en("dlgReserveCell", port=22001), "opts": {**RSC_ASK, "choiceLabel": en("reserveRunsIn"), "choices": [
-    {"value": "", "label": en("launcherCaravan")}, {"value": "ollama", "label": "Ollama"},
-    {"value": "lmstudio", "label": en("reserveEngineNotReady", engine="LM Studio")}]}}
-RSC_MODEL = {"msg": en("dlgReserveModelText", engine="Ollama"), "opts": {
-    **RSC_ASK, "title": en("dlgReserveModelTitle", port=22001), "choiceLabel": en("reserveModelLabel"), "list": True,
-    "choices": [{"value": "qwen2.5:0.5b", "label": "qwen2.5:0.5b · 494M · Q4_K_M"},
-                {"value": "gpt-oss:120b-cloud", "label": "gpt-oss:120b-cloud · ☁"}]}}
-
-
 def rsc_add(body):
     return [{"path": "/api/topology/server-slot/add", "method": "POST", "body": json.dumps(body, separators=(",", ":"))}]
 
@@ -454,105 +426,6 @@ PINS = [
      'await (async () => { await rc.deleteServerSlot("h1", 22001); return { calls: calls(), toast: toastText(), deleting: [...rc._deletingSlots] }; })()',
      '{"calls": [{"path": "/api/topology/server-slot/delete", "method": "POST", "body": "{\\"hostId\\":\\"h1\\",\\"port\\":22001}"}], "toast": "Error: nope", "deleting": []}',
      'as-is: КАК ЕСТЬ: при 500 ключ снят, а тост показывает сырой String(Error) — «Error: nope»'),
-    ('rsc_yes_reply_cell',
-     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; globalThis.__fetchReply["/api/topology/server-slot/add"] = { cell: { hostId: "h1", port: 22007 } };',
-     'await (async () => { await rc.reserveServerCell("h1"); return ({ calls: calls(), toast: toastText(), reserving: [...rc._reservingCells.entries()], fresh: [...rc._newReservedCells], snap: globalThis.__snap, confirm: globalThis.__msg }); })()',
-     '{"calls": [{"path": "/api/topology/server-slot/add", "method": "POST", "body": "{\\"hostId\\":\\"h1\\"}"}], "toast": "", "reserving": [], "fresh": ["h1:22007"], "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]], "confirm": {"msg": "Reserve cell :22001? The port is claimed fleet-wide; the cell can be configured and started later.", "opts": {"danger": false, "confirmLabel": "Reserve cell", "scene": "create"}}}',
-     'positive: reserveServerCell: до запроса _reservingCells h1→{port:22001, startedAt: замороженный Date.now 1700000100 с}; на провод {hostId}; ответ cell → _newReservedCells «h1:22007»; после await _reservingCells пуст; текст диалога'),
-    ('rsc_yes_reply_slot_alias',
-     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; globalThis.__fetchReply["/api/topology/server-slot/add"] = { slot: { hostId: "h1", port: 22008 } };',
-     'await (async () => { await rc.reserveServerCell("h1"); return [...rc._newReservedCells]; })()',
-     '["h1:22008"]',
-     'positive: reserveServerCell: ответ с полем slot (вместо cell) тоже принимается → «h1:22008»'),
-    ('rsc_yes_reply_empty_falls_back',
-     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; };',
-     'await (async () => { await rc.reserveServerCell("h1"); return { fresh: [...rc._newReservedCells], reserving: [...rc._reservingCells.entries()] }; })()',
-     '{"fresh": ["h1:22001"], "reserving": []}',
-     'boundary: reserveServerCell: ответ {ok:true} без cell/slot → ключ из hostId и pendingPort «h1:22001»'),
-    ('rsc_porthint_wins',
-     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.nodes = [{ servers: [{ port: 22001 }] }];',
-     'await (async () => { await rc.reserveServerCell("h1", "22010"); return { snap: globalThis.__snap, confirm: globalThis.__msg.msg, fresh: [...rc._newReservedCells] }; })()',
-     '{"snap": [["h1", {"port": 22010, "startedAt": 1700000100000}]], "confirm": "Reserve cell :22010? The port is claimed fleet-wide; the cell can be configured and started later.", "fresh": ["h1:22010"]}',
-     'positive: reserveServerCell: portHint "22010" побеждает nextTopologyCellPort в диалоге, в _reservingCells (startedAt = замороженный Date.now) и в fallback-ключе'),
-    ('rsc_no_hint_uses_next',
-     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.nodes = [{ servers: [{ port: 22001 }] }];',
-     'await (async () => { await rc.reserveServerCell("h1"); return { snap: globalThis.__snap, confirm: globalThis.__msg.msg, fresh: [...rc._newReservedCells] }; })()',
-     '{"snap": [["h1", {"port": 22002, "startedAt": 1700000100000}]], "confirm": "Reserve cell :22002? The port is claimed fleet-wide; the cell can be configured and started later.", "fresh": ["h1:22002"]}',
-     'negative: reserveServerCell: без portHint порт = nextTopologyCellPort (22001 занят → 22002); startedAt = замороженный Date.now'),
-    ('rsc_no',
-     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async () => false;',
-     'await (async () => { await rc.reserveServerCell("h1"); return ({ calls: calls(), toast: toastText(), reserving: [...rc._reservingCells.entries()], fresh: [...rc._newReservedCells], snap: globalThis.__snap, confirm: globalThis.__msg }); })()',
-     '{"calls": [], "toast": "", "reserving": [], "fresh": [], "snap": null, "confirm": null}',
-     'negative: reserveServerCell: отказ в диалоге → ни запроса, ни рендера, ни состояния'),
-    ('rsc_500',
-     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; globalThis.__fetchReply["/api/topology/server-slot/add"] = { __status: 500, error: "nope" };',
-     'await (async () => { await rc.reserveServerCell("h1"); return ({ calls: calls(), toast: toastText(), reserving: [...rc._reservingCells.entries()], fresh: [...rc._newReservedCells], snap: globalThis.__snap, confirm: globalThis.__msg }); })()',
-     '{"calls": [{"path": "/api/topology/server-slot/add", "method": "POST", "body": "{\\"hostId\\":\\"h1\\"}"}], "toast": "Error: nope", "reserving": [], "fresh": [], "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]], "confirm": {"msg": "Reserve cell :22001? The port is claimed fleet-wide; the cell can be configured and started later.", "opts": {"danger": false, "confirmLabel": "Reserve cell", "scene": "create"}}}',
-     'negative: reserveServerCell: 500 → _reservingCells снят, _newReservedCells пуст, тост «Error: nope» (startedAt в снимке = замороженный Date.now)'),
-    ('rsc_empty_host',
-     'globalThis.__snap = null; globalThis.__msg = null; globalThis.__stubReturns["topology-render.renderTopology"] = () => { if (globalThis.__snap === null) globalThis.__snap = [...rc._reservingCells.entries()]; }; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; };',
-     'await (async () => { await rc.reserveServerCell(""); return ({ calls: calls(), toast: toastText(), reserving: [...rc._reservingCells.entries()], fresh: [...rc._newReservedCells], snap: globalThis.__snap, confirm: globalThis.__msg }); })()',
-     '{"calls": [{"path": "/api/topology/server-slot/add", "method": "POST", "body": "{\\"hostId\\":\\"\\"}"}], "toast": "", "reserving": [], "fresh": [], "snap": [], "confirm": {"msg": "Reserve cell :22001? The port is claimed fleet-wide; the cell can be configured and started later.", "opts": {"danger": false, "confirmLabel": "Reserve cell", "scene": "create"}}}',
-     'as-is: КАК ЕСТЬ: пустой hostId не блокируется — диалог показан, на провод {hostId:""}, ни спиннера, ни вспышки новой ячейки'),
-    # ── reserve: where the new cell runs, and an engine cell's model (2026-09-25) ──
-    ('rsc_engines_where_caravan',
-     RSC_ENGINES + ' globalThis.__answers = [""];',
-     RSC_RUN,
-     json.dumps({"calls": rsc_add({"hostId": "h1"}), "toast": "", "asks": [RSC_WHERE], "confirm": None, "reserving": [],
-                 "fresh": ["h1:22001"], "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
-     'positive: машина сообщает движки — первый шаг спрашивает, где работает ячейка: Caravan (он нажат первым), Ollama, '
-     'LM Studio с пометкой «не готов»; foo не предложен — он не раннер ячеек движка; выбран Caravan — на провод прежний '
-     '{hostId}, старый диалог не звали'),
-    ('rsc_engine_model_chosen',
-     RSC_ENGINES + ' globalThis.__answers = ["ollama", "qwen2.5:0.5b"]; globalThis.__fetchReply["/api/topology/server-slot/add"] = { cell: { hostId: "h1", port: 22001 } };',
-     RSC_RUN,
-     json.dumps({"calls": rsc_add({"hostId": "h1", "engine": "ollama", "model": "qwen2.5:0.5b"}), "toast": "",
-                 "asks": [RSC_WHERE, RSC_MODEL], "confirm": None, "reserving": [], "fresh": ["h1:22001"],
-                 "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
-     'positive: выбран Ollama — второй шаг: модели движка списком (имя · параметры · квант, облачная — ☁), заголовок с '
-     'портом, текст с именем движка; на провод {hostId, engine, model}'),
-    ('rsc_engine_not_ready_sent_bare',
-     RSC_ENGINES + ' globalThis.__answers = ["lmstudio"]; globalThis.__fetchReply["/api/topology/server-slot/add"] = { __status: 409, error: "LM Studio is not running on this machine — start its server first" };',
-     RSC_RUN,
-     json.dumps({"calls": rsc_add({"hostId": "h1", "engine": "lmstudio"}),
-                 "toast": "Error: LM Studio is not running on this machine — start its server first",
-                 "asks": [RSC_WHERE], "confirm": None, "reserving": [], "fresh": [],
-                 "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
-     'negative: движок не готов — выбирать модель не из чего, запрос уходит без неё, и причину говорит контроллер (тост его '
-     'словами), а не вторая копия правила на доске'),
-    ('rsc_engine_ok_no_models',
-     RSC_ENGINES + ' globalThis.__answers = ["ollama"]; st.topology.nodes[0].engines[0].models = [];',
-     RSC_RUN,
-     json.dumps({"calls": rsc_add({"hostId": "h1", "engine": "ollama"}), "toast": "", "asks": [RSC_WHERE],
-                 "confirm": None, "reserving": [], "fresh": ["h1:22001"],
-                 "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
-     'boundary: движок работает, но моделей нет — второго шага нет, запрос без модели (контроллер скажет «скачайте»)'),
-    ('rsc_engine_model_cancel',
-     RSC_ENGINES + ' globalThis.__answers = ["ollama", null];',
-     RSC_RUN,
-     json.dumps({"calls": [], "toast": "", "asks": [RSC_WHERE, RSC_MODEL], "confirm": None, "reserving": [], "fresh": [],
-                 "snap": None}),
-     'negative: отмена на шаге модели — ни запроса, ни спиннера, ни рендера'),
-    ('rsc_engine_where_cancel',
-     RSC_ENGINES + ' globalThis.__answers = [null];',
-     RSC_RUN,
-     json.dumps({"calls": [], "toast": "", "asks": [RSC_WHERE], "confirm": None, "reserving": [], "fresh": [], "snap": None}),
-     'negative: отмена на шаге «где» — второго шага нет, ни запроса, ни состояния'),
-    ('rsc_no_engine_cells_old_dialog',
-     RSC_ENGINES + ' globalThis.__answers = []; st.topology.nodes[0].engines = st.topology.nodes[0].engines.slice(2);',
-     'await (async () => { await rc.reserveServerCell("h1"); return { calls: calls(), asks: globalThis.__asks, confirm: globalThis.__msg }; })()',
-     json.dumps({"calls": rsc_add({"hostId": "h1"}), "asks": [], "confirm": {"msg": en("dlgReserveCell", port=22001), "opts": RSC_ASK}}),
-     'negative: у машины только движок, в котором ячейка не живёт (foo) — прежний диалог без выбора'),
-    ('rsc_registry_without_engine_cells',
-     RSC_ENGINES + ' globalThis.__answers = []; st.setState({ config: {}, runners: [{ id: "llama-server" }, { id: "ollama" }], artifacts: [], models: [], paths: {} });',
-     'await (async () => { await rc.reserveServerCell("h1"); return { asks: globalThis.__asks.length, confirm: !!globalThis.__msg, engines: rc.reserveEngines("h1") }; })()',
-     '{"asks": 0, "confirm": true, "engines": []}',
-     'negative: реестр контроллера не называет раннеров ячеек движка — движки не предлагаются, хотя скаут их видит'),
-    ('rsc_other_machine_engines',
-     RSC_ENGINES + ' globalThis.__answers = [];',
-     'await (async () => { await rc.reserveServerCell("h2"); return { asks: globalThis.__asks.length, confirm: !!globalThis.__msg, engines: rc.reserveEngines("h2").length, mine: rc.reserveEngines("h1").map((e) => e.kind) }; })()',
-     '{"asks": 0, "confirm": true, "engines": 0, "mine": ["ollama", "lmstudio"]}',
-     'negative: движки чужой машины не предлагаются — у h2 своих нет, прежний диалог'),
     ('dtca_yes_named',
      'globalThis.__msg = null; globalThis.__stubReturns["dialogs.appConfirm"] = async (msg, opts) => { globalThis.__msg = { msg, opts }; return true; }; st.topology.clients = [{ id: "c1", agents: [{ id: "a1", name: "Scout" }] }];',
      'await (async () => { await rc.deleteTopologyClientAgent("c1", "a1"); return { calls: calls(), toast: toastText(), confirm: globalThis.__msg }; })()',
@@ -978,6 +851,18 @@ PINS = [
                  "toast": "Error: Ollama has no model qwen9 on this machine", "asked": [], "reserving": [], "fresh": [],
                  "snap": [["h1", {"port": 22001, "startedAt": 1700000100000}]]}),
      'negative: отказ контроллера (engine_cells.py) — его словами; спиннер снят, вспышки нет'),
+    # What a reserve does with the controller's answer (postReserve — the one way
+    # in since the Reserve-cell stub left in 1.3.393).
+    ('erc_reply_slot_alias',
+     ERC_SETUP + ' globalThis.__fetchReply["/api/topology/server-slot/add"] = { slot: { hostId: "h1", port: 22008 } };',
+     'await (async () => { await rc.reserveEngineCell("h1", "ollama", "qwen2.5:0.5b"); return [...rc._newReservedCells]; })()',
+     '["h1:22008"]',
+     'positive: ответ с полем slot (вместо cell) тоже принимается → вспышка «h1:22008»'),
+    ('erc_reply_without_the_cell_falls_back',
+     ERC_SETUP,
+     'await (async () => { await rc.reserveEngineCell("h1", "ollama", "qwen2.5:0.5b"); return { fresh: [...rc._newReservedCells], reserving: [...rc._reservingCells.entries()] }; })()',
+     '{"fresh": ["h1:22001"], "reserving": []}',
+     'boundary: ответ {ok:true} без cell/slot → ключ вспышки из машины и порта, который ждали, «h1:22001»'),
     ('erc_button_carries_its_line',
      ERC_SETUP,
      'await (async () => { await rc.reserveEngineButton({ dataset: { engineReserve: "h1", engineKind: "lmstudio", engineModel: "google/gemma-4-e4b" } }); return calls(); })()',

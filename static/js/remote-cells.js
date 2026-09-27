@@ -1,6 +1,6 @@
 // Remote cell lifecycle: reserve/start/stop, tr- edit form, remote backups.
 import { CARD_FOLD } from "./card-fold.js";
-import { appConfirm, appConfirmChoice, appPrompt } from "./dialogs.js";
+import { appConfirm, appPrompt } from "./dialogs.js";
 import { renderCommandPreview } from "./command-preview.js";
 import { refreshFavoritesPanel } from "./favorites.js";
 import {
@@ -354,56 +354,6 @@ export function nextTopologyCellPort() {
   let port = cellPortRange().from;
   while (used.has(port)) port += 1;
   return port;
-}
-
-// The engines next to a machine's cells that a new cell can run in (decided
-// 2026-09-25): the ones its scout reports whose kind is a runner of engine
-// cells — the registry says which (engineCell), no list is kept here.
-export function reserveEngines(hostId) {
-  const kinds = new Set(runnerRegistry().filter((r) => r.engineCell === true).map((r) => String(r.id)));
-  const node = (topology.nodes || []).find((n) => String(n.id) === String(hostId));
-  return (Array.isArray(node?.engines) ? node.engines : []).filter((e) => kinds.has(String(e.kind || "")));
-}
-
-// What a new cell is reserved with: {} for a cell the caravan runs itself,
-// {engine, model} for one in an engine — or null when the operator cancelled.
-// A machine with no such engine is asked as before. An engine that is not
-// ready, or has no model to choose, is sent without one: the controller's
-// refusal says why (caravan/admin/engine_cells.py), in one place.
-async function reservePlan(hostId, port) {
-  const engines = reserveEngines(hostId);
-  const ask = t("dlgReserveCell", { port: String(port || "?") });
-  const opts = { danger: false, confirmLabel: t("topologyReserveCellLabel"), scene: "create" };
-  if (!engines.length) return (await appConfirm(ask, opts)) ? {} : null;
-  const name = (e) => String(e.label || e.kind);
-  const where = await appConfirmChoice(ask, {
-    ...opts,
-    choiceLabel: t("reserveRunsIn"),
-    choices: [{ value: "", label: t("launcherCaravan") },
-      ...engines.map((e) => ({ value: String(e.kind),
-        label: e.state === "ok" ? name(e) : t("reserveEngineNotReady", { engine: name(e) }) }))],
-  });
-  if (where === null) return null;
-  if (!where) return {};
-  const engine = engines.find((e) => String(e.kind) === where);
-  const models = engine?.state === "ok" && Array.isArray(engine.models) ? engine.models : [];
-  if (!models.length) return { engine: where };
-  const model = await appConfirmChoice(t("dlgReserveModelText", { engine: name(engine) }), {
-    ...opts,
-    title: t("dlgReserveModelTitle", { port: String(port || "?") }),
-    choiceLabel: t("reserveModelLabel"),
-    list: true,
-    choices: models.map((m) => ({ value: String(m.name),
-      label: [m.name, m.params, m.quant, m.remote ? "☁" : ""].filter(Boolean).join(" · ") })),
-  });
-  return model === null ? null : { engine: where, model };
-}
-
-export async function reserveServerCell(hostId, portHint = "") {
-  const pendingPort = Number(portHint || nextTopologyCellPort() || 0);
-  const plan = await reservePlan(String(hostId || ""), pendingPort);
-  if (!plan) return;
-  await postReserve(hostId, pendingPort, plan);
 }
 
 // A cell with a model of an engine, from the "+" on its line under the
@@ -831,13 +781,6 @@ export function bindServerSlotControls(root) {
       const [hostId, p] = String(b.dataset.cellPortReassign).split(":");
       // Load the held-out ports before painting, so they never flash as free.
       _loadPortExclusions().then(() => openPortPicker(hostId, Number(p)));
-    }));
-  root.querySelectorAll("[data-node-reserve]").forEach((b) =>
-    b.addEventListener("click", () => reserveServerCell(b.dataset.nodeReserve, b.dataset.nodeReservePort || "")));
-  // Add server — a new cell on the machine's scout.
-  root.querySelectorAll("[data-node-add]").forEach((b) =>
-    b.addEventListener("click", () => {
-      reserveServerCell(b.dataset.nodeAdd, b.dataset.nodeReservePort || "");
     }));
   root.querySelectorAll("[data-node-slot-del]").forEach((b) =>
     b.addEventListener("click", () => {
