@@ -64,6 +64,8 @@ def free_port():
 # Answers by path: /ok with ordinary JSON, /bad400 and /bad503 with an error
 # and a body, to check that both the status AND the reason reach the client as-is.
 seen = []
+# What reached the cell on each request: its port and the key headers.
+seen_keys = []
 # Three events and a terminator — the minimal stream a client considers complete.
 SSE_CHUNKS = [
     b'data: {"choices":[{"delta":{"content":"he"}}]}\n\n',
@@ -82,6 +84,8 @@ class _Upstream(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         raw = self.rfile.read(length) if length else b""
         seen.append((self.path, raw))
+        seen_keys.append((self.server.server_address[1],
+                          {k.lower(): v for k, v in self.headers.items() if k.lower() in ("authorization", "x-api-key")}))
         if self.path.endswith("stream"):
             # The upstream declares text/event-stream — the proxy decides the
             # response is streamed based on exactly this header (handler.py:641).
@@ -651,6 +655,16 @@ def test_api_key():
     check(status == 200, f"верный ключ: 200 (получено {status})")
     status, _ = post(P_KEYED, headers={"x-api-key": "s3cret"})
     check(status == 200, f"тот же ключ через x-api-key: 200 (получено {status})")
+
+
+def test_client_key_stays_with_the_caravan():
+    print("ключ клиента остаётся у каравана (2026-09-26):")
+    before = len(seen_keys)
+    first = post(P_KEYED, headers={"Authorization": "Bearer s3cret"})[0]
+    second = post(P_KEYED, headers={"x-api-key": "s3cret"})[0]
+    check((first, second) == (200, 200) and [h for _p, h in seen_keys[before:]] == [{}, {}],
+          "ключ клиента открывает маршрут каравана и дальше не идёт: ни Authorization, ни x-api-key до "
+          "ячейки не доходят (раньше доходили как есть)")
 
 
 def test_forward():
@@ -1604,7 +1618,7 @@ def test_error_kind_in_the_journal():
           "и доска больше не скажет оператору, что ушёл его агент")
 
 
-for fn in (test_blocked_modes, test_unrouted, test_api_key,
+for fn in (test_blocked_modes, test_unrouted, test_api_key, test_client_key_stays_with_the_caravan,
            test_forward, test_upstream_errors, test_upstream_down,
            test_error_kind_reaching_the_client, test_error_kind_in_the_journal,
            test_classifier_both_sides, test_response_headers,

@@ -391,11 +391,13 @@ resolution and protocol translation), streaming relay with keepalives and
 stop checks, error encoding (JSON or in-band SSE `error` event depending on
 whether headers already went out), and the always-run `finally` bookkeeping.
 It also implements the "Loading model" 503 retry window, the idle-forwarding
-heartbeat thread, and the `GET /v1/models` fast path. A request routed to an
+heartbeat thread, and the `GET /v1/models` fast path. The key a client
+presents to the caravan (`Authorization` / `X-Api-Key`) opens one of its routes
+and stays with the caravan: it reaches neither a cell nor an engine (it used to
+reach a cell as it was, until 2026-09-26). A cell is reached at its machine's
+address and port with no key of its own. A request routed to an
 engine's model (`upstreamType` `engine`) goes to the engine like a cell's, with
-the model's name in the body (`model_named`) and without the client's
-`Authorization` / `X-Api-Key` — the key a client presents to the caravan stays
-with the caravan; `/v1/models` on such a port is the engine's list narrowed to
+the model's name in the body (`model_named`); `/v1/models` on such a port is the engine's list narrowed to
 that one model (`_engine_model_entry`), or a 503 naming the model the engine
 no longer lists. `output_probe.py` probes such an output with `GET /v1/models`
 and the model in the list — a completion would load the model into the

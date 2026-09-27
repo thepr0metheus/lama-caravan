@@ -231,6 +231,14 @@ def command_cell_health(ip, port, health_path="", timeout=1.0):
         except Exception:
             data = {}
         st = str(data.get("status") or "").lower()
+        if code in (401, 403):
+            # The cell is up and asks for a key the caravan does not have (a
+            # server started with its own --api-key): the proxy's requests
+            # meet the same refusal. It used to fall into the "ok" arm below —
+            # a refusal painted as a listening cell.
+            res["status"] = "broken"
+            res["error"] = f"the cell refuses the caravan (HTTP {code} on {path})"
+            return res
         if st in ("downloading", "resolving", "loading", "starting"):
             res["status"] = "downloading" if st in ("downloading", "resolving") else "loading"
             res["downloadedBytes"] = int(data.get("downloadedBytes") or 0)
