@@ -68,6 +68,8 @@ function openDialog(message, opts, mode) {
     // Most callers pass nothing, which is exactly when it mattered.
     btn.textContent = opts.confirmLabel || t("okAction");
     btn.classList.toggle("danger", !asks && opts.danger !== false);
+    // "Cancel", unless the dialog says what not answering means ("Not now").
+    $("confirmCancel").textContent = opts.cancelLabel || t("cancel");
     ui.pendingConfirm = () => settleAppConfirm(true);
     $("confirmOverlay").hidden = false;
     // Move focus into the dialog: the input for prompts, Cancel for dangerous
@@ -150,6 +152,8 @@ export function settleAppConfirm(ok) {
   const meta = $("confirmMeta");
   if (meta) { meta.hidden = true; meta.innerHTML = ""; }
   $("confirmDelete").classList.remove("danger");
+  // Legacy openers write the fields but not this caption: it goes back.
+  $("confirmCancel").textContent = t("cancel");
   // Legacy openers (backup delete, service action, save/restart) write the
   // dialog fields directly and expect the destructive look.
   $("confirmOverlay").querySelector(".modal").dataset.tone = "danger";

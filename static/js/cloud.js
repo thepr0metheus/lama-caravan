@@ -1,5 +1,5 @@
 // Cloud provider accounts/blocks modals and OAuth login flow.
-import { ProviderModels } from "./cloud-models.js";
+import { NewModelAnnouncer, ProviderModels } from "./cloud-models.js";
 import { badge, option } from "./form.js";
 import { t } from "./i18n.js";
 import { modelPricing } from "./model-meta.js";
@@ -523,6 +523,10 @@ export async function fetchCloudSubscriptionModels(accountId, opts) {
 export async function fetchCloudAccountModels(accountId, opts) {
   return _fetchModelsInto(accountId, "/api/cloud-accounts/models", opts);
 }
+
+// The "new model" window (cloud-models.js): it asks after a refresh of the
+// board, and its answer comes back with the board, drawn at once.
+export const NEW_MODELS = new NewModelAnnouncer({ apply: (top) => { setTopology(top); renderTopology(); } });
 
 export function prefetchAllSubscriptionModels() {
   const accounts = topology?.cloudAccounts || [];

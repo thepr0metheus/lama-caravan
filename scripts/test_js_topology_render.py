@@ -42,8 +42,10 @@ st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} });
 Date.now = () => 1_700_000_100_000;
 // No drag is under way: a stubbed non-function export is a (truthy) stub, and
 // topologyInteractionActive() read every board as mid-drag.
+// The "new model" window is an object, not a function: its stand-in counts asks.
 globalThis.__stubValues = { ...(globalThis.__stubValues || {}),
-  "topology-dnd.topologyPointerDrag": null, "canvas._cvDrag": null };
+  "topology-dnd.topologyPointerDrag": null, "canvas._cvDrag": null,
+  "cloud.NEW_MODELS": { asks: 0, maybeAsk() { this.asks += 1; } } };
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/topology-render.js").href);
 const reset = () => { st.setState({ config: {} });
   st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} }); };
@@ -337,7 +339,8 @@ PINS += [
 # the list's stamp, the beat brings the rows in when it moved (model-list.js),
 # and the fingerprint sees the new list. To look at the order without a DOM,
 # the render is held back by a focused field whose getter writes down the
-# stamp the page holds at the moment the update is decided. The first
+# stamp the page holds at the moment the update is decided (twice: the render's
+# check, then the "new model" window's). The first
 # refresh marks the page ready on document.body, so the body has a dataset.
 _REFRESH_SETUP = (
     'document.body = { dataset: {}, setAttribute: () => undefined };'
@@ -365,14 +368,27 @@ PINS += [
     ("refresh_brings_the_models_before_the_render",
      'st.setState({ config: {}, models: [{ path: "old.gguf", kind: "model" }], modelsStamp: "s1" }); ' + _REFRESH_SETUP,
      _REFRESH_RUN,
-     '[["/api/topology", "/api/models/rows"], ["new.gguf"], "s2", ["s2"]]',
+     '[["/api/topology", "/api/models/rows"], ["new.gguf"], "s2", ["s2", "s2"]]',
      "defect-history: отпечаток списка в топологии сдвинулся — опрос дочитывает строки, и решение о перерисовке "
      "принимается уже над новым списком (иначе полка рисовала бы старый до следующего опроса)"),
     ("refresh_leaves_a_current_list_alone",
      'st.setState({ config: {}, models: [{ path: "old.gguf", kind: "model" }], modelsStamp: "s2" }); ' + _REFRESH_SETUP,
      _REFRESH_RUN,
-     '[["/api/topology"], ["old.gguf"], "s2", ["s2"]]',
+     '[["/api/topology"], ["old.gguf"], "s2", ["s2", "s2"]]',
      "negative: отпечаток тот же — опрос не ходит за строками, список страницы как был"),
+    # The topology answers null: the board draws nothing (no DOM in node), and
+    # the refresh still reaches the window's check.
+    ("refresh_asks_about_new_models_only_when_idle",
+     'document.body = { dataset: {}, setAttribute: () => undefined };'
+     ' globalThis.__fetchReply["/api/topology"] = null;',
+     'await (async () => { const nm = globalThis.__stubValues["cloud.NEW_MODELS"]; nm.asks = 0;'
+     ' try { await m.refreshTopology(); const idle = nm.asks;'
+     ' Object.defineProperty(document, "activeElement", { configurable: true, get: () => ({ matches: () => true, closest: () => null }) });'
+     ' await m.refreshTopology(); return [idle, nm.asks]; }'
+     ' finally { Object.defineProperty(document, "activeElement", { configurable: true, writable: true, value: undefined });'
+     ' delete globalThis.__fetchReply["/api/topology"]; } })()',
+     '[1, 1]',
+     "после опроса окно «новая модель» спрашивает, если оператор ничего не делает; negative: фокус в поле — не спрашивает"),
 ]
 
 PINS += [

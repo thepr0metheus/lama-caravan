@@ -448,7 +448,23 @@ Key functions: `read_agent_proxy_payload`, `write_agent_proxy_payload`, `load_ag
 `save_agent_proxy_config`, `normalize_routers` (default router always exists, orphan routes
 re-pointed — `""` stays deliberately unassigned, inputs derived), `sync_router_outputs`,
 `set_agent_proxy_policy`, `set_agent_proxy_route_policy`
-(label/mode/priority/preemptible/upstream/routerId/threshold overrides), `set_routers`.
+(label/mode/priority/preemptible/upstream/routerId/threshold overrides), `set_routers`,
+`remap_router_output_refs` (a cell moved to another port) and `swap_router_output_refs` (two cells
+swapped ports, one pass) — both rewrite through `output_refs.py`.
+
+## `output_refs.py`
+
+`RouterOutputRefs` — every place a router names one of its outputs, in one table: the rules
+(`default`, the `dormantDefault` kept while its output is away, `audioOutput`, `embeddingsOutput`),
+the rule lists (`schedule`, `bySource`), `failover`, and graph edges whose end is `out:<output id>`.
+`rewrite(new_id_of)` changes them in place — an edge keeps its id, so the roles a queue or a 🛟
+backup node holds by edge id stay — and returns how many places changed; `rules_naming` and
+`edges_touching` read the same table. Remap, swap, the legacy cloud-output upgrade, the list of what
+points at a cloud model (`cloud_refs.py`) and the move of a model's cables all go through it: four
+copies of the list had drifted, and the legacy upgrade never looked at the reserve default, audio
+or embeddings.
+Owns: —.
+Key names: `RouterOutputRefs`.
 
 ## `cloud.py`
 
@@ -462,7 +478,9 @@ which is what turns them into router outputs.
 Owns: `cloud-providers.json`, `provider-secrets.json`, `CLOUD_PROVIDER_PRESETS`.
 Key functions: `load_cloud_data`/`save_cloud_data`, `load_provider_secrets`/`save_provider_secrets`,
 `account_secret_entry`, `upsert_cloud_account`/`upsert_cloud_block` + deletes,
-`set_cloud_block_exposed`, `account_auth_headers`, `account_credential_summary`,
+`set_cloud_block_exposed`, `mark_cloud_blocks_announced` (the "new model" window was answered for
+these; `announced` survives saves like `newSince` and `manual`), `account_auth_headers`,
+`account_credential_summary`,
 `cloud_accounts_state`/`cloud_blocks_state` (secret-free views for the UI).
 
 ## `token_history.py`
@@ -588,8 +606,13 @@ Key functions: `test_account_key`, `set_account_key`, `fetch_account_models`,
 (`cloudFallbackProviderId`), graph cables with the queue's (admit/spill) and a 🛟 backup node's
 (main/backup) roles, and every rule including `dormantDefault`. `of(block)` feeds the delete
 confirm (`GET /api/cloud-blocks/refs`), `in_use(block)` decides whether the sync may remove one.
+`CloudModelRewire(cfg).move(from, to, output)` — the "new model" window's move: everything that
+pointed at one model points at another of its provider, through `output_refs.py` (edges keep their
+ids, so a queue's and a 🛟 backup's roles stay) plus the ↑☁ fallbacks; the new model's router
+output (`proxies_config.cloud_block_output`) goes into every router first, because saving a router
+drops a rule naming an output it lacks. An app's own port stays on its model.
 Owns: —.
-Key names: `CloudModelRefs`.
+Key names: `CloudModelRefs`, `CloudModelRewire`.
 
 ## `cloud_sync.py`
 

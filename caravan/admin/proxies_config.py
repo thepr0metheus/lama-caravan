@@ -6,6 +6,7 @@ import secrets
 from caravan.admin.cloud import cloud_blocks_state, load_cloud_data, save_cloud_data
 from caravan.admin.state import topology as topo
 from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE, CONTROLLER_HOST_ID
+from caravan.admin.output_refs import RouterOutputRefs
 from caravan.admin.router_dsl import (
     DEFAULT_ROUTER_ID,
     normalize_agent_proxy_policy,
@@ -120,6 +121,12 @@ def _router_local_outputs(server_obj):
         })
     return outs
 
+def cloud_block_output(accounts, block):
+    """The router output of one cloud model, as the next sync of outputs will
+    make it; None when its account is gone."""
+    outs = _router_cloud_outputs(accounts, [{**block, "exposed": True}])
+    return outs[0] if outs else None
+
 def _router_cloud_outputs(accounts, blocks):
     """One AUTO-output per EXPOSED cloud model-block (ticked in the router Outputs
     panel). Stable id `cb:<blockId>`; the model = the block's `model`, the account
@@ -152,8 +159,8 @@ def migrate_legacy_cloud_outputs(routers, account_ids):
     model lived in providerId. The NEW model is one output `cb:<blockId>` per EXPOSED
     block. So: expose the previously-chosen block(s) and remap every reference from the
     legacy id → `cb:<blockId>` so nothing routing-related is lost:
-      - rules.default / bySource[].output / schedule[].output / failover[]
-      - graph edges (edge.from / edge.to that referenced `out:cloud:<accId>`)
+      every place a router names an output (RouterOutputRefs: rules, rule
+      lists, failover, graph edges `out:cloud:<accId>`)
     Idempotent (legacy ids vanish after the first sync). Returns True if cloud data
     (block exposure) changed."""
     legacy_ids = {f"cloud:{a}" for a in (account_ids or [])}
@@ -175,28 +182,10 @@ def migrate_legacy_cloud_outputs(routers, account_ids):
     if not remaps:
         return False
     for router, id_map in remaps:
-        rules = router.get("rules") or {}
-        if rules.get("default") in id_map:
-            rules["default"] = id_map[rules["default"]]
-        for r in rules.get("bySource") or []:
-            if isinstance(r, dict) and r.get("output") in id_map:
-                r["output"] = id_map[r["output"]]
-        for w in rules.get("schedule") or []:
-            if isinstance(w, dict) and w.get("output") in id_map:
-                w["output"] = id_map[w["output"]]
-        rules["failover"] = [id_map.get(o, o) for o in (rules.get("failover") or [])]
-        if not rules["failover"]:
-            rules.pop("failover", None)
-        router["rules"] = rules
-        # Graph edges store output refs as `out:<outputId>`.
-        graph = router.get("graph") or {}
-        edge_map = {f"out:{k}": f"out:{v}" for k, v in id_map.items()}
-        for e in graph.get("edges") or []:
-            if isinstance(e, dict):
-                if e.get("from") in edge_map:
-                    e["from"] = edge_map[e["from"]]
-                if e.get("to") in edge_map:
-                    e["to"] = edge_map[e["to"]]
+        router["rules"] = router.get("rules") or {}
+        RouterOutputRefs(router).rewrite(lambda v: id_map.get(v, v))
+        if not router["rules"].get("failover"):
+            router["rules"].pop("failover", None)
     data = load_cloud_data()
     changed = False
     for b in data["blocks"]:
@@ -285,12 +274,10 @@ def normalize_routers(raw, routes):
 def remap_router_output_refs(old_id, new_id):
     """Follow a renamed output id everywhere a router can point at it: the
     outputs list itself (so normalize doesn't reset a default that referenced
-    the old id before the next auto-sync), legacy rules (default /
-    dormantDefault / audio / embeddings / schedule / bySource / failover) and
-    graph edges (out:<id>). Persists + restarts the proxy when changed."""
+    the old id before the next auto-sync) and every place in RouterOutputRefs.
+    Persists when changed (the proxy re-reads its config by itself)."""
     payload = load_agent_proxy_config()
     routers = payload.get("routers") or []
-    edge_old, edge_new = f"out:{old_id}", f"out:{new_id}"
     changed = False
     new_port = 0
     if str(new_id).startswith("srv:"):
@@ -305,29 +292,8 @@ def remap_router_output_refs(old_id, new_id):
                 if new_port:
                     out["upstreamPort"] = new_port
                 changed = True
-        rules = router.get("rules") or {}
-        for key in ("default", "dormantDefault", "audioOutput", "embeddingsOutput"):
-            if rules.get(key) == old_id:
-                rules[key] = new_id
-                changed = True
-        for coll in ("schedule", "bySource"):
-            for r in rules.get(coll) or []:
-                if isinstance(r, dict) and r.get("output") == old_id:
-                    r["output"] = new_id
-                    changed = True
-        failover = rules.get("failover") or []
-        if old_id in failover:
-            rules["failover"] = [new_id if o == old_id else o for o in failover]
+        if RouterOutputRefs(router).rewrite(lambda v: new_id if v == old_id else v):
             changed = True
-        graph = router.get("graph") or {}
-        for e in graph.get("edges") or []:
-            if isinstance(e, dict):
-                if e.get("from") == edge_old:
-                    e["from"] = edge_new
-                    changed = True
-                if e.get("to") == edge_old:
-                    e["to"] = edge_new
-                    changed = True
     if changed:
         save_agent_proxy_config(payload.get("routes") or [], routers)
     return changed
@@ -336,10 +302,9 @@ def swap_router_output_refs(id_a, id_b):
     """Swap two output ids everywhere a router points at either — the mirror of
     remap for a port SWAP between two cells, so each cable follows its own cell.
     Done in a single pass (an `a`→`b` remap then a `b`→`a` remap would clobber:
-    the second flips the just-written `b`s back). Persists + restarts once."""
+    the second flips the just-written `b`s back). Persists once."""
     payload = load_agent_proxy_config()
     routers = payload.get("routers") or []
-    e_a, e_b = f"out:{id_a}", f"out:{id_b}"
     port_a = int(str(id_a).split(":", 1)[1]) if str(id_a).startswith("srv:") else 0
     port_b = int(str(id_b).split(":", 1)[1]) if str(id_b).startswith("srv:") else 0
     changed = False
@@ -359,29 +324,8 @@ def swap_router_output_refs(id_a, id_b):
                 if port_a:
                     out["upstreamPort"] = port_a
                 changed = True
-        rules = router.get("rules") or {}
-        for key in ("default", "dormantDefault", "audioOutput", "embeddingsOutput"):
-            if rules.get(key) in (id_a, id_b):
-                rules[key] = swap(rules[key])
-                changed = True
-        for coll in ("schedule", "bySource"):
-            for r in rules.get(coll) or []:
-                if isinstance(r, dict) and r.get("output") in (id_a, id_b):
-                    r["output"] = swap(r["output"])
-                    changed = True
-        failover = rules.get("failover") or []
-        if any(o in (id_a, id_b) for o in failover):
-            rules["failover"] = [swap(o) for o in failover]
+        if RouterOutputRefs(router).rewrite(swap):
             changed = True
-        for e in (router.get("graph") or {}).get("edges") or []:
-            if not isinstance(e, dict):
-                continue
-            if e.get("from") in (e_a, e_b):
-                e["from"] = e_b if e["from"] == e_a else e_a
-                changed = True
-            if e.get("to") in (e_a, e_b):
-                e["to"] = e_b if e["to"] == e_a else e_a
-                changed = True
     if changed:
         save_agent_proxy_config(payload.get("routes") or [], routers)
     return changed

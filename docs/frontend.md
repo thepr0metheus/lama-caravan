@@ -213,7 +213,9 @@ controller cell's start reads its model from — and went with it in step 6.9.)
 
 `appConfirmChoice` is a confirm that also asks one of several choices (`opts.choices`, pressed
 first `opts.choice`, `opts.list` for a long list shown as a scrolling column) and resolves the
-pressed value as a string, or null on cancel — where a new cell runs, and an engine cell's model.
+pressed value as a string, or null on cancel — where a new cell runs, an engine cell's model, and
+the "new model" window. `opts.cancelLabel` names what not answering means ("Not now"); every
+settle puts "Cancel" back, because legacy openers write the other fields but not that one.
 
 - Owns: the pending-dialog resolver.
 - Key exports: `appConfirm`, `appConfirmChoice`, `appPrompt`.
@@ -886,8 +888,20 @@ removals (`topology.cloudRemoved`) stand in one line with "↶" each (`data-clou
 "＋ Add by id" opens the block editor for a model the provider does not list. Rows go attention
 first: gone, new, on the kanban, hidden; dearer first within a group.
 
-- Owns: —.
-- Key exports: `ProviderModels`, `NEW_FOR_MS`.
+`NewModelAnnouncer` is the "new model" window (the operator's ask): when a provider brought new
+models nobody answered for (`announced`) and one of its models carries cables or is a router's
+default, it offers to move them onto a newcomer (`POST /api/cloud-blocks/move-cables`) — the
+newcomer closest by name to a model in use (the words without the vendor and the versions), and
+first among the choices the closest model in use, then the busiest; "Move nothing — just show it"
+exposes it. One window per provider's batch: "Not now" answers for the whole batch
+(`/api/cloud-blocks/announced`), because OpenRouter once brought 184 models in one list. It asks
+after a board refresh (`refreshTopology`), never over a drag, a focused field or another dialog
+(`nothingOpen`: every dialog is `aria-modal`), one at a time; a model whose answer failed to reach
+the controller is not asked about again on that page. The instance is `cloud.js`'s `NEW_MODELS`,
+whose answer comes back with the board and is drawn at once.
+
+- Owns: the window's `asking` and `failed`.
+- Key exports: `ProviderModels`, `NewModelAnnouncer`, `NEW_FOR_MS`.
 
 ## usage-stats.js
 

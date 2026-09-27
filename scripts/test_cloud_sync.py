@@ -152,9 +152,14 @@ def main():
           "правка в окне модели не стирает метки синхронизации и не делает блок «ручным»")
     made = cloud.upsert_cloud_block({"id": "hand", "accountId": "acc", "model": "private-model"})
     check(made.get("manual") is True, "блок, которого не было, — добавлен руками: синхронизация его не уберёт")
+    cloud.mark_cloud_blocks_announced(["s"], expose=True)
+    again = cloud.upsert_cloud_block({"id": "s", "accountId": "acc", "model": "s", "modelMode": "rewrite",
+                                      "contextLength": "", "contextAuto": False})
+    check(again.get("announced") is True and again.get("exposed") is True,
+          "окно «новая модель» отвечено («просто добавить» — ещё и на канбан); правка отметку не стирает")
     rows = {r["id"]: r for r in cloud.cloud_blocks_state()}
     check(rows["s"]["newSince"] == 1000 and rows["s"]["manual"] is False and rows["hand"]["manual"] is True
-          and rows["hand"]["newSince"] is None,
+          and rows["hand"]["newSince"] is None and rows["s"]["announced"] is True and rows["hand"]["announced"] is False,
           "доска получает «новая с …» и «руками»; нет отметки — None, а не 0")
 
     if _fail:

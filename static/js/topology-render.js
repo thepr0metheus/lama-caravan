@@ -4,6 +4,7 @@ import { drawTopologyCables, topologyAccentStyle } from "./cables.js";
 import { _cvDrag, bindCanvasInteractions, drawCanvasConnectors } from "./canvas.js";
 import { drawTopologyGpuHistory } from "./charts.js";
 import {
+  NEW_MODELS,
   prefetchAllSubscriptionModels,
   renderTopologyCloudAccountModal,
   renderTopologyCloudBlockModal,
@@ -521,6 +522,9 @@ export async function refreshTopology() {
     markPageState("ready");
   }
   prefetchAllSubscriptionModels();
+  // A provider brought new models while some of its models are in use: the
+  // window asks (at most one at a time), never over a drag or a form.
+  if (!topologyInteractionActive()) NEW_MODELS.maybeAsk();
   // Daily spend is a DAILY aggregate and it rode this tick — which fires every
   // 1.5-5s, so the board asked for yesterday's totals up to forty times a
   // minute. main.js owns it on a 60s timer; that is the right cadence for a
