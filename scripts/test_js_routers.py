@@ -236,20 +236,34 @@ PINS = [
      'm.renderTopologyRouterCard(st.topology.routers[0]).includes("3 rule(s)")',
      'true',
      "positive: правила посчитаны по обоим спискам"),
-    # ── the output panel ──
+    # ── the router's outputs: the Servers block on the kanban ──
     ("panel_one_radio_per_output_default_checked",
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()] });',
-     '(h => [(h.match(/class="router-out-radio"/g) || []).length, (h.match(/data-router-set-default="router:default"[^>]*>/g) || []).length, /data-router-set-default="router:default" data-router-out="cb:terra"[^>]*checked|checked data-router-set-default="router:default" data-router-out="cb:terra"/.test(h) || /is-default[^>]*data-router-out-row="cb:terra"/.test(h)])(m.renderRouterOutputsPanel(st.topology.routers[0]))',
+     '(h => [(h.match(/class="router-out-radio"/g) || []).length, (h.match(/data-router-set-default="router:default"[^>]*>/g) || []).length, /data-router-set-default="router:default" data-router-out="cb:terra"[^>]*checked|checked data-router-set-default="router:default" data-router-out="cb:terra"/.test(h) || /is-default[^>]*data-router-out-row="cb:terra"/.test(h)])(m.renderServersBlockHtml(st.topology.routers[0]))',
      '[2,2,true]',
      "по радиокнопке на выход, и отмечен ровно default"),
     ("panel_provider_header_counts_exposed",
      'st.setTopology({ ...st.topology, ...CLOUD(), routers: [ROUTER()] });',
-     '(h => [h.includes("☁ OpenAI (ChatGPT Plus)"), h.includes(">1/1</span>")])(m.renderRouterOutputsPanel(st.topology.routers[0]))',
+     '(h => [h.includes("☁ OpenAI (ChatGPT Plus)"), h.includes(">1/1</span>")])(m.renderServersBlockHtml(st.topology.routers[0]))',
      '[true,true]',
      "заголовок провайдера считает открытые модели из всех"),
+    ("servers_block_marks_new_and_gone_models",
+     'st.setTopology({ ...st.topology, cloudAccounts: [{ id: "acc", name: "Prov" }], cloudProviders: ['
+     ' { id: "a", accountId: "acc", model: "shown-1", exposed: true }, { id: "b", accountId: "acc", model: "zz-new", newSince: 1_700_000_000 },'
+     ' { id: "c", accountId: "acc", model: "aa-hidden" }, { id: "d", accountId: "acc", model: "old-gone", unlisted: true },'
+     ' { id: "e", accountId: "acc", model: "stale-new", newSince: 1_000 }], routers: [ROUTER({ outputs: [] })] });',
+     '(() => { m.topologyOutputsCloudExpanded.acc = true; try { const h = m.renderServersBlockHtml(st.topology.routers[0]);'
+     ' const all = (re) => [...h.matchAll(re)].map((x) => x[1]);'
+     ' return [h.match(/router-prov-count" title="([^"]*)">([^<]*)</).slice(1), all(/class="cloud-chip fresh">([^<]*)</g),'
+     ' all(/class="cloud-chip gone">([^<]*)</g), all(/router-prov-model-name">([^<]*)</g)]; }'
+     ' finally { delete m.topologyOutputsCloudExpanded.acc; } })()',
+     '[["1 on kanban · Models 5","1/5"],["1 new","new"],["1 gone"],["shown-1","zz-new","aa-hidden","old-gone","stale-new"]]',
+     "панель канбана говорит то же, что карточка провайдера: «1/5» с подсказкой «1 на канбане · Модели 5», метки «новых» и «ушли»; "
+     "в списке — метка «новая», показанные первыми, новые следом (иначе в длинном списке их не найти), дальше по цене, при равной — по имени; "
+     "boundary: модель старше недели — уже не новая"),
     ("panel_without_cloud_says_so",
      'st.setTopology({ ...st.topology, routers: [ROUTER({ outputs: [] })] });',
-     '(h => [h.includes("router-cfg-muted"), (h.match(/router-out-radio/g) || []).length])(m.renderRouterOutputsPanel(st.topology.routers[0]))',
+     '(h => [h.includes("router-cfg-muted"), (h.match(/router-out-radio/g) || []).length])(m.renderServersBlockHtml(st.topology.routers[0]))',
      '[true,0]',
      "negative: ни серверов, ни облака — приглушённые подписи и ни одной радиокнопки"),
     # ── rewiring a proxy ──
@@ -275,11 +289,6 @@ PINS = [
      '(h => [heads(h), h.includes("Ctl-Display"), /data-router-group-fold="host:m-ctl"/.test(h)])(m.renderServersBlockHtml(st.topology.routers[0]))',
      '[[["ctl-box","10.0.0.5"],["box-b","10.0.0.9"]],false,true]',
      'positive: блок серверов канбана подписывает группы именем машины и её адресом рядом; negative: старое имя контроллера (topology.server.name) не пишется нигде; свёртка группы — по машине'),
-    ('outputs_panel_names_machines',
-     'st.setTopology({ ...st.topology, server: { name: "Ctl-Display", ip: "10.0.0.5" }, routers: [ROUTER({ outputs: [{ id: "srv:22001", label: "a", upstreamHost: "127.0.0.1", upstreamPort: 22001, upstreamType: "llama" }, { id: "srv:22003", label: "b", upstreamHost: "10.0.0.9", upstreamPort: 22003, upstreamType: "llama" }] })] });',
-     '(h => [heads(h), h.includes("Ctl-Display")])(m.renderRouterOutputsPanel(st.topology.routers[0]))',
-     '[[["ctl-box","10.0.0.5"],["box-b","10.0.0.9"]],false]',
-     'positive: панель выходов роутера — те же имена и адреса из того же места; negative: без старого имени контроллера'),
     ('machine_label_once_when_the_address_is_the_name',
      '',
      '[m.machineLabelHtml({ name: "box-b", address: "10.0.0.9" }), m.machineLabelHtml({ name: "10.9.9.9", address: "10.9.9.9" }), m.machineLabelHtml({ name: "box-x", address: "" })]',

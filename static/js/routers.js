@@ -1,5 +1,6 @@
 // Router cards, outputs panel, router detail popover.
 import { _cvPos, _cvView, canvasNodes, renderRouterNodeConfig } from "./canvas.js";
+import { ProviderModels } from "./cloud-models.js";
 import { badge, option } from "./form.js";
 import { helpTip, t } from "./i18n.js";
 import {
@@ -219,98 +220,7 @@ export function machineLabelHtml(group) {
   return `${escapeHtml(group.name)}${address}`;
 }
 
-export function renderRouterOutputsPanel(router) {
-  const outputs = router.outputs || [];
-  const defaultId = router.rules?.default || "";
-  const liveTitle = { active: t("rtLiveActive"), recent: t("rtLiveRecent"), idle: t("cvQIdle") };
-  const accounts = topology?.cloudAccounts || [];
-  const blocks = topology?.cloudProviders || [];
-
-  const liveDot = (out) => {
-    const st = topologyOutputActivity(out).state;
-    return `<span class="router-out-live live-${st}" title="${liveTitle[st] || ""}" aria-label="${liveTitle[st] || ""}"></span>`;
-  };
-  // One routable target row: connector handle + radio + live dot (local only) + name + default badge.
-  const outputRow = (out, extraCls) => {
-    const isDef = out.id === defaultId;
-    const isCloud = String(out.upstreamType || "") === "cloud";
-    const blk = isCloud ? _blockForOut(out) : null;
-    const priceHtml = isCloud ? _outPriceTag(out) : "";
-    const badge = isDef ? `<span class="router-out-badge">★ default</span>` : "";
-    return `<label class="router-out-row ${isDef ? "is-default" : ""}${blk?.unlisted ? " unlisted" : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}">
-      <span class="router-out-handle" data-cv-node="out:${escapeHtml(out.id)}" data-cv-panel-out="out:${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleDragCable"))}"></span>
-      <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
-      ${isCloud ? "" : liveDot(out)}
-      <span class="router-out-name">${escapeHtml(topologyRouterOutputLabel(out))}</span>
-      ${_unlistedTag(blk)}
-      ${badge}
-      ${priceHtml}
-    </label>`;
-  };
-
-  // LOCAL llama servers — grouped by the machine that serves them.
-  const groups = localOutputGroups(outputs);
-  const localHtml = groups.length
-    ? groups.map((g) => {
-        const hdr = groups.length > 1 ? `<div class="router-out-host-label">${machineLabelHtml(g)}</div>` : "";
-        return `<div class="router-out-host-group">${hdr}${g.outs.map((o) => outputRow(o)).join("")}</div>`;
-      }).join("")
-    : `<div class="router-cfg-muted">${t("rtNoLocalServers")}</div>`;
-
-  // CLOUD: group exposed outputs by account; the header expands a checklist of all blocks.
-  const cloudOutsByAcc = new Map();
-  outputs.filter((o) => String(o.upstreamType || "") === "cloud").forEach((o) => {
-    if (!cloudOutsByAcc.has(o.accountId)) cloudOutsByAcc.set(o.accountId, []);
-    cloudOutsByAcc.get(o.accountId).push(o);
-  });
-  const cloudHtml = accounts.map((acc) => {
-    const accBlocks = blocks.filter((b) => b.accountId === acc.id);
-    const exposedOuts = cloudOutsByAcc.get(acc.id) || [];
-    const exposedCount = accBlocks.filter((b) => b.exposed).length;
-    // Auto-open a provider with nothing chosen yet (so the checklist is discoverable).
-    const expanded = (acc.id in topologyOutputsCloudExpanded) ? topologyOutputsCloudExpanded[acc.id] : exposedCount === 0;
-    const header = `<button class="router-prov-head" type="button" data-router-prov-toggle="${escapeHtml(acc.id)}" title="${escapeHtml(t("rtTitleProvToggle"))}">
-      <span class="router-prov-caret">${expanded ? "▾" : "▸"}</span>
-      <span class="router-prov-name">☁ ${escapeHtml(acc.name || acc.id)}</span>
-      <span class="router-out-unlimited" title="${escapeHtml(t("rtTitleCloudUnlimited"))}">∞</span>
-      <span class="router-prov-count" title="${escapeHtml(t("rtTitleExposedTotal"))}">${exposedCount}/${accBlocks.length}</span>
-    </button>`;
-    const checklist = expanded
-      ? (accBlocks.length
-          ? `<div class="router-prov-models">` + accBlocks.slice().sort((a, b) => (b.exposed ? 1 : 0) - (a.exposed ? 1 : 0) || _byPriceDesc((x) => x.model)(a, b)).map((b) => {
-              const mp = modelPricing[b.model || ""] || null;
-              const priceHtml = mp
-                ? `<span class="router-prov-model-price">${formatPricePer1M(mp.inputPer1M)} in / ${formatPricePer1M(mp.outputPer1M)} out /1M</span>`
-                : "";
-              return `<label class="router-prov-model${b.unlisted ? " unlisted" : ""}" title="${escapeHtml(b.unlisted ? t("cloudModelUnlisted") : (b.model || b.name || b.id))}">
-                <input type="checkbox" data-router-expose="${escapeHtml(b.id)}" ${b.exposed ? "checked" : ""}>
-                <div class="router-prov-model-info">
-                  <span class="router-prov-model-name">${escapeHtml(b.model || b.name || b.id)}</span>
-                  ${priceHtml}
-                </div>
-                ${_unlistedTag(b)}
-                ${aaBadgeHtml(b.model)}
-              </label>`;
-            }).join("")
-            + `</div>`
-          : `<div class="router-cfg-muted router-prov-empty">${escapeHtml(t("rtNoModelsYet"))}</div>`)
-      : "";
-    const rows = exposedOuts.slice().sort(_byPriceDesc((o) => _blockForOut(o)?.model)).map((o) => outputRow(o, "cloud")).join("");
-    return `<div class="router-prov ${expanded ? "open" : ""}">${header}${checklist}${rows}</div>`;
-  }).join("") || `<div class="router-cfg-muted">${t("rtNoCloudProviders")}</div>`;
-
-  return `
-    <div class="router-out-sec">
-      <div class="router-out-sec-h">${escapeHtml(t("rtLocalServers"))}</div>
-      ${localHtml}
-    </div>
-    <div class="router-out-sec">
-      <div class="router-out-sec-h">${escapeHtml(t("rtCloud"))}</div>
-      ${cloudHtml}
-    </div>`;
-}
-
-// ── Servers canvas block: same content as the old right panel, now lives as a canvas node ──
+// ── Servers canvas block: the router's outputs, drawn as a canvas node ──
 // Each output row has a [data-cv-out-port] dot (= in-port for cable connections) instead of
 // the removed router-out-handle / overlay-SVG approach.
 export function renderServersBlockHtml(router) {
@@ -363,9 +273,14 @@ export function renderServersBlockHtml(router) {
     cloudOutsByAcc.get(o.accountId).push(o);
   });
   const cloudHtml = accounts.map((acc) => {
-    const accBlocks = blocks.filter((b) => b.accountId === acc.id);
+    // What each model is to the fleet — new, gone, shown — is the provider
+    // card's reading (cloud-models.js), so the kanban and the card agree.
+    const models = new ProviderModels({ account: acc, blocks, routers: topology?.routers || [], now: Date.now() });
+    const sum = models.summary();
+    const fresh = new Set(models.rows().filter((r) => r.fresh).map((r) => r.block.id));
+    const accBlocks = models.blocks;
     const exposedOuts = cloudOutsByAcc.get(acc.id) || [];
-    const exposedCount = accBlocks.filter((b) => b.exposed).length;
+    const exposedCount = sum.shown;
     const expanded = (acc.id in topologyOutputsCloudExpanded) ? topologyOutputsCloudExpanded[acc.id] : exposedCount === 0;
     const foldKey = `prov:${acc.id}`;
     const folded = !!topologyOutputsFolded[foldKey];
@@ -374,11 +289,15 @@ export function renderServersBlockHtml(router) {
         <span class="router-prov-caret">${expanded ? "▾" : "▸"}</span>
         <span class="router-prov-name">☁ ${escapeHtml(acc.name || acc.id)}</span>
         <span class="router-out-unlimited" title="${escapeHtml(t("rtTitleCloudUnlimited"))}">∞</span>
-        <span class="router-prov-count">${exposedCount}/${accBlocks.length}</span>
+        <span class="router-prov-count" title="${escapeHtml(`${t("cloudModelsOnKanban", { n: String(sum.shown) })} · ${t("cloudModelsTitle")} ${sum.total}`)}">${sum.shown}/${sum.total}</span>
+        ${sum.fresh ? `<span class="cloud-chip fresh">${escapeHtml(t("cloudModelsNewCount", { n: String(sum.fresh) }))}</span>` : ""}
+        ${sum.gone ? `<span class="cloud-chip gone">${escapeHtml(t("cloudModelsGoneCount", { n: String(sum.gone) }))}</span>` : ""}
       </button>
       <button class="router-group-fold" type="button" data-router-group-fold="${escapeHtml(foldKey)}" title="${escapeHtml(folded ? t("expand") : t("collapse"))}">${folded ? "▸" : "▾"}</button>
     </div>`;
-    const sortedBlocks = accBlocks.slice().sort((a, b) => (b.exposed ? 1 : 0) - (a.exposed ? 1 : 0) || _byPriceDesc((x) => x.model)(a, b));
+    // Shown first, then the new ones (a long list hides them otherwise), then by price.
+    const sortedBlocks = accBlocks.slice().sort((a, b) => (b.exposed ? 1 : 0) - (a.exposed ? 1 : 0)
+      || (fresh.has(b.id) ? 1 : 0) - (fresh.has(a.id) ? 1 : 0) || _byPriceDesc((x) => x.model)(a, b));
     if (expanded) sortedBlocks.forEach((b) => { if (b.model) _aaWant.push(b.model); });
     const checklist = expanded
       ? (accBlocks.length
@@ -394,6 +313,7 @@ export function renderServersBlockHtml(router) {
                   <span class="router-prov-model-name">${escapeHtml(b.model || b.name || b.id)}</span>
                   ${priceHtml}
                 </div>
+                ${fresh.has(b.id) ? `<span class="cloud-chip fresh">${escapeHtml(t("cloudChipNew"))}</span>` : ""}
                 ${_unlistedTag(b)}
                 ${aaBadgeHtml(b.model)}
               </label>`;
