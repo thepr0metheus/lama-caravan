@@ -276,8 +276,13 @@ def normalize_cloud_block(block, account_ids):
     return out
 
 def upsert_cloud_account(account):
-    norm = normalize_cloud_account(account)
     data = load_cloud_data()
+    # An edit sends only what it changes — the name, the address, how it signs
+    # in. What it leaves out (a custom OAuth setup, the plan type) stays as it
+    # is stored: normalizing the bare edit would put the preset's defaults back.
+    aid = str(account.get("id") or "").strip() if isinstance(account, dict) else ""
+    prev = next((a for a in data["accounts"] if a.get("id") == aid), None) if aid else None
+    norm = normalize_cloud_account({**prev, **account} if prev else account)
     data["accounts"] = [a for a in data["accounts"] if a.get("id") != norm["id"]]
     data["accounts"].append(norm)
     save_cloud_data(data)
@@ -402,17 +407,24 @@ def cloud_blocks_state():
         if acct_id not in summaries:
             summaries[acct_id] = account_credential_summary(acct_id)
         summary = summaries[acct_id]
-        result.append({
+        row = {
             "id": b["id"], "accountId": b.get("accountId"), "name": b.get("name"),
             "model": b.get("model"), "modelMode": b.get("modelMode") or "rewrite",
             "exposed": bool(b.get("exposed", False)),
+            # The editor opens on these and always saves them back, so a row
+            # without them made every edit of a block wipe its stated window
+            # and switch off "use the number the model reports".
+            "contextAuto": bool(b.get("contextAuto", False)),
             "accountName": account.get("name") or b.get("accountId"),
             "type": account.get("type"), "baseUrl": account.get("baseUrl"),
             "accountType": account.get("accountType") or "",
             "authMode": account.get("authMode") or "apiKey",
             "hasKey": summary["hasCredential"], "credentialKind": summary["kind"],
             "keyLast4": summary["last4"],
-        })
+        }
+        if b.get("contextLength") is not None:
+            row["contextLength"] = b["contextLength"]   # absent when unstated, never 0
+        result.append(row)
     return result
 
 def cloud_provider_presets_public():

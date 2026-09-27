@@ -14,7 +14,8 @@ from caravan.admin.router_dsl import (
     normalize_router_output,
     recompute_cloud_fallback_eligibility,
 )
-from caravan.admin.systemd_ctl import restart_agent_proxy
+from caravan.admin.port_door import PORT_DOOR
+from caravan.admin.systemd_ctl import ensure_agent_proxy_running
 from caravan.common.errors import AppError
 from caravan.common.fsio import atomic_write_text
 from caravan.store.proxies import ProxyStore
@@ -436,6 +437,12 @@ def save_agent_proxy_config(routes, routers=None):
         seen.add(row["port"])
         cleaned.append(row)
     current = load_agent_proxy_config()
+    before = set()
+    for r in current.get("routes") or []:
+        try:
+            before.add(int(r.get("port") or 0))
+        except (AttributeError, TypeError, ValueError):
+            pass
     # Routers: caller-provided list (Stage 4 UI) or keep the existing one;
     # either way re-normalize against the cleaned routes so inputs stay in sync.
     router_source = routers if routers is not None else current.get("routers")
@@ -446,9 +453,20 @@ def save_agent_proxy_config(routes, routers=None):
         "stopRequests": current.get("stopRequests") or [],
     }
     write_agent_proxy_payload(payload)
-    result = restart_agent_proxy(timeout=30)
+    # A proxy port serves consumers elsewhere on the LAN, so its firewall door
+    # follows the route: opened when a route appears, closed when it goes,
+    # whichever path added or removed it (it used to be opened by three mints
+    # and closed by nothing).
+    after = {row["port"] for row in cleaned}
+    for port in sorted(after - before):
+        PORT_DOOR.open(port)
+    for port in sorted(before - after - {0}):
+        PORT_DOOR.close(port)
+    # The running proxy picks the file up by itself; the save only makes sure
+    # there is one running (see ensure_agent_proxy_running).
+    result = ensure_agent_proxy_running(timeout=30)
     if not result["ok"]:
-        raise AppError(result["stderr"] or "failed to restart agent proxy service", 500)
+        raise AppError(result["stderr"] or "failed to start agent proxy service", 500)
     return payload
 
 # ── Bridge ports (kind="service") ────────────────────────────────────────────
@@ -523,6 +541,19 @@ def _next_agent_port(used_ports):
     return candidate
 
 
+def next_app_port(routes):
+    """The port the next bridge will get — the number its button promises.
+
+    None when it cannot be worked out: the button then promises no number
+    rather than a wrong one. It used to show the next CELL port (22xxx) while
+    the bridge landed at 23xxx.
+    """
+    try:
+        return _next_free_proxy_port(routes or [])
+    except Exception:
+        return None
+
+
 def _next_free_proxy_port(routes):
     """Smallest free port in the PROXY range for a bridge or app port.
 
@@ -570,15 +601,6 @@ def mint_bridge_port(block_id, label=""):
         "mode": "open",
     }
     routes.append(route)
-    # A bridge exists FOR an external consumer on the LAN — open the port the
-    # same best-effort way a starting cell does (no-op without the sudo rule).
-    from caravan.admin.paths import IS_CONTAINER
-    if not IS_CONTAINER:
-        try:
-            from caravan.common.procs import run
-            run(["sudo", "-n", "ufw", "allow", str(port)], timeout=5)
-        except Exception:
-            pass
     saved = save_agent_proxy_config(routes, payload.get("routers"))
     return next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
 
@@ -609,15 +631,6 @@ def mint_app_port(name):
         "mode": "open",
     }
     routes.append(route)
-    # The consumer lives elsewhere on the LAN — open the port best-effort,
-    # same as bridge ports (no-op without the sudo rule).
-    from caravan.admin.paths import IS_CONTAINER
-    if not IS_CONTAINER:
-        try:
-            from caravan.common.procs import run
-            run(["sudo", "-n", "ufw", "allow", str(port)], timeout=5)
-        except Exception:
-            pass
     saved = save_agent_proxy_config(routes, payload.get("routers"))
     out = next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
     return {**out, "apiKey": api_key}
@@ -642,10 +655,9 @@ def mint_agent_port(client_id, agent_id, label="", port=None):
     payload = load_agent_proxy_config()
     routes = payload.get("routes") or []
     if port in (None, "", 0):
-        # From the AGENT base, not the cell base. _next_free_proxy_port() counts
-        # from SERVER_CELL_BASE_PORT because bridges deliberately share the cell
-        # numbering; an agent port does not, and handing one out at 22026 puts a
-        # proxy inside the range the cell picker draws from.
+        # From the AGENT base, not the cell base: handing one out at 22026 would
+        # put a proxy inside the range the cell picker draws from. (Bridges count
+        # from the same base, one by one; agent ports take a pair.)
         port = _next_agent_port({int(r.get("port") or 0) for r in routes if isinstance(r, dict)})
     else:
         try:
@@ -674,13 +686,6 @@ def mint_agent_port(client_id, agent_id, label="", port=None):
         "role": "primary",
     }
     routes.append(route)
-    from caravan.admin.paths import IS_CONTAINER
-    if not IS_CONTAINER:
-        try:
-            from caravan.common.procs import run
-            run(["sudo", "-n", "ufw", "allow", str(port)], timeout=5)
-        except Exception:
-            pass
     saved = save_agent_proxy_config(routes, payload.get("routers"))
     return next((r for r in saved["routes"] if int(r.get("port") or 0) == port), route)
 

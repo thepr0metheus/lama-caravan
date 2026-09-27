@@ -24,6 +24,7 @@ from caravan.admin.monitoring import gpu_state
 from caravan.admin.paths import AGENT_PROXY_STATE_FILE, CONTROLLER_HOST_ID, TOPOLOGY_SERVER_IP, AGENT_PROXY_BASE_PORT, SERVER_CELL_BASE_PORT, SERVER_CELL_UPPER_PORT
 from caravan.admin.proxies_config import (
     load_agent_proxy_config,
+    next_app_port,
     read_agent_proxy_payload,
     sync_router_outputs,
     write_agent_proxy_payload,
@@ -1017,6 +1018,9 @@ def topology_state(refresh_hosts=True):
         # copies are what went stale when the controller moved off 8090.
         "cellPortRange": {"from": SERVER_CELL_BASE_PORT, "to": SERVER_CELL_UPPER_PORT,
                           "proxyBase": AGENT_PROXY_BASE_PORT},
+        # The port the next bridge will really get (mint_bridge_port's own
+        # rule), so its button does not promise a number of its own guessing.
+        "nextAppPort": next_app_port(proxy_config.get("routes")),
         # The stamp of the models the cell editor offers: when it moves, the
         # board fetches the list again (the caravan's shelf reads it).
         "modelsStamp": MODEL_LIST.stamp(),

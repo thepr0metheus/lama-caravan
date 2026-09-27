@@ -85,6 +85,7 @@ jobs:
           python3 scripts/check_installer_assets.py
           python3 scripts/check_cell_python_floor.py
           python3 scripts/check_cell_self_capture.py
+          python3 scripts/check_board_401.py
           python3 scripts/check_cell_card_keys.py
           python3 scripts/check_cell_kinds.py
           python3 scripts/check_proxy_id_namespace.py
@@ -101,6 +102,7 @@ jobs:
           python3 scripts/test_query_flags.py
           python3 scripts/test_proxy_models.py
           python3 scripts/test_cloud_context.py
+          python3 scripts/test_cloud_accounts.py
           python3 scripts/test_request_body.py
           python3 scripts/check_context_window.py
           python3 scripts/test_context_window.py

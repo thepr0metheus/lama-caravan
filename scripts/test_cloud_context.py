@@ -271,7 +271,29 @@ def test_context_auto_migration():
     check(by_id["lived-off-fallback"].get("contextAuto") is True,
           "and what it did stamp the first time is still stamped")
 
-for fn in (test_block_shape, test_context_auto_migration, test_block_switch_shape, test_provider_window_source, test_upsert_preserves, test_catalog_cache, test_narrowing):
+def test_board_state_carries_window():
+    print("cloud_blocks_state — what the board (and its editor) receives:")
+    cloud.save_cloud_data({"accounts": [{"id": "acc", "type": "openrouter", "baseUrl": "https://example.invalid"}],
+                           "blocks": [{"id": "stated", "accountId": "acc", "model": "m1", "contextLength": 65536,
+                                       "contextAuto": True},
+                                      {"id": "unstated", "accountId": "acc", "model": "m2"}]})
+    rows = {r["id"]: r for r in cloud.cloud_blocks_state()}
+    check(rows["stated"].get("contextLength") == 65536 and rows["stated"].get("contextAuto") is True,
+          "defect-history: a stated window and the switch reach the board — they never did, so the editor opened "
+          f"blank and its Save wiped both (got {rows['stated'].get('contextLength')}, {rows['stated'].get('contextAuto')})")
+    check("contextLength" not in rows["unstated"] and rows["unstated"].get("contextAuto") is False,
+          "negative: nothing stated -> the key is ABSENT (never 0), the switch is off")
+    # The editor's round trip: it opens on the row and saves both fields back.
+    row = rows["stated"]
+    saved = cloud.upsert_cloud_block({"id": row["id"], "accountId": row["accountId"], "model": row["model"],
+                                      "modelMode": row["modelMode"], "contextLength": row.get("contextLength") or "",
+                                      "contextAuto": bool(row.get("contextAuto"))})
+    check(saved.get("contextLength") == 65536 and saved.get("contextAuto") is True,
+          f"an edit that changes nothing keeps the window and the switch (got {saved.get('contextLength')}, "
+          f"{saved.get('contextAuto')})")
+
+
+for fn in (test_block_shape, test_context_auto_migration, test_block_switch_shape, test_provider_window_source, test_upsert_preserves, test_catalog_cache, test_narrowing, test_board_state_carries_window):
     fn()
 
 print()

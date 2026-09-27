@@ -22,7 +22,7 @@ The module is loaded FOR REAL (scripts/_js_harness.mjs). `usage-stats` is
 real too: it exports Map caches, and the harness's stub turns any export into
 a function — `.get` on a function would be a harness artifact, not real
 behaviour. DOM-heavy neighbors are stubbed: polling, remote-cells
-(`nextTopologyCellPort` via __stubReturns), topology-render, dialogs
+topology-render, dialogs
 (`appConfirm`), canvas, and others.
 
 Run: python3 scripts/test_js_cloud.py
@@ -90,10 +90,11 @@ const reset = () => {
   mm.modelPricing["gpt-5.6-terra"] = { inputPer1M: 10, outputPer1M: 30 };
   mm.modelPricing["gpt-5.6-luna"] = { inputPer1M: 1, outputPer1M: 3 };
   m.topologyCloudModelCache.clear(); m.closeCloudBlockModal(); m.closeCloudProviderModal();
+  globalThis.__clock = 1000000; m.MODEL_LIST_ASKS.now = () => globalThis.__clock; m.MODEL_LIST_ASKS.failedAt.clear();
   st.ui._lastCloudProvidersKey = ""; st.ui.cloudModelsOpen = {}; st.ui.bridgeBlockChoice = {};
   globalThis.__fields = { toast: toastEl(), topologyCloudProviders: laneEl() }; globalThis.__q = {};
   globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {}; globalThis.__opened.length = 0; globalThis.__timers.length = 0;
-  globalThis.__stubReturns = { "remote-cells.nextTopologyCellPort": () => 22011, "dialogs.appConfirm": async () => true };
+  globalThis.__stubReturns = { "dialogs.appConfirm": async () => true };
 };
 reset();
 // openCloudBlockModal сам тянет список моделей аккаунта — для пинов ЗАПИСИ этот
@@ -155,25 +156,37 @@ PINS = [
      'globalThis.__fetchReply["/api/cloud-accounts/models?id=ollama"] = { ok: true, models: [{ id: "deepseek-v4-flash" }, { id: "qwen3" }] };',
      'await (async () => { await m.fetchCloudAccountModels("ollama"); await m.fetchCloudAccountModels("ollama"); return [calls().length, m.topologyCloudModelCache.get("ollama").map((x) => x.id)]; })()',
      '[1,["deepseek-v4-flash","qwen3"]]', "второй вызов не ходит в сеть — кэш на страницу"),
-    ("fetch_models_failure_forgets_marker",
+    ("fetch_models_failure_forgets_marker_and_pauses",
      'globalThis.__fetchReply["/api/cloud-accounts/models?id=ollama"] = { __status: 500, error: "boom" };',
-     'await (async () => { await m.fetchCloudAccountModels("ollama"); await m.fetchCloudAccountModels("ollama"); return [calls().length, m.topologyCloudModelCache.get("ollama")]; })()',
-     '[2,null]', "отказ не запоминается как ответ: маркер снят, следующий вызов идёт в сеть заново"),
+     'await (async () => { await m.fetchCloudAccountModels("ollama"); await m.fetchCloudAccountModels("ollama"); const soon = calls().length;'
+     ' globalThis.__clock += 59999; await m.fetchCloudAccountModels("ollama"); const almost = calls().length;'
+     ' globalThis.__clock += 1; await m.fetchCloudAccountModels("ollama"); return [soon, almost, calls().length, m.topologyCloudModelCache.get("ollama") ?? null]; })()',
+     '[1,1,2,null]', "defect-history: отказ не запоминается как ответ (маркер снят), но и не повторяется сразу — пауза 60 с; "
+     "страница спрашивает на каждом опросе, и отказывающий аккаунт спрашивали каждые 1.5 с (граница: 59.999 с — ещё нет, 60 с — да)"),
     ("fetch_models_retry_after_failure_succeeds",
      '',
      'await (async () => { const k = "/api/cloud-accounts/models?id=ollama";'
      ' globalThis.__fetchReply[k] = { __status: 500, error: "boom" }; await m.fetchCloudAccountModels("ollama");'
-     ' globalThis.__fetchReply[k] = { ok: true, models: [{ id: "qwen3" }] }; await m.fetchCloudAccountModels("ollama");'
+     ' globalThis.__clock += 60000; globalThis.__fetchReply[k] = { ok: true, models: [{ id: "qwen3" }] }; await m.fetchCloudAccountModels("ollama");'
      ' return [calls().length, (m.topologyCloudModelCache.get("ollama") || []).map((x) => x.id)]; })()',
-     '[2,["qwen3"]]', "positive: попытка после отказа приносит список — пустая выдача не осталась на его месте"),
+     '[2,["qwen3"]]', "positive: попытка после паузы приносит список — пустая выдача не осталась на его месте"),
+    ("open_block_modal_asks_inside_a_pause",
+     'globalThis.__fetchReply["/api/cloud-accounts/models?id=ollama"] = { __status: 500, error: "boom" };',
+     'await (async () => { await m.fetchCloudAccountModels("ollama"); m.openCloudBlockModal(null, "ollama"); await Promise.resolve(); return calls().map((c) => c.path); })()',
+     '["/api/cloud-accounts/models?id=ollama","/api/cloud-accounts/models?id=ollama"]',
+     "оператор открыл редактор модели — список спрашивается сразу, пауза не мешает"),
     ("fetch_subscription_failure_forgets_marker",
      'globalThis.__fetchReply["/api/cloud-accounts/subscription-models?id=openai-subscription"] = { __status: 500, error: "boom" };',
-     'await (async () => { await m.fetchCloudSubscriptionModels("openai-subscription"); await m.fetchCloudSubscriptionModels("openai-subscription"); return [calls().length, m.topologyCloudModelCache.get("openai-subscription")]; })()',
-     '[2,null]', "подписочный список — тот же ответ на отказ: у обоих одно тело, разъехаться нечему"),
+     'await (async () => { await m.fetchCloudSubscriptionModels("openai-subscription"); await m.fetchCloudSubscriptionModels("openai-subscription"); return [calls().length, m.topologyCloudModelCache.get("openai-subscription") ?? null]; })()',
+     '[1,null]', "подписочный список — тот же ответ на отказ и та же пауза: у обоих одно тело, разъехаться нечему"),
     ("prefetch_all_by_kind", '',
      'await (async () => { m.prefetchAllSubscriptionModels(); await Promise.resolve(); return calls().map((c) => c.path).sort(); })()',
      '["/api/cloud-accounts/models?id=ollama","/api/cloud-accounts/subscription-models?id=openai-subscription"]',
-     "префетч: подписка — всегда, API-аккаунт — только с учётными данными, bare — нет"),
+     "префетч: подписка и API-аккаунт — с учётными данными, bare без них — нет"),
+    ("prefetch_skips_a_subscription_nobody_signed_into",
+     'st.setTopology(TOPO({ cloudAccounts: ACCOUNTS().map((a) => ({ ...a, hasCredential: false })) }));',
+     'await (async () => { m.prefetchAllSubscriptionModels(); await Promise.resolve(); return calls().length; })()',
+     '0', "defect-history: в подписку никто не вошёл — список не спрашивается (раньше спрашивался на каждом опросе и получал отказ)"),
     # ── picker and modals: HTML ──
     ("picker_closed_is_empty", '', 'm.renderTopologyCloudPicker()', '""', "negative: закрытый пикер — пустая строка"),
     ("picker_tiles_per_preset",
@@ -225,10 +238,30 @@ PINS = [
      '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [h.includes(":8083"), h.includes("http://ctl:8083"), h.includes("cloud-orphan-bridges"), h.includes(":8084"), h.includes(":23001"), h.includes(\'data-bridge-mint="openai-subscription"\')]; })()',
      '[true,true,true,true,false,true]',
      "мост стоит на карточке блока с URL хоста; мост без блока — в полосе сирот; прокси агента (не service) в лейне нет"),
+    ("lane_bridge_button_promises_the_servers_port",
+     'st.setTopology(TOPO({ nextAppPort: 23004 }));',
+     '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [h.includes("Bridge port :23004</button>"), h.includes(":22")]; })()',
+     '[true,false]', "defect-history: кнопка моста обещает порт, который выдаст сервер (topology.nextAppPort) — раньше номер следующей ЯЧЕЙКИ"),
+    ("lane_bridge_button_without_a_known_port",
+     '',
+     '(() => { m.renderTopologyCloudProviders(); return lane().includes("Bridge port</button>"); })()',
+     'true', "negative: порт неизвестен — кнопка без номера, а не с чужим"),
     ("lane_bridge_choice_survives_rerender",
      'st.ui.bridgeBlockChoice = { "openai-subscription": "gpt-5-6-luna" };',
      '(() => { m.renderTopologyCloudProviders(); return lane().includes(\'<option value="gpt-5-6-luna" selected>\'); })()',
      'true', "несохранённый выбор блока для моста живёт в ui и возвращается в select"),
+    ("usage_refresh_once_per_click_after_renders",
+     '',
+     'await (async () => { const lane = { innerHTML: "", dataset: {}, handlers: [], addEventListener(type, fn) { if (type === "click") this.handlers.push(fn); }, querySelector: () => null };'
+     ' globalThis.__fields.topologyCloudProviders = lane;'
+     ' for (let i = 0; i < 3; i++) { st.ui._lastCloudProvidersKey = ""; m.renderTopologyCloudProviders(); }'
+     ' globalThis.__fetchCalls.length = 0; let sp = 0;'
+     ' const ev = (sel, data) => ({ stopPropagation: () => sp++, target: { closest: (s) => (s === sel ? { dataset: data } : null) } });'
+     ' for (const [sel, data] of [["[data-usage-refresh]", { usageRefresh: "openai-subscription" }], ["[data-api-costs-refresh]", { apiCostsRefresh: "ollama" }],'
+     '   ["[data-or-limits-refresh]", { orLimitsRefresh: "bare" }], ["nothing", {}]]) { for (const h of lane.handlers) await h(ev(sel, data)); }'
+     ' await settle(); return [lane.handlers.length, sp, calls().map((c) => c.path)]; })()',
+     '[1,3,["/api/cloud-accounts/subscription-usage?id=openai-subscription","/api/cloud-accounts/api-costs?id=ollama","/api/cloud-accounts/openrouter-limits?id=bare"]]',
+     "defect-history: три перерисовки — один делегат на лейне, один ↻ — один запрос своего вида (было: делегат на каждой перерисовке, K запросов в chatgpt.com); щелчок мимо кнопок — ничего"),
     ("lane_memoised_by_key", '',
      '(() => { m.renderTopologyCloudProviders(); globalThis.__fields.topologyCloudProviders.innerHTML = "WIPED"; m.renderTopologyCloudProviders(); const a = lane(); st.ui._lastCloudProvidersKey = ""; m.renderTopologyCloudProviders(); return [a, lane().includes("cloud-account-card")]; })()',
      '["WIPED",true]', "тот же ключ — лейна не перерисовывается; сброс ключа — перерисовывается"),
@@ -257,6 +290,20 @@ PINS = [
      'm.openCloudAccountModal("ollama");',
      'await (async () => { await m.saveCloudAccount(); return [calls().length, toastText(), st.ui.topologyCloudModalOpen]; })()',
      '[0,"cloud provider saved",false]', "правка без нового ключа: на провод ничего, модал закрыт"),
+    ("save_account_edit_rename_saves",
+     'm.openCloudAccountModal("ollama"); st.ui.topologyCloudForm.name = "Ollama (home)"; globalThis.__fetchReply["/api/cloud-accounts/save"] = { ok: true };',
+     'await (async () => { await m.saveCloudAccount(); const c = calls(); return [c.map((x) => x.path), c[0].body.account, toastText(), st.ui.topologyCloudModalOpen]; })()',
+     '[["/api/cloud-accounts/save"],{"id":"ollama","type":"ollama","name":"Ollama (home)","baseUrl":"https://ollama.com","authMode":"apiKey"},"cloud provider saved",false]',
+     "defect-history: правка имени уходит на сервер — раньше правка существующего аккаунта не отправляла ничего и всё равно говорила «saved»"),
+    ("save_account_edit_rename_and_key",
+     'm.openCloudAccountModal("ollama"); st.ui.topologyCloudForm.name = "Ollama (home)"; st.ui.topologyCloudForm.apiKey = "k3";'
+     ' globalThis.__fetchReply["/api/cloud-accounts/save"] = { ok: true }; globalThis.__fetchReply["/api/cloud-accounts/key"] = { ok: true };',
+     'await (async () => { await m.saveCloudAccount(); return calls().map((x) => x.path); })()',
+     '["/api/cloud-accounts/save","/api/cloud-accounts/key"]', "имя и ключ вместе: сначала аккаунт, потом ключ; автосоздания блоков нет"),
+    ("save_account_edit_bad_url",
+     'm.openCloudAccountModal("bare"); st.ui.topologyCloudForm.baseUrl = "10.0.0.9:9000";',
+     'await (async () => { await m.saveCloudAccount(); return [calls().length, toastText(), m.topologyCloudBusy, st.ui.topologyCloudModalOpen]; })()',
+     '[0,"base URL must be http(s)",false,true]', "negative: правка адреса без схемы — ни запроса, модал открыт"),
     ("save_account_edit_with_key_only_key",
      'm.openCloudAccountModal("ollama"); st.ui.topologyCloudForm.apiKey = "k2"; globalThis.__fetchReply["/api/cloud-accounts/key"] = { ok: true };',
      'await (async () => { await m.saveCloudAccount(); const c = calls(); return [c.map((x) => x.path), c[0].body]; })()',

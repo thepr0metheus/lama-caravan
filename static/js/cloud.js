@@ -2,7 +2,6 @@
 import { badge, option } from "./form.js";
 import { t } from "./i18n.js";
 import { formatPricePer1M, modelPricing } from "./model-meta.js";
-import { nextTopologyCellPort } from "./remote-cells.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
 import {
@@ -17,6 +16,7 @@ import {
   openRouterLimitsHtml,
   proxySpendFetchedAt,
   proxySpendHtml,
+  refreshUsageReading,
   subscriptionUsageCache,
   subscriptionUsageHtml,
   upstreamErrFetchedAt,
@@ -29,16 +29,57 @@ export let topologyCloudBlockModalOpen = false;
 export let topologyCloudBlockForm = null;
 export let topologyCloudBusy = false;
 export const topologyCloudModelCache = new Map(); // accountId → models[], fetched once at page load
+
+// When the page may ask a provider for its model list again after a refusal.
+// A refusal is not an answer (the in-flight marker is forgotten), and it is not
+// a reason to ask again at once either: the page asks on every poll, so an
+// account that kept failing was asked every 1.5 s, forever. The operator's own
+// act — opening the model editor — asks regardless.
+export class ModelListAsks {
+  constructor({ now = () => Date.now(), pauseMs = 60000 } = {}) {
+    this.now = now;
+    this.pauseMs = pauseMs;
+    this.failedAt = new Map();   // accountId → when its last ask was refused
+  }
+
+  mayAsk(accountId, force = false) {
+    const at = this.failedAt.get(accountId);
+    return force || at === undefined || this.now() - at >= this.pauseMs;
+  }
+
+  refused(accountId) { this.failedAt.set(accountId, this.now()); }
+}
+export const MODEL_LIST_ASKS = new ModelListAsks();
 // Provider-card controls via DELEGATION on the permanent container: the lane's
 // children are replaced by several independent paths (full renderTopology, the
 // usage/pricing fetch callbacks, the flyout toggle) — per-node listeners bound
 // by bindTopologyDragAndDrop died with the old nodes whenever a callback-path
 // re-render ran, leaving dead buttons. One listener on the container survives
 // every innerHTML swap.
+// The ↻ buttons on a cloud card. One table instead of three identical blocks:
+// each was `cache.delete(id); fetch(id)` under a different attribute, and the
+// tab-return refresher (usage-stats.js) would have made it a fourth copy of the
+// same two lines. The button and the refresher call the same action. It lived
+// in bindTopologyDragAndDrop, which runs on every full render and bound it to
+// this permanent container again each time: after K renders one ↻ asked the
+// provider K times.
+const USAGE_REFRESH_BUTTONS = [
+  ["data-usage-refresh", "usageRefresh", "subscription"],
+  ["data-api-costs-refresh", "apiCostsRefresh", "apiCosts"],
+  ["data-or-limits-refresh", "orLimitsRefresh", "openrouter"],
+];
+
 function bindCloudCardDelegates(cpEl) {
   if (cpEl.dataset.delegated) return;
   cpEl.dataset.delegated = "1";
   cpEl.addEventListener("click", async (e) => {
+    for (const [attr, dataKey, kind] of USAGE_REFRESH_BUTTONS) {
+      const btn = e.target.closest(`[${attr}]`);
+      if (!btn) continue;
+      e.stopPropagation();
+      refreshUsageReading(kind, btn.dataset[dataKey]);
+      return;
+    }
     const toggle = e.target.closest("[data-cloud-models-toggle]");
     if (toggle) {
       e.stopPropagation();
@@ -145,9 +186,9 @@ export function renderTopologyCloudProviders() {
   const modelsKey = accounts.map((a) => `${a.id}:${(topologyCloudModelCache.get(a.id) || []).length}`).join("|");
   // Endpoint-health panel (breaker trips / retries / codex version) re-renders too.
   const healthKey = JSON.stringify(topology?.cloudApiHealth || {});
-  // The mint button shows the next fleet-wide port — any cell/port change must re-render.
+  // The mint button shows the port the next bridge will get — its change must re-render.
   const key = JSON.stringify(accounts) + JSON.stringify(blocks) + usageKeys + pricingKey
-    + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${nextTopologyCellPort()}:ml${modelsKey}:ah${healthKey}:ue${upstreamErrFetchedAt}`;
+    + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${topology?.nextAppPort ?? ""}:ml${modelsKey}:ah${healthKey}:ue${upstreamErrFetchedAt}`;
   if (key === ui._lastCloudProvidersKey) return;
   ui._lastCloudProvidersKey = key;
   const addCloudBtn = `<button class="topology-add-wide-btn" type="button" data-topo-add-cloud>${escapeHtml(t("clAddProvider"))}</button>`;
@@ -260,16 +301,17 @@ export function renderTopologyCloudProviders() {
             : "") + (b.unlisted ? " ⚠" : "");
         return `<option value="${escapeHtml(b.id)}"${b.id === chosenBlock ? " selected" : ""}>${escapeHtml(model + suffix)}</option>`;
       }).join("");
-    // Same ghost styling and "next free port" promise as the Reserve-cell
-    // card — bridges and cells share the fleet-wide numbering.
-    const nextBridgePort = nextTopologyCellPort();
+    // The port the server will really give (topology.nextAppPort, the mint's
+    // own rule). It showed the next CELL port — 22xxx — while bridges land in
+    // the proxy range, 23xxx. Unknown, it promises no number at all.
+    const nextBridgePort = topology?.nextAppPort;
     const bridgePanel = acct.hasCredential && acctBlocks.length ? `
       <div class="cloud-bridges">
         <div class="cloud-bridges-head" title="${escapeHtml(t("cloudBridgeHint"))}">${escapeHtml(t("cloudBridgePorts"))}</div>
         ${bridgeRows}
         <div class="cloud-bridge-add">
           <select class="cloud-bridge-block" data-bridge-block="${escapeHtml(acct.id)}" title="${escapeHtml(t("cloudBridgeHint"))}">${bridgeOptions}</select>
-          <button class="ghost-start-btn cloud-bridge-ghost-btn" type="button" data-bridge-mint="${escapeHtml(acct.id)}" title="${escapeHtml(t("cloudBridgeOpen"))}">＋ ${escapeHtml(t("cloudBridgeReserveLabel"))} :${escapeHtml(String(nextBridgePort))}</button>
+          <button class="ghost-start-btn cloud-bridge-ghost-btn" type="button" data-bridge-mint="${escapeHtml(acct.id)}" title="${escapeHtml(t("cloudBridgeOpen"))}">＋ ${escapeHtml(t("cloudBridgeReserveLabel"))}${nextBridgePort ? ` :${escapeHtml(String(nextBridgePort))}` : ""}</button>
         </div>
       </div>` : "";
     usagePanel += bridgePanel;
@@ -429,10 +471,11 @@ export function openCloudBlockModal(blockId, accountId) {
   const resolvedAccountId = topologyCloudBlockForm.accountId;
   const acct = (topology?.cloudAccounts || []).find((a) => a.id === resolvedAccountId);
   if (acct && acct.hasCredential) {
+    // The operator opened the editor: ask now, even inside a pause.
     if ((acct.accountType || "") === "openai-subscription" || String(acct.baseUrl || "").includes("chatgpt.com")) {
-      fetchCloudSubscriptionModels(resolvedAccountId);
+      fetchCloudSubscriptionModels(resolvedAccountId, { force: true });
     } else {
-      fetchCloudAccountModels(resolvedAccountId);
+      fetchCloudAccountModels(resolvedAccountId, { force: true });
     }
   }
 }
@@ -512,10 +555,10 @@ export function cloudModalIsSubscription() {
   return (acct?.accountType || "") === "openai-subscription" || String(acct?.baseUrl || "").includes("chatgpt.com");
 }
 
-async function _fetchModelsInto(accountId, path) {
+async function _fetchModelsInto(accountId, path, { force = false } = {}) {
   // One body for both lists: they were two copies of the same eight lines, and
   // the same defect sat in both.
-  if (!accountId || topologyCloudModelCache.has(accountId)) return;
+  if (!accountId || topologyCloudModelCache.has(accountId) || !MODEL_LIST_ASKS.mayAsk(accountId, force)) return;
   // The empty array is the in-flight marker — it is what makes concurrent
   // callers ask only once.
   topologyCloudModelCache.set(accountId, []);
@@ -532,24 +575,28 @@ async function _fetchModelsInto(accountId, path) {
   // used to stay behind, `has()` then refused every retry until the page was
   // reloaded, and an empty list reads on the board exactly like "this account
   // has no models" — absence drawn as a fact. Forgetting it lets the next
-  // caller ask again.
+  // caller ask again — after a pause (MODEL_LIST_ASKS).
   topologyCloudModelCache.delete(accountId);
+  MODEL_LIST_ASKS.refused(accountId);
 }
 
-export async function fetchCloudSubscriptionModels(accountId) {
-  return _fetchModelsInto(accountId, "/api/cloud-accounts/subscription-models");
+export async function fetchCloudSubscriptionModels(accountId, opts) {
+  return _fetchModelsInto(accountId, "/api/cloud-accounts/subscription-models", opts);
 }
 
-export async function fetchCloudAccountModels(accountId) {
-  return _fetchModelsInto(accountId, "/api/cloud-accounts/models");
+export async function fetchCloudAccountModels(accountId, opts) {
+  return _fetchModelsInto(accountId, "/api/cloud-accounts/models", opts);
 }
 
 export function prefetchAllSubscriptionModels() {
   const accounts = topology?.cloudAccounts || [];
   accounts.forEach((acct) => {
+    // Nobody signed in, nothing to list: a subscription with no sign-in used
+    // to be asked on every poll and refused every time.
+    if (!acct.hasCredential) return;
     if ((acct.accountType || "") === "openai-subscription" || String(acct.baseUrl || "").includes("chatgpt.com")) {
       fetchCloudSubscriptionModels(acct.id);
-    } else if (acct.hasCredential) {
+    } else {
       fetchCloudAccountModels(acct.id);
     }
   });
@@ -695,6 +742,20 @@ export async function saveCloudAccount() {
   renderTopology();
   try {
     let accountId = f.accountId;
+    if (!f.isNew) {
+      // An edit sends what changed: the name, the address, how it signs in.
+      // It used to send nothing and still say "saved".
+      const stored = (topology?.cloudAccounts || []).find((a) => a.id === accountId) || {};
+      const changed = ["name", "baseUrl", "authMode"].some((k) => String(f[k] ?? "") !== String(stored[k] ?? ""));
+      if (changed) {
+        if (!/^https?:\/\//.test(f.baseUrl || "")) { toast("base URL must be http(s)"); topologyCloudBusy = false; renderTopology(); return; }
+        const editRes = await api("/api/cloud-accounts/save", {
+          method: "POST",
+          body: JSON.stringify({ account: { id: accountId, type: f.type, name: f.name, baseUrl: f.baseUrl, authMode: f.authMode } }),
+        });
+        if (editRes.topology) setTopology(editRes.topology);
+      }
+    }
     if (f.isNew) {
       const preset = topologyCloudPresetByType(f.type) || {};
       const resolvedUrl = f.baseUrl || preset.baseUrl || "";

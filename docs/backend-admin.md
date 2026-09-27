@@ -244,14 +244,16 @@ Key functions: `list_unused_models`, `delete_models`, `holders`, `running_owners
 ## `systemd_ctl.py`
 
 `systemctl --user` control. `user_systemd_env` supplies `XDG_RUNTIME_DIR` and the session bus
-address so the admin (itself a service) can talk to the user manager. What is left: bouncing the
-proxy daemon after a routes save (`restart_agent_proxy` — a supervised child in the container), the
+address so the admin (itself a service) can talk to the user manager. What is left: making sure the
+proxy daemon runs after a routes save (`ensure_agent_proxy_running` — `start`, a no-op on a running
+unit; a supervised child in the container). It is not bounced: the daemon re-reads its file every
+~2 s, and a restart cut every request in flight on every port. Then the
 legacy single service (`llamacpp-current.service`: status, journal tail, repair), and who listens
 on a port. `user_service_diagnostics` produces the bus/service/HTTP checklist shown in the UI. The
 per-port cell units (`lama-cell@<port>.service`) and their template went with the controller's own
 cells in step 6.9: its machine's cells run through that machine's scout.
 Owns: —.
-Key functions: `systemctl`, `restart_agent_proxy`, `service_status`, `listening_pid`,
+Key functions: `systemctl`, `ensure_agent_proxy_running`, `service_status`, `listening_pid`,
 `user_service_diagnostics`, `logs` (journal tail), `read_cmdline`, `repair_user_service`
 (daemon-reload + restart).
 
@@ -437,8 +439,10 @@ migrate the legacy pre-rename schema (`switchboards`/`sb:default` → routers) i
 `sync_router_outputs` auto-derives every router's outputs: one `srv:<port>` per live local llama
 server + one `cb:<blockId>` per **exposed** cloud block (with a one-time migration from legacy
 `cloud:<accountId>` outputs), keeping `rules.default` pointed at a local server.
-`save_agent_proxy_config` validates + dedupes routes by port, writes, and restarts the proxy
-service; `set_routers` and the policy setters write without restart (the daemon re-reads live).
+`save_agent_proxy_config` validates + dedupes routes by port, writes, opens the firewall door of a
+port that appeared and closes the door of one that went (`port_door.py`), and makes sure the proxy
+runs — it never restarts it: the daemon re-reads the file live, and a restart cut every request in
+flight. `set_routers` and the policy setters write the same way.
 Owns: `agent-proxies.json` and its `.bak-graph-*` autobackups; `DEFAULT_AGENT_PROXY_ROUTES`.
 Key functions: `read_agent_proxy_payload`, `write_agent_proxy_payload`, `load_agent_proxy_config`,
 `save_agent_proxy_config`, `normalize_routers` (default router always exists, orphan routes
@@ -783,6 +787,16 @@ Owns: — (aggregates; writes only via `proxies_config`/`state`).
 Key functions: `topology_state`, `topology_server`, `topology_nodes`,
 `normalize_topology_assignment`, `apply_topology_assignments`.
 
+## `port_door.py`
+
+`ProxyPortDoor` — the controller's ufw door for a port the proxy listens on: `open` (`ufw allow`)
+and `close` (`ufw delete allow`), through `sudo -n`, best effort and silent without the sudo rule,
+inert in the container. `save_agent_proxy_config` calls it for the ports it adds and removes, so a
+bridge, an app port or an agent port is opened with its route and closed when the route goes —
+before, three mints each carried their own copy of the opening and nothing ever closed a port.
+Owns: —.
+Key names: `ProxyPortDoor`, `PORT_DOOR`.
+
 ## `proxy_ops.py`
 
 Cross-domain proxy actions sitting above the domain modules. `stop_agent_proxy_route` appends
@@ -798,10 +812,10 @@ Key functions: `stop_agent_proxy_route`.
 Container-mode supervision of the proxy daemon. Native deployments run `agent-proxies.py` as its
 own `systemd --user` unit; inside the Docker image (`CARAVAN_CONTAINER`) there is no systemd, so
 the admin owns the proxy as a child process instead: spawned at startup, respawned by a watchdog
-when it dies, restarted in place when a config save asks for it. `tail` serves the child's recent
+when it dies; a config save only makes sure it runs (`start` is idempotent). `tail` serves the child's recent
 output for diagnostics. On native installs this module is inert.
 Owns: the child process handle + watchdog thread (container mode only).
-Key functions: `start`, `restart`, `status`, `tail`.
+Key functions: `start`, `status`, `tail`.
 
 ## `controller_machine.py`
 
