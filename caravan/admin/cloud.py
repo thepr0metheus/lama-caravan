@@ -285,6 +285,9 @@ def normalize_cloud_block(block, account_ids):
             out[key] = value
     if block.get("manual"):
         out["manual"] = True
+    # The "new model" window was answered for this one (it asks once).
+    if block.get("announced"):
+        out["announced"] = True
     return out
 
 def upsert_cloud_account(account):
@@ -325,7 +328,7 @@ def upsert_cloud_block(block):
         # writes its own): the sync must never take it away.
         block = {**block, "manual": True}
     if prev is not None:
-        for key in ("newSince", "goneCount", "manual"):
+        for key in ("newSince", "goneCount", "manual", "announced"):
             if key not in block and prev.get(key):
                 block = {**block, key: prev[key]}
         if "exposed" not in block:
@@ -345,6 +348,25 @@ def delete_cloud_block(block_id):
     data = load_cloud_data()
     data["blocks"] = [b for b in data["blocks"] if b.get("id") != block_id]
     save_cloud_data(data)
+
+def mark_cloud_blocks_announced(block_ids, expose=False):
+    """The "new model" window was answered for these: it will not ask again.
+    With `expose`, they are also shown on the kanban ("just add it")."""
+    ids = {str(i) for i in (block_ids or [])}
+    data = load_cloud_data()
+    changed = False
+    for b in data["blocks"]:
+        if b.get("id") in ids:
+            if not b.get("announced"):
+                b["announced"] = True
+                changed = True
+            if expose and not b.get("exposed"):
+                b["exposed"] = True
+                changed = True
+    if changed:
+        save_cloud_data(data)
+    return changed
+
 
 def set_cloud_block_exposed(block_id, exposed):
     """Tick/untick a model in the router Outputs panel. Exposed blocks become routable
@@ -437,6 +459,7 @@ def cloud_blocks_state():
             # last looked, and one the operator added by hand.
             "newSince": int(b.get("newSince") or 0) or None,
             "manual": bool(b.get("manual", False)),
+            "announced": bool(b.get("announced", False)),
             "accountName": account.get("name") or b.get("accountId"),
             "type": account.get("type"), "baseUrl": account.get("baseUrl"),
             "accountType": account.get("accountType") or "",

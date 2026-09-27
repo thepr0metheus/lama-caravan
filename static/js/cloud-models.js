@@ -8,9 +8,11 @@
 // says what the model is (new, gone, on the kanban or hidden, the default),
 // how many cables reach it, its price, and its own port for an app — opened
 // by a button on the row, open in the LAN, no key (the operator's call).
+import { appConfirmChoice } from "./dialogs.js";
 import { t } from "./i18n.js";
 import { formatPricePer1M, modelPricing } from "./model-meta.js";
-import { escapeHtml } from "./utils.js";
+import { topology } from "./state.js";
+import { api, escapeHtml, toast } from "./utils.js";
 
 // How long a model stays "new" after the list brought it.
 export const NEW_FOR_MS = 7 * 24 * 3600 * 1000;
@@ -153,5 +155,121 @@ export class ProviderModels {
       <div class="cloud-models-flyout">${list}
         <button class="cloud-add-model-btn" type="button" data-cloud-add-block="${escapeHtml(this.account.id)}">${escapeHtml(t("cloudAddById"))}</button>
       </div>`;
+  }
+}
+
+// The "new model" window (2026-09-27, the operator's ask): a provider brought
+// new models, and some model of that provider carries cables or is a
+// router's default — offer to move them onto a newcomer. One window per
+// provider's batch: it names the newcomer closest by name to a model in use
+// (gpt-6.1-sol beside gpt-6-sol: the words without the vendor and the
+// version), and "Not now" answers for the whole batch — OpenRouter brought
+// 184 models in one list, and a window per model would have been 184
+// windows. "Move" and "Just add" answer for that one model; the next of the
+// batch asks after it.
+export class NewModelAnnouncer {
+  static JUST_ADD = "__add__";
+
+  constructor({ ask = appConfirmChoice, call = api, notify = toast, apply = () => {}, now = () => Date.now(),
+    quiet = () => NewModelAnnouncer.nothingOpen() } = {}) {
+    this.ask = ask;
+    this.call = call;
+    this.notify = notify;
+    this.apply = apply;
+    this.now = now;
+    this.quiet = quiet;
+    this.asking = false;
+    // Models whose answer failed to reach the controller: not asked again on
+    // this page, or a failing controller would reopen the window every poll.
+    this.failed = new Set();
+  }
+
+  // Nothing is open over the board: every dialog and modal is aria-modal,
+  // and one counts when it is drawn (has boxes). Not by the hidden attribute:
+  // a cell's window waits in its row with display:none, and on the live
+  // board seven of them read as open — the window would never have asked.
+  static nothingOpen(doc = globalThis.document) {
+    if (!doc?.querySelectorAll) return false;
+    return ![...doc.querySelectorAll('[aria-modal="true"]')].some((d) => (d.getClientRects?.() || []).length > 0);
+  }
+
+  // A model id's words without the vendor and the versions:
+  // "openai/gpt-6.1-sol" → ["gpt", "sol"].
+  static words(id) {
+    const name = String(id || "").toLowerCase().split("/").pop();
+    return [...new Set(name.split(/[-_.:]+/).filter((w) => w && !/^v?\d+[a-z]?$/.test(w)))];
+  }
+
+  static likeness(a, b) {
+    const mine = new Set(NewModelAnnouncer.words(a));
+    return NewModelAnnouncer.words(b).filter((w) => mine.has(w)).length;
+  }
+
+  // What to ask now, or null: the first provider with new models nobody
+  // answered for and a model in use. Closest newcomer first (ties keep the
+  // card's order), and for it the closest model in use, then the busiest.
+  pending(top) {
+    for (const account of top?.cloudAccounts || []) {
+      const rows = new ProviderModels({ account, blocks: top.cloudProviders || [], routers: top.routers || [],
+        now: this.now() }).rows();
+      const batch = rows.filter((r) => r.fresh && !r.block.announced && !this.failed.has(r.block.id));
+      const inUse = rows.filter((r) => !r.fresh && (r.cables > 0 || r.isDefault));
+      if (!batch.length || !inUse.length) continue;
+      const close = (r) => Math.max(...inUse.map((u) => NewModelAnnouncer.likeness(r.block.model, u.block.model)));
+      const block = batch.map((r) => ({ r, k: close(r) })).sort((a, b) => b.k - a.k)[0].r.block;
+      const sources = inUse.map((u) => ({ u, k: NewModelAnnouncer.likeness(block.model, u.block.model) }))
+        .sort((a, b) => (b.k - a.k) || (b.u.cables - a.u.cables)).map((x) => x.u);
+      return { account, block, sources, batch: batch.map((r) => r.block.id) };
+    }
+    return null;
+  }
+
+  sourceLabel(row) {
+    const parts = [row.block.model || row.block.id];
+    if (row.cables) parts.push(t("cloudModelCables", { n: String(row.cables) }));
+    if (row.isDefault) parts.push(t("cloudChipDefault"));
+    if (row.gone) parts.push(t("cloudChipGone"));
+    return parts.join(" · ");
+  }
+
+  // Ask about one newcomer, if there is one and nothing else is open.
+  // Resolves the answer ("move from" id, JUST_ADD, null for "Not now"), or
+  // undefined when it did not ask.
+  async maybeAsk(top = topology) {
+    if (this.asking || !this.quiet()) return undefined;
+    const p = this.pending(top);
+    if (!p) return undefined;
+    this.asking = true;
+    const { account, block, sources, batch } = p;
+    const model = block.model || block.id;
+    try {
+      const more = batch.length - 1;
+      const choice = await this.ask(
+        t("newModelText", { model }) + (more > 0 ? ` ${t("newModelMore", { n: String(more) })}` : ""), {
+          title: t("newModelTitle", { provider: account.name || account.id }),
+          danger: false, list: sources.length > 3, choiceLabel: t("newModelChoiceLabel"),
+          confirmLabel: t("newModelApply"), cancelLabel: t("newModelNotNow"),
+          choices: [...sources.map((s) => ({ value: s.block.id, label: this.sourceLabel(s) })),
+            { value: NewModelAnnouncer.JUST_ADD, label: t("newModelJustAdd") }],
+        });
+      const post = (path, body) => this.call(path, { method: "POST", body: JSON.stringify(body) });
+      let res;
+      if (choice === null || choice === undefined) {
+        res = await post("/api/cloud-blocks/announced", { ids: batch });
+      } else if (choice === NewModelAnnouncer.JUST_ADD) {
+        res = await post("/api/cloud-blocks/announced", { ids: [block.id], expose: true });
+      } else {
+        res = await post("/api/cloud-blocks/move-cables", { from: choice, to: block.id });
+        if (Number.isFinite(res?.moved)) this.notify(t("newModelMoved", { n: String(res.moved), model }));
+      }
+      if (res?.topology) this.apply(res.topology);
+      return choice ?? null;
+    } catch (err) {
+      this.failed.add(block.id);
+      this.notify(err.message);
+      return undefined;
+    } finally {
+      this.asking = false;
+    }
   }
 }

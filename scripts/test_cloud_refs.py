@@ -17,7 +17,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from caravan.admin.cloud_refs import CloudModelRefs  # noqa: E402
+import copy  # noqa: E402
+
+from caravan.admin.cloud_refs import CloudModelRefs, CloudModelRewire  # noqa: E402
+from caravan.admin.proxies_config import cloud_block_output  # noqa: E402
+from caravan.admin.router_dsl import normalize_router  # noqa: E402
 
 _fail = []
 
@@ -86,6 +90,53 @@ def main():
     check(not any(free.values()) and refs.in_use("terra") is False,
           f"negative: ни одной ссылки — пусто по всем видам, «не в деле» (got {free})")
     check(CloudModelRefs({}).in_use("sol") is False, "negative: пустой конфиг — ничего не в деле")
+
+    print("перецепка на новую модель того же провайдера:")
+    cfg = copy.deepcopy(CFG)
+    moved = CloudModelRewire(cfg).move("sol", "sol2")
+    router = cfg["routers"][0]
+    edges = {e["id"]: e for e in router["graph"]["edges"]}
+    nodes = {n["id"]: n for n in router["graph"]["nodes"]}
+    check(edges["e2"]["to"] == "out:cb:sol2" and edges["e3"]["to"] == "out:cb:sol2"
+          and nodes["q"]["config"]["spillEdge"] == "e2" and nodes["b"]["config"]["rescueEdge"] == "e3",
+          "канаты переехали на месте: id рёбер те же, поэтому перелив очереди и запасной выход 🛟 остались ролями")
+    check(router["rules"]["dormantDefault"] == "cb:sol2" and router["rules"]["schedule"] == [{"output": "cb:sol2"}]
+          and router["rules"]["failover"] == ["cb:sol2"] and router["rules"]["default"] == "srv:22011",
+          "правила за моделью: резервное «по умолчанию», расписание, failover; чужое правило не тронуто")
+    check(cfg["routes"][2]["cloudFallbackProviderId"] == "sol2", "↑☁ запасной агента — туда же")
+    check(cfg["routes"][0]["providerId"] == "sol" and cfg["routes"][1]["providerId"] == "sol",
+          "negative: порты приложений и облачный маршрут агента — прикреплённые к модели руками — остаются")
+    check(moved == 6 and not CloudModelRefs(cfg).of("sol")["edges"] and not CloudModelRefs(cfg).of("sol")["rules"],
+          f"шесть ссылок переехало, у старой модели канатов и правил не осталось (got {moved})")
+    check(CloudModelRewire(copy.deepcopy(CFG)).move("terra", "sol2") == 0, "negative: у модели без ссылок переносить нечего")
+
+    print("выход новой модели — до переноса, иначе сохранение выбросит правила:")
+    accounts = [{"id": "acc", "name": "OpenAI"}]
+    out = cloud_block_output(accounts, {"id": "sol2", "accountId": "acc", "model": "gpt-6-sol"})
+    check(out == {"id": "cb:sol2", "label": "☁ gpt-6-sol", "target": "cloud:acc", "upstreamHost": "", "upstreamPort": 0,
+                  "upstreamType": "cloud", "providerId": "sol2", "accountId": "acc"},
+          f"выход модели — тот же, что сделает сверка выходов, даже пока модель скрыта (got {out})")
+    check(cloud_block_output(accounts, {"id": "x", "accountId": "gone", "model": "m"}) is None,
+          "negative: аккаунта нет — выхода нет (None, а не выход в никуда)")
+    base = copy.deepcopy(CFG)
+    base["routers"][0]["outputs"] = [{"id": "srv:22011"}, {"id": "srv:22001"}, {"id": "cb:sol"}]
+    base["routers"][0]["rules"]["schedule"] = [{"output": "cb:sol", "from": "09:00", "to": "18:00"}]
+    base["routers"][0]["rules"]["bySource"] = [{"output": "cb:sol", "proxyId": "p1"}]
+    base["routers"].append({"id": "r2", "outputs": [{"id": "cb:sol2"}], "rules": {"default": "cb:sol2"}})
+    with_out = copy.deepcopy(base)
+    CloudModelRewire(with_out).move("sol", "sol2", output=out)
+    ids = [[o["id"] for o in r["outputs"]] for r in with_out["routers"]]
+    check(ids == [["srv:22011", "srv:22001", "cb:sol", "cb:sol2"], ["cb:sol2"]],
+          f"выход добавлен в каждый маршрутизатор один раз, старый остаётся (got {ids})")
+    saved = normalize_router(with_out["routers"][0])["rules"]
+    check([r["output"] for r in saved["schedule"]] == ["cb:sol2"] and [r["output"] for r in saved["bySource"]] == ["cb:sol2"]
+          and saved["failover"] == ["cb:sol2"],
+          "расписание, «по источнику» и failover переживают сохранение")
+    without = copy.deepcopy(base)
+    CloudModelRewire(without).move("sol", "sol2")
+    lost = normalize_router(without["routers"][0])["rules"]
+    check(lost["schedule"] == [] and lost["bySource"] == [] and lost["failover"] == [],
+          "as-is: без выхода новой модели сохранение молча выбросило бы эти правила — поэтому выход идёт первым")
 
     if _fail:
         print(f"FAILED ({len(_fail)}):")

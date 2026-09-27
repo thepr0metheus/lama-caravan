@@ -105,6 +105,30 @@ const openBlock = (b, a) => { m.openCloudBlockModal(b, a); globalThis.__fetchCal
 // подменён и даёт настоящий макротик, за который всё это оседает.
 const settle = async () => { for (let i = 0; i < 3; i++) await new Promise((r) => setImmediate(r)); };
 const polls = () => globalThis.__timers.filter((x) => x.startsWith("poll:"));
+// The "new model" window: strings from en.js, a provider with two models in
+// use (two cables into one, the default on the other) and a batch of newcomers.
+const en = (await import(pathToFileURL(process.env.JS_ROOT + "/i18n/en.js").href)).default;
+const fill = (s, v) => String(s).replace(/\{(\w+)\}/g, (_, k) => v[k]);
+const NM_T = 10000000;   // seconds; newcomers came an hour ago, a week is 604800 s
+const NM_NOW = NM_T * 1000;
+const NM_TOP = (blocks) => ({ cloudAccounts: [{ id: "a", name: "OpenAI" }],
+  routers: [{ rules: { default: "cb:mini" }, graph: { edges: [{ to: "out:cb:sol" }, { to: "out:cb:sol" }] } }],
+  cloudProviders: blocks || [
+    { id: "sol", accountId: "a", model: "gpt-6-sol", exposed: true },
+    { id: "mini", accountId: "a", model: "gpt-5-mini", exposed: true },
+    { id: "zeta", accountId: "a", model: "zeta-9", newSince: NM_T - 3600 },
+    { id: "sol61", accountId: "a", model: "gpt-6.1-sol", newSince: NM_T - 3600 },
+    { id: "sol62", accountId: "a", model: "gpt-6.2-sol", newSince: NM_T - 3600, announced: true },
+  ] });
+const NMA = (over = {}) => {
+  const log = { asks: [], calls: [], notes: [], applied: [] };
+  const a = new cm.NewModelAnnouncer({
+    ask: async (msg, opts) => { log.asks.push({ msg, opts }); return "answer" in over ? over.answer : null; },
+    call: async (path, o) => { log.calls.push([path, JSON.parse(o.body)]); if (over.fail) throw new Error("controller is down");
+      return "res" in over ? over.res : { moved: 3, topology: { t: 1 } }; },
+    notify: (x) => log.notes.push(x), apply: (top) => log.applied.push(top), now: () => NM_NOW, quiet: () => over.quiet !== false });
+  return [a, log];
+};
 const out = {};
 """
 
@@ -280,6 +304,92 @@ PINS = [
                  {"total": 5, "shown": 1, "fresh": 1, "gone": 1}, 0]),
      "строки по вниманию: ушедшая (два каната в неё), новая, на канбане (и «по умолчанию»), скрытые; ушедшая не «новая»; "
      "модели чужого аккаунта не в списке; boundary: «новая» ровно 7 суток — на миллисекунду раньше ещё да, ровно в 7 суток уже нет"),
+    ("new_model_words_and_likeness",
+     '',
+     '[cm.NewModelAnnouncer.words("openai/gpt-6.1-sol"), cm.NewModelAnnouncer.words("qwen3-coder:480b-cloud"), cm.NewModelAnnouncer.words(""),'
+     ' cm.NewModelAnnouncer.words("gpt-gpt-4o"), cm.NewModelAnnouncer.likeness("gpt-6.1-sol", "gpt-6-sol"),'
+     ' cm.NewModelAnnouncer.likeness("gpt-6.1-sol", "claude-sonnet-5"), cm.NewModelAnnouncer.likeness("openai/gpt-6", "anthropic/gpt-6")]',
+     '[["gpt","sol"],["qwen3","coder","cloud"],[],["gpt"],2,0,1]',
+     "слова имени модели — без поставщика и версий, без повторов; похожесть — сколько слов общих; negative: чужое семейство — 0"),
+    ("new_model_pending_closest_first",
+     '',
+     '(() => { const [a] = NMA(); const p = a.pending(NM_TOP()); mm.modelPricing["zeta-9"] = { inputPer1M: 50, outputPer1M: 100 };'
+     ' const q = a.pending(NM_TOP()); const busy = NM_TOP(); busy.routers[0].graph.edges.push(...[1, 2, 3].map(() => ({ to: "out:cb:mini" })));'
+     ' return [p.account.id, p.block.id, p.sources.map((s) => s.block.id), p.batch, q.block.id, q.batch,'
+     ' a.pending(busy).sources.map((s) => [s.block.id, s.cables])]; })()',
+     '["a","sol61",["sol","mini"],["sol61","zeta"],"sol61",["zeta","sol61"],[["sol",2],["mini",3]]]',
+     "окно спрашивает о новой модели, ближайшей по имени к модели в деле, и первой предлагает ближайшую по имени "
+     "(даже если к другой идёт больше канатов); "
+     "партия — новые без ответа (отвеченная gpt-6.2-sol не в ней); boundary: карточка ставит дорогую чужую первой — окно всё равно о ближайшей"),
+    ("new_model_pending_nothing_to_ask",
+     '',
+     '(() => { const [a] = NMA(); const b = NM_TOP().cloudProviders;'
+     ' const allAnswered = a.pending(NM_TOP(b.map((x) => ({ ...x, announced: true }))));'
+     ' const unused = a.pending({ ...NM_TOP(), routers: [] });'
+     ' const old = a.pending(NM_TOP(b.map((x) => (x.newSince ? { ...x, newSince: NM_T - 8 * 24 * 3600 } : x))));'
+     ' a.failed.add("sol61"); const next = a.pending(NM_TOP()).block.id; a.failed.add("zeta");'
+     ' return [allAnswered, unused, old, next, a.pending(NM_TOP()), a.pending(null)]; })()',
+     '[null,null,null,"zeta",null,null]',
+     "negative: всё отвечено, ни одна модель провайдера не в деле, новые старше недели, нет топологии — не спрашивать; "
+     "модель, ответ о которой не дошёл, пропускается до перезагрузки страницы"),
+    ("new_model_move_asks_and_moves",
+     '',
+     'await (async () => { const [a, log] = NMA({ answer: "sol" }); const r = await a.maybeAsk(NM_TOP()); const { msg, opts } = log.asks[0];'
+     ' return [r, msg === fill(en.newModelText, { model: "gpt-6.1-sol" }) + " " + fill(en.newModelMore, { n: "1" }),'
+     ' opts.title === fill(en.newModelTitle, { provider: "OpenAI" }), opts.cancelLabel === en.newModelNotNow,'
+     ' opts.confirmLabel === en.newModelApply, opts.choiceLabel === en.newModelChoiceLabel, opts.danger,'
+     ' opts.choices.map((c) => c.value), opts.choices[0].label === "gpt-6-sol · " + fill(en.cloudModelCables, { n: "2" }),'
+     ' opts.choices[1].label === "gpt-5-mini · " + en.cloudChipDefault, opts.choices[2].label === en.newModelJustAdd,'
+     ' log.calls, log.notes[0] === fill(en.newModelMoved, { model: "gpt-6.1-sol", n: "3" }), log.applied, a.asking]; })()',
+     '["sol",true,true,true,true,true,false,["sol","mini","__add__"],true,true,true,'
+     '[["/api/cloud-blocks/move-cables",{"from":"sol","to":"sol61"}]],true,[{"t":1}],false]',
+     "окно: заголовок с провайдером, текст с моделью и «пришло ещё», «Не сейчас» вместо «Отмена», тон вопроса; "
+     "варианты — модели в деле с канатами и «по умолчанию», последним «просто добавить»; ответ — перенос, тост с числом, доска из ответа"),
+    ("new_model_not_now_answers_the_batch",
+     '',
+     'await (async () => { const [a, log] = NMA({ answer: null }); const r = await a.maybeAsk(NM_TOP()); return [r, log.calls, log.notes, log.applied]; })()',
+     '[null,[["/api/cloud-blocks/announced",{"ids":["sol61","zeta"]}]],[],[{"t":1}]]',
+     "«Не сейчас» — ответ за всю партию провайдера (OpenRouter принёс 184 модели разом: окно на каждую — 184 окна); без тоста"),
+    ("new_model_just_add_answers_one",
+     '',
+     'await (async () => { const [a, log] = NMA({ answer: "__add__" }); const r = await a.maybeAsk(NM_TOP()); return [r, log.calls, log.notes]; })()',
+     '["__add__",[["/api/cloud-blocks/announced",{"ids":["sol61"],"expose":true}]],[]]',
+     "«просто добавить» — только эта модель, на канбан; следующая из партии спросит потом"),
+    ("new_model_does_not_ask_over_something",
+     '',
+     'await (async () => { const [a, l1] = NMA({ quiet: false }); const r1 = await a.maybeAsk(NM_TOP());'
+     ' const [b, l2] = NMA(); b.asking = true; const r2 = await b.maybeAsk(NM_TOP());'
+     ' const [c, l3] = NMA(); const r3 = await c.maybeAsk(NM_TOP([]));'
+     ' return [r1 === undefined, r2 === undefined, r3 === undefined, l1.asks.length + l2.asks.length + l3.asks.length,'
+     ' l1.calls.length + l2.calls.length + l3.calls.length]; })()',
+     '[true,true,true,0,0]',
+     "negative: открыто другое окно, окно уже спрашивает, спрашивать не о чем — не спрашивает и ничего не шлёт"),
+    ("new_model_failed_answer_is_not_asked_again",
+     '',
+     'await (async () => { const [a, log] = NMA({ answer: "sol", fail: true }); const r = await a.maybeAsk(NM_TOP());'
+     ' return [r === undefined, log.notes, [...a.failed], a.asking, a.pending(NM_TOP()).block.id, log.applied.length]; })()',
+     '[true,["controller is down"],["sol61"],false,"zeta",0]',
+     "отказ контроллера: тост с причиной, окно свободно, о той же модели не спрашивает (иначе окно открывалось бы каждый опрос)"),
+    ("new_model_absent_count_is_not_zero",
+     '',
+     'await (async () => { const [a, log] = NMA({ answer: "sol", res: { topology: { t: 2 } } }); await a.maybeAsk(NM_TOP());'
+     ' const [b, l2] = NMA({ answer: null, res: {} }); await b.maybeAsk(NM_TOP()); return [log.notes, log.applied, l2.applied]; })()',
+     '[[],[{"t":2}],[]]',
+     "negative: ответ без числа перенесённого — тоста «перенесено: 0» нет; ответ без доски — доска не трогается"),
+    ("new_model_window_is_one_and_draws_its_answer",
+     '',
+     '(() => { const one = m.NEW_MODELS instanceof cm.NewModelAnnouncer; m.NEW_MODELS.apply({ ...TOPO(), marker: 7 }); return [one, st.topology.marker]; })()',
+     '[true,7]',
+     "окно одно на доску; его ответ приходит с доской, и она ставится сразу"),
+    ("new_model_nothing_open",
+     '',
+     '(() => { const seen = []; const N = cm.NewModelAnnouncer.nothingOpen; const drawn = { getClientRects: () => [{}] };'
+     ' const waiting = { getClientRects: () => [], closest: () => null };'
+     ' return [N({ querySelectorAll: (s) => (seen.push(s), [waiting, drawn]) }), N({ querySelectorAll: () => [waiting, waiting] }),'
+     ' N({ querySelectorAll: () => [] }), N({}), N(null), seen]; })()',
+     '[false,true,true,false,false,["[aria-modal=\\"true\\"]"]]',
+     "открыто (нарисовано) окно — не спрашивать; defect-history: окошко ячейки ждёт в строке с display:none без атрибута hidden — "
+     "на живой доске семь таких считались открытыми, и окно не спросило бы никогда; negative: нет документа — считать, что занято"),
     ("usage_refresh_once_per_click_after_renders",
      '',
      'await (async () => { const lane = { innerHTML: "", dataset: {}, handlers: [], addEventListener(type, fn) { if (type === "click") this.handlers.push(fn); }, querySelector: () => null };'

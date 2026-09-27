@@ -248,6 +248,7 @@ from caravan.admin.cloud import (
     normalize_cloud_block,
     save_cloud_data,
     save_provider_secrets,
+    mark_cloud_blocks_announced,
     set_cloud_block_exposed,
     upsert_cloud_account,
     upsert_cloud_block,
@@ -1468,6 +1469,33 @@ def _post_api_cloud_blocks_restore(h, parsed, body):
 @_route(POST_ROUTES, '/api/cloud-blocks/delete')
 def _post_api_cloud_blocks_delete(h, parsed, body):
         delete_cloud_block(body.get("id"))
+        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
+        return
+
+@_route(POST_ROUTES, '/api/cloud-blocks/move-cables')
+def _post_api_cloud_blocks_move_cables(h, parsed, body):
+        # The "new model" window: everything that pointed at one model of a
+        # provider now points at another of the same provider, roles kept.
+        from caravan.admin.cloud_refs import CloudModelRewire
+        src, dst = str(body.get("from") or "").strip(), str(body.get("to") or "").strip()
+        blocks = {b.get("id"): b for b in load_cloud_data()["blocks"]}
+        if src not in blocks or dst not in blocks or src == dst:
+            raise AppError("move cables: name two different models", 400)
+        if blocks[src].get("accountId") != blocks[dst].get("accountId"):
+            raise AppError("move cables: both models must be of one provider", 400)
+        from caravan.admin.proxies_config import cloud_block_output
+        mark_cloud_blocks_announced([dst], expose=True)   # the new model is on the kanban from now on
+        payload = load_agent_proxy_config()
+        output = cloud_block_output(cloud_accounts_state(), blocks[dst])
+        moved = CloudModelRewire(payload).move(src, dst, output=output)
+        if moved:
+            save_agent_proxy_config(payload.get("routes") or [], payload.get("routers"))
+        h.send_json({"ok": True, "moved": moved, "topology": topology_state(refresh_hosts=False)})
+        return
+
+@_route(POST_ROUTES, '/api/cloud-blocks/announced')
+def _post_api_cloud_blocks_announced(h, parsed, body):
+        mark_cloud_blocks_announced(body.get("ids") or [], expose=bool(body.get("expose")))
         h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
         return
 
