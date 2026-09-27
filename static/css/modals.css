@@ -1044,6 +1044,12 @@ button.topology-detail-action.danger:focus {
   border: 1px dashed color-mix(in srgb, var(--muted) 55%, transparent); background: none; color: var(--muted);
 }
 .cloud-port-add:hover { color: var(--accent, #4da392); border-color: var(--accent, #4da392); }
+/* "⇄ Move cables…" on a gone model something still leads to. */
+.cloud-move-cables {
+  flex-shrink: 0; font: inherit; font-size: 10.5px; padding: 1px 7px; border-radius: 7px; cursor: pointer;
+  border: 1px solid color-mix(in srgb, var(--bad) 55%, transparent); background: none; color: var(--bad);
+}
+.cloud-move-cables:hover { background: color-mix(in srgb, var(--bad) 12%, transparent); }
 
 /* "30 days via the caravan": one line, the models behind it on a click. */
 .spend-panel { padding: 0; }

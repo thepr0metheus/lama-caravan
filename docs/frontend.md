@@ -779,19 +779,24 @@ and paints weekly schedule grids. Queue-node live stats are computed from `ui.la
 
 ## routers.js
 
-The router card on the board, the router detail popover, and the outputs panel (right rail):
-local llama servers plus cloud providers, each routable target carrying one shared default radio.
+The router card on the board, the router detail popover, and the router's outputs — the Servers
+block on the kanban (`renderServersBlockHtml`; the old right-rail panel that drew the same list was
+dropped on 2026-09-27, nothing called it): local llama servers plus cloud providers, each routable
+target carrying one shared default radio. A cloud provider's head reads its models the way the
+provider card does (`ProviderModels`, cloud-models.js): "shown/total" with "N on kanban · Models M"
+on hover, and the new and gone counts; its checklist marks new models and lists the shown ones
+first, the new ones next (a long list hid them), then by price.
 `saveRouters(mutator)` deep-copies `topology.routers`, applies the mutation, POSTs to
 `/api/agent-proxies/routers`, applies the returned topology when present and re-renders — with a
 marching-ants "saving" indicator (`_setRoutersSaving`) since the workspace auto-persists.
 `rebindProxyRouter()` is the drop handler for dragging a proxy onto a router. The local outputs
-are grouped by the machine that serves them — `localOutputGroups()`, one grouping for the outputs
-panel and the kanban's servers block, which each held a copy — and each group is named by
+are grouped by the machine that serves them — `localOutputGroups()`, one grouping (the old panel
+and the Servers block each held a copy) — and each group is named by
 `machineAt()` (topology-nodes.js): the kanban named the controller's machine by the controller's
 old display name and every other machine by its bare address.
 
 - Owns: `_routersSaving` counter, `topologyOutputsCloudExpanded`, the cloud-expose chain/timer.
-- Key exports: `saveRouters`, `renderTopologyRouterCard`, `renderTopologyRouterDetail`, `renderRouterOutputsPanel`, `localOutputGroups`, `rebindProxyRouter`, `routerById`.
+- Key exports: `saveRouters`, `renderTopologyRouterCard`, `renderTopologyRouterDetail`, `renderServersBlockHtml`, `localOutputGroups`, `rebindProxyRouter`, `routerById`.
 
 **Modals & panels**
 
@@ -888,20 +893,31 @@ removals (`topology.cloudRemoved`) stand in one line with "↶" each (`data-clou
 "＋ Add by id" opens the block editor for a model the provider does not list. Rows go attention
 first: gone, new, on the kanban, hidden; dearer first within a group.
 
+`ModelNames` says how alike two model names are: the words of the name without the vendor and the
+versions (`openai/gpt-6.1-sol` → gpt, sol), counted in common; both offers below rank by it.
+
 `NewModelAnnouncer` is the "new model" window (the operator's ask): when a provider brought new
 models nobody answered for (`announced`) and one of its models carries cables or is a router's
 default, it offers to move them onto a newcomer (`POST /api/cloud-blocks/move-cables`) — the
-newcomer closest by name to a model in use (the words without the vendor and the versions), and
-first among the choices the closest model in use, then the busiest; "Move nothing — just show it"
+newcomer closest by name to a model in use, and first among the choices the closest model in use,
+then the busiest; "Move nothing — just show it"
 exposes it. One window per provider's batch: "Not now" answers for the whole batch
 (`/api/cloud-blocks/announced`), because OpenRouter once brought 184 models in one list. It asks
 after a board refresh (`refreshTopology`), never over a drag, a focused field or another dialog
-(`nothingOpen`: every dialog is `aria-modal`), one at a time; a model whose answer failed to reach
-the controller is not asked about again on that page. The instance is `cloud.js`'s `NEW_MODELS`,
-whose answer comes back with the board and is drawn at once.
+(`nothingOpen`: every dialog is `aria-modal`, and one counts when it is drawn — a cell's window
+waits in its card row with `display:none`, and counting by the `hidden` attribute kept the board
+"busy" for good), one at a time; a model whose answer failed to reach the controller is not asked
+about again on that page.
+
+`GoneModelCables` is "⇄ Move cables…" on the row of a gone model something still leads to (cables
+or the default), shown while the provider has a listed model left: the same move, onto a model the
+operator picks — the closest by name first, then the ones on the kanban, then the card's order. With
+nothing pointing at the gone model afterwards, the sync removes it by itself (and keeps it a day for
+"↶"). The instances are `cloud.js`'s `NEW_MODELS` and `GONE_CABLES`; their answers come back with
+the board and are drawn at once.
 
 - Owns: the window's `asking` and `failed`.
-- Key exports: `ProviderModels`, `NewModelAnnouncer`, `NEW_FOR_MS`.
+- Key exports: `ProviderModels`, `ModelNames`, `NewModelAnnouncer`, `GoneModelCables`, `NEW_FOR_MS`.
 
 ## usage-stats.js
 

@@ -110,7 +110,7 @@ export class ProviderModels {
     return `<span class="cloud-chip ${kind}">${escapeHtml(text)}</span>`;
   }
 
-  rowHtml(r) {
+  rowHtml(r, movable = false) {
     const b = r.block;
     const chips = [
       r.gone ? this.chip(t("cloudChipGone"), "gone") : "",
@@ -131,10 +131,16 @@ export class ProviderModels {
         ? `<button class="cloud-port-add" type="button" data-bridge-mint="${escapeHtml(b.id)}" title="${escapeHtml(
           t("cloudPortAddTitle", { port: this.nextPort ? String(this.nextPort) : "…" }))}">${escapeHtml(t("cloudPortAdd"))}</button>`
         : "");
+    // A gone model something still leads to, while the provider has another
+    // model to lead there instead: its cables move in one step.
+    const move = r.gone && (r.cables > 0 || r.isDefault) && movable
+      ? `<button class="cloud-move-cables" type="button" data-cloud-move-cables="${escapeHtml(b.id)}"`
+        + ` title="${escapeHtml(t("cloudMoveCablesTitle"))}">${escapeHtml(t("cloudMoveCables"))}</button>`
+      : "";
     const title = r.gone ? t("cloudModelGoneTitle") : (b.model || b.id);
     return `<div class="cloud-block-row${r.gone ? " stale" : ""}${r.fresh ? " fresh" : ""}" data-cloud-block="${escapeHtml(b.id)}"`
       + ` role="button" tabindex="0" title="${escapeHtml(title)}">`
-      + `<span class="cloud-block-model">${escapeHtml(b.model || "—")}</span>${chips}${cables}${price}${ports}</div>`;
+      + `<span class="cloud-block-model">${escapeHtml(b.model || "—")}</span>${chips}${cables}${move}${price}${ports}</div>`;
   }
 
   removedHtml() {
@@ -148,13 +154,29 @@ export class ProviderModels {
 
   html() {
     const rows = this.rows();
+    const movable = rows.some((r) => !r.gone);
     const list = rows.length
-      ? `<div class="cloud-account-blocks">${rows.map((r) => this.rowHtml(r)).join("")}</div>`
+      ? `<div class="cloud-account-blocks">${rows.map((r) => this.rowHtml(r, movable)).join("")}</div>`
       : `<div class="topology-muted cloud-models-empty">${escapeHtml(t("clNoModelsYet"))}</div>`;
     return `${this.headHtml()}${this.removedHtml()}
       <div class="cloud-models-flyout">${list}
         <button class="cloud-add-model-btn" type="button" data-cloud-add-block="${escapeHtml(this.account.id)}">${escapeHtml(t("cloudAddById"))}</button>
       </div>`;
+  }
+}
+
+// How alike two model names are: the words of the name without the vendor
+// and the versions ("openai/gpt-6.1-sol" → gpt, sol), counted in common.
+// Both offers to move cables rank by it — onto a newcomer, off a gone model.
+export class ModelNames {
+  static words(id) {
+    const name = String(id || "").toLowerCase().split("/").pop();
+    return [...new Set(name.split(/[-_.:]+/).filter((w) => w && !/^v?\d+[a-z]?$/.test(w)))];
+  }
+
+  static likeness(a, b) {
+    const mine = new Set(ModelNames.words(a));
+    return ModelNames.words(b).filter((w) => mine.has(w)).length;
   }
 }
 
@@ -170,9 +192,9 @@ export class ProviderModels {
 export class NewModelAnnouncer {
   static JUST_ADD = "__add__";
 
-  constructor({ ask = appConfirmChoice, call = api, notify = toast, apply = () => {}, now = () => Date.now(),
+  constructor({ dialog = appConfirmChoice, call = api, notify = toast, apply = () => {}, now = () => Date.now(),
     quiet = () => NewModelAnnouncer.nothingOpen() } = {}) {
-    this.ask = ask;
+    this.dialog = dialog;
     this.call = call;
     this.notify = notify;
     this.apply = apply;
@@ -193,18 +215,6 @@ export class NewModelAnnouncer {
     return ![...doc.querySelectorAll('[aria-modal="true"]')].some((d) => (d.getClientRects?.() || []).length > 0);
   }
 
-  // A model id's words without the vendor and the versions:
-  // "openai/gpt-6.1-sol" → ["gpt", "sol"].
-  static words(id) {
-    const name = String(id || "").toLowerCase().split("/").pop();
-    return [...new Set(name.split(/[-_.:]+/).filter((w) => w && !/^v?\d+[a-z]?$/.test(w)))];
-  }
-
-  static likeness(a, b) {
-    const mine = new Set(NewModelAnnouncer.words(a));
-    return NewModelAnnouncer.words(b).filter((w) => mine.has(w)).length;
-  }
-
   // What to ask now, or null: the first provider with new models nobody
   // answered for and a model in use. Closest newcomer first (ties keep the
   // card's order), and for it the closest model in use, then the busiest.
@@ -215,9 +225,9 @@ export class NewModelAnnouncer {
       const batch = rows.filter((r) => r.fresh && !r.block.announced && !this.failed.has(r.block.id));
       const inUse = rows.filter((r) => !r.fresh && (r.cables > 0 || r.isDefault));
       if (!batch.length || !inUse.length) continue;
-      const close = (r) => Math.max(...inUse.map((u) => NewModelAnnouncer.likeness(r.block.model, u.block.model)));
+      const close = (r) => Math.max(...inUse.map((u) => ModelNames.likeness(r.block.model, u.block.model)));
       const block = batch.map((r) => ({ r, k: close(r) })).sort((a, b) => b.k - a.k)[0].r.block;
-      const sources = inUse.map((u) => ({ u, k: NewModelAnnouncer.likeness(block.model, u.block.model) }))
+      const sources = inUse.map((u) => ({ u, k: ModelNames.likeness(block.model, u.block.model) }))
         .sort((a, b) => (b.k - a.k) || (b.u.cables - a.u.cables)).map((x) => x.u);
       return { account, block, sources, batch: batch.map((r) => r.block.id) };
     }
@@ -244,7 +254,7 @@ export class NewModelAnnouncer {
     const model = block.model || block.id;
     try {
       const more = batch.length - 1;
-      const choice = await this.ask(
+      const choice = await this.dialog(
         t("newModelText", { model }) + (more > 0 ? ` ${t("newModelMore", { n: String(more) })}` : ""), {
           title: t("newModelTitle", { provider: account.name || account.id }),
           danger: false, list: sources.length > 3, choiceLabel: t("newModelChoiceLabel"),
@@ -270,6 +280,65 @@ export class NewModelAnnouncer {
       return undefined;
     } finally {
       this.asking = false;
+    }
+  }
+}
+
+// "⇄ Move cables…" on a model the provider dropped while something still
+// leads to it (variant A): its cables and rules move onto another model of
+// the same provider in one step — the closest by name first, then the ones
+// on the kanban, then the card's order. Nothing points at the gone model
+// afterwards, so the sync removes it by itself and keeps it a day for "↶".
+export class GoneModelCables {
+  constructor({ dialog = appConfirmChoice, call = api, notify = toast, apply = () => {}, now = () => Date.now() } = {}) {
+    this.dialog = dialog;
+    this.call = call;
+    this.notify = notify;
+    this.apply = apply;
+    this.now = now;
+  }
+
+  // The gone model's row, its provider and where its cables can go; null
+  // when the model or its provider is not on the board.
+  targets(blockId, top) {
+    const block = (top?.cloudProviders || []).find((b) => b.id === blockId);
+    const account = block && (top.cloudAccounts || []).find((a) => a.id === block.accountId);
+    if (!account) return null;
+    const rows = new ProviderModels({ account, blocks: top.cloudProviders, routers: top.routers || [], now: this.now() }).rows();
+    const onto = rows.filter((r) => !r.gone && r.block.id !== blockId)
+      .map((r) => ({ r, k: ModelNames.likeness(block.model, r.block.model) }))
+      .sort((a, b) => (b.k - a.k) || (Number(b.r.shown) - Number(a.r.shown))).map((x) => x.r);
+    return { account, from: rows.find((r) => r.block.id === blockId), onto };
+  }
+
+  label(row) {
+    const parts = [row.block.model || row.block.id];
+    if (row.shown) parts.push(t("cloudChipKanban"));
+    if (row.cables) parts.push(t("cloudModelCables", { n: String(row.cables) }));
+    return parts.join(" · ");
+  }
+
+  // Resolves the model the cables went to, or null: cancelled, nowhere to
+  // go, or the controller refused (said in a toast).
+  async offer(blockId, top = topology) {
+    const p = this.targets(blockId, top);
+    if (!p?.onto.length) return null;
+    const model = p.from.block.model || blockId;
+    const to = await this.dialog(t("goneMoveText", { model, provider: p.account.name || p.account.id }), {
+      title: t("goneMoveTitle", { model }), danger: false, list: p.onto.length > 3,
+      choiceLabel: t("goneMoveChoiceLabel"), confirmLabel: t("goneMoveApply"),
+      choices: p.onto.map((r) => ({ value: r.block.id, label: this.label(r) })),
+    });
+    if (!to) return null;
+    try {
+      const res = await this.call("/api/cloud-blocks/move-cables", { method: "POST", body: JSON.stringify({ from: blockId, to }) });
+      const onto = p.onto.find((r) => r.block.id === to);
+      if (Number.isFinite(res?.moved)) this.notify(t("newModelMoved", { n: String(res.moved), model: onto?.block.model || to }));
+      if (res?.topology) this.apply(res.topology);
+      return to;
+    } catch (err) {
+      this.notify(err.message);
+      return null;
     }
   }
 }

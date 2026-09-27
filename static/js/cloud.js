@@ -1,5 +1,5 @@
 // Cloud provider accounts/blocks modals and OAuth login flow.
-import { NewModelAnnouncer, ProviderModels } from "./cloud-models.js";
+import { GoneModelCables, NewModelAnnouncer, ProviderModels } from "./cloud-models.js";
 import { badge, option } from "./form.js";
 import { t } from "./i18n.js";
 import { modelPricing } from "./model-meta.js";
@@ -178,11 +178,21 @@ function bindCloudCardDelegates(cpEl) {
       } catch (err) { toast(err.message); restore.disabled = false; }
       return;
     }
+    const move = e.target.closest("[data-cloud-move-cables]");
+    if (move) {
+      e.stopPropagation();
+      move.disabled = true;
+      await GONE_CABLES.offer(move.dataset.cloudMoveCables);
+      move.disabled = false;
+      return;
+    }
     const row = e.target.closest("[data-cloud-block]");
     if (row) openCloudBlockModal(row.dataset.cloudBlock, null);
   });
   cpEl.addEventListener("keydown", (e) => {
-    const row = e.target.closest("[data-cloud-block]");
+    // The row itself, not a button in it: Enter on "＋ port" opened the
+    // model's window, and the port was never minted from the keyboard.
+    const row = e.target.matches?.("[data-cloud-block]") ? e.target : null;
     if (row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openCloudBlockModal(row.dataset.cloudBlock, null); }
   });
 }
@@ -524,9 +534,12 @@ export async function fetchCloudAccountModels(accountId, opts) {
   return _fetchModelsInto(accountId, "/api/cloud-accounts/models", opts);
 }
 
-// The "new model" window (cloud-models.js): it asks after a refresh of the
-// board, and its answer comes back with the board, drawn at once.
-export const NEW_MODELS = new NewModelAnnouncer({ apply: (top) => { setTopology(top); renderTopology(); } });
+// The two offers to move a provider's cables (cloud-models.js): the "new
+// model" window, asked after a refresh of the board, and "⇄ Move cables…" on
+// a gone model's row. Their answers come back with the board, drawn at once.
+const drawBoard = (top) => { setTopology(top); renderTopology(); };
+export const NEW_MODELS = new NewModelAnnouncer({ apply: drawBoard });
+export const GONE_CABLES = new GoneModelCables({ apply: drawBoard });
 
 export function prefetchAllSubscriptionModels() {
   const accounts = topology?.cloudAccounts || [];

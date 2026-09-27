@@ -109,6 +109,7 @@ const polls = () => globalThis.__timers.filter((x) => x.startsWith("poll:"));
 // use (two cables into one, the default on the other) and a batch of newcomers.
 const en = (await import(pathToFileURL(process.env.JS_ROOT + "/i18n/en.js").href)).default;
 const fill = (s, v) => String(s).replace(/\{(\w+)\}/g, (_, k) => v[k]);
+const escapeHtmlLike = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const NM_T = 10000000;   // seconds; newcomers came an hour ago, a week is 604800 s
 const NM_NOW = NM_T * 1000;
 const NM_TOP = (blocks) => ({ cloudAccounts: [{ id: "a", name: "OpenAI" }],
@@ -123,11 +124,32 @@ const NM_TOP = (blocks) => ({ cloudAccounts: [{ id: "a", name: "OpenAI" }],
 const NMA = (over = {}) => {
   const log = { asks: [], calls: [], notes: [], applied: [] };
   const a = new cm.NewModelAnnouncer({
-    ask: async (msg, opts) => { log.asks.push({ msg, opts }); return "answer" in over ? over.answer : null; },
+    dialog: async (msg, opts) => { log.asks.push({ msg, opts }); return "answer" in over ? over.answer : null; },
     call: async (path, o) => { log.calls.push([path, JSON.parse(o.body)]); if (over.fail) throw new Error("controller is down");
       return "res" in over ? over.res : { moved: 3, topology: { t: 1 } }; },
     notify: (x) => log.notes.push(x), apply: (top) => log.applied.push(top), now: () => NM_NOW, quiet: () => over.quiet !== false });
   return [a, log];
+};
+// "⇄ Move cables…": a gone model two cables lead to, and where they may go.
+const GM_TOP = (extra = []) => ({ cloudAccounts: [{ id: "a", name: "OpenAI" }],
+  routers: [{ rules: {}, graph: { edges: [{ to: "out:cb:old" }, { to: "out:cb:old" }, { to: "out:cb:sol7" }] } }],
+  cloudProviders: [
+    { id: "old", accountId: "a", model: "gpt-6-sol", exposed: true, unlisted: true },
+    { id: "gone2", accountId: "a", model: "gpt-5-nano", unlisted: true },
+    { id: "misc", accountId: "a", model: "o9-mini" },
+    { id: "luna", accountId: "a", model: "gpt-6-luna" },
+    { id: "terra", accountId: "a", model: "gpt-6-terra", exposed: true },
+    { id: "sol7", accountId: "a", model: "gpt-7-sol", exposed: true },
+    ...extra,
+  ] });
+const GMC = (over = {}) => {
+  const log = { asks: [], calls: [], notes: [], applied: [] };
+  const g = new cm.GoneModelCables({
+    dialog: async (msg, opts) => { log.asks.push({ msg, opts }); return "answer" in over ? over.answer : null; },
+    call: async (path, o) => { log.calls.push([path, JSON.parse(o.body)]); if (over.fail) throw new Error("controller is down");
+      return "res" in over ? over.res : { moved: 2, topology: { t: 3 } }; },
+    notify: (x) => log.notes.push(x), apply: (top) => log.applied.push(top), now: () => NM_NOW });
+  return [g, log];
 };
 const out = {};
 """
@@ -306,9 +328,9 @@ PINS = [
      "модели чужого аккаунта не в списке; boundary: «новая» ровно 7 суток — на миллисекунду раньше ещё да, ровно в 7 суток уже нет"),
     ("new_model_words_and_likeness",
      '',
-     '[cm.NewModelAnnouncer.words("openai/gpt-6.1-sol"), cm.NewModelAnnouncer.words("qwen3-coder:480b-cloud"), cm.NewModelAnnouncer.words(""),'
-     ' cm.NewModelAnnouncer.words("gpt-gpt-4o"), cm.NewModelAnnouncer.likeness("gpt-6.1-sol", "gpt-6-sol"),'
-     ' cm.NewModelAnnouncer.likeness("gpt-6.1-sol", "claude-sonnet-5"), cm.NewModelAnnouncer.likeness("openai/gpt-6", "anthropic/gpt-6")]',
+     '[cm.ModelNames.words("openai/gpt-6.1-sol"), cm.ModelNames.words("qwen3-coder:480b-cloud"), cm.ModelNames.words(""),'
+     ' cm.ModelNames.words("gpt-gpt-4o"), cm.ModelNames.likeness("gpt-6.1-sol", "gpt-6-sol"),'
+     ' cm.ModelNames.likeness("gpt-6.1-sol", "claude-sonnet-5"), cm.ModelNames.likeness("openai/gpt-6", "anthropic/gpt-6")]',
      '[["gpt","sol"],["qwen3","coder","cloud"],[],["gpt"],2,0,1]',
      "слова имени модели — без поставщика и версий, без повторов; похожесть — сколько слов общих; negative: чужое семейство — 0"),
     ("new_model_pending_closest_first",
@@ -381,6 +403,61 @@ PINS = [
      '(() => { const one = m.NEW_MODELS instanceof cm.NewModelAnnouncer; m.NEW_MODELS.apply({ ...TOPO(), marker: 7 }); return [one, st.topology.marker]; })()',
      '[true,7]',
      "окно одно на доску; его ответ приходит с доской, и она ставится сразу"),
+    ("gone_cables_targets_closest_then_shown",
+     '',
+     '(() => { const [g] = GMC(); const p = g.targets("old", GM_TOP([{ id: "nova", accountId: "a", model: "gpt-6-nova", newSince: NM_T - 3600 }]));'
+     ' return [p.account.id, p.from.block.id, p.from.gone, p.onto.map((r) => r.block.id)]; })()',
+     '["a","old",true,["sol7","terra","nova","luna","misc"]]',
+     "куда перецепить ушедшую gpt-6-sol: ближайшая по имени (gpt-7-sol), при равной похожести — та, что на канбане "
+     "(terra раньше новой скрытой nova, хотя карточка ставит новые выше), потом порядок карточки; сама модель и другая ушедшая — не цели"),
+    ("gone_cables_nothing_to_offer",
+     '',
+     'await (async () => { const [g, log] = GMC({ answer: "sol7" }); const lone = { cloudAccounts: [{ id: "a" }], routers: [],'
+     ' cloudProviders: [{ id: "old", accountId: "a", model: "m", unlisted: true }, { id: "g2", accountId: "a", model: "n", unlisted: true }] };'
+     ' const orphan = { cloudAccounts: [], routers: [], cloudProviders: [{ id: "old", accountId: "gone-account", model: "m" }] };'
+     ' return [g.targets("nope", GM_TOP()), g.targets("old", orphan), g.targets("old", null), await g.offer("old", lone), log.asks.length, log.calls.length]; })()',
+     '[null,null,null,null,0,0]',
+     "negative: модели нет, её провайдера нет, нет топологии — целей нет (null, а не пустой список); все остальные модели провайдера тоже ушли — окно не открывается"),
+    ("gone_cables_offer_moves",
+     '',
+     'await (async () => { const [g, log] = GMC({ answer: "sol7" }); const r = await g.offer("old", GM_TOP()); const { msg, opts } = log.asks[0];'
+     ' return [r, msg === fill(en.goneMoveText, { model: "gpt-6-sol", provider: "OpenAI" }), opts.title === fill(en.goneMoveTitle, { model: "gpt-6-sol" }),'
+     ' opts.choiceLabel === en.goneMoveChoiceLabel, opts.confirmLabel === en.goneMoveApply, opts.danger, opts.list,'
+     ' opts.choices.map((c) => c.value), opts.choices[0].label === "gpt-7-sol · " + en.cloudChipKanban + " · " + fill(en.cloudModelCables, { n: "1" }),'
+     ' opts.choices[2].label === "gpt-6-luna", log.calls, log.notes[0] === fill(en.newModelMoved, { model: "gpt-7-sol", n: "2" }), log.applied]; })()',
+     '["sol7",true,true,true,true,false,true,["sol7","terra","luna","misc"],true,true,'
+     '[["/api/cloud-blocks/move-cables",{"from":"old","to":"sol7"}]],true,[{"t":3}]]',
+     "окно: заголовок и текст с моделью и провайдером, «На», «Перецепить», тон вопроса, длинный список столбцом; "
+     "варианты с метками «на канбане» и канатами; перенос — тем же маршрутом, что у окна новой модели; тост с числом; доска из ответа"),
+    ("gone_cables_cancel_and_refusal",
+     '',
+     'await (async () => { const [g, l1] = GMC({ answer: null }); const r1 = await g.offer("old", GM_TOP());'
+     ' const [h, l2] = GMC({ answer: "sol7", fail: true }); const r2 = await h.offer("old", GM_TOP());'
+     ' const [k, l3] = GMC({ answer: "sol7", res: {} }); const r3 = await k.offer("old", GM_TOP());'
+     ' return [r1, l1.calls.length, r2, l2.notes, l2.applied.length, r3, l3.notes, l3.applied.length]; })()',
+     '[null,0,null,["controller is down"],0,"sol7",[],0]',
+     "negative: отмена — ничего не шлёт; отказ контроллера — тост с причиной, доска не трогается; ответ без числа и доски — ни тоста «0», ни доски"),
+    ("gone_row_button_only_where_it_can_help",
+     '',
+     '(() => { const html = (top) => new cm.ProviderModels({ account: top.cloudAccounts[0], blocks: top.cloudProviders, routers: top.routers, now: NM_NOW }).html();'
+     ' const h = html(GM_TOP()); const lone = GM_TOP(); lone.cloudProviders = lone.cloudProviders.filter((b) => b.unlisted);'
+     ' const dflt = GM_TOP(); dflt.routers = [{ rules: { default: "cb:gone2" }, graph: { edges: [] } }];'
+     ' return [(h.match(/data-cloud-move-cables="([^"]+)"/g) || []), h.includes(escapeHtmlLike(en.cloudMoveCables)),'
+     ' (html(lone).match(/data-cloud-move-cables/g) || []).length, (html(dflt).match(/data-cloud-move-cables="([^"]+)"/g) || [])]; })()',
+     '[["data-cloud-move-cables=\\"old\\""],true,0,["data-cloud-move-cables=\\"gone2\\""]]',
+     "кнопка «⇄ Перецепить…» — только у ушедшей модели, к которой что-то ведёт (канаты или «по умолчанию»); "
+     "negative: у ушедшей без канатов её нет, у живой с канатами нет, и нет, когда у провайдера не осталось живых моделей"),
+    ("gone_button_click_offers_the_move",
+     '',
+     'await (async () => { const lane = { innerHTML: "", dataset: {}, handlers: [], addEventListener(type, fn) { if (type === "click") this.handlers.push(fn); }, querySelector: () => null };'
+     ' globalThis.__fields.topologyCloudProviders = lane; m.renderTopologyCloudProviders(); const seen = [];'
+     ' m.GONE_CABLES.offer = async (id) => { seen.push(id); return null; };'
+     ' try { let sp = 0; const btn = { dataset: { cloudMoveCables: "old" }, disabled: false };'
+     ' const ev = { stopPropagation: () => sp++, target: { closest: (s) => (s === "[data-cloud-move-cables]" ? btn : (s === "[data-cloud-block]" ? { dataset: { cloudBlock: "old" } } : null)) } };'
+     ' for (const h of lane.handlers) await h(ev); return [seen, sp, btn.disabled, m.topologyCloudBlockForm, m.GONE_CABLES instanceof cm.GoneModelCables]; }'
+     ' finally { delete m.GONE_CABLES.offer; } })()',
+     '[["old"],1,false,null,true]',
+     "щелчок по «⇄ Перецепить…» предлагает перенос этой модели, а не открывает её окно (строка под кнопкой не срабатывает); кнопка снова доступна после ответа"),
     ("new_model_nothing_open",
      '',
      '(() => { const seen = []; const N = cm.NewModelAnnouncer.nothingOpen; const drawn = { getClientRects: () => [{}] };'
@@ -390,6 +467,20 @@ PINS = [
      '[false,true,true,false,false,["[aria-modal=\\"true\\"]"]]',
      "открыто (нарисовано) окно — не спрашивать; defect-history: окошко ячейки ждёт в строке с display:none без атрибута hidden — "
      "на живой доске семь таких считались открытыми, и окно не спросило бы никогда; negative: нет документа — считать, что занято"),
+    ("row_keys_open_the_model_not_over_its_buttons",
+     '',
+     'await (async () => { const lane = { innerHTML: "", dataset: {}, keys: [], addEventListener(type, fn) { if (type === "keydown") this.keys.push(fn); }, querySelector: () => null };'
+     ' globalThis.__fields.topologyCloudProviders = lane; m.renderTopologyCloudProviders();'
+     ' const row = { dataset: { cloudBlock: "gpt-5-6-terra" }, matches: (s) => s === "[data-cloud-block]", closest: (s) => (s === "[data-cloud-block]" ? row : null) };'
+     ' const button = { dataset: { bridgeMint: "gpt-5-6-terra" }, matches: () => false, closest: (s) => (s === "[data-cloud-block]" ? row : null) };'
+     ' const press = (target, key) => { let prevented = false; lane.keys.forEach((fn) => fn({ key, target, preventDefault: () => { prevented = true; } })); return prevented; };'
+     ' const onButton = [press(button, "Enter"), m.topologyCloudBlockForm];'
+     ' const onRow = [press(row, "Enter"), m.topologyCloudBlockForm?.blockId]; m.closeCloudBlockModal();'
+     ' const other = [press(row, "a"), m.topologyCloudBlockForm];'
+     ' return [lane.keys.length, onButton, onRow, other]; })()',
+     '[1,[false,null],[true,"gpt-5-6-terra"],[false,null]]',
+     "defect-history: Enter на «＋ port» в строке модели открывал окно модели и гасил нажатие — порт с клавиатуры не выдавался; "
+     "Enter на самой строке открывает её модель; negative: другая клавиша — ничего"),
     ("usage_refresh_once_per_click_after_renders",
      '',
      'await (async () => { const lane = { innerHTML: "", dataset: {}, handlers: [], addEventListener(type, fn) { if (type === "click") this.handlers.push(fn); }, querySelector: () => null };'
