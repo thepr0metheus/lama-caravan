@@ -785,9 +785,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     conn = http.client.HTTPConnection(route["upstreamHost"], route["upstreamPort"], timeout=600)
                     register_active_control(request_id, route["label"], conn)
                     engine_model = str(route.get("upstreamModel") or "")
-                    # An engine next to the cells is not ours: the key the
-                    # client presented to the caravan stays with the caravan.
-                    kept_out = ("host", "authorization", "x-api-key") if engine_model else ("host",)
+                    # The key the client presented opens a route here, not a
+                    # server there: it stays with the caravan, for a cell as
+                    # for an engine next to the cells (it used to reach a cell
+                    # as it was).
+                    kept_out = ("host", "authorization", "x-api-key")
                     headers = {
                         key2: value for key2, value in self.headers.items()
                         if key2.lower() not in HOP_HEADERS and key2.lower() not in kept_out

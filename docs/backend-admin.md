@@ -609,7 +609,9 @@ own `TtlCache`: `firewall_port_access` (ufw view of who may reach a controller p
 `probe_remote_port` (TCP connect, 15s), `remote_llama_health` (`/health` → ok / loading — llama.cpp
 answers 503 while loading into VRAM — / down, 3s), `remote_llama_modalities` (`/props`, the
 authoritative vision/audio source, 300s), and `command_cell_health` (HEALTH_PATH JSON with
-download/load progress bytes, or a bare TCP probe when unset). The three history rings —
+download/load progress bytes, or a bare TCP probe when unset). A 401 or 403 on a health path is
+`broken` — "the cell refuses the caravan": a server started with a key of its own, which the
+proxy's requests meet as well — not the `ok` any answer below 500 used to be (2026-09-26). The three history rings —
 `_gpu_history` (mem/util/power per `node:gpuIndex`), `_cpu_history` (load/RAM per node),
 `_tps_history` (prompt/gen t/s per `node:port`) — are appended on every topology build, same-second
 samples collapsed, 600s retention / 300 rows kept / 150 emitted, all guarded by `_history_lock`.
