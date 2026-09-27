@@ -129,6 +129,26 @@ a.node-engine-serve.pull { display:inline-flex; align-items:center; text-decorat
 .shelf-line .sl-del { opacity:0; }
 .shelf-line:hover .sl-del, .shelf-line:focus-within .sl-del { opacity:1; }
 @media (hover: none) { .shelf-line .sl-del { opacity:1; } }
+/* "+ Add model" under the caravan's strip (round 10, A): one line in the
+   shelf's look, the whole line the button. */
+.caravan-add {
+  --cell-accent: var(--ok, #3fb950);
+  display:flex; align-items:center; gap:8px; width:100%; min-height:34px; box-sizing:border-box; margin:0;
+  padding:4px 10px 4px 11px; border-radius:8px; text-align:left; cursor:pointer;
+  border:1px dashed color-mix(in srgb, var(--cell-accent) 55%, transparent);
+  background:color-mix(in srgb, var(--cell-accent) 4%, transparent); color:var(--cell-accent);
+}
+.caravan-add:hover:not(:disabled) { background:color-mix(in srgb, var(--cell-accent) 10%, transparent); }
+.caravan-add:focus-visible { outline:2px solid var(--accent-strong); outline-offset:2px; }
+.caravan-add:disabled { opacity:.45; cursor:not-allowed; }
+.caravan-add-plus {
+  flex:0 0 30px; width:30px; height:18px; box-sizing:border-box; border-radius:9px;
+  display:inline-flex; align-items:center; justify-content:center;
+  border:1px dashed color-mix(in srgb, var(--cell-accent) 80%, transparent);
+  background:color-mix(in srgb, var(--cell-accent) 8%, transparent); font:700 13px/1 system-ui, sans-serif;
+}
+.caravan-add-label { font-size:12.5px; font-weight:700; }
+.caravan-add-count { flex:1; min-width:0; font-size:11px; color:var(--muted,#888); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 /* Mounted Server-stats + GPU-telemetry slots inside the node columns. */
 .node-ctrl-server-stats { padding:4px 10px 10px; }
 .node-ctrl-gpu-telemetry { padding:4px 10px 12px; min-width:0; }

@@ -347,12 +347,12 @@ export function renderTopology() {
       reserveEngineButton(btn);
     });
   });
-  // A caravan model with no cell on this machine: "+" opens the cell editor on
-  // the next free port with the model in it; Apply makes the cell (round 9, C).
+  // "+ Add model" on a machine's card: the cell editor on the next free port
+  // with its model list open; Apply makes the cell (round 10, A).
   $("topologyLlamaServers")?.querySelectorAll("[data-caravan-add]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
       event.stopPropagation();
-      openCaravanModelEditor(btn.dataset.caravanAdd, btn.dataset.caravanModel);
+      openCaravanModelEditor(btn.dataset.caravanAdd);
     });
   });
   // A model of an engine with no cell: unload it or delete its files (step 3).

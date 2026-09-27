@@ -34,7 +34,7 @@ import {
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
 import { runnerRegistry } from "./llama-edit.js";
-import { JOB_LABELS, JOB_MARKS, jobsForArtifact, jobsForCell, jobsFromKinds } from "./model-jobs.js";
+import { JOB_LABELS, JOB_MARKS, jobsForCell, jobsFromKinds } from "./model-jobs.js";
 import { $, api, copyText, escapeHtml, inferSpecType, toast } from "./utils.js";
 
 // ── Host-centric node view (Stage 3a) ────────────────────────────────────────
@@ -281,7 +281,6 @@ export function nodeGpuRowHtml(node, g) {
 // Installed-but-not-loaded models shown before "+N more installed".
 const ENGINE_IDLE_SHOWN = 6;
 // The caravan's shelf shows as many, then "+N more".
-const CARAVAN_SHELF_SHOWN = 6;
 // Ollama's keep_alive -1 is an expiry decades away: "stays loaded".
 const ENGINE_FOREVER_SEC = 365 * 86400;
 
@@ -575,64 +574,46 @@ export function nodeEngineGroupsHtml(n, servers) {
   }).join("");
 }
 
-// The caravan's own models with no cell on this machine (2026-09-26: the
-// operator chose round 8's A for where, round 9's C for what "+" does). The
-// models are the ones the cell editor offers — this controller's and its
-// libraries' (state.models): any machine runs any of them, its scout fetches
-// the file — less the ones a cell of this machine already names. Newest first:
-// the model just downloaded is the one to try. None when the list has not come
-// yet; a list that came empty is said so.
-export function caravanShelfModels(n, servers = [], models = state.models) {
+// The caravan's own models with no cell on this machine: the ones the cell
+// editor offers — this controller's and its libraries' (state.models): any
+// machine runs any of them, its scout fetches the file — less the ones a cell
+// of this machine already names. Newest first. None when the list has not
+// come yet; a list that came empty is said so. "+ Add model" counts them.
+export function caravanModelsWithoutCell(n, servers = [], models = state.models) {
   if (!Array.isArray(models)) return null;
   const named = new Set(servers.map((srv) => String(srv?.slotConfig?.MODEL_FILE || "").trim()).filter(Boolean));
   return models.filter((m) => m && m.kind === "model" && m.path && !named.has(String(m.path)))
     .sort((a, b) => (Number(b.mtime) || 0) - (Number(a.mtime) || 0) || String(a.path).localeCompare(String(b.path)));
 }
 
-function caravanShelfLineHtml(n, m, reserving) {
-  const path = String(m.path);
-  const name = String(m.name || path.split("/").pop() || path).replace(/\.gguf$/i, "");
-  const key = `${n.id}:caravan:${path}`;
-  // "+" makes nothing: it opens the cell editor on the next free port with the
-  // model in it, and Apply makes the cell. Shut while a reserve on this machine
-  // is taking the port the editor would offer.
-  const port = nextTopologyCellPort();
-  const open = reserving ? ""
-    : `data-caravan-add="${escapeHtml(String(n.id))}" data-caravan-model="${escapeHtml(path)}"`;
-  const why = reserving ? t("shelfReserveBusy") : t("shelfCaravanAddTitle", { model: name, port: String(port) });
-  const library = m.libraryOnly
-    ? `<span class="shelf-library" title="${escapeHtml(t("shelfCaravanLibraryHint", { library: String(m.store?.name || "") }))}">📚</span>` : "";
-  const jobs = jobsForArtifact(m.kind, m.ggufMeta?.sttVariant, "", m.detectedFamily).filter((job) => job !== "llm");
-  const job = jobs.map((j) => `<span class="mbadge mbadge-job node-job-chip" data-t="node-engine-job" data-t-id="${escapeHtml(j)}">`
-    + `${JOB_MARKS[j] || ""} ${escapeHtml(t(JOB_LABELS[j]))}</span>`).join("");
-  const size = Number(m.sizeGb);
-  const memory = Number.isFinite(size) && size > 0
-    ? mbadge("vram-est", `≈${escapeHtml(size.toFixed(1))}G`, t("vramEstChipTitle")) : "";
-  return new ShelfLine({ key, engine: "caravan", name, remote: library, job, memory, reserve: open, why }).html();
-}
-
+// The caravan on a machine's card (2026-09-27, round 10: the operator chose
+// A): its strip, and under it not the list of its models but one line, "+ Add
+// model". It opens the cell editor on the next free port with the model list
+// already open; the cell is made on Apply, and a change of mind leaves no port
+// taken. The line counts the models with no cell here; none at all, or none
+// left without a cell, is said under it. Shut while a reserve on this machine
+// is taking the port the editor would offer.
 export function nodeCaravanGroupHtml(n, servers = [], models = state.models) {
   const build = parseLlamaBuildVersion(n?.llamaBinaryVersion || "");
   const pull = `<a class="node-engine-serve pull" href="/hf" target="_blank" rel="noopener" data-t="node-caravan-download"`
     + ` data-t-id="${escapeHtml(String(n.id))}" title="${escapeHtml(t("caravanPullTitle"))}">⤓ ${escapeHtml(t("nodeEnginePull"))}</a>`;
   const strip = new EngineStrip({ key: `${n.id}:caravan`, engine: "caravan", hook: "node-caravan", state: "ok",
                                   label: t("launcherCaravan"), version: build ? `llama.cpp b${build.build}` : "", pull }).html();
-  const rows = caravanShelfModels(n, servers, models);
-  if (rows === null) return `<div class="node-launcher-group">${strip}</div>`;
+  const rows = caravanModelsWithoutCell(n, servers, models);
+  const id = escapeHtml(String(n.id));
   const reserving = _reservingCells.has(String(n.id));
-  const label = t("launcherCaravan");
-  const lines = rows.slice(0, CARAVAN_SHELF_SHOWN).map((m) => caravanShelfLineHtml(n, m, reserving)).join("");
-  const caption = rows.length
-    ? `<div class="engine-shelf-caption"><span class="ncf-dot up" aria-hidden="true"></span>${escapeHtml(t("shelfCaption", { engine: label }))}`
-      + `<span class="ncf-count">${rows.length}</span></div>` : "";
-  const more = rows.length > CARAVAN_SHELF_SHOWN
-    ? `<div class="node-engine-more topology-muted">${escapeHtml(t("shelfCaravanMore", { n: rows.length - CARAVAN_SHELF_SHOWN }))}</div>` : "";
-  const said = !models.some((m) => m && m.kind === "model")
-    ? `<div class="node-engine-state topology-muted">${escapeHtml(t("shelfCaravanNoModels"))}</div>`
-    : (!rows.length ? `<div class="node-engine-state topology-muted">${escapeHtml(t("shelfCaravanAllHaveCells"))}</div>` : "");
-  const shelf = `<div class="engine-shelf engine-caravan" data-t="engine-shelf" data-t-id="${escapeHtml(`${n.id}:caravan`)}">`
-    + `${caption}${lines}${more}${said}</div>`;
-  return `<div class="node-launcher-group">${strip}${shelf}</div>`;
+  const why = reserving ? t("shelfReserveBusy") : t("caravanAddTitle", { port: String(nextTopologyCellPort()) });
+  const count = rows && rows.length
+    ? `<span class="caravan-add-count">${escapeHtml(t("caravanAddCount", { n: rows.length }))}</span>` : "";
+  const add = `<button type="button" class="caravan-add" data-t="node-caravan-add" data-t-id="${id}"`
+    + (reserving ? " disabled" : ` data-caravan-add="${id}"`) + ` title="${escapeHtml(why)}">`
+    + `<span class="caravan-add-plus" aria-hidden="true">+</span><span class="caravan-add-label">${escapeHtml(t("caravanAddModel"))}</span>`
+    + `${count}</button>`;
+  const said = rows === null ? ""
+    : !models.some((m) => m && m.kind === "model")
+      ? `<div class="node-engine-state topology-muted">${escapeHtml(t("shelfCaravanNoModels"))}</div>`
+      : (!rows.length ? `<div class="node-engine-state topology-muted">${escapeHtml(t("shelfCaravanAllHaveCells"))}</div>` : "");
+  return `<div class="node-launcher-group">${strip}${add}${said}</div>`;
 }
 
 // What the lane shows right over a machine's chips, whichever chip is pressed:

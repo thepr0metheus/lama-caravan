@@ -6,6 +6,7 @@ import { refreshFavoritesPanel } from "./favorites.js";
 import {
   badge,
   maybeAutofillModelHelpersPfx,
+  mcOpen,
   modelsByPath,
   readConfigForm,
   renderChatTemplateHint,
@@ -125,30 +126,17 @@ export function startRemoteStartWatch() {
 }
 
 // Shared server-slot actions (used by the node view).
-export function openRemoteFormForHost(hostId, port = "", { model = "" } = {}) {
+export function openRemoteFormForHost(hostId, port = "", { pickModel = false } = {}) {
   const host = topologyHost(hostId) || {};
-  openLlamaRemoteEdit(hostId, (host.gpus && host.gpus[0] && host.gpus[0].name) || "", host.gpus || [], port, { model });
+  openLlamaRemoteEdit(hostId, (host.gpus && host.gpus[0] && host.gpus[0].name) || "", host.gpus || [], port, { pickModel });
 }
 
-// A caravan model on its machine's shelf (2026-09-26, the operator's choice C
-// of round 9): the cell editor opens on the next free port with the model
-// already picked, and Apply makes the cell. "+" alone makes nothing, so a
-// change of mind leaves no port taken.
-export function openCaravanModelEditor(hostId, model) {
-  return openRemoteFormForHost(hostId, String(nextTopologyCellPort() || ""), { model: String(model || "") });
-}
-
-// A model picked before the editor opened goes in as a pick made there: the
-// field's own change listeners bring its companions, its runner and the
-// insight along. False when the form has no such field or does not hold the
-// model — the pick is then the operator's to make.
-export function preselectModel(pfx, model) {
-  const el = $(pfx + "MODEL_FILE");
-  if (!el || !model) return false;
-  el.value = model;
-  if (el.value !== model) return false;
-  el.dispatchEvent(new Event("change", { bubbles: true }));
-  return true;
+// "+ Add model" on a machine's card (2026-09-27, round 10: the operator chose
+// A): the cell editor opens on the next free port with its model list already
+// open, and Apply makes the cell. The button alone makes nothing, so a change
+// of mind leaves no port taken.
+export function openCaravanModelEditor(hostId) {
+  return openRemoteFormForHost(hostId, String(nextTopologyCellPort() || ""), { pickModel: true });
 }
 
 // ── Port picker: move a parked cell to another free port ─────────────────────
@@ -1262,7 +1250,7 @@ export function findSlotEntry(hostId, port) {
     .find((sv) => String(sv.port) === String(port) && (sv.clientId || "") === hostId);
 }
 
-export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", { model = "" } = {}) {
+export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", { pickModel = false } = {}) {
   _trHostId = hostId;
   _trClientGpus = Array.isArray(clientGpus) ? clientGpus : [];
   _trGpuName = String(gpuName || _trClientGpus[0]?.name || "");
@@ -1371,7 +1359,6 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
   // from a previous host config. Re-run autofill so the right projector is selected
   // for the current MODEL_FILE (same logic as when the user changes the model).
   maybeAutofillModelHelpersPfx("tr-");
-  if (model) preselectModel("tr-", model);
 
   // Current command + New-command diff baseline (mirrors the controller modal):
   // an existing remote cell shows its own current command; a brand-new add has none.
@@ -1427,6 +1414,9 @@ export function openLlamaRemoteEdit(hostId, gpuName, clientGpus, cellPort = "", 
   // Focus into the dialog — same reason as the controller editor.
   if (!_ov.hasAttribute("tabindex")) _ov.tabIndex = -1;
   _ov.focus({ preventScroll: true });
+  // "+ Add model": the model is the first thing to pick — its list opens on
+  // the dialog now on screen (its search takes the focus from there).
+  if (pickModel) mcOpen($("tr-MODEL_FILE"));
 
   // Load backups asynchronously
   fetchAndRenderRemoteBackups(hostId).catch(() => {});
