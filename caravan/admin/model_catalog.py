@@ -2,10 +2,13 @@
 
 Three jobs, all backed by one small state file (state/model-catalog.json):
 
-1) Which models does a provider CURRENTLY serve — per-account list with a 1h
-   TTL, refreshed in a background thread so topology reads never block on the
-   network. Blocks whose model fell out of this list are painted "unlisted"
-   in the UI.
+1) Which models does a provider CURRENTLY serve — per-account list with a
+   10-minute TTL, refreshed in a background thread whenever the board reads
+   the topology (so: when it is open), without ever blocking that read on the
+   network. Each refresh also keeps the account's model blocks in step with
+   the list (cloud_sync.py). Blocks whose model fell out of this list are
+   painted "unlisted" in the UI; the ones the sync removed by itself are kept
+   here for a day, so the board can say so and bring one back.
 2) Endpoint health — an upstream helper call that keeps failing is DISABLED
    after BREAK_AFTER consecutive failures (exponential backoff), so we stop
    hammering the provider with requests we know are broken. Every tripped
@@ -31,7 +34,8 @@ from caravan.common.fsio import atomic_write_text
 _LOCK = threading.RLock()
 _REFRESH_THREADS = {}   # account_id -> Thread; alive = refresh in flight
 
-MODELS_TTL_SEC = 3600
+MODELS_TTL_SEC = 600            # the operator's word (2026-09-27): the board keeps the lists fresh by itself
+REMOVED_KEEP_SEC = 86400        # how long a block the sync removed can be brought back
 NPM_TTL_SEC = 86400
 BREAK_AFTER = 3                 # consecutive failures before an endpoint trips
 BREAK_BASE_SEC = 6 * 3600       # first backoff once tripped
@@ -176,6 +180,42 @@ def cached_models_entry(account_id):
     with _LOCK:
         entry = (_load().get("accounts") or {}).get(str(account_id))
     return entry if isinstance(entry, dict) else None
+
+
+def record_removed_blocks(account_id, blocks, at):
+    """Keep what the sync removed, whole, so the board can say so and undo it."""
+    def fn(data):
+        kept = data.setdefault("removedBlocks", {})
+        rows = [r for r in (kept.get(str(account_id)) or []) if at - int(r.get("at") or 0) < REMOVED_KEEP_SEC]
+        rows.extend({"at": int(at), "block": dict(b)} for b in blocks)
+        kept[str(account_id)] = rows[-50:]
+    _mutate(fn)
+
+
+def removed_blocks(now=None):
+    """{accountId: [{at, block}]} removed by the sync within the last day."""
+    now = time.time() if now is None else now
+    with _LOCK:
+        kept = _load().get("removedBlocks") or {}
+    return {acc: [r for r in rows if now - int(r.get("at") or 0) < REMOVED_KEEP_SEC]
+            for acc, rows in kept.items() if isinstance(rows, list)}
+
+
+def take_removed_block(account_id, block_id):
+    """The record of one removed block, taken off the list (undo), or None."""
+    taken = []
+
+    def fn(data):
+        rows = (data.get("removedBlocks") or {}).get(str(account_id)) or []
+        keep = []
+        for r in rows:
+            if not taken and str((r.get("block") or {}).get("id") or "") == str(block_id):
+                taken.append(r["block"])
+            else:
+                keep.append(r)
+        data.setdefault("removedBlocks", {})[str(account_id)] = keep
+    _mutate(fn)
+    return taken[0] if taken else None
 
 
 def cached_model_ids(account_id):

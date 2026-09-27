@@ -871,6 +871,24 @@ account modal's open/form state lives in `ui` (`topologyCloudModalOpen`, `topolo
 - Owns: `topologyCloudBlockModalOpen`, `topologyCloudBlockForm`, `topologyCloudBusy`, `topologyCloudModelCache`, `MODEL_LIST_ASKS` (a `ModelListAsks`: after a refused ask the page waits 60 s before asking that account again — it asks on every poll, and a failing account was asked every 1.5 s; opening the model editor asks regardless). Accounts nobody is signed into are not asked at all.
 - Key exports: `renderTopologyCloudProviders`, `openCloudProviderModal`, `openCloudAccountModal`, `saveCloudAccount`, `saveCloudBlock`, `startCloudOauthLogin`, `prefetchAllSubscriptionModels`.
 
+## cloud-models.js
+
+A provider's models on its card (2026-09-27, the operator's variant A): `ProviderModels` draws the
+models section of `renderTopologyCloudProviders` from one place. The list keeps itself
+(`caravan/admin/cloud_sync.py`), so the card has no "Fetch models" and no bridge section: its head
+says how many models there are, how many are on the kanban, new and gone, when the list was last
+checked (`account.modelsCheckedAt`) and "↻" to check now (`data-cloud-fetch-models`); a row says
+what a model is — gone (`unlisted`), new (`newSince` within `NEW_FOR_MS`, seven days), on the
+kanban or hidden, the default — how many kanban cables reach it, its price, and its own port for
+an app: the model's bridges with ⧉/✕, or "＋ port" (`data-bridge-mint` = the block) on an account
+with a credential (the operator's call: a port by button, open in the LAN, no key). The day's
+removals (`topology.cloudRemoved`) stand in one line with "↶" each (`data-cloud-restore`), and
+"＋ Add by id" opens the block editor for a model the provider does not list. Rows go attention
+first: gone, new, on the kanban, hidden; dearer first within a group.
+
+- Owns: —.
+- Key exports: `ProviderModels`, `NEW_FOR_MS`.
+
 ## usage-stats.js
 
 The usage & spend modal: overview/account/local scopes (scope, expanded row and day range live in

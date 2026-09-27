@@ -581,12 +581,40 @@ Key functions: `test_account_key`, `set_account_key`, `fetch_account_models`,
 `fetch_subscription_models`, `fetch_subscription_usage`, `fetch_account_costs`,
 `fetch_openrouter_limits`, `auto_create_blocks`, `cloud_spend_summary`, `usage_stats`.
 
+## `cloud_refs.py`
+
+`CloudModelRefs` — everything that points at a cloud model block, from one snapshot of
+`agent-proxies.json`: bridges and an agent's own cloud route (`providerId`), ↑☁ fallbacks
+(`cloudFallbackProviderId`), graph cables with the queue's (admit/spill) and a 🛟 backup node's
+(main/backup) roles, and every rule including `dormantDefault`. `of(block)` feeds the delete
+confirm (`GET /api/cloud-blocks/refs`), `in_use(block)` decides whether the sync may remove one.
+Owns: —.
+Key names: `CloudModelRefs`.
+
+## `cloud_sync.py`
+
+`CloudModelSync` — one successful model list applied to an account's blocks (the operator's
+word, 2026-09-27: the lists keep themselves). A chat model no block names gets a block, hidden
+from the kanban and stamped `newSince` (not on a first fill); a block the list lacks counts one
+more list in a row (`goneCount`), and after `GONE_AFTER` (2) lists, with nothing pointing at it
+(`CloudModelRefs`) and not added by hand (`manual`), it is removed and kept a day for "↶". Not a
+verdict: an empty list (counts nothing). A list that drops more than half of the account's blocks
+(and more than five) at once may be a partial answer: it counts, but removes only after
+`GONE_AFTER_MASS` (6) lists in a row — a glitch does not last, a renamed catalogue does (Ollama's
+cloud, 2026-09-27). Everything the provider lists counts as present, chat or not. `restore` brings a
+removed block back as the operator's own. `NON_CHAT_MODEL_RE` lives here.
+Owns: the per-account report of the latest list (`last`).
+Key names: `CloudModelSync`, `NON_CHAT_MODEL_RE`.
+
 ## `model_catalog.py`
 
 Provider model-catalog cache + upstream endpoint health, one small state file
 (`state/model-catalog.json`; legacy installs land it at the repo root). Three jobs: (1) per-account
-model lists with a 1 h TTL refreshed by a background thread (`kick_refresh` + a guarded fetcher) —
-blocks whose model fell out of the list paint "unlisted" in the UI; (2) a circuit breaker around
+model lists with a 10-minute TTL refreshed by a background thread whenever the board reads the
+topology (`kick_refresh` + a guarded fetcher, which also applies the list to the account's blocks —
+`cloud_sync.py`) — blocks whose model fell out of the list paint "unlisted" in the UI, and the
+blocks the sync removed are kept a day (`record_removed_blocks`, `removed_blocks`,
+`take_removed_block`) so the board can say so and bring one back; (2) a circuit breaker around
 every provider endpoint (`guarded_call(key, fn)`: 3 consecutive failures open the breaker with
 exponential 6 h→48 h backoff; `endpoints_report` feeds the "API issues" panel and
 `retry_endpoint` the panel's retry button — 401/403 on spend/limit endpoints stay soft); (3) the

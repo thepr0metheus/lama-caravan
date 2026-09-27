@@ -273,6 +273,18 @@ def normalize_cloud_block(block, account_ids):
            "contextAuto": bool(block.get("contextAuto", False))}
     if declared is not None:
         out["contextLength"] = declared
+    # What the model sync keeps on a block (cloud_sync.py): when it appeared in
+    # the provider's list, how many lists in a row have lacked it, and whether
+    # the operator added it by hand — which the sync never removes.
+    for key in ("newSince", "goneCount"):
+        try:
+            value = int(block.get(key) or 0)
+        except (TypeError, ValueError):
+            value = 0
+        if value > 0:
+            out[key] = value
+    if block.get("manual"):
+        out["manual"] = True
     return out
 
 def upsert_cloud_account(account):
@@ -306,10 +318,16 @@ def upsert_cloud_block(block):
     # across a re-fetch unless the caller set them. A caller that omits a field
     # is not asking for it to be cleared — only the editor, which always sends
     # both, can do that (it sends contextLength blank to remove it).
-    prev = None
-    if isinstance(block, dict) and any(k not in block for k in ("exposed", "contextLength", "contextAuto")):
-        prev = next((b for b in data["blocks"] if b.get("id") == str(block.get("id") or "").strip()), None)
+    bid = str(block.get("id") or "").strip() if isinstance(block, dict) else ""
+    prev = next((b for b in data["blocks"] if b.get("id") == bid), None) if bid else None
+    if prev is None and isinstance(block, dict):
+        # A block that did not exist is one the operator adds by hand (the sync
+        # writes its own): the sync must never take it away.
+        block = {**block, "manual": True}
     if prev is not None:
+        for key in ("newSince", "goneCount", "manual"):
+            if key not in block and prev.get(key):
+                block = {**block, key: prev[key]}
         if "exposed" not in block:
             block = {**block, "exposed": bool(prev.get("exposed", False))}
         if "contextLength" not in block and prev.get("contextLength") is not None:
@@ -415,6 +433,10 @@ def cloud_blocks_state():
             # without them made every edit of a block wipe its stated window
             # and switch off "use the number the model reports".
             "contextAuto": bool(b.get("contextAuto", False)),
+            # The sync's marks: a model the provider added since the operator
+            # last looked, and one the operator added by hand.
+            "newSince": int(b.get("newSince") or 0) or None,
+            "manual": bool(b.get("manual", False)),
             "accountName": account.get("name") or b.get("accountId"),
             "type": account.get("type"), "baseUrl": account.get("baseUrl"),
             "accountType": account.get("accountType") or "",
