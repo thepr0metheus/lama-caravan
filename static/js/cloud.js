@@ -235,7 +235,7 @@ export function renderTopologyCloudProviders() {
     return;
   }
   cpEl.innerHTML = accounts.map((acct) => {
-    const isSubscription = acct.accountType === "openai-subscription" || String(acct.baseUrl || "").includes("chatgpt.com");
+    const isSubscription = isSubscriptionAccount(acct);
     const credLine = acct.hasCredential
       ? (acct.credentialKind === "noKey"
           ? "no auth"
@@ -261,7 +261,7 @@ export function renderTopologyCloudProviders() {
     // Local proxy spend-meter (our token counts × pricing) — for every cloud account.
     fetchProxySpend();
     usagePanel += proxySpendHtml(acct.id, { open: !!ui.spendOpen?.[acct.id], subscription: isSubscription });
-    // Tripped upstream endpoints (breaker) + effective codex client_version.
+    // Tripped upstream endpoints (breaker).
     usagePanel += cloudApiIssuesHtml(acct, isSubscription);
     // Data-plane cloud failures over 24h (routed traffic that came back 4xx/5xx).
     fetchUpstreamErrors();
@@ -306,10 +306,24 @@ export function renderTopologyCloudProviders() {
   })() + addCloudBtn;
 }
 
+// A ChatGPT subscription account: its models answer through chatgpt.com, which
+// gates them by the codex client_version the caravan sends.
+export function isSubscriptionAccount(acct) {
+  return acct?.accountType === "openai-subscription" || String(acct?.baseUrl || "").includes("chatgpt.com");
+}
+
+// The codex client_version the caravan sends to chatgpt.com and where it came
+// from (env override / npm latest / built-in floor). It lives under ⚙, in the
+// account's window (the operator's variant A): a fact to look up, not to watch
+// on the card. Nothing known — no line.
+export function codexVersionHtml() {
+  const v = topology?.cloudApiHealth?.codexClientVersion;
+  if (!v?.value) return "";
+  return `<div class="cloud-span cloud-api-version" title="${escapeHtml(t("cloudApiVersionHint"))}">codex client_version: ${escapeHtml(v.value)}${v.source ? ` · ${escapeHtml(v.source)}` : ""}</div>`;
+}
+
 // "API issues" panel: endpoints the breaker tripped (we stopped calling them —
-// the list is the user's cue to fix or retry), plus, on the subscription card,
-// the effective codex client_version we send to chatgpt.com and where it came
-// from (env override / npm latest / built-in floor).
+// the list is the user's cue to fix or retry).
 function cloudApiIssuesHtml(acct, isSubscription) {
   const health = topology?.cloudApiHealth || {};
   const eps = health.endpoints || {};
@@ -331,9 +345,6 @@ function cloudApiIssuesHtml(acct, isSubscription) {
       </div>`;
     }).join("");
     html += `<div class="cloud-api-issues"><div class="cloud-api-issues-title">⚠ ${escapeHtml(t("cloudApiIssuesTitle"))}</div>${rows}</div>`;
-  }
-  if (isSubscription && health.codexClientVersion?.value) {
-    html += `<div class="cloud-api-version" title="${escapeHtml(t("cloudApiVersionHint"))}">codex client_version: ${escapeHtml(health.codexClientVersion.value)} · ${escapeHtml(health.codexClientVersion.source || "")}</div>`;
   }
   return html;
 }
@@ -613,6 +624,7 @@ export function renderTopologyCloudAccountModal() {
                 : f.authMode === "noKey" ? ""
                 : oauthFields)
             : credSection}
+          ${isSubscriptionAccount(existingAcct) ? codexVersionHtml() : ""}
         </div>
         <div class="topology-priority-actions cloud-actions">
           ${!f.isNew ? `<button class="ghost-action danger" type="button" data-cloud-delete-account>${escapeHtml(t("topologyCloudDeleteAccount"))}</button>` : ""}
