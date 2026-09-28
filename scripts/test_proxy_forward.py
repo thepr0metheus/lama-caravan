@@ -198,6 +198,29 @@ class _BackupCell(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
 
+ASK = free_port()
+ask_gets = []
+
+
+class _AskCell(BaseHTTPRequestHandler):
+    """Запасной выход, который отвечает на вопросы клиента (/props, /api/tags …)."""
+
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        ask_gets.append(self.path)
+        payload = (b'{"object":"list","data":[{"id":"ask-model"}]}' if self.path == "/v1/models"
+                   else b'{"default_generation_settings":{"n_ctx":4096}}')
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+
 KA_SLOT = free_port()
 KA_SECONDS = 3.0
 
@@ -453,6 +476,7 @@ def _rude_upstream():
  P_LOAD, P_OTHER503, P_Q1A, P_Q1B, P_Q2A, P_Q2B, P_KA_A, P_KA_B,
  P_RESCUE, P_NORESCUE, P_VANISH, P_VANISH2) = (free_port() for _ in range(21))
 P_RESCUE_DEAD = free_port()
+P_ASK = free_port()
 
 
 def _route(port, **extra):
@@ -476,6 +500,7 @@ CONFIG = {
         _route(P_Q1A), _route(P_Q1B), _route(P_Q2A), _route(P_Q2B),
         _route(P_KA_A), _route(P_KA_B),
         _route(P_RESCUE), _route(P_NORESCUE), _route(P_RESCUE_DEAD), _route(P_VANISH), _route(P_VANISH2),
+        _route(P_ASK),
     ],
     "routers": [{
         "id": "router:t",
@@ -501,6 +526,10 @@ CONFIG = {
             # The same closed port under a graph-style id (no out: prefix) — the
             # backup exit of e2, so that the replay itself is what fails.
             {"id": "deadg", "name": "deadg", "upstreamHost": "127.0.0.1", "upstreamPort": DEAD},
+            # The production shape of 2026-09-28: main is a cell that is off
+            # (a closed port), the backup answers.
+            {"id": "offcell", "name": "offcell", "upstreamHost": "127.0.0.1", "upstreamPort": DEAD},
+            {"id": "askcell", "name": "askcell", "upstreamHost": "127.0.0.1", "upstreamPort": ASK},
         ],
         "graph": {
             "nodes": [
@@ -511,6 +540,8 @@ CONFIG = {
                 # Backup exit into a port nobody listens on: the replay itself fails.
                 {"id": "e2", "type": "onError", "config": {
                     "mainEdge": "emain2", "rescueEdge": "eresc2"}},
+                {"id": "e3", "type": "onError", "config": {
+                    "mainEdge": "emain3", "rescueEdge": "eresc3"}},
             ],
             "edges": [
                 {"id": "ein_a", "from": f"in:skynet:proxy:{P_KA_A}", "to": "rule:q1"},
@@ -526,6 +557,9 @@ CONFIG = {
                 {"id": "ein_rd", "from": f"in:skynet:proxy:{P_RESCUE_DEAD}", "to": "rule:e2"},
                 {"id": "emain2", "from": "rule:e2", "to": "out:fail"},
                 {"id": "eresc2", "from": "rule:e2", "to": "out:deadg"},
+                {"id": "ein_ask", "from": f"in:skynet:proxy:{P_ASK}", "to": "rule:e3"},
+                {"id": "emain3", "from": "rule:e3", "to": "out:offcell"},
+                {"id": "eresc3", "from": "rule:e3", "to": "out:askcell"},
             ],
         },
         "rules": {"bySource": [{"proxyId": f"skynet:proxy:{P_DEAD}", "output": "out:dead"},
@@ -563,7 +597,7 @@ for _r in CONFIG["routes"]:
 for _srv_cls, _srv_port in ((_LoadingCell, LOADING), (_Other503, OTHER503),
                             (_make_slow_cell(1), ONE_SLOT), (_make_slow_cell(2), TWO_SLOT),
                             (_KeepaliveCell, KA_SLOT), (_FailingCell, FAILING),
-                            (_BackupCell, BACKUP), (_BigSlowCell, BIGSLOW)):
+                            (_BackupCell, BACKUP), (_BigSlowCell, BIGSLOW), (_AskCell, ASK)):
     _s = ThreadingHTTPServer(("127.0.0.1", _srv_port), _srv_cls)
     threading.Thread(target=_s.serve_forever, daemon=True).start()
 _sub = ThreadingHTTPServer(("127.0.0.1", SUB), _Subscription)
@@ -1369,6 +1403,72 @@ def test_discovery_probe_neither_rescued_nor_a_verdict():
     output_health.clear()
 
 
+def _get(port, path):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=RESPONSE_TIMEOUT)
+    try:
+        conn.request("GET", path)
+        resp = conn.getresponse()
+        return resp.status, resp.read().decode("utf-8", "replace")
+    except (TimeoutError, socket.timeout, OSError) as exc:
+        return 0, f"НЕТ ОТВЕТА за {RESPONSE_TIMEOUT} с: {exc}"
+    finally:
+        conn.close()
+
+
+def test_questions_go_to_the_exit_that_answers():
+    """A client's questions follow the exit that answers, not the one a request tries first.
+
+    2026-09-28, 03:34: a client restarting after its update asked ten questions
+    in one second. The backup node's main was a cell off for seventeen days,
+    the backup alive, the verdicts about both a few minutes old — expired, so
+    every question went to the closed cell and came back 502: a question is
+    never replayed, and the refused connection was not even noted.
+    """
+    print("вопросы клиента — к выходу, который отвечает:")
+
+    def asked(since):
+        # The proxy's own /slots (how many places a cell has) is not the client's question.
+        return [path for path in ask_gets[since:] if path != "/slots"]
+
+    output_health.clear()
+    now = time.time()
+    output_health.note_error("offcell", kind="connect", message="refused", now=now - 400)
+    output_health.note_ok("askcell", now=now - 400)
+    before = len(ask_gets)
+    status, raw = _get(P_ASK, "/props")
+    check(status == 200 and asked(before) == ["/props"],
+          f"positive: вердикты истекли, но последнее слово главного — отказ: вопрос ушёл в запасной (получено {status} {asked(before)})")
+    rows = []
+    for _ in range(60):
+        rows = [r for r in _read_finished() if r.get("route") == f"r{P_ASK}"]
+        if rows:
+            break
+        time.sleep(0.05)
+    item = (rows[-1] if rows else {}).get("item") or {}
+    check(item.get("skippedDead") == ["offcell"],
+          f"журнал признаётся, что главный пропущен, и называет его (получено {item.get('skippedDead')!r})")
+    before = len(ask_gets)
+    status, raw = _get(P_ASK, "/v1/models")
+    ids = [m.get("id") for m in (json.loads(raw).get("data") or [])] if status == 200 else raw[:80]
+    check(status == 200 and ids == ["ask-model"] and asked(before) == ["/v1/models"],
+          f"и /v1/models — тоже вопрос: порт отвечает моделью запасного, а не 502 закрытой ячейки (получено {status} {ids})")
+
+    output_health.clear()
+    before = len(ask_gets)
+    status, raw = _get(P_ASK, "/api/tags")
+    check(status == 502 and asked(before) == [],
+          f"as-is: ничего не известно — первый вопрос идёт главным, сокет закрыт, 502 (получено {status})")
+    row = output_health.row("offcell") or {}
+    check(row.get("state") == "error" and row.get("kind") == "connect",
+          f"отказ соединения на вопросе записан: это слово о выходе, а не о пути (получено {row})")
+    status, raw = _get(P_ASK, "/api/show")
+    check(status == 200 and asked(before) == ["/api/show"],
+          f"и следующий вопрос той же пачки уходит в запасной (получено {status} {asked(before)})")
+    check(output_health.row("askcell") is None,
+          "negative: ответ на вопрос вердиктом о запасном не стал — вопрос не слово о модели")
+    output_health.clear()
+
+
 def test_error_inside_an_open_stream():
     """Отказ ПОСЛЕ того, как заголовки уже ушли, приходит кадром SSE.
 
@@ -1631,6 +1731,7 @@ for fn in (test_blocked_modes, test_unrouted, test_api_key, test_client_key_stay
            test_dead_main_is_skipped, test_dead_verdict_expires,
            test_failed_replay_names_the_chain,
            test_discovery_probe_neither_rescued_nor_a_verdict,
+           test_questions_go_to_the_exit_that_answers,
            test_error_inside_an_open_stream, test_client_vanishes_mid_response,
            test_client_vanishes_before_first_byte, test_keepalive_not_sent_to_cloud,
            test_loading_model_retry_not_for_cloud):

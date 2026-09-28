@@ -19,6 +19,24 @@ def proxy_usage_tokens(item):
         usage = stream.get("usage") if isinstance(stream.get("usage"), dict) else {}
     return int(usage.get("total_tokens") or usage.get("totalTokens") or 0)
 
+def proxy_item_exit(upstream_type, provider_id, upstream_host, upstream_port):
+    """The exit a request reached, as the incident panel names it, or "".
+
+    The row used to name only the port the request came IN on (:23001), and
+    the cell that refused it stayed out of sight (2026-09-10, again on
+    2026-09-28). A cloud request carries the route's own upstream fields — a
+    stub — so its exit is the model block it went to; a cell or an engine is
+    its address. A record that does not say which is left unnamed: "" is
+    honest, a guessed address is not.
+    """
+    if upstream_type == "cloud":
+        block = str(provider_id or "").strip()
+        return f"☁ {block}" if block else ""
+    if upstream_type in ("llama", "engine") and upstream_host and upstream_port:
+        return f"{upstream_host}:{upstream_port}"
+    return ""
+
+
 def summarize_proxy_item(label, row, item, state):
     port = item.get("port") or row.get("port")
     upstream = item.get("upstream") or row.get("upstream") or ""
@@ -46,6 +64,9 @@ def summarize_proxy_item(label, row, item, state):
         # to the port row when an item predates this stamp.
         "upstreamType": str(item.get("upstreamType") or row.get("upstreamType") or "llama"),
         "providerId": str(item.get("providerId") or row.get("providerId") or ""),
+        # From the item's OWN type and address, before the defaults above
+        # fill them in: an item that does not say is left unnamed.
+        "exit": proxy_item_exit(item.get("upstreamType"), item.get("providerId"), upstream_host, upstream_port),
         "client": item.get("client") or "",
         "method": item.get("method") or "POST",
         "path": item.get("path") or "",

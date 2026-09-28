@@ -52,7 +52,7 @@ from caravan.domain.engine import GpuOwners
 from caravan.admin.engine_outputs import EngineOutputs
 from caravan.common.context_window import block_window, effective_window, route_window_inputs
 from caravan.domain.client_proxy import AgentAssignment, PROXY_ID_PREFIX, ProxyRoute
-from caravan.proxy.graph import PLAIN_REQUEST_CTX, apply_router
+from caravan.proxy.graph import PORT_QUESTION_CTX, apply_router
 from caravan.proxy.output_health import output_health
 
 
@@ -840,15 +840,15 @@ def _block_window_resolver(cloud_blocks):
 
 
 def _route_window_facts(route, proxy_config, served, resolve_block):
-    """What the output a plain request reaches serves: (window, source).
+    """What the output the port answers /v1/models from serves: (window, source).
 
     The same resolution GET /v1/models goes through — apply_router with
-    PLAIN_REQUEST_CTX — so the board names the output the proxy answers from.
+    PORT_QUESTION_CTX — so the board names the output the proxy answers from.
     `source` says where the number comes from, or why there is none: a dash
     with no reason would be absence rendered as normality (docs/why.md).
     """
     try:
-        resolved = apply_router(dict(route), proxy_config, ctx=dict(PLAIN_REQUEST_CTX))
+        resolved = apply_router(dict(route), proxy_config, ctx=dict(PORT_QUESTION_CTX))
     except Exception as exc:
         return None, {"kind": "error", "reason": str(exc)[:120]}
     upstream_type = str(resolved.get("upstreamType") or "llama")

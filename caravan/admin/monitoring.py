@@ -252,6 +252,8 @@ def incident_log_record(item, incident):
         "port": item.get("port"),
         "upstreamHost": item.get("upstreamHost"),
         "upstreamPort": item.get("upstreamPort"),
+        # The exit the request reached, named once (proxy_stats.proxy_item_exit).
+        "exit": item.get("exit") or "",
         "client": item.get("client"),
         "method": item.get("method"),
         "path": item.get("path"),

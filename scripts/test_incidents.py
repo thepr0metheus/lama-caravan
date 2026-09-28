@@ -169,8 +169,47 @@ def test_the_log_forgets_old_discovery():
           "as-is: fallback_active по-прежнему не инцидент")
 
 
+def test_the_row_names_the_exit():
+    """Строка инцидента называет выход, куда ушёл запрос, а не только вход.
+
+    2026-09-28, 03:34: десять строк «… :23001» — порт входа; ячейка :22011,
+    которая отказала, не была названа ни в одной (и 2026-09-10 то же самое).
+    """
+    print("выход в строке инцидента:")
+    from caravan.admin.monitoring import incident_log_record
+    from caravan.admin.proxy_stats import summarize_proxy_item
+
+    def exit_of(item, row=None):
+        return summarize_proxy_item("r", row or {}, item, "recent")["exit"]
+
+    check(exit_of({"upstreamType": "llama", "upstreamHost": "10.0.0.5", "upstreamPort": 22011}) == "10.0.0.5:22011",
+          "positive: ячейка — её адрес")
+    check(exit_of({"upstreamType": "llama", "upstream": "10.0.0.5:22011"}) == "10.0.0.5:22011",
+          "адрес одной строкой тоже читается")
+    check(exit_of({"upstreamType": "engine", "upstreamHost": "10.0.0.5", "upstreamPort": 11434}) == "10.0.0.5:11434",
+          "движок рядом с ячейками — тоже адрес")
+    check(exit_of({"upstreamType": "cloud", "upstream": "127.0.0.1:8080", "upstreamHost": "127.0.0.1",
+                   "upstreamPort": 8080, "providerId": "gpt-6-sol"}) == "☁ gpt-6-sol",
+          "облако — блок модели, а не заглушка адреса маршрута")
+    check(exit_of({"upstreamType": "cloud", "upstream": "127.0.0.1:8080"}) == "",
+          "negative: облако без блока (сквозной аккаунт) — не называется")
+    check(exit_of({"upstream": "127.0.0.1:8080"}, row={"upstreamType": "llama"}) == "",
+          "negative: запись не говорит своего типа — выход не угадывается по строке порта")
+    check(exit_of({"upstreamType": "llama"}) == "",
+          "negative: ни адреса, ни строки — пусто, а не 127.0.0.1:8080 по умолчанию")
+    item = summarize_proxy_item("hemi", {}, {"upstreamType": "llama", "upstreamHost": "10.0.0.5", "upstreamPort": 22011,
+                                             "method": "GET", "path": "/props", "status": 502, "port": 23001,
+                                             "error": "[Errno 111] Connection refused"}, "recent")
+    inc = proxy_incident_for_item(item)
+    rec = incident_log_record(item, inc)
+    check(rec["exit"] == "10.0.0.5:22011" and rec["port"] == 23001 and rec["path"] == "/props",
+          f"запись журнала несёт выход рядом с входом и путём (got {rec['exit']!r}, {rec['port']!r}, {rec['path']!r})")
+    rec = incident_log_record(summarize_proxy_item("r", {}, {"status": 502}, "recent"), inc)
+    check(rec["exit"] == "", "negative: у записи без выхода — пустая строка, не None и не адрес по умолчанию")
+
+
 for fn in (test_discovery_is_not_an_incident, test_the_chain_is_part_of_the_reason,
-           test_the_rule_itself, test_the_log_forgets_old_discovery):
+           test_the_rule_itself, test_the_log_forgets_old_discovery, test_the_row_names_the_exit):
     fn()
 
 print()

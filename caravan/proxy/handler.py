@@ -22,7 +22,7 @@ from caravan.proxy.cloud_auth import (
     load_provider_secret,
 )
 from caravan.proxy.config import current_config, live_route_for_port
-from caravan.proxy.graph import PLAIN_REQUEST_CTX, apply_router, apply_router_spill
+from caravan.proxy.graph import PORT_QUESTION_CTX, apply_router, apply_router_spill
 from caravan.proxy.events import write_proxy_event
 from caravan.proxy.output_health import output_health
 from caravan.proxy.paths import BODY_CAPTURE_LIMIT, DEFAULT_POLICY, HOP_HEADERS, STREAM_DONE_MARKER
@@ -355,8 +355,17 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self._reject_unauthorized(route, request_id)
             return
         # Resolve the actual upstream through this proxy's router (routing layer).
-        # ctx.model lets a byModel graph node branch on the requested model.
-        route = apply_router(route, current_config(), ctx={"model": req_summary.get("model"), "maxTokens": req_summary.get("maxTokens"), "audio": ("/audio/" in parsed.path), "embeddings": parsed.path.rstrip("/").endswith("/embeddings")})
+        # ctx.model lets a byModel graph node branch on the requested model;
+        # ctx.discovery sends a client's question to the exit that answers
+        # (output_health.discovery_exit) — it is never replayed elsewhere.
+        # One ctx for the whole request: the entry, a queue's spill and a
+        # rescue must all resolve the same request the same way.
+        inference_request = is_inference_request(self.command, parsed.path)
+        request_ctx = {"model": req_summary.get("model"), "maxTokens": req_summary.get("maxTokens"),
+                       "audio": ("/audio/" in parsed.path),
+                       "embeddings": parsed.path.rstrip("/").endswith("/embeddings"),
+                       "discovery": not inference_request}
+        route = apply_router(route, current_config(), ctx=dict(request_ctx))
         route["label"] = route.get("label") or self.agent_name
         # Unassigned / unroutable proxy → 503 immediately (no queue, no upstream).
         if route.get("unrouted") and str(route.get("upstreamType") or "llama") != "cloud":
@@ -455,8 +464,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     break
                 except ProxyQueueSpill as exc:
                     spill_guard += 1
-                    newr = (apply_router_spill(route, current_config(), exc.spill_ref,
-                                               ctx={"model": req_summary.get("model"), "maxTokens": req_summary.get("maxTokens"), "audio": ("/audio/" in parsed.path), "embeddings": parsed.path.rstrip("/").endswith("/embeddings")})
+                    newr = (apply_router_spill(route, current_config(), exc.spill_ref, ctx=dict(request_ctx))
                             if exc.spill_ref else None)
                     if spill_guard > 8 or not newr or newr.get("unrouted"):
                         raise ProxyRequestBlocked(503, "queue spill target unroutable", "queue_timeout")
@@ -669,8 +677,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
             _rescue_trail = []
             # A discovery probe is answered by the exit it reached, as it came:
             # no replay elsewhere, no verdict from its status (see
-            # caravan/common/request_kind.py).
-            _inference_request = is_inference_request(self.command, parsed.path)
+            # caravan/common/request_kind.py). A refused connection is another
+            # matter — that is a word about the exit, noted below.
+            _inference_request = inference_request
             if not _inference_request:
                 _rescue_refs = []
             while True:
@@ -849,6 +858,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         _up_sock[0] = conn.sock
                         upstream = conn.getresponse()
                     except (ConnectionError, OSError, http.client.HTTPException) as exc:
+                        # A client's question that finds the exit's socket closed is
+                        # not replayed, but what it found is noted: the rest of the
+                        # client's questions go to the exit that answers
+                        # (output_health.discovery_exit). Without this a client
+                        # asking ten questions in a second put all ten into a cell
+                        # that had been off for seventeen days (2026-09-28, 03:34).
+                        if not _inference_request and not _client_gone[0]:
+                            output_health.note_error(route.get("routedOutputId"), kind="connect",
+                                                     message=str(exc)[:200])
                         # A dead upstream is as rescueable as an erroring one — but only
                         # while a rescue exit exists; otherwise keep the old behaviour.
                         # (_client_gone aborts tear this socket down on purpose — those
@@ -918,11 +936,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 if (status >= 400 and _rescue_refs and _rescue_hops < 3
                         and bytes_out == 0 and chunks == 0 and not _client_gone[0]):
                     _resc_ref = _rescue_refs.pop(0)
-                    _newr = apply_router_spill(route, current_config(), _resc_ref,
-                                               ctx={"model": req_summary.get("model"),
-                                                    "maxTokens": req_summary.get("maxTokens"),
-                                                    "audio": ("/audio/" in parsed.path),
-                                                    "embeddings": parsed.path.rstrip("/").endswith("/embeddings")})
+                    _newr = apply_router_spill(route, current_config(), _resc_ref, ctx=dict(request_ctx))
                     if _newr and not _newr.get("unrouted"):
                         _rescue_hops += 1
                         try:
@@ -1412,11 +1426,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
             self._send_bytes(503, json.dumps(
                 {"error": f"proxy route {route['label']} is {mode}", "kind": "blocked"}).encode("utf-8"))
             return
-        # Same resolution a request goes through (proxy()), with a neutral ctx:
-        # a GET carries no model, no token count and is neither audio nor
-        # embeddings, so the graph answers with the output a plain chat request
-        # would reach.
-        route = apply_router(route, current_config(), ctx=dict(PLAIN_REQUEST_CTX))
+        # Same resolution a request goes through (proxy()), as a question: a
+        # GET carries no model, no token count and is neither audio nor
+        # embeddings, and it is never replayed — so a backup node answers it
+        # from the exit that answers (output_health.discovery_exit).
+        route = apply_router(route, current_config(), ctx=dict(PORT_QUESTION_CTX))
         upstream_type = str(route.get("upstreamType") or "llama")
         if route.get("unrouted") and upstream_type != "cloud":
             reason = route["unrouted"]
@@ -1462,8 +1476,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         /health fall through to the cloud leg on exactly those ports.
         """
         route = live_route_for_port(self.server.route.get("port")) or self.server.route
-        route = apply_router(route, current_config(),
-                             ctx={"model": "", "maxTokens": None, "audio": False, "embeddings": False})
+        route = apply_router(route, current_config(), ctx=dict(PORT_QUESTION_CTX))
         return str(route.get("upstreamType") or "llama"), route
 
     def _send_cloud_absent(self, path):
