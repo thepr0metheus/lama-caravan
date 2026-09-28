@@ -438,12 +438,64 @@ def test_questions_go_where_answers_come_from():
     output_health.clear()
 
 
+def test_first_pass_at_start():
+    """The probe asks at once when the proxy starts, not half a minute later.
+
+    2026-09-28: right after a deploy the proxy knew nothing about its exits
+    for thirty seconds, and a question in that window went down main into a
+    cell switched off weeks before.
+    """
+    print("первая проверка выходов — сразу при старте:")
+    import caravan.proxy.output_probe as op
+    import caravan.proxy.state as st
+
+    class Stop(Exception):
+        pass
+
+    def run(passes):
+        calls = []
+        script = list(passes)
+
+        def fake_pass():
+            outcome = script.pop(0)
+            calls.append("pass")
+            if outcome == "boom":
+                raise RuntimeError("probe failed")
+            return outcome
+
+        def fake_sleep(seconds):
+            calls.append(("sleep", seconds))
+            if not script:
+                raise Stop()
+
+        saved_pass, saved_write = op.probe_pass, st.write_state
+        op.probe_pass = fake_pass
+        st.write_state = lambda: calls.append("write")
+        try:
+            op.probe_loop(sleep=fake_sleep)
+        except Stop:
+            pass
+        except Exception as exc:   # the loop itself died: a pin says so, not a crash
+            calls.append(("died", type(exc).__name__))
+        finally:
+            op.probe_pass, st.write_state = saved_pass, saved_write
+        return calls
+
+    calls = run([["cell:ok"], []])
+    check(calls == ["pass", "write", ("sleep", op.PROBE_INTERVAL_SECONDS), "pass", ("sleep", op.PROBE_INTERVAL_SECONDS)],
+          f"positive: сначала проход и запись, потом пауза; negative: пустой проход файл не переписывает (got {calls})")
+    calls = run(["boom", ["cell:ok"]])
+    check(calls[:3] == ["pass", ("sleep", op.PROBE_INTERVAL_SECONDS), "pass"] and "write" in calls,
+          f"negative: упавший проход не останавливает цикл — следующий идёт по расписанию (got {calls})")
+
+
 def main():
     test_verdicts()
     test_probe()
     test_pass_and_next()
     test_request_follows_the_chain()
     test_questions_go_where_answers_come_from()
+    test_first_pass_at_start()
     if _fail:
         print(f"FAILED ({len(_fail)}):")
         for msg in _fail:

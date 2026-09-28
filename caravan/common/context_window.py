@@ -33,6 +33,12 @@ asked what it serves, a catalogue is asked what it declares.
 SERVED_KEYS = ("max_model_len",)
 SERVED_NESTED = (("meta", "n_ctx"),)
 
+# A live llama.cpp server's /props: the window per slot, the same served
+# number, under `default_generation_settings` (older builds: the top level).
+# A client that knows llama.cpp reads its window here, not in /v1/models.
+PROPS_SERVED_KEYS = ("n_ctx",)
+PROPS_SERVED_NESTED = (("default_generation_settings", "n_ctx"),)
+
 # A provider catalogue entry. `max_model_len` appears in both because a
 # self-hosted OpenAI-compatible server can be registered as a cloud account.
 DECLARED_KEYS = ("context_length", "max_input_tokens", "context_window", "max_model_len")
@@ -71,6 +77,23 @@ def served_window(entry):
             found = _positive_int(section.get(inner))
             if found is not None:
                 return found
+    return None
+
+
+def props_served_window(props):
+    """The context one request may use, as a llama.cpp server's /props states it."""
+    if not isinstance(props, dict):
+        return None
+    for outer, inner in PROPS_SERVED_NESTED:
+        section = props.get(outer)
+        if isinstance(section, dict):
+            found = _positive_int(section.get(inner))
+            if found is not None:
+                return found
+    for key in PROPS_SERVED_KEYS:
+        found = _positive_int(props.get(key))
+        if found is not None:
+            return found
     return None
 
 

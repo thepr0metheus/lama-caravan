@@ -267,16 +267,23 @@ def onerror_next_map(config, now=None):
     return result
 
 
-def probe_loop():
-    """Daemon: a pass every PROBE_INTERVAL_SECONDS; the state file is rewritten when a verdict changed."""
+def probe_loop(sleep=time.sleep):
+    """Daemon: a pass at start, then every PROBE_INTERVAL_SECONDS; the state
+    file is rewritten when a verdict changed.
+
+    The first pass runs at once. A restarted proxy knows nothing about its
+    exits, and it used to wait half a minute before asking: a client's
+    question in that window went down a backup node's main even when main
+    was a cell switched off weeks ago (2026-09-28, right after a deploy).
+    """
     from caravan.proxy.state import write_state
     while True:
-        time.sleep(PROBE_INTERVAL_SECONDS)
         try:
             if probe_pass():
                 write_state()
         except Exception:
             pass
+        sleep(PROBE_INTERVAL_SECONDS)
 
 
 def start_probe_thread():

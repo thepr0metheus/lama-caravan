@@ -419,7 +419,14 @@ engine's memory on every pass. The request's ctx is built once and reused by
 the entry, a queue's spill and a rescue. A client's question whose exit
 refuses the connection is not replayed, but the refusal is noted as that
 exit's verdict. The rest of the client's questions then go to the exit that
-answers.
+answers. A cell's `GET /props` (and `/v1/props`) is relayed with the port's
+window where llama.cpp states its own (`default_generation_settings.n_ctx`,
+top-level `n_ctx` on older builds): the same `effective_window(limit, served)`
+that `/v1/models` publishes, so a client reading either sees one figure
+(`_publish_props_window`; the fields are named in
+`caravan/common/context_window.py`). Without a limit the cell's number is
+relayed as it is. `output_probe.py` runs its first pass as soon as the proxy
+starts, then every 30 seconds.
 
 - Owns: the request lifecycle, per-request phase transitions
   (`queued → received → upstream → streaming/reading → finished`), spend/

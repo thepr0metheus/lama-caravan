@@ -72,6 +72,12 @@ class ProxyRoute:
             return None
         return value if value and value > 0 else None
 
+    @staticmethod
+    def port_url(server_ip, port):
+        """The address a client calls a caravan port at — the one format, for
+        the bind, the board's proxy rows and the agents' routes alike."""
+        return f"http://{server_ip}:{int(port)}/v1"
+
     @classmethod
     def for_port(cls, role, port, server_ip):
         """A route to an issued port. The one place that assembles the
@@ -80,7 +86,22 @@ class ProxyRoute:
         that."""
         port = int(port)
         return cls(role=role, proxy_id=f"{PROXY_ID_PREFIX}{port}",
-                   endpoint=f"http://{server_ip}:{port}/v1")
+                   endpoint=cls.port_url(server_ip, port))
+
+    def address(self, server_ip):
+        """Where this route's port is reached NOW.
+
+        `endpoint` is the address as it was when the port was bound, and the
+        controller's address can change under it: after the network move of
+        2026-09 every card still named the old one, while the clients
+        themselves had been pointed at the new one by hand. So the address is
+        rebuilt from the controller's current one and the port. A route that
+        names no port of ours keeps the address it was stored with — there is
+        nothing to rebuild it from.
+        """
+        if self.port and str(server_ip or "").strip():
+            return self.port_url(server_ip, self.port)
+        return self.endpoint
 
     @classmethod
     def from_raw(cls, raw):
