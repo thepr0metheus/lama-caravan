@@ -8,6 +8,7 @@ import os
 import re
 
 from caravan.admin.paths import CLOUD_PROVIDERS_FILE, PROVIDER_SECRETS_FILE
+from caravan.common.usage_reserve import UsageReserve
 from caravan.common.errors import AppError
 from caravan.common.fsio import atomic_write_text
 from caravan.store.cloud import CachedJsonStore
@@ -223,6 +224,12 @@ def normalize_cloud_account(account):
     result = {"id": aid, "type": atype, "name": name, "baseUrl": base_url, "authMode": auth_mode}
     if account_type:
         result["accountType"] = account_type
+    # The share of each limit window the operator keeps for themselves
+    # (caravan/common/usage_reserve.py). Rebuilt here like every other field:
+    # a field this normalizer does not name is gone on the account's next save.
+    reserve = UsageReserve.normalize(account.get("usageReserve"))
+    if reserve:
+        result["usageReserve"] = reserve
     if "oauth" in auth_modes:
         defaults = preset.get("oauth", {})
         supplied = account.get("oauthConfig") if isinstance(account.get("oauthConfig"), dict) else {}

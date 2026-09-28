@@ -146,6 +146,16 @@ What happens to one `POST /v1/chat/completions` arriving on a proxy port:
      `_chat_to_anthropic_body` and the `/messages` path; any other provider
      gets a base-path rewrite plus `rewrite_model_in_body` when
      `modelMode == "rewrite"`.
+   - *A subscription's reserve.* A ChatGPT subscription states its limit
+     windows on every answer, a 429 included; `subscription_usage` keeps the
+     last reading per account. Before sending, the account's reserve
+     (`usageReserve`: the share of each window the operator keeps) is checked
+     against that reading (`reserve_gate`). While a window has no more left
+     than the reserve, nothing is sent: a `ReserveRefusal` answers in the
+     provider's place — 429 `usage_limit_reached`, `Retry-After` and
+     `resets_at` up to the window's reset — and takes the way a provider's
+     429 takes: the exit's verdict, a 🛟 backup, the journal row
+     (`errorKind: usage_reserve`).
    - Either way the connection is put in `active_controls` via
      `register_active_control` so a stop request can sever it mid-flight. A
      llama upstream answering 503 with "Loading model" is retried every 3s for
@@ -314,6 +324,10 @@ temp path used to race between threads. `finish_active` also arms the sticky
 slot for the finished llama route so the same port wins the next admission
 window.
 
+The file also carries `subscriptionUsage` — each subscription account's last
+reading of its limit windows — which the admin reads for the card's reserve
+banner.
+
 - Owns: the state-file format, active/recent lists (recent capped at 20),
   sticky-slot arming on finish.
 - Key functions: `sync_agents_state`, `write_state`, `add_active`,
@@ -329,10 +343,58 @@ that expire within 60s are refreshed in place against the account's
 `tokenUrl`, and the updated secrets file is written back atomically with 0600
 perms.
 
+Both shapes carry the account's `accountType` (whether it is a ChatGPT
+subscription is the account's fact, not its address's) and its
+`usageReserve`: every model of an account draws on one pool.
+
 - Owns: `CLOUD_PROVIDER_AUTH` (per-provider auth header/prefix/extra-headers
   table), OAuth refresh.
 - Key functions: `load_cloud_provider`, `load_cloud_account`,
   `load_provider_secret`.
+
+## caravan/proxy/subscription_usage.py
+
+A subscription's limit windows as the proxy last read them, and the answer
+the proxy gives in the provider's place. `SubscriptionUsage.note(account,
+headers)` reads the Codex backend's `x-codex-{primary,secondary}-*` headers
+(used percent, window length in minutes, reset time) into `{seconds, usedPct,
+resetAt}` per window. An answer without them leaves the reading as it was:
+absence is not a reading. `ReserveRefusal` is a local response shaped like
+`http.client.HTTPResponse` (status, headers, `read`), so the handler relays it
+on the path a real answer takes. Its body is OpenAI's own
+`usage_limit_reached` error plus `caravan_reserve` (`window_seconds`,
+`remaining_pct`, `reserve_pct`), and its message names the caravan, not the
+provider.
+
+The rule is `caravan/common/usage_reserve.py` (`UsageReserve`): a window
+closes while its remaining share is at or below the reserve and its reset is
+still ahead. Without a reset time nothing closes — a door shut with no known
+opening would stay shut. Of several closed windows, the one that reopens last
+is named. The reserve is 1–90% per window; 0 means none. The admin computes
+the card's banner with the same class from the proxy's reading, so the card
+says what the proxy does.
+
+`ReserveGate` is the one question the handler and `output_probe.py` both
+ask before sending anything to a subscription: is the door shut now? While
+it is shut nothing is sent, so no answer brings a new reading, and a reset
+that came early (a banked or bought one) would stay unseen until the old
+reset time — up to a week on the weekly window. So while shut, a reading
+older than five minutes is refreshed from the account's usage page
+(`GET /backend-api/wham/usage` with the account's own sign-in), which spends
+no share of any window. A page that does not answer is not asked again for
+five minutes, and the door stays as the last reading says. An open door never
+asks: its reading rides on the answers. The page's parser reads the same two
+windows the headers carry; OpenAI's extra `gpt-reserve` window is left out,
+since it shares the weekly length.
+
+The probe keeps the reserve too: a subscription exit whose window is down to
+it is recorded as the proxy would answer (429 `usage_reserve`) without
+spending the operator's share, and a real probe's headers update the reading.
+
+- Owns: `subscription_usage` (per-account readings under a lock),
+  `reserve_gate` (when each account's page was last asked).
+- Key names: `SubscriptionUsage`, `ReserveGate`, `ReserveRefusal`; the rule
+  `UsageReserve`.
 
 ## caravan/proxy/translate.py
 

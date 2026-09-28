@@ -9,6 +9,7 @@ from caravan.proxy.config import current_config
 from caravan.proxy.capacity import slot_totals_snapshot
 from caravan.proxy.graph import apply_router
 from caravan.proxy.output_health import output_health
+from caravan.proxy.subscription_usage import subscription_usage
 from caravan.proxy.output_probe import onerror_next_map
 from caravan.proxy.paths import DEFAULT_POLICY, STATE_FILE
 from caravan.proxy.runtime import (
@@ -78,6 +79,10 @@ def write_state():
         # draws these as they are, never re-deriving the rule.
         "outputHealth": output_health.snapshot(),
         "onErrorNext": onerror_next_map(cfg),
+        # What each subscription account's last answer said about its limit
+        # windows; the board reads the reserve's verdict from it with the same
+        # rule the proxy enforces (caravan/common/usage_reserve.py).
+        "subscriptionUsage": subscription_usage.snapshot(),
     }
     body = json.dumps(payload, ensure_ascii=False, indent=2)
     # Atomic + concurrency-safe: many threads call write_state (per request + the slot-probe

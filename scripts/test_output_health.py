@@ -16,6 +16,7 @@ import socket
 import sys
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -115,16 +116,57 @@ class _Cloud(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
 
-HEALTHY, LOADING, CLOUD, CLOSED = free_port(), free_port(), free_port(), free_port()
-for port, handler in ((HEALTHY, _Healthy), (LOADING, _Loading), (CLOUD, _Cloud)):
+class _SubCloud(BaseHTTPRequestHandler):
+    """A subscription's codex endpoint: answers, and states the five-hour window in its headers.
+    Its usage page says the window was reset."""
+    protocol_version = "HTTP/1.1"
+    hits = []
+    pages = []
+    used = "85"
+
+    def do_GET(self):
+        _SubCloud.pages.append(self.path)
+        body = json.dumps({"rate_limit": {"primary_window": {
+            "used_percent": 0, "limit_window_seconds": 18000, "reset_at": int(time.time()) + 18000}}}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+    def do_POST(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        self.rfile.read(length)
+        _SubCloud.hits.append(self.path)
+        body = b'data: {"type":"response.completed","response":{"status":"completed"}}\n\n'
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("x-codex-primary-used-percent", _SubCloud.used)
+        self.send_header("x-codex-primary-window-minutes", "300")
+        self.send_header("x-codex-primary-reset-at", str(int(time.time()) + 3600))
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+HEALTHY, LOADING, CLOUD, CLOSED, SUBC = free_port(), free_port(), free_port(), free_port(), free_port()
+for port, handler in ((HEALTHY, _Healthy), (LOADING, _Loading), (CLOUD, _Cloud), (SUBC, _SubCloud)):
     server = ThreadingHTTPServer(("127.0.0.1", port), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
 Path(os.environ["CLOUD_PROVIDERS_FILE"]).write_text(json.dumps({
-    "accounts": [{"id": "acc:c", "type": "custom", "baseUrl": f"http://127.0.0.1:{CLOUD}/v1", "authMode": "apiKey"}],
-    "blocks": [{"id": "blk:c", "accountId": "acc:c", "model": "cloud-model"}],
+    "accounts": [{"id": "acc:c", "type": "custom", "baseUrl": f"http://127.0.0.1:{CLOUD}/v1", "authMode": "apiKey"},
+                 # A subscription keeping 20% of its five-hour window for the operator.
+                 {"id": "acc:s", "type": "openai", "accountType": "openai-subscription",
+                  "baseUrl": f"http://127.0.0.1:{SUBC}", "authMode": "apiKey", "usageReserve": {"18000": 20}}],
+    "blocks": [{"id": "blk:c", "accountId": "acc:c", "model": "cloud-model"},
+               {"id": "blk:s", "accountId": "acc:s", "model": "sub-model"}],
 }), encoding="utf-8")
-Path(os.environ["PROVIDER_SECRETS_FILE"]).write_text(json.dumps({"acc:c": {"apiKey": "sk-probe"}}), encoding="utf-8")
+Path(os.environ["PROVIDER_SECRETS_FILE"]).write_text(json.dumps({"acc:c": {"apiKey": "sk-probe"},
+                                                                 "acc:s": {"apiKey": "sk-sub"}}), encoding="utf-8")
 
 OUT_HEALTHY = {"id": "cell:ok", "upstreamHost": "127.0.0.1", "upstreamPort": HEALTHY}
 OUT_LOADING = {"id": "cell:load", "upstreamHost": "127.0.0.1", "upstreamPort": LOADING}
@@ -489,6 +531,43 @@ def test_first_pass_at_start():
           f"negative: упавший проход не останавливает цикл — следующий идёт по расписанию (got {calls})")
 
 
+def test_probe_keeps_the_reserve():
+    """The probe of a subscription exit: it reads the windows off the answer, and
+    while the operator's reserve is reached it spends nothing of it — the exit
+    refuses, and the probe says so without asking the provider."""
+    print("проверка выхода подписки и запас оператора:")
+    import time as _t
+    from caravan.proxy.subscription_usage import subscription_usage
+    out = {"id": "cb:s", "upstreamType": "cloud", "providerId": "blk:s", "accountId": "acc:s"}
+    subscription_usage.clear()
+    before = len(_SubCloud.hits)
+    ok, status, kind, msg = probe_output(out)
+    check((ok, status) == (True, 200) and len(_SubCloud.hits) == before + 1,
+          f"показаний нет — проба спрашивает провайдера (got {ok}, {status})")
+    check([(w["seconds"], w["usedPct"]) for w in subscription_usage.windows("acc:s")] == [(18000, 85)],
+          "и оставляет показания из заголовков ответа")
+    ok, status, kind, msg = probe_output(out)
+    check((ok, status, kind) == (False, 429, "usage_reserve") and len(_SubCloud.hits) == before + 1,
+          f"positive: осталось 15% при запасе 20% — выход отказывает, провайдера не спрашивают (got {ok}, {status}, {kind})")
+    check(msg.startswith("The caravan keeps your reserve"), "причина называет караван")
+    subscription_usage.note("acc:s", {"x-codex-primary-used-percent": "85", "x-codex-primary-window-minutes": "300",
+                                      "x-codex-primary-reset-at": str(int(_t.time()) - 5)})
+    ok, status, kind, msg = probe_output(out)
+    check((ok, status) == (True, 200) and len(_SubCloud.hits) == before + 2,
+          "negative: окно сбросилось — проба снова спрашивает провайдера")
+    from caravan.proxy.subscription_usage import reserve_gate
+    subscription_usage.note("acc:s", {"x-codex-primary-used-percent": "85", "x-codex-primary-window-minutes": "300",
+                                      "x-codex-primary-reset-at": str(int(_t.time()) + 3600)}, now=_t.time() - 400)
+    reserve_gate.clear()
+    pages = len(_SubCloud.pages)
+    ok, status, kind, msg = probe_output(out)
+    check((ok, status) == (True, 200) and _SubCloud.pages[pages:] == ["/backend-api/wham/usage"]
+          and len(_SubCloud.hits) == before + 3,
+          f"досрочный сброс: показания старые — проба спрашивает страницу использования, и выход снова жив (got {ok}, {status})")
+    subscription_usage.clear()
+    reserve_gate.clear()
+
+
 def main():
     test_verdicts()
     test_probe()
@@ -496,6 +575,7 @@ def main():
     test_request_follows_the_chain()
     test_questions_go_where_answers_come_from()
     test_first_pass_at_start()
+    test_probe_keeps_the_reserve()
     if _fail:
         print(f"FAILED ({len(_fail)}):")
         for msg in _fail:

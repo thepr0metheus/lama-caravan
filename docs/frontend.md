@@ -955,8 +955,17 @@ subscription that the subscription covers it. There is no breakdown under it any
 operator's ask, 2026-09-27: it repeated the rows below): each model's share stands on its own row
 (`proxySpendOf` → `ProviderModels`, cloud-models.js).
 
-- Owns: `usageStatsData`, `apiCostsCache`, `openrouterLimitsCache`, `proxySpendData`, `subscriptionUsageCache`, `usageStatsApiPriceEdit`.
-- Key exports: `openUsageStatsModal`, `renderUsageStatsModal`, `fetchUsageStats`, `fetchApiCosts`, `saveApiPrice`, `saveLocalPricing`, `proxySpendHtml`, `proxySpendOf`.
+A subscription's limit bars carry the operator's reserve (`subscriptionLimitRowHtml`): a slider over
+each bar, keyed by the window's length, ranging to the server's ceiling (`reserveMax`) and spanning
+that share of the bar, so the handle stands where the hatched kept share ends. Letting go saves it
+(`saveUsageReserve` → `/api/cloud-accounts/usage-reserve`); a failed save leaves the cache as it was,
+puts the slider back and says why in a toast. While the pointer holds a slider the cloud lane is not
+rebuilt (`reserveDrag`); it is redrawn on release. When the proxy is holding the reserve, a banner
+above the bars names the window, what is left and when it reopens; OpenAI's own limit banner comes
+first.
+
+- Owns: `usageStatsData`, `apiCostsCache`, `openrouterLimitsCache`, `proxySpendData`, `subscriptionUsageCache`, `usageStatsApiPriceEdit`, `reserveDrag`.
+- Key exports: `openUsageStatsModal`, `renderUsageStatsModal`, `fetchUsageStats`, `fetchApiCosts`, `saveApiPrice`, `saveLocalPricing`, `proxySpendHtml`, `proxySpendOf`, `subscriptionLimitRowHtml`, `saveUsageReserve`, `previewUsageReserve`, `reserveDrag`.
 
 ## history.js
 

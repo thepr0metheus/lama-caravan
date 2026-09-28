@@ -8,6 +8,7 @@ from caravan.common.fsio import atomic_write_text
 from caravan.proxy.paths import MODEL_CATALOG_FILE, CLOUD_PROVIDERS_FILE, PROVIDER_SECRETS_FILE
 from caravan.proxy.runtime import config_lock
 from caravan.common.context_window import block_window
+from caravan.common.usage_reserve import UsageReserve
 
 
 CLOUD_PROVIDER_AUTH = {
@@ -71,6 +72,10 @@ def load_cloud_provider(block_id):
         "id": block_id,
         "accountId": account.get("id"),
         "type": account.get("type") or "openai",
+        # Whether this is a ChatGPT subscription is the ACCOUNT's fact, and a
+        # model of it must say so as the account does: without it a block was
+        # a subscription only when its address happened to be chatgpt.com.
+        "accountType": account.get("accountType") or "",
         "baseUrl": account.get("baseUrl") or "",
         "authMode": account.get("authMode") or "apiKey",
         "oauthConfig": account.get("oauthConfig") if isinstance(account.get("oauthConfig"), dict) else {},
@@ -85,6 +90,9 @@ def load_cloud_provider(block_id):
             block.get("contextLength"),
             _cached_context_length(account.get("id"), block.get("model")) if block.get("contextAuto") else None,
             bool(block.get("contextAuto"))),
+        # The share of each limit window the operator keeps for themselves —
+        # an ACCOUNT's setting: every model of it draws on the same pool.
+        "usageReserve": UsageReserve.normalize(account.get("usageReserve")),
     }
 
 def load_cloud_account(account_id):
@@ -108,6 +116,7 @@ def load_cloud_account(account_id):
         "oauthConfig": account.get("oauthConfig") if isinstance(account.get("oauthConfig"), dict) else {},
         "model": "",
         "modelMode": "passthrough",
+        "usageReserve": UsageReserve.normalize(account.get("usageReserve")),
     }
 
 def _write_provider_secrets(secrets):

@@ -591,7 +591,7 @@ Live calls against the provider APIs. `test_account_key` probes the preset test 
 rejected; 404/405 counts as validated); `set_account_key` stores a key only after it passes.
 `fetch_account_models` handles OpenAI- and Ollama-shaped listings with an OAuth pre-refresh;
 `fetch_subscription_models`/`fetch_subscription_usage` talk to the ChatGPT backend for subscription
-accounts; `fetch_account_costs` and `fetch_openrouter_limits` read spend/credit endpoints;
+accounts (each limit carries `windowSeconds`, the length the reserve is keyed by); `fetch_account_costs` and `fetch_openrouter_limits` read spend/credit endpoints;
 `auto_create_blocks` creates one block per fetched model. `usage_stats` is the statistics panel: a
 single pass over the last N days of proxy event logs' `finished` events — cloud requests priced from
 LiteLLM pricing (manual `apiPricing` overrides win), local requests counted in tokens plus a "would
@@ -601,6 +601,19 @@ Owns: — (reads proxy logs, writes secrets/blocks via `cloud.py`).
 Key functions: `test_account_key`, `set_account_key`, `fetch_account_models`,
 `fetch_subscription_models`, `fetch_subscription_usage`, `fetch_account_costs`,
 `fetch_openrouter_limits`, `auto_create_blocks`, `cloud_spend_summary`, `usage_stats`.
+
+## `usage_reserve_desk.py`
+
+`UsageReserveDesk` — the operator's reserve on a subscription account: the share of each limit
+window kept for the operator's own use (`usageReserve` in `cloud-providers.json`, window length in
+seconds → percent, 1–90). `set(account, windowSeconds, pct)` stores it; 0 lifts it; only an
+`openai-subscription` account takes one, since elsewhere it would be a setting that does nothing.
+`view(account)` is what the card shows beside the bars: the reserve, the proxy's verdict computed
+from its last reading (`subscriptionUsage` in the proxy's state file) with the rule the proxy
+enforces (`caravan/common/usage_reserve.py`), the reading's time and the ceiling.
+`normalize_cloud_account` keeps the reserve through an account's edit.
+Owns: — (writes `usageReserve` via `cloud.py`; reads the proxy's state file).
+Key names: `UsageReserveDesk.set`, `.view`, `.reading`.
 
 ## `cloud_refs.py`
 

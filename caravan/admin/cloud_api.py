@@ -8,6 +8,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
+from caravan.proxy.subscription_usage import ReserveRefusal
 from caravan.common.context_window import declared_window
 from caravan.admin.cloud import (
     CLOUD_PROVIDER_PRESETS,
@@ -432,7 +433,9 @@ def cloud_upstream_errors(hours=24):
             if acct not in account_ids:
                 continue
             model = blk.get("model") or it.get("model") or "?"
-            code = f"HTTP {status}" if status >= 400 else kind
+            # The caravan's own refusal (the operator's reserve) is its own row:
+            # counted as "HTTP 429" it read as the provider refusing.
+            code = kind if kind == ReserveRefusal.KIND else (f"HTTP {status}" if status >= 400 else kind)
             rows = by_account.setdefault(acct, {})
             row = rows.setdefault((model, code), {"model": model, "code": code, "count": 0,
                                                   "firstAt": 0, "lastAt": 0, "error": "", "kind": ""})
@@ -720,8 +723,14 @@ def _normalize_subscription_usage(data):
         # that appears once the regular one is spent) keeps its name in the
         # label, so two "Weekly limit" bars cannot be mistaken for one another.
         name = str(window.get("limit_name") or window.get("name") or "").strip()
+        # The window's length names it for the reserve (caravan/common/usage_reserve.py):
+        # the proxy hears the same length in the Codex backend's headers.
+        try:
+            window_seconds = int(window.get("limit_window_seconds") or 0) or None
+        except (TypeError, ValueError):
+            window_seconds = None
         return {"label": f"{name} · {label}" if name else label, "name": name,
-                "remainingPct": remaining_pct, "resetsAt": resets_at}
+                "remainingPct": remaining_pct, "resetsAt": resets_at, "windowSeconds": window_seconds}
 
     # Label by the window's DURATION, not its primary/secondary slot: OpenAI
     # dropped the 5h window (2026-07), so "primary" is now the weekly one —

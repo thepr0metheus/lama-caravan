@@ -3,7 +3,7 @@ import { renderTopologyCloudProviders } from "./cloud.js";
 import { t } from "./i18n.js";
 import { topology, ui } from "./state.js";
 import { renderTopology } from "./topology-render.js";
-import { $, api, escapeHtml } from "./utils.js";
+import { $, api, escapeHtml, toast } from "./utils.js";
 
 // (proxy squares + proxy detail popover removed — the proxy now lives on the client
 // route row and is managed via the Proxy Ports registry modal.)
@@ -420,21 +420,7 @@ export function subscriptionUsageHtml(accountId) {
   }
   const { limits = [], credits } = cached.data;
   if (!limits.length && credits == null) return "";
-  const rows = limits.map((lim) => {
-    const pct = Math.max(0, Math.min(100, lim.remainingPct ?? 0));
-    const color = pct > 50 ? "#22c55e" : pct > 15 ? "#f59e0b" : "#ef4444";
-    const resetsLine = lim.resetsAt
-      ? `<span class="sub-usage-resets">${escapeHtml(formatSubUsageReset(lim.resetsAt))}</span>` : "";
-    return `
-      <div class="sub-usage-row">
-        <div class="sub-usage-meta">
-          <span class="sub-usage-label">${escapeHtml(lim.label)}</span>
-          <span class="sub-usage-pct" style="color:${color}">${pct}%</span>
-        </div>
-        <div class="sub-usage-bar"><i style="width:${pct}%;background:${color}"></i></div>
-        ${resetsLine}
-      </div>`;
-  }).join("");
+  const rows = limits.map((lim) => subscriptionLimitRowHtml(accountId, lim, cached.data)).join("");
   const creditsHtml = credits != null
     ? `<div class="sub-usage-credits"><span>${t("usCredits")}</span><strong>${credits}</strong></div>` : "";
   const isLoading = cached?.loading;
@@ -442,20 +428,118 @@ export function subscriptionUsageHtml(accountId) {
   return `<div class="sub-usage-panel">${subscriptionBannerHtml(cached.data)}<div class="sub-usage-head">${refreshBtn}</div>${rows}${creditsHtml}</div>`;
 }
 
+/** One limit bar of a subscription, with the operator's reserve on it.
+ *
+ *  The reserve is the share of the window the operator keeps for themselves:
+ *  once the window is down to it, the proxy answers requests to the account
+ *  itself (caravan/common/usage_reserve.py). The slider lies over the bar at the
+ *  reserve's mark, the kept share is hatched, and the mark is named beside the
+ *  label. A window the reading does not name by length gets no slider: the
+ *  proxy knows windows by length, and a reserve on an unnamed one would be a
+ *  setting that does nothing. Neither without the server's ceiling — the
+ *  slider's range is the server's rule, not a copy of it. The slider spans
+ *  that ceiling's share of the bar, so its handle stands where the hatching
+ *  ends: stretched over the whole bar, a 20% reserve sat at 22%. */
+export function subscriptionLimitRowHtml(accountId, lim, data) {
+  const pct = Math.max(0, Math.min(100, lim.remainingPct ?? 0));
+  const color = pct > 50 ? "#22c55e" : pct > 15 ? "#f59e0b" : "#ef4444";
+  const resetsLine = lim.resetsAt
+    ? `<span class="sub-usage-resets">${escapeHtml(formatSubUsageReset(lim.resetsAt))}</span>` : "";
+  const seconds = Number(lim.windowSeconds || 0);
+  const max = Number(data?.reserveMax || 0);
+  const settable = seconds > 0 && max > 0;
+  const reserve = settable ? Math.max(0, Math.min(max, Number((data?.reserve || {})[String(seconds)] || 0))) : 0;
+  const mark = settable
+    ? `<span class="sub-usage-reserve-mark"${reserve ? "" : " hidden"}>${escapeHtml(t("usReserveMark", { pct: String(reserve) }))}</span>` : "";
+  const zone = settable ? `<b class="sub-usage-reserve-zone" style="width:${reserve}%"></b>` : "";
+  const slider = settable
+    ? `<input class="sub-usage-reserve${reserve ? "" : " is-off"}" type="range" min="0" max="${max}" step="1" value="${reserve}"`
+      + ` style="width:${max}%" data-usage-reserve="${escapeHtml(accountId)}" data-window-seconds="${seconds}" data-t="usage-reserve"`
+      + ` aria-label="${escapeHtml(t("usReserveHandle"))}" title="${escapeHtml(t("usReserveHandle"))}">` : "";
+  return `
+      <div class="sub-usage-row">
+        <div class="sub-usage-meta">
+          <span class="sub-usage-label">${escapeHtml(lim.label)}</span>
+          ${mark}
+          <span class="sub-usage-pct" style="color:${color}">${pct}%</span>
+        </div>
+        <div class="sub-usage-track"><div class="sub-usage-bar"><i style="width:${pct}%;background:${color}"></i>${zone}</div>${slider}</div>
+        ${resetsLine}
+      </div>`;
+}
+
+/** Whether a reserve slider is being dragged: the cloud lane must not be rebuilt
+ *  under the pointer, or the slider jumps back mid-gesture. Cleared on ANY
+ *  release — a click that moves nothing fires no `change`, and a flag left up
+ *  would keep the lane from ever rendering again. */
+export const reserveDrag = {
+  active: false,
+  deferred: false,
+  begin(onEnd) {
+    this.active = true;
+    const end = () => {
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      this.active = false;
+      if (this.deferred) {
+        this.deferred = false;
+        onEnd();
+      }
+    };
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  },
+};
+
+/** While dragging: the hatched share and its mark follow the slider, nothing is saved. */
+export function previewUsageReserve(slider) {
+  const pct = Number(slider.value || 0);
+  const row = slider.closest(".sub-usage-row");
+  const zone = row?.querySelector(".sub-usage-reserve-zone");
+  const mark = row?.querySelector(".sub-usage-reserve-mark");
+  if (zone) zone.style.width = `${pct}%`;
+  if (mark) {
+    mark.textContent = t("usReserveMark", { pct: String(pct) });
+    mark.hidden = !pct;
+  }
+  slider.classList.toggle("is-off", !pct);
+}
+
+/** On release: save the window's reserve, then draw what the server kept.
+ *  A failed save is said, and the redraw puts the slider back where the saved
+ *  value is — a slider left at an unsaved mark would read as a kept reserve. */
+export async function saveUsageReserve(slider) {
+  const accountId = slider.dataset.usageReserve;
+  try {
+    const res = await api("/api/cloud-accounts/usage-reserve", { method: "POST", body: JSON.stringify({
+      id: accountId, windowSeconds: Number(slider.dataset.windowSeconds), pct: Number(slider.value || 0) }) });
+    const cached = subscriptionUsageCache.get(accountId);
+    if (cached?.data) {
+      cached.data = { ...cached.data, reserve: res.reserve, reserveKept: res.reserveKept,
+                      reserveReadAt: res.reserveReadAt, reserveMax: res.reserveMax };
+    }
+  } catch (err) {
+    toast(t("usReserveSaveFailed", { error: String(err?.message || err) }));
+  }
+  ui._lastCloudProvidersKey = "";   // the reserve is not part of the lane's render key
+  renderTopologyCloudProviders();
+}
+
 // The moment itself, without the "resets" word: the banner says "until {moment}".
-export function formatSubUsageMoment(resetsAt) {
+// `now` is a parameter: "today" read off the wall clock made the snapshot's
+// "time only" pin fail whenever it ran a minute before midnight.
+export function formatSubUsageMoment(resetsAt, now = new Date()) {
   try {
     const d = new Date(resetsAt);
     if (isNaN(d)) return resetsAt;
-    const now = new Date();
     const sameDay = d.toDateString() === now.toDateString();
     if (sameDay) return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     return `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
   } catch { return resetsAt; }
 }
 
-export function formatSubUsageReset(resetsAt) {
-  const moment = formatSubUsageMoment(resetsAt);
+export function formatSubUsageReset(resetsAt, now = new Date()) {
+  const moment = formatSubUsageMoment(resetsAt, now);
   return moment === resetsAt && isNaN(new Date(resetsAt)) ? resetsAt : `resets ${moment}`;
 }
 
@@ -482,6 +566,16 @@ export function subscriptionBannerHtml(data) {
       : "";
     return `<div class="sub-usage-banner blocked" data-t="sub-usage-banner">⛔ ${escapeHtml(t("usBannerLimitReached", { reset }))}`
       + `<div class="sub-usage-banner-keeps">${escapeHtml(keeps)}</div>${own}</div>`;
+  }
+  // The caravan's own refusal, said as its own: the proxy keeps the operator's
+  // reserve and answers the account's requests with 429 itself. After the
+  // provider's verdict above — once OpenAI refuses, it is OpenAI's word.
+  const kept = data.reserveKept;
+  if (kept && kept.resetAt) {
+    const lim = limits.find((l) => Number(l.windowSeconds || 0) === Number(kept.windowSeconds));
+    const until = formatSubUsageMoment(new Date(Number(kept.resetAt) * 1000).toISOString());
+    return `<div class="sub-usage-banner reserve" data-t="sub-usage-banner">🛡 ${escapeHtml(t("usBannerReserveKept", {
+      label: lim ? lim.label : "", remaining: String(kept.remainingPct), reserve: String(kept.reservePct), reset: until }))}</div>`;
   }
   if (exhausted.length) {
     return `<div class="sub-usage-banner warn" data-t="sub-usage-banner">⚠ ${escapeHtml(t("usBannerCounterFull", { label: exhausted[0].label }))}</div>`;

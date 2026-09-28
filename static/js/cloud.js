@@ -15,10 +15,13 @@ import {
   fetchUpstreamErrors,
   openrouterLimitsCache,
   openRouterLimitsHtml,
+  previewUsageReserve,
   proxySpendFetchedAt,
   proxySpendHtml,
   proxySpendOf,
   refreshUsageReading,
+  reserveDrag,
+  saveUsageReserve,
   subscriptionUsageCache,
   subscriptionUsageHtml,
   upstreamErrFetchedAt,
@@ -74,6 +77,24 @@ const USAGE_REFRESH_BUTTONS = [
 function bindCloudCardDelegates(cpEl) {
   if (cpEl.dataset.delegated) return;
   cpEl.dataset.delegated = "1";
+  // The reserve slider on a subscription's limit bar: dragging moves the
+  // hatched share at once, letting go saves it, and the lane waits for the
+  // release before it redraws (usage-stats.js, reserveDrag).
+  cpEl.addEventListener("pointerdown", (e) => {
+    if (!e.target.closest("[data-usage-reserve]")) return;
+    reserveDrag.begin(() => {
+      ui._lastCloudProvidersKey = "";
+      renderTopologyCloudProviders();
+    });
+  });
+  cpEl.addEventListener("input", (e) => {
+    const slider = e.target.closest("[data-usage-reserve]");
+    if (slider) previewUsageReserve(slider);
+  });
+  cpEl.addEventListener("change", (e) => {
+    const slider = e.target.closest("[data-usage-reserve]");
+    if (slider) saveUsageReserve(slider);
+  });
   cpEl.addEventListener("click", async (e) => {
     for (const [attr, dataKey, kind] of USAGE_REFRESH_BUTTONS) {
       const btn = e.target.closest(`[${attr}]`);
@@ -216,6 +237,10 @@ export function renderTopologyCloudProviders() {
   const key = JSON.stringify(accounts) + JSON.stringify(blocks) + usageKeys + pricingKey
     + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${topology?.nextAppPort ?? ""}:ml${modelsKey}:ah${healthKey}:ue${upstreamErrFetchedAt}`;
   if (key === ui._lastCloudProvidersKey) return;
+  if (reserveDrag.active) {
+    reserveDrag.deferred = true;   // redrawn when the pointer lets go
+    return;
+  }
   ui._lastCloudProvidersKey = key;
   const addCloudBtn = `<button class="topology-add-wide-btn" type="button" data-topo-add-cloud>${escapeHtml(t("clAddProvider"))}</button>`;
   const cpEl = $("topologyCloudProviders");

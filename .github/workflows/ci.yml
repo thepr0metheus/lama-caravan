@@ -115,6 +115,7 @@ jobs:
           python3 scripts/test_driver_outlook.py
           python3 scripts/test_route_windows.py
           python3 scripts/test_output_health.py
+          python3 scripts/test_usage_reserve.py
           python3 scripts/test_subscription_usage.py
           python3 scripts/test_incidents.py
           python3 scripts/test_model_card.py
