@@ -50,6 +50,7 @@ st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} });
 const mm = await import(pathToFileURL(process.env.JS_ROOT + "/model-meta.js").href);
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/cloud.js").href);
 const cm = await import(pathToFileURL(process.env.JS_ROOT + "/cloud-models.js").href);
+const us = await import(pathToFileURL(process.env.JS_ROOT + "/usage-stats.js").href);
 globalThis.location.hostname = "ctl";
 // Форма модала читается через document.querySelector(selector): словарь по селектору,
 // чего нет — null, как в браузере.
@@ -292,6 +293,12 @@ PINS = [
      '(h => [h.includes("Add model block"), h.includes(\'<input type="text" data-block-field="model"\'), h.includes("data-block-field-expose"), h.includes("data-cloud-delete-block")])(m.renderTopologyCloudBlockModal())',
      '[true,true,true,false]', "новый блок без списка моделей: текстовое поле, галка expose, удаления нет"),
     # ── providers lane ──
+    # 2026-09-28: while the reserve slider on a limit bar is being dragged, the
+    # lane is not rebuilt under the pointer — the redraw waits for the release.
+    ("lane_waits_for_reserve_drag",
+     'st.setTopology(TOPO({ cloudAccounts: [], cloudProviders: [] })); globalThis.__fields.topologyCloudProviders.innerHTML = "BEFORE"; st.ui._lastCloudProvidersKey = ""; us.reserveDrag.active = true; us.reserveDrag.deferred = false;',
+     '(() => { m.renderTopologyCloudProviders(); const held = [lane(), us.reserveDrag.deferred]; us.reserveDrag.active = false; us.reserveDrag.deferred = false; m.renderTopologyCloudProviders(); return [...held, lane() === "BEFORE"]; })()',
+     '["BEFORE",true,false]', "ползунок запаса тянут — полосу не перерисовывают, перерисовка отложена; отпустили — рисуется"),
     ("lane_without_accounts",
      'st.setTopology(TOPO({ cloudAccounts: [], cloudProviders: [] }));',
      '(() => { m.renderTopologyCloudProviders(); const h = lane(); return [h.includes("no cloud providers — click + to add one"), h.includes("data-topo-add-cloud"), (h.match(/cloud-account-card/g) || []).length]; })()',

@@ -19,6 +19,7 @@ from caravan.proxy.cloud_auth import (
 from caravan.proxy.config import current_config
 from caravan.proxy.graph import PLAIN_REQUEST_CTX, chain_exit, resolve_graph
 from caravan.proxy.output_health import output_health, output_id_of_ref
+from caravan.proxy.subscription_usage import ReserveRefusal, reserve_gate, subscription_usage
 from caravan.proxy.translate import (
     _chat_to_anthropic_body, _chat_to_responses_body, _extract_chatgpt_account_id, rewrite_model_in_body,
 )
@@ -172,6 +173,12 @@ def _probe_cloud(output, timeout):
         return (False, None, "config", "cloud account baseUrl invalid")
     is_subscription = (str(provider.get("accountType") or "") == "openai-subscription"
                        or "chatgpt.com" in str(provider.get("baseUrl") or ""))
+    if is_subscription:
+        # The operator's reserve reached: the exit refuses, and the probe says
+        # so without spending a request of the very reserve it protects.
+        hit = reserve_gate.verdict(provider)
+        if hit:
+            return (False, ReserveRefusal.status, ReserveRefusal.KIND, ReserveRefusal(hit).message[:200])
     use_tls = base.scheme != "http"
     port = base.port or (443 if use_tls else 80)
     chat = json.dumps({"model": model, **_PROBE_CHAT}).encode("utf-8")
@@ -208,6 +215,8 @@ def _probe_cloud(output, timeout):
             resp = conn.getresponse()
             status = resp.status
             snippet = resp.read(4000)
+            if is_subscription:
+                subscription_usage.note(provider.get("accountId"), resp.getheaders())
         finally:
             conn.close()
     except Exception as exc:

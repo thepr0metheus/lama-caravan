@@ -678,7 +678,9 @@ def _get_api_cloud_accounts_subscription_usage(h, parsed):
         query = urllib.parse.parse_qs(parsed.query or "")
         account_id = (query.get("id") or [""])[0].strip()
         usage = fetch_subscription_usage(account_id)
-        h.send_json(usage)
+        # Beside the bars: the operator's reserve and whether the proxy keeps it now.
+        from caravan.admin.usage_reserve_desk import UsageReserveDesk
+        h.send_json({**usage, **UsageReserveDesk().view(account_id)})
         return
 
 @_route(GET_ROUTES, '/api/cloud-accounts/api-costs')
@@ -1339,6 +1341,17 @@ def _post_api_app_port(h, parsed, body):
         from caravan.admin.proxies_config import mint_app_port
         route = mint_app_port(body.get("name"))
         h.send_json({"ok": True, "route": route})
+        return
+
+@_route(POST_ROUTES, '/api/cloud-accounts/usage-reserve')
+def _post_api_cloud_accounts_usage_reserve(h, parsed, body):
+        # The share of one limit window the operator keeps for themselves; the
+        # proxy refuses requests to the account once the window is down to it.
+        from caravan.admin.usage_reserve_desk import UsageReserveDesk
+        desk = UsageReserveDesk()
+        account_id = str(body.get("id") or "").strip()
+        desk.set(account_id, body.get("windowSeconds"), body.get("pct"))
+        h.send_json({"ok": True, **desk.view(account_id)})
         return
 
 @_route(POST_ROUTES, '/api/cloud-accounts/bridge-port-delete')

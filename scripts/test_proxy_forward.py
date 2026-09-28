@@ -41,6 +41,7 @@ sys.path.insert(0, str(ROOT))
 from caravan.common.request_kind import is_inference_request as _is_inference_request  # noqa: E402
 from caravan.proxy.handler import ProxyHandler  # noqa: E402
 from caravan.proxy.output_health import output_health  # noqa: E402
+from caravan.proxy.subscription_usage import reserve_gate, subscription_usage  # noqa: E402
 from caravan.proxy.state import write_state  # noqa: E402
 
 _fail = []
@@ -367,6 +368,12 @@ SUB_EVENTS = [
     b'"usage":{"input_tokens":3,"output_tokens":2}}}\n\n',
 ]
 sub_seen = []
+# What the Codex backend says about the account's windows on every answer —
+# empty unless a test sets it, so the other subscription tests see none.
+SUB_CODEX_HEADERS = {}
+# The account's usage page (GET /backend-api/wham/usage): 404 while empty.
+SUB_USAGE_PAGE = {}
+sub_pages_seen = []
 
 
 class _Subscription(BaseHTTPRequestHandler):
@@ -383,10 +390,22 @@ class _Subscription(BaseHTTPRequestHandler):
         sub_seen.append((self.path, dict(self.headers), raw))
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
+        for name, value in SUB_CODEX_HEADERS.items():
+            self.send_header(name, value)
         self.end_headers()
         for piece in SUB_EVENTS:
             self.wfile.write(piece)
             self.wfile.flush()
+        self.close_connection = True
+
+    def do_GET(self):
+        sub_pages_seen.append((self.path, dict(self.headers)))
+        body = json.dumps(SUB_USAGE_PAGE).encode("utf-8")
+        self.send_response(200 if SUB_USAGE_PAGE and self.path == "/backend-api/wham/usage" else 404)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
         self.close_connection = True
 
 
@@ -1469,6 +1488,119 @@ def test_questions_go_to_the_exit_that_answers():
     output_health.clear()
 
 
+def _set_reserve(reserve):
+    """Put a reserve on the subscription account (None lifts it); returns the file's old text."""
+    path = Path(os.environ["CLOUD_PROVIDERS_FILE"])
+    old = path.read_text(encoding="utf-8")
+    doc = json.loads(old)
+    for account in doc["accounts"]:
+        if account["id"] == "acc:sub":
+            if reserve is None:
+                account.pop("usageReserve", None)
+            else:
+                account["usageReserve"] = reserve
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    return old
+
+
+def test_reserve_answers_before_the_provider():
+    """The operator's reserve on a subscription: once a window is down to it,
+    the proxy answers the account's requests itself — the provider's own 429 in
+    shape — and sends nothing on.
+
+    2026-09-28: the five-hour window ran out under the caravan's traffic, and
+    with it the operator's own chats. The Codex backend states both windows on
+    every answer (x-codex-*-used-percent, -window-minutes, -reset-at); the proxy
+    keeps the last reading and refuses before the provider has to.
+    """
+    print("запас оператора на лимитах подписки:")
+    now = time.time()
+    SUB_CODEX_HEADERS.update({
+        "x-codex-primary-used-percent": "85", "x-codex-primary-window-minutes": "300",
+        "x-codex-primary-reset-at": str(int(now + 3600)),
+        "x-codex-secondary-used-percent": "10", "x-codex-secondary-window-minutes": "10080",
+        "x-codex-secondary-reset-at": str(int(now + 86400)),
+    })
+    saved = _set_reserve({"18000": 20})
+    subscription_usage.clear()
+    output_health.clear()
+    try:
+        before = len(sub_seen)
+        status, raw = post(P_SUB)
+        check(status == 200 and len(sub_seen) == before + 1,
+              f"показаний ещё нет — запрос уходит провайдеру (получено {status}, отправлено {len(sub_seen) - before})")
+        windows = subscription_usage.windows("acc:sub")
+        check([(w["seconds"], w["usedPct"]) for w in windows] == [(18000, 85), (604800, 10)],
+              f"ответ провайдера оставил показания обоих окон (получено {windows})")
+
+        status, raw, got = post(P_SUB, want_headers=True)
+        body = json.loads(raw) if raw.startswith("{") else {}
+        err = body.get("error") or {}
+        check(status == 429 and err.get("type") == "usage_limit_reached",
+              f"positive: осталось 15% при запасе 20% — ответ 429 usage_limit_reached, как у OpenAI (получено {status} {raw[:80]!r})")
+        check(len(sub_seen) == before + 1, "провайдеру не отправлено ничего")
+        check(err.get("caravan_reserve") == {"window_seconds": 18000, "remaining_pct": 15, "reserve_pct": 20},
+              f"ответ называет окно, остаток и запас (получено {err.get('caravan_reserve')})")
+        check(3500 <= int(got.get("retry-after") or 0) <= 3600 and err.get("resets_at") == int(now + 3600),
+              f"и когда окно сбросится: Retry-After и resets_at (получено {got.get('retry-after')}, {err.get('resets_at')})")
+        check(str(err.get("message") or "").startswith("The caravan keeps your reserve"),
+              "слова ответа называют караван, а не провайдера")
+        rows = []
+        for _ in range(60):
+            rows = [r for r in _read_finished() if r.get("route") == f"r{P_SUB}"]
+            if rows and (rows[-1].get("errorKind") or (rows[-1].get("item") or {}).get("status") == 429):
+                break
+            time.sleep(0.05)
+        last = rows[-1] if rows else {}
+        check(last.get("errorKind") == "usage_reserve" and last.get("status") == 429,
+              f"журнал пишет отказ как отказ каравана (получено {last.get('errorKind')!r}, {last.get('status')})")
+        health = output_health.row("out:sub") or {}
+        check(health.get("state") == "error" and health.get("status") == 429,
+              f"выход помечен мёртвым, как при 429 провайдера — узел 🛟 уведёт мимо (получено {health})")
+
+        _set_reserve({"18000": 10})
+        status, raw = post(P_SUB)
+        check(status == 200 and len(sub_seen) == before + 2,
+              f"negative: запас 10% при остатке 15% — запрос уходит провайдеру (получено {status})")
+
+        _set_reserve({"18000": 20})
+        subscription_usage.note("acc:sub", {"x-codex-primary-used-percent": "85", "x-codex-primary-window-minutes": "300",
+                                            "x-codex-primary-reset-at": str(int(now - 5))}, now=now - 3600)
+        SUB_CODEX_HEADERS.clear()
+        status, raw = post(P_SUB)
+        check(status == 200 and len(sub_seen) == before + 3,
+              f"negative: окно уже сбросилось — старые показания не держат дверь закрытой (получено {status})")
+
+        # A reset that came early (a banked or bought one): the door is shut on
+        # a reading nothing will renew, since nothing is sent — the proxy asks
+        # the account's usage page instead, which spends no share of any window.
+        shut = {"x-codex-primary-used-percent": "85", "x-codex-primary-window-minutes": "300",
+                "x-codex-primary-reset-at": str(int(now + 3600))}
+        subscription_usage.note("acc:sub", shut, now=time.time() - 400)
+        reserve_gate.clear()
+        SUB_USAGE_PAGE.update({"rate_limit": {"primary_window": {
+            "used_percent": 0, "limit_window_seconds": 18000, "reset_at": int(now + 18000)}}})
+        pages = len(sub_pages_seen)
+        status, raw = post(P_SUB)
+        check(status == 200 and len(sub_seen) == before + 4 and len(sub_pages_seen) == pages + 1,
+              f"positive: показания старше пяти минут — страница использования говорит о сбросе, запрос уходит "
+              f"(получено {status}, страниц {len(sub_pages_seen) - pages})")
+        page_path, page_headers = sub_pages_seen[-1] if sub_pages_seen else ("", {})
+        check(page_path == "/backend-api/wham/usage" and "authorization" in {k.lower() for k in page_headers},
+              "страница спрошена по своему пути и с подписью аккаунта (сама подпись не печатается)")
+        subscription_usage.note("acc:sub", shut, now=time.time())
+        status, raw = post(P_SUB)
+        check(status == 429 and len(sub_pages_seen) == pages + 1 and len(sub_seen) == before + 4,
+              f"negative: свежие показания — страницу не спрашиваем, дверь закрыта (получено {status})")
+    finally:
+        SUB_CODEX_HEADERS.clear()
+        SUB_USAGE_PAGE.clear()
+        Path(os.environ["CLOUD_PROVIDERS_FILE"]).write_text(saved, encoding="utf-8")
+        subscription_usage.clear()
+        reserve_gate.clear()
+        output_health.clear()
+
+
 def test_error_inside_an_open_stream():
     """Отказ ПОСЛЕ того, как заголовки уже ушли, приходит кадром SSE.
 
@@ -1731,7 +1863,7 @@ for fn in (test_blocked_modes, test_unrouted, test_api_key, test_client_key_stay
            test_dead_main_is_skipped, test_dead_verdict_expires,
            test_failed_replay_names_the_chain,
            test_discovery_probe_neither_rescued_nor_a_verdict,
-           test_questions_go_to_the_exit_that_answers,
+           test_questions_go_to_the_exit_that_answers, test_reserve_answers_before_the_provider,
            test_error_inside_an_open_stream, test_client_vanishes_mid_response,
            test_client_vanishes_before_first_byte, test_keepalive_not_sent_to_cloud,
            test_loading_model_retry_not_for_cloud):

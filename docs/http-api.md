@@ -141,7 +141,8 @@ that called them.
 | `POST /api/cloud-accounts/key` / `…/key-delete` | Store / remove an API key (0600 secrets file). |
 | `POST /api/cloud-accounts/oauth/start` / `GET …/oauth/status?state=` | PKCE OAuth login flow. |
 | `GET /api/cloud-accounts/models?id=` | Live model list from the provider API. |
-| `GET /api/cloud-accounts/subscription-models?id=` / `…/subscription-usage?id=` | Subscription-plan models / usage+reset info. |
+| `GET /api/cloud-accounts/subscription-models?id=` / `…/subscription-usage?id=` | Subscription-plan models / usage+reset info; usage also carries the operator's reserve and the proxy's verdict on it (`reserve`, `reserveKept`, `reserveMax`, `reserveReadAt`). |
+| `POST /api/cloud-accounts/usage-reserve` | `{id, windowSeconds, pct}` — the share of a subscription's limit window the operator keeps (0 lifts it, at most 90). While a window has no more left, the proxy answers the account's requests itself with 429. Answers `{ok, reserve, reserveKept, reserveMax, reserveReadAt}`; 400 on a non-subscription account or a value out of range, 404 on an unknown one. |
 | `GET /api/cloud-accounts/api-costs?id=` | Official spend report (where the provider offers one). |
 | `GET /api/cloud-accounts/openrouter-limits?id=` | OpenRouter key limits/credits. |
 | `GET /api/cloud-accounts/proxy-spend` | Spend summary accumulated by the proxy per account. |

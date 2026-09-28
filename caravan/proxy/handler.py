@@ -28,6 +28,7 @@ from caravan.proxy.config import current_config, live_route_for_port
 from caravan.proxy.graph import PORT_QUESTION_CTX, apply_router, apply_router_spill
 from caravan.proxy.events import write_proxy_event
 from caravan.proxy.output_health import output_health
+from caravan.proxy.subscription_usage import ReserveRefusal, reserve_gate, subscription_usage
 from caravan.proxy.paths import BODY_CAPTURE_LIMIT, DEFAULT_POLICY, HOP_HEADERS, STREAM_DONE_MARKER
 from caravan.proxy.queue_admission import (
     ProxyClientDisconnected,
@@ -733,6 +734,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             while True:
                 _conn_exc = None
                 upstream = None
+                reserve_refusal = None
                 is_cloud = route_is_cloud or cloud_fallback_provider_id is not None
                 is_subscription = False
                 is_anthropic = False
@@ -760,6 +762,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         str(provider.get("accountType") or "") == "openai-subscription"
                         or "chatgpt.com" in str(provider.get("baseUrl") or "")
                     )
+                    if is_subscription:
+                        # The operator's reserve on the account's limits: once a
+                        # window is down to it, this leg is answered here and
+                        # nothing is sent (caravan/common/usage_reserve.py).
+                        _reserve_hit = reserve_gate.verdict(provider)
+                        if _reserve_hit:
+                            reserve_refusal = ReserveRefusal(_reserve_hit)
                     use_tls = base.scheme != "http"
                     cloud_port = base.port or (443 if use_tls else 80)
                     if use_tls:
@@ -900,11 +909,15 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     if _client_gone[0]:
                         raise ConnectionResetError("client disconnected during upstream wait")
                     try:
-                        conn.request(self.command, send_path, body=send_body, headers=headers)
-                        # Grab the raw socket now — getresponse() detaches conn.sock on
-                        # Connection: close responses, and the abort path needs it.
-                        _up_sock[0] = conn.sock
-                        upstream = conn.getresponse()
+                        if reserve_refusal is not None:
+                            # Read below exactly as the provider's own 429 would be.
+                            upstream = reserve_refusal
+                        else:
+                            conn.request(self.command, send_path, body=send_body, headers=headers)
+                            # Grab the raw socket now — getresponse() detaches conn.sock on
+                            # Connection: close responses, and the abort path needs it.
+                            _up_sock[0] = conn.sock
+                            upstream = conn.getresponse()
                     except (ConnectionError, OSError, http.client.HTTPException) as exc:
                         # A client's question that finds the exit's socket closed is
                         # not replayed, but what it found is noted: the rest of the
@@ -932,6 +945,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         break
                     status = upstream.status
                     upstream_headers = dict(upstream.getheaders())
+                    if is_subscription and reserve_refusal is None:
+                        # Every answer states the account's windows, a refusal too.
+                        subscription_usage.note(provider.get("accountId"), upstream_headers)
                     content_type = upstream_headers.get("Content-Type", "")
                     is_event_stream = content_type.lower().startswith("text/event-stream")
                     if status >= 400:
@@ -1026,6 +1042,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 if _conn_exc is not None:
                     raise _conn_exc
                 break
+            if isinstance(upstream, ReserveRefusal):
+                # The answer is the caravan's own: the journal and the board say
+                # so, instead of blaming the provider for a 429 it never gave.
+                error, error_kind = upstream.message, ReserveRefusal.KIND
             # A cell's /props states its window where a llama.cpp-aware client
             # reads it; the port's figure goes there (_publish_props_window).
             props_body = None
