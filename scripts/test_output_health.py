@@ -346,11 +346,104 @@ def test_request_follows_the_chain():
     output_health.clear()
 
 
+def test_questions_go_where_answers_come_from():
+    """A client's QUESTION takes the exit that answers (discovery_exit).
+
+    2026-09-28, 03:34: a client restarting after its update asked the port ten
+    questions in one second (/props, /api/tags, /api/show …). The backup node's
+    main led through a queue to a cell off for seventeen days, the backup was a
+    cloud block the probe kept finding alive — and all ten went to the cell:
+    a question is never replayed, and next_exit keeps main until a FRESH
+    verdict says otherwise.
+    """
+    print("вопрос клиента идёт к выходу, который отвечает:")
+
+    def table(main_row, backup_row):
+        h = OutputHealth(ttl_seconds=300)
+        for oid, row in (("m", main_row), ("b", backup_row)):
+            if row == "ok":
+                h.note_ok(oid, now=1000)
+            elif row == "err":
+                h.note_error(oid, kind="connect", message="refused", now=1000)
+            elif isinstance(row, tuple):   # (answered at, failed at)
+                h.note_ok(oid, now=row[0])
+                h.note_error(oid, kind="connect", message="refused", now=row[1])
+        return h.discovery_exit("m", "b")
+
+    check(table(None, None) == ("main", ""), "positive: ничего не известно → главный, как и у запроса")
+    check(table(None, "ok") == ("backup", "main has not answered yet"),
+          "главный ещё молчит, запасной отвечает → запасной")
+    check(table("err", None) == ("backup", "main is not answering: connect"),
+          "последнее слово главного — отказ, запасной молчит → запасной, с причиной")
+    check(table("err", "ok")[0] == "backup", "главный отказал, запасной отвечает → запасной")
+    check(table("ok", "err") == ("main", ""), "negative: главный отвечает, запасной нет → главный")
+    check(table("ok", "ok") == ("main", ""),
+          "negative: оба отвечают → главный, туда же, куда запросы (а не «кто ответил позже»)")
+    check(table((500, 1000), (800, 1000)) == ("backup", "backup answered more recently"),
+          "оба отказывают → тот, кто отвечал позже (запасной, 800 > 500)")
+    check(table((800, 1000), (500, 1000)) == ("main", ""), "negative: позже отвечал главный → главный")
+    check(table("err", "err") == ("main", ""), "negative: оба отказывают и ни один не отвечал → главный, прежний порядок")
+    check(table((800, 1000), "err") == ("main", ""), "главный хоть когда-то отвечал, запасной никогда → главный")
+    h = OutputHealth(ttl_seconds=300)
+    h.note_ok("b", now=1000)
+    check(h.discovery_exit("m", None) == ("main", "") and h.discovery_exit(None, "b") == ("main", ""),
+          "negative: запасного нет или конец главной цепочки не назван → главный")
+
+    print("вопрос и запрос при ИСТЁКШИХ вердиктах — случай 03:34:")
+    h = OutputHealth(ttl_seconds=300)
+    h.note_error("m", kind="connect", message="refused", now=1000)
+    h.note_ok("b", now=1000)
+    check(h.next_exit("m", "b", 1000 + 400) == ("main", ""),
+          "as-is: запрос идёт главным — истёкший «мёртв» проверяется, спасение переиграет")
+    check(h.discovery_exit("m", "b") == ("backup", "main is not answering: connect"),
+          "а вопрос — в запасной: последнее слово главного отказ, хоть и старый")
+
+    print("когда выход отвечал в последний раз:")
+    h = OutputHealth(ttl_seconds=300)
+    h.note_ok("x", now=500)
+    h.note_error("x", status=502, message="down", now=900)
+    check(h.row("x")["state"] == "error" and h.row("x")["lastOkAt"] == 500,
+          "отказ не стирает, когда выход отвечал")
+    h.note_ok("x", now=1000)
+    check(h.row("x")["lastOkAt"] == 1000, "новый ответ — новое время")
+    h.note_error("y", kind="connect", now=900)
+    check(h.row("y")["lastOkAt"] is None, "negative: не отвечал ни разу — None, а не ноль")
+    check(h.snapshot(1000)["x"]["lastOkAt"] == 1000, "снимок для доски несёт время ответа")
+    h2 = OutputHealth(ttl_seconds=300)
+    h2.load_snapshot({"a": {"state": "error", "checkedAt": 900, "lastOkAt": 500},
+                      "b": {"state": "ok", "checkedAt": 900},
+                      "c": {"state": "error", "checkedAt": 900},
+                      "d": {"state": "error", "checkedAt": 900, "lastOkAt": "x"},
+                      "e": {"state": "error", "checkedAt": 900, "lastOkAt": -5}})
+    check(h2.row("a")["lastOkAt"] == 500, "зеркало в другом процессе несёт время ответа")
+    check(h2.row("b")["lastOkAt"] == 900, "файл старого прокси без поля: «жив» — это ответ в checkedAt")
+    check(h2.row("c")["lastOkAt"] is None and h2.row("d")["lastOkAt"] is None and h2.row("e")["lastOkAt"] is None,
+          "negative: отказ без поля, мусор и отрицательное — None, не выдуманное время")
+
+    print("граф: вопрос и запрос через одну развилку (главный → очередь → ячейка):")
+    from caravan.proxy.graph import PORT_QUESTION_CTX
+    router = CONFIG["routers"][0]
+    output_health.clear()
+    output_health.note_error("cell:closed", kind="connect", message="refused", now=7000)
+    output_health.note_ok("cell:ok", now=7000)
+    ask = resolve_graph(router, {"port": 1}, ctx=dict(PORT_QUESTION_CTX), input_ref="rule:b4", now=7400)
+    req = resolve_graph(router, {"port": 1}, ctx=dict(PLAIN_REQUEST_CTX), input_ref="rule:b4", now=7400)
+    check((ask or {}).get("id") == "cell:ok",
+          f"positive: вопрос при истёкшем «мёртв» главного уходит в запасной (got {(ask or {}).get('id')})")
+    check((req or {}).get("id") == "cell:closed",
+          f"as-is: запрос в том же состоянии идёт главным (got {(req or {}).get('id')})")
+    output_health.clear()
+    ask = resolve_graph(router, {"port": 1}, ctx=dict(PORT_QUESTION_CTX), input_ref="rule:b4", now=7400)
+    check((ask or {}).get("id") == "cell:closed", "negative: вердиктов нет — вопрос тоже идёт главным")
+    output_health.clear()
+
+
 def main():
     test_verdicts()
     test_probe()
     test_pass_and_next()
     test_request_follows_the_chain()
+    test_questions_go_where_answers_come_from()
     if _fail:
         print(f"FAILED ({len(_fail)}):")
         for msg in _fail:

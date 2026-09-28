@@ -721,11 +721,18 @@ export function renderTopologyIncidents(samples = systemSamples(ui.latestSystemM
     const time = eventTime
       ? new Date(Number(eventTime) * 1000).toLocaleTimeString()
       : "";
+    // What was asked, and the exit it reached: the port alone (:23001) named
+    // the way in, never the cell that refused (2026-09-28). The query string
+    // stays out — it is the client's, and it can carry a key.
+    const path = String(item.path || "").split("?")[0];
+    const asked = item.method && path ? `${item.method} ${path}` : "";
+    const reached = item.exit ? `→ ${item.exit}` : "";
     const detail = [
       time,
       item.client || "",
+      asked,
       item.status ? `status ${item.status}` : "",
-      item.port ? `:${item.port}` : "",
+      [item.port ? `:${item.port}` : "", reached].filter(Boolean).join(" "),
       item.correlation || "",
     ].filter(Boolean).join(" · ");
     return `

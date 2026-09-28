@@ -288,7 +288,12 @@ def _eval_rule_node(router_id, node, outs, ctx, outputs, policy, now, exit_id=No
         rescue_to = edge_to(cfg.get("rescueEdge"))
         if rescue_to:
             resolve = exit_id or output_id_of_ref
-            exit_name, _reason = output_health.next_exit(resolve(main_to), resolve(rescue_to), now)
+            if (ctx or {}).get("discovery"):
+                # A client's question is never replayed: it goes to the exit
+                # that answers, not to the one a request would try first.
+                exit_name, _reason = output_health.discovery_exit(resolve(main_to), resolve(rescue_to))
+            else:
+                exit_name, _reason = output_health.next_exit(resolve(main_to), resolve(rescue_to), now)
             if exit_name == "backup":
                 return rescue_to
         return main_to
@@ -441,10 +446,16 @@ def resolve_graph(router, route, ctx=None, policy=None, now=None, input_ref=None
     return None
 
 # The ctx of a request that asks for nothing in particular: no model, no token
-# count, neither audio nor embeddings. GET /v1/models resolves the port with it,
-# and so does the board when it says which output a plain request reaches —
-# the same constant, so the two can never disagree about that output.
+# count, neither audio nor embeddings. The idle probe follows chains with it.
 PLAIN_REQUEST_CTX = {"model": "", "maxTokens": None, "audio": False, "embeddings": False}
+
+# The ctx of a question the client asks the PORT — /v1/models, /props,
+# /api/tags: which server, which model. It is never replayed, so a backup
+# node sends it to the exit that answers (OutputHealth.discovery_exit), not to
+# the one a request would try first. GET /v1/models resolves the port with it,
+# and so does the board when it names the window the port advertises — the
+# same constant, so the two can never disagree about that output.
+PORT_QUESTION_CTX = {**PLAIN_REQUEST_CTX, "discovery": True}
 
 
 def apply_router(route, config, ctx=None):

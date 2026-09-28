@@ -283,11 +283,25 @@ cell never carries an engine's name. It sits *below* `state` because
 `scripts/test_queue_node.py`, which loads `agent-proxies.py` by path and uses
 the launcher's re-exports.
 
+An `onError` (🛟 backup) node picks its exit from the output verdicts in
+`output_health.py`, and the request kind decides how. A request takes main
+until a FRESH verdict says main is dead (`next_exit`): if it fails there, the
+handler replays it on the backup. A client's question to the port
+(`ctx.discovery`: `/v1/models`, `/props`, `/api/*` — anything that is not
+inference, `caravan/common/request_kind.py`) is never replayed. It goes to the
+exit that answers (`discovery_exit`): the exit whose last word was an answer
+wins over a silent one, and a silent one over a failing one, however old
+those words are. Of two failing exits, the one that answered more recently
+wins (`lastOkAt`). With both answering, main wins. `PORT_QUESTION_CTX` is that
+question's ctx. The proxy's `/v1/models` resolves with it, and so does the
+board's advertised window (`admin/topology.py`), so the two cannot disagree.
+
 - Owns: node evaluation, output picking, the queue-node spec
   (`_queue_spec_from_node`), fallback-inherits-primary input resolution,
   per-input `clientTimeoutSeconds` overrides.
 - Key functions: `resolve_graph`, `apply_router`, `apply_router_spill`,
-  `pick_router_output`, `_queue_spec_from_node`.
+  `pick_router_output`, `_queue_spec_from_node`; constants
+  `PLAIN_REQUEST_CTX`, `PORT_QUESTION_CTX`.
 
 ## caravan/proxy/state.py
 
@@ -401,7 +415,11 @@ the model's name in the body (`model_named`); `/v1/models` on such a port is the
 that one model (`_engine_model_entry`), or a 503 naming the model the engine
 no longer lists. `output_probe.py` probes such an output with `GET /v1/models`
 and the model in the list — a completion would load the model into the
-engine's memory on every pass.
+engine's memory on every pass. The request's ctx is built once and reused by
+the entry, a queue's spill and a rescue. A client's question whose exit
+refuses the connection is not replayed, but the refusal is noted as that
+exit's verdict. The rest of the client's questions then go to the exit that
+answers.
 
 - Owns: the request lifecycle, per-request phase transitions
   (`queued → received → upstream → streaming/reading → finished`), spend/

@@ -15,6 +15,16 @@ Not every failure is the OUTPUT's failure. A 400 — an oversized prompt, a
 bad parameter — is this request's problem: the output answered, and it must
 not divert five minutes of everyone's traffic. DEAD_STATUSES lists what
 unusable looks like; the rest of 4xx counts as alive.
+
+A client's QUESTION to the port is not a request, and it does not take the
+next request's exit. /v1/models, /props, /api/tags, /api/show — what kind of
+server is this, which model — is never replayed on the other exit, so a wrong
+first choice is not a round trip but an error the client sees and a row on
+the incident panel. The backup node sends it to the exit that answers
+(discovery_exit). On 2026-09-28 at 03:34 a client restarting after its update
+asked ten such questions; all ten went to a cell that had been off for
+seventeen days, while the real requests through the same port had been
+skipping that cell all along.
 """
 import re
 import threading
@@ -41,6 +51,10 @@ def output_id_of_ref(ref):
 class OutputHealth:
     """Per-output verdicts with an expiry, shared by the router, the handler and the probe."""
 
+    #: An exit's LAST word, for a client's question (discovery_exit): it
+    #: answered, it has said nothing yet, it failed. Ranked, not weighed.
+    ANSWERED, SILENT, FAILED = 2, 1, 0
+
     def __init__(self, ttl_seconds=VERDICT_TTL_SECONDS):
         self.ttl_seconds = int(ttl_seconds)
         self._rows = {}
@@ -51,12 +65,17 @@ class OutputHealth:
         if not key:
             return
         with self._lock:
+            if "lastOkAt" not in row:
+                # A failure does not erase WHEN the output last answered: two
+                # failing exits are told apart by it (discovery_exit).
+                row["lastOkAt"] = (self._rows.get(key) or {}).get("lastOkAt")
             self._rows[key] = row
 
     def note_ok(self, output_id, source="traffic", now=None):
         """The output answered usefully: alive, from this moment."""
+        checked_at = float(now if now is not None else time.time())
         self._put(output_id, {"state": "ok", "status": None, "kind": "", "message": "",
-                              "checkedAt": float(now if now is not None else time.time()),
+                              "checkedAt": checked_at, "lastOkAt": checked_at,
                               "source": str(source)})
 
     def note_error(self, output_id, status=None, kind="", message="", source="traffic", now=None):
@@ -123,6 +142,41 @@ class OutputHealth:
             return "backup", f"main is down: {found.get('kind') or 'error'}"
         return "main", ""
 
+    def _last_word(self, output_id):
+        """(rank of the exit's last word, when it last answered or None)."""
+        found = self.row(output_id)
+        if not found:
+            return self.SILENT, None
+        return (self.ANSWERED if found.get("state") == "ok" else self.FAILED), found.get("lastOkAt")
+
+    def discovery_exit(self, main_id, backup_id):
+        """Which exit of a backup node a client's QUESTION takes: ("main"|"backup", reason).
+
+        next_exit keeps main until a FRESH verdict says it is dead: a request
+        that fails there is replayed on the backup, so optimism costs one
+        round trip. A question is never replayed (caravan/common/request_kind.py),
+        so the same optimism costs the client an error. It goes to the exit
+        whose last word was an answer, over one that has said nothing yet,
+        over one whose last word was a failure — however old the word: the
+        probe renews both exits' words every five minutes, and a verdict that
+        expired half a minute ago is still the last thing known. Between two
+        failing exits, the one that answered more recently. Anything else
+        equal — both answering, both silent — main, where requests go too.
+        """
+        if not main_id or not backup_id:
+            return "main", ""
+        main_word, main_ok_at = self._last_word(main_id)
+        backup_word, backup_ok_at = self._last_word(backup_id)
+        if backup_word > main_word:
+            if main_word == self.FAILED:
+                found = self.row(main_id) or {}
+                return "backup", f"main is not answering: {found.get('kind') or 'error'}"
+            return "backup", "main has not answered yet"
+        if (main_word == backup_word == self.FAILED and backup_ok_at is not None
+                and (main_ok_at is None or backup_ok_at > main_ok_at)):
+            return "backup", "backup answered more recently"
+        return "main", ""
+
     def snapshot(self, now=None):
         """Every verdict, with what a reader needs to show it without re-deriving."""
         now = float(now if now is not None else time.time())
@@ -155,12 +209,21 @@ class OutputHealth:
                 continue
             if checked_at <= 0:
                 continue
+            try:
+                last_ok_at = float(row.get("lastOkAt") or 0)
+            except (TypeError, ValueError):
+                last_ok_at = 0.0
+            if row.get("state") == "ok":
+                # An "ok" verdict IS an answer at checkedAt; a file written
+                # before lastOkAt existed still says that much.
+                last_ok_at = max(last_ok_at, checked_at)
             fresh[str(output_id)] = {
                 "state": row.get("state"),
                 "status": (int(row["status"]) if row.get("status") else None),
                 "kind": str(row.get("kind") or ""),
                 "message": str(row.get("message") or "")[:200],
                 "checkedAt": checked_at,
+                "lastOkAt": last_ok_at if last_ok_at > 0 else None,
                 "source": str(row.get("source") or "proxy"),
             }
         with self._lock:

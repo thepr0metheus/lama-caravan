@@ -150,6 +150,17 @@ PINS = [
     ("incidents_render_rows", 'st.ui.latestSystemMonitor = { incidents: [{ kind: "failed", time: 1700000090, title: "hotel failed", summary: "status 502", client: "10.0.0.7", status: 502, port: 23001 }] };',
      '(() => { m.renderTopologyIncidents([]); const f = globalThis.__fields; return [f.topologyIncidentsMeta.textContent, f.topologyIncidents.innerHTML.includes("topology-incident-row failed"), f.topologyIncidents.innerHTML.includes("10.0.0.7 · status 502 · :23001"), f.topologyIncidents.innerHTML.includes("likely: proxy/upstream error")]; })()',
      '["1 recent",true,true,true]', "панель: счётчик в мете, класс failed, детали через «·», причина по виду в строке likely"),
+    # 2026-09-28: the row named only the way IN (:23001); the cell that
+    # refused (:22011) and what was asked (/props) stayed out of sight.
+    ("incidents_render_exit_and_question", 'st.ui.latestSystemMonitor = { incidents: [{ kind: "failed", time: 1700000090, title: "hotel failed", summary: "[Errno 111] Connection refused", client: "10.0.0.7", method: "GET", path: "/props?key=s3cret", status: 502, port: 23001, exit: "10.0.0.5:22011", correlation: "proxy-only" }] };',
+     '(() => { m.renderTopologyIncidents([]); const h = globalThis.__fields.topologyIncidents.innerHTML; return [h.includes("10.0.0.7 · GET /props · status 502 · :23001 → 10.0.0.5:22011 · proxy-only"), h.includes("s3cret")]; })()',
+     '[true,false]', "positive: строка называет вопрос и выход, куда он ушёл; negative: строка запроса клиента (может нести ключ) не показывается"),
+    ("incidents_render_cloud_exit_without_port", 'st.ui.latestSystemMonitor = { incidents: [{ kind: "failed", time: 1700000090, title: "hotel failed", summary: "status 429", status: 429, method: "POST", path: "/v1/chat/completions", exit: "☁ gpt-6-sol" }] };',
+     '(() => { m.renderTopologyIncidents([]); const h = globalThis.__fields.topologyIncidents.innerHTML; return [h.includes("POST /v1/chat/completions · status 429 · → ☁ gpt-6-sol"), h.includes(" :")]; })()',
+     '[true,false]', "облачный выход называется блоком модели; без порта входа — только стрелка к выходу"),
+    ("incidents_render_old_record_no_exit", 'st.ui.latestSystemMonitor = { incidents: [{ kind: "failed", time: 1700000090, title: "hotel failed", summary: "status 502", client: "10.0.0.7", status: 502, port: 23001, method: "GET" }] };',
+     '(() => { m.renderTopologyIncidents([]); const h = globalThis.__fields.topologyIncidents.innerHTML; return [h.includes("10.0.0.7 · status 502 · :23001"), h.includes("→"), h.includes("GET")]; })()',
+     '[true,false,false]', "negative: запись без выхода и без пути (старая) — ни стрелки, ни «GET» без пути: не знаем — не пишем"),
     ("incidents_count_on_the_board_button",
      'st.ui.latestSystemMonitor = { incidents: [{ kind: "failed", time: 1700000090, title: "hotel failed" }, { kind: "slow", time: 1700000080, title: "slow" }] };',
      '(() => { const keep = document.querySelectorAll; const cnt = { textContent: "" }; const btn = { on: null, classList: { toggle(c, v) { btn.on = [c, v]; } } }; const old = { textContent: "" }; document.querySelectorAll = (sel) => ({ "[data-board-incidents-count]": [cnt], "[data-board-incidents]": [btn], "[data-ctrl-incidents-count]": [old] })[sel] || []; try { m.renderTopologyIncidents([]); } finally { document.querySelectorAll = keep; } return [cnt.textContent, btn.on, old.textContent]; })()',

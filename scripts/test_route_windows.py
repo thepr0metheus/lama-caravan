@@ -198,9 +198,18 @@ def main():
         check(facts(row) == (60160, "cell", 60160),
               f"main known dead in the proxy's file → the backup cell's 60160, and the port advertises it (got {facts(row)})")
         check(row["modelWindowSource"]["port"] == 22007, "the source names the backup cell")
+        # /v1/models is a QUESTION: never replayed, so it goes to the exit
+        # that answers, not to the one a request would retry first — and the
+        # board names the same exit (PORT_QUESTION_CTX). Until 2026-09-28 an
+        # expired "dead" sent it back to main.
         topology_mod._proxy_output_health = lambda: {"terra2": {"state": "error", "status": 429, "checkedAt": now - 400}}
         row = annotate(router="router:oe", contextLength=256000)
-        check(facts(row) == (200000, "block", 200000), f"an expired verdict → main again (got {facts(row)})")
+        check(facts(row) == (60160, "cell", 60160),
+              f"an expired dead verdict is still main's last word → the backup cell answers (got {facts(row)})")
+        topology_mod._proxy_output_health = lambda: {"terra2": {"state": "ok", "checkedAt": now - 400}}
+        row = annotate(router="router:oe", contextLength=256000)
+        check(facts(row) == (200000, "block", 200000),
+              f"negative: main's last word was an answer, however old → main (got {facts(row)})")
         # The real reader against a file that does not exist: no verdicts, no crash.
         topology_mod._proxy_output_health = real_snapshot
         real_file = topology_mod.AGENT_PROXY_STATE_FILE
