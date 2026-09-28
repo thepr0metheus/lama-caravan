@@ -77,6 +77,14 @@ UPSTREAM_BODY = {
 CONTEXT_KEYS = ("context_length", "context_window", "context_size", "max_context_length",
                 "max_position_embeddings", "max_model_len", "max_input_tokens",
                 "max_sequence_length", "max_seq_len", "n_ctx_train", "n_ctx", "ctx_size")
+# llama.cpp's /props, shaped like the live one (2026-09-28): the window one
+# request may use is per slot, under default_generation_settings. The template
+# carries a non-ASCII character so a rewrite that loses content shows.
+PROPS_BODY = {"default_generation_settings": {"n_ctx": 4096, "params": {"n_predict": -1, "temperature": 0.8}},
+              "total_slots": 1, "model_alias": "tiny", "model_path": "/models/tiny-test.gguf",
+              "chat_template": "{{ messages }} — шаблон"}
+PROPS_PATHS_HERE = ("/props", "/v1/props")
+
 upstream_hits = []
 # Tests append one body here to make the fake server answer with a different
 # shape for a single call, then clear it.
@@ -94,6 +102,8 @@ class _Upstream(BaseHTTPRequestHandler):
         if UPSTREAM_OVERRIDE:
             raw = UPSTREAM_OVERRIDE[0]
             body = raw if isinstance(raw, bytes) else json.dumps(raw).encode("utf-8")
+        elif self.path in PROPS_PATHS_HERE:
+            body = json.dumps(PROPS_BODY, ensure_ascii=False).encode("utf-8")
         else:
             body = json.dumps(UPSTREAM_BODY).encode("utf-8")
         self.send_response(200)
@@ -646,7 +656,78 @@ def test_own_context_window():
     check(e.get("context_length") == UPSTREAM_BODY["data"][0]["meta"]["n_ctx"],
           f"llama-порт без своего числа отдаёт размер апстрима (got {e.get('context_length')})")
 
-for fn in (test_own_context_window, test_open, test_dead_upstream, test_unassigned, test_modes, test_cloud,
+def _raw(port, path):
+    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=20)
+    conn.request("GET", path)
+    resp = conn.getresponse()
+    raw = resp.read()
+    lengths = resp.headers.get_all("Content-Length") or []
+    conn.close()
+    # Every length header, not the first: a relayed one beside ours would
+    # have the client cut or wait for the body.
+    return resp.status, raw, lengths
+
+
+def _json_or_none(raw):
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
+def test_props_window():
+    """/props states the window where a llama.cpp-aware client reads it.
+
+    2026-09-28: a client that knows llama.cpp asks /props first, and /props
+    passed the cell's own n_ctx as it came — above the card's limit, while
+    /v1/models on the same port kept to it. The port now puts the same figure
+    /v1/models publishes where /props states the window.
+    """
+    print("окно в /props — то же, что порт публикует в /v1/models:")
+    upstream_bytes = json.dumps(PROPS_BODY, ensure_ascii=False).encode("utf-8")
+    for path in PROPS_PATHS_HERE:
+        status, raw, lengths = _raw(P_OWN_BELOW, path)
+        doc = _json_or_none(raw) or {}
+        check(status == 200 and (doc.get("default_generation_settings") or {}).get("n_ctx") == 2048,
+              f"positive: {path}: предел 2048 ниже обслуживаемых 4096 — клиент читает 2048 (got {status} {doc.get('default_generation_settings') if doc else raw[:60]})")
+        rest = {k: v for k, v in doc.items() if k != "default_generation_settings"}
+        check(rest == {k: v for k, v in PROPS_BODY.items() if k != "default_generation_settings"}
+              and (doc.get("default_generation_settings") or {}).get("params") == PROPS_BODY["default_generation_settings"]["params"],
+              f"{path}: всё остальное в ответе ячейки — как было, включая не-ASCII шаблон")
+        check(lengths == [str(len(raw))],
+              f"{path}: один заголовок длины — длина переписанного тела (got {lengths} vs {len(raw)})")
+    status, body = get_models(P_OWN_BELOW)
+    check(((body.get("data") or [{}])[0]).get("context_length") == 2048,
+          "и /v1/models того же порта говорит то же число — одно окно на порт")
+    for port, why in ((P_OWN_LLAMA, "предел 32768 выше обслуживаемых — меньшее и так число ячейки"),
+                      (P_OWN_PREFER, "галка «модель, если больше» — число ячейки"),
+                      (P_OPEN, "предела нет — число сервера не трогаем")):
+        status, raw, _lengths = _raw(port, "/props")
+        check(status == 200 and raw == upstream_bytes, f"negative: {why}: ответ байт в байт как у ячейки")
+    UPSTREAM_OVERRIDE.append({"n_ctx": 4096, "total_slots": 1})
+    try:
+        status, raw, _lengths = _raw(P_OWN_BELOW, "/props")
+    finally:
+        UPSTREAM_OVERRIDE.clear()
+    check((_json_or_none(raw) or {}).get("n_ctx") == 2048, "старые сборки: n_ctx на верхнем уровне тоже приводится к пределу")
+    for override, why in ((b"not json", "не JSON"), ({"total_slots": 1}, "окна в ответе нет — поле не добавляется")):
+        UPSTREAM_OVERRIDE.append(override)
+        try:
+            status, raw, _lengths = _raw(P_OWN_BELOW, "/props")
+        finally:
+            UPSTREAM_OVERRIDE.clear()
+        want = override if isinstance(override, bytes) else json.dumps(override).encode("utf-8")
+        check(raw == want, f"negative: {why} — ответ как пришёл (got {raw[:60]!r})")
+    UPSTREAM_OVERRIDE.append({"slots": [{"id": 0, "n_ctx": 4096}]})
+    try:
+        status, raw, _lengths = _raw(P_OWN_BELOW, "/slots")
+    finally:
+        UPSTREAM_OVERRIDE.clear()
+    check(_json_or_none(raw) == {"slots": [{"id": 0, "n_ctx": 4096}]},
+          "as-is: /slots не трогаем — окно клиент читает в /props, решение оператора 2026-09-28")
+
+
+for fn in (test_own_context_window, test_props_window, test_open, test_dead_upstream, test_unassigned, test_modes, test_cloud,
            test_api_key, test_routed_to_cloud, test_promotion_shapes, test_cloud_context,
            test_probe_paths_llama, test_probe_paths_cloud, test_retrieve_model_on_cloud,
            test_probe_paths_keyed, test_health_on_cloud):

@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from caravan.common.context_window import (  # noqa: E402
-    block_window, effective_window, route_window_inputs, served_window, trained_window,
+    block_window, effective_window, props_served_window, route_window_inputs, served_window, trained_window,
 )
 
 _fail = []
@@ -90,12 +90,23 @@ def main():
           "ноль и не-словарь — отсутствие")
     check(effective_window(trained_window(entry), served_window(entry)) == 60160,
           "даже поданное как предел, обученное число не поднимает объявляемое окно выше обслуживаемого")
+    print("props_served_window(props) — окно, как его называет /props у llama.cpp:")
+    props = {"default_generation_settings": {"n_ctx": 60160, "params": {}}, "total_slots": 3}
+    check(props_served_window(props) == 60160, "положительный: default_generation_settings.n_ctx — окно на слот")
+    check(props_served_window({"n_ctx": 4096}) == 4096, "старые сборки: n_ctx на верхнем уровне")
+    check(props_served_window({"default_generation_settings": {"n_ctx": 60160}, "n_ctx": 1}) == 60160,
+          "вложенное важнее верхнего — так же читает скаут")
+    check(props_served_window({"total_slots": 3}) is None and props_served_window("x") is None
+          and props_served_window({"default_generation_settings": {"n_ctx": 0}}) is None,
+          "negative: нет числа, не словарь, ноль — отсутствие, а не окно")
+    check(props_served_window({"default_generation_settings": {"n_ctx_train": 131072}}) is None,
+          "negative: обученное число окном из /props не становится")
     if _fail:
         print(f"FAILED ({len(_fail)}):")
         for msg in _fail:
             print("  - " + msg)
         sys.exit(1)
-    print(f"OK: {len(EFFECTIVE) + len(BLOCK) + len(INPUTS) + 6} пинов зелёные")
+    print(f"OK: {len(EFFECTIVE) + len(BLOCK) + len(INPUTS) + 11} пинов зелёные")
 
 
 if __name__ == "__main__":

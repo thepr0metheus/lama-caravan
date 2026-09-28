@@ -13,7 +13,10 @@ from http.server import BaseHTTPRequestHandler
 from urllib.parse import urlsplit
 
 from caravan.common.request_kind import is_inference_request
-from caravan.common.context_window import served_window, effective_window, route_window_inputs
+from caravan.common.context_window import (
+    PROPS_SERVED_KEYS, PROPS_SERVED_NESTED, effective_window, props_served_window, route_window_inputs,
+    served_window,
+)
 from caravan.proxy.cloud_auth import (
     CLOUD_PROVIDER_AUTH,
     load_cloud_account,
@@ -165,6 +168,51 @@ def _publish_context_window(body, route):
     if not touched:
         return body
     return json.dumps(payload).encode("utf-8")
+
+
+# The llama.cpp paths that state the served window (caravan/common/context_window.py).
+PROPS_PATHS = frozenset({"/props", "/v1/props"})
+
+
+def _publish_props_window(body, route):
+    """Make a cell's /props state the window this port advertises.
+
+    llama.cpp states the window one request may use in /props, per slot, and a
+    client that knows llama.cpp reads it there: Hermes asked /props first on
+    2026-09-28. The figure is the one /v1/models publishes,
+    `effective_window(limit, served)`, and here it REPLACES the server's own:
+    /props has no second name a client reads (in /v1/models the server's
+    `meta.n_ctx` is read by none of the surveyed clients, so the port writes
+    beside it instead). Without a limit the server's number is left alone, and
+    a field the server did not state is not added. The board learns a cell's
+    own number from the cell, never through a port, so nothing of the fleet's
+    reads the replaced value.
+
+    Returns the re-serialised body, or the original bytes when nothing changes
+    or the body is not a /props answer this can safely read.
+    """
+    try:
+        payload = json.loads(body)
+    except Exception:
+        return body
+    if not isinstance(payload, dict):
+        return body
+    served = props_served_window(payload)
+    limit, prefer_model = route_window_inputs(route)
+    window = effective_window(limit, served, prefer_model)
+    if limit is None or window is None or window == served:
+        return body
+    touched = False
+    for outer, inner in PROPS_SERVED_NESTED:
+        section = payload.get(outer)
+        if isinstance(section, dict) and inner in section:
+            section[inner] = window
+            touched = True
+    for key in PROPS_SERVED_KEYS:
+        if key in payload:
+            payload[key] = window
+            touched = True
+    return json.dumps(payload).encode("utf-8") if touched else body
 
 
 # Paths a client tries before it knows what kind of server answers this port:
@@ -978,6 +1026,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 if _conn_exc is not None:
                     raise _conn_exc
                 break
+            # A cell's /props states its window where a llama.cpp-aware client
+            # reads it; the port's figure goes there (_publish_props_window).
+            props_body = None
+            if (not is_cloud and status == 200 and not is_event_stream
+                    and self.command == "GET" and parsed.path in PROPS_PATHS):
+                props_body = _publish_props_window(upstream.read(), route)
             if is_subscription and status == 200 and responses_passthrough:
                 # A Responses client gets the codex stream as it came — event
                 # by event — or, when it asked for a buffered answer, the final
@@ -1118,8 +1172,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 if not headers_sent:
                     self.send_response(upstream.status, upstream.reason)
                     for key, value in upstream_headers.items():
-                        if key.lower() not in HOP_HEADERS:
-                            self.send_header(key, value)
+                        if key.lower() in HOP_HEADERS:
+                            continue
+                        if props_body is not None and key.lower() == "content-length":
+                            continue   # the rewritten body has its own length, below
+                        self.send_header(key, value)
                     self.send_header("Connection", "close")
                     # The body is the answering exit's own; the exits before
                     # it — skipped or replayed on — travel in a header, so a
@@ -1130,6 +1187,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     if upstream_error_raw:
                         # Already read the error body for logging — send it with correct length
                         self.send_header("Content-Length", str(len(upstream_error_raw)))
+                    if props_body is not None:
+                        self.send_header("Content-Length", str(len(props_body)))
                     _on_client(self.end_headers)
                 if upstream_error_raw:
                     if headers_sent:
@@ -1199,7 +1258,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     pass  # already handled above
                 else:
                     capture = bytearray()
-                    while True:
+                    if props_body is not None:
+                        # Read whole and rewritten before the headers went out.
+                        first_byte_ms = round((time.time() - started) * 1000)
+                        bytes_out += len(props_body)
+                        chunks += 1
+                        capture.extend(props_body[:BODY_CAPTURE_LIMIT])
+                        _client_write(props_body)
+                    while props_body is None:
                         chunk = upstream.read(65536)
                         if not chunk:
                             break

@@ -1027,6 +1027,52 @@ def test_the_board_is_told_who_holds_each_port():
           "куда порт идёт на самом деле — по выходу роутера по умолчанию, как прежде")
 
 
+def test_the_card_names_the_ports_current_address():
+    """A route's address is the controller's CURRENT one, not the one at bind.
+
+    2026-09-28: the hermes card read http://<old address>:23001/v1 — the bind
+    wrote the controller's address into the record, the network moved, and
+    the record kept the old one while the client itself had long been pointed
+    at the new address by hand. The address is one fact: the controller's
+    address plus the port.
+    """
+    print("адрес порта на карточке — нынешний адрес контроллера:")
+    from caravan.domain.client_proxy import ProxyRoute
+    old = ProxyRoute.for_port("primary", 23001, "10.0.20.20")
+    check(old.endpoint == "http://10.0.20.20:23001/v1", "при привязке адрес записан, как и был (формат прежний)")
+    check(old.address("10.0.30.20") == "http://10.0.30.20:23001/v1",
+          "positive: адрес собирается из нынешнего адреса контроллера и порта")
+    check(ProxyRoute.port_url("10.0.30.20", "23002") == "http://10.0.30.20:23002/v1",
+          "один формат адреса на всех — привязку, строки портов и маршруты агентов")
+    bare = ProxyRoute(role="primary", endpoint="http://agent-own:9/v1")
+    check(bare.address("10.0.30.20") == "http://agent-own:9/v1",
+          "negative: маршрут без нашего порта — собирать не из чего, остаётся записанный адрес")
+    check(old.address("") == "http://10.0.20.20:23001/v1",
+          "negative: адрес контроллера не задан — не пишем «http://:23001», остаётся записанный")
+
+    store = {"assignments": {"h": {"hostId": "h", "assignments": [{"agentId": "a", "routes": [
+        {"role": "primary", "proxyId": "skynet:proxy:23001", "endpoint": "http://10.0.20.20:23001/v1", "contextLength": 256000},
+        {"role": "fallback", "endpoint": "http://agent-own:9/v1"},
+        "not a route"]}]}}}
+    T = _topology_harness(store, [23001])
+    saved_ip = T.TOPOLOGY_SERVER_IP
+    T.TOPOLOGY_SERVER_IP = "10.0.30.20"
+    try:
+        board = T._assignments_at_current_address(store["assignments"])
+    finally:
+        T.TOPOLOGY_SERVER_IP = saved_ip
+    routes = board["h"]["assignments"][0]["routes"]
+    check(routes[0]["endpoint"] == "http://10.0.30.20:23001/v1" and routes[0]["contextLength"] == 256000,
+          f"доска получает нынешний адрес, остальные поля маршрута — как были (got {routes[0]})")
+    check(routes[1]["endpoint"] == "http://agent-own:9/v1" and routes[2] == "not a route",
+          "negative: маршрут без порта и мусор проходят как есть")
+    check(store["assignments"]["h"]["assignments"][0]["routes"][0]["endpoint"] == "http://10.0.20.20:23001/v1",
+          "запись в хранилище не тронута — доске отдаётся копия")
+    board_proxy = T._board_proxy({"port": 23005}, holders={}, last_seen={}, routers_by_id={})
+    check(board_proxy["endpoint"] == ProxyRoute.port_url(T.TOPOLOGY_SERVER_IP, 23005),
+          "строка порта на доске собрана тем же форматом")
+
+
 def test_agent_delete_takes_its_row_and_leaves_its_ports():
     """An agent's ✕: the record and its assignment row go, its ports stay.
 
@@ -1378,7 +1424,7 @@ for fn in (test_the_pull_keeps_the_scout_version, test_bind_refuses_an_agent_the
            test_new_port_for_a_fallback_is_the_neighbour,
            test_a_client_is_one_card,
                       test_bind_refuses_a_port_someone_else_holds,
-           test_the_board_is_told_who_holds_each_port,
+           test_the_board_is_told_who_holds_each_port, test_the_card_names_the_ports_current_address,
                                  test_set_route_names_every_setting,
            test_saving_the_window_reaches_the_port_without_a_heartbeat,
            test_bridge_carries_the_window_to_the_route,

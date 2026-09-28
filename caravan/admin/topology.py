@@ -930,7 +930,7 @@ def _board_proxy(route, *, holders, last_seen, routers_by_id):
     proxy = {
         **route,
         "id": f"skynet:proxy:{route.get('port')}",
-        "endpoint": f"http://{TOPOLOGY_SERVER_IP}:{route.get('port')}/v1",
+        "endpoint": ProxyRoute.port_url(TOPOLOGY_SERVER_IP, route.get("port") or 0),
         "upstreamId": f"skynet:llama-server:{route.get('upstreamPort')}",
         "lastRequestAt": int(served) if served else 0,
     }
@@ -1036,7 +1036,9 @@ def topology_state(refresh_hosts=True):
         # `hosts` are gone with that reading.
         "hosts": hosts,
         "clients": clients,
-        "assignments": store.get("assignments", {}),
+        # Each route's address rebuilt from the controller's current one
+        # (ProxyRoute.address): the stored copy is the address at bind time.
+        "assignments": _assignments_at_current_address(store.get("assignments", {})),
         # User notes on cell slots, keyed "hostId:port" — shown on the board
         # cards and edited in the cell detail modal.
         "cellNotes": {key: str(slot.get("note") or "")
@@ -1058,6 +1060,30 @@ def topology_state(refresh_hosts=True):
         "cloudProviderPresets": cloud_provider_presets_public(),
         "time": int(time.time()),
     }
+
+def _assignments_at_current_address(assignments):
+    """The stored assignments as the board is handed them: a copy in which
+    every route names its port at the controller's CURRENT address. The store
+    itself is not touched; a route the class refuses is passed on as stored."""
+    out = {}
+    for host_id, entry in (assignments or {}).items():
+        if not isinstance(entry, dict):
+            out[host_id] = entry
+            continue
+        rows = []
+        for row in entry.get("assignments") or []:
+            if isinstance(row, dict) and isinstance(row.get("routes"), list):
+                routes = []
+                for raw in row["routes"]:
+                    try:
+                        routes.append({**raw, "endpoint": ProxyRoute.from_raw(raw).address(TOPOLOGY_SERVER_IP)})
+                    except (AppError, TypeError, ValueError):
+                        routes.append(raw)
+                row = {**row, "routes": routes}
+            rows.append(row)
+        out[host_id] = {**entry, "assignments": rows}
+    return out
+
 
 def normalize_topology_assignment(assignment):
     """The record's shape and its refusals live in caravan/domain/client_proxy.py.
