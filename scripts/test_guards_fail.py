@@ -216,6 +216,19 @@ BREAKAGES = {
     "check_cell_health_contract": (
         [], "cells/whisper_server.py",
         '    engine = "faster-whisper"\n', ''),
+    # A route that cannot say what it does: /openapi.json would carry an empty
+    # summary, a draft left UNSURE, and the page for people that drifted from
+    # the code — the hand-written list had fallen 16 paths behind.
+    "check_api_spec": [
+        ([], "caravan/admin/routes.py",
+         '        """This API as OpenAPI 3.1: every route, what it does, what it reads, who may call it\n\n'
+         "        Built from the route tables and the handlers' docstrings and code when the controller\n"
+         "        starts; `info.version` is the controller's version and `info.x-commit` its commit.\n"
+         '        """\n', ''),
+        ([], "caravan/admin/routes.py",
+         '"""This API as OpenAPI 3.1: every route', '"""UNSURE: This API as OpenAPI 3.1: every route'),
+        ([], "docs/http-api.md", "| `GET /openapi.json` | open |", "| `GET /openapi.json` | admin |"),
+    ],
 }
 
 
