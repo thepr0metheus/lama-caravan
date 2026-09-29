@@ -23,7 +23,9 @@ python3 -m caravan.admin.auth fleet-token     # print the machine token
 ```
 
 The moment at least one user exists, every route requires a session except
-the login page and the machine endpoints below. Accounts have two roles:
+the login page, `/health`, `/openapi.json` and the machine endpoints below.
+`/openapi.json` is open for the reason `/health` is: it describes the API —
+paths, what each does, who may call it — and holds nothing about the fleet. Accounts have two roles:
 **admin** (everything) and **viewer** — read-only, enforced server-side in the
 auth guard (every `GET` passes, anything mutating answers 403, logout
 excepted). Run monitors and test suites as a viewer. Accounts and sessions live in

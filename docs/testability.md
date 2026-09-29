@@ -182,6 +182,27 @@ liveness check can never itself become the slow or flaky thing.
 `authRequired` earns its place: a fresh install answers `false`, and a suite that
 expects to log in can learn that before spending a browser on it.
 
+## `/openapi.json`
+
+The API a suite drives, described as OpenAPI 3.1 — open, like `/health`, and
+built from the route tables and the handlers' docstrings when the controller
+starts, so it cannot fall behind the code (the hand-written list had). The same
+list, for people, is [http-api.md](http-api.md).
+
+```
+GET /openapi.json
+200 {"openapi": "3.1.0", "info": {"version": "1.3.405", "x-commit": "…"}, "paths": {…}}
+```
+
+Level 1: every path and method with `summary` (and `description`), the query
+parameters and top-level body fields the handler's code reads, the content
+types it answers with, and who may call it — `security` plus `x-caravan-roles`
+(`["admin", "viewer"]` or `["admin"]`). Types and answer shapes are not
+described yet, and the document says so rather than drawing empty ones. Where
+a handler passes its query or body on whole, `x-caravan-query-complete` /
+`x-caravan-fields-complete` is `false`: it may read more than is listed.
+`x-caravan-handler` names the function behind each operation.
+
 ## Read-only account
 
 Roles are `admin` and `viewer`. `viewer` is enforced **server-side**, in the auth

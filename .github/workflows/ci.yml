@@ -49,6 +49,7 @@ jobs:
           python3 scripts/test_vllm_machines.py
           python3 scripts/test_host_power_schedule.py
           python3 scripts/test_retired_routes.py
+          python3 scripts/test_api_spec.py
           python3 scripts/test_monitor_sample.py
           python3 scripts/test_queue_thresholds.py
           python3 scripts/test_token_history.py
@@ -93,6 +94,7 @@ jobs:
           python3 scripts/check_board_live_patch.py
           python3 scripts/check_static_modules.py
           python3 scripts/check_oop_contract.py
+          python3 scripts/check_api_spec.py
           python3 scripts/test_admin_store.py
           python3 scripts/test_topology_store.py
           python3 scripts/test_proxy_store.py

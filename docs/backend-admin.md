@@ -952,20 +952,46 @@ Key functions: `client_server_slot_add`, `client_server_slot_delete`, `server_ce
 HTTP route tables and the request handler. Every route body moved verbatim from the monolith's
 if/elif chains. Routes register into the `GET_ROUTES` / `POST_ROUTES` / `DELETE_ROUTES` dicts via
 the `@_route(table, *paths)` decorator, which **raises on duplicate registration** at import time.
-`GET_PREFIX_ROUTES` holds the only prefix matches — `/api/monitor/` plus the `/js/` and `/css/`
-static subdirs (filename-class regex, no traversal) — checked before the exact-match dict. Dispatch
-quirks are preserved exactly: `do_POST` parses the JSON body **before** the path lookup, so a bad
-body on an unknown path is a 500, not a 404; `do_DELETE` has no `AppError` clause, so an `AppError`
-from a DELETE handler surfaces as 500 (GET/POST map it to its status). `Handler` provides
-`send_json` (via `json_bytes`), `send_file` (mtime+size ETag with `Cache-Control: no-cache` —
-redeploys show up immediately, unchanged files answer 304) and `read_body` (empty body → `{}`).
-Roughly 63 GET, 69 POST and one DELETE route (`/api/hf/local-file`); static pages `/`, `/hf`,
-`/board` (`/` redirects here), `/kanban` (`/router` redirects), `/models`, `/system` and `/login` come from `static/`. When sign-in
-is enabled (`auth.py`), dispatch guards every route except the login page, auth bootstrap and the
-machine endpoints (heartbeats, `/metrics` — fleet token).
-Owns: the four route tables; `Handler`.
+Each handler's docstring says what the route does — its first line is the summary — and is what
+`/openapi.json` and the endpoint list in [http-api.md](http-api.md) are built from
+(`scripts/check_api_spec.py` fails on a route without one). `GET_PREFIX_ROUTES` holds the only
+prefix matches — `PrefixRoute`s for `/api/monitor/{kind}` and the `/js/{file}`, `/css/{file}` static
+subdirs (filename-class regex, no traversal) — checked before the exact-match dict. `do_POST` reads
+the body before the path lookup (empty → `{}`, anything but a JSON object → 400, chunked → 411);
+every verb answers with the status an `AppError` carries. `Handler` provides `send_json` (via
+`json_bytes`), `send_file` (mtime+size ETag with `Cache-Control: no-cache` — redeploys show up
+immediately, unchanged files answer 304) and `read_body`. 81 GET, 104 POST and one DELETE route
+(`/api/hf/local-file`); static pages `/`, `/hf`, `/board` (`/` redirects here), `/kanban`
+(`/router` redirects), `/models`, `/system` and `/login` come from `static/`. When sign-in is
+enabled (`auth.py`), `_auth_guard` lets a request through by `ROUTE_ACCESS` (`route_access.py`).
+Owns: the four route tables; `Handler`; `API_SPEC`, built after every route is registered.
 Key functions: `_route`, `Handler.do_GET`/`do_POST`/`do_DELETE`,
-`Handler.send_json`/`send_file`/`read_body`.
+`Handler.send_json`/`send_file`/`read_body`, `_auth_guard`.
+
+## `route_access.py`
+
+`RouteAccess` — who may call a route: open (`/health`, `/openapi.json`, the login and setup pages
+and their POSTs, `/api/auth/me`, the favicons), the machine endpoints on the fleet token
+(`X-Caravan-Token`), `/metrics` on the fleet token as a header or a Bearer token or a session, and a
+session for everything else — a viewer account may call every GET and log out. One rule, read by
+the guard that enforces it (`routes._auth_guard`) and by the document that states it
+(`security` and `x-caravan-roles` in `/openapi.json`).
+Owns: the open and machine path sets; the security schemes' words.
+Key names: `ROUTE_ACCESS.kind`, `.viewer_may`, `.security`.
+
+## `api_spec.py`
+
+The admin API as OpenAPI 3.1, served at `GET /openapi.json` (open) — the home rule: every app
+serves its API description there, generated from its code. `ApiSpec` builds it once per process
+from the route tables; `HandlerReading` reads each handler's own code: its docstring (summary and
+description), the query parameters and top-level body fields it reads in source order, and the
+content types it answers with, following the helpers it hands the request to two calls deep. What
+the code does not show — a query or body passed on whole — is marked "may read more"
+(`x-caravan-query-complete` / `x-caravan-fields-complete: false`), never drawn as "reads nothing";
+field types and answer shapes are said to be not described yet (level 1). `ApiReference` renders
+the same document into [http-api.md](http-api.md) between two markers.
+Owns: nothing mutable beyond the cached document.
+Key names: `ApiSpec.document`, `HandlerReading`, `ApiReference.splice`.
 
 ## `main.py`
 
