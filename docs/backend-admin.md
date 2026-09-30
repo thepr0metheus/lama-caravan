@@ -44,7 +44,8 @@ Environment-driven constants and every repo-relative path, all anchored to `PROJ
 Path(__file__).resolve().parents[2]` (the repo root, where `app.py` lives). No other module may
 derive paths from its own `__file__` — it would point into `caravan/`. Covers the llama.cpp install
 (`LLAMA_HOME`, `START_SCRIPT`, `DEFAULT_MODELS_DIR`), the two service names, the config-backup dir
-(`var/server-backups`), the shared JSON files (`agent-proxies.json`,
+(`var/server-backups`), the settings-backup dir (`var/settings-backups` — the copy taken before each
+settings import; on the data volume in a container), the shared JSON files (`agent-proxies.json`,
 `agent-proxy-state.json`, `cloud-providers.json`, `token-history.json`), per-user state
 (`admin.json`, monitor history, incident log), secrets (`provider-secrets.json` — outside the repo,
 0600), and tunables (monitor interval/retention, token-history caps,

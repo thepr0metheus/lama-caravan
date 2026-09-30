@@ -8,9 +8,18 @@ working key with a literal string — the cell keeps running and starts failing
 authentication later, which is the slowest way to find out. So the test that
 matters most here is the one asserting a redacted bundle LEAVES the local keys
 alone.
+
+The copy an import takes of what it replaces has to land somewhere the process
+can write and that outlives it. In the container the repo directory is the image
+and the app runs as a user that cannot write there: the copy was kept beside the
+code, so every import in the container died with "Permission denied: /app/var"
+(2026-09-30). Where the copy goes is checked at the bottom, in processes of their
+own — the paths are fixed when the modules are imported.
 """
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -39,6 +48,105 @@ def write(path, data):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=2) if not isinstance(data, str) else data,
                     encoding="utf-8")
+
+
+LOCATION_SNIPPET = """
+import json
+from caravan.admin import paths, routes, settings_bundle as sb
+print(json.dumps({"paths": str(paths.SETTINGS_BACKUP_DIR), "bundle": str(sb.SETTINGS_BACKUP_DIR),
+                  "routes": str(routes.SETTINGS_BACKUP_DIR)}))
+"""
+
+IMPORT_SNIPPET = """
+import json, os, stat
+from pathlib import Path
+os.umask(0o022)                      # the usual one: a file made without care is 0644
+from caravan.admin import routes, settings_bundle as sb
+res = sb.apply_bundle(sb.export_bundle())
+class Answer:
+    def send_json(self, doc): self.doc = doc
+answer = Answer()
+routes.GET_ROUTES["/api/settings/backups"](answer, None)
+copy = Path(res["backup"])
+print(json.dumps({"copy": res["backup"], "listed": answer.doc,
+                  "fileMode": stat.S_IMODE(copy.stat().st_mode), "dirMode": stat.S_IMODE(copy.parent.stat().st_mode)}))
+"""
+
+
+def in_a_process(snippet, env_extra, drop=("CARAVAN_DATA_DIR", "CARAVAN_SETTINGS_BACKUPS", "LLAMA_START_SCRIPT")):
+    """The snippet run in a process started with exactly this environment: the
+    paths are read when the modules are imported, so this file's own process —
+    which set them at the top — cannot answer for any other combination."""
+    env = {k: v for k, v in os.environ.items() if k not in drop}
+    env.update(env_extra, PYTHONPATH=str(ROOT))
+    out = subprocess.run([sys.executable, "-c", snippet], env=env, cwd=ROOT, capture_output=True, text=True)
+    if out.returncode != 0:
+        return {"error": out.stderr.strip()[-300:]}
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def where_the_copy_goes():
+    data = Path(tempfile.mkdtemp(prefix="caravan-settings-where-"))
+    elsewhere = data / "elsewhere"
+    repo_copy_dir = ROOT / "var" / "settings-backups"
+
+    # In a container: CARAVAN_DATA_DIR only. On the volume, by all three names.
+    got = in_a_process(LOCATION_SNIPPET, {"CARAVAN_DATA_DIR": str(data)})
+    want = str(data / "settings-backups")
+    check("with a data directory the copy's directory is on the volume",
+          got.get("paths") == want, str(got))
+    check("the settings module reads that same directory",
+          got.get("bundle") == want, str(got))
+    check("the backups listing reads that same directory",
+          got.get("routes") == want, str(got))
+
+    # The per-file variable still wins, as it does for every other mutable path.
+    got = in_a_process(LOCATION_SNIPPET, {"CARAVAN_DATA_DIR": str(data), "CARAVAN_SETTINGS_BACKUPS": str(elsewhere)})
+    check("CARAVAN_SETTINGS_BACKUPS wins over the data directory",
+          got.get("paths") == got.get("bundle") == got.get("routes") == str(elsewhere), str(got))
+
+    # A native install has no data directory and keeps what it always had.
+    got = in_a_process(LOCATION_SNIPPET, {})
+    native = str(repo_copy_dir)
+    check("as-is: without a data directory it stays var/settings-backups in the repo",
+          got.get("paths") == got.get("bundle") == got.get("routes") == native, str(got))
+
+    # An import in the container's shape, end to end: the copy lands on the
+    # volume and the listing finds it. The start script is pointed into the
+    # temporary directory so nothing of the operator's is rewritten, and the
+    # repo's own var/ is watched: a copy of the settings, secrets included,
+    # must not appear there.
+    watched = set(repo_copy_dir.glob("*")) if repo_copy_dir.exists() else set()
+    existed = repo_copy_dir.exists()
+    try:
+        got = in_a_process(IMPORT_SNIPPET, {"CARAVAN_DATA_DIR": str(data),
+                                            "LLAMA_START_SCRIPT": str(data / "start-server.sh")})
+    finally:
+        strays = (set(repo_copy_dir.glob("*")) if repo_copy_dir.exists() else set()) - watched
+        for extra in strays:
+            extra.unlink()
+        if not existed and repo_copy_dir.exists() and not any(repo_copy_dir.iterdir()):
+            repo_copy_dir.rmdir()
+    volume = sorted((data / "settings-backups").glob("*-before-import.json"))
+    check("an import with only a data directory leaves its copy on the volume",
+          len(volume) == 1, f"{[p.name for p in volume]} {got}")
+    check("negative: and nothing in the repo directory",
+          not strays, str(sorted(p.name for p in strays)))
+    check("the import's answer names that copy",
+          bool(volume) and got.get("copy") == str(volume[0]), f"{got.get('copy')} vs {volume}")
+    listed = [row.get("name") for row in (got.get("listed") or {}).get("backups", [])]
+    check("the listing shows the copy the import took",
+          listed == [p.name for p in volume], f"{listed} {got}")
+
+    # The copy holds every secret and the accounts database — it has to, or it
+    # could not put them back — so it is for its owner alone. Under the usual
+    # umask a file made without care is 0644 and its directory 0755; the copies
+    # made on the controller before this were 0664 in a 0775 directory.
+    check("the copy is readable and writable by its owner only",
+          got.get("fileMode") == 0o600, oct(got.get("fileMode") or 0))
+    check("the directory made for it is closed to everyone else",
+          (got.get("dirMode") or 0o777) & 0o077 == 0, oct(got.get("dirMode") or 0))
+    shutil.rmtree(data, ignore_errors=True)
 
 
 def main():
@@ -256,6 +364,9 @@ def main():
     check("preview of an unchanged bundle changes nothing",
           all(r["action"] != "replace" for r in preview["changes"]),
           str([r for r in preview["changes"] if r["action"] == "replace"]))
+
+    # 10. Where the copy an import takes is kept.
+    where_the_copy_goes()
 
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     return 1 if FAIL else 0

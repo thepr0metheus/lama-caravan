@@ -12,7 +12,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # Container mode (the Docker image sets both): IS_CONTAINER swaps systemd-based
 # service control for in-process supervision and disables host-only operations;
 # CARAVAN_DATA_DIR rebases every mutable default below one mountable directory
-# (state/, config/, logs/, secrets/, models/, server-backups/).
+# (state/, config/, logs/, secrets/, models/, server-backups/, settings-backups/).
 # Each per-file env var still wins over the rebased default. The proxy daemon
 # applies the same rebase in caravan/proxy/paths.py — keep the layouts in sync.
 IS_CONTAINER = os.environ.get("CARAVAN_CONTAINER", "").strip() == "1"
@@ -35,6 +35,15 @@ STATIC_DIR = PROJECT_ROOT / "static"
 # modal. Layout: <root>/<hostId>/<gpu-model-or-CPU>/<stamp>-<name>.json
 SERVER_BACKUPS_DIR = Path(os.environ.get("LAMA_CARAVAN_SERVER_BACKUPS_DIR")
     or _default("server-backups", PROJECT_ROOT / "var/server-backups")).expanduser()
+# The copy of every setting taken before a settings import (settings_bundle.py),
+# so that restoring a bundle is itself undoable: an import that cannot be undone
+# is a worse trap than the exploration it is meant to protect against. It has to
+# be on the data volume — in the container the repo directory is the image, the
+# app's own user cannot write there and whatever it wrote would go with the
+# container. Kept beside the code it made every import in the container fail
+# with "Permission denied: /app/var".
+SETTINGS_BACKUP_DIR = Path(os.environ.get("CARAVAN_SETTINGS_BACKUPS")
+    or _default("settings-backups", PROJECT_ROOT / "var/settings-backups")).expanduser()
 
 ADMIN_STATE_FILE = Path(os.environ.get("LLAMA_ADMIN_STATE")
     or _default("state/admin.json", Path.home() / ".local/state/llamacpp-easy-admin/admin.json"))
