@@ -107,7 +107,8 @@ and concurrent writers cannot clobber each other.
 | `~/.local/state/llamacpp-easy-admin/auth.db` | admin | admin | Accounts, sessions and the fleet token (stdlib SQLite, 0600). Auth is off until the first user exists. |
 | `var/server-backups/<host>/<gpu-or-CPU>/…` | admin | admin | Named launch-config snapshots for every node, kept on the controller so they survive the client. |
 | `var/settings-backups/<stamp>-before-import.json` | admin | admin | The settings as they were before a settings import, secrets included, so the import can be undone. On the data volume in a container. |
-| `.bench_cache/`, `logs/model-pricing-cache.json` | admin | admin | HF benchmark and LiteLLM pricing caches. |
+| `.bench_cache/`, `logs/model-pricing-cache.json`, `logs/aa-scores-cache.json` | admin | admin | HF benchmark, LiteLLM pricing and Artificial Analysis score caches. On the data volume in a container. |
+| `~/llama.cpp/start-server.sh` (`config/start-server.sh` on the data volume in a container) | admin | admin | The controller's own config: its models directory and the defaults every new cell starts from. Rewritten whole by `POST /api/config`. |
 
 ## Request path (agent traffic)
 
@@ -131,9 +132,9 @@ flowing; only the UI and fleet orchestration stop.
    listeners if ports changed, and applies the new graph to subsequent
    requests. No restarts anywhere.
 
-Launch-config edits for the legacy single server rewrite only the
-`# BEGIN/END LLAMA CONFIG` block of `start-server.sh` (with a timestamped
-backup); a server cell's config is saved on the controller and goes to the
+Saving the controller's own launch config rewrites its `start-server.sh`
+whole, from the command builder that starts cells (no backup copy is kept: the
+settings file carries it); a server cell's config is saved on the controller and goes to the
 machine's scout on the next start (and at once, when the cell has autostart).
 
 ## Code layout

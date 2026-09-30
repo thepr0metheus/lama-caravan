@@ -52,15 +52,8 @@
         "autostart": false,
         "controls": [
           "unload",
-          "delete",
-          "pull"
+          "delete"
         ],
-        "downloading": {
-          "doneBytes": 500000000,
-          "model": "qwen3:4b",
-          "since": 1790000000,
-          "totalBytes": 2500000000
-        },
         "firewall": {
           "allowedFrom": [],
           "state": "open"
@@ -125,7 +118,6 @@
         "autostart": false,
         "controls": [
           "unload",
-          "pull",
           "stop"
         ],
         "firewall": null,
@@ -392,15 +384,8 @@
         "autostart": false,
         "controls": [
           "unload",
-          "delete",
-          "pull"
+          "delete"
         ],
-        "downloading": {
-          "doneBytes": 500000000,
-          "model": "qwen3:4b",
-          "since": 1790000000,
-          "totalBytes": 2500000000
-        },
         "firewall": {
           "allowedFrom": [],
           "state": "open"
@@ -465,7 +450,6 @@
         "autostart": false,
         "controls": [
           "unload",
-          "pull",
           "stop"
         ],
         "firewall": null,

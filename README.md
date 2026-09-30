@@ -606,18 +606,20 @@ without that restriction.
 
 ## Safety Model
 
-The app only rewrites lines between:
+The controller's own config — the models directory and the defaults every new
+cell starts from — is kept between:
 
 ```bash
 # BEGIN LLAMA CONFIG
 # END LLAMA CONFIG
 ```
 
-Before saving, it creates:
-
-```text
-~/llama.cpp/start-server.sh.bak.YYYYMMDD-HHMMSS
-```
+in `~/llama.cpp/start-server.sh` (`config/start-server.sh` on the data volume in
+the Docker image). Saving it rewrites that script whole, from the command
+builder that starts the cells, and keeps no backup copy: export the settings
+file first (System page) when a change is worth being able to take back — it
+carries the script as `controller-config`, and an import keeps a copy of what it
+replaces.
 
 It does not delete models or old profiles.
 

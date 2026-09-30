@@ -25,7 +25,14 @@ def _default(data_rel, legacy):
 HOST = os.environ.get("LLAMACPP_ADMIN_HOST", "0.0.0.0")
 PORT = int(os.environ.get("LLAMACPP_ADMIN_PORT", "7990"))
 LLAMA_HOME = Path(os.environ.get("LLAMA_HOME", str(Path.home() / "llama.cpp"))).expanduser()
-START_SCRIPT = Path(os.environ.get("LLAMA_START_SCRIPT", str(LLAMA_HOME / "start-server.sh"))).expanduser()
+# The controller's own config — the `# BEGIN/END LLAMA CONFIG` block: the models
+# directory and the defaults every new cell starts from — lives in a bash script
+# of this name, kept from the days when the controller ran a server of its own.
+# On the data volume in a container: the script's old home, ~/llama.cpp, is the
+# container's own and is not there at all, so saving the config failed with "No
+# such file or directory" and, had it worked, would have gone with the container.
+START_SCRIPT = Path(os.environ.get("LLAMA_START_SCRIPT")
+    or _default("config/start-server.sh", LLAMA_HOME / "start-server.sh")).expanduser()
 DEFAULT_MODELS_DIR = Path(os.environ.get("LLAMA_MODELS_DIR")
     or _default("models", LLAMA_HOME / "models")).expanduser()
 SERVICE_NAME = os.environ.get("LLAMA_SERVICE_NAME", "llamacpp-current.service")
@@ -90,6 +97,13 @@ ADMIN_SERVICE_NAME = os.environ.get("LLAMA_ADMIN_SERVICE_NAME", "lama-caravan.se
 HOST_REPORT_TTL = int(os.environ.get("CARAVAN_HOST_REPORT_TTL", "180"))
 MODEL_PRICING_CACHE_PATH = Path(_default("logs/model-pricing-cache.json",
     PROJECT_ROOT / "logs" / "model-pricing-cache.json"))
+# The Artificial Analysis scores the kanban's server list looks models up by
+# (caravan/admin/benchmarks.py). Beside the pricing cache, for the same reason:
+# in the container PROJECT_ROOT is the image, where the app's user cannot write,
+# and the save was swallowed as a best-effort cache — so every restart fetched
+# the scores again and nothing said the file was never written.
+AA_SCORES_CACHE_PATH = Path(_default("logs/aa-scores-cache.json",
+    PROJECT_ROOT / "logs" / "aa-scores-cache.json"))
 MODEL_PRICING_URL = "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 MODEL_PRICING_TTL = 24 * 3600  # cache for 24 hours
 # The controller's address as seen by clients — used to build the proxy
