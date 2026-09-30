@@ -80,11 +80,13 @@ endpoints (heartbeats, `/metrics`), which switch to the **fleet token** — a sh
 scouts carry in their config. Passwords are PBKDF2 (per-user salt, constant-ish-time compare with
 a timing pad on unknown users, per-IP lockout after 5 failures); sessions are random tokens stored
 as SHA-256 hashes with a TTL and a 5 s in-process cache. A CLI (`python3 -m caravan.admin.auth …`)
-covers create-user / set-password / fleet-token for headless bootstrap.
+covers create-user / set-password / fleet-token for headless bootstrap. The panel lists a session
+under the first 12 characters of its hash (`session_id`) and ends one by exactly that id: an empty
+or partial id ends nothing (400 / 404).
 Owns: `auth.db`, the session cache, `_LOGIN_FAILS`.
 Key functions: `auth_enabled`, `create_user`/`set_password`/`delete_user`/`list_users`,
-`verify_login`, `create_session`/`validate_session`/`delete_session`, `list_sessions`,
-`revoke_other_sessions`, `fleet_token_get`/`fleet_token_regenerate`/`fleet_token_verify`,
+`verify_login`, `create_session`/`validate_session`/`delete_session`, `list_sessions`/`session_id`,
+`revoke_session`/`revoke_other_sessions`, `fleet_token_get`/`fleet_token_regenerate`/`fleet_token_verify`,
 `session_from_handler`, `session_cookie_header`.
 
 ## `config_builder.py`

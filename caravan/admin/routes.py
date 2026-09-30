@@ -2651,10 +2651,10 @@ def _post_api_fleet_llama_restore(h, parsed, body):
         """Restore an archived llama.cpp build on a machine through its scout
 
         `hostId` names the machine and `id` the archived build (see `GET
-        /api/fleet/llama-builds`); `id` is not checked here, and scout 2.21 treats an empty
-        one as an ordinary update. The answer is the job's status, followed with `GET
-        /api/fleet/llama-update-status`; running cells keep their binary until restarted.
-        502 with the scout's words when it is busy or unreachable.
+        /api/fleet/llama-builds`). 400 without an `id`, and the scout is not asked: scout
+        2.21 takes an empty one for an ordinary update. The answer is the job's status,
+        followed with `GET /api/fleet/llama-update-status`; running cells keep their binary
+        until restarted. 502 with the scout's words when it is busy or unreachable.
         """
         h.send_json(client_llama_restore(body))
         return
@@ -3322,8 +3322,9 @@ def _post_auth_sessions_revoke(h, parsed, body):
         """End one session by its id, or every session except the caller's own
 
         Body: `id` (from `GET /api/auth/overview`) for one session, or `others: true` for
-        all the rest. Answers `{ok}`, or `{ok, revoked}` with the count for `others`; 404
-        for an unknown `id`.
+        all the rest. Answers `{ok}`, or `{ok, revoked}` with the count for `others`; 400
+        without an `id`, 404 when no session is listed under exactly that `id` (the start
+        of one does not name it). Nothing is ended in either case.
         """
         if body.get("others"):
             from http import cookies as _ck
