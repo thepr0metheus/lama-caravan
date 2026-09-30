@@ -120,7 +120,6 @@ back does not normally require touching `agent-proxies.json` /
 |---|---|---|
 | Router/kanban config | `agent-proxies.json.bak-graph-<stamp>` (repo root, gitignored) | automatically on **every** admin write of `agent-proxies.json` |
 | Launch configs per node | `var/server-backups/<hostId>/<gpu-model-or-CPU>/<stamp>-<name>.json` | UI snapshots (controller + clients; survive the client host) |
-| Legacy start script | `~/llama.cpp/start-server.sh.bak.<stamp>` | before every config save |
 | Every setting, before a settings import | `var/settings-backups/<stamp>-before-import.json` (`/data/settings-backups/` in the container) | automatically before every `POST /api/settings/import`: the whole file, secrets and accounts included, so it is written 0600 in a 0700 directory — importing that copy undoes the import |
 
 Restore a broken router config:
@@ -206,7 +205,10 @@ the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
 - The legacy single-server unit and "Repair user service" are disabled with
   a clear 400 — models run on caravan-scout hosts (attach the Docker host
   itself with scout if it has the GPU).
-- All mutable state lives under the `/data` volume (`CARAVAN_DATA_DIR`);
+- All mutable state lives under the `/data` volume (`CARAVAN_DATA_DIR`) — the
+  controller's own config script too (`config/start-server.sh`: the models
+  directory and the defaults for new cells, the `controller-config` of a settings
+  file), and the scores cache (`logs/aa-scores-cache.json`);
   the System modal shows synthetic service chips (`lama-caravan (container)`,
   `agent-proxies (child)`) and hides systemd diagnostics.
 - The version chip reads `CARAVAN_GIT_HEAD` (baked at build) because the

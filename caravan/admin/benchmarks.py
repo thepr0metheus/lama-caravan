@@ -10,7 +10,7 @@ import urllib.request
 from pathlib import Path
 
 from caravan.admin.hf import _hf_request
-from caravan.admin.paths import PROJECT_ROOT, _BENCH_CACHE_DIR
+from caravan.admin.paths import AA_SCORES_CACHE_PATH, _BENCH_CACHE_DIR
 from caravan.admin.state import admin_state
 from caravan.common.fsio import atomic_write_text
 from caravan.common.ttl_cache import MISS, TtlCache
@@ -183,7 +183,7 @@ def _fetch_aa_score(model_id: str) -> dict:
 # list and grown opportunistically: every model page we fetch contributes its own
 # score plus its comparison neighbours, so the map fills fast. Misses (no AA page →
 # 404) are negative-cached so we don't re-hammer them.
-_AA_MAP_PATH = PROJECT_ROOT / "logs" / "aa-scores-cache.json"
+_AA_MAP_PATH = AA_SCORES_CACHE_PATH
 
 _AA_MAP_TTL = 7 * 86400
 

@@ -191,6 +191,7 @@ jobs:
           python3 scripts/check_ci_coverage.py
           python3 scripts/check_command_mirrors.py
           python3 scripts/test_settings_bundle.py
+          python3 scripts/test_data_volume_paths.py
           python3 scripts/test_download_retry.py
           python3 scripts/test_download_replace.py
           python3 scripts/test_download_cancel.py

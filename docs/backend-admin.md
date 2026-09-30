@@ -43,7 +43,8 @@ place, never reassigned.
 Environment-driven constants and every repo-relative path, all anchored to `PROJECT_ROOT =
 Path(__file__).resolve().parents[2]` (the repo root, where `app.py` lives). No other module may
 derive paths from its own `__file__` — it would point into `caravan/`. Covers the llama.cpp install
-(`LLAMA_HOME`, `START_SCRIPT`, `DEFAULT_MODELS_DIR`), the two service names, the config-backup dir
+(`LLAMA_HOME`, `START_SCRIPT` — the controller's config script, `config/start-server.sh` on the data volume in a
+container — `DEFAULT_MODELS_DIR`), the AA scores cache (`AA_SCORES_CACHE_PATH`), the two service names, the config-backup dir
 (`var/server-backups`), the settings-backup dir (`var/settings-backups` — the copy taken before each
 settings import; on the data volume in a container), the shared JSON files (`agent-proxies.json`,
 `agent-proxy-state.json`, `cloud-providers.json`, `token-history.json`), per-user state
