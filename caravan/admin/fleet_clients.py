@@ -85,9 +85,14 @@ def client_llama_builds(host_id: str) -> dict:
     return _scout(host_id).read("/api/llama-node/builds", timeout=10)
 
 def client_llama_restore(body: dict) -> dict:
+    """Restore an archived build on a client scout. The id is required: a scout
+    takes an empty one for an ordinary update, so the restore the operator asked
+    for would quietly become a different job — one that pulls and builds."""
+    build_id = str((body or {}).get("id") or "").strip()
+    if not build_id:
+        raise AppError("build id is required", 400)
     scout = _scout(str((body or {}).get("hostId") or ""))
-    payload = {"id": str((body or {}).get("id") or "").strip()}
-    return scout.post("/api/llama-node/restore", payload, timeout=15)
+    return scout.post("/api/llama-node/restore", {"id": build_id}, timeout=15)
 
 
 #: The scout that answers for vLLM on its machine (VllmVenv, scout 2.9.0).

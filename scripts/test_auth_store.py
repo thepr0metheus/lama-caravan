@@ -36,7 +36,7 @@ def run(body):
               "from caravan.common.errors import AppError\n"
               "def attempt(fn, *a, **k):\n"
               "    try: return {'ok': fn(*a, **k)}\n"
-              "    except AppError as exc: return {'refused': str(exc)}\n"
+              "    except AppError as exc: return {'refused': str(exc), 'status': exc.status}\n"
               + body)
     with tempfile.TemporaryDirectory() as tmp:
         env = dict(os.environ, LLAMA_ADMIN_AUTH_DB=str(Path(tmp) / "auth.db"),
@@ -187,6 +187,63 @@ print(json.dumps({
         check("…and signs the others out", got["the other one does not"] == {}, str(got))
     else:
         check("expiry and revocation", False, out.stderr.strip()[-300:])
+
+    # ── ending ONE session ───────────────────────────────────────────────────
+    # revoke_session used to match `token_hash.startswith(id)`: an empty id — a
+    # body with no `id`, a button that lost its data attribute — ended the first
+    # session in the table, the caller's own as likely as any, and "a" ended the
+    # first whose hash began with an a. Every refusal below must leave all three
+    # sessions standing; only the exact listed id ends its own.
+    out, _ = run('''
+import hashlib
+auth.create_user("ann", "correct horse battery")
+uid = auth.verify_login("ann", "correct horse battery")["id"]
+tokens = [auth.create_session(uid) for _ in range(3)]
+heads = [hashlib.sha256(t.encode()).hexdigest()[:12] for t in tokens]
+def alive():
+    auth._SESSION_CACHE.clear()
+    return [bool(auth.validate_session(t)) for t in tokens]
+r = {"listed ids": sorted(x["id"] for x in auth.list_sessions()) == sorted(heads),
+     "id length": sorted(len(x["id"]) for x in auth.list_sessions())}
+r["empty id"] = attempt(auth.revoke_session, "")
+r["blank id"] = attempt(auth.revoke_session, "   ")
+r["no id"] = attempt(auth.revoke_session, None)
+r["start of an id"] = attempt(auth.revoke_session, heads[0][:4])
+r["one character"] = attempt(auth.revoke_session, heads[0][:1])
+r["unknown id"] = attempt(auth.revoke_session, "0" * 12)
+r["alive after refusals"] = alive()
+r["end the middle one"] = attempt(auth.revoke_session, heads[1])
+r["alive after the middle one"] = alive()
+r["listed after"] = sorted(x["id"] for x in auth.list_sessions()) == sorted([heads[0], heads[2]])
+r["the middle one again"] = attempt(auth.revoke_session, heads[1])
+r["alive at the end"] = alive()
+print(json.dumps(r))
+''')
+    if out.returncode == 0:
+        got = json.loads(out.stdout)
+        check("the panel lists a session under the first 12 characters of its token hash",
+              got["listed ids"] is True and got["id length"] == [12, 12, 12], str(got["id length"]))
+        for label, key in (("no id", "no id"), ("an empty id", "empty id"), ("a blank id", "blank id")):
+            check(f"{label} is refused as missing, with a 400",
+                  got[key].get("refused") == "session id is required" and got[key].get("status") == 400,
+                  str(got[key]))
+        for label, key in (("the start of a listed id", "start of an id"),
+                           ("one character of an id", "one character"),
+                           ("an id nobody has", "unknown id")):
+            check(f"{label} names no session: 404, as an unknown id always was",
+                  got[key].get("refused") == "session not found" and got[key].get("status") == 404,
+                  str(got[key]))
+        check("no refusal ended a session", got["alive after refusals"] == [True, True, True],
+              str(got["alive after refusals"]))
+        check("the exact listed id ends that session and no other",
+              got["end the middle one"] == {"ok": None} and got["alive after the middle one"] == [True, False, True],
+              f"{got['end the middle one']} {got['alive after the middle one']}")
+        check("and the list follows", got["listed after"] is True)
+        check("ending it again is a 404, and touches nobody",
+              got["the middle one again"].get("status") == 404 and got["alive at the end"] == [True, False, True],
+              f"{got['the middle one again']} {got['alive at the end']}")
+    else:
+        check("ending one session", False, out.stderr.strip()[-300:])
 
     # ── roles ────────────────────────────────────────────────────────────────
     out, _ = run('''

@@ -35,6 +35,10 @@ store = AuthStore(AUTH_DB)
 
 SESSION_COOKIE = "caravan_session"
 SESSION_TTL = store.session_ttl       # 30 days
+#: How much of a session's token hash the panel calls its id. The list hands
+#: it out and a revoke names a session by it, so both cut it here — a revoke
+#: that matched any prefix ended whichever session came first for "" or "a".
+SESSION_ID_LENGTH = 12
 PBKDF2_ITERS = store.iterations
 #: Kept as module names because callers and tests reach for them directly: the
 #: settings import clears both after replacing the database under a live process.
@@ -197,6 +201,11 @@ def delete_session(token: str) -> None:
     store.forget_session(token_hash)
 
 
+def session_id(token_hash: str) -> str:
+    """The id the panel lists a session under: the head of its token hash."""
+    return token_hash[:SESSION_ID_LENGTH]
+
+
 def list_sessions() -> list:
     now = int(time.time())
     with _db() as conn:
@@ -204,7 +213,7 @@ def list_sessions() -> list:
             """SELECT s.token_hash, u.username, s.created_at, s.last_seen, s.ip, s.ua
                FROM sessions s JOIN users u ON u.id = s.user_id
                WHERE s.expires_at >= ? ORDER BY s.last_seen DESC""", (now,)).fetchall()
-    return [{"id": r[0][:12], "username": r[1], "createdAt": r[2],
+    return [{"id": session_id(r[0]), "username": r[1], "createdAt": r[2],
              "lastSeen": r[3], "ip": r[4] or "", "ua": (r[5] or "")[:60]} for r in rows]
 
 
@@ -224,10 +233,16 @@ def revoke_other_sessions(current_token: str) -> int:
 
 
 def revoke_session(short_id: str) -> None:
+    """End the one session listed under this id. An id that names none — empty,
+    or only the start of one — ends nothing: the first session in the table
+    would otherwise die for it, the caller's own among them."""
+    short_id = str(short_id or "").strip()
+    if not short_id:
+        raise AppError("session id is required", 400)
     with _db() as conn:
         rows = conn.execute("SELECT token_hash FROM sessions").fetchall()
         for (th,) in rows:
-            if th.startswith(short_id):
+            if session_id(th) == short_id:
                 conn.execute("DELETE FROM sessions WHERE token_hash=?", (th,))
                 store.forget_session(th)
                 return
