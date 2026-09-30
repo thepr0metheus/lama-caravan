@@ -106,6 +106,7 @@ and concurrent writers cannot clobber each other.
 | `state/model-catalog.json` | admin | admin | Provider model lists (1 h TTL), endpoint circuit-breaker state, cached codex client version. Legacy installs keep it at the repo root. |
 | `~/.local/state/llamacpp-easy-admin/auth.db` | admin | admin | Accounts, sessions and the fleet token (stdlib SQLite, 0600). Auth is off until the first user exists. |
 | `var/server-backups/<host>/<gpu-or-CPU>/…` | admin | admin | Named launch-config snapshots for every node, kept on the controller so they survive the client. |
+| `var/settings-backups/<stamp>-before-import.json` | admin | admin | The settings as they were before a settings import, secrets included, so the import can be undone. On the data volume in a container. |
 | `.bench_cache/`, `logs/model-pricing-cache.json` | admin | admin | HF benchmark and LiteLLM pricing caches. |
 
 ## Request path (agent traffic)

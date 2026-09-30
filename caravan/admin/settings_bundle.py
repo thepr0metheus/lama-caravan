@@ -30,8 +30,8 @@ from caravan.admin.paths import (
     AGENT_PROXY_CONFIG_FILE,
     CLOUD_PROVIDERS_FILE,
     MODEL_CATALOG_FILE,
-    PROJECT_ROOT,
     PROVIDER_SECRETS_FILE,
+    SETTINGS_BACKUP_DIR,
     START_SCRIPT,
 )
 from caravan.common.errors import AppError
@@ -57,13 +57,6 @@ CLIENT_LABELS_GONE = ("the controller no longer watches its own server's clients
 #: Sections an older bundle carries that are no longer restored, and why —
 #: said in the preview and in the import's answer, never dropped silently.
 RETIRED = {"server-cells": SERVER_CELLS_GONE, "client-labels": CLIENT_LABELS_GONE}
-
-# Where the pre-import copy of the current settings is written, so that restoring
-# a bundle is itself undoable. An import that cannot be undone is a worse trap
-# than the exploration it is meant to protect against.
-SETTINGS_BACKUP_DIR = Path(os.environ.get("CARAVAN_SETTINGS_BACKUPS")
-                           or (PROJECT_ROOT / "var/settings-backups"))
-
 
 def _files():
     """Logical name → path. Logical names travel in the bundle, not paths: a
@@ -375,9 +368,12 @@ def apply_bundle(bundle, passphrase=""):
     "that restored the wrong thing" is another import rather than an apology.
     """
     validate_bundle(bundle)
-    SETTINGS_BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    # The copy carries everything, secrets and accounts included — it has to, or
+    # it could not put them back — so it is the most sensitive file this module
+    # writes, and it is written for its owner alone.
+    SETTINGS_BACKUP_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     before = SETTINGS_BACKUP_DIR / f"{time.strftime('%Y%m%d-%H%M%S')}-before-import.json"
-    atomic_write_text(before, json.dumps(export_bundle(include_secrets=True), indent=2), mkdir=True)
+    atomic_write_text(before, json.dumps(export_bundle(include_secrets=True), indent=2), chmod=0o600, mkdir=True)
 
     written = []
     skipped = []

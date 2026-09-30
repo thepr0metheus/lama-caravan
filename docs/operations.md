@@ -121,6 +121,7 @@ back does not normally require touching `agent-proxies.json` /
 | Router/kanban config | `agent-proxies.json.bak-graph-<stamp>` (repo root, gitignored) | automatically on **every** admin write of `agent-proxies.json` |
 | Launch configs per node | `var/server-backups/<hostId>/<gpu-model-or-CPU>/<stamp>-<name>.json` | UI snapshots (controller + clients; survive the client host) |
 | Legacy start script | `~/llama.cpp/start-server.sh.bak.<stamp>` | before every config save |
+| Every setting, before a settings import | `var/settings-backups/<stamp>-before-import.json` (`/data/settings-backups/` in the container) | automatically before every `POST /api/settings/import`: the whole file, secrets and accounts included, so it is written 0600 in a 0700 directory — importing that copy undoes the import |
 
 Restore a broken router config:
 
@@ -180,7 +181,7 @@ from `ps -r`; per-core CPU% stays 0 (no `/proc`), loadavg is real.
 
 Shorthand for the same isolation: `CARAVAN_DATA_DIR=/tmp/caravan-dev python3
 app.py` rebases every mutable default (state/, config/, logs/, secrets/,
-models/, server-backups/) under one directory; the individual
+models/, server-backups/, settings-backups/) under one directory; the individual
 env vars above still win when set.
 
 Quick checks while developing:
