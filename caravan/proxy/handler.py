@@ -29,6 +29,7 @@ from caravan.proxy.graph import PORT_QUESTION_CTX, apply_router, apply_router_sp
 from caravan.proxy.events import write_proxy_event
 from caravan.proxy.output_health import output_health
 from caravan.proxy.subscription_usage import ReserveRefusal, reserve_gate, subscription_usage
+from caravan.proxy.subscription_pool import subscription_pools
 from caravan.proxy.paths import BODY_CAPTURE_LIMIT, DEFAULT_POLICY, HOP_HEADERS, STREAM_DONE_MARKER
 from caravan.proxy.queue_admission import (
     ProxyClientDisconnected,
@@ -399,7 +400,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         parsed = urlsplit(self.path)
         path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
         req_summary = request_summary(body, self.headers)
-        route = live_route_for_port(self.route.get("port")) or self.route
+        route = dict(live_route_for_port(self.route.get("port")) or self.route)
         if not self._api_key_ok(route):
             self._reject_unauthorized(route, request_id)
             return
@@ -505,8 +506,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
             # output/queue when its spillPct fires; we re-resolve and re-queue there,
             # chaining across the fleet until admitted, cloud, or the chain is exhausted.
             spill_guard = 0
+            queue_node_ids = []
             while not route_is_cloud:
                 spec = (route.get("queuePlan") or {}).get("spec")
+                if spec and spec.get("nodeId") and spec["nodeId"] not in queue_node_ids:
+                    queue_node_ids.append(spec["nodeId"])
                 try:
                     queue = wait_for_proxy_slot(route, request_id, keepalive_writer=keepalive_writer, spec=spec,
                                                 client_gone=_probe_client_gone)
@@ -597,6 +601,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
             finish_active(str(route["port"]), request_id, result)
             write_proxy_event("blocked", route_label=route["label"], request_id=request_id, item=result, status=status)
             return
+        if queue_node_ids:
+            queue["nodeIds"] = queue_node_ids
         update_active(str(route["port"]), request_id, {"phase": "received", "queue": queue})
         with queue_condition:
             admitted_requests.discard(str(request_id))
@@ -724,6 +730,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             _rescue_refs = list(route.get("rescueRefs") or [])
             _rescue_hops = 0
             _rescue_trail = []
+            _pool_attempted = set()
             # A discovery probe is answered by the exit it reached, as it came:
             # no replay elsewhere, no verdict from its status (see
             # caravan/common/request_kind.py). A refused connection is another
@@ -749,10 +756,19 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     # A block id resolves to a specific model; otherwise route to the cloud
                     # account directly (passthrough — forward the client's requested model).
                     provider = (load_cloud_provider(effective_provider_id) if effective_provider_id
-                                else load_cloud_account(route.get("cloudAccountId")))
+                                else load_cloud_account(route.get("cloudPoolId") or route.get("cloudAccountId")))
                     if not provider:
                         raise ProxyCloudError("cloud provider not configured")
-                    auth_pair = load_provider_secret(provider)
+                    provider, reserve_refusal = subscription_pools.resolve(provider, body, _pool_attempted)
+                    if provider.get("poolId"):
+                        route["cloudPoolId"] = provider["poolId"]
+                        route["cloudAccountId"] = provider["accountId"]
+                        route["poolMemberId"] = provider["poolMemberId"]
+                        route["credentialAccountId"] = provider.get("credentialAccountId")
+                        update_active(str(route["port"]), request_id, {
+                            "cloudPoolId": provider["poolId"], "cloudAccountId": provider["accountId"],
+                            "poolMemberId": provider["poolMemberId"]})
+                    auth_pair = load_provider_secret(provider) if reserve_refusal is None else ("Authorization", "")
                     if not auth_pair:
                         raise ProxyCloudError("cloud account missing credential (API key or OAuth)")
                     base = urlsplit(provider.get("baseUrl") or "")
@@ -766,7 +782,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         # The operator's reserve on the account's limits: once a
                         # window is down to it, this leg is answered here and
                         # nothing is sent (caravan/common/usage_reserve.py).
-                        _reserve_hit = reserve_gate.verdict(provider)
+                        _reserve_hit = reserve_gate.verdict(provider) if reserve_refusal is None else None
                         if _reserve_hit:
                             reserve_refusal = ReserveRefusal(_reserve_hit)
                     use_tls = base.scheme != "http"
@@ -891,15 +907,13 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 write_proxy_event("upstream_started", route_label=route["label"], request_id=request_id, item=active, queue=queue, cloudMeta=cloud_meta or None, cloudHeaders=cloud_headers_debug)
                 # ── Retry on llama "Loading model" 503 (brief window during startup) ─
                 # Time-based: keep retrying every 3s for up to loadingModelWaitSec (default 60s).
-                # The governing queue node wins; the global policy is the
-                # fallback — the same precedence stickySlotSec already uses, so
-                # one queue can wait out a slow-loading 70B while the rest of
-                # the fleet keeps the short window.
+                # A graph spec contains the shared policy snapshot. An implicit
+                # queue reads that same global field, including zero (disabled).
                 _lm_qspec = (route.get("queuePlan") or {}).get("spec") or {}
                 _lm_node = _lm_qspec.get("loadingModelWaitSec")
                 _lm_wait = float(_lm_node if _lm_node is not None
                                  else ((current_config().get("policy") or DEFAULT_POLICY)
-                                       .get("loadingModelWaitSec") or 60))
+                                       .get("loadingModelWaitSec", 60)))
                 _lm_retry_delay = 3.0
                 _lm_deadline = time.time() + _lm_wait
                 _lm_attempt = 0
@@ -947,7 +961,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                     upstream_headers = dict(upstream.getheaders())
                     if is_subscription and reserve_refusal is None:
                         # Every answer states the account's windows, a refusal too.
-                        subscription_usage.note(provider.get("accountId"), upstream_headers)
+                        subscription_usage.note(provider.get("usageAccountId") or provider.get("accountId"), upstream_headers)
                     content_type = upstream_headers.get("Content-Type", "")
                     is_event_stream = content_type.lower().startswith("text/event-stream")
                     if status >= 400:
@@ -996,8 +1010,19 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 elif _inference_request:
                     output_health.note_status(route.get("routedOutputId"), status,
                                               message=(upstream_error_body or "")[:200])
+                # An upstream quota/auth refusal may select another pool member
+                # only before output. Shared quota owners (test aliases) are
+                # excluded together, so a duplicate cannot evade a real limit.
+                if (is_subscription and reserve_refusal is None and bytes_out == 0 and chunks == 0
+                        and not _client_gone[0] and subscription_pools.failed(provider, status, upstream_headers)):
+                    _pool_attempted.add(provider.get("usageAccountId") or provider["accountId"])
+                    write_proxy_event("subscription_pool_retry", route_label=route["label"], request_id=request_id,
+                                      poolId=provider["poolId"], accountId=provider["accountId"], status=status)
+                    conn.close()
+                    continue
                 # ── onError rescue: replay the request down the backup exit ──
-                if (status >= 400 and _rescue_refs and _rescue_hops < 3
+                if (status >= 400 and not (reserve_refusal is not None and reserve_refusal.status == 400)
+                        and _rescue_refs and _rescue_hops < 3
                         and bytes_out == 0 and chunks == 0 and not _client_gone[0]):
                     _resc_ref = _rescue_refs.pop(0)
                     _newr = apply_router_spill(route, current_config(), _resc_ref, ctx=dict(request_ctx))
@@ -1045,7 +1070,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             if isinstance(upstream, ReserveRefusal):
                 # The answer is the caravan's own: the journal and the board say
                 # so, instead of blaming the provider for a 429 it never gave.
-                error, error_kind = upstream.message, ReserveRefusal.KIND
+                error, error_kind = upstream.message, upstream.KIND
             # A cell's /props states its window where a llama.cpp-aware client
             # reads it; the port's figure goes there (_publish_props_window).
             props_body = None
@@ -1430,6 +1455,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 result["skippedDead"] = list(route.get("deadSkipped"))
             result["providerId"] = str(route.get("providerId") or "")
             result["cloudAccountId"] = str(route.get("cloudAccountId") or "")
+            if route.get("cloudPoolId"):
+                result["cloudPoolId"] = route["cloudPoolId"]
+                result["poolMemberId"] = route.get("poolMemberId")
+                result["credentialAccountId"] = route.get("credentialAccountId")
             result["model"] = str((req_summary or {}).get("model") or "")
             # Sticky reservation: a graph queue node sets its own period (per-block);
             # None ⇒ finish_active falls back to the global policy default.

@@ -1,6 +1,7 @@
 """Environment constants and repo-relative paths for the proxy daemon."""
 import os
 from pathlib import Path
+from caravan.common.queue_policy import SharedQueuePolicy
 
 # caravan/proxy/paths.py -> parents[2] == repo root (where agent-proxies.py lives).
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -32,6 +33,8 @@ MODEL_CATALOG_FILE = Path(os.environ.get("MODEL_CATALOG_FILE")
 
 CLOUD_PROVIDERS_FILE = Path(os.environ.get("CLOUD_PROVIDERS_FILE")
     or _default("config/cloud-providers.json", PROJECT_ROOT / "cloud-providers.json"))
+SUBSCRIPTION_RESETS_FILE = Path(os.environ.get("CARAVAN_SUBSCRIPTION_RESETS_FILE")
+    or _default("state/subscription-resets.json", PROJECT_ROOT / "var/subscription-resets.json"))
 
 PROVIDER_SECRETS_FILE = Path(os.environ.get("PROVIDER_SECRETS_FILE")
     or _default("secrets/provider-secrets.json", Path.home() / ".config" / "llamacpp-easy-admin" / "provider-secrets.json"))
@@ -75,12 +78,9 @@ TEXT_PREVIEW_LIMIT = 180
 DEFAULT_POLICY = {
     "maxSlots": int(os.environ.get("AGENT_PROXY_MAX_SLOTS", "1")),
     # Percentage-based thresholds (applied to each route's clientTimeoutSeconds)
-    "cloudFallbackPct": int(os.environ.get("AGENT_PROXY_CLOUD_FALLBACK_PCT", "20")),
     "priorityPreemptPct": int(os.environ.get("AGENT_PROXY_PRIORITY_PREEMPT_PCT", "50")),
     "queueAbortPct": int(os.environ.get("AGENT_PROXY_QUEUE_ABORT_PCT", "85")),
     "preemptGraceSec": int(os.environ.get("AGENT_PROXY_PREEMPT_GRACE_SEC", "20")),
     "preemptEnabled": os.environ.get("AGENT_PROXY_PREEMPT_ENABLED", "1") not in ("0", "false", "False"),
-    "stickySlotSec": int(os.environ.get("AGENT_PROXY_STICKY_SLOT_SEC", "0")),
-    # How long to keep retrying a llama "Loading model" 503 before giving up.
-    "loadingModelWaitSec": int(os.environ.get("AGENT_PROXY_LOADING_MODEL_WAIT_SEC", "60")),
+    **SharedQueuePolicy.from_environment(os.environ).policy_values(),
 }

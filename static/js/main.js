@@ -2,7 +2,7 @@
 import { initDialogLlamas } from "./dialog-llamas.js";
 import { CARD_FOLD, FoldPeek } from "./card-fold.js";
 import { drawLiveTopologyCable, drawTopologyCables } from "./cables.js";
-import { canvasLoadPositions, cvSetViewport, drawCanvasConnectors } from "./canvas.js";
+import { canvasInitialView, canvasOpenPositions, cvSetViewport, drawCanvasConnectors } from "./canvas.js";
 import { drawTopologyServerStats, systemSamples } from "./charts.js";
 import { openCloudProviderModal } from "./cloud.js";
 import { applyLanguage, applyTheme, initLanguage, onLangChange, setupLangSelect, t } from "./i18n.js";
@@ -14,6 +14,7 @@ import { refreshRouteErrBadges } from "./topology-activity.js";
 import { purgeRemoteModelCache, submitRemoteLlamaStart } from "./remote-cells.js";
 import { rebindProxyRouter } from "./routers.js";
 import { mountScoutAdd } from "./scout-add.js";
+import { SERVER_ORDER } from "./server-order.js";
 import { openIncidentsModal } from "./topology-nodes.js";
 import { topology, ui } from "./state.js";
 import {
@@ -53,7 +54,7 @@ function initRouterStandalonePage() {
     ui.topologyCanvasRouterId = routerId;
     ui.topologyRouterNodeCfgId = "";
     ui.topologyRouterInputsExpanded = true;
-    cvSetViewport(canvasLoadPositions(routerId), { tx: 24, ty: 24, scale: 1 });
+    cvSetViewport(canvasOpenPositions(routerId), canvasInitialView(routerId));
     renderTopology();
     startTopologyMonitor();
     hideAppLoader();
@@ -157,6 +158,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     busy: () => !!topologyPointerDrag,
     changed: () => { renderTopology(); requestAnimationFrame(drawTopologyCables); },
   }).bind(document);
+  // Model servers is one list of machines and cloud providers in the operator's order
+  // (server-order.js): a card moves by ↑ ↓ in its head. Bound once, on the list, which is
+  // static: the lanes inside it are repainted wholesale.
+  SERVER_ORDER.redraw = () => requestAnimationFrame(drawTopologyCables);
+  SERVER_ORDER.bind($("boardServerCards"));
 
   // Remote llama-server modal buttons
   $("llamaRemoteEditStart")?.addEventListener("click", submitRemoteLlamaStart);

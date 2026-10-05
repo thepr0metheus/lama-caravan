@@ -120,7 +120,7 @@ back does not normally require touching `agent-proxies.json` /
 |---|---|---|
 | Router/kanban config | `agent-proxies.json.bak-graph-<stamp>` (repo root, gitignored) | automatically on **every** admin write of `agent-proxies.json` |
 | Launch configs per node | `var/server-backups/<hostId>/<gpu-model-or-CPU>/<stamp>-<name>.json` | UI snapshots (controller + clients; survive the client host) |
-| Every setting, before a settings import | `var/settings-backups/<stamp>-before-import.json` (`/data/settings-backups/` in the container) | automatically before every `POST /api/settings/import`: the whole file, secrets and accounts included, so it is written 0600 in a 0700 directory — importing that copy undoes the import |
+| Every setting, before a settings import | `var/settings-backups/<YYYYMMDD-HHMMSS-micros>-before-import.json` (`/data/settings-backups/` in the container) | automatically before every `POST /api/settings/import`: the whole file, secrets and accounts included, so it is written 0600 in a 0700 directory — importing that copy undoes the import. One file per import, never written over: two imports in one second keep both |
 
 Restore a broken router config:
 

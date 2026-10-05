@@ -6,7 +6,7 @@ import {
   topologyProxyClass,
   topologyRouteClass,
 } from "./cables.js";
-import { _cvPos, _cvQueueHistData, _cvQueueHistOpen, _cvSchedHistData, _cvSchedHistOpen, _cvView, _fetchQueueHist, _fetchSchedHist, bindCanvasInteractions, canvasLoadPositions, cvSetViewport, drawCanvasConnectors, scheduleOutputColor } from "./canvas.js";
+import { _cvPos, _cvQueueHistData, _cvQueueHistOpen, _cvSchedHistData, _cvSchedHistOpen, _cvView, _fetchQueueHist, _fetchSchedHist, bindCanvasInteractions, canvasInitialView, canvasOpenPositions, cvSetViewport, drawCanvasConnectors, scheduleOutputColor } from "./canvas.js";
 import {
   closeChartModal,
   closeRouteActivityModal,
@@ -22,6 +22,7 @@ import {
   saveCloudBlock,
   selectCloudProviderType,
   startCloudOauthLogin,
+  completeCloudOauthLogin,
   topologyCloudBlockForm,
 } from "./cloud.js";
 import { renameTopologyAgent } from "./remote-cells.js";
@@ -34,6 +35,7 @@ import {
   setCloudModelExposed,
   topologyOutputsCloudExpanded,
   topologyOutputsFolded,
+  topologyQuietShown,
 } from "./routers.js";
 import { setTopology, topology, ui } from "./state.js";
 import { drawRouteTokenHistory, loadRouteModelCard, loadRouteTokenHistory,
@@ -212,6 +214,9 @@ export function bindTopologyDragAndDrop() {
   });
   document.querySelector("[data-cloud-oauth-login]")?.addEventListener("click", () => {
     startCloudOauthLogin().catch((err) => toast(err.message));
+  });
+  document.querySelector("[data-cloud-oauth-complete]")?.addEventListener("click", () => {
+    completeCloudOauthLogin().catch((err) => toast(err.message));
   });
   // block modal
   document.querySelector("[data-cloud-block-close]")?.addEventListener("click", closeCloudBlockModal);
@@ -731,6 +736,18 @@ export function bindTopologyDragAndDrop() {
       renderTopology();
     });
   });
+  // A machine's stopped cells nothing leads to: listed or folded under their row. A key opens it
+  // too — the row is a button to a screen reader, and it must act like one.
+  document.querySelectorAll("[data-router-quiet-toggle]").forEach((el) => {
+    const toggle = (e) => {
+      e.stopPropagation();
+      const key = el.dataset.routerQuietToggle;
+      topologyQuietShown[key] = !topologyQuietShown[key];
+      renderTopology();
+    };
+    el.addEventListener("click", toggle);
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(e); } });
+  });
   // Cloud model checkbox → expose/hide as a routable output.
   document.querySelectorAll("[data-router-expose]").forEach((cb) => {
     cb.addEventListener("change", () => setCloudModelExposed(cb.dataset.routerExpose, cb.checked));
@@ -759,6 +776,20 @@ export function bindTopologyDragAndDrop() {
       }).catch((e) => toast(e.message));
     });
   });
+  // The unassigned list shuts as a menu does: on a press outside it, or on Escape. The listener
+  // takes itself off on its first press outside, so a list a render replaced leaves none behind.
+  document.querySelectorAll("[data-t='kanban-unassigned']").forEach((d) => {
+    d.addEventListener("toggle", () => {
+      if (!d.open) return;
+      const away = (e) => {
+        if (d.contains(e.target)) return;
+        d.open = false;
+        document.removeEventListener("pointerdown", away, true);
+      };
+      document.addEventListener("pointerdown", away, true);
+    });
+    d.addEventListener("keydown", (e) => { if (e.key === "Escape") d.open = false; });
+  });
   // Left column: attach a port to this router (confirm if it's on another), or
   // detach (→ unassigned/503). Both via route-policy routerId — no restart.
   document.querySelectorAll("[data-router-attach]").forEach((el) => {
@@ -786,7 +817,7 @@ export function bindTopologyDragAndDrop() {
   });
   document.querySelector("[data-router-open-canvas]")?.addEventListener("click", (event) => {
     ui.topologyCanvasRouterId = event.currentTarget.dataset.routerOpenCanvas;
-    cvSetViewport(canvasLoadPositions(ui.topologyCanvasRouterId), { tx: 24, ty: 24, scale: 1 });
+    cvSetViewport(canvasOpenPositions(ui.topologyCanvasRouterId), canvasInitialView(ui.topologyCanvasRouterId));
     renderTopology();
     requestAnimationFrame(() => { drawCanvasConnectors(); bindCanvasInteractions(); });
   });
@@ -1024,4 +1055,3 @@ export function clearTopologyPointerDrag() {
   // The drag is over — apply any refresh that was deferred while dragging.
   flushPendingTopologyRender();
 }
-

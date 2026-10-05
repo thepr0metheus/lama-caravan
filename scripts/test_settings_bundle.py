@@ -15,13 +15,27 @@ and the app runs as a user that cannot write there: the copy was kept beside the
 code, so every import in the container died with "Permission denied: /app/var"
 (2026-09-30). Where the copy goes is checked at the bottom, in processes of their
 own — the paths are fixed when the modules are imported.
+
+And every import keeps its own copy. The copy was named by the second and swapped
+in over a name that was there, so two imports inside one second — a script, an
+agent exploring the panel — left the second's copy and lost the first's: the copy
+of the ORIGINAL settings, the one that makes the restore possible (found
+2026-09-30 by running two imports back to back in a container). The names go to
+the microsecond now and a taken name is never written over; that is the last
+section here.
 """
+import contextlib
+import errno
 import json
 import os
+import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
+import threading
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -147,6 +161,212 @@ def where_the_copy_goes():
     check("the directory made for it is closed to everyone else",
           (got.get("dirMode") or 0o777) & 0o077 == 0, oct(got.get("dirMode") or 0))
     shutil.rmtree(data, ignore_errors=True)
+
+
+TWICE_SNIPPET = """
+import json
+from datetime import datetime
+from pathlib import Path
+from caravan.admin import routes, settings_bundle as sb
+FIXED = datetime(2026, 9, 30, 16, 10, 8, 500000)
+class Frozen(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return FIXED
+sb.datetime = Frozen                     # two imports at one instant: what the old name could not hold
+admin = Path(sb._files()["admin-state"])
+admin.parent.mkdir(parents=True, exist_ok=True)
+admin.write_text(json.dumps({"marker": "original"}))
+def bundle_with(marker):
+    b = sb.export_bundle()
+    b["files"]["admin-state"] = {"kind": "json", "content": {"marker": marker}}
+    return b
+first = sb.apply_bundle(bundle_with("after-first"))
+second = sb.apply_bundle(bundle_with("after-second"))
+def marker_in(path):
+    return json.loads(Path(path).read_text())["files"]["admin-state"]["content"]["marker"]
+class Answer:
+    def send_json(self, doc): self.doc = doc
+answer = Answer()
+routes.GET_ROUTES["/api/settings/backups"](answer, None)
+print(json.dumps({"first": first["backup"], "second": second["backup"],
+                  "markers": [marker_in(first["backup"]), marker_in(second["backup"])],
+                  "files": sorted(p.name for p in Path(sb.SETTINGS_BACKUP_DIR).iterdir()),
+                  "listed": [row["name"] for row in answer.doc["backups"]]}))
+"""
+
+CLOCK_SNIPPET = """
+import json, tempfile, time
+from pathlib import Path
+from caravan.admin import settings_bundle as sb
+before = time.strftime("%Y%m%d-%H%M%S")
+path = sb.CopyBeforeImport(Path(tempfile.mkdtemp())).write("x")
+after = time.strftime("%Y%m%d-%H%M%S")
+print(json.dumps({"before": before, "name": path.name, "after": after}))
+"""
+
+
+@contextlib.contextmanager
+def patching(obj, **attrs):
+    """Attributes of `obj` set for the length of a block, then put back."""
+    saved = {k: getattr(obj, k) for k in attrs}
+    try:
+        for k, v in attrs.items():
+            setattr(obj, k, v)
+        yield
+    finally:
+        for k, v in saved.items():
+            setattr(obj, k, v)
+
+
+def attempt(fn, *args, **kwargs):
+    """What a call gave, or the exception it raised, as a value: a change that makes
+    the call fail turns a pin red by its name instead of ending the whole run."""
+    try:
+        return fn(*args, **kwargs)
+    except Exception as exc:  # noqa: BLE001
+        return exc
+
+
+def names_in(directory):
+    return sorted(p.name for p in Path(directory).iterdir())
+
+
+def copies_that_land_together():
+    at = datetime(2026, 9, 30, 16, 10, 8, 123456)
+    base = Path(tempfile.mkdtemp(prefix="caravan-settings-copies-"))
+
+    # ── two copies at one instant ──────────────────────────────────────────
+    here = base / "same-instant"
+    copy = sb.CopyBeforeImport(here, clock=lambda: at)
+    got = [attempt(copy.write, text) for text in ("first", "second", "third")]
+    names = [p.name for p in got if isinstance(p, Path)]
+    check("a copy is named by its moment, to the microsecond",
+          names[:1] == ["20260930-161008-123456-before-import.json"], str(got))
+    check("a second copy at the same instant takes the next microsecond, not the first one's name",
+          names == ["20260930-161008-123456-before-import.json", "20260930-161008-123457-before-import.json",
+                    "20260930-161008-123458-before-import.json"], str(got))
+    check("every copy keeps its own content — the first is not the second's",
+          [p.read_text() for p in got if isinstance(p, Path)] == ["first", "second", "third"], str(got))
+    check("negative: three files and nothing else in the directory — no temp file is left",
+          names_in(here) == sorted(names) and len(names) == 3, str(names_in(here)))
+
+    # ── the names sort in the order the copies were taken ──────────────────
+    ordered = base / "ordered"
+    ordered.mkdir()
+    for old in ("20260823-160537-before-import.json", "20260930-161007-before-import.json"):
+        (ordered / old).write_text("an older copy")          # as they were named before: to the second
+    seen = []
+    for stamp in (at, at, datetime(2026, 9, 30, 16, 10, 9, 5)):
+        seen.append(attempt(sb.CopyBeforeImport(ordered, clock=lambda stamp=stamp: stamp).write, "x"))
+    listing = sorted(p.name for p in ordered.glob("*.json"))[::-1]       # what the backups listing does
+    check("the newest copy is listed first, the copies from before this among them by their second",
+          listing == ["20260930-161009-000005-before-import.json", "20260930-161008-123457-before-import.json",
+                      "20260930-161008-123456-before-import.json", "20260930-161007-before-import.json",
+                      "20260823-160537-before-import.json"], str(listing))
+    edge = base / "edge"
+    last = datetime(2026, 9, 30, 16, 10, 8, 999999)
+    pair = [attempt(sb.CopyBeforeImport(edge, clock=lambda: last).write, t) for t in ("a", "b")]
+    check("boundary: the microsecond after 999999 is the next second's first, and sorts after it",
+          [p.name for p in pair if isinstance(p, Path)] == ["20260930-161008-999999-before-import.json",
+                                                            "20260930-161009-000000-before-import.json"], str(pair))
+
+    # ── all at once ────────────────────────────────────────────────────────
+    crowd = base / "crowd"
+    shared = sb.CopyBeforeImport(crowd, clock=lambda: at)
+    barrier, results = threading.Barrier(12), {}
+
+    def worker(i):
+        barrier.wait()
+        results[i] = attempt(shared.write, f"copy {i}")
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(12)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    paths = [r for r in results.values() if isinstance(r, Path)]
+    check("twelve imports at the same instant, in twelve threads, take twelve names",
+          len(paths) == 12 and len({p.name for p in paths}) == 12, str(results)[:300])
+    check("and not one of them lost its content to another",
+          sorted(p.read_text() for p in paths) == sorted(f"copy {i}" for i in range(12)))
+    check("negative: twelve files in the directory and no temp file left", len(names_in(crowd)) == 12, str(names_in(crowd)))
+
+    # ── a free name is not searched for for ever ───────────────────────────
+    full = base / "full"
+    full.mkdir()
+    for micro in (123456, 123457, 123458):
+        (full / f"20260930-161008-{micro}-before-import.json").write_text("taken")
+    limited = sb.CopyBeforeImport(full, clock=lambda: at)
+    limited.ATTEMPTS = 3
+    refused = attempt(limited.write, "x")
+    check("boundary: three names taken and three tries — a refusal that says why, status 500",
+          isinstance(refused, AppError) and refused.status == 500 and "no free name" in str(refused), str(refused))
+    limited.ATTEMPTS = 4
+    check("boundary: one try more finds the free name, and the taken ones are as they were",
+          getattr(attempt(limited.write, "y"), "name", None) == "20260930-161008-123459-before-import.json"
+          and (full / "20260930-161008-123456-before-import.json").read_text() == "taken")
+
+    # ── private from the first byte, and whole when it appears ─────────────
+    private = base / "private"
+    old_umask = os.umask(0)                     # a file made without care would be 0666 here
+    forbidden = lambda *a, **k: (_ for _ in ()).throw(AssertionError("chmod is a window: the file is private from its first byte"))
+    try:
+        with patching(os, chmod=forbidden):
+            made = attempt(sb.CopyBeforeImport(private, clock=lambda: at).write, "secret")
+    finally:
+        os.umask(old_umask)
+    check("under umask 0 and with no chmod to lean on, the copy is 0600 and its new directory 0700",
+          isinstance(made, Path) and stat.S_IMODE(made.stat().st_mode) == 0o600
+          and stat.S_IMODE(private.stat().st_mode) == 0o700, str(made))
+    calls = []
+    real_fsync, real_link = os.fsync, os.link
+
+    def fsync(fd):
+        calls.append("fsync")
+        return real_fsync(fd)
+
+    def link(src, dst, **kw):
+        calls.append("link")
+        return real_link(src, dst, **kw)
+    with patching(os, fsync=fsync, link=link):
+        attempt(sb.CopyBeforeImport(base / "ordered-calls", clock=lambda: at).write, "x")
+    check("the content is on disk before the name appears: sync, then link", calls == ["fsync", "link"], str(calls))
+
+    # ── where links are not allowed ────────────────────────────────────────
+    nolinks = base / "no-links"
+
+    def refuse_link(src, dst, **kw):
+        raise OSError(errno.EPERM, "Operation not permitted")
+    with patching(os, link=refuse_link):
+        copy = sb.CopyBeforeImport(nolinks, clock=lambda: at)
+        pair = [attempt(copy.write, t) for t in ("one", "two")]
+    check("without hard links the name is still taken exclusively: the second copy takes the next one",
+          [getattr(p, "name", p) for p in pair] == ["20260930-161008-123456-before-import.json",
+                                                    "20260930-161008-123457-before-import.json"], str(pair))
+    check("and neither overwrote the other, both 0600, no temp file left",
+          [p.read_text() for p in pair if isinstance(p, Path)] == ["one", "two"]
+          and all(stat.S_IMODE(p.stat().st_mode) == 0o600 for p in pair if isinstance(p, Path))
+          and len(names_in(nolinks)) == 2, str(names_in(nolinks)))
+
+    # ── the real thing: two imports, one instant, one answer each ──────────
+    data = Path(tempfile.mkdtemp(prefix="caravan-settings-twice-"))
+    got = in_a_process(TWICE_SNIPPET, {"CARAVAN_DATA_DIR": str(data), "LLAMA_START_SCRIPT": str(data / "start-server.sh")})
+    first, second = "20260930-161008-500000-before-import.json", "20260930-161008-500001-before-import.json"
+    check("two imports in the same instant leave two copies, each named in its own import's answer",
+          [Path(got.get("first", "")).name, Path(got.get("second", "")).name] == [first, second]
+          and got.get("files") == [first, second], str(got))
+    check("the first copy holds the ORIGINAL settings, the second what the first import wrote",
+          got.get("markers") == ["original", "after-first"], str(got))
+    check("the listing shows both, the newest first", got.get("listed") == [second, first], str(got))
+    shutil.rmtree(data, ignore_errors=True)
+
+    # ── the stamp is the machine's local time, as it always was ────────────
+    got = in_a_process(CLOCK_SNIPPET, {"TZ": "Asia/Tbilisi", "CARAVAN_DATA_DIR": str(base / "clock")})
+    name = got.get("name", "")
+    check("the copy's name is the local time to the microsecond, not UTC",
+          re.fullmatch(r"\d{8}-\d{6}-\d{6}-before-import\.json", name) is not None
+          and got.get("before", "z") <= name[:15] <= got.get("after", ""), str(got))
+    shutil.rmtree(base, ignore_errors=True)
 
 
 def main():
@@ -367,6 +587,9 @@ def main():
 
     # 10. Where the copy an import takes is kept.
     where_the_copy_goes()
+
+    # 11. Imports that land in one second keep a copy each.
+    copies_that_land_together()
 
     print(f"\n{len(PASS)} passed, {len(FAIL)} failed")
     return 1 if FAIL else 0

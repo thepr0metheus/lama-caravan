@@ -290,6 +290,9 @@
             <div class="topology-lane-head">
               <h2 class="title-with-tip"><span id="boardNodesHead" data-i18n="topologyLlamaServersSection">Model servers</span><span id="topologyLlamaServersTip"></span></h2>
               <div class="topology-head-actions">
+                <!-- The lane's main action, wide and in the accent, in its head (2026-10-04, the
+                     operator): it stood as a dashed button at the end of a long list. -->
+                <button id="topologyCloudAddBtn" type="button" class="icon-action prominent topology-head-add" data-topo-add-cloud data-t="board-cloud-add" data-i18n="clAddProvider">+ Add Cloud Provider</button>
                 <!-- The fleet's incidents: routes that failed, fell back or were slow.
                      It lived on the controller machine's node, which goes away when
                      that machine's cells move to its scout; it is the whole board's. -->
@@ -302,9 +305,16 @@
                 <button id="systemInfoBtn" type="button" class="icon-action prominent" data-title-i18n="systemInfoTitle" title="System info — llama.cpp build &amp; known problems" data-t="board-system-open">🛠</button>
               </div>
             </div>
-            <div id="topologyLlamaServers" class="topology-stack nodes-mode" data-t="board-nodes-lane" role="region" aria-labelledby="boardNodesHead"></div>
-            <!-- Static, next to the lane and not in it: the lane is repainted every few
-                 seconds, and an address typed into it would be wiped mid-word. -->
+            <!-- One list: the machines and the cloud providers, in the operator's order
+                 (server-order.js). The two lanes stay two containers — their listeners and
+                 tests address them — and lend their cards to this column; a card's place is
+                 its CSS order. -->
+            <div id="boardServerCards" class="server-cards" data-t="board-server-cards" role="region" aria-labelledby="boardNodesHead">
+              <div id="topologyLlamaServers" class="topology-stack nodes-mode" data-t="board-nodes-lane"></div>
+              <div id="topologyCloudProviders" class="topology-stack" data-t="board-cloud-lane"></div>
+            </div>
+            <!-- Static, next to the list and not in it: the lanes are repainted every few
+                 seconds, and an address typed into them would be wiped mid-word. -->
             <div id="scoutAdd" class="scout-add" data-t="board-scout-add" data-t-state="idle" data-survives-render>
               <div class="scout-add-row">
                 <span class="scout-add-title" data-i18n="scoutAddTitle" data-title-i18n="scoutAddHint">＋ Add scout</span>
@@ -319,10 +329,6 @@
               </div>
               <div class="scout-add-status" data-scout-add-status data-t="scout-add-status" role="status" aria-live="polite"></div>
             </div>
-            <div class="topology-lane-head topology-cloud-head">
-              <h2 class="title-with-tip"><span id="boardCloudHead" data-i18n="topologyCloudSection">Cloud providers</span><span id="topologyCloudTip"></span></h2>
-            </div>
-            <div id="topologyCloudProviders" class="topology-stack" data-t="board-cloud-lane" role="region" aria-labelledby="boardCloudHead"></div>
           </section>
           <section class="lane-stats">
             <details class="topology-card topology-server-stats-card">

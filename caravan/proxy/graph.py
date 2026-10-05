@@ -11,6 +11,7 @@ from caravan.proxy.capacity import active_count
 from caravan.proxy.output_health import output_health, output_id_of_ref
 from caravan.proxy.paths import UPSTREAM_HOST, UPSTREAM_PORT
 from caravan.proxy.runtime import slot_total_cache, slot_total_lock
+from caravan.common.queue_policy import SharedQueuePolicy
 
 
 WEEKDAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
@@ -300,8 +301,9 @@ def _eval_rule_node(router_id, node, outs, ctx, outputs, policy, now, exit_id=No
     return outs[0].get("to")
 
 def _queue_spec_from_node(node, policy):
-    """Build a queue spec from a `queue` graph node's config, falling back to the
-    global policy for any unset field. Consumed by wait_for_proxy_slot. `spillRef`
+    """Build a queue spec with global operator timings and node-owned capacity.
+    Obsolete node timing overrides are ignored even in an unnormalised graph.
+    Consumed by wait_for_proxy_slot. `spillRef`
     is filled in by resolve_graph once the spill edge is resolved to a target ref."""
     cfg = node.get("config") if isinstance(node.get("config"), dict) else {}
     pol = policy or {}
@@ -321,28 +323,38 @@ def _queue_spec_from_node(node, policy):
         max_slots = None
     # NOTE: queue nodes deliberately do NOT use priority/preempt ("crowns") — that
     # mechanic stays only on the implicit default queue (global policy). A queue node
-    # is pure FIFO + spill. stickySlotSec defaults to 20 (reserve the slot for the
-    # same agent's follow-up calls).
-    sticky = cfg.get("stickySlotSec")
-    try:
-        sticky = int(sticky) if sticky is not None else 20
-    except (TypeError, ValueError):
-        sticky = 20
-    load_wait = cfg.get("loadingModelWaitSec")
-    try:
-        load_wait = int(load_wait) if load_wait is not None else None
-    except (TypeError, ValueError):
-        load_wait = None
+    # is pure FIFO + spill. All nodes read the same three global settings.
     return {
         "nodeId": node.get("id"),
-        "loadingModelWaitSec": load_wait,                        # None ⇒ global policy
         "maxSlots": max_slots,                                   # None ⇒ auto from /slots
         "abortPct": _i("abortPct", "queueAbortPct", 85),
-        "spillPct": _i("spillPct", "cloudFallbackPct", 20),
-        "stickySlotSec": sticky,
+        **SharedQueuePolicy(pol).values(),
         "keepaliveSec": _i("keepaliveSec", "queueKeepaliveSec", 20),
         "spillRef": None,                                        # set by resolve_graph
     }
+
+class ModelQueuePlan:
+    """Attach the model-owned policy when a graph walk reaches a local output."""
+
+    def __init__(self, graph, policy):
+        self.graph = graph
+        self.policy = policy
+
+    def attach(self, output, plan):
+        if not output or plan is None or plan.get("spec") or output.get("upstreamType") == "cloud":
+            return
+        node = next((n for n in self.graph.get("nodes", [])
+                     if n.get("type") == "queue" and n.get("modelOutputId") == output["id"]
+                     and n.get("modelQueueActive")), None)
+        if node is None:
+            return
+        spec = _queue_spec_from_node(node, self.policy)
+        spill = next((e for e in self.graph.get("edges", [])
+                      if e["from"] == f"rule:{node['id']}"
+                      and e["id"] == node["config"].get("spillEdge")), None)
+        spec["spillRef"] = spill["to"] if spill else None
+        plan["spec"] = spec
+
 
 def _label_group(label):
     """Client group from a proxy label, e.g. 'alice fallback' -> 'alice'."""
@@ -400,7 +412,9 @@ def resolve_graph(router, route, ctx=None, policy=None, now=None, input_ref=None
     while steps < 64:
         steps += 1
         if cur.startswith("out:"):
-            return outputs.get(cur[4:])
+            output = outputs.get(cur[4:])
+            ModelQueuePlan(graph, policy).attach(output, plan_out)
+            return output
         if cur in visited:
             return None  # cycle guard
         visited.add(cur)

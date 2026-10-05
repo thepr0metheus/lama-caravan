@@ -1187,7 +1187,9 @@ def test_the_payload_keeps_machines_and_clients_apart():
              {"id": "donor", "name": "Donor", "gpus": [{"name": "G2"}], "state": "stale", "ageSeconds": None}]
     patch = {
         "parse_config": lambda: {},
-        "topology_store": lambda: {"assignments": {}, "serverSlots": {}, "clientAliases": {}, "layout": {}},
+        # The board's layout as a hand-edited document may hold it: a key that is no key, one twice.
+        "topology_store": lambda: {"assignments": {}, "serverSlots": {}, "clientAliases": {},
+                                   "layout": {"serverOrder": ["cloud:pool", 5, "node:box-a", "cloud:pool"], "serverOrderRev": 4}},
         "load_agent_proxy_config": lambda: {"routes": [], "routers": [], "policy": {"maxSlots": 1}},
         "proxy_ports_last_seen": lambda: {},
         "_port_holders": lambda: {},
@@ -1245,6 +1247,9 @@ def test_the_payload_keeps_machines_and_clients_apart():
     check(not inline and board_read.get("clients") == clients and quiet == 1,
           "чтение доски только пинает фоновый опрос скаутов и не опрашивает их само — выключенная машина больше не добавляет 2 с к каждому опросу доски")
     check(len(kicks) == 1, "negative: ответы на действия (refresh_hosts=False) опрос не пинают")
+    check(payload.get("layout") == {"serverOrder": ["cloud:pool", "node:box-a"], "serverOrderRev": 4},
+          "ответ доски несёт порядок карточек Model servers и его ревизию — из того же документа, что и остальной ответ; "
+          f"то, что не ключ, и повтор не читаются (got {payload.get('layout')})")
 
 
 def test_the_pull_keeps_the_scout_version():

@@ -93,7 +93,7 @@ def section_machines():
         {"id": "box-a", "name": "Box A", "online": True, "scoutVersion": "2.9.1", "controllerMachine": True},
         {"id": "old-c", "name": "Old C", "online": False, "scoutVersion": "2.8.2", "controllerMachine": False}],
         "машины — в порядке хостов доски: имя, на связи ли, версия скаута, машина ли контроллера")
-    check(got["pinnedDefault"] == "0.24.0", "версия первого провижининга — правило раннера")
+    check(got["pinnedDefault"] == "0.30.0", "версия первого провижининга — правило раннера")
     check(got["version"] == "0.24.0" and got["history"] == [{"version": "0.24.0", "seenAt": 1}] and got["ok"] is True,
           "ответ скаута машины — как есть")
     check(Scout.asked == [("GET", "box-a", "/api/vllm")], "спрошен скаут выбранной машины, один раз")

@@ -9,20 +9,65 @@
 .rw-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); flex: 0 0 auto; }
 .rw-head .topology-policy-head-actions { margin-left: auto; }
 .rw-default-badge { font-size: 11px; color: var(--muted); margin-left: 10px; }
-.rw-cols { flex: 1 1 auto; display: grid; grid-template-columns: 1fr; min-height: 0; }
+/* CLIENTS | canvas | SERVERS. The two panels take the board's whole height and keep their
+   own width; the canvas — palette and viewport — takes what is left. */
+.rw-cols { flex: 1 1 auto; display: grid; grid-template-columns: 300px minmax(0, 1fr) 400px; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+/* One band across the board: the CLIENTS head, the palette and the SERVERS head (with its queue
+   line) share the grid's first row (subgrid), as tall as the tallest of them, so the rows of both
+   panels start where the canvas starts. The palette wraps to two lines on a narrow canvas; the
+   first client's row then stood beside it, above the canvas, and the canvas cut its cable off
+   at its edge — the cable did not leave its dot (2026-10-04). */
+.rw-cols > .rw-side, .rw-cols > .rw-center { grid-row: 1 / span 2; display: grid; grid-template-rows: subgrid; }
+.rw-side-main { display: flex; flex-direction: column; min-height: 0; }
+.rw-side-top { display: flex; flex-direction: column; min-height: 0; }
+.rw-clients > .rw-side-head, .rw-side-top > .rw-side-head { display: flex; align-items: center; gap: 6px; }
+.rw-side-top > .rw-side-head { flex: 1 1 auto; }
 .rw-pane { min-height: 0; overflow: auto; padding: 12px 14px; }
-/* .rw-left removed — proxy inputs now live as canvas nodes only */
 .rw-unassigned-badge {
   font-size: 11px; padding: 2px 8px; border-radius: 999px;
   background: color-mix(in srgb, #d9a441 18%, var(--field));
   color: #d9a441; border: 1px solid color-mix(in srgb, #d9a441 35%, var(--line));
   white-space: nowrap;
 }
+/* The badge opens the list of the ports it counts, over the board; a port joins on a click. */
+.rw-unassigned { position: relative; }
+.rw-unassigned > summary { list-style: none; cursor: pointer; }
+.rw-unassigned > summary::-webkit-details-marker { display: none; }
+.rw-unassigned[open] > summary, .rw-unassigned > summary:hover { border-color: #d9a441; }
+.rw-unassigned-list {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
+  display: flex; flex-direction: column; align-items: stretch; gap: 4px; min-width: 240px; padding: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+}
+.topology-policy-head-actions .rw-unassigned-list { left: auto; right: 0; }
+.rw-unassigned-list .router-pill { font-size: 12px; padding: 4px 8px; }
+.router-pill-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rw-center { overflow: hidden; padding: 0; position: relative; display: flex; flex-direction: column; }
 .rw-center .cv-viewport { flex: 1 1 auto; height: auto; min-height: 0; max-height: none; margin: 0; border: 0; border-radius: 0; }
 .rw-palette { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 7px 12px; border-bottom: 1px solid var(--line); }
 .rw-palette-label { font-size: 11px; color: var(--muted); margin-right: 4px; }
 .rw-palette-save { margin-left: auto; font-size: 11px; color: var(--muted); }
+/* The queue policy, one line under the Servers head — what every model's queue does
+   — and a pencil that opens its three fields where they are. min-height: 0 — the
+   global `button { min-height: 34px }` made the line three times the text. */
+.cv-queue-settings { flex: 0 0 auto; border-bottom: 1px solid var(--line); }
+.cv-queue-settings.open { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.cv-qs-line {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 0; padding: 5px 10px;
+  border: 0; border-radius: 0; background: transparent; color: var(--muted);
+  font: inherit; font-size: 10.5px; text-align: left; cursor: pointer;
+}
+.cv-qs-line:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); color: var(--text); }
+.cv-qs-glyph { flex: none; font-size: 10px; }
+.cv-qs-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cv-qs-pen { flex: none; font-size: 11px; opacity: .55; }
+.cv-qs-line:hover .cv-qs-pen, .cv-queue-settings.open .cv-qs-pen { opacity: 1; color: var(--accent); }
+.cv-qs-fields { display: none; flex-wrap: wrap; gap: 6px 16px; padding: 2px 10px 8px; }
+.cv-queue-settings.open .cv-qs-fields { display: flex; }
+.cv-shared-q-field { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+.cv-shared-q-field input { width: 62px; padding: 3px 6px; text-align: right; background: var(--field); color: var(--fg); border: 1px solid var(--line); border-radius: 5px; }
+.cv-shared-q-field input:focus { outline: 1px solid var(--accent); }
 .cv-palette-btn {
   display: inline-flex; align-items: center; gap: 4px;
   padding: 3px 10px; border-radius: 999px;
@@ -65,6 +110,19 @@
 .cv-rule-btns { display: inline-flex; gap: 3px; }
 .cv-rule-cfg, .cv-rule-del { margin: 0; padding: 0 5px; line-height: 1.4; }
 .rw-canvas-hint { position: absolute; left: 12px; bottom: 10px; font-size: 11px; opacity: 0.7; pointer-events: none; }
+/* ⤢ Show all: the map's own control, in the corner the hint leaves free. min-height: 0 — the
+   global button rule (34px) made every compact button the largest thing in its row. */
+.cv-fit-btn {
+  position: absolute; right: 12px; bottom: 10px; z-index: 4; min-height: 0;
+  display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 92%, transparent);
+  color: var(--fg); font-size: 11.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+}
+.cv-fit-btn:hover, .cv-fit-btn:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--line)); color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+}
 .rw-proxy-row {
   display: grid; grid-template-columns: auto auto 1fr auto auto; align-items: center; gap: 8px;
   padding: 4px 2px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
@@ -83,7 +141,9 @@
 .rw-proxy-role { font-size: 10px; font-weight: 700; color: var(--muted); width: 14px; text-align: center; }
 .rw-proxy-actions { display: inline-flex; gap: 2px; }
 @media (max-width: 900px) {
-  .rw-cols { grid-template-columns: 1fr; grid-auto-rows: minmax(180px, auto); }
+  .rw-cols { grid-template-columns: 1fr; grid-template-rows: none; grid-auto-rows: minmax(180px, auto); }
+  /* Stacked, each part keeps its own head: no shared band. */
+  .rw-cols > .rw-side, .rw-cols > .rw-center { grid-row: auto; display: flex; flex-direction: column; }
 }
 .cv-viewport {
   position: relative; margin-top: 10px; height: 72vh; max-height: 760px;
@@ -164,6 +224,10 @@ select.cv-pin { width: 100%; }
    ignores pointers elsewhere. Right-click deletes. */
 .cv-svg path[data-cv-edge] { pointer-events: stroke; cursor: grab; stroke-width: 8; stroke: color-mix(in srgb, var(--accent) 30%, var(--muted)); opacity: .45; }
 .cv-svg path[data-cv-edge]:hover { stroke: var(--accent); opacity: .9; }
+/* A cable into a cell that is not serving: broken into dashes, and fainter. The selector
+   outweighs the rule above (0,2,1) — a class alone would lose to it. */
+.cv-svg path[data-cv-edge].cv-cable-down { stroke-dasharray: 2 12; stroke-linecap: round; opacity: .3; }
+.cv-svg path[data-cv-edge].cv-cable-down:hover { opacity: .9; }
 .cv-svg path[data-cv-edge]:active { cursor: grabbing; }
 /* ✕ delete control at the cable midpoint — hidden until the cable is hovered. */
 .cv-edge-x { opacity: 0; pointer-events: none; cursor: pointer; transition: opacity .12s ease; }
@@ -430,6 +494,8 @@ select.cv-pin { width: 100%; }
   background: color-mix(in srgb, var(--muted) 45%, transparent);
 }
 .router-out-live.live-recent { background: color-mix(in srgb, var(--accent) 65%, transparent); }
+/* A cell that is not serving has no traffic to show: a ring, not a dot (output-cells.js). */
+.router-out-live.live-off { background: transparent; box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--muted) 70%, transparent); }
 .router-out-live.live-active {
   background: var(--accent);
   animation: router-out-live-pulse 1.1s ease-in-out infinite;
@@ -447,46 +513,65 @@ select.cv-pin { width: 100%; }
   border-radius: 5px;
 }
 
-/* ── Servers canvas block (replaces the right panel) ── */
-.cv-node.cv-outputs {
-  width: 400px; background: var(--panel);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
-  border-radius: 8px; display: flex; flex-direction: column;
-  box-shadow: 0 4px 20px rgba(0,0,0,.3);
+/* ── The side panels: CLIENTS on the left, SERVERS on the right ──
+   Not nodes of the canvas: they neither pan nor zoom, they are as tall as the board, and each
+   scrolls by itself (.rw-side-body) under a head that stays. z-index lifts the panel over the
+   canvas, so its port dots — half out over the border — stay on top of the cables, which the
+   canvas clips at its own edge. No border on top: the dots are placed from the panel's top. */
+.rw-side {
+  position: relative; z-index: 3; display: flex; flex-direction: column; min-height: 0;
+  background: var(--panel); font-size: 12px;
+  border: 0 solid color-mix(in srgb, var(--accent) 35%, var(--line));
 }
-.cv-servers-head {
-  padding: 7px 10px; background: color-mix(in srgb, var(--accent) 10%, var(--panel));
+.rw-clients { border-right-width: 1px; }
+.rw-servers { border-left-width: 1px; }
+.rw-side-head {
+  flex: 0 0 auto; padding: 8px 12px; background: color-mix(in srgb, var(--accent) 10%, var(--panel));
   border-bottom: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line));
-  border-radius: 7px 7px 0 0;
   font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
-  color: color-mix(in srgb, var(--accent) 80%, var(--fg)); cursor: grab; user-select: none;
+  color: color-mix(in srgb, var(--accent) 80%, var(--fg)); user-select: none;
 }
-.cv-servers-body {
-  overflow-x: hidden;
-  padding: 8px 10px 10px;
+.rw-side-body { flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto; }
+.rw-clients .rw-side-body { padding: 4px 12px 8px; }
+.rw-servers .rw-side-body { padding: 8px 12px 12px; }
+.rw-side-foot { flex: 0 0 auto; }
+/* A dot whose row is scrolled out of the panel's view waits at the edge, dimmed, with its cables. */
+.rw-side > .cv-port.clamped { opacity: .45; }
+/* A model's overflow dot: on the SERVERS panel's left border like the in-ports, in the colour of
+   the overflow cable (amber, dashed) — and it is an out-port, so the cable leaves to the left. */
+.rw-servers > .cv-port.out { left: -9px; right: auto; border-color: color-mix(in srgb, #d9a441 85%, var(--line)); }
+/* A model's queue is a lane under the model's own row, not a box: a rail on the left
+   that takes the colour of what the queue is doing (idle, running, waiting — the
+   same data-t-state the tests read), one line of meter and overflow target, and the
+   live lists under it when the line is opened. The overflow port is not part of the
+   lane: it is a dot of the SERVERS panel, level with the line (ServersBlock.syncPortDots).
+   min-height: 0 on the line's button — see the queue policy line above. */
+.cv-model-queue {
+  position: relative; display: block; margin: 0 0 6px 17px; padding: 0 0 0 9px;
+  border-left: 2px solid color-mix(in srgb, #d9a441 32%, var(--line)); cursor: default;
 }
-/* Servers block port dots reuse .cv-port.in — no extra CSS needed.
-   They are positioned as direct children of .cv-node.cv-outputs via _cvSyncServersPortDots(). */
-
-/* ── Inputs (clients) canvas block — mirrors the Servers block on the left side ── */
-.cv-node.cv-inputs {
-  width: 300px; background: var(--panel);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
-  border-radius: 8px; display: flex; flex-direction: column;
-  box-shadow: 0 4px 20px rgba(0,0,0,.3);
+.cv-model-queue[data-t-state="running"] { border-left-color: #2fa84f; }
+.cv-model-queue[data-t-state="waiting"] { border-left-color: #d9a441; }
+.cv-mq-line { display: flex; align-items: center; gap: 8px; min-height: 22px; font-size: 10px; }
+.cv-mq-toggle {
+  flex: 0 1 auto; min-width: 0; min-height: 0; display: flex; align-items: center; gap: 5px;
+  padding: 2px 6px 2px 3px; border: 0; border-radius: 5px; background: transparent;
+  color: var(--muted); font: inherit; font-size: 10px; cursor: pointer;
 }
-.cv-inputs-head {
-  padding: 7px 10px; background: color-mix(in srgb, var(--accent) 10%, var(--panel));
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 25%, var(--line));
-  border-radius: 7px 7px 0 0;
-  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
-  color: color-mix(in srgb, var(--accent) 80%, var(--fg)); cursor: grab; user-select: none;
-}
-.cv-inputs-body {
-  overflow-x: hidden;
-  padding: 4px 10px 8px;
-}
-/* Embeddings slot at the bottom of the Clients block — one global /v1/embeddings target */
+.cv-mq-toggle:hover { background: color-mix(in srgb, #d9a441 12%, transparent); }
+.cv-mq-caret { flex: none; width: 8px; font-size: 8px; line-height: 1; }
+.cv-mq-caret::before { content: "▸"; }
+.cv-model-queue.open .cv-mq-caret::before { content: "▾"; }
+.cv-mq-meter { display: flex; min-width: 0; }
+.cv-mq-ov { flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.cv-mq-ov .cv-q-dt { flex: 0 1 auto; }
+.cv-mq-ov.unset .cv-q-dt { color: var(--muted); font-style: italic; }
+.cv-mq-arrow, .cv-mq-warn { flex: none; color: #d9a441; }
+.cv-mq-warn { cursor: help; }
+.cv-mq-detail { display: none; padding: 3px 0 2px; }
+.cv-model-queue.open .cv-mq-detail { display: flex; flex-direction: column; gap: 6px; }
+.cv-mq-activity { display: flex; flex-direction: column; gap: 5px; }
+/* Embeddings slot at the bottom of the CLIENTS panel — one global /v1/embeddings target */
 .cv-embed-slot {
   margin: 4px 8px 6px; padding: 7px 9px; border-radius: 8px;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
@@ -503,7 +588,7 @@ select.cv-pin { width: 100%; }
 .cv-embed-select { width: 100%; font-size: 12px; padding: 3px 6px; }
 .cv-embed-note { font-size: 10.5px; color: var(--muted, #8b93a1); margin-top: 4px; }
 .cv-embed-slot.unassigned .cv-embed-note { color: #fca5a5; }
-/* Each client group inside the inputs block */
+/* Each client group inside the CLIENTS panel */
 .cv-inputs-client {
   padding: 5px 0 4px;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
@@ -516,20 +601,15 @@ select.cv-pin { width: 100%; }
 .cv-inputs-client .cv-in-port-num { font-size: 9px; }
 .cv-inputs-client .cv-in-follow { font-size: 8px; }
 .cv-inputs-client .cv-in-wait { margin-top: 2px; }
-/* Inputs block port dots reuse .cv-port.out — positioned as direct children
-   of .cv-node.cv-inputs via _cvSyncInputsBlockPortDots(). */
+/* The panels' port dots reuse .cv-port.in / .cv-port.out and are positioned as direct children of
+   the panel by InputsBlock / ServersBlock.syncPortDots(). */
 
-/* ── Outputs (servers) panel: Local / Cloud sections, radio default, provider checklist ── */
+/* ── Outputs (servers) panel: machines and cloud providers in the board's order, radio default, provider checklist ── */
 .router-out-sec { margin-bottom: 14px; }
-.router-out-sec-h {
-  font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
-  color: var(--muted); margin: 0 0 4px; padding-bottom: 3px; border-bottom: 1px solid var(--line);
-}
 /* Local servers grouped by host machine */
 .router-out-host-group { margin-bottom: 6px; }
 /* A machine's name, as its computer is called (machineAt) — not shouted in
-   capitals like the section heads around it: "box-pc", not "BOX-PC" —
-   and its address beside it, muted. */
+   capitals: "box-pc", not "BOX-PC" — and its address beside it, muted. */
 .router-out-host-label {
   font-size: 10.5px; font-weight: 700;
   color: color-mix(in srgb, var(--accent) 70%, var(--muted)); padding: 0 4px 2px;
@@ -548,6 +628,36 @@ select.cv-pin { width: 100%; }
   accent-color: var(--accent); cursor: pointer;
 }
 .router-out-name { font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* What the cell does, as the cell card's job marks. */
+.router-out-marks { font-size: 11px; letter-spacing: -1px; margin-right: 1px; }
+/* A row whose cell is not serving: the name steps back, the state is said in words at the end. */
+.router-out-row.cell-stopped .router-out-name, .router-out-row.cell-unknown .router-out-name { color: var(--muted); }
+.router-out-row.cell-stopped .router-out-marks, .router-out-row.cell-unknown .router-out-marks { opacity: .55; }
+.router-out-state {
+  flex: 0 0 auto; margin-left: auto; font-size: 10px; font-weight: 600; letter-spacing: .02em;
+  color: var(--muted); white-space: nowrap;
+}
+.router-out-state.state-failed { color: var(--bad); }
+.router-out-state.state-starting, .router-out-state.state-stopping { color: var(--accent); }
+.router-out-state.state-unknown { font-style: italic; font-weight: 500; }
+.router-out-badge + .router-out-state { margin-left: 6px; }
+/* Two cells of one model on one machine: what sets this one apart. */
+.router-out-twin {
+  flex: 0 100 auto; min-width: 0; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; color: var(--muted);
+  border: 1px dashed color-mix(in srgb, var(--muted) 45%, transparent); border-radius: 4px; padding: 0 4px;
+}
+/* The stopped cells nothing leads to, under one row of their own. */
+.router-out-quiet { margin: 2px 0 2px 22px; }
+.router-out-quiet-head {
+  display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 6px;
+  font-size: 11px; color: var(--muted); cursor: pointer; user-select: none;
+}
+.router-out-quiet-head:hover, .router-out-quiet-head:focus-visible {
+  background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--text);
+}
+.router-out-quiet-label { font-variant-numeric: tabular-nums; }
+.router-out-quiet:not(.folded) { border-left: 1px dashed color-mix(in srgb, var(--muted) 40%, transparent); padding-left: 2px; margin-left: 20px; }
 .router-out-row.is-default .router-out-name { font-weight: 600; }
 /* "★ default" badge on the currently selected output row */
 .router-out-badge {
@@ -572,6 +682,9 @@ select.cv-pin { width: 100%; }
 .router-prov-name { font-size: 12px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* A cloud model's own port — why it is on the kanban at all. */
 .router-out-port { flex: 0 0 auto; font-family: ui-monospace, Menlo, monospace; font-size: 10px; color: var(--muted); }
+/* A cell's port beside its name: the name gives way, the port does not. */
+.router-out-port.cell-port { margin-left: -4px; font-size: 10.5px; }
+.router-out-row.cell-stopped .router-out-port.cell-port, .router-out-row.cell-unknown .router-out-port.cell-port { opacity: .75; }
 .router-prov-count {
   flex: 0 0 auto; margin-left: auto; font-size: 10px; color: var(--muted);
   background: var(--field); border: 1px solid var(--line); border-radius: 9px; padding: 0 6px;
@@ -1367,4 +1480,3 @@ select.cv-pin { width: 100%; }
 .topology-agent-route .route-port-chip { padding: 1px 7px; }
 .topology-agent .client-rename-btn { padding: 0 3px; line-height: 1.2; }
 .topology-card.agent-card .topology-agent { border: 0; background: transparent; padding: 0; }
-

@@ -32,7 +32,7 @@ window.addEventListener("caravan:langchange", () => {
   if (!overlay || overlay.hidden) return;
   renderRunnerTabs("tr-");
   refreshComputeTarget("tr-");
-  if (effectiveRunnerId("tr-") !== "llama-server") renderCommandCellPreview("tr-");
+  if (!usesLlamaConfig(effectiveRunnerId("tr-"))) renderCommandCellPreview("tr-");
 });
 export const _editCmdSeq = {};
 
@@ -231,6 +231,13 @@ export function runnerRegistry() {
   ];
 }
 
+// Native GGUF runners share placement, flags and memory estimates. Unknown ids
+// never inherit these capabilities just because they are not command cells.
+export function usesLlamaConfig(runner) {
+  const row = runnerRegistry().find((r) => r.id === runner);
+  return row?.llamaConfig === true || runner === "llama-server";
+}
+
 export function effectiveRunnerId(pfx) {
   // Mirrors `runner_id` in caravan/domain/runner.py: same trim, same lower-case,
   // on both fields. It used to differ — RUNNER kept its case and CELL_KIND was
@@ -291,6 +298,9 @@ function runnerAvailability(runner, pfx) {
   // broken rather than unsupported. (formOnControllerMachine.)
   if (!formOnControllerMachine(pfx) && (runner.artifacts || []).includes("seamless-st")) {
     return { ok: false, reasonKey: "runnerControllerOnly" };
+  }
+  if (runner.id === "llama-server" && /PQ2_0|PTQ1_0/i.test($(pfx + "MODEL_FILE")?.value || "")) {
+    return { ok: false, reasonKey: "llamaErrUnsupportedQuantHint" };
   }
   // `artifacts` is the current field; `formats` is what older registries carry.
   const accepts = runner.artifacts || null;
@@ -409,7 +419,7 @@ export function renderRunnerTabs(pfx) {
   const current = effectiveRunnerId(pfx);
   // Each tab carries a (?) with the full trade-off story: what the runner is
   // good at (benefitsKey) and what it costs (runner*Minus).
-  const MINUS_KEY = { "llama-server": "runnerLlamaMinus", "vllm": "runnerVllmMinus",
+  const MINUS_KEY = { "llama-server": "runnerLlamaMinus", "prism": "runnerPrismMinus", "vllm": "runnerVllmMinus",
                       "whisper": "runnerWhisperMinus", "moonshine": "runnerMoonshineMinus",
                       "transcribe": "runnerTranscribeMinus",
                       "seamless": "runnerSeamlessMinus",
@@ -619,7 +629,9 @@ export function wireCellKindToggle(pfx) {
       // anything: picking GigaAM must land on transcribe.cpp, and "first
       // available" would hand it to vLLM, which sits earlier and takes "*".
       const kind = artifactKind($(pfx + "MODEL_FILE")?.value || "");
-      const named = kind && runnerRegistry().find((r) => (r.artifacts || []).includes(kind));
+      const prismModel = /PQ2_0|PTQ1_0/i.test($(pfx + "MODEL_FILE")?.value || "");
+      const named = runnerRegistry().find((r) => prismModel ? r.id === "prism"
+        : kind && (r.artifacts || []).includes(kind));
       const fit = named || runnerRegistry().find((r) => runnerAvailability(r, pfx).ok);
       const rEl = $(pfx + "RUNNER");
       if (fit && rEl) rEl.value = fit.id;
@@ -850,9 +862,9 @@ export function _buildCommandExecPreview(pfx) {
   // (/api/llama-command-preview) and never came from here; an unknown runner is
   // a cell whose start this caravan does not know, which is what the server
   // already says in `UnknownRunner` (command_path = False).
-  if (runner === "llama-server") {
+  if (usesLlamaConfig(runner)) {
     return [`export PORT=${port}`,
-            "# llama-server: the controller renders this command, not this preview"].join("\n");
+            `# ${runner}: the controller renders this command, not this preview`].join("\n");
   }
   if (runner !== "custom") {
     return [`export PORT=${port}`,

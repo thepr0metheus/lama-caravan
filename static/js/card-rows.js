@@ -36,6 +36,7 @@ export class CellRow {
     this.warn = !!f.warn;
     this.tps = String(f.tps || "");
     this.busy = !!f.busy;
+    this.motion = ["start", "stop"].includes(f.motion) ? f.motion : "";
     this.anchor = f.anchor || "";      // the cable's handle: the line owns it while folded
   }
 
@@ -47,10 +48,10 @@ export class CellRow {
     const on = this.state === "running";
     const act = on ? this.stop : this.launch;
     const hook = on ? "cell-row-stop" : "cell-row-start";
-    const attrs = act ? `${act} data-t="${hook}" data-t-id="${escapeHtml(this.key)}"` : "disabled";
+    const attrs = this.motion ? 'disabled aria-busy="true"' : act ? `${act} data-t="${hook}" data-t-id="${escapeHtml(this.key)}"` : "disabled";
     const why = escapeHtml(this.why);
     return `<button type="button" class="fr-switch" role="switch" aria-checked="${on}" ${attrs}`
-      + ` title="${why}" aria-label="${why}"><span class="fr-knob" aria-hidden="true"></span></button>`;
+      + ` title="${why}" aria-label="${why}">${this.motion ? `<span class="topology-spinner${this.motion === "stop" ? " stopping-spinner" : ""}" aria-hidden="true"></span>` : '<span class="fr-knob" aria-hidden="true"></span>'}</button>`;
   }
 
   /** The name the line shows — and its window's title, from this one rule. */

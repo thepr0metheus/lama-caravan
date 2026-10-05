@@ -169,6 +169,14 @@ export class CardFold {
     return settled && !f.transient && !f.crashed && !f.unreachable;
   }
 
+  /** A requested start/stop stays in its line, with a locked spinning switch.
+   *  Download/load progress and incidents still need the full card. Motion
+   *  is foldable, but never idle: the machine's eye must keep it visible. */
+  static cellFoldable(f = {}) {
+    return CardFold.cellQuiet(f) || (["start", "stop"].includes(f.motion)
+      && !f.deleting && !f.crashed && !f.unreachable && !f.failed);
+  }
+
   /** Whether a machine's eye may hide a cell: quiet, and not running — parked,
    *  or reserved with no model yet. What moves or is in trouble never hides,
    *  for the reason it never folds: gone from view, trouble reads as calm. */

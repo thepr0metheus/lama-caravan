@@ -134,7 +134,7 @@ both shapes.
 Standalone kanban init (`main.js` `initRouterStandalonePage()`), in order: `refreshTopology()` →
 set the ui canvas ids (`ui.topologyRouterDetailId`, `ui.topologyCanvasRouterId`,
 `ui.topologyRouterNodeCfgId = ""`, `ui.topologyRouterInputsExpanded = true`) →
-`cvSetViewport(canvasLoadPositions(routerId), {tx: 24, ty: 24, scale: 1})` → `renderTopology()` →
+`cvSetViewport(canvasOpenPositions(routerId), canvasInitialView(routerId))` → `renderTopology()` →
 `startTopologyMonitor()`. This page never calls `loadState()` — topology loads once and the 1 s
 system-monitor poll keeps the queue/schedule nodes live.
 
@@ -551,6 +551,9 @@ The render orchestrator — see "Render & polling pipeline" above for the full m
 Everything that redraws the board goes through this module; nothing else should rebuild whole
 lanes with raw `innerHTML`.
 
+The kanban a port feeds (`routerId`) is part of the structure: binding a port from the kanban's
+"unassigned" list changed only that, and the kanban kept its old clients and its old badge.
+
 - Owns: `activeView`, `_topologyRenderPending` (setter `markTopologyRenderPending`), `_lastStructureFingerprint`, `_lastRuntimePanelHtml`.
 - Key exports: `renderAll`, `renderTopology`, `refreshTopology`, `applyTopologyUpdate`, `syncTopologyLive`, `topologyStructureFingerprint`, `topologyInteractionActive`, `flushPendingTopologyRender`.
 
@@ -592,7 +595,11 @@ sorting, connect actions (proxy→llama, proxy→cloud), the per-group cloud-fal
 Stateless — its open/editing flags live in `ui` (`topologyProxyFormOpen`, `topologyProxyEditingId`).
 
 - Owns: nothing mutable.
-- Key exports: `topologyAgentCard`, `clientLaneAgentCards`, `topologyAssignmentsForHost`, `renderTopologyProxyForm`, `saveTopologyProxyForm`, `sortedTopologyRoutes`.
+- Key exports: `topologyAgentCard`, `clientLaneAgentCards`, `topologyAssignmentsForHost`, `renderTopologyProxyForm`, `saveTopologyProxyForm`, `sortedTopologyRoutes`, `feedsRouters` (a bridge port — kind `service`, a cloud model's own port among them — never feeds a router: the route rebuild sends it unbound, and the kanban never counts it as a client).
+- A route rebuild (`topologyProxyRoutes`) keeps an explicit empty binding — a port detached from every
+  kanban on purpose — and only a port with no binding at all gets the default. The port form changes
+  only what it shows (`PROXY_FORM_FIELDS`: name, port, upstream address, mode, key); the rest of an
+  edited route — kanban, owner and role, window, wait budget, upstream kind, on/off — stays as it was.
 - An agent card makes no claim about whether the agent runs: no report says so any more (the
   scout knows hardware only). Every agent carries its ✕ (`agent-remove`); the dialog names the
   ports it leaves free (`savedAgentPorts` in remote-cells.js).
@@ -715,6 +722,10 @@ words for the machine the board runs on. Collapsed nodes persist to localStorage
   are the controller's machine (its node, else `topology.server.hostname`); an unknown address is said
   as the address. The one place the kanban's server groups and the nvidia-smi sources take a
   machine's name from.
+- `cellRunnerId(cfg)` — the runner that launches a cell (its RUNNER, a command cell's `custom`, or
+  llama-server) — and `cellJobs(runner, cellMeta, cfg)` — what the cell does (an embedding server
+  first, then the live kinds over the runner table, model-jobs.js). The card, its detail window and the
+  kanban's rows (output-cells.js) read these two; the card and the window each held a copy of the first.
 - A host whose scout names no version (1.x) carries «scout 1.x — update» in its header
   (`scoutOldChipHtml`, `node-scout-old`).
 - Every machine with a scout is a node (role `host`), with or without GPUs — the ＋ that reserves a
@@ -751,6 +762,45 @@ layer).
 - Owns: `_cableHighlightClearTimer`.
 - Key exports: `drawTopologyCables`, `drawLiveTopologyCable`, `topologyCablePath`, `topologyAccentStyle`, `highlightTopologyCable`.
 
+## server-order.js
+
+The cards under Model servers — the machines and the cloud providers — are one list in the
+operator's order (2026-10-04; until then the machines always stood above the cloud). `ServerOrder`
+keeps that order and places by it. The order lives on the controller (`POST
+/api/topology/server-order`, read back as `topology.layout` — `serverOrder` and `serverOrderRev`,
+caravan/admin/board_layout.py), so every browser and account sees the same board.
+
+- One rule places everything: `rank(key)` is a card's index in the stored order, and a card the order
+  does not name stands after the named ones, in the order the lanes draw it (the machines as their
+  scouts came, then the cloud). Nothing stored — every card ranks the same, and the board looks as it
+  did before. The board's cards and the kanban's Servers groups (`renderServersBlockHtml`, routers.js)
+  are both placed by it; a pool member's group stands beside its pool
+  (`SubscriptionPoolCards.cardOf`) — and the kanban gives a member a group only while it holds models
+  of its own (`SubscriptionPoolCards.kanbanGroups`).
+- The two lanes stay two containers (`#topologyLlamaServers`, `#topologyCloudProviders`): their
+  listeners, delegates and tests address them. The list is `#boardServerCards`, a flex column over
+  both with `display: contents` on the lanes; a card's place is its inline `order`
+  (`attrs(key)` — `data-server-card` and `style="order:N"`, stamped by the renderers; `apply()` moves
+  the cards a new order names without a repaint). What is not a card — a lane's empty line,
+  the strip of orphan bridges — stands after the cards ("+ Add Cloud Provider" is in the lane's
+  head, the lane's main action). Named deviation: Tab and a
+  screen reader follow the DOM (the machines, then the cloud), not the order on screen.
+- A card moves by the ↑ and ↓ buttons first in its head (`controls(key, name)`), one place a click,
+  and the page scrolls with the card so the button stays under the pointer for the next click. There
+  is no drag: the operator could not reach a place a screen away (neither a wheel nor a trackpad
+  scrolls while the browser drags) and said the arrows are enough (2026-10-04). `apply()` disables the
+  first card's ↑ and the last card's ↓, and a lane drawn on its own asks for it again. A step saves
+  the whole list as it will stand. A save shows the order at once and sends it; while one is on its
+  way the newest order waits for it; a refusal (a viewer account) is said in a toast and the cards go
+  back to what the controller holds. The revision keeps a poll that left before a save from putting
+  the old order back.
+- The order is part of the board's structure fingerprint, so a new order rebuilds the kanban's
+  panel.
+- Owns: `SERVER_ORDER` (held order and revision, the order on screen ahead of the controller). Bound
+  once in main.js on the static list.
+- Key exports: `ServerOrder` (`key`, `clean`, `moved`, `stepped`, `rank`, `sorted`, `attrs`, `controls`,
+  `apply`, `save`, `step`, `bind`), `SERVER_ORDER`.
+
 ## topology-dnd.js
 
 The one big delegated pointer/click router for the whole board. `bindTopologyDragAndDrop()` is
@@ -767,22 +817,115 @@ pointermove/pointerup.
 
 ## canvas.js
 
-The router workspace canvas: free-form node graph with input clients (left), router rules
-(centre), outputs (right). Groups an agent's primary+fallback proxy ports into one block, persists
-node positions per router in localStorage, pans/zooms via `_cvView`/`_cvPos` (foreign writers must
-use `cvSetViewport`), draws connectors, renders queue and schedule node bodies with history panes,
-and paints weekly schedule grids. Queue-node live stats are computed from `ui.latestSystemMonitor`
-— this is what the standalone kanban's 1 s poll drives.
+The router workspace: the CLIENTS panel on the left, the canvas of rule nodes in the middle, the
+SERVERS panel on the right. The two panels (`InputsBlock.panelHtml()`, `ServersBlock.panelHtml()`,
+both from `canvasPanels(router)`) are `<aside class="rw-side">` panes as tall as the board, each
+with a head that stays, a body that scrolls by itself (`.rw-side-body`) and, for CLIENTS, a foot
+with the embeddings slot. The heads (SERVERS' with its queue line, `.rw-side-top`) and the palette
+share the board grid's first row (subgrid), as tall as the tallest of them, so the rows of both
+panels start where the canvas starts: a client's dot beside the palette stood above the canvas, and
+the canvas cut its cable off at its edge (2026-10-04). They are not nodes of the canvas — they neither pan nor zoom — and keep
+their old `kanban-node` hooks (`inputs:block`, `outputs:block`). The canvas (`canvasNodes(router)`)
+holds only the rule nodes. A rule node's place has one home: the router's graph on the server
+(`graph.nodes[].x/y`), where every drop is saved. The browser's old copy (`cvpos:<router>` in
+localStorage) won on every open and undid the operator's drags on reload; `canvasOpenPositions` drops
+it, and `_cvPos` holds only a drop whose save has not landed yet (the operator chose the server,
+2026-10-04). An overlap nudge on open is drawn only. The canvas pans/zooms via `_cvView`
+(foreign writers must use `cvSetViewport`; a router opens at `canvasInitialView(routerId)` — its rule
+nodes' corner 24 px in from the canvas's own), draws
+connectors, renders queue and schedule node bodies with history panes, and paints weekly schedule
+grids. Queue-node live stats are computed from `ui.latestSystemMonitor` — this is what the
+standalone kanban's 1 s poll drives.
+
+**Cables across the panels.** A port of a panel is a dot, a child of the panel itself (not of its
+scrolling body, which would clip the half that sticks out over the border and carry the dot away
+with its row): `PanelPorts` places it from its row's rectangle and clamps it into the body's visible
+span, so a row scrolled out of sight keeps its cables, ending at the panel's edge with the dot dimmed
+(`.clamped`). CLIENTS' dots are on its right border (`.cv-port.out[data-cv-ref="in:…"]`, cables leave
+to the right); SERVERS' in-ports on its left (`[data-cv-out-port="out:…"]`); and each model's overflow
+port is a dot there too (`.cv-port.out[data-cv-node="rule:…"][data-cv-qrole="spill"]`, level with its
+lane's line), whose cable leaves to the LEFT (`dir: -1` on the anchor), round into the canvas and back
+to its target. The panels stand outside the canvas's world, so a dot's anchor is its place on the
+screen carried through the view (`Board.panelPoint`); pan and zoom therefore redraw the cables
+(`drawConnectors({ sync: false })` — the dots themselves did not move), a scroll of a panel redraws
+once per frame (`scheduleDraw`), and the handlers that reach into the panels (the dot drag, the lane
+toggle, the embeddings select) are bound on the workspace around all three (`[data-cv-cols]`), not on
+the world. `Board.curve` is the one formula for a cable's cubic, drawn or dragged.
+
+`ModelQueueNode` draws an active local model's queue as a lane immediately below
+its output row inside `ServersBlock` — a rail on the left, one line, no box. The
+line holds the slot meter (pips, `running/slots`, how many wait or `idle`) on the
+left and the overflow target on the right; a click on the line
+opens the live lists and the history under it, in place (`ModelQueueNode.toggle`,
+one delegated listener in `Board.bind()`; the rows below move, so the dots and cables are
+placed again). What the lane is doing is `data-t-state` — `idle`,
+`running` or `waiting` — and the rail's colour keys on that same attribute. A dead
+or unlisted overflow target is flagged with a ⚠ on the line itself, not only inside
+the opened lane. Open lanes are remembered in `ModelQueueNode.open` (queue node ids),
+so a render does not shut them. Queue ownership and activation come from the
+server's `ModelQueues` normalization (`modelOutputId`, `modelQueueActive`). The
+palette does not create queues. Main is a fixed internal edge, omitted from the
+canvas cables and from the lane (the model's own row is right above it); overflow
+remains an editable role cable. An inactive queue keeps its routing and capacity
+but has no lane. Old local queues retain their ids and overflow paths.
+`QueueNode.liveParts()` is the one place the live region is computed — the meter, the
+lists and the state — and `liveHtml()` (a queue node card), the lane's builder and
+`QueueNode.syncLive()` (the background tick) all read it.
+The three operator settings are global and appear once, as a line at the head of
+the SERVERS panel (`QueueSettings`, below).
+
+**⤢ Show all** (`kanban-fit`) stands in the viewport's lower right corner: `Board.fitAll()` measures
+the rule nodes as they are drawn (`Board.boxOf` of their offsets) and `Board.fitView(box, w, h)`
+centres that box with 32 px around it — never zoomed in past 1:1, never out past the wheel's 0.35. The
+view changes in place, so the next render keeps it. **A cable into a cell that is not serving** —
+stopped, starting, failed or unknown (`OutputCells.state`, output-cells.js) — gets `cv-cable-down`
+after its role classes and is drawn broken and faint; only a direct `out:` cable knows its output.
+**A 🛟 node whose main and backup end on one output** shows a ⚠ line (`OnErrorNode.sameExitHtml`,
+`kanban-onerror-same`): one cable in both roles, two cables into one output, or two chains the proxy
+resolved to one model. An end nobody can name (a rule node with no report yet) says nothing.
 
 - Owns: the `_cv*` family — viewport (`_cvView`, `_cvPos`), drag (`_cvDrag`), queue/schedule history panes and caches, schedule paint state, agent-map caches.
-- Key exports: `cvSetViewport`, `canvasLoadPositions`, `canvasSavePositions`, `drawCanvasConnectors`, `bindCanvasInteractions`, `queueNodeLiveStats`, `syncQueueNodesLive`.
+- Key exports: `cvSetViewport`, `canvasOpenPositions`, `canvasInitialView`, `drawCanvasConnectors`, `bindCanvasInteractions`, `queueNodeLiveStats`, `syncQueueNodesLive`.
+
+## output-cells.js
+
+`OutputCells` answers, for the kanban's SERVERS panel and its cables, what stands behind a local
+output (2026-10-04, after a look at the live kanban: 24 of 30 rows were stopped and drew the same
+grey "idle" dot as the six that ran; a moonshine cell read "en"; two cells of one model read the same).
+- `cellOf(out)` — the cell record: the machine at the output's address (`machineAt`, the same rule that
+  names the panel's groups), then the port. An engine's model is found by its machine and its engine.
+- `state(out)` — `running | stopped | starting | stopping | failed | unknown` from the record's phase
+  (an engine's model from its engine's state); a record the board does not have, or a phase this table
+  does not know, is `unknown` — never stopped, never idle. A cloud output has none (`""`).
+- `name(out)` — the server's own phrase for what the cell runs (`cellLabel` = `cell_artifact_label`),
+  else the model's short name as the cell card says it, else the output's label without its port.
+  `topologyRouterOutputLabel` (routers.js) adds the port, so every caption of an output reads the same.
+- `marks(out)` — the cell's jobs as marks, the list the cell card's chips draw (`cellJobs`).
+- `reached()` / `split(outs)` — what something of the kanban leads to (a cable, the default, the audio
+  and embeddings outputs, the older rule lists), and a machine's rows split into the shown ones and the
+  stopped cells nothing leads to, folded while there are two or more of them.
+- `twins(outs)` — rows of one machine with one name: each says the values of the settings that differ
+  (`SEAMLESS_TGT_LANG=eng` beside `=rus`), a setting that may hold a secret by its name alone, and twins
+  that differ only in the port say whose copy they are (`= :22004`). No settings known — no note.
+
+## queue-settings.js
+
+`QueueSettings` owns the single editor for all queue timings. It is a line under the
+Servers head — "overflow at 20% · reserve 0s · Loading wait 60s" (`summary()`, the
+fields' own labels) — and its pencil opens the three fields in place (`editing`
+survives a render; the panel's dots and the cables are placed again when it changes height). It
+reads `topology.proxyPolicy`, sends one field to the policy endpoint, uses the saved
+response as its state and unlocks controls on every exit. Queue cards use its
+values for spill markers and reservation bars; no node owns timing overrides.
 
 ## routers.js
 
 The router card on the board, the router detail popover, and the router's outputs — the Servers
-block on the kanban (`renderServersBlockHtml`; the old right-rail panel that drew the same list was
+panel on the kanban (`renderServersBlockHtml`; the old right-rail panel that drew the same list was
 dropped on 2026-09-27, nothing called it): local llama servers plus cloud providers, each routable
-target carrying one shared default radio. A cloud provider's head reads its models the way the
+target carrying one shared default radio. The groups — a machine's, a provider's — stand in the order
+of the cards under Model servers on the board (server-order.js), one list with no Local and Cloud
+headings; a kind with no group says so after them. A cloud provider's head reads its models the way the
 provider card does (`ProviderModels`, cloud-models.js): "shown/total" with "N on kanban · Models M"
 on hover, and the new and gone counts; its checklist marks new models and lists the shown ones
 first, the new ones next (a long list hid them), then by price. A cloud model is on the kanban while
@@ -798,8 +941,18 @@ are grouped by the machine that serves them — `localOutputGroups()`, one group
 and the Servers block each held a copy) — and each group is named by
 `machineAt()` (topology-nodes.js): the kanban named the controller's machine by the controller's
 old display name and every other machine by its bare address.
+A local row says its cell (output-cells.js): a serving cell's dot is its traffic; a cell that is not
+serving has a ring instead and its state in words at the row's end (`kanban-out-state`); the name is the
+cell's own, led by its job marks; twins say what sets them apart. A machine's stopped cells that nothing
+leads to stand under one row, "N stopped, no cables" (`kanban-quiet-cells`, folded until opened —
+`topologyQuietShown`), which names their outputs (`data-cv-group-outs`) so a cable that comes to one
+before the next render still has an end. A pool's member gets a group of its own only while it holds
+models of its own (`SubscriptionPoolCards.kanbanGroups`) — an empty member group said "0/0" and "↻ on its
+card", a card it does not have. The head's "N unassigned" badge counts only ports that can feed a router
+(`feedsRouters`): a cloud model's own port is an output, and four of them read as four idle clients. It
+is a `<details>` (`kanban-unassigned`) whose list names the ports and binds one on a click.
 
-- Owns: `_routersSaving` counter, `topologyOutputsCloudExpanded`, the cloud-expose chain/timer.
+- Owns: `_routersSaving` counter, `topologyOutputsCloudExpanded`, `topologyOutputsFolded`, `topologyQuietShown`, the cloud-expose chain/timer.
 - Key exports: `saveRouters`, `renderTopologyRouterCard`, `renderTopologyRouterDetail`, `renderServersBlockHtml`, `localOutputGroups`, `rebindProxyRouter`, `routerById`.
 
 **Modals & panels**
@@ -884,6 +1037,45 @@ when it is unknown. `isSubscriptionAccount` is the one test for a ChatGPT subscr
 
 - Owns: `topologyCloudBlockModalOpen`, `topologyCloudBlockForm`, `topologyCloudBusy`, `topologyCloudModelCache`, `MODEL_LIST_ASKS` (a `ModelListAsks`: after a refused ask the page waits 60 s before asking that account again — it asks on every poll, and a failing account was asked every 1.5 s; opening the model editor asks regardless). Accounts nobody is signed into are not asked at all.
 - Key exports: `renderTopologyCloudProviders`, `openCloudProviderModal`, `openCloudAccountModal`, `saveCloudAccount`, `saveCloudBlock`, `startCloudOauthLogin`, `prefetchAllSubscriptionModels`, `NEW_MODELS`, `GONE_CABLES`, `PORT_CLOSER`, `isSubscriptionAccount`, `codexVersionHtml`.
+
+## cloud-pools.js
+
+`SubscriptionPoolCards` draws a subscription pool as a priority ladder (`controls(account, lead)` →
+`pool(account, lead)`). The card owns its whole top — the lane draws no generic head above a pool
+(cloud.js passes the lead in: the card's ↑ ↓ in the Model servers list, then the account's icon): a
+`<header class="pool-top">` with the buttons and the icon, the pool's
+**name as the title itself** (an `<input class="pool-name-input" data-pool-field="name">` that reads as
+text and shows a pen on hover; sized by `field-sizing: content` with a `size` fallback counted in
+letters), the last decision under it, and at the right the Automatic / Manual switch (`data-pool-mode`;
+in manual mode the "until" list stands before it). There is no form above the ladder. Then an
+`<ol class="pool-ladder">` with one `rung()` per member in priority order — a numbered rung on a spine,
+ringed in the accent when it serves — joined by "Next when this one reaches its reserve or limit" on the
+spine, and a foot (`.pool-foot`): the "return to the first eligible account" switch, the add row (the list
+of subscriptions that are not rungs yet, if any, and the dashed "＋ Connect another subscription" —
+an empty place on the ladder), the switch history. A rung's head is three parts: the grip; who it is (the
+name, the status pill, and under them the mailbox — a name or mailbox the lane cuts short says itself in a
+tooltip); and its tools — as numbers only, how many saved resets and the 30-day cost at API prices
+(`≈ $809`), loud with a ⚠ only when a reset's outcome is uncertain, which also opens the rung; the
+**refresh button** of the limits (`refresh(owner)`, `subscriptionRefreshHtml`: it only re-reads, and says
+so in its tooltip); and the fold toggle. The count of saved resets (`↺ 3`, absent while unread) is a
+**button** when there is one to use — `chooseReset(owner)`, wired by cloud.js to
+`SubscriptionResetCards.choose()` — and a dashed, inert `↺ 0` when there is none; the two icons are made
+unlike on purpose (a chip with a number, a bare icon), because "refresh" was once read as "renew". The status pill is `status()`: serving only on the proxy's word, or "Manual selection" for
+a member picked by hand before the proxy has answered; otherwise the proxy's reason; an unknown reason is
+"unavailable", never a guess. Under the head sit the two limit bars, **one under the other** (the
+panel is asked for no refresh button of its own: `subscriptionUsageHtml(id, { refresh: false })`); the
+toggles — small switches, not the browser's checkboxes —, the ↑ ↓ order buttons, remove, ⚙, the saved
+resets and the spend open under a fold (`fold()`: in place, remembered in `open`, nothing asked of the
+server). The priority changes by dragging a rung by its grip (`gesture()`: HTML5 drag and drop; the
+lower half of a rung drops after it; `SubscriptionPoolCards.reordered()` is the pure move; one save of
+the whole pool) or by ↑ ↓. While a rung is in the air the lane is not rebuilt (`inFlight()`; the flag
+goes if the rung is gone). The usage bars, the refresh button, resets, summary and spend arrive as
+callbacks set by cloud.js (`limits`, `refresh`, `resets`, `summary(owner, accountId)`, `spend`), so the card
+has no knowledge of where they are read. Every write is `POST /api/cloud-pools/save` with the whole pool.
+The card's own CSS (modals.css, `.subscription-pool`) sets every size itself — the global form and modal
+sizes (input/select 42px, button 34px, checkbox 22px) are what made the earlier card heavy — and the
+limit rows are a two-line grid (label · what the operator keeps · when it resets · what is left, then the
+bar), scoped to `.pool-step` so the same markup elsewhere keeps its own look.
 
 ## cloud-models.js
 

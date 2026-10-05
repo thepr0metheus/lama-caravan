@@ -53,8 +53,11 @@ What happens to one `POST /v1/chat/completions` arriving on a proxy port:
    `rules.embeddingsOutput`, then walks the router's node graph via
    `resolve_graph` from the request's input node (a fallback proxy with no
    wiring of its own inherits its primary sibling's input). If the graph path
-   crosses a `queue` node, its spec (slots, spill %, sticky, keepalive, spill
-   target ref) is stashed on the route as `queuePlan.spec`. An unwired input
+   crosses a legacy `queue` node or reaches a local output with an active
+   model-owned queue, its spec (slots, spill %, sticky, keepalive, spill
+   target ref) is stashed on the route as `queuePlan.spec`. `SharedQueuePolicy`
+   supplies spill %, reservation and loading retry duration from the global
+   policy for every queue. Old node overrides are ignored and removed on save. An unwired input
    falls back to legacy `pick_router_output` (bySource pin > schedule window >
    capacity-aware failover chain > default). A proxy that is unassigned, bound
    to a missing router, or resolves to no output is marked `unrouted` and gets

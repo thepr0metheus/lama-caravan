@@ -9,6 +9,7 @@ import re
 
 from caravan.admin.paths import CLOUD_PROVIDERS_FILE, PROVIDER_SECRETS_FILE
 from caravan.common.usage_reserve import UsageReserve
+from caravan.common.cloud_sources import CloudSources
 from caravan.common.errors import AppError
 from caravan.common.fsio import atomic_write_text
 from caravan.store.cloud import CachedJsonStore
@@ -78,8 +79,9 @@ _SECRETS_CACHE = _secrets._cache
 
 def _parse_cloud_data(parsed):
     """Accounts and blocks, in either the paired schema or the flat legacy one."""
-    data = {"accounts": [], "blocks": [], "migrations": []}
+    data = {"accounts": [], "blocks": [], "pools": [], "migrations": []}
     if isinstance(parsed, dict) and ("accounts" in parsed or "blocks" in parsed):
+        data["pools"] = [p for p in (parsed.get("pools") or []) if isinstance(p, dict) and p.get("id")]
         done = parsed.get("migrations")
         data["migrations"] = [str(m) for m in done if isinstance(m, str)] if isinstance(done, list) else []
         accounts = parsed.get("accounts") if isinstance(parsed.get("accounts"), list) else []
@@ -125,6 +127,7 @@ def save_cloud_data(data):
     # `migrations` travels with the file: a one-off that leaves no trace is not
     # a one-off, it is a job that runs at every start.
     _providers.write({"accounts": data.get("accounts", []), "blocks": data.get("blocks", []),
+                      "pools": data.get("pools", []),
                       "migrations": sorted(set(data.get("migrations") or []))})
 
 
@@ -199,7 +202,8 @@ def save_provider_secrets(secrets):
 
 
 def account_secret_entry(account_id):
-    entry = load_provider_secrets().get(str(account_id or ""))
+    owner = CloudSources(load_cloud_data()).canonical(account_id)
+    entry = load_provider_secrets().get(owner["id"] if owner else str(account_id or ""))
     if isinstance(entry, str):
         return {"apiKey": entry}
     return entry if isinstance(entry, dict) else {}
@@ -241,6 +245,8 @@ def normalize_cloud_account(account):
             "redirectPort": int(supplied.get("redirectPort") or defaults.get("redirectPort") or 1455),
             "redirectPath": str(supplied.get("redirectPath") or defaults.get("redirectPath") or "/auth/callback").strip(),
         }
+    if account.get("testAliasOf"):
+        result["testAliasOf"] = str(account["testAliasOf"])
     return result
 
 def normalize_cloud_block(block, account_ids):
@@ -289,6 +295,8 @@ def normalize_cloud_block(block, account_ids):
             value = 0
         if value > 0:
             out[key] = value
+    if block.get("usageOriginAccountId"):
+        out["usageOriginAccountId"] = str(block["usageOriginAccountId"])
     if block.get("manual"):
         out["manual"] = True
     # The "new model" window was answered for this one (it asks once).
@@ -298,31 +306,30 @@ def normalize_cloud_block(block, account_ids):
 
 def upsert_cloud_account(account):
     data = load_cloud_data()
+    if isinstance(account, dict) and account.get("id") in CloudSources(data).pools:
+        raise AppError("this id belongs to a subscription pool", 400)
     # An edit sends only what it changes — the name, the address, how it signs
     # in. What it leaves out (a custom OAuth setup, the plan type) stays as it
     # is stored: normalizing the bare edit would put the preset's defaults back.
     aid = str(account.get("id") or "").strip() if isinstance(account, dict) else ""
     prev = next((a for a in data["accounts"] if a.get("id") == aid), None) if aid else None
     norm = normalize_cloud_account({**prev, **account} if prev else account)
+    if norm.get("testAliasOf"):
+        owner = CloudSources(data).canonical(norm["testAliasOf"])
+        if not CloudSources.is_subscription(owner) or owner["id"] == norm["id"]:
+            raise AppError("invalid test alias owner", 400)
     data["accounts"] = [a for a in data["accounts"] if a.get("id") != norm["id"]]
     data["accounts"].append(norm)
     save_cloud_data(data)
     return norm
 
 def delete_cloud_account(account_id):
-    account_id = str(account_id or "").strip()
-    data = load_cloud_data()
-    data["accounts"] = [a for a in data["accounts"] if a.get("id") != account_id]
-    data["blocks"] = [b for b in data["blocks"] if b.get("accountId") != account_id]
-    save_cloud_data(data)
-    secrets = load_provider_secrets()
-    if account_id in secrets:
-        del secrets[account_id]
-        save_provider_secrets(secrets)
+    from caravan.admin.cloud_pools import CloudPoolDesk
+    CloudPoolDesk().remove_account(account_id)
 
 def upsert_cloud_block(block):
     data = load_cloud_data()
-    account_ids = {a["id"] for a in data["accounts"]}
+    account_ids = {a["id"] for a in CloudSources(data).all()}
     # Preserve a prior stated context window and the sync's marks across a
     # re-fetch unless the caller set them. A caller that omits a field
     # is not asking for it to be cleared — only the editor, which always sends
@@ -382,17 +389,18 @@ def account_auth_headers(account, secret):
     return headers
 
 def delete_account_credential(account_id):
-    account_id = str(account_id or "").strip()
-    secrets = load_provider_secrets()
-    if account_id in secrets:
-        del secrets[account_id]
-        save_provider_secrets(secrets)
+    from caravan.common.credential_vault import CredentialVault
+    CredentialVault(PROVIDER_SECRETS_FILE).delete(str(account_id or "").strip())
 
 def account_credential_summary(account_id):
     account_id = str(account_id or "").strip()
     account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == account_id), None)
     if account and str(account.get("authMode") or "").strip() == "noKey":
         return {"hasCredential": True, "kind": "noKey", "last4": "", "oauthEmail": ""}
+    source = CloudSources(load_cloud_data()).source(account_id)
+    if source and source.get("isPool"):
+        present = any(account_credential_summary(m["accountId"])["hasCredential"] for m in source["pool"]["members"] if m.get("enabled", True))
+        return {"hasCredential": present, "kind": "pool", "last4": "", "oauthEmail": ""}
     entry = account_secret_entry(account_id)
     api_key = entry.get("apiKey") if isinstance(entry, dict) else ""
     oauth = entry.get("oauth") if isinstance(entry, dict) else None
@@ -404,7 +412,7 @@ def account_credential_summary(account_id):
 
 def cloud_accounts_state():
     result = []
-    for a in load_cloud_data()["accounts"]:
+    for a in CloudSources(load_cloud_data()).all():
         summary = account_credential_summary(a["id"])
         result.append({
             "id": a["id"], "type": a.get("type"), "name": a.get("name"),
@@ -415,6 +423,8 @@ def cloud_accounts_state():
             "credentialKind": summary["kind"],
             "keyLast4": summary["last4"],
             "oauthEmail": summary["oauthEmail"],
+            **({"pool": a["pool"], "isPool": True} if a.get("isPool") else {}),
+            **({"testAliasOf": a["testAliasOf"]} if a.get("testAliasOf") else {}),
         })
     return result
 
@@ -424,7 +434,7 @@ def cloud_blocks_state():
     from caravan.admin.cloud_ports import CloudModelPorts
     from caravan.admin.proxies_config import load_agent_proxy_config
     data = load_cloud_data()
-    accounts = {a["id"]: a for a in data["accounts"]}
+    accounts = {a["id"]: a for a in CloudSources(data).all()}
     on_kanban = CloudModelPorts(load_agent_proxy_config()).on_kanban()
     result = []
     # The credential summary is a property of the ACCOUNT, and there are four of

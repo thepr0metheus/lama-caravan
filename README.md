@@ -307,7 +307,7 @@ whenever a component is upgraded (last verified: **2026-09-26**):
 | systemd | 255 (Ubuntu 24.04) |
 | Docker (container mode) | 29.1 |
 | faster-whisper | 1.2.1 (CTranslate2 4.8.0, cuDNN 9.26 from the `nvidia-cudnn-cu12` wheel) — whisper command cells; a transcription verified on the Linux host 2026-09-24 |
-| vLLM | 0.24.0, pinned provisioning — a cell on the controller's machine (`:22026`, through its scout, model folder read from the NAS library), verified 2026-09-25 |
+| vLLM | 0.30.0, pinned provisioning — on the controller's machine since 2026-10-05, installed through System (the scout's update job; 0.24.0 stays in its rollback history) because 0.24.0 carried 28 known vulnerabilities (osv.dev); a cell (`:22026`, model folder read from the NAS library) last verified on 0.24.0 2026-09-25 |
 | Ollama | 0.34.4, next to the cells on the controller's machine — installed in the user's home from the official release (no sudo), listening on 127.0.0.1, its server started and stopped from the board, a model downloaded and deleted from the board (verified 2026-09-25); its scout finds it, the board names the VRAM its runner holds and lists its models, verified 2026-09-25; two models loaded at once, and loading and unloading them from the board (a model loaded from the board stays until unloaded), verified 2026-09-25. Its runner is a bundled `llama-server` of its own (`lib/ollama/llama-server`): the scout never takes it for a cell — a different binary, without the scout's mark |
 | LM Studio | headless `llmster` 0.0.25 (LM Studio without its window; runtime `llama.cpp-linux-x86_64-nvidia-cuda12-avx2` 2.45.0), next to the cells on the controller's machine — installed in the user's home by the official installer without touching PATH, listening on 127.0.0.1:1234; its scout reads the v1 API (`/api/v1/models`), the board lists its models, their windows and the memory it holds, and loads and unloads them, verified 2026-09-25; a load with an idle limit goes through its `lms load --ttl`, and its own `--estimate-only` says what a load needs, verified 2026-09-25 |
 | caravan-scout | 2.19.1 on both Linux machines (2026-09-26) — on the controller's own machine it runs every cell (22, one trial start per runner); installed with `./install.sh` and added from the board (Model servers → ＋ Add scout); knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, brings a crashed cell back, runs each cell under the memory limits the controller's cells had, says when a fresh llama.cpp build crashes them, refuses a vLLM start its card cannot hold, reports a vLLM cell's queue and speed, updates and rolls back the vLLM in its machine's venv, samples the machine every second for the board's charts, keeps its id when the machine is renamed, names the address the network knows the machine by even when paired over loopback, says which of a running cell's files changed on disk after it started, and names the model engines next to its cells (Ollama, LM Studio; verified against a stand-in engine and the real ones), unloads their models when the board asks, starts and stops the engines' servers themselves and starts them again when the machine boots, downloads models into them and deletes Ollama's, who its firewall lets reach them, the processes that hold its cards, and what the machine's next reboot does to its NVIDIA card: Secure Boot as the firmware says it, the kernel that boots next and who signed its module, the driver loaded and the one installed |
@@ -319,7 +319,7 @@ whenever a component is upgraded (last verified: **2026-09-26**):
 > clone* — a shallow clone undercounts vs upstream `bNNNN` tags, so the commit
 > hash is what identifies the build (the topology UI compares commits for the
 > same reason). The vLLM runner provisions PINNED (`VLLM_DEFAULT_VERSION`,
-> currently 0.24.0; `VLLM_VERSION` env overrides) and is updated/rolled back
+> currently 0.30.0; `VLLM_VERSION` env overrides) and is updated/rolled back
 > from System → llama.cpp — pip installs are versioned by PyPI itself, so no
 > local snapshots are needed.
 >
@@ -477,6 +477,10 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 - Hosts can be rebooted — or powered off, behind a type-the-hostname
   confirmation — right from the board. Poweroff warns you first: the board
   can turn a machine off, not back on.
+- Machines and cloud providers stand in one list under Model servers, in
+  your order: press ↑ or ↓ in a card's head — a machine can stand below the
+  subscription pool or between two providers. The controller keeps the order
+  for every browser, and the kanban's Servers panel follows it.
 
 **Routing & proxies**
 
@@ -860,3 +864,5 @@ accounts + sessions) and a fleet token for the scouts are built in but **off by
 default** for homelab use — enable them in System → Security
 ([docs/security.md](docs/security.md)). If the UI is ever exposed outside the
 LAN, enable sign-in AND put it behind a reverse proxy with TLS.
+
+Bonsai GGUF models use the [PrismML runner](docs/prismml.md).

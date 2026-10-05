@@ -10,6 +10,9 @@ from datetime import datetime
 
 from caravan.proxy.subscription_usage import ReserveRefusal
 from caravan.common.context_window import declared_window
+from caravan.common.cloud_sources import CloudSources
+from caravan.common.credential_vault import CredentialVault
+from caravan.admin.paths import PROVIDER_SECRETS_FILE
 from caravan.admin.cloud import (
     CLOUD_PROVIDER_PRESETS,
     account_auth_headers,
@@ -65,7 +68,7 @@ def set_account_key(account_id, key):
 
 def fetch_account_models(account_id):
     """Fetch models via GET /models for any OpenAI-compatible account."""
-    account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == str(account_id or "")), None)
+    account = CloudSources(load_cloud_data()).source(account_id)
     if not account:
         raise AppError("unknown account", 404)
     preset = CLOUD_PROVIDER_PRESETS.get(account.get("type"), {})
@@ -118,7 +121,7 @@ def fetch_account_costs(account_id, days=30):
     API key with the api.usage.read scope, e.g. an Admin key). Returns daily cost series
     + total, or {ok:False,error} with a scope hint on 403. This is SPEND, not a balance —
     OpenAI exposes no remaining-credit balance to API keys."""
-    account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == str(account_id or "")), None)
+    account = CloudSources(load_cloud_data()).source(account_id)
     if not account:
         raise AppError("unknown account", 404)
     base = (account.get("baseUrl") or "").rstrip("/")
@@ -172,7 +175,7 @@ def fetch_account_costs(account_id, days=30):
 def fetch_openrouter_limits(account_id):
     """Fetch rate-limit info from OpenRouter GET /api/v1/auth/key.
     Returns daily token usage/limit and per-interval request cap."""
-    account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == str(account_id or "")), None)
+    account = CloudSources(load_cloud_data()).source(account_id)
     if not account:
         raise AppError("unknown account", 404)
     base = (account.get("baseUrl") or "https://openrouter.ai/api/v1").rstrip("/")
@@ -234,7 +237,7 @@ def cloud_spend_summary(days=30):
             if str(it.get("upstreamType")) != "cloud":
                 continue
             blk = blocks_by_id.get(str(it.get("providerId") or "")) or {}
-            acct = str(it.get("cloudAccountId") or blk.get("accountId") or "")
+            acct = str(it.get("cloudAccountId") or blk.get("usageOriginAccountId") or blk.get("accountId") or "")
             if not acct:
                 continue
             model = blk.get("model") or it.get("model") or "?"
@@ -314,7 +317,7 @@ def usage_stats(days=30):
             pt, ct = int(u.get("prompt") or 0), int(u.get("completion") or 0)
             if utype == "cloud":
                 blk = blocks_by_id.get(str(it.get("providerId") or "")) or {}
-                acct = str(it.get("cloudAccountId") or blk.get("accountId") or "")
+                acct = str(it.get("cloudAccountId") or blk.get("usageOriginAccountId") or blk.get("accountId") or "")
                 if not acct:
                     continue
                 model = blk.get("model") or it.get("model") or "?"
@@ -429,7 +432,7 @@ def cloud_upstream_errors(hours=24):
             if ts < cutoff:
                 continue
             blk = blocks_by_id.get(str(it.get("providerId") or "")) or {}
-            acct = str(it.get("cloudAccountId") or blk.get("accountId") or "")
+            acct = str(it.get("cloudAccountId") or blk.get("usageOriginAccountId") or blk.get("accountId") or "")
             if acct not in account_ids:
                 continue
             model = blk.get("model") or it.get("model") or "?"
@@ -510,9 +513,22 @@ def _cloud_success_after(by_account, cutoff):
 
 def fetch_subscription_models(account_id):
     """Fetch available models from chatgpt.com/backend-api/codex/models for an openai-subscription account."""
-    account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == str(account_id or "")), None)
+    account = CloudSources(load_cloud_data()).source(account_id)
     if not account:
         raise AppError("unknown account", 404)
+    if account.get("pool"):
+        lists, seen = [], set()
+        sources = CloudSources(load_cloud_data())
+        for member in account["pool"]["members"]:
+            if not member.get("enabled", True):
+                continue
+            owner = sources.canonical(member["accountId"])
+            if owner["id"] not in seen:
+                models = fetch_subscription_models(owner["id"])
+                model_catalog.store_models(owner["id"], models)
+                lists.append(models)
+                seen.add(owner["id"])
+        return CloudSources.common_models(lists)
     token, account_id_header = _subscription_auth_headers(account)
     # chatgpt.com gates the list by client_version (a codex-CLI version string) and
     # gating may reference versions ABOVE the published CLI — the effective version
@@ -557,7 +573,7 @@ def auto_create_blocks(account_id):
     """"↻ Check now": fetch the account's list and apply it to its blocks right
     away (CloudModelSync) — the same thing the background refresh does every
     ten minutes while the board is open."""
-    account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == str(account_id or "")), None)
+    account = CloudSources(load_cloud_data()).source(account_id)
     if not account:
         raise AppError("unknown account", 404)
     models = refresh_account_models_cache(account_id, account)
@@ -570,7 +586,8 @@ def auto_create_blocks(account_id):
 def refresh_account_models_cache(account_id, account=None):
     """Blocking model-list refresh into the catalog (breaker-guarded inside the
     fetchers). Used by the background refresher; raises on failure."""
-    account = account or next((a for a in load_cloud_data()["accounts"] if a.get("id") == str(account_id or "")), None)
+    data = load_cloud_data()
+    account = account or CloudSources(data).source(account_id)
     if not account:
         raise AppError("unknown account", 404)
     is_subscription = ((account.get("accountType") or "") == "openai-subscription"
@@ -578,7 +595,10 @@ def refresh_account_models_cache(account_id, account=None):
     models = fetch_subscription_models(account_id) if is_subscription else fetch_account_models(account_id)
     # A list that arrived is applied to the account's blocks: new models added,
     # dropped ones counted and — with nothing pointing at them — removed.
-    CLOUD_SYNC.apply(account_id, models)
+    member_only = any(m.get("accountId") == account_id for p in data.get("pools", []) for m in p.get("members", [])) and not any(
+        b.get("accountId") == account_id for b in data["blocks"])
+    if not member_only:
+        CLOUD_SYNC.apply(account_id, models)
     return models
 
 
@@ -588,6 +608,9 @@ def annotate_cloud_topology(accounts_state, blocks_state):
     kick stale per-account refreshes in the background, and return the
     cloudApiHealth panel payload (tripped endpoints + effective codex version)."""
     creds_by_id = {a.get("id"): bool(a.get("hasCredential")) for a in (accounts_state or [])}
+    data = load_cloud_data()
+    member_ids = {m["accountId"] for p in data.get("pools", []) for m in p.get("members", [])}
+    standalone = {b.get("accountId") for b in data["blocks"]}
     for account in (accounts_state or []):
         acc_id = account.get("id")
         # When the account's list was last checked — the card says so where
@@ -597,6 +620,8 @@ def annotate_cloud_topology(accounts_state, blocks_state):
             account["modelsCheckedAt"] = int(entry["fetchedAt"])
         if not acc_id or not creds_by_id.get(acc_id):
             continue
+        if acc_id in member_ids and acc_id not in standalone:
+            continue  # the pool refresh owns these members' catalogues
         if model_catalog.models_stale(acc_id) and not model_catalog.endpoint_blocked(f"{acc_id}:models"):
             model_catalog.kick_refresh(acc_id, lambda aid=acc_id: refresh_account_models_cache(aid))
     for block in (blocks_state or []):
@@ -612,39 +637,16 @@ def annotate_cloud_topology(accounts_state, blocks_state):
 
 def _subscription_auth_headers(account):
     """Return (token, account_id_header) for a subscription account, refreshing if needed."""
-    secrets = load_provider_secrets()
-    entry = secrets.get(account["id"])
-    if not isinstance(entry, dict):
-        raise AppError("no credential stored for this account", 400)
-    oauth = entry.get("oauth") or {}
+    owner = CloudSources(load_cloud_data()).canonical(account["id"])
+    if not owner:
+        raise AppError("this source has no individual subscription login", 400)
+    try:
+        oauth = CredentialVault(PROVIDER_SECRETS_FILE).oauth(owner["id"], owner.get("oauthConfig") or {})
+    except Exception as exc:
+        raise AppError(f"OAuth renewal failed: {exc}", 502)
     token = oauth.get("accessToken") or ""
     if not token:
         raise AppError("no OAuth token — log in first", 400)
-    expires_at = int(oauth.get("expiresAt") or 0)
-    if expires_at and expires_at - int(time.time()) < 60:
-        token_url = (account.get("oauthConfig") or {}).get("tokenUrl") or ""
-        refresh = oauth.get("refreshToken") or ""
-        if token_url and refresh:
-            data = urllib.parse.urlencode({
-                "grant_type": "refresh_token", "refresh_token": refresh,
-                "client_id": (account.get("oauthConfig") or {}).get("clientId") or "",
-            }).encode("ascii")
-            try:
-                req = urllib.request.Request(token_url, data=data,
-                                             headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
-                with urllib.request.urlopen(req, timeout=15) as r:
-                    tokens = json.loads(r.read().decode())
-                token = tokens.get("access_token") or token
-                oauth["accessToken"] = token
-                if tokens.get("refresh_token"):
-                    oauth["refreshToken"] = tokens["refresh_token"]
-                if tokens.get("expires_in"):
-                    oauth["expiresAt"] = int(time.time()) + int(tokens["expires_in"])
-                entry["oauth"] = oauth
-                secrets[account["id"]] = entry
-                save_provider_secrets(secrets)
-            except Exception:
-                pass
     try:
         import base64 as _b64
         parts = token.split(".")
@@ -657,7 +659,7 @@ def _subscription_auth_headers(account):
 
 def fetch_subscription_usage(account_id):
     """Fetch Codex usage limits and credits from chatgpt.com for a subscription account."""
-    account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == str(account_id or "")), None)
+    account = CloudSources(load_cloud_data()).source(account_id)
     if not account:
         raise AppError("unknown account", 404)
     token, acct_id_header = _subscription_auth_headers(account)

@@ -59,6 +59,17 @@ const out = {};
 # (id, setup, expression, expected JSON string, message). Filled from the pin
 # workflow; see the OOP-rewrite journal (private), phase 7, snapshot 6.
 PINS = [
+    ('prism_native',
+     'st.setState({runners:[{id:"prism",llamaConfig:true}]});',
+     '[le.usesLlamaConfig("prism"), le.usesLlamaConfig("unknown")]',
+     '[true,false]',
+     'Prism использует параметры GGUF; неизвестный runner их не наследует'),
+    ('prism_preview',
+     'st.setState({runners:[{id:"prism",llamaConfig:true}]}); F({"tr-RUNNER":{value:"prism"},"tr-PORT":{value:"22013"}});',
+     'le._buildCommandExecPreview("tr-")',
+     '"export PORT=22013\\n# prism: the controller renders this command, not this preview"',
+     'Prism идёт через общий построитель команды, не через custom'),
+
     # ── exec_preview ──
     ('er_explicit_trimmed',
      'F({ "te-RUNNER": { value: "  whisper  " } });',

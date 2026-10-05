@@ -59,6 +59,10 @@ console.log(JSON.stringify(out));
 
 # Real fleet filenames. The values are what the board MUST read from them.
 NAMES = {
+    "Ternary-Bonsai-2-27B-PQ2_0.gguf":
+        {"file": "Ternary-Bonsai-2-27B-PQ2_0", "label": "Ternary-Bonsai-2-27B", "quant": "PQ2_0", "size": "27B", "variant": ""},
+    "Bonsai-PTQ1_0.gguf":
+        {"file": "Bonsai-PTQ1_0", "label": "Bonsai", "quant": "PTQ1_0", "size": "", "variant": ""},
     "/x/models/gemma-4-12B-it-Q8_0.gguf":
         {"file": "gemma-4-12B-it-Q8_0", "label": "gemma-4-12B-it", "quant": "Q8_0", "size": "12B", "variant": "it"},
     "gemma-4-31B-it-Q4_K_S.gguf":

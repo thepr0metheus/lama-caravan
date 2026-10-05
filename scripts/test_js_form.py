@@ -50,6 +50,7 @@ def check(cond, msg):
 
 PROBE = r"""
 import "./_js_globals.mjs";
+(globalThis.__stubReturns ||= {})["llama-edit.usesLlamaConfig"] = (id) => id === "llama-server" || id === "prism";
 import { pathToFileURL } from "node:url";
 const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
 const cst = await import(pathToFileURL(process.env.JS_ROOT + "/constants.js").href);

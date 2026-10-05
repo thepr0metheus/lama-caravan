@@ -654,7 +654,7 @@ def delete_proxy_route(port, force=False):
 
 def set_agent_proxy_policy(policy):
     payload = load_agent_proxy_config()
-    payload["policy"] = normalize_agent_proxy_policy(policy)
+    payload["policy"] = normalize_agent_proxy_policy({**payload["policy"], **policy})
     write_agent_proxy_payload(payload)
     return payload
 

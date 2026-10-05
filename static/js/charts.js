@@ -132,13 +132,20 @@ export function drawMetricChart(canvas, samples, series, options = {}) {
       const smax = row.max || max;
       ctx.beginPath();
       const pts = [];
+      let connected = false;
       visible.forEach((bucket, index) => {
-        const value = Math.max(0, Math.min(smax, bucket.reduce((sum, sample) => sum + Number(row.value(sample) || 0), 0) / bucket.length));
+        const measured = options.gaps
+          ? bucket.map(row.value).filter((v) => v != null && Number.isFinite(Number(v))).map(Number) : [];
+        if (options.gaps && !measured.length) { connected = false; return; }
+        const avg = options.gaps ? measured.reduce((sum, v) => sum + v, 0) / measured.length
+          : bucket.reduce((sum, sample) => sum + Number(row.value(sample) || 0), 0) / bucket.length;
+        const value = Math.max(0, Math.min(smax, avg));
         const x = pad.left + index * barW + barW / 2;
         const y = pad.top + plotH - (value / smax) * plotH;
         pts.push([x, y]);
-        if (index === 0) ctx.moveTo(x, y);
+        if (!connected) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
+        connected = true;
       });
       ctx.lineWidth = 2;
       ctx.stroke();
@@ -392,11 +399,64 @@ export function _nodeGpuSamples(node) {
     memoryPct: total ? (r[1] / total * 100) : 0, powerW: r[3],
   } }));
 }
+// The Compute panel belongs to the whole machine. Picking its first port made
+// a CPU embedding cell hide a later GPU LLM's speed. Current values, history,
+// collapsed sparklines and the expanded chart share this one aggregation rule.
+export class NodeTokenTelemetry {
+  constructor(node) { this.servers = node?.servers || []; }
+
+  static number(value) {
+    if (value == null || value === "" || typeof value === "boolean") return null;
+    const n = Number(value);
+    return Number.isFinite(n) && n >= 0 ? n : null;
+  }
+
+  static sum(values) {
+    const measured = values.map(NodeTokenTelemetry.number).filter((v) => v != null);
+    return measured.length ? measured.reduce((sum, v) => sum + v, 0) : null;
+  }
+
+  static format(value) { return value == null ? "—" : formatTps(value); }
+
+  static label(prompt, gen) {
+    return `prompt ${NodeTokenTelemetry.format(prompt)} / gen ${NodeTokenTelemetry.format(gen)} t/s`;
+  }
+
+  current() {
+    const running = this.servers.filter((s) => {
+      const phase = s.phase || s.status?.phase;
+      return phase ? phase === "running" : s.running !== false;
+    });
+    return {
+      promptTps: NodeTokenTelemetry.sum(running.map((s) => s.promptTps)),
+      genTps: NodeTokenTelemetry.sum(running.map((s) => s.genTps)),
+    };
+  }
+
+  samples() {
+    const times = new Map();
+    this.servers.forEach((s) => {
+      // Histories outlive a stopped cell; retain its earlier work, but never
+      // carry an old sample forward into another cell's timestamp.
+      const rows = new Map((s.tpsHistory || []).filter((r) => NodeTokenTelemetry.number(r[0]) != null)
+        .map((r) => [Number(r[0]), r]));
+      rows.forEach((r, time) => {
+        if (!times.has(time)) times.set(time, { prompt: [], gen: [] });
+        const point = times.get(time);
+        point.prompt.push(r[1]);
+        point.gen.push(r[2]);
+      });
+    });
+    return [...times].sort(([a], [b]) => a - b).map(([time, point]) => ({ time, tokens: {
+      promptTokensPerSecond: NodeTokenTelemetry.sum(point.prompt),
+      predictedTokensPerSecond: NodeTokenTelemetry.sum(point.gen),
+    } }));
+  }
+}
+
+// A facade kept for the chart modal; aggregation lives in NodeTokenTelemetry.
 export function _nodeTokenSamples(node) {
-  const srv = (node.servers || []).find((s) => (s.tpsHistory || []).length) || {};
-  return (srv.tpsHistory || []).map((r) => ({ tokens: {
-    promptTokensPerSecond: r[1], predictedTokensPerSecond: r[2],
-  } }));
+  return new NodeTokenTelemetry(node).samples();
 }
 
 // Draw the per-node telemetry canvases (client nodes) with the shared renderers
@@ -428,12 +488,13 @@ export function drawNodeTelemetry() {
       setVal("power", `${Number(g0.powerDrawW || 0).toFixed(1)} W`);
       setSpark("power", pw, "rgba(45, 212, 191, 0.9)", Math.max(50, ...pw));
     }
-    const srv = (n.servers || []).find((s) => s.port);
-    if (srv) {
-      const tokS = _nodeTokenSamples(n);
+    if ((n.servers || []).some((s) => s.port)) {
+      const telemetry = new NodeTokenTelemetry(n);
+      const tokS = telemetry.samples();
+      const current = telemetry.current();
       drawTopologyTokenSpeedHistory(tokS, cv("tokens"));
-      setVal("tokens", `prompt ${formatTps(srv.promptTps || 0)} / gen ${formatTps(srv.genTps || 0)} t/s`);
-      setSpark("tokens", tokS.map((s) => s.tokens.predictedTokensPerSecond), "rgba(105, 208, 144, 0.95)",
+      setVal("tokens", NodeTokenTelemetry.label(current.promptTps, current.genTps));
+      setSpark("tokens", tokS.map((s) => s.tokens.predictedTokensPerSecond).filter((v) => v != null), "rgba(105, 208, 144, 0.95)",
         Math.max(10, ...tokS.map((s) => s.tokens.predictedTokensPerSecond)));
     }
     const routeCv = document.querySelector(`[data-node-route-canvas="${CSS.escape(id)}"]`);
@@ -452,11 +513,11 @@ export function drawNodeTelemetry() {
 // the same way, its last request's timings first; that server went with the
 // controller's cells in step 6.9.)
 export function topologyPromptTps(sample) {
-  return Number(sample?.tokens?.promptTokensPerSecond ?? 0);
+  return NodeTokenTelemetry.number(sample?.tokens?.promptTokensPerSecond);
 }
 
 export function topologyEvalTps(sample) {
-  return Number(sample?.tokens?.predictedTokensPerSecond ?? 0);
+  return NodeTokenTelemetry.number(sample?.tokens?.predictedTokensPerSecond);
 }
 
 // Shared floating tooltip for chart point hover.
@@ -509,8 +570,8 @@ export function attachTokenChartHover(canvas, samples, getInfo) {
           : `<span style="opacity:0.6">finish: ${escapeHtml(String(info.finish))}</span>`)
       : "";
     tip.innerHTML = [
-      `<b style="color:rgba(105,208,144,0.95)">gen</b> ${formatTps(info.genTps)} t/s · ${info.genTokens || 0} tok · ${_fmtMs(info.genMs)}`,
-      `<b style="color:rgba(96,165,250,0.95)">prompt</b> ${formatTps(info.promptTps)} t/s · ${info.promptTokens || 0} tok · ${_fmtMs(info.promptMs)}`,
+      `<b style="color:rgba(105,208,144,0.95)">gen</b> ${NodeTokenTelemetry.format(info.genTps)} t/s · ${info.genTokens || 0} tok · ${_fmtMs(info.genMs)}`,
+      `<b style="color:rgba(96,165,250,0.95)">prompt</b> ${NodeTokenTelemetry.format(info.promptTps)} t/s · ${info.promptTokens || 0} tok · ${_fmtMs(info.promptMs)}`,
       info.cacheTokens ? `<span style="opacity:0.6">cache ${info.cacheTokens} tok reused</span>` : "",
       finishLine,
       info.time ? `<span style="opacity:0.6">${new Date(info.time * 1000).toLocaleTimeString()}</span>` : "",
@@ -543,7 +604,7 @@ export function drawTopologyTokenSpeedHistory(samples, overrideCanvas) {
     { color: "rgba(96, 165, 250, 0.9)", mode: "line", value: topologyPromptTps, max: promptMax },
     { color: "rgba(105, 208, 144, 0.95)", mode: "line", value: topologyEvalTps, max: genMax },
   ], {
-    max: promptMax, markers: true,
+    max: promptMax, markers: true, gaps: true,
     // Dual axis: prompt (blue) scale on the left, gen (green) on the right,
     // each color-matched to its line. Suffix "" keeps ticks compact (the
     // legend already spells out the units).
@@ -554,7 +615,7 @@ export function drawTopologyTokenSpeedHistory(samples, overrideCanvas) {
   const latest = samples[samples.length - 1] || {};
   const prompt = topologyPromptTps(latest);
   const evalSpeed = topologyEvalTps(latest);
-  if (meta) meta.textContent = samples.length ? `prompt ${formatTps(prompt)} / gen ${formatTps(evalSpeed)} t/s` : t("chartWaiting");
+  if (meta) meta.textContent = samples.length ? NodeTokenTelemetry.label(prompt, evalSpeed) : t("chartWaiting");
   if (legend) {
     legend.innerHTML = [
       `<span class="topology-history-route" style="--route-color: rgba(96, 165, 250, 0.95)">prompt ≤${promptMax}</span>`,
@@ -1112,4 +1173,3 @@ export function formatEventTime(value) {
   }
   return String(value);
 }
-

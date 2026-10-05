@@ -337,6 +337,13 @@ export async function toggleTopologyGroupCloudFallback(groupKey) {
   toast(active ? "cloud fallback disabled" : "cloud fallback enabled");
 }
 
+// A bridge port (kind "service": a cloud model's own port, or an app's bridge) never feeds a
+// router — its routing is the route's own pin (caravan/admin/router_dsl.py), and the server
+// clears its router binding on every save. So it is never a kanban client, bound or not.
+export function feedsRouters(proxy) {
+  return String(proxy.kind || "") !== "service";
+}
+
 export function topologyProxyRoutes() {
   // IMPORTANT: preserve the router binding + ownership fields so that saving
   // the full routes array (add/edit/delete a single proxy) never wipes them.
@@ -357,7 +364,11 @@ export function topologyProxyRoutes() {
     // Same preservation rule as connectTopologyProxyToLlama: bridges keep
     // kind="service" and their intentional empty router binding.
     kind: proxy.kind || "",
-    routerId: proxy.kind === "service" ? "" : (proxy.routerId || "router:default"),
+    // An explicit "" is a port detached from every kanban on purpose (the server keeps it free:
+    // 503 until bound); only an ABSENT binding is a fresh port's, which the default takes. With
+    // `||` the rebuild sent "" back as router:default, so saving or deleting ANY port quietly
+    // bound every detached port to the default kanban again (2026-10-04).
+    routerId: feedsRouters(proxy) ? (proxy.routerId ?? "router:default") : "",
     role: proxy.role || "",
     clientId: proxy.clientId || "",
     ...(Number(proxy.contextLength) > 0 ? { contextLength: Number(proxy.contextLength) } : {}),
@@ -465,10 +476,20 @@ export function readTopologyProxyForm() {
   };
 }
 
+// What the port form shows, and so all an edit may change. Everything else a route carries —
+// its kanban, owner and role, window, wait budget, upstream kind, whether it is switched on —
+// stays as it was: the edited route used to be rebuilt from the form alone, so a detached port
+// came back bound to the default kanban, a port lost its owner, its window and its wait budget,
+// and a port someone had switched off came back on (2026-10-04).
+const PROXY_FORM_FIELDS = ["label", "port", "upstreamHost", "upstreamPort", "mode", "apiKey"];
+
 export async function saveTopologyProxyForm() {
-  const route = readTopologyProxyForm();
-  if (!route) return;
-  const existingRoutes = topologyProxyRoutes().filter((row) => `skynet:proxy:${row.port}` !== ui.topologyProxyEditingId);
+  const read = readTopologyProxyForm();
+  if (!read) return;
+  const rebuilt = topologyProxyRoutes();
+  const before = rebuilt.find((row) => `skynet:proxy:${row.port}` === ui.topologyProxyEditingId);
+  const route = before ? { ...before, ...Object.fromEntries(PROXY_FORM_FIELDS.map((k) => [k, read[k]])) } : read;
+  const existingRoutes = rebuilt.filter((row) => row !== before);
   if (existingRoutes.some((row) => Number(row.port) === Number(route.port))) {
     toast("proxy port already exists");
     return;

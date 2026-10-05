@@ -44,11 +44,13 @@ function indexSteps() {
     { anchor: ".topology-board", title: t("tourIxBoardT"), body: t("tourIxBoardB") },
     { anchor: "#topologyClients", title: t("tourIxClientsT"), body: t("tourIxClientsB") },
     { anchor: "#topologyProxies", title: t("tourIxProxiesT"), body: t("tourIxProxiesB") },
-    { anchor: "#topologyLlamaServers", title: t("tourIxServersT"), body: t("tourIxServersB") },
+    // The lanes under Model servers have no box of their own (one list, server-order.js):
+    // a step stands on a card of its lane — the cloud's, on "+ Add Cloud Provider" in the head while it has none.
+    { anchor: "#topologyLlamaServers .node-card", title: t("tourIxServersT"), body: t("tourIxServersB") },
     { anchor: "#topologyLlamaServers .node-server", title: t("tourIxCellLifeT"), body: t("tourIxCellLifeB") },
     { anchor: "[data-t=\"node-caravan-add\"]", title: t("tourIxCellNewT"), body: t("tourIxCellNewB") },
     { anchor: ".caravan-links", title: t("tourIxModelsT"), body: t("tourIxModelsB") },
-    { anchor: "#topologyCloudProviders", title: t("tourIxCloudT"), body: t("tourIxCloudB") },
+    { anchor: "#topologyCloudProviders .cloud-account-card, [data-topo-add-cloud]", title: t("tourIxCloudT"), body: t("tourIxCloudB") },
     { anchor: "#usageStatsBtn", title: t("tourIxStatsT"), body: t("tourIxStatsB") },
     { anchor: "#topologyRequestHistoryBtn", title: t("tourIxHistoryT"), body: t("tourIxHistoryB") },
     { anchor: ".monitor-drawer", title: t("tourIxMonitorT"), body: t("tourIxMonitorB") },

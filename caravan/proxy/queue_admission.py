@@ -228,7 +228,8 @@ def wait_for_proxy_slot(route, request_id, keepalive_writer=None, spec=None, cli
       • spec=None — the IMPLICIT default queue: slots/thresholds from the global
         policy + per-route fields; spill = legacy ProxyCloudFallback(providerId).
       • spec=<queue node spec> — an EXPLICIT graph queue node governs this path:
-        slots/thresholds/preempt/sticky come from the node; spill raises
+        capacity/destinations come from the node, timings from shared policy;
+        preemption is disabled. Spill raises
         ProxyQueueSpill(spillRef) so the handler can divert to any output/queue.
 
     client_gone — optional zero-cost probe of the client socket; when it turns
@@ -283,7 +284,7 @@ def wait_for_proxy_slot(route, request_id, keepalive_writer=None, spec=None, cli
             v = route.get(route_key)
             if v is not None:
                 return max(0, min(100, int(v)))
-            return max(0, min(100, int(policy.get(policy_key) or default)))
+            return max(0, min(100, int(policy.get(policy_key, default))))
         prio_pct  = max(0, _pct("priorityPreemptPct", "priorityPreemptPct", 50))
         spill_pct = max(0, _pct("cloudFallbackPct",   "cloudFallbackPct",   20))
         spill_ref = None

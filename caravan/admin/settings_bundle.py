@@ -23,6 +23,7 @@ import base64
 import json
 import os
 import time
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from caravan.admin.paths import (
@@ -35,7 +36,7 @@ from caravan.admin.paths import (
     START_SCRIPT,
 )
 from caravan.common.errors import AppError
-from caravan.common.fsio import atomic_write_text
+from caravan.common.fsio import atomic_write_text, create_private_text
 
 BUNDLE_FORMAT = 1
 REDACTED = "__redacted__"
@@ -361,6 +362,47 @@ def preview_import(bundle):
             "exportedAt": bundle.get("exportedAt")}
 
 
+class CopyBeforeImport:
+    """The copy an import takes of the settings it is about to replace.
+
+    One file per import, named by the moment it was taken, to the microsecond:
+    `YYYYMMDD-HHMMSS-ffffff-before-import.json`. The name used to stop at the
+    second and the file was swapped in over a name that was there, so a second
+    import within the second took the first one's copy — the copy of the
+    ORIGINAL settings — and the restore the copy exists for was gone. A name
+    that is taken is never written over now: the next microsecond is tried. The
+    names still sort in the order the copies were taken, which the backups
+    listing (the newest twenty, by name) relies on, and the copies from before
+    this stay as they are.
+    """
+
+    SUFFIX = "-before-import.json"
+    ATTEMPTS = 1000
+
+    def __init__(self, directory, clock=None):
+        self.directory = Path(directory)
+        self.clock = clock or datetime.now      # the machine's local time, as the names always were
+
+    def name(self, at):
+        return f"{at:%Y%m%d-%H%M%S-%f}{self.SUFFIX}"
+
+    def write(self, text):
+        """Write the copy and say where it is."""
+        # The copy carries everything, secrets and accounts included — it has to,
+        # or it could not put them back — so it is the most sensitive file this
+        # module writes, and it is written for its owner alone.
+        self.directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        at = self.clock()
+        for _ in range(self.ATTEMPTS):
+            path = self.directory / self.name(at)
+            try:
+                create_private_text(path, text)
+                return path
+            except FileExistsError:
+                at += timedelta(microseconds=1)
+        raise AppError(f"no free name for the settings copy in {self.directory}", 500)
+
+
 def apply_bundle(bundle, passphrase=""):
     """Write the bundle's settings over the current ones.
 
@@ -368,12 +410,7 @@ def apply_bundle(bundle, passphrase=""):
     "that restored the wrong thing" is another import rather than an apology.
     """
     validate_bundle(bundle)
-    # The copy carries everything, secrets and accounts included — it has to, or
-    # it could not put them back — so it is the most sensitive file this module
-    # writes, and it is written for its owner alone.
-    SETTINGS_BACKUP_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
-    before = SETTINGS_BACKUP_DIR / f"{time.strftime('%Y%m%d-%H%M%S')}-before-import.json"
-    atomic_write_text(before, json.dumps(export_bundle(include_secrets=True), indent=2), chmod=0o600, mkdir=True)
+    before = CopyBeforeImport(SETTINGS_BACKUP_DIR).write(json.dumps(export_bundle(include_secrets=True), indent=2))
 
     written = []
     skipped = []

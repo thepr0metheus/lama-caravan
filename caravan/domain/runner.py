@@ -85,6 +85,8 @@ class Runner:
     token_context = False
     #: True when the cell launches through the generic command machinery.
     command_path = True
+    #: Uses the GGUF parameters, placement and memory estimator of llama.cpp.
+    llama_config = False
     #: True when the command IS the config — typed by a person rather than built
     #: from fields. Only such a cell has a previous command worth remembering for
     #: a one-click revert; for every other runner the command is regenerated from
@@ -229,6 +231,7 @@ class Runner:
             # no context window at all.
             "tokenContext": self.token_context,
             "commandPath": self.command_path,
+            "llamaConfig": self.llama_config,
             "editorTab": self.editor_tab,
             "engineCell": self.engine_cell,
         }
@@ -252,6 +255,14 @@ class LlamaServerRunner(Runner):
     shared_picker = "source"
     token_context = True
     command_path = False
+    llama_config = True
+
+    def server_binary(self, llama_home):
+        return f"{str(llama_home).rstrip('/')}/build/bin/llama-server"
+
+    def preflight_start(self, config, model="") -> None:
+        if re.search(r"(?:PQ2_0|PTQ1_0)", model or self.model_ref(config), re.I):
+            raise AppError("This GGUF uses PrismML tensor types — select the PrismML runner", 400)
 
     def launch_env(self, config):
         # CPU mode (n-gpu-layers 0): hide GPUs entirely. A CUDA-enabled llama.cpp build
@@ -266,6 +277,29 @@ class LlamaServerRunner(Runner):
         if str((config or {}).get("N_GPU_LAYERS", "")).strip() == "0":
             return {"CUDA_VISIBLE_DEVICES": ""}
         return {}
+
+
+class PrismRunner(LlamaServerRunner):
+    """PrismML's fork, with its own binary and matching ggml libraries."""
+    id = "prism"
+    icon = "🌱"
+    label_key = "runnerPrism"
+    benefits_key = "runnerPrismBenefits"
+    model_field = "MODEL_FILE"
+
+    def server_binary(self, llama_home):
+        # Preview only: the scout records the immutable installed release path.
+        from pathlib import Path
+        return str(Path.home() / ".local/share/caravan/prismml/current/llama-server")
+
+    def preflight_start(self, config, model="") -> None:
+        if not (model or self.model_ref(config)):
+            raise AppError("PrismML cell has no model — configure it first", 400)
+
+    def launch_env(self, config):
+        from pathlib import Path
+        folder = str(Path(self.server_binary("")).parent)
+        return {**super().launch_env(config), "LD_LIBRARY_PATH": folder, "DYLD_LIBRARY_PATH": folder}
 
 
 class VllmRunner(Runner):
@@ -290,8 +324,9 @@ class VllmRunner(Runner):
     #: unpinned `pip install vllm` gave every new host "whatever PyPI had that
     #: day" — the pip flavour of the mixed-toolkit franken-build. Update and
     #: rollback from the UI move it deliberately; VLLM_VERSION overrides at
-    #: cell start.
-    default_version = "0.24.0"
+    #: cell start. 0.30.0 since 2026-10-05: 0.24.0 carried 28 known
+    #: vulnerabilities (osv.dev), fixed in 0.28–0.30.
+    default_version = "0.30.0"
 
     @property
     def bootstrap(self):
@@ -776,6 +811,7 @@ class UnknownRunner(Runner):
 #: Order is the order the editor draws the tabs in.
 REGISTRY = (
     LlamaServerRunner(),
+    PrismRunner(),
     VllmRunner(),
     WhisperRunner(),
     MoonshineRunner(),

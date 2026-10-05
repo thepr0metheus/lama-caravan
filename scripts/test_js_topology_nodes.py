@@ -2259,9 +2259,9 @@ PINS = [
      "negative: ошибка не сворачивается даже в свёрнутой ленте — полная карточка со своей ручкой"),
     ("fold_starting_full",
      "",
-     "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"))(norm(m.nodeServerCardHtml(node, mk({ phase: \"starting\" }), { fold: true })))",
-     "\"card\"",
-     "negative: стартующая — полная карточка: движение не сворачивается"),
+     "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"line\" : \"?\"))(norm(m.nodeServerCardHtml(node, mk({ phase: \"starting\" }), { fold: true })))",
+     "\"line\"",
+     "positive: обычный запуск остаётся компактной строкой со спиннером"),
     ("fold_broken_full",
      "",
      "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"))(norm(m.nodeServerCardHtml(node, mk({ phase: \"broken\", status: { error: \"engine init failed\" } }), { fold: true })))",
@@ -2277,11 +2277,16 @@ PINS = [
      "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"))(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\", reachable: false }), { fold: true })))",
      "\"card\"",
      "negative: работает, но недостижима — полная карточка с подсказкой про файрвол"),
+    ("fold_stop_switch_locked_spinning",
+     "rc._pendingCellActions.set(\"h1:22001\", \"stop\");",
+     "(h => [h.includes('disabled aria-busy=\"true\"'), h.includes('topology-spinner stopping-spinner'), h.includes('class=\"fr-knob\"')])(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\" }), { fold: true })))",
+     "[true,true,false]",
+     "positive: компактный стоп блокирует повторный клик и крутит тумблер"),
     ("fold_pending_stop_full",
      "rc._pendingCellActions.set(\"h1:22001\", \"stop\");",
-     "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"))(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\" }), { fold: true })))",
-     "\"card\"",
-     "negative: идёт остановка — полная карточка со спиннером"),
+     "(h => (h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"line\" : \"?\"))(norm(m.nodeServerCardHtml(node, mk({ phase: \"running\" }), { fold: true })))",
+     "\"line\"",
+     "positive: остановка сохраняет компактную строку со спиннером"),
     ("fold_pin_ignored",
      "cf.CARD_FOLD.pinned.add(\"h1:22001\");",
      "(h => [(h.match(/data-fold-mode=\"([a-z]+)\"/) || [])[1] || (h.startsWith(\"<article\") ? \"card\" : \"?\"), (h.match(/data-topology-llama-input/g) || []).length, h.indexOf(\"data-topology-llama-input\") > h.indexOf(\"<article\"), h.includes(\"fold-row\"), h.includes('data-t=\"fold-unpin\"')])(norm(m.nodeServerCardHtml(node, mk({ phase: \"stopped\" }), { fold: true })))",
@@ -2537,6 +2542,25 @@ PINS += [
      "(h => [/class=\"node-card offline/.test(h), h.includes('node-scout-silent'), h.indexOf('node-scout-silent') > h.indexOf('</header>')])(norm(m.nodesLaneHtml()))",
      "[true,true,true]",
      "positive: молчащий хост приглушён, и баннер стоит сразу под его шапкой"),
+]
+
+# Model servers is one list of machines and cloud providers in the operator's order
+# (server-order.js, 2026-10-04): a machine's card carries its key and its place, and
+# the grip it is moved by leads its head. The order is module state: the pin sets it
+# and leaves it empty.
+PINS += [
+    ("node_card_is_one_of_the_list",
+     f"st.setTopology({{ ...st.topology, nodes: [{HOST}, {{ ...{HOST}, id: \"h3\", name: \"Other\" }}] }});"
+     ' globalThis.__so = (await import(pathToFileURL(process.env.JS_ROOT + "/server-order.js").href)).SERVER_ORDER;',
+     '(() => { const so = globalThis.__so; const places = (h) => [...h.matchAll(/<section class="node-card[^\\n]*?data-server-card="([^"]+)" style="order:(\\d+)"/g)].map((x) => x[1] + "@" + x[2]);'
+     ' try { const h = norm(m.nodesLaneHtml()); const none = places(h);'
+     ' so.held = { order: ["cloud:p", "node:h3"], rev: 1 }; const kept = places(norm(m.nodesLaneHtml()));'
+     ' return [none, kept, /<header class="node-head">\\s*<span class="server-order"><button type="button" class="server-step" data-server-step="up" data-t="server-step-up" data-t-id="node:h2"[^\\n]*?data-server-step="down"[^\\n]*?<\\/button><\\/span>\\s*<button class="node-collapse"/.test(h),'
+     ' (h.match(/data-server-step="up"/g) || []).length]; } finally { so.held = { order: [], rev: -1 }; } })()',
+     '[["node:h2@0","node:h3@0"],["node:h2@2","node:h3@1"],true,2]',
+     "карточка машины — одна в списке Model servers: ключ node:<id> и место; ничего не сохранено — место одно на всех "
+     "(порядок полос, как раньше), сохранено — индекс, а не названная — после всех названных; первыми в шапке — кнопки ↑ ↓, "
+     "одна пара на машину"),
 ]
 
 # The engines next to the cells (scout 2.12+) and the memory their processes

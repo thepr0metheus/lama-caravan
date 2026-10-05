@@ -256,7 +256,8 @@ def render_launch_script(config, locations=None):
 
     # Quote the binary as a shell var so $LLAMA_HOME stays expandable; quote the
     # rest of the tokens literally.
-    exec_line = ('exec "$LLAMA_HOME/build/bin/llama-server" '
+    binary = shell_path_value(for_config(merged).server_binary("$LLAMA_HOME"))
+    exec_line = (f'exec "{binary}" '
                  + " ".join(shlex.quote(x) for x in cmd[1:]) + ' "$@"')
 
     # What the engine must start with (a CPU-only cell sees no GPU) — the

@@ -81,11 +81,75 @@
   width: auto;
 }
 
+/* "+ Add Cloud Provider" in the head of Model servers: the lane's main action, wide and in the
+   accent (2026-10-04, the operator), filling the head between the title and its icon buttons —
+   as "＋" does in the clients lane. It stood as a dashed button at the end of a long list. */
+.lane-servers > .topology-lane-head > .topology-head-actions { flex: 1 1 auto; min-width: 0; justify-content: flex-end; }
+.topology-head-actions > .icon-action.prominent.topology-head-add {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+  padding: 0 14px;
+  font-size: 13px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topology-head-actions > .icon-action.prominent.topology-head-add:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 26%, transparent);
+}
+
 .topology-stack {
   display: grid;
   gap: 10px;
   min-width: 0;
 }
+
+/* ── Model servers: one list of machines and cloud providers ──
+   The operator's order, kept on the controller (server-order.js). The two lanes stay two
+   containers — their listeners and tests address them — and lend their cards to this
+   column: `display: contents` takes their own boxes away, and each card's inline `order`
+   places it. What is not a card — a lane's "nothing here" line, the strip of bridges
+   whose model is gone — stands after the cards. */
+.server-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.server-cards > .topology-stack { display: contents; }
+.server-cards > .topology-stack > * { min-width: 0; }
+.server-cards > .topology-stack > :not([data-server-card]) { order: 100000; }
+
+/* What a card is moved by, first in its head: ↑ ↓, one place a click. Sized here, not by the
+   global button (34 px tall, padded), which would make them the biggest thing in the head. */
+.server-order {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.server-order .server-step {
+  min-height: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 6px;
+  background: none;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.server-order .server-step:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.server-order .server-step:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.server-order .server-step:disabled { opacity: .25; cursor: default; }
+.pool-top > .server-order { align-self: flex-start; margin-top: 4px; }
 
 .topology-lanes {
   display: grid;
@@ -800,14 +864,72 @@ body:has(.topology-view) .topbar {
 }
 
 /* ＋ Add scout, under Model servers: the one way a machine that lends its GPU
-   or CPU joins the fleet. Quiet at rest (a dashed outline, the title muted),
-   so the lane's machines stay what the eye reads first. */
-.scout-add { margin: 10px 0 4px; padding: 9px 12px; border: 1px dashed var(--line); border-radius: 10px; display: grid; gap: 6px; }
+   or CPU joins the fleet. An empty place at the end of the list: quiet at rest
+   (a dashed outline, the title muted), so the machines stay what the eye reads
+   first. Its fields and button are the board's
+   compact size (28 px, the line's colour, the accent for the action), not the
+   global form's 42 px fields with light borders, which made it the loudest thing
+   on the lane (2026-10-04, the operator). While it has the focus it says so: the
+   outline turns solid and takes the accent. */
+.scout-add {
+  margin: 10px 0 4px;
+  padding: 8px 10px;
+  display: grid;
+  gap: 6px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  transition: border-color .15s, background .15s;
+}
+.scout-add:focus-within {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
 .scout-add-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-.scout-add-title { font-weight: 600; font-size: 13px; color: var(--muted); cursor: help; white-space: nowrap; }
-.scout-add-address { flex: 1 1 180px; min-width: 0; }
-.scout-add-port { width: 64px; flex: 0 0 auto; text-align: center; }
-.scout-add-colon { color: var(--muted); }
+.scout-add-title { margin-right: 2px; font-weight: 600; font-size: 12px; color: var(--muted); cursor: help; white-space: nowrap; }
+.scout-add:focus-within .scout-add-title { color: var(--accent); }
+.scout-add .scout-add-address,
+.scout-add .scout-add-port {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--field) 84%, transparent);
+  color: var(--text);
+  font-size: 13px;
+  transition: border-color .15s, box-shadow .15s;
+}
+.scout-add .scout-add-address { flex: 1 1 180px; width: auto; min-width: 0; }
+.scout-add .scout-add-port { flex: 0 0 auto; width: 64px; text-align: center; font-variant-numeric: tabular-nums; }
+.scout-add .scout-add-address::placeholder { color: color-mix(in srgb, var(--muted) 75%, transparent); }
+.scout-add .scout-add-address:hover,
+.scout-add .scout-add-port:hover { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.scout-add .scout-add-address:focus,
+.scout-add .scout-add-port:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.scout-add-colon { margin: 0 -2px; color: var(--muted); }
+.scout-add .scout-add-connect {
+  margin-left: auto;   /* on a narrow lane the row wraps: the action keeps to the right */
+  min-height: 0;
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--field));
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  transition: border-color .15s, background .15s;
+}
+.scout-add .scout-add-connect:hover:not(:disabled) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 20%, var(--field)); }
+.scout-add .scout-add-connect:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.scout-add .scout-add-connect:disabled { opacity: .5; cursor: default; }
+@media (prefers-reduced-motion: reduce) { .scout-add, .scout-add * { transition: none; } }
 .scout-add-status { font-size: 12px; line-height: 1.4; }
 .scout-add-status:empty { display: none; }
 .scout-add[data-t-state="working"] .scout-add-status { color: var(--muted); }

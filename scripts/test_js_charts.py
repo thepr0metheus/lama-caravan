@@ -41,6 +41,16 @@ st.setTopology({ proxies: [], clients: [], routers: [], assignments: {} });
 Date.now = () => 1_700_000_100_000;
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/charts.js").href);
 const el = () => ({ innerHTML: "", textContent: "" });
+globalThis.CSS = { escape: (value) => String(value) };
+document.body.appendChild = () => {};
+const tokenCanvas = () => {
+  const moves = [];
+  const ctx = new Proxy({ measureText: (v) => ({ width: String(v).length * 6 }),
+    moveTo(x, y) { moves.push([this.strokeStyle, x, y]); }, lineTo(x, y) { moves.push([this.strokeStyle, x, y]); } },
+    { get(target, key) { return key in target ? target[key] : () => {}; } });
+  return { width: 320, height: 120, offsetWidth: 320, moves, getContext: () => ctx,
+    getBoundingClientRect: () => ({ width: 320, height: 120 }), addEventListener: () => {} };
+};
 const NODES = () => [
   { id: "box-c", role: "host", controllerMachine: true, ip: "10.0.0.1", servers: [{ port: 22001 }, { port: 22002, clientIp: "10.0.0.1" }] },
   { id: "box-a", role: "host", ip: "10.0.0.5", servers: [{ port: 22011 }] },
@@ -74,7 +84,7 @@ PINS = [
      '[[1,2],[],[],{"a":2},{}]', "сэмплы только массивом; последний — последний; пусто — {}"),
     ("tps_from_tokens_only", '',
      '[m.topologyPromptTps({ llamaActivity: { lastTiming: { promptTps: 10 } }, tokens: { promptTokensPerSecond: 99 } }), m.topologyPromptTps({ correlatedActivity: { llamaServer: { lastTiming: { promptTps: 20 } } } }), m.topologyPromptTps({ tokens: { promptTokensPerSecond: 30 } }), m.topologyPromptTps({}), m.topologyEvalTps({ tokens: { predictedTokensPerSecond: 40 } }), m.topologyEvalTps({ llamaActivity: { lastTiming: { evalTps: 7 } } }), m.topologyEvalTps(null)]',
-     '[99,0,30,0,40,0,0]', "скорость точки — только tokens.*PerSecond (так её строит _nodeTokenSamples); negative: lastTiming одиночного сервера контроллера (llamaActivity, correlatedActivity.llamaServer) больше не читается и не побеждает tokens"),
+     '[99,null,30,null,40,null,null]', "скорость точки — только tokens.*PerSecond; отсутствие — null, не ноль; negative: lastTiming одиночного сервера контроллера больше не читается и не побеждает tokens"),
     ("main_token_info", '', 'm._mainTokenInfo({ time: 5, tokens: { predictedTokensPerSecond: 1, genTokens: 2, genMs: 3, promptTokensPerSecond: 4, promptTokens: 5, promptMs: 6, cacheTokens: 7 } })',
      '{"genTps":1,"genTokens":2,"genMs":3,"promptTps":4,"promptTokens":5,"promptMs":6,"cacheTokens":7,"time":5}', "адаптер сэмпла контроллера к полям подсказки"),
     ("chart_size_dpr_and_floors", '',
@@ -175,8 +185,30 @@ PINS = [
      '[4,true,true,true]', "GPU + сервер + маршруты: четыре метрики и блок активности маршрутов"),
     ("node_telemetry_routes_only", '', '(h => [(h.match(/class="gpu-metric"/g) || []).length, h.includes("data-open-route-activity")])(m.nodeTelemetryRowsHtml({ id: "box-a" }))', '[0,true]', "узел без GPU, но с маршрутами через граф — только блок маршрутов"),
     ("node_pseudo_samples", '', '[m._nodeGpuSamples({ gpus: [{ memoryTotalMiB: 1000, history: [[0, 250, 50, 120]] }] }), m._nodeTokenSamples({ servers: [{ tpsHistory: [] }, { tpsHistory: [[0, 30, 70]] }] }), m._nodeGpuSamples({})]',
-     '[[{"gpu":{"utilPct":50,"memoryUsedMiB":250,"memoryTotalMiB":1000,"memoryPct":25,"powerW":120}}],[{"tokens":{"promptTokensPerSecond":30,"predictedTokensPerSecond":70}}],[]]',
-     "псевдосэмплы узла в форме сэмплов монитора; сервер с историей выбирается первый непустой"),
+     '[[{"gpu":{"utilPct":50,"memoryUsedMiB":250,"memoryTotalMiB":1000,"memoryPct":25,"powerW":120}}],[{"time":0,"tokens":{"promptTokensPerSecond":30,"predictedTokensPerSecond":70}}],[]]',
+     "псевдосэмплы узла в форме сэмплов монитора; токены сохраняют время измерения"),
+    ("node_tokens_cpu_first_bonsai_later", '',
+     '(() => { const servers = [{port:22001,phase:"running",promptTps:0,genTps:0,tpsHistory:[[1,0,0],[2,0,0]]},{port:22013,phase:"running",promptTps:467.95,genTps:137.75,tpsHistory:[[1,467.95,137.75],[2,467.95,137.75]]}]; return [new m.NodeTokenTelemetry({servers}).current(),m._nodeTokenSamples({servers}),new m.NodeTokenTelemetry({servers:[...servers].reverse()}).current()]; })()',
+     '[{"promptTps":467.95,"genTps":137.75},[{"time":1,"tokens":{"promptTokensPerSecond":467.95,"predictedTokensPerSecond":137.75}},{"time":2,"tokens":{"promptTokensPerSecond":467.95,"predictedTokensPerSecond":137.75}}],{"promptTps":467.95,"genTps":137.75}]',
+     "регрессия машины контроллера: первая ячейка CPU-эмбеддингов с нулями не заслоняет Bonsai :22013; подпись и история считают весь узел, независимо от порядка портов"),
+    ("node_tokens_running_measured_sum", '',
+     'new m.NodeTokenTelemetry({servers:[{phase:"running",promptTps:10,genTps:20},{status:{phase:"running"},promptTps:30,genTps:40},{phase:"stopped",promptTps:1000,genTps:2000},{phase:"starting",promptTps:1000,genTps:2000},{phase:"running",promptTps:null,genTps:null}]}).current()',
+     '{"promptTps":40,"genTps":60}', "известные скорости работающих ячеек суммируются; остановленные и стартующие не прибавляют старую скорость"),
+    ("node_tokens_missing_is_unknown", '',
+     '[new m.NodeTokenTelemetry({servers:[{phase:"running",promptTps:null,genTps:NaN},{phase:"stopped",genTps:99}]}).current(),new m.NodeTokenTelemetry({}).current(),new m.NodeTokenTelemetry({servers:[{phase:"running",promptTps:0,genTps:0}]}).current(),m.NodeTokenTelemetry.label(null,null)]',
+     '[{"promptTps":null,"genTps":null},{"promptTps":null,"genTps":null},{"promptTps":0,"genTps":0},"prompt — / gen — t/s"]',
+     "нет замеров — прочерки; измеренный ноль остаётся нулём"),
+    ("node_token_histories_align_by_time", '',
+     'm._nodeTokenSamples({servers:[{phase:"stopped",tpsHistory:[[2,20,2],[1,10,1],[3,null,null]]},{tpsHistory:[[2,30,3],[4,40,4],[4,50,5],[3,null,null]]}]})',
+     '[{"time":1,"tokens":{"promptTokensPerSecond":10,"predictedTokensPerSecond":1}},{"time":2,"tokens":{"promptTokensPerSecond":50,"predictedTokensPerSecond":5}},{"time":3,"tokens":{"promptTokensPerSecond":null,"predictedTokensPerSecond":null}},{"time":4,"tokens":{"promptTokensPerSecond":50,"predictedTokensPerSecond":5}}]',
+     "истории объединены по времени: старые ответы остановленных сохраняются, дубль одной ячейки заменяет себя, пропуск не заполняется чужой старой скоростью"),
+    ("node_token_panel_renders_bonsai", '',
+     '(() => { const old=document.querySelector; const label=el(); const canvas=tokenCanvas(); globalThis.__stubReturns["polling.formatTps"]=(v)=>String(v); st.setTopology({nodes:[{id:"skynet-pc",servers:[{port:22001,phase:"running",promptTps:0,genTps:0,tpsHistory:[[1,0,0],[2,0,0]]},{port:22013,phase:"running",promptTps:467.95,genTps:137.75,tpsHistory:[[1,467.95,137.75],[2,467.95,137.75]]}]}]}); document.querySelector=(s)=>s.includes("data-node-metric-val")?label:s.includes("data-node-canvas")?canvas:null; try {m.drawNodeTelemetry();return [label.textContent,canvas._tokenSamples.map((s)=>s.tokens.predictedTokensPerSecond),canvas.moves.some(([color,x,y])=>color==="rgba(105, 208, 144, 0.95)"&&y<80)];}finally{document.querySelector=old;} })()',
+     '["prompt 467.95 / gen 137.75 t/s",[137.75,137.75],true]',
+     "настоящий рендер панели: CPU первым, Bonsai позже — подпись ненулевая, график получает Bonsai, зелёная линия выше нуля"),
+    ("token_chart_preserves_gap", '',
+     '(() => {const canvas=tokenCanvas();m.drawTopologyTokenSpeedHistory([0,null,10].map((v,i)=>({time:i,tokens:{promptTokensPerSecond:v,predictedTokensPerSecond:v}})),canvas);return canvas.moves.filter(([color])=>color==="rgba(105, 208, 144, 0.95)").length;})()',
+     '2', "график токенов не рисует третью точку на нуле вместо отсутствующего измерения"),
     ("node_samples_from_its_scout",
      'st.ui.latestSystemMonitor = { hosts: { "box-a": [{ t: 1001, gpus: [{ index: 0, memUsedMiB: 100, memTotalMiB: 1000, utilPct: 10, powerW: 50 }, { index: 1, memUsedMiB: 900, memTotalMiB: 2000, utilPct: 99, powerW: 300 }] }, { t: 1002, gpus: [{ index: 1, memUsedMiB: 1000, utilPct: 90, powerW: 280 }] }] } };',
      '[m._nodeGpuSamples({ id: "box-a", gpus: [{ index: 1, memoryTotalMiB: 2000, history: [[0, 1, 2, 3]] }] }), m._nodeGpuSamples({ id: "box-b", gpus: [{ memoryTotalMiB: 1000, history: [[0, 250, 50, 120]] }] }).length]',

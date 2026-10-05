@@ -36,7 +36,7 @@ def _hf_request(path, timeout=12):
         return {"_error": str(exc)}
 
 _QUANT_PAT = re.compile(
-    r'\b(NVFP4|MXFP4|IQ\d_[A-Z0-9]+|Q\d[_\-][A-Z0-9]+(?:[_\-][A-Z0-9]+)*|BF16|F16|F32)\b',
+    r'\b(PQ2_0|PTQ1_0|NVFP4|MXFP4|IQ\d_[A-Z0-9]+|Q\d[_\-][A-Z0-9]+(?:[_\-][A-Z0-9]+)*|BF16|F16|F32)\b',
     re.IGNORECASE,
 )
 

@@ -20,6 +20,7 @@ from caravan.proxy.config import current_config
 from caravan.proxy.graph import PLAIN_REQUEST_CTX, chain_exit, resolve_graph
 from caravan.proxy.output_health import output_health, output_id_of_ref
 from caravan.proxy.subscription_usage import ReserveRefusal, reserve_gate, subscription_usage
+from caravan.proxy.subscription_pool import subscription_pools
 from caravan.proxy.translate import (
     _chat_to_anthropic_body, _chat_to_responses_body, _extract_chatgpt_account_id, rewrite_model_in_body,
 )
@@ -165,6 +166,9 @@ def _probe_cloud(output, timeout):
     if not model:
         # An account passthrough pins no model: there is nothing one request could prove.
         return (None, None, "", "")
+    provider, refusal = subscription_pools.resolve(provider)
+    if refusal:
+        return (False, refusal.status, refusal.KIND, refusal.message[:200])
     auth_pair = load_provider_secret(provider)
     if not auth_pair:
         return (False, None, "config", "cloud account missing credential")
@@ -216,7 +220,7 @@ def _probe_cloud(output, timeout):
             status = resp.status
             snippet = resp.read(4000)
             if is_subscription:
-                subscription_usage.note(provider.get("accountId"), resp.getheaders())
+                subscription_usage.note(provider.get("usageAccountId") or provider.get("accountId"), resp.getheaders())
         finally:
             conn.close()
     except Exception as exc:

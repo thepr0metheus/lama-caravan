@@ -62,6 +62,7 @@ const KIND_ALIASES = {
 //: guessing its job from the runner id would be inventing a fact.
 const RUNNER_JOBS = {
   "llama-server": ["llm"],
+  prism: ["llm"],
   vllm: ["llm"],
   whisper: ["asr"],
   moonshine: ["asr", "tts"],

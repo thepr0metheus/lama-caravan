@@ -5,7 +5,7 @@ import { syncFavoriteMirrors } from "./favorites.js";
 // Device-in-ENV helpers for command-path runners. Imported for use inside
 // functions only (llama-edit.js also imports this module) — the runtime cycle
 // is safe because nothing here runs at module load.
-import { _applyDeviceToEnv, _envDeviceState } from "./llama-edit.js";
+import { _applyDeviceToEnv, _envDeviceState, usesLlamaConfig } from "./llama-edit.js";
 import { modelChoiceOf, modelsByPath, renderAsideVramBar, renderModelInsight } from "./form.js";
 import { t } from "./i18n.js";
 import { _trClientCpu, _trClientGpus } from "./remote-cells.js";
@@ -352,13 +352,13 @@ export function currentComputeMode(pfx) {
   const caps = runnerDeviceCaps(runner);
   if (runner === "moonshine") return "cpu";
   if (runner === "vllm" || runner === "whisper") return "gpu";
-  if (runner === "llama-server") return computeIsCpu(pfx) ? "cpu" : "gpu";
+  if (usesLlamaConfig(runner)) return computeIsCpu(pfx) ? "cpu" : "gpu";
   // custom (and any other command runner): read the ENV pin
   const st = _envDeviceState($(pfx + "ENV")?.value || "", $(pfx + "COMMAND")?.value || "");
   return caps[st] ? st : (caps.auto ? "auto" : caps.gpu ? "gpu" : "cpu");
 }
 function applyComputeMode(pfx, sel) {
-  if (_runnerOf(pfx) === "llama-server") { applyComputeTarget(pfx, sel); return; }
+  if (usesLlamaConfig(_runnerOf(pfx))) { applyComputeTarget(pfx, sel); return; }
   // command-path: device lives in ENV (TTS_DEVICE / CUDA_VISIBLE_DEVICES)
   const env = $(pfx + "ENV");
   if (env) env.value = _applyDeviceToEnv(env.value, sel.mode);
@@ -415,7 +415,7 @@ export function refreshOffloadPlan(pfx) {
   // fit, so the panel has to stay on screen while it is selected — otherwise
   // choosing it makes the control that chose it disappear.
   const forced = raw === "all" || /^\d+$/.test(raw);
-  if (runner !== "llama-server" || computeIsCpu(pfx) || !split.known || (fits && !forced)) {
+  if (!usesLlamaConfig(runner) || computeIsCpu(pfx) || !split.known || (fits && !forced)) {
     box.innerHTML = "";
     return;
   }
@@ -540,7 +540,7 @@ export function refreshComputeTarget(pfx) {
   const caps = runnerDeviceCaps(runner);
   const mode = currentComputeMode(pfx);
   const gpus = computeTargetGpus(pfx);
-  const isLlama = runner === "llama-server";
+  const isLlama = usesLlamaConfig(runner);
   const sel = new Set(isLlama && !computeIsCpu(pfx) ? computeSelectedGpuIdx(pfx) : []);
   const cores = computeTargetCores(pfx);
   const ramGb = computeTargetRamGb(pfx);
@@ -675,7 +675,7 @@ export function ramFitForPfx(runtimeSizeGb, pfx) {
 //   custom    an opaque process — nothing to estimate, the bar shows use only.
 export function computeFitRuntimeGb(pfx = "") {
   const runner = _runnerOf(pfx);
-  if (runner === "llama-server") return estimateRuntimeMemoryGb(pfx).runtimeSize;
+  if (usesLlamaConfig(runner)) return estimateRuntimeMemoryGb(pfx).runtimeSize;
   if (runner === "vllm") {
     const util = Number($(pfx + "GPU_MEMORY_UTILIZATION")?.value) || 0.9;
     return computeTargetGpus(pfx).reduce((s, g) => s + Number(g.memoryTotalMiB || 0) / 1024, 0) * util;
@@ -691,7 +691,7 @@ export function computeFitRuntimeGb(pfx = "") {
 // has nothing to estimate, and the bar says so — left alone, it kept the last
 // model's numbers.
 export function refreshAsidePanels(pfx = "") {
-  if (_runnerOf(pfx) !== "llama-server") renderAsideVramBar(pfx, computeFitRuntimeGb(pfx), true);
+  if (!usesLlamaConfig(_runnerOf(pfx))) renderAsideVramBar(pfx, computeFitRuntimeGb(pfx), true);
   else if (!selectedModelRows(pfx).selected) renderAsideVramBar(pfx, 0);
 }
 

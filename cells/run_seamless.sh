@@ -40,7 +40,9 @@ if [ ! -x "$VENV/bin/python" ]; then
   # a CPU-only host falls through to the default build.
   IDX="${SEAMLESS_TORCH_INDEX:-https://download.pytorch.org/whl/cu130}"
   "$VENV/bin/pip" install torch --index-url "$IDX" || "$VENV/bin/pip" install torch
-  "$VENV/bin/pip" install "transformers>=4.36" sentencepiece protobuf numpy
+  # transformers below 5.10 carries known vulnerabilities (osv.dev, 2026-10-05); the floor
+  # keeps a fresh venv off them even when pip finds an older wheel in its cache.
+  "$VENV/bin/pip" install "transformers>=5.10" sentencepiece protobuf numpy
 fi
 
 SERVER=""

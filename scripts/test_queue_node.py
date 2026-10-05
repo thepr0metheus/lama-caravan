@@ -58,9 +58,9 @@ def test_validation():
     check(n["type"] == "queue", "queue node survives validation")
     check(c["admitEdge"] == "ea" and c["spillEdge"] == "es", "admit/spill edges kept")
     check(c["maxSlots"] == 4, "maxSlots kept")
-    check(c["abortPct"] == 90 and c["spillPct"] == 30, "pcts kept")
+    check(c["abortPct"] == 90 and "spillPct" not in c, "abort kept, shared spill removed from node")
     check("preemptPct" not in c and "preemptEnabled" not in c, "no preempt/crown fields on queue node")
-    check(c["stickySlotSec"] == 5 and c["keepaliveSec"] == 20, "timers kept")
+    check("stickySlotSec" not in c and c["keepaliveSec"] == 20, "keepalive kept, shared reserve removed from node")
 
     # Defaults + clamping + bad edge refs dropped.
     g2 = app.normalize_router_graph({
@@ -73,9 +73,9 @@ def test_validation():
     c2 = g2["nodes"][0]["config"]
     check(c2["admitEdge"] == "", "invalid admit edge dropped")
     check(c2["maxSlots"] is None, "bad maxSlots → None (auto)")
-    check(c2["abortPct"] == 100 and c2["spillPct"] == 0, "pcts clamped to [.,100]/[0,.]")
+    check(c2["abortPct"] == 100 and "spillPct" not in c2, "abort clamped; shared spill has no node override")
     check(c2["keepaliveSec"] == 5, "keepaliveSec clamped to min 5")
-    check(c2["stickySlotSec"] == 20, "stickySlotSec defaults to 20")
+    check("stickySlotSec" not in c2 and "loadingModelWaitSec" not in c2, "shared settings absent from node config")
 
 
 # ── helpers to build a router fixture ────────────────────────────────────────
@@ -193,7 +193,7 @@ def test_spec_fallback():
     check(s["abortPct"] == 70, "explicit abortPct wins")
     check(s["spillPct"] == 33, "spillPct falls back to policy.cloudFallbackPct")
     check(s["keepaliveSec"] == 12, "keepalive from policy")
-    check(s["stickySlotSec"] == 20, "stickySlotSec defaults to 20")
+    check(s["stickySlotSec"] == 0, "unset shared reserve stays disabled")
     check("preemptPct" not in s and "preemptEnabled" not in s, "no preempt/crown in spec")
     check(s["maxSlots"] is None, "unset maxSlots → None (auto)")
 

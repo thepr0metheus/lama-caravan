@@ -784,10 +784,6 @@ button.topology-detail-action.danger:focus {
   opacity: 0.9;
 }
 
-.topology-cloud-head {
-  margin-top: 16px;
-}
-
 .cloud-picker-modal {
   width: 500px;
   max-width: 96vw;
@@ -875,9 +871,180 @@ button.topology-detail-action.danger:focus {
 }
 
 .cloud-account-card {
+  --pool-border: color-mix(in srgb, var(--accent, #46bba6) 30%, transparent);
   padding: 0;
   overflow: visible;
 }
+
+/* ── The subscription pool card: a priority ladder ──
+   The card owns its top: the pool's icon, its name — the title itself, edited where it stands —
+   and the last decision under it, with the mode switch at the right. Below, the members in
+   priority order, one numbered rung each, joined by a spine; the rung that serves is ringed in
+   the accent and its number filled. A rung shows its two limit bars, one under the other; what
+   is touched rarely opens under its head. Sizes are the cloud lane's own — names 0.88–1rem,
+   notes 11–12px, controls 20–28px — not the global form and modal ones (input/select 42px,
+   button 34px, checkbox 22px in the browser's blue), which made every control the biggest
+   thing on the card. `.ghost-action` is also the modals' ordinary button, so its compact size
+   is set here, for the card's own buttons only. */
+.subscription-pool { --pool-hair: color-mix(in srgb, var(--line) 70%, transparent); padding: 14px 16px 16px; font-size: 12px; }
+/* The icon takes the rank circles' column and the title the rungs' left edge: one axis down the card. */
+.pool-top { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px 14px; }
+.pool-top > .cloud-account-icon { box-sizing: border-box; width: 28px; height: 28px; padding: 5px; }
+.pool-ident { flex: 1 1 240px; min-width: 0; }
+.pool-name { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; }
+.pool-name-input {
+  width: auto; max-width: 100%; height: 28px; min-height: 0; margin: 0 0 0 -7px; padding: 0 6px;
+  border: 1px solid transparent; border-radius: 7px; background: transparent;
+  color: var(--text); font: inherit; font-size: 1rem; font-weight: 650; text-overflow: ellipsis;
+  field-sizing: content;
+}
+.pool-name-input:hover { border-color: var(--pool-hair); }
+.pool-name-input:focus { outline: none; border-color: var(--accent); background: var(--field); }
+.pool-name-pen { color: var(--muted); font-size: 12px; opacity: 0; transition: opacity .15s; }
+.pool-name:hover .pool-name-pen, .pool-name:focus-within .pool-name-pen { opacity: .9; }
+.pool-last { margin-top: 1px; color: var(--muted); }
+.pool-last strong { color: var(--text); font-weight: 600; }
+.pool-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px 12px; margin-left: auto; }
+.pool-until { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 11px; }
+/* The card's two lists: the global `select` is 42px with a white border, the loudest thing around. */
+.pool-until select, .subscription-pool .pool-add > select {
+  width: auto; max-width: 100%; height: 28px; min-height: 0; padding: 0 26px 0 10px; border: 1px solid var(--line); border-radius: 7px;
+  background-color: color-mix(in srgb, var(--field) 84%, transparent); color: var(--text); font-size: 12px; cursor: pointer;
+}
+.pool-until select:hover, .subscription-pool .pool-add > select:hover { border-color: color-mix(in srgb, var(--accent) 68%, var(--line)); }
+.pool-until select:focus-visible, .subscription-pool .pool-add > select:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 1px; }
+.subscription-pool .pool-add > select { height: 34px; border-radius: 10px; }
+.pool-modes { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--pool-hair); border-radius: 9px; background: color-mix(in srgb, var(--field) 70%, transparent); }
+.pool-mode { min-height: 0; height: 24px; padding: 0 12px; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 12px; font-weight: 500; white-space: nowrap; cursor: pointer; }
+.pool-mode:hover:not(.on) { color: var(--text); }
+.pool-mode.on { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--accent-strong); }
+/* Every yes/no on the card is a small switch, not the browser's 22px blue box. */
+.pool-check { display: inline-flex; flex-direction: row; gap: 8px; align-items: center; font-size: 12px; color: var(--text); cursor: pointer; }
+.subscription-pool input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none; position: relative; flex: none; width: 26px; height: 15px; min-height: 0; margin: 0; padding: 0;
+  border: 0; border-radius: 999px; background: color-mix(in srgb, var(--muted) 38%, transparent); cursor: pointer; transition: background .15s;
+}
+.subscription-pool input[type="checkbox"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.subscription-pool input[type="checkbox"]:checked { background: var(--accent); }
+.subscription-pool input[type="checkbox"]:checked::after { transform: translateX(11px); }
+.subscription-pool input[type="checkbox"]:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; }
+.subscription-pool input[type="checkbox"]:disabled { opacity: .5; cursor: default; }
+/* The rungs. The spine runs between the numbers: from the first rung's number to the last one's. */
+.pool-ladder { list-style: none; margin: 16px 0 0; padding: 0; }
+.pool-rung { position: relative; padding-left: 42px; }
+.pool-rung::before { content: ""; position: absolute; left: 13px; top: 0; bottom: 0; width: 2px; background: color-mix(in srgb, var(--muted) 34%, transparent); }
+.pool-rung:first-child::before { top: 26px; }
+.pool-rung:last-child::before { bottom: auto; height: 26px; }
+.pool-rung:only-child::before { display: none; }
+.pool-step { position: relative; padding: 12px 14px 14px; border: 1px solid var(--pool-hair); border-radius: 10px; background: color-mix(in srgb, var(--field) 42%, transparent); }
+.pool-step.serving { border-color: color-mix(in srgb, var(--accent) 78%, transparent); background: color-mix(in srgb, var(--accent) 7%, var(--field)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 13%, transparent); }
+.pool-step.off .pool-step-name { color: var(--muted); }
+.pool-step.missing { padding: 10px 14px; border-style: dashed; color: var(--muted); }
+.pool-step.dragging { opacity: .45; }
+.pool-step.drop-before { box-shadow: 0 -2px 0 var(--accent); }
+.pool-step.drop-after { box-shadow: 0 2px 0 var(--accent); }
+.pool-rank {
+  position: absolute; left: -42px; top: 12px; width: 28px; height: 28px; box-sizing: border-box;
+  display: grid; place-items: center; border-radius: 50%; font-size: 12px; font-weight: 600;
+  background: var(--panel); border: 1.5px solid color-mix(in srgb, var(--muted) 55%, transparent); color: var(--muted);
+}
+.pool-step.serving .pool-rank { background: var(--accent); border-color: var(--accent); color: #fff; }
+.pool-step.missing .pool-rank { top: 6px; border-style: dashed; }
+/* A rung's head: the grip, who it is (name, state, mailbox), and what it says and does at the right. */
+.pool-step-head { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
+.pool-grip { flex: none; margin-top: 3px; cursor: grab; color: var(--muted); opacity: .55; line-height: 1; user-select: none; }
+.pool-grip:hover { color: var(--accent); opacity: 1; }
+.pool-step-id { flex: 1 1 0; min-width: 0; }
+.pool-step-title { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: 22px; }
+.pool-step-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.92rem; font-weight: 600; }
+.pool-step-mail { display: block; margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--muted); }
+.pool-step-tools { flex: none; display: flex; align-items: center; gap: 4px; min-height: 22px; }
+.pool-step-tools .icon-action { border-color: transparent; background: transparent; }
+.pool-step-tools .icon-action:hover:not(:disabled) { border-color: color-mix(in srgb, var(--accent) 68%, var(--line)); background: color-mix(in srgb, var(--accent) 13%, var(--field)); }
+.pool-step-meta { display: inline-flex; align-items: center; gap: 10px; margin-right: 4px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The number of saved resets is a button — it opens the window that asks which one to spend — and looks like
+   one: a chip. The refresh icon beside it is a bare icon, and only reads. */
+.pool-resets { display: inline-flex; align-items: center; gap: 4px; min-height: 0; height: 22px; padding: 0 9px; border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); border-radius: 999px; background: color-mix(in srgb, var(--accent) 9%, transparent); color: var(--accent-strong); font: inherit; font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; cursor: pointer; }
+.pool-resets:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.pool-resets:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; }
+.pool-resets.none { border-style: dashed; border-color: var(--pool-hair); background: none; color: var(--muted); font-weight: 400; cursor: default; }
+.pool-warn { color: #d9a441; cursor: help; }
+.pool-status { display: inline-flex; align-items: center; gap: 5px; flex: none; padding: 1px 9px 1px 7px; border-radius: 999px; font-size: 11px; font-weight: 500; white-space: nowrap; background: color-mix(in srgb, var(--muted) 15%, transparent); color: var(--muted); }
+.pool-status::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--dot, currentColor); }
+.pool-status.serving { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent-strong); }
+.pool-status.ready { --dot: var(--good); }
+.pool-status.reserve, .pool-status.login { background: color-mix(in srgb, #d9a441 20%, transparent); color: #d9a441; }
+.pool-status.off::before, .pool-status.unknown::before { background: none; box-shadow: inset 0 0 0 1.5px currentColor; }
+.pool-test { color: #f6b45e; border: 1px dashed currentColor; border-radius: 4px; padding: 1px 5px; font-size: 10px; }
+.pool-step-tools .icon-action svg { width: 12px; height: 12px; }
+/* The fold holds the saved resets and the spend: its chevron is drawn, not a 12px glyph that vanished at the edge. */
+.pool-fold { color: color-mix(in srgb, var(--text) 80%, var(--muted)); }
+.pool-fold::before { content: ""; width: 6px; height: 6px; border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform .15s; }
+.pool-step.open .pool-fold::before { transform: translateY(2px) rotate(-135deg); }
+/* The limit bars, one under the other. A bar's line reads: the window, what the operator keeps of it,
+   then — at the right — when it resets and what is left; the bar itself under it, across the row. */
+.pool-step > .sub-usage-panel { gap: 14px; margin-top: 12px; padding: 12px 0 0; border-top: 1px solid var(--pool-hair); }
+.pool-step .sub-usage-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: baseline; gap: 7px 8px; }
+.pool-step .sub-usage-meta { display: contents; }
+.pool-step .sub-usage-label { grid-area: 1 / 1; }
+.pool-step .sub-usage-reserve-mark { grid-area: 1 / 2; margin: 0; }
+.pool-step .sub-usage-resets { grid-area: 1 / 3; justify-self: end; font-size: 11px; }
+.pool-step .sub-usage-pct { grid-area: 1 / 4; min-width: 3ch; text-align: right; font-size: 12px; }
+.pool-step .sub-usage-track { grid-area: 2 / 1 / 3 / -1; }
+.pool-step .sub-usage-bar { height: 6px; border-radius: 3px; }
+.pool-step .sub-usage-bar i { border-radius: 3px; }
+/* What is touched rarely, under the head. */
+.pool-step-more { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--pool-hair); }
+.pool-step.open .pool-step-more { display: block; }
+.pool-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 0 0 2px; }
+.pool-actions [data-pool-move="-1"] { margin-left: auto; }
+.pool-step-more .muted { font-size: 11px; }
+.pool-step-more .spend-panel { padding: 6px 0 0; border-top: 0; }
+/* "Next when this one reaches its reserve or limit", on the spine between two rungs. */
+.pool-link { position: relative; display: flex; align-items: center; min-height: 28px; padding: 4px 0; font-size: 11px; color: var(--muted); }
+.pool-link > span { position: absolute; left: -35px; width: 14px; padding: 1px 0; text-align: center; line-height: 1; background: var(--panel); }
+/* Under the ladder: the pool's one policy, and the way to add a rung. */
+.pool-foot { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; margin: 14px 0 0 42px; }
+.pool-loop { color: var(--muted); }
+.pool-loop > span { color: var(--accent); font-size: 14px; line-height: 1; }
+.pool-add { display: flex; flex-wrap: wrap; align-self: stretch; gap: 8px; }
+.pool-add > .ghost-action[data-pool-connect] { flex: 1 1 200px; min-width: 0; height: 34px; border-radius: 10px; overflow: hidden; text-overflow: ellipsis; }
+.subscription-pool .ghost-action, .subscription-resets .ghost-action, .pool-actions .ghost-action {
+  min-height: 0; height: 26px; padding: 0 12px; border-radius: 7px; white-space: nowrap;
+  border: 1px solid var(--line); background: color-mix(in srgb, var(--field) 84%, transparent);
+  color: var(--text); font-size: 12px; font-weight: 500; line-height: 1;
+}
+.subscription-pool .ghost-action:hover:not(:disabled), .subscription-resets .ghost-action:hover:not(:disabled),
+.pool-actions .ghost-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--accent) 68%, var(--line)); color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--field));
+}
+.subscription-pool .ghost-action.selected { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--field)); }
+.subscription-pool .ghost-action:disabled, .subscription-resets .ghost-action:disabled { opacity: .45; cursor: default; }
+/* "＋ Connect another subscription" asks for something new: dashed and quiet, an empty place on the ladder. */
+.subscription-pool .pool-add > .ghost-action[data-pool-connect] { background: none; color: var(--muted); border: 1px dashed color-mix(in srgb, var(--muted) 50%, transparent); }
+.subscription-pool .pool-add > .ghost-action[data-pool-connect]:hover { border-color: var(--accent); color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.subscription-resets { padding: 8px 0 4px; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+/* Beside the usage panels of a card that is no pool member the card's own edge is 0: they take its 12px. */
+.cloud-account-card > .pool-actions { padding: 8px 12px 10px; }
+.cloud-account-card > .subscription-resets { padding: 8px 12px 6px; }
+.pool-step-more .subscription-resets { border-top: 0; }
+.reset-head, .reset-credit { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.reset-head strong, .reset-credit strong { font-size: 12px; font-weight: 600; }
+.reset-credit { padding: 6px 0; }
+.reset-credit small { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.reset-credit .ghost-action { flex-shrink: 0; }
+.pool-history { align-self: stretch; font-size: 12px; }
+.pool-history > summary { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); cursor: pointer; list-style: none; }
+.pool-history > summary::-webkit-details-marker { display: none; }
+.pool-history > summary::before { content: ""; border: solid transparent; border-width: 4px 0 4px 6px; border-left-color: currentColor; transition: transform .15s; }
+.pool-history[open] > summary::before { transform: rotate(90deg); }
+.pool-history > summary:hover { color: var(--text); }
+.pool-event { padding: 7px 0; border-bottom: 1px solid var(--pool-hair); }
+.pool-event:last-child { border-bottom: 0; }
+.pool-event time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.pool-event small { display: block; color: var(--muted, #9cabb2); }
+@media (prefers-reduced-motion: reduce) { .subscription-pool *, .subscription-pool *::after, .subscription-pool *::before { transition: none; } }
 
 .cloud-account-head {
   display: flex;

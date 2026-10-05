@@ -196,6 +196,7 @@
 .fr-switch:hover:not(:disabled) { border-color: var(--cell-accent); }
 .fr-switch:focus-visible { outline: 2px solid var(--accent-strong); outline-offset: 2px; }
 .fr-switch:disabled { opacity: .45; cursor: not-allowed; }
+.fr-switch[aria-busy="true"] { opacity: 1; display: grid; place-items: center; }
 /* Generating right now: the switch breathes — the line's own word for "busy". */
 .cell-row.busy .fr-switch { animation: fold-breathe 1.4s ease-in-out infinite; }
 .fr-port { flex-shrink: 0; font: 500 11.5px/1 ui-monospace, "SF Mono", Menlo, monospace; color: var(--muted); }

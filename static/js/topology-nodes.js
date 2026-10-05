@@ -13,6 +13,7 @@ import {
   topologyModelIcon,
 } from "./model-meta.js";
 import { formatCtxTokens, formatTps } from "./polling.js";
+import { SERVER_ORDER, ServerOrder } from "./server-order.js";
 import {
   _deletingSlots,
   _newReservedCells,
@@ -33,7 +34,7 @@ import {
 } from "./topology-activity.js";
 import { topologyServerUpstreamHost } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
-import { runnerRegistry } from "./llama-edit.js";
+import { runnerRegistry, usesLlamaConfig } from "./llama-edit.js";
 import { JOB_LABELS, JOB_MARKS, jobsForCell, jobsFromKinds } from "./model-jobs.js";
 import { $, api, copyText, escapeHtml, inferSpecType, toast } from "./utils.js";
 
@@ -69,23 +70,35 @@ const JOB_HOOKS = { llm: "cell-job-llm", embed: "cell-job-embed", asr: "cell-job
                     translate: "cell-job-translate",
                     "speech-translate": "cell-job-speech-translate" };
 
-// What the cell DOES, beside the chip that says what RUNS it.
+// The runner that launches a cell: its RUNNER, a command cell's "custom", or
+// llama-server. One rule for the cell card, its detail window and the kanban's
+// rows — the card and the window each held a copy, written differently.
+export function cellRunnerId(cfg) {
+  const c = cfg || {};
+  return String(c.RUNNER || "").trim().toLowerCase()
+    || (String(c.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server");
+}
+
+// What a cell DOES, from its record — the card's job chips and the kanban's
+// row marks read this one list.
 //
 // The live `kinds` outrank the runner table, which is the only way a TTS cell
 // can be named as one: voice cloning runs as a typed command, so its runner is
 // "custom" and the table knows nothing about it. A cell whose job cannot be
-// named draws no chip rather than a guessed one.
-function jobChipsHtml(runnerId, cellMeta, cfg) {
+// named has none rather than a guessed one.
+export function cellJobs(runnerId, cellMeta, cfg) {
   // An embedding server answers /v1/embeddings and returns vectors; llama.cpp
   // cannot serve chat from the same instance. The runner is still llama-server,
   // so the runner table alone called it a chat model — and a live
   // Qwen3-Embedding cell wore "💬 LLM" on the board until this branch existed.
   const embeds = String((cfg || {}).ENABLE_EMBEDDINGS || "").trim().toLowerCase();
-  if (embeds && !["", "0", "no", "false", "off"].includes(embeds)) {
-    return `<span class="mbadge mbadge-job node-job-chip" data-t="cell-job-embed">${
-      JOB_MARKS.embed} ${escapeHtml(t(JOB_LABELS.embed))}</span>`;
-  }
-  return jobsForCell(runnerId, (cellMeta || {}).kinds || []).map((job) => {
+  if (embeds && !["", "0", "no", "false", "off"].includes(embeds)) return ["embed"];
+  return jobsForCell(runnerId, (cellMeta || {}).kinds || []);
+}
+
+// What the cell DOES, beside the chip that says what RUNS it.
+function jobChipsHtml(runnerId, cellMeta, cfg) {
+  return cellJobs(runnerId, cellMeta, cfg).map((job) => {
     const key = JOB_LABELS[job];
     if (!key) return "";
     return `<span class="mbadge mbadge-job node-job-chip" data-t="${JOB_HOOKS[job]}">${
@@ -738,6 +751,9 @@ export function classifyLlamaError(raw) {
   if (!raw) return { friendly: t("llamaErrUnknown"), hint: t("llamaErrUnknownHint"), raw: "" };
   if (SCOUT_EXIT_WORDS.test(raw)) return { friendly: t("llamaErrUnknown"), hint: t("llamaErrUnknownHint"), raw };
   const r = raw.toLowerCase();
+  if (r.includes("invalid ggml type") || r.includes("unsupported quantization")) {
+    return { friendly: t("llamaErrUnsupportedQuant"), hint: t("llamaErrUnsupportedQuantHint"), raw };
+  }
   // Corrupted / incomplete file
   if (r.includes("not within the file bounds") || r.includes("corrupted or incomplete") || r.includes("unexpected end of file")) {
     return { friendly: t("llamaErrCorrupted"), hint: t("llamaErrCorruptedHint"), raw };
@@ -974,7 +990,7 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   // allow-list of token cells is the safe direction: a runner added later gets
   // no window chip until someone decides it has one, instead of silently
   // inheriting a precise, fictional "🪟 100k".
-  const _runner = String(_scfg.RUNNER || (String(_scfg.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server")).toLowerCase();
+  const _runner = cellRunnerId(_scfg);
   // The allow-list moved to the runner classes on the controller and arrives
   // in state.runners; keeping a copy here is how the two came to disagree.
   const _isTokenCell = !_runner
@@ -1158,7 +1174,7 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   // models have no GPU build), so it deliberately stays OUT of
   // runnerDefaultsGpu AND counts as a CPU cell even without a TTS_DEVICE=cpu
   // pin; a bare custom command resolves its device at start (VRAM probe) → "auto".
-  const runnerDefaultsGpu = _runner === "llama-server" || _runner === "vllm" || _runner === "whisper"
+  const runnerDefaultsGpu = usesLlamaConfig(_runner) || _runner === "vllm" || _runner === "whisper"
     || _runner === "transcribe";
   const runnerCpuOnly = _runner === "moonshine";
   const isCpuCell = !engineRunner && ((running && !devGpuTxt && !cfgSaysGpu)
@@ -1426,6 +1442,10 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
   // How settled the cell is, once — the fold and the machine's eye both ask.
   const settle = {
     phase,
+    motion: isStopping || isCtlStopping || phase === "stopping" ? "stop"
+      : (hasPendingStart || phase === "starting") && !isDownloading && !isWarming ? "start" : "",
+    deleting: isDeleting,
+    failed: isError || isBroken,
     transient: isDeleting || isStopping || isCtlStopping || !!pendingCellAction || !!statusRow,
     crashed: !!crash,
     unreachable: running && s.reachable === false,
@@ -1444,14 +1464,15 @@ export function nodeServerCardHtml(node, s, { fold = false, only = "" } = {}) {
     return `<span hidden data-cell-hidden="${escapeHtml(slotKey)}" data-cell-hidden-port="${escapeHtml(String(port))}"`
       + ` data-cell-hidden-by="${hiddenBy}"></span>`;
   }
-  const foldMode = fold ? CARD_FOLD.mode("cells", slotKey, CardFold.cellQuiet(settle)) : "full";
+  const foldMode = fold ? CARD_FOLD.mode("cells", slotKey, CardFold.cellFoldable(settle)) : "full";
   if (foldMode === "full") return cardHtml(anchorHtml);
   const row = new CellRow({
     key: slotKey, port, name: shownName, title: s.model ? (s.modelPath || s.model) : shownName,
     state: running ? "running" : (isReserved ? "reserved" : "parked"),
     cpu: isCpuCell, engine: engineRunner ? engineRunner.id : "", chip: memBadge || deviceChip,
     launch: canPlay ? launchAttrs : "",
-    stop: canStop ? stopAttrs : "", why: running ? stopTitle : playTitle,
+    stop: canStop ? stopAttrs : "", why: settle.motion === "stop" ? t("nodeStoppingTitle") : settle.motion === "start" ? t("topologyRemoteStarting") : running ? stopTitle : playTitle,
+    motion: settle.motion,
     warn: !!(staleSrcChip || staleModelChip || diskNewerChip),
     tps: running && Number(s.genTps || 0) > 0 ? `${formatTps(s.genTps)} t/s` : "",
     busy: running && Number(s.genTps || 0) > 0, anchor: anchorHtml,
@@ -1493,11 +1514,10 @@ export function openNodeServerDetail(nodeId, port) {
   // 100000 --spec-type draft-mtp`, a command it has never run, plus a 🪟 100k
   // window for a translator that has no context window. Confidently wrong, and
   // nothing about it looked broken.
-  const _runnerId = String(_scfg.RUNNER || "").trim().toLowerCase()
-    || (String(_scfg.CELL_KIND || "").toLowerCase() === "command" ? "custom" : "llama-server");
+  const _runnerId = cellRunnerId(_scfg);
   const _runnerRow = runnerRegistry().find((r) => r.id === _runnerId) || null;
   const isCmd = _runnerId === "custom";
-  const isLlama = _runnerId === "llama-server";
+  const isLlama = usesLlamaConfig(_runnerId);
   // CTX_SIZE is inherited by every cell config, including the ones that will
   // never read it. Only a runner that says its work is measured in tokens gets
   // the chip; an unknown runner says nothing, so it gets none.
@@ -1570,7 +1590,9 @@ export function openNodeServerDetail(nodeId, port) {
     if (!Object.keys(cfg).length) return "";
     const tokens = [];
     const add = (flag, val) => { if (val != null && String(val).trim() !== "") tokens.push(flag, String(val).trim()); };
-    const llamaBin = state?.paths?.llamaHome ? `${state.paths.llamaHome}/build/bin/llama-server` : null;
+    const llamaBin = _runnerId === "prism"
+      ? (node.prismRuntime?.binary || "~/.local/share/caravan/prismml/current/llama-server")
+      : (state?.paths?.llamaHome ? `${state.paths.llamaHome}/build/bin/llama-server` : null);
     if (llamaBin) tokens.push(llamaBin);
     add("--host", cfg.HOST);
     add("--port", cfg.PORT);
@@ -1661,6 +1683,9 @@ export function openNodeServerDetail(nodeId, port) {
             : row("Model", escapeHtml(parsed.label || s.model || ""))}
           ${(!isLlama && !isCmd && _runnerRow)
             ? row("Runner", `${mbadge("cmd", `${_runnerRow.icon || ""} ${t(_runnerRow.labelKey) || _runnerRow.id}`)}${_runnerRow.health ? mbadge("cmd", `❤ ${_runnerRow.health}`) : ""}`)
+            : ""}
+          ${_runnerId === "prism" && node.prismRuntime?.installed
+            ? row("PrismML", `<code>${escapeHtml(node.prismRuntime.release || "")} · ${escapeHtml(node.prismRuntime.binary || "")}</code>`)
             : ""}
           ${isCmd
             ? (row("Health", _scfg.HEALTH_PATH ? `<code>${escapeHtml(_scfg.HEALTH_PATH)}</code>` : "") + row("Workdir", _scfg.WORKDIR ? `<code>${escapeHtml(_scfg.WORKDIR)}</code>` : ""))
@@ -1905,10 +1930,14 @@ export function nodesLaneHtml() {
     const _roleWord = n.role === "host" ? t("nodeRoleHost") : String(n.role || "");
     const _groupName = `${_roleWord.charAt(0).toUpperCase()}${_roleWord.slice(1)} ${n.name || n.id}`
       + (n.ip ? ` · ${n.ip}` : "");
+    // One card of the list under Model servers, among the cloud's: its place is the
+    // operator's (server-order.js), and the controls that move it lead its head.
+    const orderKey = ServerOrder.key("node", n.id);
     return `
-      <section class="node-card ${n.online ? "online" : "offline"} ${collapsed ? "collapsed" : ""}" data-node-id="${escapeHtml(n.id)}"
+      <section class="node-card ${n.online ? "online" : "offline"} ${collapsed ? "collapsed" : ""}" data-node-id="${escapeHtml(n.id)}"${SERVER_ORDER.attrs(orderKey)}
                role="group" aria-label="${escapeHtml(_groupName)}">
         <header class="node-head">
+          ${SERVER_ORDER.controls(orderKey, n.name || n.id)}
           <button class="node-collapse" type="button" data-node-collapse="${escapeHtml(n.id)}" title="${escapeHtml(collapsed ? t("expand") : t("collapse"))}" aria-expanded="${collapsed ? "false" : "true"}">${collapsed ? "▸" : "▾"}</button>
           <span class="node-dot ${n.online ? "on" : "off"}"></span>
           <strong>${escapeHtml(n.name || n.id)}</strong>
@@ -2000,4 +2029,3 @@ export function closeIncidentsModal() {
 // second editor for what /models edits, with the stores next to it. What stays
 // is the way to each page: what is on the disks, and what can be downloaded.
 // Both open in a new tab — the board keeps running where it was.
-

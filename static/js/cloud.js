@@ -1,4 +1,7 @@
 // Cloud provider accounts/blocks modals and OAuth login flow.
+import { SubscriptionPoolCards } from "./cloud-pools.js";
+import { SERVER_ORDER, ServerOrder } from "./server-order.js";
+import { SubscriptionResetCards } from "./subscription-resets.js";
 import { GoneModelCables, NewModelAnnouncer, PortCloser, ProviderModels } from "./cloud-models.js";
 import { badge, option } from "./form.js";
 import { t } from "./i18n.js";
@@ -22,6 +25,8 @@ import {
   refreshUsageReading,
   reserveDrag,
   saveUsageReserve,
+  spendCost,
+  subscriptionRefreshHtml,
   subscriptionUsageCache,
   subscriptionUsageHtml,
   upstreamErrFetchedAt,
@@ -68,6 +73,9 @@ export const MODEL_LIST_ASKS = new ModelListAsks();
 // in bindTopologyDragAndDrop, which runs on every full render and bound it to
 // this permanent container again each time: after K renders one ↻ asked the
 // provider K times.
+const POOL_CARDS = new SubscriptionPoolCards({ apply: (top) => { setTopology(top); ui._lastCloudProvidersKey = ""; renderTopology(); }, connect: (id) => selectCloudProviderType("openai-subscription", id) });
+const RESET_CARDS = new SubscriptionResetCards({ redraw: () => { ui._lastCloudProvidersKey = ""; renderTopologyCloudProviders(); }, refreshed: (id) => refreshUsageReading("subscription", id) });
+
 const USAGE_REFRESH_BUTTONS = [
   ["data-usage-refresh", "usageRefresh", "subscription"],
   ["data-api-costs-refresh", "apiCostsRefresh", "apiCosts"],
@@ -91,11 +99,16 @@ function bindCloudCardDelegates(cpEl) {
     const slider = e.target.closest("[data-usage-reserve]");
     if (slider) previewUsageReserve(slider);
   });
-  cpEl.addEventListener("change", (e) => {
+  // A pool's rung is dragged by its grip: the pool card reads the drag, the lane only passes it on.
+  for (const type of ["dragstart", "dragover", "drop", "dragend"]) cpEl.addEventListener(type, (e) => { POOL_CARDS.gesture(e); });
+  cpEl.addEventListener("change", async (e) => {
+    if (await POOL_CARDS.handle(e)) return;
     const slider = e.target.closest("[data-usage-reserve]");
     if (slider) saveUsageReserve(slider);
   });
   cpEl.addEventListener("click", async (e) => {
+    if (await RESET_CARDS.handle(e, topology?.cloudAccounts || [])) return;
+    if (await POOL_CARDS.handle(e)) return;
     for (const [attr, dataKey, kind] of USAGE_REFRESH_BUTTONS) {
       const btn = e.target.closest(`[${attr}]`);
       if (!btn) continue;
@@ -234,33 +247,56 @@ export function renderTopologyCloudProviders() {
   // Endpoint-health panel (breaker trips / retries / codex version) re-renders too.
   const healthKey = JSON.stringify(topology?.cloudApiHealth || {});
   // The mint button shows the port the next bridge will get — its change must re-render.
-  const key = JSON.stringify(accounts) + JSON.stringify(blocks) + usageKeys + pricingKey
+  const key = JSON.stringify(topology?.cloudPoolsRuntime || {}) + JSON.stringify(accounts) + JSON.stringify(blocks) + usageKeys + pricingKey
     + `:ps${proxySpendFetchedAt}:br${bridgesKey}:np${topology?.nextAppPort ?? ""}:ml${modelsKey}:ah${healthKey}:ue${upstreamErrFetchedAt}`;
   if (key === ui._lastCloudProvidersKey) return;
   if (reserveDrag.active) {
     reserveDrag.deferred = true;   // redrawn when the pointer lets go
     return;
   }
+  if (typeof document !== "undefined" && document.activeElement?.matches?.('[data-pool-field="name"]')) return;
+  if (POOL_CARDS.inFlight()) return;   // a pool's rung is being dragged: the next tick draws what changed
   ui._lastCloudProvidersKey = key;
-  const addCloudBtn = `<button class="topology-add-wide-btn" type="button" data-topo-add-cloud>${escapeHtml(t("clAddProvider"))}</button>`;
   const cpEl = $("topologyCloudProviders");
   if (!cpEl) return;
   bindCloudCardDelegates(cpEl);
   if (!accounts.length) {
-    cpEl.innerHTML = `<article class="topology-card"><div class="topology-muted">${escapeHtml(t("topologyCloudNoProviders"))}</div></article>${addCloudBtn}`;
+    // "click + to add one": the + is in the head of Model servers (index.html), the lane's main action.
+    cpEl.innerHTML = `<article class="topology-card"><div class="topology-muted">${escapeHtml(t("topologyCloudNoProviders"))}</div></article>`;
+    SERVER_ORDER.apply();   // the last card of the list may be a machine now
     return;
   }
-  cpEl.innerHTML = accounts.map((acct) => {
+  POOL_CARDS.accounts = accounts;
+  POOL_CARDS.runtime = topology?.cloudPoolsRuntime || {};
+  // What each rung of a pool shows: the limit bars always; the saved resets and the spend under its
+  // head; and, in the head, only the numbers — how many resets (null while unread), what it cost.
+  const accountOf = (id) => accounts.find((a) => a.id === id) || { id };
+  POOL_CARDS.limits = (id) => { fetchSubscriptionUsage(id); return subscriptionUsageHtml(id, { refresh: false }); };
+  POOL_CARDS.refresh = (id) => subscriptionRefreshHtml(id);
+  POOL_CARDS.resets = (id) => RESET_CARDS.html(accountOf(id));
+  POOL_CARDS.chooseReset = (id) => RESET_CARDS.choose(accountOf(id));
+  // Resets belong to the credential (a TEST member shows its original's); the spend to the account itself.
+  POOL_CARDS.summary = (owner, id) => {
+    const spend = proxySpendOf(id);
+    return { resets: RESET_CARDS.count(accountOf(owner)), pending: RESET_CARDS.pending(accountOf(owner)), cost: spend?.total ? spendCost(spend) : "" };
+  };
+  POOL_CARDS.spend = (id) => proxySpendHtml(id, { subscription: true });
+  cpEl.innerHTML = accounts.filter((a) => SubscriptionPoolCards.cardOf(accounts, a.id) === a.id).map((acct) => {
     const isSubscription = isSubscriptionAccount(acct);
     const credLine = acct.hasCredential
       ? (acct.credentialKind === "noKey"
           ? "no auth"
           : acct.credentialKind === "oauth"
-              ? (isSubscription ? "ChatGPT Plus" : `OAuth${acct.oauthEmail ? ` · ${escapeHtml(acct.oauthEmail)}` : ""}`)
+              ? (isSubscription ? `ChatGPT${acct.oauthEmail ? ` · ${acct.oauthEmail}` : ""}` : `OAuth${acct.oauthEmail ? ` · ${acct.oauthEmail}` : ""}`)
               : t("topologyCloudKeySet", { last4: acct.keyLast4 || "" }))
       : t("topologyCloudNeedsKey");
     const iconType = isSubscription ? "openai-subscription" : (acct.type || "");
     const meta = CLOUD_PICKER_META[iconType] || CLOUD_PICKER_META[acct.type || ""] || {};
+    const iconHtml = `<span class="cloud-account-icon" style="color:${escapeHtml(meta.color || "#94a3b8")}">${cloudPickerTileIcon(iconType)}</span>`;
+    // One card of the list under Model servers, among the machines: its place is the
+    // operator's (server-order.js), and the controls that move it lead its head, before the icon.
+    const orderKey = ServerOrder.key("cloud", acct.id);
+    const orderHtml = SERVER_ORDER.controls(orderKey, acct.name || acct.id);
     // Usage/spend panel (fetched async). Subscription → ChatGPT Plus limits/credits;
     // OpenRouter → key limits via /auth/key; API accounts → official spend via Costs API.
     const isOpenRouter = acct.type === "openrouter" || String(acct.baseUrl || "").includes("openrouter.ai");
@@ -269,14 +305,16 @@ export function renderTopologyCloudProviders() {
     // don't fire it; the local proxy spend-meter below covers them.
     const hasCostsApi = acct.type === "openai" || String(acct.baseUrl || "").includes("api.openai.com");
     let usagePanel = "";
-    if (acct.hasCredential) {
+    if (acct.hasCredential && !acct.isPool) {
       if (isSubscription) { fetchSubscriptionUsage(acct.id); usagePanel = subscriptionUsageHtml(acct.id); }
       else if (isOpenRouter) { fetchOpenRouterLimits(acct.id); usagePanel = openRouterLimitsHtml(acct.id); }
       else if (hasCostsApi) { fetchApiCosts(acct.id); usagePanel = apiCostsHtml(acct.id); }
     }
     // Local proxy spend-meter (our token counts × pricing) — for every cloud account.
     fetchProxySpend();
-    usagePanel += proxySpendHtml(acct.id, { subscription: isSubscription });
+    if (!acct.isPool) usagePanel += proxySpendHtml(acct.id, { subscription: isSubscription });
+    usagePanel += POOL_CARDS.controls(acct, `${orderHtml}${iconHtml}`);
+    if (SubscriptionPoolCards.subscription(acct)) usagePanel += RESET_CARDS.html(acct);
     // Tripped upstream endpoints (breaker).
     usagePanel += cloudApiIssuesHtml(acct, isSubscription);
     // Data-plane cloud failures over 24h (routed traffic that came back 4xx/5xx).
@@ -287,15 +325,15 @@ export function renderTopologyCloudProviders() {
     // hover (slide-out flyout with prices).
     const modelsOpen = !!ui.cloudModelsOpen?.[acct.id];
     return `
-      <article class="topology-card cloud-account-card ${acct.hasCredential ? "configured" : "needs-key"}${modelsOpen ? " models-open" : ""}">
+      <article class="topology-card cloud-account-card ${acct.hasCredential ? "configured" : "needs-key"}${modelsOpen ? " models-open" : ""}"${SERVER_ORDER.attrs(orderKey)}>
         <span class="topology-handle server-input cloud-account-input" data-topology-cloud-input="1" data-account-id="${escapeHtml(acct.id)}" title="${escapeHtml(t("clTitleRouterOutput"))}"></span>
-        <div class="cloud-account-head">
-          <span class="cloud-account-icon" style="color:${escapeHtml(meta.color || "#94a3b8")}">${cloudPickerTileIcon(iconType)}</span>
+        ${acct.isPool ? "" : `<div class="cloud-account-head">
+          ${orderHtml}${iconHtml}
           <strong class="cloud-account-name">${escapeHtml(acct.name || acct.id)}</strong>
-          ${acct.hasCredential ? pill(isSubscription ? "Plus" : acct.credentialKind === "noKey" ? t("clReady") : acct.credentialKind === "apiKey" ? t("topologyCloudConfigured") : "OAuth", "good") : pill(t("topologyCloudNeedsKey"), "warn")}
-          <button class="icon-action compact" type="button" data-cloud-edit-account="${escapeHtml(acct.id)}" title="${escapeHtml(t("clTitleEditAccount"))}">⚙</button>
-        </div>
-        <div class="cloud-key-line ${acct.hasCredential ? "set" : "unset"}">${escapeHtml(credLine)}</div>
+          ${acct.hasCredential ? pill(isSubscription ? "ChatGPT" : acct.credentialKind === "noKey" ? t("clReady") : acct.credentialKind === "apiKey" ? t("topologyCloudConfigured") : "OAuth", "good") : pill(t("topologyCloudNeedsKey"), "warn")}
+          <button class="icon-action compact" type="button" data-cloud-edit-account="${escapeHtml(acct.testAliasOf || acct.id)}" title="${escapeHtml(t("clTitleEditAccount"))}">⚙</button>
+        </div>`}
+        ${acct.isPool ? "" : `<div class="cloud-key-line ${acct.hasCredential ? "set" : "unset"}">${escapeHtml(credLine)}</div>`}
         ${usagePanel}
         ${new ProviderModels({ account: acct, blocks, routers: topology?.routers || [], proxies: topology?.proxies || [],
           removed: topology?.cloudRemoved || [], open: modelsOpen, nextPort: topology?.nextAppPort,
@@ -319,7 +357,10 @@ export function renderTopologyCloudProviders() {
         <button class="icon-action compact" type="button" data-bridge-delete="${escapeHtml(String(p.port))}" title="${escapeHtml(t("cloudBridgeDelete"))}">✕</button>
       </div>`).join("")}
     </div>`;
-  })() + addCloudBtn;
+  })();
+  // The lane is drawn anew on its own (a usage read coming back): its cards' ↑ ↓ learn again
+  // which of them stands first or last in the whole list.
+  SERVER_ORDER.apply();
 }
 
 // A ChatGPT subscription account: its models answer through chatgpt.com, which
@@ -390,14 +431,15 @@ export function openCloudProviderModal(blockId) {
   openCloudBlockModal(blockId, null);
 }
 
-export function selectCloudProviderType(type) {
+export function selectCloudProviderType(type, poolId = "") {
   const preset = topologyCloudPresetByType(type) || {};
   ui.topologyCloudPickerOpen = false;
   ui.topologyCloudForm = {
     isNew: true,
+    ...(poolId ? { poolId } : {}),
     accountId: "",
     type,
-    name: preset.name || "",
+    name: poolId ? `${t("poolSubscriptionName")} ${(topology?.cloudAccounts || []).filter((a) => isSubscriptionAccount(a) && !a.isPool && !a.testAliasOf).length + 1}` : preset.name || "",
     baseUrl: preset.baseUrl || "",
     authMode: (preset.authModes || ["apiKey"])[0],
     oauthConfig: { ...(preset.oauth || {}) },
@@ -602,6 +644,11 @@ export function renderTopologyCloudAccountModal() {
     <label>${escapeHtml(t("clRedirectPort"))}<input type="number" data-cloud-field="oauthRedirectPort" value="${escapeHtml(String(oc.redirectPort || 1455))}"></label>
     <div class="cloud-span cloud-oauth-actions"><button class="ghost-action" type="button" data-cloud-oauth-login>${escapeHtml(t("topologyCloudOauthLogin"))}</button>${f.oauthStatus ? `<span class="cloud-oauth-note">${escapeHtml(f.oauthStatus)}</span>` : ""}</div>
   `;
+  const simpleOauthFields = `<div class="cloud-span cloud-oauth-note">${escapeHtml(t("poolConnectHint"))}</div>
+    <div class="cloud-span cloud-oauth-actions"><button class="ghost-action" type="button" data-cloud-oauth-login>${escapeHtml(t("topologyCloudOauthLogin"))}</button>${f.oauthStatus ? `<span class="cloud-oauth-note">${escapeHtml(f.oauthStatus)}</span>` : ""}</div>`;
+  const callbackFields = f.oauthLoginState ? `<div class="cloud-span cloud-oauth-note">${escapeHtml(t("oauthRemoteHint"))}</div>
+    <label class="cloud-span">${escapeHtml(t("oauthCallbackUrl"))}<input type="password" autocomplete="off" data-cloud-field="oauthCallbackUrl" value="${escapeHtml(f.oauthCallbackUrl || "")}" placeholder="http://localhost:1455/auth/callback?…"></label>
+    <div class="cloud-span cloud-oauth-actions"><a href="${escapeHtml(f.oauthAuthorizeUrl || "")}" target="_blank" rel="noopener noreferrer">${escapeHtml(t("topologyCloudOauthLogin"))}</a><button class="ghost-action" type="button" data-cloud-oauth-complete>${escapeHtml(t("oauthComplete"))}</button></div>` : "";
   const pickerMeta = CLOUD_PICKER_META[f.type] || {};
   const showAuthModeSelector = authModes.length > 1;
   const showBaseUrl = f.type !== "openai-subscription";
@@ -631,7 +678,7 @@ export function renderTopologyCloudAccountModal() {
           <div class="cloud-span cloud-type-badge" style="--picker-accent:${escapeHtml(pickerMeta.color || "#94a3b8")}">
             <span class="cloud-type-badge-icon">${cloudPickerTileIcon(f.type)}</span>
             <span class="cloud-type-badge-name">${escapeHtml(preset.name || f.type)}</span>
-            ${f.isNew ? `<button class="ghost-action compact" type="button" data-cloud-picker-change>${escapeHtml(t("topologyCloudPickerChange"))}</button>` : ""}
+            ${f.isNew && !f.poolId ? `<button class="ghost-action compact" type="button" data-cloud-picker-change>${escapeHtml(t("topologyCloudPickerChange"))}</button>` : ""}
           </div>
           <label class="cloud-span">${escapeHtml(t("topologyCloudName"))}<input type="text" data-cloud-field="name" value="${escapeHtml(f.name)}"></label>
           ${showBaseUrl ? `<label class="cloud-span">${escapeHtml(t("topologyCloudBaseUrl"))}<input type="text" data-cloud-field="baseUrl" value="${escapeHtml(f.baseUrl)}" placeholder="https://api.openai.com/v1"></label>` : ""}
@@ -640,8 +687,9 @@ export function renderTopologyCloudAccountModal() {
             ? (showKey
                 ? `<label class="cloud-span">${escapeHtml(t("topologyCloudApiKey"))}<input type="password" data-cloud-field="apiKey" value="" placeholder="${escapeHtml(t("topologyCloudKeyPlaceholder"))}" autocomplete="off"></label>`
                 : f.authMode === "noKey" ? ""
-                : oauthFields)
+                : f.poolId ? simpleOauthFields : oauthFields)
             : credSection}
+          ${callbackFields}
           ${isSubscriptionAccount(existingAcct) ? codexVersionHtml() : ""}
         </div>
         <div class="topology-priority-actions cloud-actions">
@@ -745,9 +793,9 @@ export async function saveCloudAccount() {
       if (!/^https?:\/\//.test(resolvedUrl)) { toast("base URL must be http(s)"); topologyCloudBusy = false; renderTopology(); return; }
       const taken = (topology?.cloudAccounts || []).map((a) => a.id);
       accountId = topologyCloudUniqueId(topologyCloudSlug(f.name || f.type), taken);
-      const acctRes = await api("/api/cloud-accounts/save", {
+      const acctRes = await api(f.poolId ? "/api/cloud-pools/connect-account" : "/api/cloud-accounts/save", {
         method: "POST",
-        body: JSON.stringify({ account: { id: accountId, type: f.type, name: f.name, baseUrl: resolvedUrl, authMode: f.authMode, accountType: preset.accountType || "" } }),
+        body: JSON.stringify({ ...(f.poolId ? { poolId: f.poolId } : {}), account: { id: accountId, type: f.type, name: f.name, baseUrl: resolvedUrl, authMode: f.authMode, accountType: preset.accountType || "" } }),
       });
       if (acctRes.topology) setTopology(acctRes.topology);
     }
@@ -772,7 +820,7 @@ export async function saveCloudAccount() {
     // Any new account with credentials: try to auto-fetch its model list from the
     // provider (subscription via codex/models; others via GET /models). Errors are
     // caught below, so providers that don't support listing just stay empty.
-    const autoCreate = wasNew;
+    const autoCreate = wasNew && !f.poolId;
     if (autoCreate) {
       try {
         const acRes = await api("/api/cloud-accounts/auto-create-blocks", {
@@ -790,7 +838,7 @@ export async function saveCloudAccount() {
     } else {
       toast(t("topologyCloudSaved"));
       closeCloudProviderModal();
-      if (wasNew) openCloudBlockModal(null, accountId);
+      if (wasNew && !f.poolId) openCloudBlockModal(null, accountId);
     }
   } catch (err) {
     toast(err.message);
@@ -879,9 +927,9 @@ export async function startCloudOauthLogin() {
     if (!/^https?:\/\//.test(resolvedUrl)) { toast("base URL must be http(s)"); return; }
     const taken = (topology?.cloudAccounts || []).map((a) => a.id);
     accountId = topologyCloudUniqueId(topologyCloudSlug(f.name || f.type), taken);
-    const res = await api("/api/cloud-accounts/save", {
+    const res = await api(f.poolId ? "/api/cloud-pools/connect-account" : "/api/cloud-accounts/save", {
       method: "POST",
-      body: JSON.stringify({ account: { id: accountId, type: f.type, name: f.name, baseUrl: resolvedUrl, authMode: "oauth", accountType: preset.accountType || "", oauthConfig: f.oauthConfig || {} } }),
+      body: JSON.stringify({ ...(f.poolId ? { poolId: f.poolId } : {}), account: { id: accountId, type: f.type, name: f.name, baseUrl: resolvedUrl, authMode: "oauth", accountType: preset.accountType || "", oauthConfig: f.oauthConfig || {} } }),
     });
     if (res.topology) setTopology(res.topology);
     f.isNew = false;
@@ -895,8 +943,24 @@ export async function startCloudOauthLogin() {
     body: JSON.stringify({ id: accountId }),
   });
   if (!started.authorizeUrl) { toast("oauth start failed"); return; }
+  f.oauthLoginState = started.state;
+  f.oauthAuthorizeUrl = started.authorizeUrl;
+  renderTopology();
   window.open(started.authorizeUrl, "_blank", "noopener");
   pollCloudOauth(started.state);
+}
+
+export async function completeCloudOauthLogin() {
+  const f = ui.topologyCloudForm;
+  if (!f?.oauthLoginState || !f.oauthCallbackUrl) return;
+  try {
+    const res = await api("/api/cloud-accounts/oauth/complete", { method: "POST", body: JSON.stringify({ state: f.oauthLoginState, callbackUrl: f.oauthCallbackUrl }) });
+    f.oauthCallbackUrl = "";
+    if (res.topology) setTopology(res.topology);
+    if (res.state === "done") { f.oauthLoginState = ""; f.oauthStatus = t("topologyCloudOauthDone"); }
+    else f.oauthStatus = `${t("topologyCloudOauthFail")}: ${res.error || ""}`;
+    renderTopology();
+  } catch (err) { toast(err.message); }
 }
 
 export function pollCloudOauth(state, attempt = 0) {
@@ -909,6 +973,8 @@ export function pollCloudOauth(state, attempt = 0) {
     if (!ui.topologyCloudModalOpen || !ui.topologyCloudForm) return;
     if (res.state === "done") {
       if (res.topology) setTopology(res.topology);
+      ui.topologyCloudForm.oauthLoginState = "";
+      ui.topologyCloudForm.oauthCallbackUrl = "";
       ui.topologyCloudForm.oauthStatus = t("topologyCloudOauthDone") + (res.email ? ` · ${res.email}` : "");
       renderTopology();
       toast(t("topologyCloudOauthDone"));
@@ -937,4 +1003,3 @@ export async function deleteCloudAccount() {
   }
   closeCloudProviderModal();
 }
-

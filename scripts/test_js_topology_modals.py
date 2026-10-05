@@ -68,7 +68,10 @@ const reset = () => {
   m.closeQueuePriorityModal(); m.closePriorityModal(); m.closeRawConfigViewer();
   globalThis.__fields = { toast: toastEl() };
   globalThis.__fetchCalls.length = 0; globalThis.__fetchReply = {};
-  globalThis.__stubReturns = { "canvas.scheduleOutputColor": (r, id) => (id ? "#123456" : ""), "polling.formatTps": (v) => `${v} t/s`, "dialogs.appPrompt": async () => null };
+  globalThis.__stubReturns = { "canvas.scheduleOutputColor": (r, id) => (id ? "#123456" : ""), "polling.formatTps": (v) => `${v} t/s`, "dialogs.appPrompt": async () => null,
+    // An output's caption names its cell (output-cells.js), found by its machine through
+    // topology-nodes, stubbed here: no machine of the fleet is known, so a caption keeps its label.
+    "topology-nodes.machineAt": (a) => ({ key: String(a), name: String(a), address: String(a) }) };
 };
 reset();
 const G = (spec) => { const g = Array.from({ length: 7 }, () => Array(24).fill("")); for (const [d, from, to, out] of spec) for (let h = from; h <= to; h++) g[d][h] = out; return g; };

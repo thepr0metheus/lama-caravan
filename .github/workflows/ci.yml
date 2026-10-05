@@ -19,6 +19,9 @@ jobs:
       - name: queue node unit test
         run: python3 scripts/test_queue_node.py
 
+      - name: automatic model queue lifecycle
+        run: python3 scripts/test_model_queues.py
+
       # The records a scout report and the operator write, and how the board
       # reads them: hosts and clients apart, the scout pull off the request
       # path. Auto-provisioning, which this step was first written for, is gone
@@ -46,9 +49,11 @@ jobs:
           python3 scripts/test_vllm_shell_line.py
           python3 scripts/test_vram_reservation.py
           python3 scripts/test_host_telemetry.py
+          python3 scripts/test_prism_runner.py
           python3 scripts/test_scout_launch_parity.py
           python3 scripts/test_vllm_machines.py
           python3 scripts/test_host_power_schedule.py
+          python3 scripts/test_server_order.py
           python3 scripts/test_retired_routes.py
           python3 scripts/test_api_spec.py
           python3 scripts/test_monitor_sample.py
@@ -95,6 +100,9 @@ jobs:
           python3 scripts/check_board_live_patch.py
           python3 scripts/check_static_modules.py
           python3 scripts/check_oop_contract.py
+          python3 scripts/check_oauth_owner.py
+          python3 scripts/check_subscription_resets.py
+          python3 scripts/check_models_dir_source.py
           python3 scripts/check_api_spec.py
           python3 scripts/test_admin_store.py
           python3 scripts/test_topology_store.py
@@ -120,6 +128,9 @@ jobs:
           python3 scripts/test_output_health.py
           python3 scripts/test_usage_reserve.py
           python3 scripts/test_subscription_usage.py
+          python3 scripts/test_subscription_pools.py
+          python3 scripts/test_subscription_resets.py
+          python3 scripts/test_subscription_pool_forward.py
           python3 scripts/test_incidents.py
           python3 scripts/test_model_card.py
           python3 scripts/test_cell_crash.py
@@ -139,6 +150,7 @@ jobs:
           python3 scripts/test_store_moves.py
           python3 scripts/test_model_locator.py
           python3 scripts/test_models_list.py
+          python3 scripts/test_models_dir_served.py
           python3 scripts/test_proxy_forward.py
           python3 scripts/test_api_body.py
           python3 scripts/test_js_model_meta.py
@@ -157,7 +169,11 @@ jobs:
           python3 scripts/test_js_suspect_banner.py
           python3 scripts/test_js_client_proxies.py
           python3 scripts/test_js_routers.py
+          python3 scripts/test_js_output_cells.py
           python3 scripts/test_js_cloud.py
+          python3 scripts/test_js_cloud_pools.py
+          python3 scripts/test_js_subscription_resets.py
+          python3 scripts/test_js_server_order.py
           python3 scripts/test_js_dialogs.py
           python3 scripts/test_js_dialog_llamas.py
           python3 scripts/test_js_topology_modals.py

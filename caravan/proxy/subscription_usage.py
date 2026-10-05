@@ -18,6 +18,8 @@ import time
 from urllib.parse import urlsplit
 
 from caravan.common.usage_reserve import UsageReserve
+from caravan.common.subscription_resets import SubscriptionResetJournal
+from caravan.proxy.paths import SUBSCRIPTION_RESETS_FILE
 from caravan.proxy.cloud_auth import load_provider_secret
 from caravan.proxy.translate import _extract_chatgpt_account_id
 
@@ -139,17 +141,18 @@ class ReserveGate:
     REFRESH_SEC = 300
     USAGE_PATH = "/backend-api/wham/usage"
 
-    def __init__(self, usage, fetch=None, clock=time.time):
+    def __init__(self, usage, fetch=None, clock=time.time, resets=None):
         self.usage = usage
         self.fetch = fetch or self.fetch_usage_page
         self.clock = clock
+        self.resets = resets or SubscriptionResetJournal(SUBSCRIPTION_RESETS_FILE)
         self._tried = {}
         self._lock = threading.Lock()
 
     def verdict(self, provider):
         """The window holding the account shut ({windowSeconds, remainingPct,
         reservePct, resetAt}), or None when the door is open."""
-        account = str((provider or {}).get("accountId") or "").strip()
+        account = str((provider or {}).get("usageAccountId") or (provider or {}).get("accountId") or "").strip()
         reserve = UsageReserve.of(provider)
         now = self.clock()
         hit = reserve.verdict(self.usage.windows(account), now)
@@ -166,8 +169,9 @@ class ReserveGate:
         """One refresh per account per REFRESH_SEC, counted from the reading and
         from the last try: a page that does not answer is not asked on every request."""
         read_at = self.usage.read_at(account) or 0
+        reset_at = self.resets.reset_at(account)
         with self._lock:
-            if now - max(read_at, self._tried.get(account, 0)) < self.REFRESH_SEC:
+            if max(read_at, self._tried.get(account, 0)) >= reset_at and now - max(read_at, self._tried.get(account, 0)) < self.REFRESH_SEC:
                 return False
             self._tried[account] = now
             return True

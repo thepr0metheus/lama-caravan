@@ -45,6 +45,7 @@ import {
   setRouteModelLock,
 } from "./remote-cells.js";
 import { renderTopologyRouterCard, renderTopologyRouterDetail, setEngineModelExposed } from "./routers.js";
+import { SERVER_ORDER } from "./server-order.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { SUSPECT_BANNER } from "./suspect-banner.js";
 import {
@@ -145,6 +146,8 @@ export function setActiveView(view) {
 
 export function renderTopology() {
   if (!topology) return;
+  // The order of the cards under Model servers rides in the topology the page just got.
+  SERVER_ORDER.read(topology);
   // The lane switches live in the page's static header, outside the lanes this
   // repaints; their words still follow the language and the current setting.
   CARD_FOLD.syncSwitches();
@@ -306,6 +309,9 @@ export function renderTopology() {
   if (gpusEl) gpusEl.innerHTML = remoteGpuCards.join("") ||
     `<article class="topology-card"><div class="topology-muted">${escapeHtml(t("topologyNoGpusDetected"))}</div></article>`;
   renderTopologyCloudProviders();
+  // The cloud lane skips a repaint when nothing in it changed, and its cards keep the
+  // place they were drawn with: a new order puts them where it says.
+  SERVER_ORDER.apply();
   bindTopologyDragAndDrop();
 
   // Bind stop buttons on remote llama-server cards (re-bind each render)
@@ -626,8 +632,10 @@ export function topologyStructureParts() {
           + `${m.action?.op || ""}${m.actionError?.at || ""}${m.staysLoaded === true ? "∞" : ""}`)
         .join("|")))
     .sort().join(",");
+  // The kanban a port feeds is structure too: binding a port from the "unassigned" list
+  // changed only routerId, and the kanban kept the old clients and the old badge.
   const prox = (topology.proxies || [])
-    .map((p) => `${p.port}:${p.label || ""}>${p.upstreamHost}:${p.upstreamPort}:${p.upstreamType}:${p.providerId || ""}:${p.enabled !== false ? 1 : 0}:${p.mode || ""}:${p.priority || 0}`)
+    .map((p) => `${p.port}:${p.label || ""}>${p.upstreamHost}:${p.upstreamPort}:${p.upstreamType}:${p.providerId || ""}:${p.enabled !== false ? 1 : 0}:${p.mode || ""}:${p.priority || 0}@${p.routerId || ""}`)
     .sort().join(",");
   const cloud = (topology.cloudProviders || [])
     .map((p) => `${p.id}:${(p.models || []).length}:${p.enabled !== false ? 1 : 0}`)
@@ -646,13 +654,17 @@ export function topologyStructureParts() {
   // the card even when the server-side topology has not moved yet.
   const pendingCells = `${[..._pendingCellActions.keys()].sort().join("+")}:${[..._stoppingCells].sort().join("+")}`;
   const modals = `${ui.topologyProxyFormOpen ? 1 : 0}:${topologyQueuePriorityModalOpen ? 1 : 0}:${topologyRouteDetail?.proxyId || ""}`;
-  return { clients, hosts, classicSrv, nodeSrv, gpus, engines, prox, cloud, llamaVer, models, view, pendingCells, modals };
+  // The order of the cards under Model servers: the kanban's Servers panel is built in that
+  // order, and a new order — from this page or another — rebuilds it (server-order.js).
+  const order = SERVER_ORDER.current().join(",");
+  return { clients, hosts, classicSrv, nodeSrv, gpus, engines, prox, cloud, llamaVer, models, view, pendingCells, modals, order };
 }
 
 // Decide between a full structural rebuild and a cheap in-place live patch —
 // and never rebuild while the user is interacting (defer until they finish).
 export function applyTopologyUpdate() {
   if (!topology) return;
+  SERVER_ORDER.read(topology);   // before the fingerprint: a new order is a new structure
   SUSPECT_BANNER.render();
   if (topologyInteractionActive()) {
     _topologyRenderPending = true;

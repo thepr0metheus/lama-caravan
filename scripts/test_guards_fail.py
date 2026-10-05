@@ -58,6 +58,27 @@ def _missing_tool(output):
 # The breakage is chosen to be the failure the guard is FOR, not any old syntax
 # error: anything can be broken by deleting a brace.
 BREAKAGES = {
+    "check_subscription_resets": [
+        ([], "caravan/proxy/cloud_auth.py", 'CLOUD_PROVIDER_AUTH = {',
+         '_automatic_reset = SubscriptionResetDesk().consume("a", "credit", "key", True)\nCLOUD_PROVIDER_AUTH = {'),
+        ([], "static/js/cloud-pools.js", 'import { t } from "./i18n.js";',
+         'const _automaticReset = "/api/cloud-accounts/subscription-reset";\nimport { t } from "./i18n.js";'),
+    ],
+    "check_oauth_owner": [
+        ([], "caravan/proxy/cloud_auth.py", 'CLOUD_PROVIDER_AUTH = {',
+         '_duplicate_refresh = {"grant_type": "refresh_token"}\nCLOUD_PROVIDER_AUTH = {'),
+    ],
+    "check_models_dir_source": [
+        # serve_model_file derives the directory itself again, as it did when a container
+        # answered 404 for every file the picker had just listed…
+        ([], "caravan/admin/models.py",
+         '    models_dir = models_dir_from_config(parse_config())\n    try:\n        target = (models_dir / rel).resolve()',
+         '    models_dir = LLAMA_HOME / "models"\n    try:\n        target = (models_dir / rel).resolve()'),
+        # …and the same fault in another spelling, in the listing.
+        ([], "caravan/admin/models.py",
+         '    models_dir = models_dir_from_config(parse_config())\n    if not models_dir.is_dir():',
+         '    models_dir = Path(f"{LLAMA_HOME}/models")\n    if not models_dir.is_dir():'),
+    ],
     "check_messages_i18n": [
         ([], "static/js/i18n/ru.js",
          '  grpSampling:', '  grpSamplingRENAMED:'),

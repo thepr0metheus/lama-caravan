@@ -80,6 +80,7 @@ from caravan.admin.api_spec import ApiSpec
 from caravan.admin.route_access import ROUTE_ACCESS, RouteAccess
 from caravan.admin.status import controller_info, project_git_info, llama_builds_list, llama_cpp_info, llama_update_status, models_disk, start_llama_restore, start_llama_update, state
 from caravan.admin.cell_assets import cell_asset_bytes, cell_assets_manifest
+from caravan.admin.board_layout import SERVER_ORDER
 from caravan.admin.host_power import host_power
 from caravan.admin.host_power_schedule import set_host_power_schedule
 from caravan.admin.cell_ops import (
@@ -465,9 +466,11 @@ def _get_api_script_preview(h, parsed):
 def _get_api_models(h, parsed):
         """List the GGUF files under the controller's models directory
 
-        Vision projectors, vocab files and files under 1 KiB are skipped. Answers `{ok,
-        models, modelsDir}` with rows `{path, name, sizeMiB, dir}`, `path` relative to
-        `LLAMA_HOME/models`; when that directory is missing, `ok` is false with an `error`.
+        The directory is the configured one (`LLAMA_MODELS_DIR` of the saved config, else
+        the default) — the one the cell editor's picker lists and downloads are served
+        from. Vision projectors, vocab files and files under 1 KiB are skipped. Answers
+        `{ok, models, modelsDir}` with rows `{path, name, sizeMiB, dir}`, `path` relative
+        to `modelsDir`; when that directory is missing, `ok` is false with an `error`.
         """
         h.send_json(list_gguf_models())
         return
@@ -740,9 +743,10 @@ def _get_api_hf_bench_search(h, parsed):
 def _get_api_models_download(h, parsed):
         """Download a model file from the controller's models directory
 
-        `path` — the file's path relative to `LLAMA_HOME/models`. Streams the raw bytes as
-        an attachment; a missing `path` answers 400, a path that leaves the directory 403
-        and a file that is not there 404, each with an empty body.
+        `path` — the file's path relative to the configured models directory (`modelsDir`
+        of `GET /api/models`). Streams the raw bytes as an attachment; a missing `path`
+        answers 400, a path that leaves the directory 403 and a file that is not there 404,
+        each with an empty body.
         """
         serve_model_file(h, parsed.query)
         return
@@ -944,6 +948,20 @@ def _get_api_cloud_accounts_subscription_usage(h, parsed):
         from caravan.admin.usage_reserve_desk import UsageReserveDesk
         h.send_json({**usage, **UsageReserveDesk().view(account_id)})
         return
+
+@_route(GET_ROUTES, '/api/cloud-accounts/subscription-resets')
+def _get_api_cloud_accounts_subscription_resets(h, parsed):
+        """Read available banked resets of one ChatGPT subscription without consuming any
+
+        `id` names an individual account; test aliases share their original list.
+        Returns {ok, accountId, usageAccountId, availableCount, credits, pending,
+        readAt}. Each credit has id, resetType, status, expiresAt, title,
+        description and usable. Pending attempts retain their idempotencyKey and
+        creditId. Unknown details/provider failures return 502, never an empty list.
+        """
+        from caravan.admin.subscription_resets import SubscriptionResetDesk
+        query = urllib.parse.parse_qs(parsed.query or "")
+        h.send_json(SubscriptionResetDesk().list((query.get("id") or [""])[0]))
 
 @_route(GET_ROUTES, '/api/cloud-accounts/api-costs')
 def _get_api_cloud_accounts_api_costs(h, parsed):
@@ -2001,8 +2019,10 @@ def _post_api_agent_proxies_policy(h, parsed, body):
 
         Send the policy keys (`maxSlots`, `cloudFallbackPct`, `priorityPreemptPct`,
         `queueAbortPct`, `preemptGraceSec`, `preemptEnabled`, `stickySlotSec`,
-        `loadingModelWaitSec`) as the body or under `policy`; keys left out fall back to
-        their defaults and values are clamped, so send them all. Queue thresholds are
+        `loadingModelWaitSec`) as the body or under `policy`; keys left out retain
+        their saved values and supplied values are clamped. All graph queues share
+        `cloudFallbackPct`, `stickySlotSec` and `loadingModelWaitSec`; obsolete node
+        overrides of these fields are ignored. Queue thresholds are
         recalculated in the background afterwards. Answers `{ok, config, monitor}` with the
         saved config.
         """
@@ -2047,7 +2067,12 @@ def _post_api_agent_proxies_routers(h, parsed, body):
 
         `routers` is the full list (the old body key `switchboards` still works): a router
         left out is dropped and the default router always exists.
-        `/api/agent-proxies/switchboards` is the old name of this same route. Answers `{ok,
+        `/api/agent-proxies/switchboards` is the old name of this same route.
+        Local outputs with incoming graph cables receive automatic queue nodes.
+        Their `modelOutputId` names the owner and `modelQueueActive` is derived by
+        the server. Disconnecting the last cable keeps the node settings but sets
+        it inactive. Existing direct local queue nodes are adopted with their
+        settings; conflicting policies for one model return 409. Answers `{ok,
         config, topology}`; nothing restarts, the proxy re-reads the file by itself.
         """
         result = set_routers(body.get("routers") or body.get("switchboards") or [])
@@ -2149,6 +2174,71 @@ def _post_api_cloud_accounts_auto_create_blocks(h, parsed, body):
         h.send_json({"ok": True, **result, "topology": topology_state(refresh_hosts=False)})
         return
 
+@_route(POST_ROUTES, '/api/cloud-pools/save')
+def _post_api_cloud_pools_save(h, parsed, body):
+        """Create or update a subscription pool
+
+        `pool` contains id, name, ordered members ({accountId, enabled, automatic}),
+        mode (auto/manual), manualAccountId, optional manualUntil (Unix seconds), and
+        returnToPrimary. Optional adoptAccountId moves that member's model blocks to
+        this pool while preserving their ids, ports and cables. Returns {ok, pool,
+        adoptedModels, topology}. Invalid members/policy give 400.
+        """
+        from caravan.admin.cloud_pools import CloudPoolDesk
+        result = CloudPoolDesk().upsert(body.get("pool") or {}, body.get("adoptAccountId"))
+        h.send_json({"ok": True, **result, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/cloud-pools/connect-account')
+def _post_api_cloud_pools_connect_account(h, parsed, body):
+        """Create an additional real subscription directly inside a pool
+
+        `poolId` identifies an existing pool and `account` is a new OAuth
+        subscription. Adds a disabled pendingLogin member in the same save;
+        successful OAuth enables it. No credentials are duplicated, model ids
+        and ports are preserved. Returns {ok, account, topology}; duplicate id
+        gives 409, unknown pool 404, non-subscription 400. No member-count cap.
+        """
+        from caravan.admin.cloud_pools import CloudPoolDesk
+        account = CloudPoolDesk().connect_account(body.get("poolId"), body.get("account") or {})
+        h.send_json({"ok": True, "account": account, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/cloud-accounts/subscription-reset')
+def _post_api_cloud_accounts_subscription_reset(h, parsed, body):
+        """Explicitly consume one selected banked OpenAI reset
+
+        Requires id (individual account), creditId, UUID idempotencyKey and
+        confirmed=true. Returns {ok, outcome, idempotencyKey}; outcome is reset,
+        already_redeemed, nothing_to_reset or no_credit. A timeout must be retried
+        with the SAME key; conflicting/new unresolved attempts give 409. Confirmed
+        resets invalidate proxy quota readings. Routing never calls this action.
+        """
+        from caravan.admin.subscription_resets import SubscriptionResetDesk
+        h.send_json(SubscriptionResetDesk().consume(body.get("id"), body.get("creditId"),
+                    body.get("idempotencyKey"), body.get("confirmed")))
+
+@_route(POST_ROUTES, '/api/cloud-pools/test-alias')
+def _post_api_cloud_pools_test_alias(h, parsed, body):
+        """Create a labelled routing-test alias of an existing subscription
+
+        `id` is the original account. Returns {ok, account, topology}. The alias
+        shares its owner's credentials, quota and reserve; no token is copied.
+        Repeating this call returns the existing alias. Non-subscriptions give 400.
+        """
+        from caravan.admin.cloud_pools import CloudPoolDesk
+        alias = CloudPoolDesk().clone_test(body.get("id"))
+        h.send_json({"ok": True, "account": alias, "topology": topology_state(refresh_hosts=False)})
+
+@_route(POST_ROUTES, '/api/cloud-pools/delete')
+def _post_api_cloud_pools_delete(h, parsed, body):
+        """Delete an empty subscription pool
+
+        `id` identifies the pool. Model blocks must be moved or removed first (409).
+        Returns {ok, topology}; accounts and their credentials remain available.
+        """
+        from caravan.admin.cloud_pools import CloudPoolDesk
+        CloudPoolDesk().delete(str(body.get("id") or ""))
+        h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
+
 @_route(POST_ROUTES, '/api/cloud-accounts/save')
 def _post_api_cloud_accounts_save(h, parsed, body):
         """Create or update a cloud provider account
@@ -2166,7 +2256,11 @@ def _post_api_cloud_accounts_save(h, parsed, body):
 def _post_api_cloud_accounts_delete(h, parsed, body):
         """Delete a cloud provider account with its model blocks and stored credential
 
-        `id` is the account; an unknown `id` is ignored. Answers `{ok, topology}`.
+        `id` is one registration, even when another logs into the same OpenAI
+        identity. Detaches it from pools that have other members, preserving
+        their model blocks and ports. Removing a manual choice restores auto
+        mode. The last pool member and an owner with legacy test aliases give
+        409; an unknown `id` is ignored. Answers `{ok, topology}`.
         """
         delete_cloud_account(body.get("id"))
         h.send_json({"ok": True, "topology": topology_state(refresh_hosts=False)})
@@ -2202,8 +2296,9 @@ def _post_api_cloud_accounts_oauth_start(h, parsed, body):
         """Start an OAuth (PKCE) login for a cloud account and return the sign-in URL
 
         `id` is the account; a callback listener binds `127.0.0.1` of the controller's
-        machine on its redirect port (1455 by default), so the browser that signs in must
-        reach that `localhost`. A login left unfinished expires after five minutes and a new
+        machine on its redirect port (1455 by default). A remote browser can complete login
+        by submitting its returned localhost URL to `/api/cloud-accounts/oauth/complete`.
+        A login left unfinished expires after five minutes and a new
         start replaces the pending one of that account. Answers `{ok, authorizeUrl, state,
         redirectUri}` (open `authorizeUrl`, then poll `GET
         /api/cloud-accounts/oauth/status?state=`); 404 for an unknown account, 400 when it
@@ -2212,6 +2307,20 @@ def _post_api_cloud_accounts_oauth_start(h, parsed, body):
         result = start_oauth_login(body.get("id"))
         h.send_json({"ok": True, **result})
         return
+
+@_route(POST_ROUTES, '/api/cloud-accounts/oauth/complete')
+def _post_api_cloud_accounts_oauth_complete(h, parsed, body):
+        """Complete remote-browser OAuth with the returned localhost callback URL
+
+        `state` is the pending login and `callbackUrl` its full localhost URL.
+        Validates origin, path, state, code and 5-minute expiry; exchanges the
+        code with the stored PKCE verifier once. Enables only pendingLogin pool
+        members. Returns {state, email?, error?, topology}; invalid URL gives 400,
+        simultaneous/reused unsuccessful completion 409. The URL is not logged.
+        """
+        from caravan.admin.oauth import OAuthLoginDesk
+        result = OAuthLoginDesk.paste_callback(body.get("state"), body.get("callbackUrl"))
+        h.send_json({**result, "topology": topology_state(refresh_hosts=False)})
 
 @_route(GET_ROUTES, '/api/cloud-upstream-errors')
 def _get_api_cloud_upstream_errors(h, parsed):
@@ -2618,6 +2727,21 @@ def _post_api_topology_client_alias(h, parsed, body):
         """
         result = set_topology_client_alias(body.get("hostId"), body.get("name"))
         h.send_json({"ok": True, "result": result, "topology": topology_state(refresh_hosts=False)})
+        return
+
+@_route(POST_ROUTES, '/api/topology/server-order')
+def _post_api_topology_server_order(h, parsed, body):
+        """Set the order of the cards under Model servers
+
+        `order` lists card keys, `node:<machine id>` for a machine and `cloud:<account id>` for a
+        cloud provider or pool, in the order the board draws them; the kanban's Servers panel
+        follows it. A card the list does not name stands after the named ones, in the board's own
+        order, and an empty list returns the board to its own order. The list is stored whole,
+        for every browser and account. Answers `{ok, order, rev}`, where `rev` grows by one with
+        every save and comes back in GET /api/topology as `layout.serverOrderRev`; 400 when
+        `order` is not a list of distinct card keys (at most 500, each up to 200 characters).
+        """
+        h.send_json(SERVER_ORDER.save(body.get("order")))
         return
 
 @_route(POST_ROUTES, '/api/topology/client-llama/start')

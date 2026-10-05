@@ -323,6 +323,11 @@
       "tag": "b9947"
     },
     "platform": "linux",
+    "prismRuntime": {
+      "installed": false,
+      "release": "prism-b10743-adfffbe",
+      "supported": true
+    },
     "scoutVersion": "X.Y.Z",
     "telemetry": {
       "idleSeconds": 10.0,
@@ -659,6 +664,11 @@
       "tag": "b9947"
     },
     "platform": "linux",
+    "prismRuntime": {
+      "installed": false,
+      "release": "prism-b10743-adfffbe",
+      "supported": true
+    },
     "scoutVersion": "X.Y.Z",
     "service": "caravan-scout",
     "telemetry": {

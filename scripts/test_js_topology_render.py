@@ -116,6 +116,16 @@ PINS = [
      'm.topologyStructureFingerprint() !== globalThis.__fpL',
      'true',
      "boundary: замок у имени — то же самое изменение записи, и оно обязано доехать до глаз без перезагрузки"),
+    ("fingerprint_sees_a_port_join_a_kanban",
+     'st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23010", port: 23010, label: "alpha", routerId: "" }] });'
+     ' globalThis.__fpR0 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23010", port: 23010, label: "alpha", routerId: "" }] });'
+     ' globalThis.__fpR1 = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, proxies: [{ id: "skynet:proxy:23010", port: 23010, label: "alpha", routerId: "router:default" }] });',
+     '[globalThis.__fpR1 === globalThis.__fpR0, m.topologyStructureFingerprint() !== globalThis.__fpR1]',
+     '[true,true]',
+     "defect-history (2026-10-04): порт, привязанный из списка «unassigned», менял только routerId — канбан оставался "
+     "со старыми клиентами и старым значком; negative: тот же канбан на следующем опросе — отпечаток тот же"),
     ("fingerprint_steady_when_nothing_changed",
      'st.setTopology({ ...st.topology, clients: [CLIENT({ agents: [{ id: "a1" }] })],'
      ' assignments: ROW([{ role: "primary", proxyId: "skynet:proxy:23001", endpoint: "e",'
@@ -399,10 +409,41 @@ PINS += [
      ' (() => { const saved = st.topology; st.setTopology(null);'
      ' try { return [m.topologyStructureParts(), m.topologyStructureFingerprint()]; } finally { st.setTopology(saved); } })()]',
      '[["clients", "hosts", "classicSrv", "nodeSrv", "gpus", "engines", "prox", "cloud", "llamaVer", "models",'
-     ' "view", "pendingCells", "modals"], true, [{}, ""]]',
+     ' "view", "pendingCells", "modals", "order"], true, [{}, ""]]',
      "defect-history: window.__fpDebug называл части своим списком, без hosts и engines, — каждая часть после "
      "clients печаталась под именем соседки; теперь имена и порядок — сами части, и отпечаток — их склейка; "
      "boundary: топологии нет — частей нет, отпечаток пустой"),
+]
+
+# Model servers is one list of machines and cloud providers in the operator's order
+# (server-order.js, 2026-10-04). The kanban's Servers panel is built in that order, so
+# the order is structure; the board must not be rebuilt under a card in the air. The
+# order is module state that outlives a pin: each pin starts it empty and leaves it so.
+_SO_FRESH = ('globalThis.__so = (await import(pathToFileURL(process.env.JS_ROOT + "/server-order.js").href)).SERVER_ORDER;'
+             ' Object.assign(globalThis.__so, { held: { order: [], rev: -1 }, shown: null, dragging: null, target: null });')
+_SO_DONE = 'Object.assign(globalThis.__so, { held: { order: [], rev: -1 }, shown: null, dragging: null, target: null });'
+PINS += [
+    ("server_order_is_structure",
+     _SO_FRESH,
+     '(() => { const so = globalThis.__so; try {'
+     ' st.setTopology({ ...st.topology, layout: { serverOrder: ["cloud:p", "node:a"], serverOrderRev: 2 } }); so.read(st.topology);'
+     ' const a = m.topologyStructureParts().order, fa = m.topologyStructureFingerprint();'
+     ' st.setTopology({ ...st.topology, layout: { serverOrder: ["cloud:p", "node:a"], serverOrderRev: 2 } }); so.read(st.topology);'
+     ' const same = m.topologyStructureFingerprint() === fa;'
+     ' st.setTopology({ ...st.topology, layout: { serverOrder: ["node:a", "cloud:p"], serverOrderRev: 3 } }); so.read(st.topology);'
+     ' return [a, same, m.topologyStructureParts().order, m.topologyStructureFingerprint() !== fa]; } finally { ' + _SO_DONE + ' } })()',
+     '["cloud:p,node:a", true, "node:a,cloud:p", true]',
+     "порядок карточек Model servers — часть структуры: новый порядок (с этой страницы или с другой) перестраивает "
+     "панель «Серверы» канбана, которая собрана в этом порядке; negative: тот же порядок на следующем опросе — нет"),
+    ("server_order_is_read_before_the_update_decides",
+     _SO_FRESH + ' globalThis.__ae = document.activeElement; document.activeElement = { matches: () => true, closest: () => null };',
+     '(() => { const so = globalThis.__so; try {'
+     ' st.setTopology({ ...st.topology, layout: { serverOrder: ["cloud:p", "node:a"], serverOrderRev: 1 } });'
+     ' m.applyTopologyUpdate(); return so.current(); }'
+     ' finally { document.activeElement = globalThis.__ae; ' + _SO_DONE + ' } })()',
+     '["cloud:p", "node:a"]',
+     "опрос берёт порядок из топологии до решения о перерисовке — иначе отпечаток считался бы по старому порядку "
+     "и канбан ждал бы следующего изменения; взят и тогда, когда перерисовка отложена (фокус в поле)"),
 ]
 
 _fail = []

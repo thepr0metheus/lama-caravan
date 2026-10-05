@@ -35,7 +35,6 @@ export function renderSectionTips() {
     nvidiaIntervalTip: "monitorIntervalHelp",
     topologyLlamaServersTip: "topologyLlamaServersHelp",
     topologyClientsTip: "topologyClientsHelp",
-    topologyCloudTip: "topologyCloudHelp",
   };
   Object.entries(targets).forEach(([id, key]) => {
     const el = $(id);

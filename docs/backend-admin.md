@@ -65,12 +65,28 @@ created exactly once at import (loaded from disk, defaults seeded: monitor reten
 sub-maps, `localPricing`/`apiPricing`, `hfToken`, `hfFavorites`, `favFields`); every other module
 imports the object, mutates it in place, then calls `save_admin_state()` — never rebinds it.
 `topology_store()` returns `admin_state["topology"]` after ensuring its sub-keys exist (`clients`,
-`assignments`, `clientAliases`, `layout`, `serverSlots` — the persistent host:port declarations that
-keep proxy cables attached across restarts). On load it drops, once, what scout reports and
+`assignments`, `clientAliases`, `layout` — the order of the cards under Model servers, see
+`board_layout.py` — and `serverSlots`, the persistent host:port declarations that keep proxy cables
+attached across restarts). On load it drops, once, what scout reports and
 adoption left in the document (`AdminStore.SCOUT_WORDS`, the `deletedAgents` tombstones).
 Owns: `admin_state` (in-memory), `admin.json` on disk.
 Key functions: `load_admin_state` (tolerant read), `save_admin_state` (atomic write of the live
 object), `topology_store` (defaults-ensured topology sub-store).
+
+## `board_layout.py`
+
+The order of the cards under Model servers on the board — the machines and the cloud providers in
+one list (2026-10-04; until then the machines always stood above the cloud). `ServerOrder` keeps it
+in the admin document's `topology.layout`: `serverOrder`, a list of card keys (`node:<machine id>`,
+`cloud:<account id>`), and `serverOrderRev`, which grows by one with every save. `save(order)` checks
+the list whole and stores it whole — a list with one bad key, a key twice or more than 500 keys is
+refused with 400, never trimmed into a shorter one — and answers `{ok, order, rev}`. `keys()` reads a
+hand-edited document as the keys that are keys, once each; anything else there is no order at all.
+Reading writes nothing. GET /api/topology carries `layout` (`ServerOrder(section=…).layout()`, read
+from the same document as the rest of the answer); the board places its cards by it
+(static/js/server-order.js), and the kanban's Servers panel follows.
+Owns: `topology.layout` in `admin.json`. Key functions: `ServerOrder.save`, `keys`, `revision`,
+`layout`; `SERVER_ORDER` is the route's instance (`POST /api/topology/server-order`).
 
 ## `auth.py`
 
@@ -185,7 +201,10 @@ same-directory companions (plus the sibling `default/` folder HF downloads land 
 family (`gemma-4-…` → `gemma4`) and applies `FAMILY_DEFAULTS`; embedding models (name hints or a
 GGUF pooling type) get `embedding_family_defaults` instead — `--embeddings`, the right `--pooling`,
 chat-only flags cleared, CTX right-sized to the trained context. `serve_model_file` streams a GGUF
-over HTTP (traversal-guarded) — this is what client route-agents download models from.
+over HTTP (traversal-guarded) — this is what client route-agents download models from. It and
+`list_gguf_models` read the CONFIGURED models directory (`models_dir_from_config`, the one the picker
+lists), so that every row offered can be downloaded; they once read `LLAMA_HOME/models`, which a
+container does not fill. `scripts/check_models_dir_source.py` keeps the directory derived in one place.
 Owns: `FAMILY_DEFAULTS`.
 Key functions: `read_gguf_metadata`, `extract_runtime_meta`, `detect_family`,
 `embedding_family_defaults`, `list_models`, `list_chat_templates`, `serve_model_file` (GET

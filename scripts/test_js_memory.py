@@ -32,6 +32,7 @@ def check(cond, msg):
 
 PROBE = r"""
 import "./_js_globals.mjs";
+(globalThis.__stubReturns ||= {})["llama-edit.usesLlamaConfig"] = (id) => id === "llama-server" || id === "prism";
 import { pathToFileURL } from "node:url";
 // The machine the cell form targets: its cards and its RAM, as its scout
 // reported them. Exported by remote-cells, which is a stub here — the values
@@ -148,6 +149,10 @@ const out = {
   out.aside = { llamaNone: aside("llama-server", ""), llamaModel: aside("llama-server", "m.gguf"),
                 moonshine: aside("moonshine", ""), moonshineGb: cst.moonshineModelGb };
 }
+out.prismPlacement = ["0", "10"].map((layers) => {
+  globalThis.__fields = {"tr-RUNNER": {value: "prism"}, "tr-N_GPU_LAYERS": {value: layers}};
+  return m.currentComputeMode("tr-");
+});
 console.log(JSON.stringify(out));
 """
 
@@ -193,6 +198,7 @@ check(fit["freeNotTotal"]["kind"] == "bad" and "/ 4.00 GB free" in fit["freeNotT
       "карта с 24 ГБ, из которых свободно 4, — Over VRAM: сравнение со СВОБОДНОЙ, не с общей")
 check(fit["twoCards"]["kind"] == "good" and "/ 24.0 GB free" in fit["twoCards"]["html"], "две карты по 12 суммируются в 24")
 
+check(got["prismPlacement"] == ["cpu", "gpu"], "Prism читает размещение из N_GPU_LAYERS, а не ENV команды")
 print("runnerDeviceCaps:")
 caps = got["caps"]
 check(caps["vllm"] == {"cpu": False, "gpu": True, "auto": False} and caps["whisper"] == caps["vllm"], "vllm и whisper — только GPU")

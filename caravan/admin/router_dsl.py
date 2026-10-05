@@ -3,6 +3,8 @@ proxy-route records. Pure validation — no file I/O."""
 import re
 
 from caravan.common.errors import AppError
+from caravan.admin.model_queues import ModelQueues
+from caravan.common.queue_policy import SharedQueuePolicy
 
 
 # ── Router — Stage 1 ────────────────────────────────────────────────────
@@ -69,6 +71,7 @@ def normalize_router(router):
     if not outputs:
         outputs = [_default_router_output()]
     out_ids = {o["id"] for o in outputs}
+    router_id = str(router.get("id") or "").strip() or DEFAULT_ROUTER_ID
     rules = router.get("rules") if isinstance(router.get("rules"), dict) else {}
     default_out = str(rules.get("default") or "").strip()
     if default_out not in out_ids:
@@ -84,7 +87,7 @@ def normalize_router(router):
         if oid in out_ids and oid not in failover:
             failover.append(oid)
     return {
-        "id": str(router.get("id") or "").strip() or DEFAULT_ROUTER_ID,
+        "id": router_id,
         "name": str(router.get("name") or "").strip()[:80] or "Default",
         "outputs": outputs,
         # audioOutput / embeddingsOutput: fleet-wide short-circuit outputs (apply_router
@@ -96,7 +99,8 @@ def normalize_router(router):
                   # sync_router_outputs and restored by it when the output returns.
                   **({"dormantDefault": str(rules.get("dormantDefault"))} if str(rules.get("dormantDefault") or "").strip() else {})},
         # Optional n8n-style routing graph (Stage B). Empty ⇒ legacy `rules` apply.
-        "graph": normalize_router_graph(router.get("graph"), out_ids),
+        "graph": ModelQueues(normalize_router_graph(router.get("graph"), out_ids),
+                             outputs, _normalize_node_config, router_id).reconcile(),
     }
 
 # ── Router DAG graph (Stage B) ──────────────────────────────────────────────────
@@ -196,7 +200,8 @@ def _normalize_node_config(node_type, cfg, edge_ids):
         # A bottleneck node: requests wait here for a slot on the admit-edge upstream.
         # admitEdge = the guarded output (happy path); spillEdge = where to divert at
         # spillPct (generalises the old per-route cloudFallbackProviderId to ANY target).
-        # Mechanism params override the global policy for traffic crossing THIS node;
+        # Destinations and capacity belong to this node. The three operator
+        # timings belong only to the global policy; discard obsolete overrides.
         # null maxSlots = auto-track from the upstream's /slots (--parallel).
         def _qint(key, default, lo, hi):
             try:
@@ -212,18 +217,11 @@ def _normalize_node_config(node_type, cfg, edge_ids):
             except (TypeError, ValueError):
                 max_slots = None
         # Queue nodes are pure FIFO + spill — NO priority/preempt ("crowns").
-        # stickySlotSec = per-block reservation for an agent's follow-up calls (default 20).
         return {
             "admitEdge": admit if admit in edge_ids else "",
             "spillEdge": spill if spill in edge_ids else "",
             "maxSlots": max_slots,  # None ⇒ auto from upstream /slots
             "abortPct": _qint("abortPct", 85, 1, 100),
-            "spillPct": _qint("spillPct", 20, 0, 100),
-            "stickySlotSec": _qint("stickySlotSec", 20, 0, 120),
-            # Per-node retry window for a model that is still loading. Same
-            # shape as stickySlotSec: what the node says wins, and the global
-            # policy is the fallback when it says nothing.
-            "loadingModelWaitSec": _qint("loadingModelWaitSec", 60, 0, 900),
             "keepaliveSec": _qint("keepaliveSec", 20, 5, 120),
         }
     if node_type == "onError":
@@ -266,6 +264,8 @@ def normalize_router_graph(raw, out_ids):
         except Exception:
             x, y = 0, 0
         nodes.append({"id": nid, "type": ntype, "x": x, "y": y, "config": n.get("config") if isinstance(n.get("config"), dict) else {}})
+        if ntype == "queue" and str(n.get("modelOutputId") or "").strip():
+            nodes[-1]["modelOutputId"] = str(n["modelOutputId"]).strip()
     edges, edge_ids, seen_pairs = [], set(), set()
     for e in (raw.get("edges") or []):
         if not isinstance(e, dict):
@@ -487,17 +487,9 @@ def normalize_agent_proxy_policy(policy):
         return min(max(value, minimum), maximum)
     return {
         "maxSlots": int_value("maxSlots", 1, 1, 64),
-        "cloudFallbackPct": int_value("cloudFallbackPct", 20, 0, 100),
         "priorityPreemptPct": int_value("priorityPreemptPct", 50, 0, 100),
         "queueAbortPct": int_value("queueAbortPct", 85, 1, 100),
         "preemptGraceSec": int_value("preemptGraceSec", 20, 1, 300),
         "preemptEnabled": bool(policy.get("preemptEnabled", True)),
-        "stickySlotSec": int_value("stickySlotSec", 0, 0, 120),
-        # Absent from this dict, so every save dropped it and the proxy read its
-        # own hardcoded 60 no matter what the file said. A knob that silently
-        # does nothing is worse than no knob: the operator changes it, sees the
-        # value persist in the form, and concludes the behaviour is something
-        # else. The normaliser rebuilds the policy from scratch — being listed
-        # here is the whole of what it means for a setting to exist.
-        "loadingModelWaitSec": int_value("loadingModelWaitSec", 60, 0, 900),
+        **SharedQueuePolicy(policy).policy_values(),
     }

@@ -418,6 +418,8 @@ def build_config_block(config):
         raise AppError("FIT_TARGET must be a number or comma-separated numbers")
 
     lines = [CONFIG_BEGIN]
+    if merged.get("RUNNER") and for_config(merged).llama_config and for_config(merged).id != "llama-server":
+        lines.append(f"RUNNER={quote_shell_value(merged['RUNNER'])}")
     groups = [
         ["HOST", "PORT"],
         ["LLAMA_MODELS_DIR", "MODEL_FILE", "MMPROJ_FILE"],
@@ -1166,7 +1168,7 @@ def build_local_llama_command(config, *, llama_home=None, locations=None):
     args = build_llama_args(merged, model_path=at("MODEL_FILE"), mmproj_path=at("MMPROJ_FILE"),
                             spec_path=at("SPEC_DRAFT_MODEL_FILE"), include_local_paths=True,
                             over_network=any(f.in_library for f in found.values()))
-    return [f"{home.rstrip('/')}/build/bin/llama-server", *args]
+    return [for_config(merged).server_binary(home), *args]
 
 def is_command_cell(config):
     """True when a cell runs a command a PERSON wrote, not one built from fields.

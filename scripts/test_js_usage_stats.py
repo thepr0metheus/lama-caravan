@@ -34,6 +34,7 @@ import "./_js_globals.mjs";
 import { pathToFileURL } from "node:url";
 const m = await import(pathToFileURL(process.env.JS_ROOT + "/usage-stats.js").href);
 const st = await import(pathToFileURL(process.env.JS_ROOT + "/state.js").href);
+const i18n = await import(pathToFileURL(process.env.JS_ROOT + "/i18n.js").href);
 const S = {
   cloud: { total: 12.3456, requests: 7, promptTokens: 1000, completionTokens: 500,
            byModel: [{model: "gpt-x", cost: 12.3456}, {model: "<b>evil</b>", cost: 0.5},
@@ -71,6 +72,26 @@ out.banner_notok = m.subscriptionBannerHtml({ ok: false });
 m.subscriptionUsageCache.set("acc", { data: { ok: true, limits: LIM(0), credits: null, limitReached: true, creditsInfo: { hasCredits: false }, upsell: null }, fetchedAt: 1 });
 const panel = m.subscriptionUsageHtml("acc");
 out.banner_order = [panel.indexOf("sub-usage-banner"), panel.indexOf("sub-usage-row")];
+// The refresh button: in the panel's head by default; a card that keeps it elsewhere (a pool rung) asks for none
+// here and takes it from subscriptionRefreshHtml.
+const noBtn = m.subscriptionUsageHtml("acc", { refresh: false });
+out.refresh_panel = [panel.includes('class="sub-usage-head"') && panel.includes('data-usage-refresh="acc"'), noBtn.includes("data-usage-refresh"), noBtn.includes("sub-usage-head"), noBtn.includes("sub-usage-row") && noBtn.includes("sub-usage-banner")];
+m.subscriptionUsageCache.set("r-ok", { data: { ok: true, limits: LIM(50) }, fetchedAt: 1 });
+m.subscriptionUsageCache.set("r-busy", { data: { ok: true, limits: LIM(50) }, fetchedAt: 1, loading: true });
+m.subscriptionUsageCache.set("r-failed", { data: null, error: "boom", fetchedAt: 1 });
+m.subscriptionUsageCache.set("r-empty", { data: { ok: false }, fetchedAt: 1 });
+m.subscriptionUsageCache.set('r"q', { data: { ok: true, limits: LIM(50) }, fetchedAt: 1 });
+const btnOf = (id) => m.subscriptionRefreshHtml(id);
+out.refresh_button = {
+  ok: [btnOf("r-ok").includes('data-usage-refresh="r-ok"'), btnOf("r-ok").includes("spinning"), btnOf("r-ok").includes("disabled"), btnOf("r-ok").startsWith("<button"), btnOf("r-ok").includes("<svg")],
+  busy: [btnOf("r-busy").includes("spinning"), btnOf("r-busy").includes("disabled")],
+  failed: btnOf("r-failed").includes('data-usage-refresh="r-failed"'),
+  empty: btnOf("r-empty"), none: btnOf("never-read"), quoted: btnOf('r"q').includes('data-usage-refresh="r&quot;q"'),
+  panelSame: m.subscriptionUsageHtml("r-busy").includes(btnOf("r-busy")),
+};
+// What the button says it does: it only reads. "Refresh" read as "renew" to the one who pressed it.
+const said = i18n.t("usTitleRereadLimits");
+out.refresh_words = [said !== "usTitleRereadLimits", said !== i18n.t("usTitleRefreshLimits"), btnOf("r-ok").includes(`title="${said}"`), btnOf("r-ok").includes(`aria-label="${said}"`), btnOf("r-ok").includes(i18n.t("usTitleRefreshLimits"))];
 
 // ── «30 дней через караван»: одна строка; доли моделей — в их строках (cloud-models.js) ──
 out.compact = [0, 999, 1000, 1500, 359627986, 1e9, 12345678901, null].map(m.compactCount);
@@ -79,7 +100,8 @@ globalThis.__fetchReply["/api/cloud-accounts/proxy-spend"] = { spend: { sub: { w
 await m.fetchProxySpend();
 out.spend = { api: m.proxySpendHtml("sub"), sub: m.proxySpendHtml("sub", { subscription: true }),
   asked: m.proxySpendHtml("sub", { open: true, subscription: true }), none: m.proxySpendHtml("other"),
-  of: m.proxySpendOf("sub")?.byModel?.[0]?.model || null, ofNone: m.proxySpendOf("other") };
+  of: m.proxySpendOf("sub")?.byModel?.[0]?.model || null, ofNone: m.proxySpendOf("other"),
+  cost: [{ total: 698.73 }, { total: 0 }, { total: 1234567.4 }, { total: 0.4 }, null, {}, { total: "12.5" }].map(m.spendCost) };
 
 // ── возврат на вкладку перечитывает то, что устарело ──
 const NOW = 1_000_000;
@@ -241,6 +263,18 @@ check(got["refresh_forgets"] == [True, None, True],
 check(got["refresh_unknown_kind"] is False and got["refresh_no_id"] is False,
       "negative: неизвестный вид чтения или пустой id — ничего не делаем и говорим об этом false")
 check(0 <= got["banner_order"][0] < got["banner_order"][1], f"в панели баннер стоит ВЫШЕ шкал (получено {got['banner_order']})")
+check(got["refresh_panel"] == [True, False, False, True],
+      f"кнопка ↻ по умолчанию в голове панели; panel(refresh=false) — без кнопки и без головы, шкалы и баннер на месте (получено {got['refresh_panel']})")
+rb = got["refresh_button"]
+check(rb["ok"] == [True, False, False, True, True],
+      f"subscriptionRefreshHtml: кнопка со значком, знает аккаунт, не крутится и не заблокирована (получено {rb['ok']})")
+check(rb["busy"] == [True, True], "пока читается — крутится и заблокирована (повторный щелчок не плодит запросов)")
+check(rb["failed"] is True, "после неудачного чтения кнопка есть: повторить можно (в панели сбоя её нет, на ступени пула — есть)")
+check(rb["empty"] == "" and rb["none"] == "", "negative: нечего перечитывать — ни ответа, ни ошибки, ни записи — кнопки нет")
+check(rb["quoted"] is True, "идентификатор в атрибуте экранирован")
+check(rb["panelSame"] is True, "одна кнопка на оба места: панель вставляет ту же разметку, что и ступень пула")
+check(got["refresh_words"] == [True, True, True, True, False],
+      f"подсказка кнопки ↻ говорит, что она только читает («Re-read … changes nothing»), а не «Refresh»: слово переведено, не равно старому, стоит и в title, и в aria-label (получено {got['refresh_words']})")
 
 print("запас оператора на полосках:")
 row = got["row_reserve"]
@@ -290,6 +324,10 @@ check("The subscription covers this" in sp["sub"] and "The subscription covers t
 check(sp["of"] == "GPT-5.6-TERRA" and sp["ofNone"] is None,
       "строки моделей читают запись аккаунта; negative: трафика не было — null, а не пустая запись")
 check(sp["none"] == "", "negative: трафика не было — строки нет")
+check(sp["cost"] == ["$699", "$0", "$1,234,567", "$0", "$0", "$0", "$13"],
+      f"сумма пишется одним способом — доллары без центов, тысячи через запятую; нет записи — $0, не NaN (got {sp['cost']}): "
+      "её читают и строка расхода, и голова ступени пула")
+check("≈ $699 at API prices" in sp["api"], "строка расхода берёт сумму у того же правила")
 
 print()
 if _fail:

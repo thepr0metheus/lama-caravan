@@ -22,7 +22,10 @@
 set -euo pipefail
 
 PRIV="${CARAVAN_PRIVATE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
-PUB="${CARAVAN_PUBLIC:-$HOME/MyProjects/lama-caravan}"
+# The public copy stands next to this repository, under the same project folder
+# (Project/caravan/lama-caravan/lama-caravan-github since 2026-10-04): found from
+# here, so a move of the folder does not leave the script pointing at the old place.
+PUB="${CARAVAN_PUBLIC:-$(cd "$PRIV/.." && pwd)/lama-caravan-github}"
 PUBLIC_REMOTE="${CARAVAN_PUBLIC_REMOTE:-git@github.com:thepr0metheus/lama-caravan.git}"
 IDENT_NAME="thepr0metheus"
 IDENT_MAIL="thepr0metheus@users.noreply.github.com"
@@ -48,7 +51,10 @@ DRY=0
 # private on 2026-09-05; the public reference for modules is docs/frontend.md.
 # docs/scout-split.md and docs/foreign-engines.md are working plans of the
 # same kind (2026-09-24, 2026-09-25).
-EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|docs/oop-rewrite\.md|docs/clients-page\.md|docs/scout-split\.md|docs/foreign-engines\.md|docs/cell-keys\.md|scripts/refactor/|tests/golden/)'
+# docs/business-requirements-caravan-scout.md is a draft for the owner to agree,
+# meant for the home wiki, not for the public project (2026-10-05). It ships
+# only when the owner says so.
+EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|docs/oop-rewrite\.md|docs/clients-page\.md|docs/scout-split\.md|docs/foreign-engines\.md|docs/cell-keys\.md|docs/business-requirements-caravan-scout\.md|scripts/refactor/|tests/golden/)'
 
 # Anything matching this in the public tree stops the sync. Machine names and
 # addresses are the operator's, not the project's; "Revoice" is a private

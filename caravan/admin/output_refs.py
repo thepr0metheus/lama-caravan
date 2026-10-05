@@ -29,6 +29,10 @@ class RouterOutputRefs:
     def _edges(self):
         return [e for e in ((self.router.get("graph") or {}).get("edges") or []) if isinstance(e, dict)]
 
+    def _model_queues(self):
+        return [n for n in ((self.router.get("graph") or {}).get("nodes") or [])
+                if isinstance(n, dict) and n.get("type") == "queue" and n.get("modelOutputId")]
+
     def _list_rows(self, rules, key):
         return [r for r in (rules.get(key) or []) if isinstance(r, dict)]
 
@@ -44,7 +48,9 @@ class RouterOutputRefs:
 
     def edges_touching(self, output_id):
         ref = self.EDGE_PREFIX + output_id
-        return [e for e in self._edges() if ref in (str(e.get("from") or ""), str(e.get("to") or ""))]
+        internal = {n.get("config", {}).get("admitEdge") for n in self._model_queues()}
+        return [e for e in self._edges() if e.get("id") not in internal
+                and ref in (str(e.get("from") or ""), str(e.get("to") or ""))]
 
     def rewrite(self, new_id_of):
         """Every output id `v` the router names becomes `new_id_of(v)`, in place
@@ -76,6 +82,11 @@ class RouterOutputRefs:
                     if new_id_of(old) != old:
                         edge[end] = self.EDGE_PREFIX + new_id_of(old)
                         changed += 1
+        for node in self._model_queues():
+            old = node["modelOutputId"]
+            if new_id_of(old) != old:
+                node["modelOutputId"] = new_id_of(old)
+                changed += 1
         return changed
 
     def drop(self, output_id):
@@ -103,12 +114,16 @@ class RouterOutputRefs:
             rules["failover"] = [o for o in failover if o != output_id]
             dropped += 1
         graph = self.router.get("graph") or {}
+        owned = {n["id"] for n in self._model_queues() if n["modelOutputId"] == output_id}
+        if owned:
+            graph["nodes"] = [n for n in graph.get("nodes", []) if n.get("id") not in owned]
+            dropped += len(owned)
         edges = graph.get("edges")
         if isinstance(edges, list):
             ref = self.EDGE_PREFIX + output_id
-            kept = [e for e in edges if not (isinstance(e, dict) and ref in (e.get("from"), e.get("to")))]
+            kept = [e for e in edges if not (isinstance(e, dict)
+                    and (ref in (e.get("from"), e.get("to")) or e.get("from") in {f"rule:{nid}" for nid in owned}))]
             dropped += len(edges) - len(kept)
             if len(kept) != len(edges):
                 graph["edges"] = kept
         return dropped
-

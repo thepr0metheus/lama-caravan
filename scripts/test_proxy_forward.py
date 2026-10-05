@@ -552,7 +552,7 @@ CONFIG = {
         ],
         "graph": {
             "nodes": [
-                {"id": "q1", "type": "queue", "config": {
+                {"id": "q1", "type": "queue", "modelOutputId": "ka", "modelQueueActive": True, "config": {
                     "admitEdge": "ea", "spillEdge": "es", "maxSlots": 1, "keepaliveSec": 1}},
                 {"id": "e1", "type": "onError", "config": {
                     "mainEdge": "emain", "rescueEdge": "eresc"}},
@@ -563,8 +563,8 @@ CONFIG = {
                     "mainEdge": "emain3", "rescueEdge": "eresc3"}},
             ],
             "edges": [
-                {"id": "ein_a", "from": f"in:skynet:proxy:{P_KA_A}", "to": "rule:q1"},
-                {"id": "ein_b", "from": f"in:skynet:proxy:{P_KA_B}", "to": "rule:q1"},
+                {"id": "ein_a", "from": f"in:skynet:proxy:{P_KA_A}", "to": "out:ka"},
+                {"id": "ein_b", "from": f"in:skynet:proxy:{P_KA_B}", "to": "out:ka"},
                 {"id": "ea", "from": "rule:q1", "to": "out:ka"},
                 # Rescue: the main edge leads to a failing output, the backup
                 # to a working one. The resolver only RECORDS the backup; the
@@ -1202,6 +1202,9 @@ def test_keepalive_holds_a_queued_client():
     fast = min(out.values(), key=lambda v: v[3])
     beats = waiter[2].count(b'"chatcmpl-keepalive"')
     check(beats >= 1, f"ждавший получил биения, пока стоял в очереди (получено {beats})")
+    rows = _finished_events((f"r{P_KA_A}",))
+    check(any("q1" in (row.get("item", {}).get("queue", {}).get("nodeIds") or []) for row in rows),
+          "история прямого каната к модели сохраняет идентификатор её автоматической очереди")
     check(b'"reasoning_content"' in waiter[2],
           "биение несёт дельту в канале мышления, а не пустую и не комментарий")
     check(b'": keepalive"' not in waiter[2], "и это НЕ комментарий SSE — его клиенты игнорируют")

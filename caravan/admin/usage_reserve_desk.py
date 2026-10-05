@@ -10,9 +10,10 @@ so the card says what the proxy does, not what it might do.
 import json
 import time
 
-from caravan.admin.cloud import load_cloud_data, save_cloud_data
+from caravan.admin.cloud import load_cloud_data, save_cloud_data, load_provider_secrets
 from caravan.admin.paths import AGENT_PROXY_STATE_FILE
 from caravan.common.errors import AppError
+from caravan.common.cloud_sources import CloudSources
 from caravan.common.usage_reserve import UsageReserve
 
 
@@ -38,7 +39,7 @@ class UsageReserveDesk:
         if not 0 <= pct <= UsageReserve.MAX_PCT:
             raise AppError(f"pct must be 0..{UsageReserve.MAX_PCT}", 400)
         data = load_cloud_data()
-        account = next((a for a in data["accounts"] if a.get("id") == account_id), None)
+        account = CloudSources(data, load_provider_secrets()).quota_owner(account_id)
         if account is None:
             raise AppError(f"unknown account {account_id}", 404)
         if str(account.get("accountType") or "") != self.SUBSCRIPTION:
@@ -69,9 +70,9 @@ class UsageReserveDesk:
 
     def view(self, account_id):
         """What the card shows beside the bars: the reserve, the proxy's verdict, and the reading's age."""
-        account = next((a for a in load_cloud_data()["accounts"] if a.get("id") == str(account_id or "")), None)
+        account = CloudSources(load_cloud_data(), load_provider_secrets()).quota_owner(account_id)
         reserve = UsageReserve.normalize((account or {}).get("usageReserve"))
-        reading = self.reading(account_id)
+        reading = self.reading(account["id"] if account else account_id)
         kept = UsageReserve(reserve).verdict(reading["windows"], self.clock()) if reading else None
         return {"reserve": reserve, "reserveKept": kept, "reserveMax": UsageReserve.MAX_PCT,
                 "reserveReadAt": int(reading["readAt"]) if reading and reading.get("readAt") else None}

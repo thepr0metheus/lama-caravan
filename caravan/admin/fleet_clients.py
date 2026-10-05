@@ -182,6 +182,13 @@ def scout_start_payload(body: dict) -> dict:
     # it into its cache; one that has not falls back to its cache and the
     # download, or names the library it lacks.
     command_path = uses_command_path(payload["config"])
+    runner = for_config(payload["config"])
+    if runner.llama_config:
+        runner.preflight_start(payload["config"], payload["modelPath"])
+    if runner.id == "prism":
+        host = topology_store().get("hosts", {}).get(str(body.get("hostId") or ""), {})
+        if not (host.get("prismRuntime") or {}).get("supported"):
+            raise AppError("This scout does not support PrismML yet — update caravan-scout and refresh the host", 400)
     model_cfg = dict(payload["config"])
     if payload["modelPath"] and not command_path:
         model_cfg["MODEL_FILE"] = payload["modelPath"]
@@ -725,6 +732,7 @@ def host_from_report(payload):
         "llamaNode": llama_node,
         "llamaNodes": llama_nodes,
         "llamaBinaryVersion": str(payload.get("llamaBinaryVersion") or "").strip()[:120],
+        "prismRuntime": payload.get("prismRuntime") if isinstance(payload.get("prismRuntime"), dict) else {},
         "llamaBinaryMtime": str(payload.get("llamaBinaryMtime") or "").strip()[:30],
         "llamaUpdate": payload.get("llamaUpdate") if isinstance(payload.get("llamaUpdate"), dict) else {},
         # Named by scouts since 2.0, in the heartbeat and /api/state alike.
@@ -977,6 +985,7 @@ def scout_payload_from_state(state, agent_url):
         "llamaNode": state.get("llamaNode") or {},
         "llamaNodes": state.get("llamaNodes") or [],
         "llamaBinaryVersion": state.get("llamaBinaryVersion") or "",
+        "prismRuntime": state.get("prismRuntime") if isinstance(state.get("prismRuntime"), dict) else {},
         "llamaBinaryMtime": state.get("llamaBinaryMtime") or "",
         "llamaUpdate": state.get("llamaUpdate") if isinstance(state.get("llamaUpdate"), dict) else {},
         "scoutVersion": state.get("scoutVersion") or "",

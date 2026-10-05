@@ -23,6 +23,7 @@ import { saveRouters } from "./routers.js";
 import {
   applyConfigToForm,
   runnerRegistry,
+  usesLlamaConfig,
   setEditCurrentCommand,
   suggestedSnapshotName,
   wireCellKindToggle,
@@ -755,7 +756,7 @@ export function bindServerSlotControls(root) {
       // A cell in an engine starts by loading its model into the engine: a
       // model's start, as llama's is, not a command's.
       const runner = b.dataset.nodeCellRunner || "llama-server";
-      const loadsModel = runner === "llama-server"
+      const loadsModel = usesLlamaConfig(runner)
         || runnerRegistry().some((r) => r.id === runner && r.engineCell === true);
       const msg = !loadsModel
         ? t("dlgStartCommand", { port })
@@ -1352,7 +1353,7 @@ export async function submitRemoteLlamaStart() {
   // Command-path runners (custom/vllm/whisper) carry no MODEL_FILE — their
   // artifact lives in COMMAND/VLLM_MODEL/WHISPER_MODEL respectively.
   const runnerId       = (config.RUNNER || "").trim() || (config.CELL_KIND === "command" ? "custom" : "llama-server");
-  const isCommandPath  = runnerId !== "llama-server";
+  const isCommandPath  = !usesLlamaConfig(runnerId);
   const isCommand      = runnerId === "custom";
   const port           = parseInt(config.PORT || "8180", 10);
   const modelPath      = (config.MODEL_FILE || "").trim();

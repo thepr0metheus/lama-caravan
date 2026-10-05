@@ -1,26 +1,29 @@
 // Router cards, outputs panel, router detail popover.
-import { _cvPos, _cvView, canvasNodes, renderRouterNodeConfig } from "./canvas.js";
+import { _cvPos, _cvView, canvasNodes, canvasPanels, renderRouterNodeConfig } from "./canvas.js";
 import { PORT_CLOSER } from "./cloud.js";
 import { ProviderModels } from "./cloud-models.js";
+import { SubscriptionPoolCards } from "./cloud-pools.js";
 import { badge, option } from "./form.js";
 import { helpTip, t } from "./i18n.js";
 import {
   aaBadgeHtml,
   formatPricePer1M,
   modelPricing,
-  parseModelName,
   requestAaScores,
 } from "./model-meta.js";
+import { OutputCells } from "./output-cells.js";
+import { SERVER_ORDER, ServerOrder } from "./server-order.js";
 import { setTopology, state, topology, ui } from "./state.js";
 import { topologyProxyActivity, topologyStateHealthClasses } from "./topology-activity.js";
 import { bindTopologyDragAndDrop } from "./topology-dnd.js";
 import { machineAt } from "./topology-nodes.js";
-import { topologyProxyOwner } from "./topology-proxies.js";
+import { feedsRouters, topologyProxyOwner } from "./topology-proxies.js";
 import { refreshTopology, renderTopology } from "./topology-render.js";
 import { $, api, escapeHtml, pill, toast } from "./utils.js";
 
 export let topologyOutputsCloudExpanded = {};     // accountId -> bool: cloud provider's model checklist open?
 export let topologyOutputsFolded = {};            // "host:<host>" / "prov:<accountId>" -> bool: rows folded on the canvas servers block
+export let topologyQuietShown = {};               // machine key -> true: its stopped cells nothing leads to are listed (folded by default)
 // Per-OUTPUT activity: is a request actually being served by THIS output right now?
 // Matches active proxy items by their resolved upstream (host:port). Used so only the
 // cable to the output actually carrying traffic animates (not every output).
@@ -71,12 +74,10 @@ export function topologyRouterOutputLabel(out) {
   if (String(out.upstreamType || "") === "engine") {
     return out.label || `${out.upstreamModel || ""} · ${out.engine || ""}`;
   }
-  // Local server: use the SAME short/pretty model name as the server card
-  // (parseModelName), not the raw .gguf filename baked into out.label.
-  const srv = (topology?.server?.llamaServers || []).find((s) => Number(s.port) === Number(out.upstreamPort));
-  const pretty = srv ? parseModelName(srv.model)?.label : "";
-  if (pretty) return `${pretty} :${out.upstreamPort}`;
-  return out.label || `${out.upstreamHost}:${out.upstreamPort}`;
+  // A cell: what it runs, as the cell itself is named (output-cells.js), then its port —
+  // not the label the server baked from the model file, which read "en" for a moonshine cell.
+  const name = new OutputCells(topology).name(out);
+  return name ? `${name} :${out.upstreamPort}` : `${out.upstreamHost}:${out.upstreamPort}`;
 }
 
 // Price tag for a cloud output row: resolve the model via its provider block
@@ -224,7 +225,7 @@ export function machineLabelHtml(group) {
 // ── Servers canvas block: the router's outputs, drawn as a canvas node ──
 // Each output row has a [data-cv-out-port] dot (= in-port for cable connections) instead of
 // the removed router-out-handle / overlay-SVG approach.
-export function renderServersBlockHtml(router) {
+export function renderServersBlockHtml(router, modelQueues = {}) {
   const outputs = router.outputs || [];
   const defaultId = router.rules?.default || "";
   const accounts = topology?.cloudAccounts || [];
@@ -232,11 +233,24 @@ export function renderServersBlockHtml(router) {
   const _aaWant = [];  // model ids whose AA Intelligence Index to lazily fetch (exposed first)
 
   const liveTitle = { active: t("rtLiveActive"), recent: t("rtLiveRecent"), idle: t("cvQIdle") };
-  const liveDot = (out) => {
-    const st = topologyOutputActivity(out).state;
-    return `<span class="router-out-live live-${st}" title="${liveTitle[st] || ""}"></span>`;
+  const cells = new OutputCells(topology, router);
+  // A serving cell's dot says its traffic. A cell that is not serving has no traffic to say:
+  // its dot is a ring, and its state is said in words at the row's end.
+  const liveDot = (out, st) => {
+    if (st !== "running") return `<span class="router-out-live live-off" aria-hidden="true"></span>`;
+    const act = topologyOutputActivity(out).state;
+    return `<span class="router-out-live live-${act}" title="${liveTitle[act] || ""}"></span>`;
   };
-  const outputRow = (out, extraCls) => {
+  const stateWord = (st) => OutputCells.WORDS[st]
+    ? `<span class="router-out-state state-${st}" data-t="kanban-out-state" data-t-state="${st}">${escapeHtml(t(OutputCells.WORDS[st]))}</span>` : "";
+  const twinNote = (note) => {
+    if (!note) return "";
+    if (note.same) return `<span class="router-out-twin" title="${escapeHtml(t("rtTwinSame", { port: String(note.same) }))}">= :${escapeHtml(String(note.same))}</span>`;
+    const shown = note.differ.slice(0, 2).map(([k, v]) => (v === null ? `${k} ≠` : `${k}=${v === "" ? "∅" : v.slice(0, 24)}`));
+    const more = note.differ.length > 2 ? ` +${note.differ.length - 2}` : "";
+    return `<span class="router-out-twin" title="${escapeHtml(t("rtTwinDiffer", { keys: note.keys.join(", ") }))}">${escapeHtml(shown.join(" · ") + more)}</span>`;
+  };
+  const outputRow = (out, extraCls, note) => {
     const isDef = out.id === defaultId;
     const isCloud = String(out.upstreamType || "") === "cloud";
     const blk = isCloud ? _blockForOut(out) : null;
@@ -244,31 +258,51 @@ export function renderServersBlockHtml(router) {
     const badge = isDef ? `<span class="router-out-badge">default</span>` : "";
     // A cloud model is here because it has a port of its own — say which.
     const own = isCloud ? ProviderModels.portsOf(topology?.proxies, out.providerId)[0] : null;
-    return `<label class="router-out-row ${isDef ? "is-default" : ""}${blk?.unlisted ? " unlisted" : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}">
+    const st = cells.state(out);
+    const marks = isCloud ? "" : cells.marks(out);
+    // A cell's port stands apart from its name: a long name gives way to the state word, the
+    // port never does — "Qwen3-Coder-30B-A3B-Instruct :220…" named no cell at all.
+    const cellRow = String(out.upstreamType || "llama") === "llama";
+    const shown = cellRow ? (cells.name(out) || String(out.upstreamHost || "")) : topologyRouterOutputLabel(out);
+    return `<label class="router-out-row ${isDef ? "is-default" : ""}${blk?.unlisted ? " unlisted" : ""}${st && st !== "running" ? ` cell-${st}` : ""} ${extraCls || ""}" data-router-out-row="${escapeHtml(out.id)}" data-router-link-out="${escapeHtml(out.id)}"${st ? ` data-cell-state="${st}"` : ""}>
       <input class="router-out-radio" type="radio" name="rw-default" ${isDef ? "checked" : ""} data-router-set-default="${escapeHtml(router.id)}" data-output-id="${escapeHtml(out.id)}" title="${escapeHtml(t("rtTitleSetDefault"))}">
-      ${isCloud ? "" : liveDot(out)}
-      <span class="router-out-name">${escapeHtml(topologyRouterOutputLabel(out))}</span>
+      ${isCloud ? "" : liveDot(out, st)}
+      <span class="router-out-name">${marks ? `<span class="router-out-marks">${marks}</span> ` : ""}${escapeHtml(shown)}</span>
+      ${cellRow ? `<span class="router-out-port cell-port">:${escapeHtml(String(out.upstreamPort))}</span>` : ""}
       ${own ? `<span class="router-out-port">:${escapeHtml(String(own.port))}</span>` : ""}
+      ${twinNote(note)}
       ${_unlistedTag(blk)}
       ${badge}
+      ${stateWord(st)}
       ${priceHtml}
     </label>`;
   };
 
   // Local servers — grouped by the machine that serves them.
   const groups = localOutputGroups(outputs);
-  const localHtml = groups.length
-    ? groups.map((g) => {
-        const foldKey = `host:${g.key}`;
-        const folded = !!topologyOutputsFolded[foldKey];
-        const hdr = `<div class="router-out-host-head" data-router-group-fold="${escapeHtml(foldKey)}" role="button" tabindex="0" title="${escapeHtml(folded ? t("expand") : t("collapse"))}">
-            <span class="router-prov-caret">${folded ? "▸" : "▾"}</span>
-            <span class="router-out-host-label">${machineLabelHtml(g)}</span>
-            <span class="router-prov-count">${g.outs.length}</span>
-          </div>`;
-        return `<div class="router-out-host-group${folded ? " folded" : ""}" data-cv-group-outs="${escapeHtml(g.outs.map((o) => o.id).join(","))}">${hdr}${folded ? "" : g.outs.map((o) => outputRow(o)).join("")}</div>`;
-      }).join("")
-    : `<div class="router-cfg-muted router-prov-empty">${t("rtNoLocalServers")}</div>`;
+  const localEntries = groups.map((g) => {
+    const foldKey = `host:${g.key}`;
+    const folded = !!topologyOutputsFolded[foldKey];
+    const hdr = `<div class="router-out-host-head" data-router-group-fold="${escapeHtml(foldKey)}" role="button" tabindex="0" title="${escapeHtml(folded ? t("expand") : t("collapse"))}">
+        <span class="router-prov-caret">${folded ? "▸" : "▾"}</span>
+        <span class="router-out-host-label">${machineLabelHtml(g)}</span>
+        <span class="router-prov-count">${g.outs.length}</span>
+      </div>`;
+    const notes = cells.twins(g.outs);
+    const rows = (outs) => outs.map((o) => outputRow(o, "", notes.get(o.id)) + (modelQueues[o.id] || "")).join("");
+    // The stopped cells nothing leads to, under one row of their own — folded until the operator
+    // opens it. Their outputs stay named on the row (data-cv-group-outs), so a cable that comes
+    // to one before the next render still has an end.
+    const { shown, quiet } = cells.split(g.outs);
+    const open = !!topologyQuietShown[g.key];
+    const quietHtml = quiet.length ? `<div class="router-out-quiet${open ? "" : " folded"}" data-t="kanban-quiet-cells" data-t-id="${escapeHtml(g.key)}" data-cv-group-outs="${escapeHtml(quiet.map((o) => o.id).join(","))}">
+        <div class="router-out-quiet-head" data-router-quiet-toggle="${escapeHtml(g.key)}" role="button" tabindex="0" aria-expanded="${open ? "true" : "false"}" title="${escapeHtml(t("rtQuietTip"))}">
+          <span class="router-prov-caret">${open ? "▾" : "▸"}</span>
+          <span class="router-out-quiet-label">${escapeHtml(t("rtQuietCells", { n: String(quiet.length) }))}</span>
+        </div>${open ? rows(quiet) : ""}</div>` : "";
+    return { key: ServerOrder.key("node", g.key),
+      html: `<div class="router-out-host-group${folded ? " folded" : ""}" data-cv-group-outs="${escapeHtml(g.outs.map((o) => o.id).join(","))}">${hdr}${folded ? "" : rows(shown) + quietHtml}</div>` };
+  });
 
   // Cloud providers — collapsible with model checklist.
   const cloudOutsByAcc = new Map();
@@ -276,7 +310,7 @@ export function renderServersBlockHtml(router) {
     if (!cloudOutsByAcc.has(o.accountId)) cloudOutsByAcc.set(o.accountId, []);
     cloudOutsByAcc.get(o.accountId).push(o);
   });
-  const cloudHtml = accounts.map((acc) => {
+  const cloudEntries = SubscriptionPoolCards.kanbanGroups(accounts, blocks).map((acc) => {
     // What each model is to the fleet — new, gone, shown — is the provider
     // card's reading (cloud-models.js), so the kanban and the card agree.
     const models = new ProviderModels({ account: acc, blocks, routers: topology?.routers || [], proxies: topology?.proxies || [],
@@ -327,18 +361,19 @@ export function renderServersBlockHtml(router) {
           : `<div class="router-cfg-muted router-prov-empty">${escapeHtml(t("rtNoModelsYet"))}</div>`)
       : "";
     const rows = folded ? "" : exposedOuts.slice().sort(_byPriceDesc((o) => _blockForOut(o)?.model)).map((o) => outputRow(o, "cloud")).join("");
-    return `<div class="router-prov ${expanded ? "open" : ""}${folded ? " folded" : ""}" data-cv-group-outs="${escapeHtml(exposedOuts.map((o) => o.id).join(","))}">${header}${folded ? "" : checklist}${rows}</div>`;
-  }).join("") || `<div class="router-cfg-muted router-prov-empty">${t("rtNoCloudProviders")}</div>`;
+    // A pool's member stands beside its pool: on the board it is drawn inside the pool's card.
+    return { key: ServerOrder.key("cloud", SubscriptionPoolCards.cardOf(accounts, acc.id)),
+      html: `<div class="router-prov ${expanded ? "open" : ""}${folded ? " folded" : ""}" data-cv-group-outs="${escapeHtml(exposedOuts.map((o) => o.id).join(","))}">${header}${folded ? "" : checklist}${rows}</div>` };
+  });
   requestAaScores(_aaWant);
 
+  // Machines and cloud providers in one list, in the board's order (server-order.js): a group
+  // stands where its card stands under Model servers. A kind with no group says so after them.
+  const listed = SERVER_ORDER.sorted([...localEntries, ...cloudEntries], (entry) => entry.key).map((entry) => entry.html).join("");
+  const none = (entries, key) => entries.length ? "" : `<div class="router-cfg-muted router-prov-empty">${t(key)}</div>`;
   return `
     <div class="router-out-sec">
-      <div class="router-out-sec-h">${escapeHtml(t("rtLocal"))}</div>
-      ${localHtml}
-    </div>
-    <div class="router-out-sec">
-      <div class="router-out-sec-h">${escapeHtml(t("rtCloud"))}</div>
-      ${cloudHtml}
+      ${listed}${none(localEntries, "rtNoLocalServers")}${none(cloudEntries, "rtNoCloudProviders")}
     </div>`;
 }
 
@@ -435,7 +470,9 @@ export function renderTopologyRouterDetail() {
     </div>` : "";
 
   // ── LEFT column: input ports, grouped by their relation to THIS router ──
-  const allProxies = (topology?.proxies || []).slice().sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
+  // Only ports that can feed a router count here: a cloud model's own port is an output of
+  // the Servers panel, and four of them read as "4 unassigned" clients — a false alarm.
+  const allProxies = (topology?.proxies || []).filter(feedsRouters).sort((a, b) => Number(a.port || 0) - Number(b.port || 0));
   const routerIds = new Set((topology?.routers || []).map((s) => s.id));
   const routerNameOf = (id) => (topology?.routers || []).find((s) => s.id === id)?.name || id;
   const onThis = allProxies.filter((p) => p.routerId === router.id);
@@ -450,11 +487,20 @@ export function renderTopologyRouterDetail() {
     if (kind === "this") {
       return `<span class="router-pill this" data-pill-name="${escapeHtml(portName(p).toLowerCase())}" data-pill-port="${escapeHtml(p.port)}" title="${title}">${head}<button class="router-pill-x" type="button" data-router-detach="${escapeHtml(p.id)}" title="${escapeHtml(t("rtTitleDetachConfirm"))}">×</button></span>`;
     }
+    // In the unassigned list a port says whose it is: the number alone named nobody.
+    const name = `<span class="router-pill-name">${escapeHtml(topologyProxyOwner(p.id)?.title || portName(p))}</span>`;
     if (kind === "other") {
-      return `<span class="router-pill other" data-router-attach="${escapeHtml(p.id)}" data-confirm="1" role="button" tabindex="0" title="${escapeHtml(t("rtTitleMoveFrom", { name: routerNameOf(p.routerId) }))}">${head}<span class="router-pill-where">${escapeHtml(routerNameOf(p.routerId))}</span></span>`;
+      return `<span class="router-pill other" data-router-attach="${escapeHtml(p.id)}" data-confirm="1" role="button" tabindex="0" title="${escapeHtml(t("rtTitleMoveFrom", { name: routerNameOf(p.routerId) }))}">${head}${name}<span class="router-pill-where">${escapeHtml(routerNameOf(p.routerId))}</span></span>`;
     }
-    return `<span class="router-pill free" data-router-attach="${escapeHtml(p.id)}" role="button" tabindex="0" title="${escapeHtml(t("rtTitleAttachHere", { name: portName(p) + " :" + p.port }))}">${head}<span class="router-pill-503">503</span></span>`;
+    return `<span class="router-pill free" data-router-attach="${escapeHtml(p.id)}" role="button" tabindex="0" title="${escapeHtml(t("rtTitleAttachHere", { name: portName(p) + " :" + p.port }))}">${head}${name}<span class="router-pill-503">503</span></span>`;
   };
+  // The ports that could feed this kanban and do not: free ones (no kanban — 503 until bound)
+  // and those on another kanban. The badge opens their list, and a click on a port binds it
+  // here (topology-dnd.js binds [data-router-attach]; a port on another kanban asks first).
+  const unassignedHtml = (onOther.length + free.length) ? `<details class="rw-unassigned" data-t="kanban-unassigned">
+      <summary class="rw-unassigned-badge" title="${escapeHtml(t("rtTitleUnassigned", { f: free.length, o: onOther.length }))}">${escapeHtml(t("rtUnassigned", { n: free.length + onOther.length }))}</summary>
+      <div class="rw-unassigned-list">${free.map((p) => pill(p, "free")).join("")}${onOther.map((p) => pill(p, "other")).join("")}</div>
+    </details>` : "";
   const thisPills = onThis.map((p) => pill(p, "this")).join("") || `<div class="router-cfg-muted">${t("rtNoneYet")}</div>`;
   // Left-pane proxy CRUD rows (Stage A.2): the registry table, inlined as a rail list.
   // edit/delete/router-select handlers live in bindTopologyDragAndDrop (bound globally).
@@ -481,8 +527,11 @@ export function renderTopologyRouterDetail() {
   // Center pane = the interactive canvas (was the separate ⤢ modal). Reuses the same
   // node descriptors + cv-* markup; the bind/render cycle (search ui.topologyCanvasRouterId)
   // redraws + rebinds it on every render, and we set ui.topologyCanvasRouterId together with
-  // the workspace on open.
+  // the workspace on open. The CLIENTS and SERVERS panels stand on its two sides, as tall as
+  // the workspace — they are not nodes of the canvas, so they do not pan or zoom with it.
+  const cvPanels = canvasPanels(router);
   const cvNodeHtml = canvasNodes(router).map((n) => {
+    // A drop whose save has not landed yet, else the server's place — there is no third.
     const pos = _cvPos[n.id] || n.fixed || { x: n.dx, y: n.dy };
     return `<div class="cv-node cv-${n.type} ${n.cls || ""}" data-t="kanban-node" data-t-id="${escapeHtml(n.id)}" data-cv-node="${escapeHtml(n.id)}" style="left:${pos.x}px;top:${pos.y}px">${n.html}</div>`;
   }).join("");
@@ -503,7 +552,7 @@ export function renderTopologyRouterDetail() {
               <span class="badge rw-stat-badge">out <strong>${outputs.length}</strong></span>
               ${ruleCount ? `<span class="badge rw-stat-badge">${escapeHtml(t("rtRules", { n: ruleCount }))}</span>` : ""}
               ${defaultOut ? `<span class="badge rw-default-chip" data-router-link-out="${escapeHtml(defaultOut.id)}" title="${escapeHtml(t("rtTitleDefaultOutput"))}">default → ${escapeHtml(topologyRouterOutputLabel(defaultOut))}</span>` : ""}
-              ${(onOther.length + free.length) ? `<span class="rw-unassigned-badge" title="${escapeHtml(t("rtTitleUnassigned", { f: free.length, o: onOther.length }))}">${escapeHtml(t("rtUnassigned", { n: free.length + onOther.length }))}</span>` : ""}
+              ${unassignedHtml}
             </div>
           </div>
         </div>` : `
@@ -514,11 +563,12 @@ export function renderTopologyRouterDetail() {
             ${defaultOut ? `<span class="rw-default-badge" data-router-link-out="${escapeHtml(defaultOut.id)}" title="${escapeHtml(t("rtTitleDefaultOutput"))}">default → <strong>${escapeHtml(topologyRouterOutputLabel(defaultOut))}</strong></span>` : ""}
           </span>
           <span class="topology-policy-head-actions">
-            ${(onOther.length + free.length) ? `<span class="rw-unassigned-badge" title="${escapeHtml(t("rtTitleUnassigned", { f: free.length, o: onOther.length }))}">${escapeHtml(t("rtUnassigned", { n: free.length + onOther.length }))}</span>` : ""}
+            ${unassignedHtml}
             <button class="icon-action compact" type="button" data-topology-router-close aria-label="${escapeHtml(t("close"))}" title="${escapeHtml(t("close"))}">×</button>
           </span>
         </div>`}
-        <div class="rw-cols">
+        <div class="rw-cols" data-cv-cols>
+          ${cvPanels.left}
           <section class="rw-pane rw-center">
             <div class="rw-palette">
               <span class="rw-palette-label">${escapeHtml(t("rtRuleNodeLabel"))} ${helpTip("rtPaletteTip")}</span>
@@ -526,7 +576,6 @@ export function renderTopologyRouterDetail() {
               <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="weighted" type="button" data-cv-add="weighted" title="${escapeHtml(t("rtTitleWeighted"))}">⚖ ${escapeHtml(t("cvNodeWeighted"))}</button>
               <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="roundRobin" type="button" data-cv-add="roundRobin" title="${escapeHtml(t("rtTitleRoundRobin"))}">🔁 ${escapeHtml(t("cvNodeRoundRobin"))}</button>
               <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="failover" type="button" data-cv-add="failover" title="${escapeHtml(t("rtTitleFailover"))}">⚡ ${escapeHtml(t("cvNodeFailover"))}</button>
-              <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="queue" type="button" data-cv-add="queue" title="${escapeHtml(t("rtTitleQueue"))}">⏳ ${escapeHtml(t("cvNodeQueue"))}</button>
               <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="onError" type="button" data-cv-add="onError" title="${escapeHtml(t("rtTitleOnError"))}">🛟 ${escapeHtml(t("cvNodeOnError"))}</button>
               <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="requestType" type="button" data-cv-add="requestType" title="${escapeHtml(t("rtTitleByType"))}">🔀 ${escapeHtml(t("cvNodeByType"))}</button>
               <button class="cv-palette-btn" data-t="kanban-palette-add" data-t-id="requestSize" type="button" data-cv-add="requestSize" title="${escapeHtml(t("rtTitleBySize"))}">📏 ${escapeHtml(t("cvNodeBySize"))}</button>
@@ -540,10 +589,11 @@ export function renderTopologyRouterDetail() {
                 ${cvNodeHtml}
               </div>
               <div class="rw-canvas-hint muted">${escapeHtml(t("rtCanvasHint"))}</div>
+              <button class="cv-fit-btn" type="button" data-cv-fit data-t="kanban-fit" title="${escapeHtml(t("cvFitAllTip"))}">⤢ ${escapeHtml(t("cvFitAll"))}</button>
             </div>
           </section>
+          ${cvPanels.right}
         </div>
       </div>
     </div>`;
 }
-

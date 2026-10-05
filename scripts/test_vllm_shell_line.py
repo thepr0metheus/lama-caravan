@@ -79,8 +79,8 @@ def section_first_start():
         check("[caravan] provisioning vLLM venv at" in out,
               "журнал говорит, что идёт подготовка venv — первый старт длится минуты")
         check(calls[:3] == [f"python3 -m venv {home}/vllm-venv", "pip install --quiet --upgrade pip",
-                            "pip install --quiet vllm==0.24.0"],
-              f"venv создан, pip обновлён, vLLM поставлен ЗАКРЕПЛЁННОЙ версией 0.24.0 (got {calls[:3]})")
+                            "pip install --quiet vllm==0.30.0"],
+              f"venv создан, pip обновлён, vLLM поставлен ЗАКРЕПЛЁННОЙ версией 0.30.0 (got {calls[:3]})")
         check("pip install --quiet ninja" in calls, "ninja поставлен — без него torch-inductor не компилирует")
         check(code == 0 and calls[-1] == "vllm serve org/some-model --host 0.0.0.0 --port 22012 --served-model-name some-model",
               f"последним запущен сам vLLM, с портом ячейки; negative (defect-history): раньше bash подменялся `[` "

@@ -9,7 +9,9 @@ import {
   saveRouters,
   topologyRouterOutputLabel,
 } from "./routers.js";
+import { OutputCells } from "./output-cells.js";
 import { state, topology, ui } from "./state.js";
+import { QUEUE_SETTINGS } from "./queue-settings.js";
 import {
   _proxyUpstreamStr,
   ensureStickyBarTicker,
@@ -44,7 +46,7 @@ export function canvasClientKey(p) { return InputsBlock.clientKey(p); }
 export function canvasClientName(p) { return InputsBlock.clientName(p); }
 
 export let _cvView = { tx: 24, ty: 24, scale: 1 };   // world transform (mirror of board.view)
-export let _cvPos = {};                               // nodeId -> {x,y} (mirror of board.pos)
+export let _cvPos = {};                               // nodeId -> {x,y}: a drop not yet saved (mirror of board.pos)
 export let _cvDrag = null;                            // active drag (mirror of board.drag)
 
 
@@ -130,7 +132,21 @@ export class History {
     if (cache.err) return `<div class="cv-q-hist-loading">${t("cvFailedLoad")}</div>`;
     if (!cache.rows.length) return `<div class="cv-q-hist-loading">${t("cvNoHistory")}</div>`;
 
-    const batch = cache.rows.slice(0, 25);
+    const modelQueue = (topology?.routers || []).flatMap((r) => r.graph?.nodes || [])
+      .find((n) => n.id === nodeId && n.modelOutputId);
+    const router = modelQueue ? (topology.routers || []).find((r) => (r.graph?.nodes || []).includes(modelQueue)) : null;
+    const output = router?.outputs?.find((o) => o.id === modelQueue.modelOutputId);
+    const group = output ? `${output.upstreamHost}:${output.upstreamPort}` : null;
+    const rowsForQueue = modelQueue ? cache.rows.filter((raw) => {
+      const item = raw.item || {};
+      const visited = item.queue?.nodeIds;
+      if (Array.isArray(visited) && visited.length) return visited.includes(nodeId);
+      // Old logs can identify a cell by address, but cannot distinguish models
+      // sharing an external engine's port. Do not invent that attribution.
+      return output?.upstreamType !== "engine" && group && topologyItemGroup(item) === group;
+    }) : cache.rows;
+    if (!rowsForQueue.length) return `<div class="cv-q-hist-loading">${t("cvNoHistory")}</div>`;
+    const batch = rowsForQueue.slice(0, 25);
     // Pre-compute max processing time for relative bar scaling
     const procMsList = batch.map((raw) => {
       const item = raw.item || {};
@@ -506,15 +522,29 @@ export class QueueNode extends RuleNode {
   get ownPorts() { return true; }
   // Inline config fields live on the card — a ? tooltip instead of a gear.
   cfgControl() { return helpTip("cvTipQueueNode"); }
+  mainRow(edge, label) {
+    return this.destRow({ cls: "admit", name: "main", label, wired: !!edge,
+      portAttr: 'data-cv-qrole="admit"', hint: t("cvDragToMain") });
+  }
   // Re-patch the live region of every canvas queue node card on the background tick.
   // Queue node cards are only (re)built by a full renderTopology(); steady traffic
   // doesn't change topologyStructureFingerprint(), so without this the now-processing /
   // waiting lists stay frozen at their last full-render snapshot. Mirrors how the
   // Main SLOTS panel is kept live — replace only the inner .cv-q-live region so the
   // node's cables, out-ports, param inputs and history pane are untouched.
+  // Three kinds of region: a queue node card's whole live area, and the two halves
+  // a model's lane keeps apart — the meter on its line, the lists inside it. The
+  // lane also takes its state from the same pass, so the line and the list agree.
+  static LIVE_REGIONS = {
+    "data-cv-q-live": (parts) => parts.meter + parts.activity,
+    "data-cv-mq-state": (parts) => parts.meter,
+    "data-cv-mq-activity": (parts) => parts.activity,
+  };
   static syncLive() {
+    QUEUE_SETTINGS.sync();
     if (!topology) return;
-    const liveEls = document.querySelectorAll("[data-cv-q-live]");
+    const attrs = Object.keys(QueueNode.LIVE_REGIONS);
+    const liveEls = document.querySelectorAll(attrs.map((a) => `[${a}]`).join(", "));
     if (!liveEls.length) return;
     const byId = {};
     (topology.routers || []).forEach((r) => {
@@ -522,12 +552,19 @@ export class QueueNode extends RuleNode {
         if (nd.type === "queue") byId[nd.id] = { router: r, node: nd };
       });
     });
+    let changed = false;
     liveEls.forEach((el) => {
-      const ent = byId[el.getAttribute("data-cv-q-live")];
+      const attr = attrs.find((a) => el.hasAttribute(a));
+      const ent = byId[el.getAttribute(attr)];
       if (!ent) return;
-      const html = new QueueNode(ent.node, ent.router).liveHtml();
-      if (el.innerHTML !== html) el.innerHTML = html;  // skip churn (keeps CSS anims) when unchanged
+      const parts = new QueueNode(ent.node, ent.router).liveParts();
+      const html = QueueNode.LIVE_REGIONS[attr](parts);
+      if (el.innerHTML !== html) { el.innerHTML = html; changed = true; }  // skip churn (keeps CSS anims) when unchanged
+      if (attr === "data-cv-mq-state") ModelQueueNode.paint(el.closest("[data-cv-model-queue]"), parts.state);
     });
+    // An opened lane's lists grow and shrink with the traffic, and every row under it moves
+    // with them — and the dots and cables that belong to those rows.
+    if (changed) board.scheduleDraw();
   }
   // Anchor a sticky-reservation bar's drain to an absolute clock (mirrors the classic
   // slot view) so periodic re-renders never restart/rescale it. Shared rAF ticker
@@ -560,16 +597,11 @@ export class QueueNode extends RuleNode {
   summary() {
     const c = this.config;
     const slots = c.maxSlots ? t("cvSumSlots", { n: c.maxSlots }) : t("cvSumAutoSlots");
-    return `${slots} · spill ${c.spillPct ?? 20}%`;
+    return `${slots} · spill ${QUEUE_SETTINGS.values().spillPct}%`;
   }
   panelNeedsEdges() { return false; }
   panelBody() {
-    const cfg = this.config;
-    const num = (key, val, min, max, ph) =>
-      `<input class="rw-cfg-in rw-cfg-num" type="number" min="${min}" max="${max}" data-cfg-q="${key}" value="${val === null || val === undefined ? "" : val}" placeholder="${ph || ""}">`;
-    return `<div class="rw-cfg-hint">${t("cvHintQueueCfg")}</div>`
-      + `<label class="rw-cfg-row"><span class="rw-cfg-tgt" title="${escapeHtml(t("cvTitleOverflowAt"))}">${escapeHtml(t("cvLabelOverflowAt"))}</span>${num("spillPct", cfg.spillPct ?? 20, 0, 100)}<span class="rw-cfg-unit">%</span></label>`
-      + `<label class="rw-cfg-row"><span class="rw-cfg-tgt" title="${escapeHtml(t("cvTitleReserve"))}">${escapeHtml(t("cvLabelReserveForAgent"))}</span>${num("stickySlotSec", cfg.stickySlotSec ?? 20, 0, 120)}<span class="rw-cfg-unit">s</span></label>`;
+    return `<div class="rw-cfg-hint">${escapeHtml(t("cvSharedQueueSettings"))}</div>`;
   }
   // Live queue state: resolve the admit edge → guarded llama output, then count
   // running/queued requests on that upstream group (matches the backend's
@@ -606,11 +638,20 @@ export class QueueNode extends RuleNode {
   // Without this the lists froze at load time (the canvas queue node showed "queue
   // empty / no active request" while a request streamed through it).
   liveHtml() {
+    const parts = this.liveParts();
+    return parts.meter + parts.activity;
+  }
+  // The live region in two pieces — the slot meter, and the lists under it — and the
+  // state they add up to. A model's lane shows the meter on its one line and keeps
+  // the lists for when it is opened. Waiting beats running beats idle: a request
+  // standing in line is what the operator is looking for.
+  liveParts() {
   const cfg = this.config;
   const live = this.liveStats();
   const edges = this.outEdges;
   const spillEdge = edges.find((e) => e.id === cfg.spillEdge);
-  const spillPct = Math.max(0, Math.min(100, Number(cfg.spillPct ?? 20)));
+  const shared = QUEUE_SETTINGS.values();
+  const spillPct = Number(shared.spillPct);
   const running = live?.running || 0, slots = live?.slots || 0;
   // ── slot meter ──
   let pips = "";
@@ -656,7 +697,7 @@ export class QueueNode extends RuleNode {
   const stickyData = group ? (ui.latestSystemMonitor?.latest?.agentProxies?.stickySlots || {})[group] : null;
   let reserveRow = "";
   if (stickyData && Number(stickyData.remainingSec) > 0) {
-    const totalSec = Math.max(1, Number(cfg.stickySlotSec ?? 20));
+    const totalSec = Math.max(1, Number(shared.stickySlotSec));
     const anim = QueueNode.stickyAnim(group, stickyData, totalSec);
     const remMs = Math.max(0, anim.durationMs - (Date.now() - anim.startMs));
     const startPct = anim.durationMs > 0 ? (remMs / anim.durationMs) * 100 : 0;
@@ -696,83 +737,140 @@ export class QueueNode extends RuleNode {
   const waitBlock = waitingItems.length
     ? `<div class="cv-q-sec-h">${escapeHtml(t("cvQWaitingHead", { n: waitingItems.length }))}</div>${waitRows}${moreWaiting}`
     : `<div class="cv-q-empty muted">${t("cvQEmpty")}</div>`;
-  return `<div class="cv-q-meter${slots > 0 && running >= slots ? " full" : ""}">`
+  const state = waitingItems.length ? "waiting" : allRunning.length ? "running" : "idle";
+  // The chip at the meter's end says who waits, or that nobody does AND nothing runs —
+  // "idle" beside a request that is running would call a busy model idle.
+  const chip = state === "waiting" ? `<span class="cv-q-qd waiting">⏳ ${waitingItems.length}</span>`
+    : state === "idle" ? `<span class="cv-q-qd idle">${t("cvQIdle")}</span>` : "";
+  return {
+    state,
+    meter: `<div class="cv-q-meter${slots > 0 && running >= slots ? " full" : ""}">`
       + `<span class="cv-q-pips">${pips}</span><span class="cv-q-slotnum">${slotText}</span>`
-      + (waitingItems.length ? `<span class="cv-q-qd waiting">⏳ ${waitingItems.length}</span>` : `<span class="cv-q-qd idle">${t("cvQIdle")}</span>`)
-    + `</div>`
-    + `<div class="cv-q-now">${nowRows}</div>`
-    + reserveRow
-    + `<div class="cv-q-waitwrap">${waitBlock}</div>`;
+      + chip
+    + `</div>`,
+    activity: `<div class="cv-q-now">${nowRows}</div>`
+      + reserveRow
+      + `<div class="cv-q-waitwrap">${waitBlock}</div>`,
+  };
   }
-  body() {
-  const n = this.rec, router = this.router, cfg = this.config;
-  const edges = this.outEdges;
-  const spillEdge = edges.find((e) => e.id === cfg.spillEdge);
-  // admit falls back to the first non-spill edge (matches the engine + heals old graphs).
-  const admitEdge = edges.find((e) => e.id === cfg.admitEdge) || edges.find((e) => e.id !== cfg.spillEdge);
-  const admitLabel = this.targetLabel(admitEdge), spillLabel = this.targetLabel(spillEdge);
-  const spillPct = Math.max(0, Math.min(100, Number(cfg.spillPct ?? 20)));
-  // main (admit) / overflow (spill) destination rows, each with its own out-port —
-  // role = internal data role (admit/spill); the visible label is main / overflow.
-  // Inherited default when this queue node says nothing: the global policy.
-  // Showing the inherited number (rather than a blank) is the difference
-  // between "not set" and "set to nothing", which for a retry window is the
-  // difference between 60 seconds and never retrying.
-  const _policyLoadWait = () =>
-    Number((topology?.proxyPolicy || {}).loadingModelWaitSec ?? 60);
-  // ── inline, editable parameters (also in the ⚙ panel) ──
-  const qnum = (key, val, min, max, ph) =>
-    `<input class="cv-q-cfg-in" type="number" min="${min}" max="${max}" data-cv-q="${key}" value="${val === null || val === undefined ? "" : val}" placeholder="${ph || ""}" title="${escapeHtml(ph || key)}">`;
-  const paramsGrid = `<div class="cv-q-cfg">`
-    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelOverflowAt"))} ${helpTip("cvTipOverflowAt")}</span>${qnum("spillPct", cfg.spillPct ?? 20, 0, 100, "% of wait")}<span class="cv-q-u">%</span></label>`
-    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelReserve"))} ${helpTip("cvTipReserve")}</span>${qnum("stickySlotSec", cfg.stickySlotSec ?? 20, 0, 120, "reserve for agent")}<span class="cv-q-u">s</span></label>`
-    + `<label class="cv-q-cfg-row"><span>${escapeHtml(t("cvLabelLoadWait"))} ${helpTip("cvTipLoadWait")}</span>${qnum("loadingModelWaitSec", cfg.loadingModelWaitSec ?? _policyLoadWait(), 0, 900, "sec")}<span class="cv-q-cfg-unit">s</span></label>`
-    + `</div>`;
-  // History pane — auto-refresh if stale while open
-  const histOpen = !!_cvQueueHistOpen[n.id];
-  const histCache = _cvQueueHistData[n.id];
+  // The history pane's fold: a button, and the rows when it is open — fetched
+  // again, silently, once what is shown is more than 15 s old.
+  historyHtml() {
+  const nid = this.rec.id;
+  const histOpen = !!_cvQueueHistOpen[nid];
+  const histCache = _cvQueueHistData[nid];
   if (histOpen && histCache && Date.now() - histCache.ts > 15000) {
     // stale — kick a silent refresh; next render will pick up new data
-    setTimeout(() => History.fetch(_cvQueueHistData, n.id), 0);
+    setTimeout(() => History.fetch(_cvQueueHistData, nid), 0);
   }
-  const histSection = `<div class="cv-q-hist${histOpen ? " open" : ""}">
-    <button class="cv-act cv-q-hist-toggle" type="button" data-cv-q-hist-toggle="${escapeHtml(n.id)}">
+  return `<div class="cv-q-hist${histOpen ? " open" : ""}">
+    <button class="cv-act cv-q-hist-toggle" type="button" data-cv-q-hist-toggle="${escapeHtml(nid)}">
       🕐 history ${histOpen ? "▴" : "▾"}
     </button>
-    ${histOpen ? `<div class="cv-q-hist-body">${History.queueHtml(n.id)}</div>` : ""}
+    ${histOpen ? `<div class="cv-q-hist-body">${History.queueHtml(nid)}</div>` : ""}
   </div>`;
-
-  // Dead-target warnings: the cable exists, but its output vanished (block
-  // deleted — edge preserved for auto-restore) or the block's model is no
-  // longer listed by the provider (requests will 400 upstream).
-  const edgeTargetIssue = (edge) => {
+  }
+  // Dead-target warning for one cable: it exists, but its output vanished (block
+  // deleted — edge preserved for auto-restore) or the block's model is no longer
+  // listed by the provider (requests will 400 upstream). "" when the cable is fine.
+  targetIssue(edge) {
     const to = String(edge?.to || "");
     if (!to.startsWith("out:")) return "";
     const outId = to.slice(4);
-    const out = (router.outputs || []).find((o) => o.id === outId);
+    const out = (this.router.outputs || []).find((o) => o.id === outId);
     if (!out) return t("cvQTargetMissing");
     if (outId.startsWith("cb:")) {
       const blk = (topology?.cloudProviders || []).find((b) => b.id === String(out.providerId || outId.slice(3)));
       if (blk?.unlisted) return t("cloudModelUnlisted");
     }
     return "";
-  };
-  const warnRow = (name, edge) => {
-    const issue = edge ? edgeTargetIssue(edge) : "";
+  }
+  issueRow(name, edge) {
+    const issue = edge ? this.targetIssue(edge) : "";
     return issue ? `<div class="cv-q-warn">⚠ ${name}: ${escapeHtml(issue)}</div>` : "";
-  };
+  }
+  body() {
+  const n = this.rec, cfg = this.config;
+  const edges = this.outEdges;
+  const spillEdge = edges.find((e) => e.id === cfg.spillEdge);
+  // admit falls back to the first non-spill edge (matches the engine + heals old graphs).
+  const admitEdge = edges.find((e) => e.id === cfg.admitEdge) || edges.find((e) => e.id !== cfg.spillEdge);
+  const admitLabel = this.targetLabel(admitEdge), spillLabel = this.targetLabel(spillEdge);
+  // main (admit) / overflow (spill) destination rows, each with its own out-port —
+  // role = internal data role (admit/spill); the visible label is main / overflow.
   return `<div class="cv-q-body">`
     // routing first: main / overflow destinations (point 4 — above the live lists)
-    + this.destRow({ cls: "admit", name: "main", label: admitLabel, wired: !!admitEdge, portAttr: 'data-cv-qrole="admit"', hint: t("cvDragToMain") })
+    + this.mainRow(admitEdge, admitLabel)
     + this.destRow({ cls: "spill", name: "overflow", label: spillLabel, wired: !!spillEdge, portAttr: 'data-cv-qrole="spill"', hint: t("cvDragToOverflow") })
-    + warnRow("main", admitEdge)
-    + warnRow("overflow", spillEdge)
-    + paramsGrid
+    + this.issueRow("main", admitEdge)
+    + this.issueRow("overflow", spillEdge)
     // live state below — wrapped in a stable container so QueueNode.syncLive() can
     // re-patch just this region every monitor tick (the rest of the card stays put).
     + `<div class="cv-q-live" data-cv-q-live="${escapeHtml(n.id)}">${this.liveHtml()}</div>`
-    + histSection
+    + this.historyHtml()
     + `</div>`;
+  }
+}
+
+// A model owns this queue. Its main destination cannot be moved away from that
+// model. Only the overflow cable is editable; the server owns its lifecycle.
+//
+// It is drawn as a lane under the model's own row, not as a node of its own. One
+// line says how busy the model is (the slot meter, how many wait) and where its
+// overflow goes; a click on it opens the live lists and the history. The overflow
+// port is level with that line, so the cable leaves from one place whether the lane
+// is open or shut — the port itself is a dot of the SERVERS panel, on its left border
+// (ServersBlock.syncPortDots), where every cable of the panel arrives — and a dead
+// overflow target is flagged on the line too, not only inside.
+export class ModelQueueNode extends QueueNode {
+  // Lanes the operator has opened, by queue node id: a render must not shut them.
+  static open = new Set();
+  static belongsToModel(rec) { return rec.type === "queue" && !!rec.modelOutputId; }
+  static cards(router) {
+    return Object.fromEntries((router.graph?.nodes || [])
+      .filter((rec) => ModelQueueNode.belongsToModel(rec) && rec.modelQueueActive)
+      .map((rec) => [rec.modelOutputId, new ModelQueueNode(rec, router).inlineHtml()]));
+  }
+  static internalEdge(router, edge) {
+    return (router.graph?.nodes || []).some((rec) => ModelQueueNode.belongsToModel(rec)
+      && edge.from === `rule:${rec.id}` && edge.id === rec.config?.admitEdge);
+  }
+  // Open or shut one lane in place and remember it. The block changes height, so the
+  // caller places the port dots and the cables again. True when it is open now.
+  static toggle(lane) {
+    const id = String(lane.dataset.cvNode || "").replace(/^rule:/, "");
+    const open = !ModelQueueNode.open.has(id);
+    ModelQueueNode.open[open ? "add" : "delete"](id);
+    lane.classList.toggle("open", open);
+    lane.querySelector("[data-cv-mq-toggle]")?.setAttribute("aria-expanded", String(open));
+    return open;
+  }
+  // The lane's state is one attribute: the styles key on the same data-t-state the
+  // tests read, so what is drawn and what is checked cannot differ.
+  static paint(lane, state) {
+    if (lane) lane.dataset.tState = state;
+  }
+  inlineHtml() {
+    const nid = escapeHtml(this.id), out = escapeHtml(this.rec.modelOutputId);
+    const open = ModelQueueNode.open.has(this.id);
+    const parts = this.liveParts();
+    const spillEdge = this.outEdges.find((e) => e.id === this.config.spillEdge);
+    const label = this.targetLabel(spillEdge);
+    const issue = spillEdge ? this.targetIssue(spillEdge) : "";
+    return `<section class="cv-model-queue${open ? " open" : ""}" data-t="kanban-model-queue"`
+      + ` data-t-id="${out}" data-t-state="${parts.state}" data-cv-model-queue="${out}" data-cv-node="rule:${nid}">`
+      + `<div class="cv-mq-line">`
+      + `<button class="cv-mq-toggle" type="button" data-t="kanban-model-queue-toggle" data-cv-mq-toggle aria-expanded="${open}"`
+      + ` title="${escapeHtml(t("cvTipModelQueue"))}"><span class="cv-mq-caret" aria-hidden="true"></span>`
+      + `<span class="cv-mq-meter" data-cv-mq-state="${nid}">${parts.meter}</span></button>`
+      + `<span class="cv-mq-ov${spillEdge ? "" : " unset"}">`
+      + (issue ? `<span class="cv-mq-warn" title="${escapeHtml(issue)}">⚠</span>` : "")
+      + `<span class="cv-mq-arrow" aria-hidden="true">↗</span>`
+      + `<span class="cv-q-dt" title="${escapeHtml(label)}">${escapeHtml(label)}</span>`
+      + `</span></div>`
+      + `<div class="cv-mq-detail">${this.issueRow("overflow", spillEdge)}`
+      + `<div class="cv-mq-activity" data-cv-mq-activity="${nid}">${parts.activity}</div>${this.historyHtml()}</div>`
+      + `</section>`;
   }
 }
 
@@ -812,7 +910,19 @@ export class OnErrorNode extends RuleNode {
                        label: OnErrorNode.exitLabel(this.targetLabel(rescueEdge), live.backupVia),
                        portAttr: 'data-cv-qrole="rescue"', hint: t("cvDragToRescue"),
                        lead: OnErrorNode.nextHtml(live.next === "backup"),
-                       extra: OnErrorNode.stateHtml(live.backup) + OnErrorNode.countdownHtml(live.backup) });
+                       extra: OnErrorNode.stateHtml(live.backup) + OnErrorNode.countdownHtml(live.backup) })
+      + OnErrorNode.sameExitHtml(live.nx, mainEdge, rescueEdge);
+  }
+  // Main and backup that end on ONE output: the retry asks the model that has just failed, so
+  // the node protects nothing. On the live kanban one 🛟 had a single cable in both roles
+  // (2026-10-04) and read like a working backup. The ends are the proxy's when it reports them
+  // (an exit may run through a chain) and the cables' own otherwise; an end nobody can name
+  // says nothing — a guessed warning would be as wrong as a missing one.
+  static sameExitHtml(nx, mainEdge, rescueEdge) {
+    if (!mainEdge || !rescueEdge) return "";
+    const end = (side, edge) => (nx && nx[side]) || OnErrorNode.outputIdOf(edge);
+    const one = mainEdge === rescueEdge || (end("main", mainEdge) !== "" && end("main", mainEdge) === end("backup", rescueEdge));
+    return one ? `<div class="cv-q-warn" data-t="kanban-onerror-same" title="${escapeHtml(t("cvOnErrSameTip"))}">⚠ ${escapeHtml(t("cvOnErrSame"))}</div>` : "";
   }
   // When this exit's verdict expires — checkedAt plus the TTL, which the
   // snapshot carries as age + time-to-retry — the idle probe asks it again
@@ -1015,7 +1125,55 @@ if (typeof window !== "undefined" && !window._cvSchedNowTimer) {
   window._cvSchedNowTimer = setInterval(() => ScheduleNode.tickNow(), 30_000);
 }
 
-// ── CLIENTS block: one canvas node listing every client wired into the router ──
+// The port dots of a side panel. A dot is a child of the panel itself — not of its
+// scrolling body, which would clip the half that sticks out over the panel's border and
+// carry the dot away with its row. It is placed from its row's rectangle and clamped to
+// the body's visible span: a row scrolled out of sight keeps its cables, and they end at
+// the panel's edge, dimmed (.clamped), instead of vanishing or flying off the screen.
+export class PanelPorts {
+  static EDGE = 8;   // a dot's centre stays at least this far inside the body's visible span
+  // An element's rectangle as the numbers placement needs.
+  static box(el) {
+    const r = el.getBoundingClientRect();
+    return { top: r.top, bottom: r.top + r.height, height: r.height };
+  }
+  static of(selector) {
+    const panel = document.querySelector(selector);
+    return panel ? new PanelPorts(panel) : null;
+  }
+  constructor(panel) {
+    this.panel = panel;
+    // Absolute children are placed from the panel's padding edge, inside its border.
+    this.top = PanelPorts.box(panel).top + (panel.clientTop || 0);
+    this.span = PanelPorts.box(panel.querySelector(".rw-side-body") || panel);
+  }
+  // The panel's own child matching `selector`, or a new one from `build`.
+  dot(selector, build) {
+    let dot = this.panel.querySelector(`:scope > ${selector}`);
+    if (!dot) {
+      dot = build();
+      this.panel.appendChild(dot);
+    }
+    return dot;
+  }
+  // Put the dot's centre on the row's centre, clamped into the body's visible span.
+  place(dot, row) {
+    const r = PanelPorts.box(row);
+    const mid = r.top + r.height / 2;
+    const y = Math.min(Math.max(mid, this.span.top + PanelPorts.EDGE), this.span.bottom - PanelPorts.EDGE);
+    // `top` places the dot's TOP edge, so half its 16px height comes off to put its CENTRE
+    // on y (margin-top is zeroed to keep the rendered rect equal to this arithmetic).
+    dot.style.top = `${y - this.top - 8}px`;
+    dot.style.marginTop = "0";
+    dot.classList.toggle("clamped", mid < this.span.top || mid > this.span.bottom);
+  }
+  // Drop the panel's own children matching `selector` that are not in `keep`.
+  prune(selector, keep) {
+    this.panel.querySelectorAll(`:scope > ${selector}`).forEach((dot) => { if (!keep.has(dot)) dot.remove(); });
+  }
+}
+
+// ── CLIENTS panel: every client wired into the router, one row per agent ─────────────
 // One row per AGENT = (host, agent-name), holding BOTH its primary and fallback
 // ports. The agent name comes from the route label minus its "primary"/"fallback"
 // suffix (kept correct by the backend reconcile); clientId disambiguates the same
@@ -1162,128 +1320,117 @@ export class InputsBlock {
   // Ports are no longer created here: the kanban is about routing, not about the
   // existence of inputs. A port is created where its owner lives — on the client
   // card of the main board; otherwise a port appears that no card shows.
-  descriptor() {
+  //
+  // The panel is the left side of the board, as tall as the board, scrolling by itself.
+  // It is not a node: it neither pans nor zooms, and the canvas draws its cables to the
+  // port dots on its right border (PanelPorts). The embeddings slot sits under the
+  // scrolling rows, so it stays in view however many clients there are.
+  panelHtml() {
     const body = this.bodyHtml();
-    return {
-      id: "inputs:block", type: "inputs", cls: "cv-inputs-block", fixed: { x: 20, y: 20 },
-      // The empty message was a single-quoted string inside the template, so a
-      // router without ports printed the literal "${escapeHtml(...)}" instead of
-      // the sentence — absence rendered as garbage. A nested template renders it.
-      html: `<div class="cv-inputs-head">${escapeHtml(t("cvLabelClients"))} ${helpTip("cvTipClients")}</div><div class="cv-inputs-body">${body || `<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>`}</div>${this.embedSlotHtml()}`,
-    };
+    // The empty message was a single-quoted string inside the template, so a
+    // router without ports printed the literal "${escapeHtml(...)}" instead of
+    // the sentence — absence rendered as garbage. A nested template renders it.
+    // Two parts, one per row of the board's band (canvas.css, .rw-cols): the head beside the
+    // palette, the rows and the slot beside the canvas.
+    return `<aside class="rw-side rw-clients" data-t="kanban-node" data-t-id="inputs:block" data-cv-panel="clients">`
+      + `<div class="rw-side-head">${escapeHtml(t("cvLabelClients"))} ${helpTip("cvTipClients")}</div>`
+      + `<div class="rw-side-main"><div class="rw-side-body">${body || `<span class="router-cfg-muted" style="font-size:11px;padding:6px 0;display:block">${escapeHtml(t("cvNoProxyPorts"))}</span>`}</div>`
+      + `<div class="rw-side-foot">${this.embedSlotHtml()}</div></div></aside>`;
   }
-  // Sync port dots on the block (mirror of ServersBlock.syncPortDots). Dots are
-  // direct children of the block (position:absolute, right:-9px) so they straddle
-  // the RIGHT border just like .cv-port.out on regular nodes. Y is computed from
-  // getBoundingClientRect() so it tracks correctly when scrolled.
+  // The client ports' dots: one per row, on the panel's right border, cables leaving to the right.
   static syncPortDots() {
-  const world = document.querySelector("[data-cv-world]");
-  if (!world) return;
-  const block = world.querySelector(".cv-inputs-block");
-  if (!block) return;
-  const blockRect = block.getBoundingClientRect();
-  const scale = _cvView.scale || 1;
-  const seen = new Set();
-  block.querySelectorAll("[data-cv-in-row]").forEach((row) => {
-    const ref = row.dataset.cvInRow;
-    if (!ref) return;
-    const rowRect = row.getBoundingClientRect();
-    if (rowRect.height < 1) return;
-    seen.add(ref);
-    let dot = block.querySelector(`:scope > .cv-port.out[data-cv-ref="${CSS.escape(ref)}"]`);
-    if (!dot) {
-      dot = document.createElement("span");
-      dot.className = "cv-port out";
-      dot.dataset.cvRef = ref;
-      dot.title = t("cvDragPort");
-      block.appendChild(dot);
-    }
-    const yBlock = (rowRect.top - blockRect.top + rowRect.height / 2) / scale;
-    dot.style.top = (yBlock - 8) + "px";
-    dot.style.marginTop = "0";
-  });
-  block.querySelectorAll(":scope > .cv-port.out[data-cv-ref]").forEach((dot) => {
-    if (!seen.has(dot.dataset.cvRef)) dot.remove();
-  });
+    const ports = PanelPorts.of(".rw-clients");
+    if (!ports) return;
+    const kept = new Set();
+    ports.panel.querySelectorAll("[data-cv-in-row]").forEach((row) => {
+      const ref = row.dataset.cvInRow;
+      if (!ref || PanelPorts.box(row).height < 1) return;
+      const dot = ports.dot(`.cv-port.out[data-cv-ref="${CSS.escape(ref)}"]`, () => {
+        const made = document.createElement("span");
+        made.className = "cv-port out";
+        made.dataset.cvRef = ref;
+        made.title = t("cvDragPort");
+        return made;
+      });
+      kept.add(dot);
+      ports.place(dot, row);
+    });
+    ports.prune(".cv-port.out[data-cv-ref]", kept);
   }
 }
 
-// ── SERVERS block: stationary canvas node (draggable, no delete button) ────────
-// Each output row inside it carries data-cv-out-port="out:<id>" as its input port.
+// ── SERVERS panel: the right side of the board ──────────────────────────────
+// As tall as the board and scrolling by itself, like the clients panel; the queue policy
+// line sits under its head, above the scrolling rows. Each output row has a port dot on
+// the panel's left border (data-cv-out-port="out:<id>") — the target cables are dropped on —
+// and each model queue lane has its overflow port on the same border.
 export class ServersBlock {
   constructor(router) { this.router = router; }
-  descriptor() {
-    return {
-      id: "outputs:block", type: "outputs", cls: "cv-servers-block", fixed: { x: 700, y: 20 },
-      html: `<div class="cv-servers-head">${escapeHtml(t("topologyServersHead"))} ${helpTip("cvTipServersHead")}</div><div class="cv-servers-body">${renderServersBlockHtml(this.router)}</div>`,
-    };
+  panelHtml() {
+    // The head and the queue policy line stand in the board's band, the rows beside the canvas.
+    return `<aside class="rw-side rw-servers" data-t="kanban-node" data-t-id="outputs:block" data-cv-panel="servers">`
+      + `<div class="rw-side-top"><div class="rw-side-head">${escapeHtml(t("topologyServersHead"))} ${helpTip("cvTipServersHead")}</div>`
+      + QUEUE_SETTINGS.html() + `</div>`
+      + `<div class="rw-side-body">${renderServersBlockHtml(this.router, ModelQueueNode.cards(this.router))}</div></aside>`;
   }
-  // Sync port dots on the block. Dots are direct children of the block
-  // (position:absolute, left:-9px) so they straddle the left border just like
-  // .cv-port.in on regular nodes. Y is computed from getBoundingClientRect() divided
-  // by scale so it stays correct when the body is scrolled or the canvas is zoomed.
   static syncPortDots() {
-  const world = document.querySelector("[data-cv-world]");
-  if (!world) return;
-  const block = world.querySelector(".cv-servers-block");
-  if (!block) return;
-  const blockRect = block.getBoundingClientRect();
-  const scale = _cvView.scale || 1;
-  const seen = new Set();
-  block.querySelectorAll("[data-router-out-row]").forEach((row) => {
-    const id = row.dataset.routerOutRow;
-    if (!id) return;
-    const rowRect = row.getBoundingClientRect();
-    if (rowRect.height < 1) return;      // collapsed / hidden accordion row
-    seen.add(id);
-    const key = `out:${id}`;
-    // Find existing dot or create one as a direct child of the block.
-    let dot = block.querySelector(`:scope > [data-cv-out-port="${CSS.escape(key)}"]`);
-    if (!dot) {
-      dot = document.createElement("span");
-      dot.className = "cv-port in";
-      dot.dataset.cvNode = key;
-      dot.dataset.cvOutPort = key;
-      dot.title = t("cvDropCable");
-      block.appendChild(dot);
-    }
-    // Position in block's coordinate space (world units = CSS px at scale 1).
-    // `top` places the dot's TOP edge, so subtract half its 16px height to put
-    // its CENTER on the row center (margin-top is zeroed to keep the rendered
-    // rect equal to the top-based math the cable anchors use).
-    const yBlock = (rowRect.top - blockRect.top + rowRect.height / 2) / scale;
-    dot.style.top = (yBlock - 8) + "px";
-    dot.style.marginTop = "0";
-  });
-  // Folded host/provider groups: rows are hidden, so give every hidden output
-  // a dot AT THE GROUP HEADER — its cables converge there instead of vanishing.
-  block.querySelectorAll("[data-cv-group-outs].folded").forEach((grp) => {
-    const head = grp.querySelector("[data-router-group-fold]") || grp;
-    const headRect = head.getBoundingClientRect();
-    if (headRect.height < 1) return;
-    (grp.dataset.cvGroupOuts || "").split(",").forEach((rawId) => {
-      const id = rawId.trim();
-      if (!id || seen.has(id)) return;
-      seen.add(id);
+    const ports = PanelPorts.of(".rw-servers");
+    if (!ports) return;
+    const outs = new Set(), spills = new Set(), seen = new Set();
+    // Find or make the in-port of an output. `place` is told where by the caller.
+    const outDot = (id) => {
       const key = `out:${id}`;
-      let dot = block.querySelector(`:scope > [data-cv-out-port="${CSS.escape(key)}"]`);
-      if (!dot) {
-        dot = document.createElement("span");
-        dot.className = "cv-port in";
-        dot.dataset.cvNode = key;
-        dot.dataset.cvOutPort = key;
-        dot.title = t("cvDropCable");
-        block.appendChild(dot);
-      }
-      dot.style.top = ((headRect.top - blockRect.top + headRect.height / 2) / scale - 8) + "px";
-      dot.style.marginTop = "0";
+      const dot = ports.dot(`[data-cv-out-port="${CSS.escape(key)}"]`, () => {
+        const made = document.createElement("span");
+        made.className = "cv-port in";
+        made.dataset.cvNode = key;
+        made.dataset.cvOutPort = key;
+        made.title = t("cvDropCable");
+        return made;
+      });
+      outs.add(dot);
+      return dot;
+    };
+    ports.panel.querySelectorAll("[data-router-out-row]").forEach((row) => {
+      const id = row.dataset.routerOutRow;
+      if (!id || PanelPorts.box(row).height < 1) return;      // collapsed / hidden accordion row
+      seen.add(id);
+      ports.place(outDot(id), row);
     });
-  });
-  // Remove stale dots (output no longer in list or accordion is fully collapsed).
-  block.querySelectorAll(":scope > [data-cv-out-port]").forEach((dot) => {
-    const id = dot.dataset.cvOutPort?.replace(/^out:/, "");
-    if (id && !seen.has(id)) dot.remove();
-  });
+    // Folded host/provider groups: rows are hidden, so give every hidden output
+    // a dot AT THE GROUP HEADER — its cables converge there instead of vanishing.
+    ports.panel.querySelectorAll("[data-cv-group-outs].folded").forEach((grp) => {
+      const head = grp.querySelector("[data-router-group-fold]") || grp;
+      if (PanelPorts.box(head).height < 1) return;
+      (grp.dataset.cvGroupOuts || "").split(",").forEach((rawId) => {
+        const id = rawId.trim();
+        if (!id || seen.has(id)) return;
+        seen.add(id);
+        ports.place(outDot(id), head);
+      });
+    });
+    // A model's overflow port: on the same border as the in-ports, level with its lane's line.
+    // The cable leaves it to the LEFT, round into the canvas, and back to its target's in-port.
+    ports.panel.querySelectorAll("[data-cv-model-queue]").forEach((lane) => {
+      const line = lane.querySelector(".cv-mq-line");
+      const ref = lane.dataset.cvNode;
+      if (!line || !ref || PanelPorts.box(line).height < 1) return;
+      const dot = ports.dot(`.cv-port.out[data-cv-node="${CSS.escape(ref)}"][data-cv-qrole="spill"]`, () => {
+        const made = document.createElement("span");
+        made.className = "cv-port out";
+        made.dataset.cvNode = ref;
+        made.dataset.cvQrole = "spill";
+        made.dataset.cvPort = "out";
+        made.title = t("cvDragToOverflow");
+        return made;
+      });
+      dot.classList.toggle("unset", !!lane.querySelector(".cv-mq-ov.unset"));
+      spills.add(dot);
+      ports.place(dot, line);
+    });
+    // Remove stale dots (output no longer in list or accordion is fully collapsed; a lane that went).
+    ports.prune("[data-cv-out-port]", outs);
+    ports.prune(".cv-port.out[data-cv-qrole]", spills);
   }
 }
 
@@ -1358,12 +1505,14 @@ export class Graph {
   // A schedule node is born with two named outputs and an empty week; every other
   // kind starts from an empty config.
   addNode(type, at) {
+    if (type === "queue") throw new Error(t("cvQueueAutomatic"));
     const cfg = type === "schedule"
       ? { outputs: [{ id: _newId("sout"), name: "output 1" }, { id: _newId("sout"), name: "output 2" }], grid: Array.from({ length: 7 }, () => Array(24).fill(null)) }
       : {};
     this.ensure().nodes.push({ id: _newId("n"), type, x: at.x, y: at.y, config: cfg });
   }
   removeNode(nid) {
+    if (ModelQueueNode.belongsToModel(this.node(nid) || {})) throw new Error(t("cvQueueAutomatic"));
     const g = this.ensure();
     g.nodes = g.nodes.filter((n) => n.id !== nid);
     g.edges = g.edges.filter((e) => e.from !== `rule:${nid}` && e.to !== `rule:${nid}`);
@@ -1374,6 +1523,8 @@ export class Graph {
   // (replaces that role's existing edge) and records the new edge id in the node's
   // config. schedPortId tags a schedule/by-type/by-size port: exactly one edge per port.
   addEdge(fromRef, toRef, queueRole, schedPortId) {
+    if (queueRole === "admit" && ModelQueueNode.belongsToModel(this.roleNode(fromRef) || {}))
+      throw new Error(t("cvQueueAutomatic"));
     const g = this.ensure();
     if (schedPortId && fromRef.startsWith("rule:")) {
       g.edges = g.edges.filter((e) => !(e.from === fromRef && e.schedPortId === schedPortId));
@@ -1533,6 +1684,7 @@ export class Board {
     // every tick and would otherwise drop the classes.
     this.hoverEdge = null;
     this.windowBound = false;
+    this.drawPending = false;            // a scheduleDraw() is waiting for its frame
     // Schedule-grid paint session: collapsed cards, the brush chosen per node, the
     // stroke in progress, and the last painted grid per node (survives between
     // strokes so mid-save strokes don't lose changes).
@@ -1625,62 +1777,73 @@ export class Board {
         <div class="rw-node-cfg-body">${body}</div>
       </div>`;
   }
-  // Build the node descriptors for a router: the CLIENTS block, every rule node at its
-  // stored position, the SERVERS block.
+  // Build the node descriptors for a router: every rule node at its stored position.
+  // CLIENTS and SERVERS are not nodes any more — they are the side panels (panels()).
   nodes(router) {
     const ruleNodes = router.graph?.nodes || [];
-    return [
-      new InputsBlock(router).descriptor(),
-      ...ruleNodes.map((n) => RuleNode.from(n, router).descriptor()),
-      new ServersBlock(router).descriptor(),
-    ];
+    return ruleNodes.filter((n) => !ModelQueueNode.belongsToModel(n)).map((n) => RuleNode.from(n, router).descriptor());
+  }
+  // The two side panels, as markup: CLIENTS on the left of the canvas, SERVERS on the right.
+  panels(router) {
+    return { left: new InputsBlock(router).panelHtml(), right: new ServersBlock(router).panelHtml() };
+  }
+  // Where a router's canvas opens: its rule nodes' top-left corner a little in from the
+  // canvas's own corner. The nodes keep the coordinates they were placed at when the
+  // CLIENTS block stood in the same world — hundreds of pixels in, which is empty room now.
+  // The coordinates are the server's: a node stands nowhere else (openPositions, below).
+  static initialView(router) {
+    const nodes = (router?.graph?.nodes || []).filter((n) => !ModelQueueNode.belongsToModel(n));
+    if (!nodes.length) return { tx: 24, ty: 24, scale: 1 };
+    return { tx: 24 - Math.min(...nodes.map((n) => Number(n.x) || 0)), ty: 24 - Math.min(...nodes.map((n) => Number(n.y) || 0)), scale: 1 };
+  }
+  // The view that shows a box of the world whole, centred in a viewport `width` × `height`:
+  // never zoomed in past 1:1 (a fit is for seeing everything, not for enlarging two nodes),
+  // never out past the wheel's own limit.
+  static fitView(box, width, height, margin = 32) {
+    const room = Math.min((width - 2 * margin) / box.w, (height - 2 * margin) / box.h);
+    const scale = Math.min(1, Math.max(0.35, room));
+    return { scale, tx: Math.round((width - box.w * scale) / 2 - box.x * scale),
+             ty: Math.round((height - box.h * scale) / 2 - box.y * scale) };
+  }
+  // The box around rectangles {x, y, w, h}.
+  static boxOf(rects) {
+    const x = Math.min(...rects.map((r) => r.x)), y = Math.min(...rects.map((r) => r.y));
+    return { x, y, w: Math.max(...rects.map((r) => r.x + r.w)) - x, h: Math.max(...rects.map((r) => r.y + r.h)) - y };
+  }
+  // ⤢ Show all: every rule node in sight at once. The box is measured from the nodes as they are
+  // drawn, not from saved coordinates — what is drawn is what has to fit. The view changes in
+  // place: `_cvView` is the same object, and the next render keeps it.
+  fitAll() {
+    const vp = document.querySelector("[data-cv-viewport]");
+    const nodes = [...(document.querySelector("[data-cv-world]")?.querySelectorAll(".cv-node") || [])].filter((n) => n.offsetWidth > 0);
+    if (!vp || !nodes.length) return;
+    const box = Board.boxOf(nodes.map((n) => ({ x: n.offsetLeft, y: n.offsetTop, w: n.offsetWidth, h: n.offsetHeight })));
+    Object.assign(this.view, Board.fitView(box, vp.clientWidth, vp.clientHeight));
+    this.applyView();
+    this.drawConnectors({ sync: false });
   }
 
   // Rebinding an imported let throws — foreign modules (main, topology-dnd) reset the
-  // viewport through this setter instead.
-  setViewport(pos, view) { this.pos = pos; this.view = view; _cvPos = pos; _cvView = view; }
+  // viewport through this setter instead. It is also where a board begins: a draw that
+  // was asked for on the last board's page, and whose frame never came (a hidden tab does
+  // not run frames), must not keep this board from asking for its own.
+  setViewport(pos, view) { this.pos = pos; this.view = view; _cvPos = pos; _cvView = view; this.drawPending = false; }
+  // A rule node's place has one home: the router's graph on the server, where every drop is
+  // saved. A browser also kept a copy under `cvpos:<router>` — from the days the panels were
+  // canvas nodes — and that copy won on every open: on the live kanban the operator's drags were
+  // saved, then undone by his own Chrome on reload (2026-10-04; he chose the server). The copy
+  // is dropped on open, and a canvas opens with no places of its own: what the board holds in
+  // memory afterwards is only a drop whose save has not landed yet.
   static posKey(routerId) { return `cvpos:${routerId}`; }
-  loadPositions(routerId) {
-    try { return JSON.parse(localStorage.getItem(Board.posKey(routerId)) || "{}") || {}; } catch { return {}; }
-  }
-  savePositions(routerId) {
-    try { localStorage.setItem(Board.posKey(routerId), JSON.stringify(this.pos)); } catch {}
+  openPositions(routerId) {
+    try { localStorage.removeItem(Board.posKey(routerId)); } catch {}
+    return {};
   }
   // World-space point at the centre of the current viewport (for placing new nodes).
   viewCentre() {
   const vp = document.querySelector("[data-cv-viewport]");
   const w = vp ? vp.clientWidth : 800, h = vp ? vp.clientHeight : 600;
   return { x: Math.round((w / 2 - this.view.tx) / this.view.scale), y: Math.round((h / 2 - this.view.ty) / this.view.scale) };
-  }
-
-  renderModal() {
-  if (!ui.topologyCanvasRouterId) return "";
-  const router = (topology?.routers || []).find((s) => s.id === ui.topologyCanvasRouterId);
-  if (!router) return "";
-  const nodes = this.nodes(router);
-  const nodeHtml = nodes.map((n) => {
-    const pos = this.pos[n.id] || n.fixed || { x: n.dx, y: n.dy };
-    return `<div class="cv-node cv-${n.type} ${n.cls || ""}" data-cv-node="${escapeHtml(n.id)}" style="left:${pos.x}px;top:${pos.y}px">${n.html}</div>`;
-  }).join("");
-  const tf = `translate(${this.view.tx}px, ${this.view.ty}px) scale(${this.view.scale})`;
-  return `
-    <div class="topology-policy-overlay" data-topology-canvas-overlay>
-      <div class="topology-policy-modal canvas-modal">
-        <div class="topology-policy-head">
-          <strong>⤢ ${escapeHtml(t("topologyRouterTitle"))} — canvas</strong>
-          <span class="muted" style="font-size:11px">drag nodes · scroll = zoom · drag background = pan</span>
-          <span class="topology-policy-head-actions">
-            <button class="icon-action compact" type="button" data-topology-canvas-close aria-label="${escapeHtml(t("close"))}" title="${escapeHtml(t("close"))}">×</button>
-          </span>
-        </div>
-        <div class="cv-viewport" data-cv-viewport>
-          <div class="cv-world" data-cv-world style="transform:${tf}">
-            <svg class="cv-svg" data-cv-svg width="4000" height="3000" viewBox="0 0 4000 3000"></svg>
-            ${nodeHtml}
-          </div>
-        </div>
-      </div>
-    </div>`;
   }
 
   // ── cables ──
@@ -1693,39 +1856,62 @@ export class Board {
   if (side === "center") return { x: x + el.offsetWidth / 2, y: y + el.offsetHeight / 2 };
   return { x, y: y + el.offsetHeight / 2 }; // "left"
   }
+  // World point of a dot in a side panel. The panels stand outside the world, so the dot's
+  // place is its place on the screen, carried through the view (pan and zoom move the
+  // world under the panels, which is why the cables are drawn again when the view moves).
+  panelPoint(el, side) {
+    const r = el.getBoundingClientRect();
+    const x = side === "right" ? r.left + r.width : side === "center" ? r.left + r.width / 2 : r.left;
+    return this.clientToWorld(x, r.top + r.height / 2);
+  }
   // World point of an edge's source (out) / target (in) anchor, by ref. Shared by the
   // connector renderer and the rewire/connect drags.
   anchorFrom(ref) {
-  const world = document.querySelector("[data-cv-world]");
-  if (!world) return null;
   if (ref.startsWith("in:")) {
-    // Dots are created by _cvSyncInputsBlockPortDots as direct children of the inputs block.
-    const port = world.querySelector(`.cv-port.out[data-cv-ref="${CSS.escape(ref)}"]`);
-    return port ? Board.worldPoint(port, "right") : null;
+    // The client's dot, made by InputsBlock.syncPortDots on the CLIENTS panel's right border.
+    const port = document.querySelector(`.rw-clients .cv-port.out[data-cv-ref="${CSS.escape(ref)}"]`);
+    return port ? this.panelPoint(port, "right") : null;
   }
-  const node = world.querySelector(`[data-cv-node="${CSS.escape(ref)}"]`);
-  return node ? Board.worldPoint(node, "right") : null;
+  const world = document.querySelector("[data-cv-world]");
+  const node = world?.querySelector(`[data-cv-node="${CSS.escape(ref)}"]`);
+  if (node) return Board.worldPoint(node, "right");
+  // A model's queue is not a node of the world: its overflow dot is on the SERVERS panel's
+  // left border, and the cable leaves it to the left (dir -1).
+  const spill = document.querySelector(`.rw-servers .cv-port.out[data-cv-node="${CSS.escape(ref)}"]`);
+  return spill ? { ...this.panelPoint(spill, "left"), dir: -1 } : null;
   }
   anchorTo(ref) {
+  if (ref.startsWith("out:")) {
+    // Output dots live on the SERVERS panel's left border as [data-cv-out-port] spans.
+    const port = document.querySelector(`.rw-servers [data-cv-out-port="${CSS.escape(ref)}"]`);
+    return port ? this.panelPoint(port, "center") : null;
+  }
   const world = document.querySelector("[data-cv-world]");
   if (!world) return null;
-  if (ref.startsWith("out:")) {
-    // Output ports live inside the Servers canvas block as [data-cv-out-port] spans.
-    const port = world.querySelector(`[data-cv-out-port="${CSS.escape(ref)}"]`);
-    return port ? Board.worldPoint(port, "center") : null;
-  }
   const node = world.querySelector(`[data-cv-node="${CSS.escape(ref)}"]`);
   return node ? Board.worldPoint(node.querySelector(".cv-port.in") || node, "left") : null;
   }
-  static pathD(a, b) {
+  // The cubic between two anchors: it leaves `a` to the right — or to the left, when the
+  // anchor says dir -1 — and enters `b` from the left. `mid` is where the ✕ puck sits (t = 0.5).
+  // One formula for the drawn cables and for the cable being dragged.
+  static curve(a, b) {
   const dx = Math.max(48, Math.abs(b.x - a.x) * 0.48);
-  return `M ${a.x} ${a.y} C ${a.x + dx} ${a.y}, ${b.x - dx} ${b.y}, ${b.x} ${b.y}`;
+  const c1 = a.x + (a.dir || 1) * dx, c2 = b.x - dx;
+  return {
+    d: `M ${a.x} ${a.y} C ${c1} ${a.y}, ${c2} ${b.y}, ${b.x} ${b.y}`,
+    mid: { x: (a.x + 3 * c1 + 3 * c2 + b.x) / 8, y: (a.y + 3 * a.y + 3 * b.y + b.y) / 8 },
+  };
   }
-  drawConnectors() {
-  // Always sync block port dots before drawing — ensures they exist and
-  // are correctly positioned even if the initial bind ran before layout was ready.
-  InputsBlock.syncPortDots();
-  ServersBlock.syncPortDots();
+  static pathD(a, b) { return Board.curve(a, b).d; }
+  // `sync: false` for a move of the VIEW only (pan, zoom): the panels did not move, so their
+  // dots are where they were, and only the cables need drawing again.
+  drawConnectors({ sync = true } = {}) {
+  // Sync the panels' port dots before drawing — ensures they exist and are correctly
+  // placed even if the initial bind ran before layout was ready.
+  if (sync) {
+    InputsBlock.syncPortDots();
+    ServersBlock.syncPortDots();
+  }
   const world = document.querySelector("[data-cv-world]");
   const svg = document.querySelector("[data-cv-svg]");
   if (!world || !svg) return;
@@ -1741,7 +1927,16 @@ export class Board {
   // First pass: resolve each edge's two anchor points + its CSS class.
   const cables = [];
   const seen = new Set();
+  // A cable into a cell that is not serving is drawn broken (output-cells.js): on the live
+  // kanban the cables into two stopped cells looked exactly like the working ones.
+  const cells = new OutputCells(topology, router);
+  const down = (to) => {
+    const out = to.startsWith("out:") ? (router.outputs || []).find((o) => o.id === to.slice(4)) : null;
+    const st = out ? cells.state(out) : "";
+    return st !== "" && st !== "running";
+  };
   (graph.edges || []).forEach((e) => {
+    if (ModelQueueNode.internalEdge(router, e)) return;
     const from = String(e.from), to = String(e.to);
     const k = `${from}->${to}`;
     if (seen.has(k)) return;
@@ -1771,13 +1966,14 @@ export class Board {
       }
     }
     if (!a) a = this.anchorFrom(from);
-    // anchorTo handles "out:" refs by finding [data-cv-out-port] inside the Servers block.
+    // anchorTo handles "out:" refs by finding [data-cv-out-port] on the SERVERS panel.
     const b = this.anchorTo(to);
     if (!a || !b) return;
     let cls = "cv-cable";
     if (qRole[e.id]) cls += ` cv-cable-${qRole[e.id]}`;
     if (this.drag && this.drag.kind === "rewire" && from === this.drag.id && to === this.drag.oldTo) cls += " removing";
     else if (this.drag && this.drag.kind === "connect" && this.drag.replaceFrom && from === this.drag.replaceFrom) cls += " removing";
+    if (down(to)) cls += " cv-cable-down";
     cables.push({ a, b, cls, from, to, edgeKey: `${escapeHtml(from)}|${escapeHtml(to)}` });
   });
   // Smooth cables — the same cubic the main board draws, at the kanban's
@@ -1786,11 +1982,7 @@ export class Board {
   // with the pipes it decorated.
   const paths = [];
   cables.forEach((c) => {
-    const dx = Math.max(48, Math.abs(c.b.x - c.a.x) * 0.48);
-    const d = `M ${c.a.x} ${c.a.y} C ${c.a.x + dx} ${c.a.y}, ${c.b.x - dx} ${c.b.y}, ${c.b.x} ${c.b.y}`;
-    // cubic midpoint (t = 0.5) — where the ✕ delete puck sits
-    const mx = (c.a.x + 3 * (c.a.x + dx) + 3 * (c.b.x - dx) + c.b.x) / 8;
-    const my = (c.a.y + 3 * c.a.y + 3 * c.b.y + c.b.y) / 8;
+    const { d, mid: { x: mx, y: my } } = Board.curve(c.a, c.b);   // mid: where the ✕ delete puck sits
     // ONE hooked element per connection. Counting `path` inside the cable layer
     // does not count connections: each edge draws an invisible fat hit-path, the
     // visible cable, and the ✕ puck's two strokes, so five nodes rendered
@@ -1819,6 +2011,13 @@ export class Board {
   }
   }
 
+  // Draw the cables once on the next frame, however many times it is asked for.
+  scheduleDraw() {
+    if (this.drawPending) return;
+    this.drawPending = true;
+    requestAnimationFrame(() => { this.drawPending = false; this.drawConnectors(); });
+  }
+
   // ── viewport ──
   applyView() {
   const world = document.querySelector("[data-cv-world]");
@@ -1844,6 +2043,7 @@ export class Board {
     this.view.tx = this.drag.tx + (e.clientX - this.drag.sx);
     this.view.ty = this.drag.ty + (e.clientY - this.drag.sy);
     this.applyView();
+    this.drawConnectors({ sync: false });
   } else if (this.drag.kind === "connect" || this.drag.kind === "rewire") {
     this.drag.cur = this.clientToWorld(e.clientX, e.clientY);
     const over = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-cv-node]");
@@ -1896,25 +2096,27 @@ export class Board {
   if (x !== node.offsetLeft || y !== node.offsetTop) {
     node.style.left = `${x}px`;
     node.style.top = `${y}px`;
-    const id = node.dataset.cvNode;
-    if (id) this.pos[id] = { x, y };
     this.drawConnectors();
+    return { x, y };
   }
+  return null;   // it stood clear: nothing moved. A nudge is drawn only — the place is the server's.
   }
   onUp(e) {
   if (!this.drag) return;
   if (this.drag.kind === "node") {
     this.drag.node.classList.remove("dragging");
-    this.resolveOverlap(this.drag.node);
+    const nudged = this.resolveOverlap(this.drag.node);
     if (String(this.drag.id).startsWith("rule:")) {
-      // Rule-node position is real data → persist to router.graph.
-      const nid = this.drag.id.slice(5), pos = this.pos[this.drag.id];
-      if (pos) saveRouters((routers) => {
+      // The drop goes to the server, the place's one home. Until the answer lands the board
+      // holds it in memory — a render on the way must not snap the node back — and then lets
+      // it go: from there on the server's place is the only one.
+      const id = this.drag.id, nid = id.slice(5);
+      if (nudged) this.pos[id] = nudged;
+      const at = this.pos[id];
+      if (at) saveRouters((routers) => {
         const n = (routerById(routers, ui.topologyCanvasRouterId)?.graph?.nodes || []).find((x) => x.id === nid);
-        if (n) { n.x = pos.x; n.y = pos.y; }
-      }).catch(() => {});
-    } else {
-      this.savePositions(ui.topologyCanvasRouterId);
+        if (n) { n.x = at.x; n.y = at.y; }
+      }).catch(() => {}).finally(() => { if (this.pos[id] === at) delete this.pos[id]; });
     }
   } else if (this.drag.kind === "connect") {
     document.querySelectorAll(".cv-node.cv-drop-ok").forEach((n) => n.classList.remove("cv-drop-ok"));
@@ -1952,6 +2154,7 @@ export class Board {
 
   // ── bindings: pan/zoom, node drag, port drag, card controls, schedule grid ──
   bind() {
+  QUEUE_SETTINGS.bind();
   const viewport = document.querySelector("[data-cv-viewport]");
   const world = document.querySelector("[data-cv-world]");
   if (!viewport || !world) return;
@@ -1961,8 +2164,19 @@ export class Board {
   if (world.dataset.cvBound) return;
   world.dataset.cvBound = "1";
   this.bindWindow();
+  // The side panels stand beside the world, not in it: what lives in them (the port dots, the
+  // lanes, the embeddings select) is reached through the workspace around all three.
+  const scope = world.closest("[data-cv-cols]") || world;
   // Edit-in-canvas controls (stop pointerdown so they don't start a node drag).
   world.querySelectorAll(".cv-act").forEach((el) => el.addEventListener("pointerdown", (e) => e.stopPropagation()));
+  // A model's queue lane opens and shuts in place; the SERVERS panel's rows move,
+  // so the port dots and the cables are placed again. One listener for every lane.
+  scope.addEventListener("click", (e) => {
+    const lane = e.target.closest("[data-cv-mq-toggle]")?.closest("[data-cv-model-queue]");
+    if (!lane) return;
+    ModelQueueNode.toggle(lane);
+    this.drawConnectors();
+  });
   // Stage D: drag a proxy from the left panel onto a canvas node to route it.
   document.querySelectorAll(".rw-proxy-drag").forEach((h) => {
     h.addEventListener("pointerdown", (e) => {
@@ -1984,7 +2198,7 @@ export class Board {
   // Editing the wait budget moved to the client card: one fact, one place. Only
   // the reference stays here, so there is no handler any more either.
   // Embeddings slot — the one global /v1/embeddings target. Don't start a node drag.
-  world.querySelectorAll("[data-cv-embed-out]").forEach((sel) => {
+  scope.querySelectorAll("[data-cv-embed-out]").forEach((sel) => {
     sel.addEventListener("pointerdown", (e) => e.stopPropagation());
     sel.addEventListener("change", () => {
       const val = sel.value;
@@ -2011,34 +2225,40 @@ export class Board {
       });
     });
   });
-  // Delegated port drag: covers both static inline ports AND dynamically-created dots
-  // from _cvSyncInputsBlockPortDots / _cvSyncServersPortDots that are appended after bind.
-  world.addEventListener("pointerdown", (e) => {
+  // Delegated port drag: covers the nodes' own ports AND the dots the panels make
+  // (InputsBlock / ServersBlock.syncPortDots) after bind.
+  scope.addEventListener("pointerdown", (e) => {
     if (e.button !== 0) return;
     const port = e.target.closest(".cv-port.out");
     if (!port) return;
     e.stopPropagation(); e.preventDefault();
-    const nodeEl = port.closest("[data-cv-node]");
-    if (!nodeEl) return;
-    const ref = port.dataset.cvRef || nodeEl.dataset.cvNode;   // per-port (in:<proxyId>) or node id
+    // A client's dot names its own port (in:<proxyId>) and has no node around it any more —
+    // the panel is not one; any other port belongs to the node it sits in.
+    const ref = port.dataset.cvRef || port.closest("[data-cv-node]")?.dataset.cvNode;
+    if (!ref) return;
     const qrole = port.dataset.cvQrole || null;
     const schedPortId = port.dataset.cvSchedPort || null;
-    const from = Board.worldPoint(port, "right");
+    // A node's port is placed by its offsets in the world; a panel's dot by where it is on the
+    // screen — a client's on the panel's right border, a model's overflow dot on the SERVERS
+    // panel's left, its cable leaving to the left.
+    const inWorld = !!port.closest("[data-cv-world]");
+    const left = !inWorld && !!port.closest(".rw-servers");
+    const from = inWorld ? Board.worldPoint(port, "right") : { ...this.panelPoint(port, left ? "left" : "right"), ...(left ? { dir: -1 } : {}) };
     this.drag = { kind: "connect", id: ref, qrole, schedPortId, from, cur: from, replaceFrom: _isSingleOut(ref) ? ref : null };
   });
   // Cable re-point and ✕ delete moved to document-level delegation at module load
   // (see the block after the Board) — svg-bound listeners died with
   // every background-tick rebuild of the svg.
 
-  // Sync block port dots after initial render and on body scroll. Also schedule a rAF
+  // Sync the panels' port dots after initial render and on body scroll. Also schedule a rAF
   // pass in case getBoundingClientRect() returned zeros before layout was complete.
   InputsBlock.syncPortDots();
   ServersBlock.syncPortDots();
   requestAnimationFrame(() => { InputsBlock.syncPortDots(); ServersBlock.syncPortDots(); this.drawConnectors(); });
-  // First-open de-overlap: a rule node's stored position can end up UNDER the
-  // CLIENTS/SERVERS blocks as those grow over time (more cells, more models) —
-  // the node hides until dragged. Run the same resolver a drag-end uses, for
-  // every rule node, top-to-bottom for a deterministic cascade. Visual only
+  // First-open de-overlap: a rule node's stored position can end up on top of another
+  // node (they were placed when the CLIENTS and SERVERS blocks stood in the same world
+  // and took room of their own) — the node hides until dragged. Run the same resolver
+  // a drag-end uses, for every rule node, top-to-bottom for a deterministic cascade. Visual only
   // (nothing persists — no config write on mere open); it converges, so extra
   // runs after rebuilds are no-ops when nothing overlaps.
   requestAnimationFrame(() => {
@@ -2047,16 +2267,13 @@ export class Board {
       .sort((a, b) => a.offsetTop - b.offsetTop)
       .forEach((n) => this.resolveOverlap(n));
   });
-  const serversBody = document.querySelector(".cv-servers-body");
-  if (serversBody && !serversBody._cvPortSyncBound) {
-    serversBody._cvPortSyncBound = true;
-    serversBody.addEventListener("scroll", () => ServersBlock.syncPortDots(), { passive: true });
-  }
-  const inputsBody = document.querySelector(".cv-inputs-body");
-  if (inputsBody && !inputsBody._cvPortSyncBound) {
-    inputsBody._cvPortSyncBound = true;
-    inputsBody.addEventListener("scroll", () => InputsBlock.syncPortDots(), { passive: true });
-  }
+  // A panel scrolls by itself: its rows slide under fixed dots' places, so the dots and the
+  // cables follow — at most once a frame, however many scroll events arrive.
+  document.querySelectorAll(".rw-side-body").forEach((body) => {
+    if (body._cvPortSyncBound) return;
+    body._cvPortSyncBound = true;
+    body.addEventListener("scroll", () => this.scheduleDraw(), { passive: true });
+  });
 
   // Stage C.2: open / edit the per-node config panel.
   world.querySelectorAll("[data-cv-cfgnode]").forEach((b) => b.addEventListener("click", (e) => {
@@ -2094,12 +2311,17 @@ export class Board {
   world.querySelectorAll("[data-cv-node]").forEach((node) => {
     node.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
-      if (e.target.closest(".cv-act") || e.target.closest(".cv-port") || e.target.closest(".cv-q-cfg") || e.target.closest(".cv-in-wait") || e.target.closest(".cv-servers-body") || e.target.closest(".cv-inputs-body") || e.target.closest("[data-cv-sched-cell]") || e.target.closest(".cv-sched-row") || e.target.closest(".cv-sched-addrow")) return;   // control/port/inline-input/servers-body/inputs-body/schedule, not a drag
+      if (e.target.closest(".cv-act") || e.target.closest(".cv-port") || e.target.closest(".cv-q-cfg") || e.target.closest(".cv-in-wait") || e.target.closest("[data-cv-sched-cell]") || e.target.closest(".cv-sched-row") || e.target.closest(".cv-sched-addrow")) return;   // control/port/inline-input/schedule, not a drag
       e.stopPropagation();
       this.drag = { kind: "node", node, id: node.dataset.cvNode, sx: e.clientX, sy: e.clientY, ox: node.offsetLeft, oy: node.offsetTop };
       node.classList.add("dragging");
       e.preventDefault();
     });
+  });
+  // ⤢ Show all stands in the viewport's corner: its press is no pan.
+  viewport.querySelectorAll("[data-cv-fit]").forEach((b) => {
+    b.addEventListener("pointerdown", (e) => e.stopPropagation());
+    b.addEventListener("click", () => this.fitAll());
   });
   // Pan when dragging the empty background.
   viewport.addEventListener("pointerdown", (e) => {
@@ -2109,7 +2331,6 @@ export class Board {
   });
   // Wheel = zoom toward the cursor.
   viewport.addEventListener("wheel", (e) => {
-    if (e.target.closest(".cv-servers-body, .cv-inputs-body, .router-prov-models")) return;
     e.preventDefault();
     const rect = viewport.getBoundingClientRect();
     const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
@@ -2119,6 +2340,7 @@ export class Board {
     this.view.ty = cy - (cy - this.view.ty) * (next / old);
     this.view.scale = next;
     this.applyView();
+    this.drawConnectors({ sync: false });
   }, { passive: false });
   // One-off: adopt stray queue edges as `admit` (heals pre-role-port graphs). Converges.
   this.healQueueEdges();
@@ -2294,15 +2516,15 @@ export const _cvSchedWorkingGrids = board.paint.working;
 export const _cvSchedSaveQueue = board.schedSaveQueue;
 export function cvSetViewport(pos, view) { board.setViewport(pos, view); }
 export function canvasPosKey(routerId) { return Board.posKey(routerId); }
-export function canvasLoadPositions(routerId) { return board.loadPositions(routerId); }
-export function canvasSavePositions(routerId) { board.savePositions(routerId); }
-export function renderTopologyCanvasModal() { return board.renderModal(); }
+export function canvasOpenPositions(routerId) { return board.openPositions(routerId); }
+// The view a router's canvas opens with, for cvSetViewport().
+export function canvasInitialView(routerId) { return Board.initialView((topology?.routers || []).find((r) => r.id === routerId)); }
 export function drawCanvasConnectors() { board.drawConnectors(); }
 export function bindCanvasInteractions() { board.bind(); }
 export function _cvWorldPoint(el, side) { return Board.worldPoint(el, side); }
 export function _cvPathD(a, b) { return Board.pathD(a, b); }
 export function _cvClientToWorld(cx, cy) { return board.clientToWorld(cx, cy); }
-export function _cvResolveOverlap(node) { board.resolveOverlap(node); }
+export function _cvResolveOverlap(node) { return board.resolveOverlap(node); }
 export function _cvSchedSaveGrid(nid, grid) { board.saveGrid(nid, grid); }
 
 
@@ -2393,6 +2615,7 @@ export function _cvSchedMakeGrid(cfg) { return ScheduleNode.makeGrid(cfg); }
 export function _cvSchedNow() { return ScheduleNode.now(); }
 export function scheduleOutputColor(router, outputId) { return ScheduleNode.outputColor(router, outputId); }
 export function canvasNodes(router) { return board.nodes(router); }
+export function canvasPanels(router) { return board.panels(router); }
 export function renderRouterNodeConfig(router) { return board.renderNodeConfig(router); }
 export function addRuleNode(type) { board.addNode(type); }
 export function deleteRuleNode(nid) { return board.deleteNode(nid); }

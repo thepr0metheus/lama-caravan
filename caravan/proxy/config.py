@@ -4,6 +4,7 @@ import json
 
 from caravan.proxy.paths import CONFIG_FILE, DEFAULT_POLICY, DEFAULT_ROUTES, UPSTREAM_HOST, UPSTREAM_PORT
 from caravan.proxy.runtime import config_cache, config_lock
+from caravan.common.queue_policy import SharedQueuePolicy
 
 
 def load_routes():
@@ -36,16 +37,10 @@ def load_config():
         except Exception:
             pass
     _int("maxSlots", 1, 64)
-    _int("cloudFallbackPct", 0, 100)
     _int("priorityPreemptPct", 0, 100)
     _int("queueAbortPct", 1, 100)
     _int("preemptGraceSec", 1, 300)
-    _int("stickySlotSec", 0, 120)
-    # Without this line the file's value is read into `policy` and then thrown
-    # away: normalized_policy starts as a copy of DEFAULT_POLICY, and only the
-    # keys named here are carried over from disk. The admin side had the same
-    # hole; fixing one and not the other still leaves the knob inert.
-    _int("loadingModelWaitSec", 0, 900)
+    normalized_policy.update(SharedQueuePolicy({**DEFAULT_POLICY, **policy}).policy_values())
     normalized_policy["preemptEnabled"] = bool(policy.get("preemptEnabled", normalized_policy["preemptEnabled"]))
     # Back-compat: a pre-rename file (controller not yet upgraded / not yet rewritten)
     # still uses the `switchboards` key, the `sb:default` id, and per-route

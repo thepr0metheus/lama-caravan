@@ -7,10 +7,12 @@ import pathlib
 import re
 import time
 
+from caravan.admin.board_layout import ServerOrder
 from caravan.admin.controller_machine import ControllerMachine
 from caravan.admin.proxy_stats import proxy_ports_last_seen
 from caravan.admin import model_catalog
 from caravan.admin.cloud import cloud_accounts_state, cloud_blocks_state, cloud_provider_presets_public
+from caravan.admin.cloud_pools import CloudPoolDesk
 from caravan.admin.config_builder import models_dir_from_config, parse_config
 from caravan.admin.cell_assets import cell_source_state
 from caravan.admin.runners import (cell_artifact_label, cell_model_ref,
@@ -682,6 +684,7 @@ def topology_nodes(config, server_obj, hosts):
             "gpus": hgpus,
             "servers": servers,
             "llamaBinaryVersion": host.get("llamaBinaryVersion") or "",
+            "prismRuntime": host.get("prismRuntime") or {},
             "llamaBinaryMtime": host.get("llamaBinaryMtime") or "",
             "llamaUpdate": host.get("llamaUpdate") or {},
             "scoutVersion": host.get("scoutVersion") or "",
@@ -1045,8 +1048,12 @@ def topology_state(refresh_hosts=True):
                       for key, slot in (store.get("serverSlots") or {}).items()
                       if isinstance(slot, dict) and str(slot.get("note") or "").strip()},
         "clientAliases": store.get("clientAliases", {}),
-        "layout": store.get("layout", {}),
+        # The order of the cards under Model servers — machines and cloud
+        # providers in one list — and its revision (board_layout.py), read
+        # from the same document as everything else in this answer.
+        "layout": ServerOrder(section=lambda: store).layout(),
         "cloudAccounts": cloud_accounts,
+        "cloudPoolsRuntime": CloudPoolDesk().runtime(),
         "cloudProviders": cloud_blocks,
         # Tripped upstream endpoints + effective codex client_version — the
         # provider cards render this as the "API issues" panel.

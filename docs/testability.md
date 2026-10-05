@@ -227,7 +227,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 356 values. Regenerate with
+Generated from the source, not from memory — 370 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Forty-six of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -235,7 +235,7 @@ that is why there is a script and not a one-liner.
 
 **agent** — `agent-bind-menu`, `agent-bind-taken`, `agent-no-route`, `agent-proxy-bind`, `agent-remove`, `agent-rename`, `agent-row`
 **app** — `app-toast`
-**board** — `board-agent-card`, `board-client-caption`, `board-clients-lane`, `board-cloud-lane`, `board-density`, `board-gpus-lane`, `board-incidents-list`, `board-incidents-open`, `board-llama-suspect-banner`, `board-llama-suspect-row`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-scout-add`, `board-system-open`
+**board** — `board-agent-card`, `board-client-caption`, `board-clients-lane`, `board-cloud-add`, `board-cloud-lane`, `board-density`, `board-gpus-lane`, `board-incidents-list`, `board-incidents-open`, `board-llama-suspect-banner`, `board-llama-suspect-row`, `board-nodes-lane`, `board-processes-list`, `board-router-lane`, `board-scout-add`, `board-server-cards`, `board-system-open`
 **cell** — `cell-broken-error`, `cell-card`, `cell-config-search-hit`, `cell-config-search-results`, `cell-config-search`, `cell-configure`, `cell-crashed`, `cell-delete`, `cell-engine-model`, `cell-job-asr`, `cell-job-embed`, `cell-job-llm`, `cell-job-speech-translate`, `cell-job-translate`, `cell-job-tts`, `cell-model-disk-newer`, `cell-model-in-library`, `cell-model-stale`, `cell-remote-apply`, `cell-remote-cancel`, `cell-remote-command-preview`, `cell-remote-command`, `cell-remote-compute`, `cell-remote-env`, `cell-remote-fields`, `cell-remote-health-path`, `cell-remote-max-model-len`, `cell-remote-mmproj`, `cell-remote-modal`, `cell-remote-model-picker`, `cell-remote-model`, `cell-remote-moonshine-model-picker`, `cell-remote-moonshine-model`, `cell-remote-offload-slider`, `cell-remote-offload`, `cell-remote-runner-tab`, `cell-remote-runner`, `cell-remote-seamless-lang`, `cell-remote-split`, `cell-remote-translate-model`, `cell-remote-translate-src`, `cell-remote-translate-tgt`, `cell-remote-vllm-model-picker`, `cell-remote-vllm-model`, `cell-remote-whisper-model-picker`, `cell-remote-whisper-model`, `cell-remote-workdir`, `cell-row`, `cell-row-start`, `cell-row-stop`, `cell-source-stale`, `cell-start`, `cell-stop`, `cell-window`, `cell-window-close`, `cell-window-via`
 
 **client** — `client-add`
@@ -251,7 +251,7 @@ that is why there is a script and not a one-liner.
 **confirm** — `confirm-accept`, `confirm-cancel`, `confirm-choice`, `confirm-input`, `confirm-meta`, `confirm-overlay`, `confirm-path`, `confirm-text`, `confirm-title`
 **header** — `header`, `header-app-title`, `header-lang-current`, `header-lang-menu`, `header-lang-open`, `header-page-subtitle`, `header-page-title`, `header-user-chip`, `header-user-logout`, `header-user-menu`, `header-user-menu-open`, `header-user-name`, `header-user-security`, `header-version-branch`
 **hf** — `hf-bench-panel`, `hf-bench-refresh`, `hf-bench-toggle`, `hf-capability-filter`, `hf-checkpoint`, `hf-checkpoint-download`, `hf-confirm`, `hf-confirm-cancel`, `hf-confirm-ok`, `hf-dock`, `hf-download-cancel`, `hf-download-dismiss`, `hf-download-interrupted`, `hf-download-job`, `hf-download-resume`, `hf-download-start`, `hf-downloads`, `hf-downloads-toggle`, `hf-file`, `hf-file-check`, `hf-file-delete`, `hf-file-in-library`, `hf-frontier`, `hf-frontier-open`, `hf-frontier-refresh`, `hf-in-library`, `hf-limit`, `hf-load-progress`, `hf-low-toggle`, `hf-mask`, `hf-on-disk`, `hf-other-toggle`, `hf-quant`, `hf-repo`, `hf-repo-star`, `hf-result`, `hf-search-input`, `hf-search-submit`, `hf-selection-clear`, `hf-selection-plan`, `hf-selection-remove`, `hf-selection-toggle`, `hf-size-filter`, `hf-sort`, `hf-sort-dir`, `hf-star`, `hf-tab`, `hf-token-clear`, `hf-token-edit`, `hf-token-input`, `hf-token-menu`, `hf-token-save`, `hf-tree-repo`, `hf-tree-toggle`, `hf-verify`
-**kanban** — `kanban-back-link`, `kanban-cable`, `kanban-cables`, `kanban-canvas`, `kanban-input-wait`, `kanban-node`, `kanban-palette-add`, `kanban-save-status`, `kanban-unclaimed`
+**kanban** — `kanban-back-link`, `kanban-cable`, `kanban-cables`, `kanban-canvas`, `kanban-fit`, `kanban-input-wait`, `kanban-model-queue`, `kanban-model-queue-toggle`, `kanban-node`, `kanban-onerror-same`, `kanban-out-state`, `kanban-palette-add`, `kanban-queue-setting`, `kanban-queue-settings`, `kanban-queue-settings-toggle`, `kanban-quiet-cells`, `kanban-save-status`, `kanban-unassigned`, `kanban-unclaimed`
 **login** — `login-error`, `login-form`, `login-lang`, `login-password`, `login-submit`, `login-username`
 **model** — `model-file-stale`, `model-in-library`, `model-job-asr`, `model-job-embed`, `model-job-llm`, `model-job-speech-translate`, `model-job-translate`, `model-job-tts`
 
@@ -260,14 +260,36 @@ that is why there is a script and not a one-liner.
 **node** — `node-caravan`, `node-caravan-add`, `node-caravan-hf`, `node-caravan-models`, `node-cell-filter`, `node-disconnect`, `node-driver-warning`, `node-engine`, `node-engine-busy`, `node-engine-delete`, `node-engine-expose`, `node-engine-job`, `node-engine-missing`, `node-engine-server-busy`, `node-engine-start`, `node-engine-stop`, `node-engine-unload`, `node-engine-vram`, `node-hide-idle`, `node-poweroff`, `node-power-schedule`, `node-reboot`, `node-scout-old`, `node-scout-silent`
 **host-power-schedule** — `host-power-schedule-at`, `host-power-schedule-cancel`, `host-power-schedule-daily`, `host-power-schedule-enabled`, `host-power-schedule-modal`, `host-power-schedule-next`, `cell-ctx-native`, `cell-ctx-yarn-hint`, `cell-yarn-chip`, `cell-config-tab`, `host-power-schedule-save`
 **scout** — `scout-add-address`, `scout-add-connect`, `scout-add-port`, `scout-add-status`
+**server** — `server-step-down`, `server-step-up`
 **setup** — `setup-form`, `setup-go-board`, `setup-password`, `setup-password-repeat`, `setup-submit`, `setup-token`, `setup-token-box`, `setup-username`
 **system** — `system-controller-info`, `system-diag-checks`, `system-diag-service-repair`, `system-driver-auto-check`, `system-driver-auto-install`, `system-driver-check`, `system-driver-log`, `system-driver-summary`, `system-driver-update`, `system-gc-close`, `system-gc-delete`, `system-gc-list`, `system-gc-modal`, `system-gc-open`, `system-gc-select-all`, `system-gc-selected`, `system-gc-summary`, `system-hero-stats`, `system-llama-build-update`, `system-llama-builds`, `system-llama-summary`, `system-llama-update-log`, `system-llama-versions-check`, `system-security-info`, `system-security-logout`, `system-tab-controller`, `system-tab-diag`, `system-tab-driver`, `system-tab-llama`, `system-tab-security`, `system-settings-export`, `system-settings-file`, `system-settings-import`, `system-settings-info`, `system-settings-passphrase`, `system-settings-secrets`, `system-tab-settings`, `system-vllm-list`, `system-vllm-machine`
 
 Repeated elements carry `data-t-id`: `cell-card` and the cell lifecycle buttons
 use `host:port` (the `slotKey` the board already computes), `kanban-node` uses
-the node id (`rule:…`, `inputs:block`), `kanban-input-wait` uses the input
+the node id (`rule:…`) — or, for the two side panels, `inputs:block` and
+`outputs:block` — `kanban-input-wait` uses the input
 port's id (`skynet:proxy:<port>` — `skynet` is the controller's internal id in
 the data model, not a hostname), `kanban-palette-add` mirrors its `data-cv-add`.
+
+On the kanban, a model's queue is a lane under the model's row: `kanban-model-queue`
+carries the model's output id in `data-t-id` and what the queue is doing in
+`data-t-state` — `idle`, `running` or `waiting` (a request standing in line beats one
+running). The lane is shut until `kanban-model-queue-toggle` is clicked; the overflow
+port is on its line either way. The queue policy — overflow point, reserve, loading
+wait — is one line at the head of the SERVERS panel, `kanban-queue-settings`; its three
+`kanban-queue-setting` fields (`data-t-id` = the field's key) are in the DOM but hidden
+until `kanban-queue-settings-toggle` is clicked, so a test types into them after that.
+
+A SERVERS row whose cell is not serving says so: `kanban-out-state` stands at the row's end
+with the state in `data-t-state` — `stopped`, `starting`, `stopping`, `failed` or `unknown`
+(no record of the cell, or a phase the board does not know); a running row has none, and the
+row itself carries `data-cell-state`. A machine's stopped cells that nothing leads to are
+under one row, `kanban-quiet-cells` (`data-t-id` = the machine's key), folded until clicked —
+their rows are not in the DOM while it is folded. `kanban-unassigned` is the head's badge of
+ports that could feed this kanban and do not (a `<details>`: its list opens on a click, and a
+port joins on a click on its row); a cloud model's own port never counts. `kanban-fit` is the
+canvas's ⤢ Show all, and `kanban-onerror-same` is the line a 🛟 node shows when main and
+backup end on one output.
 
 On `/models` the places carry the store's id — `models-store`,
 `models-place-card` and `models-place-open` use `local` or the library's
@@ -349,14 +371,14 @@ as `getByRole('region', { name })` and a keyboard user can jump between them:
 
 | page | region name | source of the name |
 |---|---|---|
-| `/` | Model servers, Clients with caravan-scout, Cloud providers | the section's own `<h2>` |
+| `/` | Model servers (the machines and the cloud providers, one list), Clients and their proxies | the section's own `<h2>` |
 | `/system` | Controller, llama.cpp, Archived builds, vLLM runner, Security, Diagnostics | the panel's own `<h2>`/`<h3>` |
 | `/models` | Model files; the side column's `navigation` landmarks Model stores and List filters | their own string (no heading exists) |
 | `/kanban` | Routing graph | its own string |
 
-Nine of the twelve are named by `aria-labelledby` pointing at the heading a
+Eight of the eleven are named by `aria-labelledby` pointing at the heading a
 sighted user already reads, so the name follows the interface language — under
-`?lang=ru` the region is `Модельные серверы`, not `Model servers`. Locate by
+`?lang=ru` the region is `Серверы моделей`, not `Model servers`. Locate by
 role+name only when the language is pinned; otherwise the `data-t` hook is
 still the stable address.
 
@@ -517,11 +539,14 @@ in:ctrl-host:proxy:8101->rule:nmrrahh3wbv1  left end is a PORT inside inputs:blo
 rule:nmq6jdg3n31d->out:cb:gpt-5-6-luna    the right end is a PORT inside outputs:block
 ```
 
-Rules are nodes and appear as themselves. The inputs and outputs blocks are each
-one node (`inputs:block`, `outputs:block`) holding many ports, and an edge
-attaches to a **port** — which is the useful thing, since "some input reaches
-this rule" is weaker than "port 8101 reaches it". To assert a path end to end,
-match the prefix (`in:` / `out:`) rather than expecting a node id.
+Rules are nodes and appear as themselves. The inputs and outputs are each one
+side panel (`inputs:block`, `outputs:block` — `<aside>` elements beside the
+canvas, no longer nodes on it) holding many ports, and an edge attaches to a
+**port** — which is the useful thing, since "some input reaches this rule" is
+weaker than "port 8101 reaches it". To assert a path end to end, match the
+prefix (`in:` / `out:`) rather than expecting a node id. A port of a panel is a
+dot on the panel's border, and a row scrolled out of the panel's view keeps its
+dot at the panel's edge (class `clamped`) with its cables.
 
 Note the host segment in those port ids: it carries the controller's display
 name, not its host id. See below.

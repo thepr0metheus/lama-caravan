@@ -133,6 +133,8 @@ export function compactCount(n) {
 // on its own row in the models list (cloud-models.js, the operator's ask of
 // 2026-09-27 — the breakdown here repeated the rows below it). On a
 // subscription the line says whose price it is: the subscription covers it.
+export function spendCost(s) { return `$${Math.round(Number(s?.total) || 0).toLocaleString("en-US")}`; }
+
 export function proxySpendHtml(accountId, { subscription = false } = {}) {
   const s = (proxySpendData || {})[accountId];
   if (!s || (!s.total && !s.requests)) return "";
@@ -141,7 +143,7 @@ export function proxySpendHtml(accountId, { subscription = false } = {}) {
   return `<div class="sub-usage-panel spend-panel"><div class="spend-line" title="${escapeHtml(title)}">`
     + `<span class="spend-line-what">⇄ ${escapeHtml(t("spendWindow", { days: String(s.windowDays || 30) }))}</span>`
     + `<span class="spend-line-count">${escapeHtml(t("spendReqTok", { req: compactCount(s.requests), tok: compactCount(tokens) }))}</span>`
-    + `<strong class="spend-line-cost">${escapeHtml(t("spendAtApiPrices", { cost: `$${Math.round(Number(s.total) || 0).toLocaleString("en-US")}` }))}</strong>`
+    + `<strong class="spend-line-cost">${escapeHtml(t("spendAtApiPrices", { cost: spendCost(s) }))}</strong>`
     + `</div></div>`;
 }
 
@@ -406,7 +408,7 @@ export async function fetchSubscriptionUsage(accountId) {
   renderTopologyCloudProviders();
 }
 
-export function subscriptionUsageHtml(accountId) {
+export function subscriptionUsageHtml(accountId, { refresh = true } = {}) {
   const cached = subscriptionUsageCache.get(accountId);
   // Keep showing old data while a background refresh is in progress — avoids card collapsing
   if (!cached) return "";
@@ -423,9 +425,19 @@ export function subscriptionUsageHtml(accountId) {
   const rows = limits.map((lim) => subscriptionLimitRowHtml(accountId, lim, cached.data)).join("");
   const creditsHtml = credits != null
     ? `<div class="sub-usage-credits"><span>${t("usCredits")}</span><strong>${credits}</strong></div>` : "";
-  const isLoading = cached?.loading;
-  const refreshBtn = `<button class="sub-usage-refresh icon-action compact${isLoading ? " spinning" : ""}" type="button" data-usage-refresh="${escapeHtml(accountId)}" title="${escapeHtml(t("usTitleRefreshLimits"))}" aria-label="${escapeHtml(t("usTitleRefreshLimits"))}" ${isLoading ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button>`;
-  return `<div class="sub-usage-panel">${subscriptionBannerHtml(cached.data)}<div class="sub-usage-head">${refreshBtn}</div>${rows}${creditsHtml}</div>`;
+  // A card that keeps the refresh button elsewhere (a pool rung puts it in its head) asks for none here.
+  const head = refresh ? `<div class="sub-usage-head">${subscriptionRefreshHtml(accountId)}</div>` : "";
+  return `<div class="sub-usage-panel">${subscriptionBannerHtml(cached.data)}${head}${rows}${creditsHtml}</div>`;
+}
+
+/** The button that re-reads an account's limits, spinning while the read is under way. It has
+ *  its own function so that a card can put it where it wants: in the head of the limit panel
+ *  by default, in the head of a pool rung. Nothing has been read — nothing to read again. */
+export function subscriptionRefreshHtml(accountId) {
+  const cached = subscriptionUsageCache.get(accountId);
+  if (!cached || (!cached.data?.ok && !cached.error)) return "";
+  const isLoading = cached.loading;
+  return `<button class="sub-usage-refresh icon-action compact${isLoading ? " spinning" : ""}" type="button" data-usage-refresh="${escapeHtml(accountId)}" title="${escapeHtml(t("usTitleRereadLimits"))}" aria-label="${escapeHtml(t("usTitleRereadLimits"))}" ${isLoading ? "disabled" : ""}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 4v6h6"/><path d="M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg></button>`;
 }
 
 /** One limit bar of a subscription, with the operator's reserve on it.

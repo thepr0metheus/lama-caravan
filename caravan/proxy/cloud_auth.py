@@ -9,6 +9,8 @@ from caravan.proxy.paths import MODEL_CATALOG_FILE, CLOUD_PROVIDERS_FILE, PROVID
 from caravan.proxy.runtime import config_lock
 from caravan.common.context_window import block_window
 from caravan.common.usage_reserve import UsageReserve
+from caravan.common.cloud_sources import CloudSources
+from caravan.common.credential_vault import CredentialVault
 
 
 CLOUD_PROVIDER_AUTH = {
@@ -29,6 +31,7 @@ def _read_cloud_data():
         return {
             "accounts": parsed.get("accounts") if isinstance(parsed.get("accounts"), list) else [],
             "blocks": parsed.get("blocks") if isinstance(parsed.get("blocks"), list) else [],
+            "pools": parsed.get("pools") if isinstance(parsed.get("pools"), list) else [],
         }
     return {"accounts": [], "blocks": []}
 
@@ -65,12 +68,15 @@ def load_cloud_provider(block_id):
     block = next((b for b in data["blocks"] if isinstance(b, dict) and b.get("id") == block_id), None)
     if not block:
         return None
-    account = next((a for a in data["accounts"] if isinstance(a, dict) and a.get("id") == block.get("accountId")), None)
+    account = CloudSources(data, CredentialVault(PROVIDER_SECRETS_FILE).read()).source(block.get("accountId"))
     if not account:
         return None
     return {
         "id": block_id,
         "accountId": account.get("id"),
+        "credentialAccountId": account.get("credentialAccountId") or account.get("id"),
+        "usageAccountId": account.get("usageAccountId") or account.get("id"),
+        **({"pool": account["pool"]} if account.get("pool") else {}),
         "type": account.get("type") or "openai",
         # Whether this is a ChatGPT subscription is the ACCOUNT's fact, and a
         # model of it must say so as the account does: without it a block was
@@ -103,12 +109,15 @@ def load_cloud_account(account_id):
     if not account_id:
         return None
     data = _read_cloud_data()
-    account = next((a for a in data["accounts"] if isinstance(a, dict) and a.get("id") == account_id), None)
+    account = CloudSources(data, CredentialVault(PROVIDER_SECRETS_FILE).read()).source(account_id)
     if not account:
         return None
     return {
         "id": account_id,
         "accountId": account_id,
+        "credentialAccountId": account.get("credentialAccountId") or account_id,
+        "usageAccountId": account.get("usageAccountId") or account_id,
+        **({"pool": account["pool"]} if account.get("pool") else {}),
         "type": account.get("type") or "openai",
         "accountType": account.get("accountType") or "",
         "baseUrl": account.get("baseUrl") or "",
@@ -127,46 +136,18 @@ def _write_provider_secrets(secrets):
         pass
 
 def _refresh_oauth(provider, entry):
-    oauth = entry.get("oauth") or {}
-    cfg = provider.get("oauthConfig") or {}
-    if not oauth.get("refreshToken") or not cfg.get("tokenUrl"):
-        return oauth.get("accessToken")
-    import urllib.request as _u
-    import urllib.parse as _up
-    data = _up.urlencode({
-        "grant_type": "refresh_token",
-        "refresh_token": oauth["refreshToken"],
-        "client_id": cfg.get("clientId") or "",
-    }).encode("ascii")
-    req = _u.Request(cfg["tokenUrl"], data=data,
-                     headers={"Content-Type": "application/x-www-form-urlencoded"}, method="POST")
-    try:
-        with _u.urlopen(req, timeout=15) as response:
-            tokens = json.loads(response.read().decode("utf-8"))
-    except Exception:
-        return oauth.get("accessToken")
-    now = int(time.time())
-    oauth["accessToken"] = tokens.get("access_token") or oauth.get("accessToken")
-    if tokens.get("refresh_token"):
-        oauth["refreshToken"] = tokens["refresh_token"]
-    if tokens.get("expires_in"):
-        oauth["expiresAt"] = now + int(tokens["expires_in"])
-    oauth["obtainedAt"] = now
-    entry["oauth"] = oauth
-    with config_lock:
-        try:
-            parsed = json.loads(PROVIDER_SECRETS_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            parsed = {}
-        if isinstance(parsed, dict):
-            parsed[provider.get("accountId")] = entry
-            _write_provider_secrets(parsed)
-    return oauth.get("accessToken")
+    """Facade for the shared cross-process renewal owner; entry is a legacy argument."""
+    return CredentialVault(PROVIDER_SECRETS_FILE).oauth(
+        provider.get("credentialAccountId") or provider.get("accountId"),
+        provider.get("oauthConfig") or {}).get("accessToken")
 
 def provider_secret_present(provider):
     """Cheap presence check for /health: is ANY credential stored for the
     provider's account? No refresh, no network — health must not mutate tokens."""
-    account_id = str((provider or {}).get("accountId") or "").strip()
+    account_id = str((provider or {}).get("credentialAccountId") or (provider or {}).get("accountId") or "").strip()
+    if (provider or {}).get("pool"):
+        return any(provider_secret_present(load_cloud_account(m.get("accountId")))
+                   for m in provider["pool"].get("members", []) if m.get("enabled", True))
     if not account_id or not PROVIDER_SECRETS_FILE.exists():
         return False
     try:
@@ -183,7 +164,7 @@ def provider_secret_present(provider):
 def load_provider_secret(provider):
     """Return the auth header tuple (header_name, header_value) for an effective
     provider dict, or None if no usable credential."""
-    account_id = str((provider or {}).get("accountId") or "").strip()
+    account_id = str((provider or {}).get("credentialAccountId") or (provider or {}).get("accountId") or "").strip()
     if not account_id or not PROVIDER_SECRETS_FILE.exists():
         return None
     try:
@@ -201,7 +182,10 @@ def load_provider_secret(provider):
         token = oauth.get("accessToken")
         expires_at = int(oauth.get("expiresAt") or 0)
         if token and expires_at and expires_at - int(time.time()) < 60:
-            token = _refresh_oauth(provider, entry) or token
+            try:
+                token = _refresh_oauth(provider, entry) or token
+            except Exception:
+                return None   # an expired credential is not a working sign-in
         if token:
             return ("Authorization", f"Bearer {token}")
         return None

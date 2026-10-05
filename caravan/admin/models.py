@@ -667,8 +667,12 @@ def list_chat_templates(config=None):
 def serve_model_file(handler, query_string: str) -> None:
     """Stream a model .gguf file to the requesting client.
 
-    Only serves files inside LLAMA_HOME/models (no path traversal).
-    Called from the GET /api/models/download?path=<rel> handler.
+    Only serves files inside the CONFIGURED models directory — LLAMA_MODELS_DIR of
+    the saved config, else the default (the data volume's models/ in a container):
+    the directory the picker lists, so that every row it offers can be downloaded.
+    It used to read LLAMA_HOME/models, which is the same place only while the
+    config says so; a container answered 404 for every file it had just listed.
+    No path traversal. Called from the GET /api/models/download?path=<rel> handler.
     """
     import urllib.parse
     params = urllib.parse.parse_qs(query_string or "")
@@ -682,7 +686,7 @@ def serve_model_file(handler, query_string: str) -> None:
         handler.end_headers()
         return
 
-    models_dir = LLAMA_HOME / "models"
+    models_dir = models_dir_from_config(parse_config())
     try:
         target = (models_dir / rel).resolve()
         # Security: must stay inside models_dir
@@ -729,12 +733,17 @@ def serve_model_file(handler, query_string: str) -> None:
         handler.log_error("short read serving %s: %d of %d bytes", rel, sent, size)
 
 def list_gguf_models() -> dict:
-    """Return GGUF model files from LLAMA_HOME/models, grouped by model dir.
+    """Return GGUF model files from the configured models directory, grouped by model dir.
+
+    The directory is the one the picker and the downloads read (LLAMA_MODELS_DIR of
+    the saved config, else the default) — not LLAMA_HOME/models, which a container
+    has no reason to fill. A directory that is missing is said, never replaced by
+    another one.
 
     Skips mmproj (vision projectors) and vocab files — those are not runnable
-    standalone. Only files < 2 TiB are included as a safety guard.
+    standalone, and files under 1 KiB, which are stubs.
     """
-    models_dir = LLAMA_HOME / "models"
+    models_dir = models_dir_from_config(parse_config())
     if not models_dir.is_dir():
         return {"ok": False, "error": f"models dir not found: {models_dir}", "models": []}
     files = []
