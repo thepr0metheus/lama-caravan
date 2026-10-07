@@ -583,6 +583,17 @@ port, the GPU card from the requests in flight, slot pips fill in request order,
 one-line summary has no speed or context size (its exact speed is in the route's token history).
 Until step 6.9 the controller's own single server was read too — its busy slots, context, prompt
 cache and last timings — and drawn onto whichever card or request matched it by port or by time.
+The route window's Model card (`routeModelCardHtml`) links every path on which the port states its
+window, as the controller lists them (`windowLinks`): the model list, retrieve-model on a cloud
+port, `/props` and `/v1/props` on a cell's. `MODEL_CARD_LINK_TIPS` gives each question its tooltip.
+On the route row, the model's window figure (🪟) is a button: it opens that window on the Model card.
+Under the token history, the Details tab shows the caravan's own time on the port over the same
+range (`routeLatencyHtml`, `GET /api/agent-proxy-latency`): its work before the model, the
+connection with the share of kept connections, the processor, and the model's first bytes on a row
+of its own — the model's time is never added to the caravan's. Loading, failed and "no
+measurements" are three states of their own (`data-t-state`); a measurement the port has no sample
+of reads "not measured", not 0. An answer for a window since moved to another port or range is
+dropped (`loadRouteLatency`).
 
 - Owns: `stickySlotAnims`, `_stickyBarRaf`, the activity/health class lists.
 - Key exports: `refreshTopologyActivityState`, `setTopologyActivityClass`, `updateTopologyRuntimePanels`, `topologyStatusPill`, `sortedTopologyAgents`, `topologyQueueRuntime`.
@@ -808,7 +819,9 @@ The one big delegated pointer/click router for the whole board. `bindTopologyDra
 modal open/close, registry edits, schedule-grid painting, cloud/usage/history modals, canvas
 hand-offs, and the cable drag start points. The hit-testing helpers (`topologyLlamaAtPoint`,
 `topologyRouterInputAtPoint`, `topologyCloudAtPoint`) are consumed by `main.js`'s global
-pointermove/pointerup.
+pointermove/pointerup. A route row opens the route window; its 🪟 button opens it on the Model card
+and asks the port when no card is there yet. The row answers only its own keys: Enter on a button
+inside it is that button's click.
 
 - Owns: the drag state `topologyPointerDrag` (+ `clearTopologyPointerDrag`), the schedule-paint state (`topologyScheduleRouterId`, `topologySchedulePaintOutput`, `topologyScheduleGrid`, `_schedulePainting`), and several modal flags: `topologyProxySummaryOpen`, `topologyRouteDetail`. (The flags of the controller's own server's detail and GPU-logs modals went in step 6.9.)
 - Key exports: `bindTopologyDragAndDrop`, `clearTopologyPointerDrag`, `topologyLlamaAtPoint`, `topologyRouterInputAtPoint`, `topologyCloudAtPoint`.

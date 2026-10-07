@@ -28,9 +28,13 @@ services:
       # models (served to scout hosts from here).
       - caravan-data:/data
     environment:
-      # The address agents/scout hosts use to reach this controller —
-      # set it to this machine's LAN IP.
-      LLAMA_TOPOLOGY_SERVER_IP: "${LLAMA_TOPOLOGY_SERVER_IP:-127.0.0.1}"
+      # Both are required: the container can guess neither, and it refuses to
+      # start without them (caravan/common/container_preflight.py).
+      # The controller's time zone — every schedule (cell windows, the router's
+      # hours, the planned shutdown) runs by it:
+      TZ: "${TZ:?set TZ to this controller's time zone, e.g. TZ=Europe/Berlin}"
+      # The address agents and scout hosts use to reach this controller:
+      LLAMA_TOPOLOGY_SERVER_IP: "${LLAMA_TOPOLOGY_SERVER_IP:?set it to this machine's LAN address}"
       # Admin UI port (also adjust the healthcheck expectation if you change it):
       # LLAMACPP_ADMIN_PORT: "7990"
 

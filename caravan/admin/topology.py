@@ -54,7 +54,7 @@ from caravan.domain.engine import GpuOwners
 from caravan.admin.engine_outputs import EngineOutputs
 from caravan.common.context_window import block_window, effective_window, route_window_inputs
 from caravan.domain.client_proxy import AgentAssignment, PROXY_ID_PREFIX, ProxyRoute
-from caravan.proxy.graph import PORT_QUESTION_CTX, apply_router
+from caravan.proxy.graph import answer_port_question, port_question_reaches
 from caravan.proxy.output_health import output_health
 
 
@@ -238,7 +238,7 @@ def topology_server(config=None):
     (running or starting), and every stored slot that is not live (stopped or
     reserved), so a proxy cable stays attached across a stop or a model
     change. Since step 6.8 every cell runs through the scout of its machine;
-    the controller's own GPUs are read here still, for its machine's node."""
+    the controller's machine's cards are its scout's report (gpu_state)."""
     config = config or parse_config()
     gpu_read = gpu_state()
     raw_gpus = gpu_read.get("gpus", [])
@@ -697,9 +697,10 @@ def topology_nodes(config, server_obj, hosts):
             # controller's own Server stats panel.
             "controllerMachine": own,
             # Why its card list is empty, when a card cannot be asked (a
-            # driver waiting for a reboot): read by this controller on its own
-            # machine; a scout does not say.
-            "gpuError": (server_obj.get("gpuError") or "") if own else "",
+            # driver waiting for a reboot): nvidia-smi's words as its scout
+            # heard them (scout 2.25+). Only the controller's own machine had
+            # it, read by the controller there; now every machine's scout says it.
+            "gpuError": str(host.get("gpuError") or ""),
             # What its next boot does to its NVIDIA card, said before the
             # reboot (scout 2.19+; 2026-09-26): [] when nothing, or its scout
             # cannot tell.
@@ -845,17 +846,17 @@ def _block_window_resolver(cloud_blocks):
 def _route_window_facts(route, proxy_config, served, resolve_block):
     """What the output the port answers /v1/models from serves: (window, source).
 
-    The same resolution GET /v1/models goes through — apply_router with
-    PORT_QUESTION_CTX — so the board names the output the proxy answers from.
+    The same resolution GET /v1/models goes through — answer_port_question —
+    so the board names the output the proxy answers from.
     `source` says where the number comes from, or why there is none: a dash
     with no reason would be absence rendered as normality (docs/why.md).
     """
     try:
-        resolved = apply_router(dict(route), proxy_config, ctx=dict(PORT_QUESTION_CTX))
+        resolved = answer_port_question(route, proxy_config)
     except Exception as exc:
         return None, {"kind": "error", "reason": str(exc)[:120]}
-    upstream_type = str(resolved.get("upstreamType") or "llama")
-    if resolved.get("unrouted") and upstream_type != "cloud":
+    upstream_type = port_question_reaches(resolved)
+    if not upstream_type:
         return None, {"kind": "unrouted", "reason": str(resolved.get("unrouted"))}
     if upstream_type == "cloud":
         block_id = str(resolved.get("providerId") or "")

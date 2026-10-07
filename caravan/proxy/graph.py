@@ -472,6 +472,30 @@ PLAIN_REQUEST_CTX = {"model": "", "maxTokens": None, "audio": False, "embeddings
 PORT_QUESTION_CTX = {**PLAIN_REQUEST_CTX, "discovery": True}
 
 
+def answer_port_question(route, config):
+    """Where a question to the PORT goes: the route through its router with PORT_QUESTION_CTX.
+
+    One call for the proxy that answers /v1/models, the board that names the
+    window it advertises and the Model card that lists where to ask it — three
+    readers, so the three can never resolve one port two ways. A copy: the
+    caller's route is never written through.
+    """
+    return apply_router(dict(route), config, ctx=dict(PORT_QUESTION_CTX))
+
+
+def port_question_reaches(resolved):
+    """What a question to the port reaches, from answer_port_question's result.
+
+    "cloud", "llama" or "engine" — or "" when it reaches nothing: an unrouted
+    port answers /v1/models with 503 whatever type is stored on it, while a
+    cloud route is never unrouted by the graph (apply_router passes it).
+    """
+    upstream_type = str(resolved.get("upstreamType") or "llama")
+    if resolved.get("unrouted") and upstream_type != "cloud":
+        return ""
+    return upstream_type
+
+
 def apply_router(route, config, ctx=None):
     """Overlay the router-chosen upstream onto a route (in place on a copy).
 

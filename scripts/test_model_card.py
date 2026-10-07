@@ -51,6 +51,10 @@ PORT_KEYED = free_port()
 PORT_BAD = free_port()      # answers 503
 PORT_DEAD = free_port()     # nothing listens
 PORT_TEXT = free_port()     # answers something that is not JSON
+PORT_CELL = free_port()     # routed to a cell
+PORT_CLOUD = free_port()    # a cloud bridge
+PORT_ENGINE = free_port()   # routed to an engine next to the cells
+PORT_CLOUD_DEAD = free_port()  # a cloud bridge on which nothing listens
 
 BODY = {"object": "list", "data": [{
     "id": "muse-glimmer-30b", "object": "model", "created": 111, "owned_by": "llamacpp",
@@ -117,19 +121,42 @@ _server(PORT_OK, _Ok)
 _server(PORT_KEYED, _Ok)
 _server(PORT_BAD, _Bad)
 _server(PORT_TEXT, _Text)
+_server(PORT_CELL, _Ok)
+_server(PORT_CLOUD, _Ok)
+_server(PORT_ENGINE, _Ok)
 
 Path(os.environ["AGENT_PROXY_CONFIG_FILE"]).write_text(json.dumps({"routes": [
     {"port": PORT_OK, "label": "open route", "enabled": True,
      "upstreamHost": "127.0.0.1", "upstreamPort": 1},
     {"port": PORT_KEYED, "label": "keyed route", "enabled": True, "apiKey": "s3cret",
      "upstreamHost": "127.0.0.1", "upstreamPort": 1},
-    {"port": PORT_BAD, "label": "unrouted", "enabled": True,
+    # Unassigned on purpose (an absent routerId binds the default router): the
+    # proxy answers it 503.
+    {"port": PORT_BAD, "label": "unrouted", "enabled": True, "routerId": "",
      "upstreamHost": "127.0.0.1", "upstreamPort": 1},
     {"port": PORT_DEAD, "label": "dead", "enabled": True,
      "upstreamHost": "127.0.0.1", "upstreamPort": 1},
     {"port": PORT_TEXT, "label": "chatty", "enabled": True,
      "upstreamHost": "127.0.0.1", "upstreamPort": 1},
-]}), encoding="utf-8")
+    {"port": PORT_CELL, "label": "cell", "enabled": True, "routerId": "router:cells",
+     "upstreamHost": "127.0.0.1", "upstreamPort": 1},
+    {"port": PORT_CLOUD, "label": "cloud", "enabled": True, "upstreamType": "cloud",
+     "providerId": "blk:test", "upstreamHost": "api.invalid", "upstreamPort": 443},
+    {"port": PORT_ENGINE, "label": "engine", "enabled": True, "routerId": "router:cells",
+     "upstreamHost": "127.0.0.1", "upstreamPort": 1},
+    {"port": PORT_CLOUD_DEAD, "label": "cloud, silent", "enabled": True, "upstreamType": "cloud",
+     "providerId": "blk:test", "upstreamHost": "api.invalid", "upstreamPort": 443},
+], "routers": [{
+    "id": "router:cells",
+    "outputs": [
+        {"id": "out:cell", "upstreamHost": "127.0.0.1", "upstreamPort": 1},
+        {"id": "out:engine", "upstreamType": "engine", "upstreamHost": "127.0.0.1",
+         "upstreamPort": 2, "upstreamModel": "qwen3:30b"},
+    ],
+    # A source pin makes "which output" a fact of the fixture.
+    "rules": {"bySource": [{"proxyId": f"skynet:proxy:{PORT_ENGINE}", "output": "out:engine"}],
+              "defaultOutput": "out:cell"},
+}]}), encoding="utf-8")
 
 from caravan.admin.model_card import proxy_model_card  # noqa: E402
 from caravan.common.errors import AppError  # noqa: E402
@@ -197,8 +224,48 @@ def test_failures_are_answers():
         check(exc.status == 404, f"порт, которого нет в конфиге — 404 (got {exc.status})")
 
 
+def _links(card):
+    return [(link["kind"], link["url"]) for link in card.get("windowLinks") or []]
+
+
+def test_window_links():
+    print("ссылки на все пути, где порт сообщает окно:")
+    base = f"http://127.0.0.1:{PORT_CELL}"
+    check(_links(proxy_model_card(PORT_CELL)) == [
+        ("list", f"{base}/v1/models"), ("props", f"{base}/props"), ("props", f"{base}/v1/props")],
+        f"порт ячейки: список и оба /props llama.cpp (got {_links(proxy_model_card(PORT_CELL))})")
+    base = f"http://127.0.0.1:{PORT_CLOUD}"
+    check(_links(proxy_model_card(PORT_CLOUD)) == [
+        ("list", f"{base}/v1/models"), ("retrieve", f"{base}/v1/models/muse-glimmer-30b")],
+        f"облачный порт: список и retrieve-model под тем id, который порт сам назвал "
+        f"(got {_links(proxy_model_card(PORT_CLOUD))})")
+    card = proxy_model_card(PORT_CELL)
+    check(card["windowLinks"][0]["url"] == card["url"],
+          "первая ссылка — тот самый адрес, который контроллер спросил")
+    check(_links(proxy_model_card(PORT_ENGINE)) == [("list", f"http://127.0.0.1:{PORT_ENGINE}/v1/models")],
+          "negative: движок — только список: /props у него нет")
+    check(_links(proxy_model_card(PORT_CLOUD_DEAD)) == [("list", f"http://127.0.0.1:{PORT_CLOUD_DEAD}/v1/models")],
+          "negative: облачный порт не ответил — id никто не назвал, retrieve-model не выдумываем")
+    check(_links(proxy_model_card(PORT_BAD)) == [("list", f"http://127.0.0.1:{PORT_BAD}/v1/models")],
+          f"negative: маршрут без роутера никуда не ведёт — только список, его ответ скажет почему "
+          f"(got {_links(proxy_model_card(PORT_BAD))})")
+    import caravan.admin.model_card as model_card
+
+    def broken(route, config):
+        raise RuntimeError("router exploded")
+
+    real, model_card.answer_port_question = model_card.answer_port_question, broken
+    try:
+        card = proxy_model_card(PORT_CELL)
+    finally:
+        model_card.answer_port_question = real
+    check(card["ok"] and _links(card) == [("list", f"http://127.0.0.1:{PORT_CELL}/v1/models")],
+          "negative: роутер упал — карточка всё равно отвечает, ссылка одна: список")
+
+
 test_parsed_answer()
 test_failures_are_answers()
+test_window_links()
 
 print()
 if _fail:

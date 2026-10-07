@@ -1,5 +1,5 @@
-"""Remote node telemetry: port probes, health/modality checks, firewall state
-and the in-memory GPU/CPU/TPS history rings for topology cards."""
+"""Remote node telemetry: port probes, health/modality checks and the
+in-memory GPU/CPU/TPS history rings for topology cards."""
 import json
 import socket
 import threading
@@ -9,7 +9,6 @@ import urllib.request
 from caravan.admin.cell_health import carry
 from caravan.common.jsonx import _INF
 from caravan.common.ttl_cache import MISS, TtlCache
-from caravan.common.procs import run
 
 
 _remote_port_probe_cache = TtlCache(15)   # "ip:port" -> reachable
@@ -17,53 +16,6 @@ _remote_port_probe_cache = TtlCache(15)   # "ip:port" -> reachable
 _remote_health_cache = TtlCache(3)        # "ip:port" -> state
 
 _remote_modalities_cache = TtlCache(300)  # "ip:port" -> {vision,video,audio}
-
-_firewall_cache = TtlCache(30)            # port -> {state, allowedFrom}
-
-def firewall_port_access(port):
-    """Who may reach `port` on this (controller) host per ufw. Cached 30s.
-    {state: open|all|restricted|blocked|unknown, allowedFrom:[...]}."""
-    try:
-        port = int(port)
-    except (TypeError, ValueError):
-        return {"state": "unknown"}
-    hit = _firewall_cache.get(port)
-    if hit is not MISS:
-        return hit
-    result = {"state": "unknown"}
-    out = run(["sudo", "-n", "ufw", "status"], timeout=4)
-    if out.get("ok"):
-        text = out["stdout"]
-        if "status: inactive" in text.lower():
-            result = {"state": "open", "allowedFrom": []}
-        else:
-            anywhere, allowed = False, []
-            for line in text.splitlines():
-                toks = line.split()
-                if not toks:
-                    continue
-                to = toks[0].split("/")[0]
-                if not to.isdigit() or int(to) != port:
-                    continue
-                if "ALLOW" not in line.upper():
-                    continue
-                frm = line.split("ALLOW", 1)[1].strip().replace("IN", "", 1).split("#")[0].strip()
-                if not frm or frm.lower().startswith("anywhere"):
-                    anywhere = True
-                elif "(v6)" not in frm.lower():
-                    allowed.append(frm)
-            if anywhere:
-                result = {"state": "all", "allowedFrom": ["Anywhere"]}
-            elif allowed:
-                seen, uniq = set(), []
-                for a in allowed:
-                    if a not in seen:
-                        seen.add(a); uniq.append(a)
-                result = {"state": "restricted", "allowedFrom": uniq}
-            else:
-                result = {"state": "blocked", "allowedFrom": []}
-    _firewall_cache.put(port, result)
-    return result
 
 # Per-GPU telemetry history for sparklines, keyed by "nodeId:gpuIndex".
 # Fed on every topology build (cadence = the view's poll rate). Compact rows:

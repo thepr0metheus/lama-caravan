@@ -222,9 +222,14 @@ is long enough. Details in [docs/backend-proxy.md](docs/backend-proxy.md).
 ```bash
 git clone https://github.com/thepr0metheus/lama-caravan.git
 cd lama-caravan
-LLAMA_TOPOLOGY_SERVER_IP=<this-machine-LAN-IP> docker compose up -d --build
+TZ=<your/Zone> LLAMA_TOPOLOGY_SERVER_IP=<this-machine-LAN-IP> docker compose up -d --build
 # open http://<this-machine>:7990
 ```
+
+Both settings are required. `TZ` is the controller's time zone, e.g.
+`Europe/Berlin`: every schedule runs by it. `LLAMA_TOPOLOGY_SERVER_IP` is the
+address agents and scouts reach the controller at. Without them the container
+does not start and says which one is missing.
 
 Models are **not** served from inside the container (it has no systemd and, by
 design, no GPU): on each GPU machine — the Docker host itself included — run
@@ -286,7 +291,7 @@ The built-in HuggingFace GGUF browser:
 | Python | **3.10+**, standard library only — no pip packages (tested on 3.12) |
 | llama.cpp | a `llama-server` build **b400+** (needs `--chat-template-file`; see [Tested versions](#tested-versions)) |
 | GPU serving | NVIDIA driver + `nvidia-smi` for telemetry; CUDA build of llama.cpp (CPU-only also works) |
-| Scout hosts (share a GPU/CPU) | Linux (systemd --user) or macOS (launchd), Python 3.9+, [caravan-scout](https://github.com/thepr0metheus/caravan-scout) |
+| Scout hosts (share a GPU/CPU) | Linux (systemd --user) or macOS (launchd), Python 3.9+, [caravan-scout](https://github.com/thepr0metheus/caravan-scout) — 2.24+ on the controller's own machine (2.25+ to say why it lists no card): the controller powers it, reads and updates its GPU driver and reads its cards and processes through that scout |
 | Agent-only machines | nothing to install — the agent points at its proxy port on the controller |
 | Browser | any modern browser — native ES modules, no build step |
 | Storage | plain JSON files + an embedded SQLite file (accounts/sessions); no database server required |
@@ -294,7 +299,7 @@ The built-in HuggingFace GGUF browser:
 ## Tested versions
 
 The exact versions the development fleet runs — re-verified and updated here
-whenever a component is upgraded (last verified: **2026-09-26**):
+whenever a component is upgraded (last verified: **2026-10-07**):
 
 | Component | Verified version |
 |---|---|
@@ -310,7 +315,7 @@ whenever a component is upgraded (last verified: **2026-09-26**):
 | vLLM | 0.30.0, pinned provisioning — on the controller's machine since 2026-10-05, installed through System (the scout's update job; 0.24.0 stays in its rollback history) because 0.24.0 carried 28 known vulnerabilities (osv.dev); a cell (`:22026`, model folder read from the NAS library) last verified on 0.24.0 2026-09-25 |
 | Ollama | 0.34.4, next to the cells on the controller's machine — installed in the user's home from the official release (no sudo), listening on 127.0.0.1, its server started and stopped from the board, a model downloaded and deleted from the board (verified 2026-09-25); its scout finds it, the board names the VRAM its runner holds and lists its models, verified 2026-09-25; two models loaded at once, and loading and unloading them from the board (a model loaded from the board stays until unloaded), verified 2026-09-25. Its runner is a bundled `llama-server` of its own (`lib/ollama/llama-server`): the scout never takes it for a cell — a different binary, without the scout's mark |
 | LM Studio | headless `llmster` 0.0.25 (LM Studio without its window; runtime `llama.cpp-linux-x86_64-nvidia-cuda12-avx2` 2.45.0), next to the cells on the controller's machine — installed in the user's home by the official installer without touching PATH, listening on 127.0.0.1:1234; its scout reads the v1 API (`/api/v1/models`), the board lists its models, their windows and the memory it holds, and loads and unloads them, verified 2026-09-25; a load with an idle limit goes through its `lms load --ttl`, and its own `--estimate-only` says what a load needs, verified 2026-09-25 |
-| caravan-scout | 2.19.1 on both Linux machines (2026-09-26) — on the controller's own machine it runs every cell (22, one trial start per runner); installed with `./install.sh` and added from the board (Model servers → ＋ Add scout); knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, brings a crashed cell back, runs each cell under the memory limits the controller's cells had, says when a fresh llama.cpp build crashes them, refuses a vLLM start its card cannot hold, reports a vLLM cell's queue and speed, updates and rolls back the vLLM in its machine's venv, samples the machine every second for the board's charts, keeps its id when the machine is renamed, names the address the network knows the machine by even when paired over loopback, says which of a running cell's files changed on disk after it started, and names the model engines next to its cells (Ollama, LM Studio; verified against a stand-in engine and the real ones), unloads their models when the board asks, starts and stops the engines' servers themselves and starts them again when the machine boots, downloads models into them and deletes Ollama's, who its firewall lets reach them, the processes that hold its cards, and what the machine's next reboot does to its NVIDIA card: Secure Boot as the firmware says it, the kernel that boots next and who signed its module, the driver loaded and the one installed |
+| caravan-scout | 2.25.0 on both Linux machines (2026-10-07) — on the controller's own machine it runs every cell (22, one trial start per runner); installed with `./install.sh` and added from the board (Model servers → ＋ Add scout); knows its machine only, touches only the processes it started and the files it downloaded, reads a model in place where it has the controller's file, starts its autostart cells when the machine boots, brings a crashed cell back, runs each cell under the memory limits the controller's cells had, says when a fresh llama.cpp build crashes them, refuses a vLLM start its card cannot hold, reports a vLLM cell's queue and speed, updates and rolls back the vLLM in its machine's venv, samples the machine every second for the board's charts, keeps its id when the machine is renamed, names the address the network knows the machine by even when paired over loopback, says which of a running cell's files changed on disk after it started, and names the model engines next to its cells (Ollama, LM Studio; verified against a stand-in engine and the real ones), unloads their models when the board asks, starts and stops the engines' servers themselves and starts them again when the machine boots, downloads models into them and deletes Ollama's, who its firewall lets reach them, the processes that hold its cards, and what the machine's next reboot does to its NVIDIA card: Secure Boot as the firmware says it, the kernel that boots next and who signed its module, the driver loaded and the one installed; for the controller it reads its machine's driver packages and installs the one the controller picks, lists the busiest processes and takes the nvidia-smi and btop snapshots (2.24.0, verified 2026-10-07), and says in nvidia-smi's words why it lists no card (2.25.0) |
 | moonshine-voice | 0.0.69 — moonshine STT command cells (CPU-only) |
 | transcribe.cpp | 0.2.0 (commit `b6a6aca`, 2026-07-22), CUDA build — transcribe cells; verified with `gigaam-v3-e2e-rnnt-Q8_0.gguf` |
 | CosyVoice (TTS cells) | upstream checkout + torch **2.7.1+cu128** in the engine venv — the cu128 wheels carry `sm_75…sm_120`, so the same cell runs on the RTX 3090 and the RTX 5090; CosyVoice's own pin (2.3.1+cu121) stops at `sm_90` and dies on Blackwell with "no kernel image" |
@@ -427,13 +432,14 @@ explicit emergency recovery. Generated runtime files under `var/` are local host
 state and are not the source deployment path.
 
 `scripts/deploy.sh` wraps the whole flow in one command — refuse-if-dirty,
-push, pull on the controller, byte-compile, restart both services, then
-**verify `/health` reports the exact version and commit that were shipped**:
+push, pull on the controller, byte-compile, restart the admin and — only when
+its own code changed — the proxy, then **verify `/health` reports the exact
+version and commit that were shipped**:
 
 ```sh
 CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 # checkout path via CARAVAN_DEPLOY_PATH (default ~/projects/lama-caravan);
-# --no-restart for static-only changes; CI ping via scripts/notify-ci.sh if configured
+# --no-restart for static-only changes
 ```
 
 ## Features
@@ -532,7 +538,7 @@ CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
   structure is published as a testability contract
   ([docs/testability.md](docs/testability.md)): `data-t` hooks, a page
   identity + readiness flag on `<body>`, and an open `/health` — an external
-  Playwright suite drives the UI through exactly what a screen reader sees.
+  test suite can drive the UI through exactly what a screen reader sees.
 - Comfortable to watch from several browsers at once: HTTP/1.1 keep-alive,
   gzip (~10× on the big payloads), deep accept queues, incremental monitor
   deltas, per-language dictionaries loaded on demand.

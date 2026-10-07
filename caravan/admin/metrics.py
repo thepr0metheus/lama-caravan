@@ -1,8 +1,9 @@
 """Prometheus text exposition (/metrics) — cheap reads only.
 
 Sources: the proxy daemon's live state file (route activity/queues), today's
-proxy log (request counters), the topology store (clients, cells), nvidia-smi
-via the cached gpu_state(), and disk_usage on the models dir. When sign-in is
+proxy log (request counters), the topology store (clients, cells), the cards
+of the controller's machine as its scout last reported them (gpu_state()), and
+disk_usage on the models dir. When sign-in is
 enabled the endpoint wants the fleet token (X-Caravan-Token or
 `Authorization: Bearer <token>`), so a Prometheus scrape config stays one
 static header away.
@@ -73,7 +74,7 @@ def build_metrics_text():
     except OSError:
         pass
 
-    # ── GPUs (cached nvidia-smi) ─────────────────────────────────────────────
+    # ── GPUs (the controller's machine, from its scout's report) ─────────────
     try:
         gpus = (gpu_state() or {}).get("gpus") or []
     except Exception:

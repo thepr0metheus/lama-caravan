@@ -47,18 +47,6 @@ def check(cond, msg):
         _fail.append(msg)
 
 
-class _Door:
-    def __init__(self):
-        self.calls = []
-
-    def open(self, port):
-        self.calls.append(("open", port))
-
-    def close(self, port):
-        self.calls.append(("close", port))
-
-
-pc.PORT_DOOR = _Door()
 sc.IS_CONTAINER = False
 sc.systemctl = lambda *a, **kw: {"ok": True, "stderr": ""}
 routes.topology_state = lambda **kw: {"board": True, **kw}

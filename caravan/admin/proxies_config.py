@@ -5,7 +5,7 @@ import secrets
 
 from caravan.admin.cloud import cloud_blocks_state, load_cloud_data, save_cloud_data
 from caravan.admin.state import topology as topo
-from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE, CONTROLLER_HOST_ID
+from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE, CONTROLLER_HOST_ID, PROXY_PORTS
 from caravan.admin.output_refs import RouterOutputRefs
 from caravan.admin.router_dsl import (
     DEFAULT_ROUTER_ID,
@@ -15,7 +15,6 @@ from caravan.admin.router_dsl import (
     normalize_router_output,
     recompute_cloud_fallback_eligibility,
 )
-from caravan.admin.port_door import PORT_DOOR
 from caravan.admin.systemd_ctl import ensure_agent_proxy_running
 from caravan.common.errors import AppError
 from caravan.common.fsio import atomic_write_text
@@ -350,6 +349,18 @@ def save_agent_proxy_config(routes, routers=None):
             before.add(int(r.get("port") or 0))
         except (AttributeError, TypeError, ValueError):
             pass
+    # The firewall is not the caravan's: the operator opened the proxy block
+    # once (PROXY_PORTS). Every path that adds or renumbers a port passes here,
+    # so a new port outside the block is refused here, before anything is
+    # written — it would listen and stay unreachable, and nothing would say why.
+    # A port already in the file keeps working as it is: the old ones outside
+    # the block (8022) have firewall rules of their own.
+    outside = sorted(row["port"] for row in cleaned
+                     if row["port"] not in before and not PROXY_PORTS.holds(row["port"]))
+    if outside:
+        raise AppError(
+            f"port {', '.join(str(port) for port in outside)} is outside the proxy range "
+            f"{PROXY_PORTS}, the one the firewall lets in — pick a port inside it", 400)
     # Routers: caller-provided list (Stage 4 UI) or keep the existing one;
     # either way re-normalize against the cleaned routes so inputs stay in sync.
     router_source = routers if routers is not None else current.get("routers")
@@ -360,15 +371,6 @@ def save_agent_proxy_config(routes, routers=None):
         "stopRequests": current.get("stopRequests") or [],
     }
     write_agent_proxy_payload(payload)
-    # A proxy port serves consumers elsewhere on the LAN, so its firewall door
-    # follows the route: opened when a route appears, closed when it goes,
-    # whichever path added or removed it (it used to be opened by three mints
-    # and closed by nothing).
-    after = {row["port"] for row in cleaned}
-    for port in sorted(after - before):
-        PORT_DOOR.open(port)
-    for port in sorted(before - after - {0}):
-        PORT_DOOR.close(port)
     # The running proxy picks the file up by itself; the save only makes sure
     # there is one running (see ensure_agent_proxy_running).
     result = ensure_agent_proxy_running(timeout=30)
@@ -443,8 +445,10 @@ def _next_agent_port(used_ports):
     while (candidate in claimed or (candidate + 1) in claimed
            or port_is_listening(candidate)):
         candidate += 2
-        if candidate > 65535:
-            raise AppError("no free agent proxy port left", 500)
+        # Inside the block the firewall lets in, neighbour included: a pair
+        # past its ceiling would bind and stay unreachable (PROXY_PORTS).
+        if candidate + 1 > PROXY_PORTS.upper:
+            raise AppError(f"no free agent proxy port left in the proxy range {PROXY_PORTS}", 500)
     return candidate
 
 
@@ -477,8 +481,8 @@ def next_free_proxy_port(routes):
     port = AGENT_PROXY_BASE_PORT
     while port in used or port_is_listening(port):
         port += 1
-        if port > 65535:
-            raise AppError("no free proxy port left", 500)
+        if port > PROXY_PORTS.upper:
+            raise AppError(f"no free proxy port left in the proxy range {PROXY_PORTS}", 500)
     return port
 
 def bridge_route(block, port, label=""):

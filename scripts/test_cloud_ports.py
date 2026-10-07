@@ -5,9 +5,9 @@ while it has a port of its own (the operator's rule, 2026-09-27).
 CloudModelPorts is read by value over one config. CloudPortDesk runs against
 the real files in a scratch data directory — opening and closing ports, the
 answer the last port asks for when cables or rules hold the model, and the
-one-time move of the old `exposed` flag into ports. The firewall door and
-systemd are stand-ins that write down what they were asked; nothing reaches
-the machine.
+one-time move of the old `exposed` flag into ports. systemd is a stand-in
+that writes down what it was asked; nothing reaches the machine, and the
+caravan does not touch the firewall at all (one rule lets the proxy range in).
 
 Run: python3 scripts/test_cloud_ports.py
 """
@@ -42,21 +42,6 @@ def check(cond, msg):
         _fail.append(msg)
 
 
-class DoorLog:
-    """Stands in for PORT_DOOR: what the firewall would have been asked."""
-
-    def __init__(self):
-        self.calls = []
-
-    def open(self, port):
-        self.calls.append(("open", port))
-
-    def close(self, port):
-        self.calls.append(("close", port))
-
-
-DOOR = DoorLog()
-pc.PORT_DOOR = DOOR
 sc.IS_CONTAINER = False
 sc.systemctl = lambda *a, **kw: {"ok": True, "stderr": ""}
 
@@ -88,7 +73,6 @@ def seed(routes=(), router=None, flags=()):
     payload = {"routes": [{"port": 23001, "label": "agent", "routerId": "router:default"}, *routes],
                "routers": [copy.deepcopy(router or ROUTER)]}
     Path(AGENT_PROXY_CONFIG_FILE).write_text(json.dumps(payload))
-    DOOR.calls.clear()
 
 
 def port_of(model, port):
@@ -141,7 +125,7 @@ def test_open():
     routes = [r for r in cfg()["routes"] if r.get("providerId") == "terra"]
     check(len(routes) == 1 and routes[0]["kind"] == "service" and routes[0]["port"] == port and 23001 < port < 24000,
           f"модель получила свой порт в диапазоне прокси (got {port})")
-    check(shown() == ["terra"] and ("open", port) in DOOR.calls, "она на канбане, дверь фаервола открыта")
+    check(shown() == ["terra"], "она на канбане")
     check(cp.CloudPortDesk().open("terra") == port and len([r for r in cfg()["routes"] if r.get("providerId") == "terra"]) == 1,
           "negative: второй раз — тот же порт, второго не появляется")
     check(refused(lambda: cp.CloudPortDesk().open("nope")) == 404, "negative: модели нет — 404")
@@ -159,8 +143,8 @@ def test_close():
     print("закрыть порт:")
     seed(routes=[port_of("luna", 23005)])
     got = cp.CloudPortDesk().close("luna")
-    check(got["closed"] == [23005] and got["leaves"] is True and shown() == [] and ("close", 23005) in DOOR.calls,
-          "модель ничем не держится — порт закрыт без вопросов, модель ушла с канбана, дверь закрыта")
+    check(got["closed"] == [23005] and got["leaves"] is True and shown() == [],
+          "модель ничем не держится — порт закрыт без вопросов, модель ушла с канбана")
 
     seed(routes=[port_of("sol", 23004)])
     before = cfg()

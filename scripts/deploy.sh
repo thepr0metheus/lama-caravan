@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
 # The deploy, as one command: push, pull on the controller, restart what needs
-# restarting, smoke it, and tell the test suite a release happened.
+# restarting, smoke it.
 #
 # WHY IT EXISTS. Every step here was already written down in docs/operations.md
 # and performed by hand, which works right up until the day one step is skipped.
-# The last one is skipped most easily, because nothing breaks when it is: the
-# tests simply do not run and the silence looks like success. The step before it
-# is the second easiest — a docs-only change needs no restart, so the pull gets
-# postponed, and then the controller's checkout is behind while /health still
-# reports a healthy service.
+# The pull is skipped most easily: a docs-only change needs no restart, so the
+# pull gets postponed, and then the controller's checkout is behind while
+# /health still reports a healthy service.
 #
 # Configuration, all from the environment — nothing here names a host:
 #   CARAVAN_DEPLOY_HOST   ssh target of the controller        (required)
 #   CARAVAN_DEPLOY_PATH   its checkout, default ~/projects/lama-caravan
-#   CARAVAN_CI_*          see scripts/notify-ci.sh            (optional)
 #
 #   bash scripts/deploy.sh [--no-restart]
 set -uo pipefail
@@ -96,10 +93,30 @@ if [ "$SKIP_RESTART" != "1" ]; then
   fi
 fi
 
+# Which units the restart takes. The admin restarts every time: the board is
+# gone for a second and no agent's traffic goes through it. The proxy carries
+# every agent's traffic, and a restart drops every open connection — it
+# restarts only when the code it runs changed (33 of the 40 releases up to
+# 1.3.434 changed none of it). scripts/proxy_restart.py decides from what the
+# proxy says it runs — the start record it writes into its state file — and
+# not from the checkout's head, which --no-restart moves without the proxy.
+PROXY_UNIT=lama-caravan-proxies.service
+COMMIT_FULL=$(git rev-parse HEAD)
+proxy_facts() {
+  ssh "$HOST" "systemctl --user is-active $PROXY_UNIT; systemctl --user show -p MainPID --value $PROXY_UNIT; \
+    cd $REMOTE_PATH && .venv/bin/python -c 'from caravan.proxy.started import StartRecord; print(StartRecord.read().as_json())'" \
+    2>/dev/null || true
+}
+RESTART_PROXY=0
 if [ "$SKIP_RESTART" = "1" ]; then
   echo "deploy: --no-restart, leaving the services alone"
 else
-  ssh "$HOST" "systemctl --user restart lama-caravan.service lama-caravan-proxies.service" \
+  PROXY_PLAN=$(proxy_facts | python3 scripts/proxy_restart.py decide --new "$COMMIT_FULL") \
+    || PROXY_PLAN="restart: the decision itself failed"
+  echo "deploy: proxy — $PROXY_PLAN"
+  UNITS="lama-caravan.service"
+  case "$PROXY_PLAN" in keep:*) ;; *) RESTART_PROXY=1; UNITS="$UNITS $PROXY_UNIT" ;; esac
+  ssh "$HOST" "systemctl --user restart $UNITS" \
     || { echo "deploy: restart failed" >&2; exit 1; }
 fi
 
@@ -112,7 +129,7 @@ fi
 # The same commit, abbreviated by two repositories: git lengthens a short hash
 # where the 7-character one is ambiguous in THAT repository, so the controller
 # may answer c64d7fee for a local c64d7fe. Compared as strings, a good deploy
-# cried MISMATCH, stopped, and never told CI (2026-09-24). Either one a prefix
+# cried MISMATCH and stopped (2026-09-24). Either one a prefix
 # of the other is the same commit; an empty one is none.
 same_commit() {
   [ -n "$1" ] && [ -n "$2" ] || return 1
@@ -137,4 +154,18 @@ if [ "$LIVE_V" != "$VERSION" ] || ! same_commit "$LIVE_C" "$COMMIT"; then
 fi
 echo "deploy: serving $LIVE_V ($LIVE_C)"
 
-bash scripts/notify-ci.sh deploy
+# The proxy, asked the same way. Restarted, it must name the new commit under
+# the pid systemd runs; left alone, it must still be up with its own record.
+if [ "$SKIP_RESTART" != "1" ]; then
+  EXPECT=""
+  [ "$RESTART_PROXY" = "1" ] && EXPECT="$COMMIT_FULL"
+  PROXY_NOW=""
+  for _try in 1 2 3 4 5 6; do
+    PROXY_NOW=$(proxy_facts | python3 scripts/proxy_restart.py verify ${EXPECT:+--new "$EXPECT"}) && break
+    sleep 3
+  done
+  case "$PROXY_NOW" in
+    ok:*) echo "deploy: proxy — ${PROXY_NOW#ok: }" ;;
+    *) echo "deploy: MISMATCH — proxy: ${PROXY_NOW#mismatch: }" >&2; exit 1 ;;
+  esac
+fi

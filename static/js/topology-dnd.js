@@ -38,7 +38,7 @@ import {
   topologyQuietShown,
 } from "./routers.js";
 import { setTopology, topology, ui } from "./state.js";
-import { drawRouteTokenHistory, loadRouteModelCard, loadRouteTokenHistory,
+import { drawRouteTokenHistory, loadRouteLatency, loadRouteModelCard, loadRouteTokenHistory,
   proxyEffectiveWaitTimeout } from "./topology-activity.js";
 import {
   _fmtSec,
@@ -596,6 +596,7 @@ export function bindTopologyDragAndDrop() {
       topologyRouteDetail.range = button.dataset.tokenRange;
       renderTopology();
       loadRouteTokenHistory();
+      loadRouteLatency();
     });
   });
   document.querySelector("[data-topology-route-detail-overlay]")?.addEventListener("click", (event) => {
@@ -967,7 +968,9 @@ export function bindTopologyDragAndDrop() {
     // no manual drag-to-connect.
   });
   document.querySelectorAll("[data-topology-route-detail]").forEach((row) => {
-    const open = () => {
+    // `tab` names the tab to open on. Without one, the same route keeps the
+    // tab it was on and a different route starts on its details.
+    const open = (tab = null) => {
       const proxyId = row.dataset.topologyRouteDetail || "";
       const clientIp = row.dataset.clientIp || "";
       // The proxy port is the consumer key: prefer the resolved proxy object,
@@ -987,17 +990,31 @@ export function bindTopologyDragAndDrop() {
         // back to what was being read isn't work the operator should have to
         // do. A different route starts fresh: someone else's card on its tab
         // would be a lie.
-        tab: (topologyRouteDetail && !changedRoute) ? topologyRouteDetail.tab : "details",
+        tab: tab || ((topologyRouteDetail && !changedRoute) ? topologyRouteDetail.tab : "details"),
         modelCard: (topologyRouteDetail && !changedRoute) ? topologyRouteDetail.modelCard : null,
       };
       renderTopology();
       loadRouteTokenHistory();
+      loadRouteLatency();
+      // Opened straight onto the Model card, the port is asked as on that
+      // tab's first visit; a card already fetched stays until ⟳.
+      if (topologyRouteDetail.tab === "model" && !topologyRouteDetail.modelCard) loadRouteModelCard();
     };
     row.addEventListener("click", (event) => {
       if (event.target?.closest?.("[data-topology-route-handle]")) return;
       open();
     });
+    // 🪟 asks the port: the window opens on the Model card — what the port
+    // answers a client now, beside the figure the board computed for it.
+    row.querySelector("[data-route-model-card]")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      open("model");
+    });
     row.addEventListener("keydown", (event) => {
+      // The row's own keys only. Enter on a button inside it (📏, 🪟, the
+      // port chip) is that button's click — and the row's preventDefault
+      // cancelled it, opening the details in its place.
+      if (event.target !== row) return;
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         open();

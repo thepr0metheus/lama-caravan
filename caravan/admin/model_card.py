@@ -10,6 +10,10 @@ module the only way to answer it was by hand over ssh, knowing the route key.
 The key stays here: the controller asks, the browser gets the parsed answer.
 Handing the key to the page for one check would mean handing it to everyone
 who ever opens that page.
+
+The list is not the only question that carries the window: the answer also
+names every path on which this port states it (`windowLinks`), so the
+operator can ask each of them by hand.
 """
 import json
 import time
@@ -17,9 +21,10 @@ import urllib.error
 import urllib.request
 
 from caravan.admin.paths import TOPOLOGY_SERVER_IP
-from caravan.common.context_window import trained_window
+from caravan.common.context_window import trained_window, window_paths
 from caravan.admin.proxies_config import load_agent_proxy_config
 from caravan.common.errors import AppError
+from caravan.proxy.graph import answer_port_question, port_question_reaches
 
 #: Names clients read the context window under, in decreasing order of how
 #: common they are. The first one found is what a client will actually read.
@@ -54,6 +59,23 @@ def _entry_summary(entry):
     }
 
 
+def _window_links(route, config, base, entries):
+    """Every path on which this port states its window, as links: [{kind, url}].
+
+    What the port's question reaches comes from the resolution the proxy
+    answers by (answer_port_question); the ids for retrieve-model are the ones
+    the port itself just named, so a port that did not answer gets none. A
+    router that cannot resolve the route leaves the list alone: its answer
+    says why.
+    """
+    try:
+        reaches = port_question_reaches(answer_port_question(route, config))
+    except Exception:
+        reaches = ""
+    ids = [entry["id"] for entry in entries if entry.get("id")]
+    return [{"kind": kind, "url": f"{base}{path}"} for kind, path in window_paths(reaches, ids)]
+
+
 def proxy_model_card(port):
     """Ask a port its own `/v1/models` and return the parsed answer.
 
@@ -68,11 +90,13 @@ def proxy_model_card(port):
         raise AppError("port must be a number", 400)
     if port <= 0:
         raise AppError("port must be a number", 400)
-    route = next((r for r in (load_agent_proxy_config().get("routes") or [])
+    config = load_agent_proxy_config()
+    route = next((r for r in (config.get("routes") or [])
                   if int(r.get("port") or 0) == port), None)
     if route is None:
         raise AppError(f"no proxy route on port {port}", 404)
-    url = f"http://{TOPOLOGY_SERVER_IP}:{port}/v1/models"
+    base = f"http://{TOPOLOGY_SERVER_IP}:{port}"
+    url = f"{base}/v1/models"
     headers = {"Accept": "application/json"}
     if str(route.get("apiKey") or ""):
         headers["Authorization"] = f"Bearer {route['apiKey']}"
@@ -114,5 +138,6 @@ def proxy_model_card(port):
         "tookMs": took_ms,
         "error": error,
         "entries": entries,
+        "windowLinks": _window_links(route, config, base, entries),
         "raw": raw[:100_000],
     }

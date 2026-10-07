@@ -19,19 +19,24 @@ journalctl --user -u lama-caravan.service -n 50 --no-pager
 journalctl --user -u lama-caravan-proxies.service -n 50 --no-pager
 ```
 
+Firewall, once per machine: `sudo ufw allow 23001:23999/tcp` lets the proxy
+range in. The caravan never touches the firewall itself.
+
 Boot-time autostart needs linger (`loginctl enable-linger $USER`). Do not
 also keep a crontab `@reboot` launcher — two launchers fight for port 7990.
 
 ## Deploy
 
 One command wraps the whole flow — refuse-if-dirty, push, pull on the
-controller, byte-compile, restart both services, then verify `/health` serves
-the exact version+commit that were shipped (mismatch = non-zero exit):
+controller, byte-compile, restart the admin (and the proxy only when the code it
+runs changed — see the restart rules), then verify `/health` serves the exact
+version+commit that were shipped and the proxy runs what it should (mismatch =
+non-zero exit):
 
 ```sh
 CARAVAN_DEPLOY_HOST=<controller-ssh-host> bash scripts/deploy.sh
 # CARAVAN_DEPLOY_PATH overrides the checkout (default ~/projects/lama-caravan)
-# --no-restart for static-only changes; notifies CI via notify-ci.sh when configured
+# --no-restart for static-only changes
 ```
 
 The same steps by hand (source moves through git only; no scp except explicit
@@ -50,7 +55,17 @@ systemctl --user restart lama-caravan.service lama-caravan-proxies.service
 
 Restart rules:
 
-- `caravan/` or launcher changes → restart both services.
+- The admin restarts on every deploy: the board is gone for a second, and no
+  agent's traffic goes through it.
+- The proxy restarts only when `agent-proxies.py`, `caravan/proxy/` or
+  `caravan/common/` changed since the commit the proxy RUNS. The proxy writes
+  that commit and its pid into its state file when it starts
+  (`caravan/proxy/started.py`); the deploy reads them and decides with
+  `scripts/proxy_restart.py`, which prints why either way. A dead proxy, a
+  missing record or one left by another pid restarts it.
+  `scripts/check_proxy_sources.py` fails when the proxy imports a module outside
+  that list. By hand, restart `lama-caravan-proxies.service` only on the same
+  condition — every restart drops the agents' open connections.
 - `static/` only → **no restart**: `send_file` reads from disk per request and
   sends `ETag` + `Cache-Control: no-cache`, so browsers revalidate on reload.
 - `var/`, config JSONs → runtime state, never deployed via git.
@@ -63,44 +78,6 @@ for p in /board /api/state /api/topology /api/models /js/main.js /css/base.css /
 done
 curl -s -o /dev/null -w '%{http_code}\n' localhost:8101/v1/models   # any live route port
 ```
-
-### Telling an external test suite
-
-The E2E suite lives in its own repository and runs against a DEPLOYMENT rather
-than a commit, so nothing tells it a release happened. Left to a schedule, the
-answer to "did that break anything" can be a day late.
-
-```sh
-bash scripts/notify-ci.sh          # last step, after the remote restart
-```
-
-**Run it from the machine you deploy FROM, not from the controller.** The
-controller sits on the fleet subnet and may have no route to wherever CI lives —
-here it does not, and the call simply times out. The deploy workstation pushed
-the commit and therefore has the same checkout that was just pulled, so the
-version and commit it reports are the ones now running.
-
-That direction is worth checking once before wiring it up, because a missing
-route looks exactly like a wrong token from the outside:
-
-```sh
-curl -s -o /dev/null -w '%{http_code}\n' --max-time 6 <ci-host>/
-```
-
-It reads `CARAVAN_CI_DISPATCH_URL` and `CARAVAN_CI_TOKEN` from the environment
-and **exits silently when either is unset**, so a deployment with no CI attached
-is unaffected. It never fails a deploy either: an unreachable CI host prints one
-line and returns 0. The tests report on a release; they do not gate it.
-
-The credential belongs in the deploy shell, never in this repository. That is
-also why the script names no vendor and no address — those live with the token,
-and it works with any CI that starts a run from an authenticated POST.
-
-It sends the version read from `caravan.__version__` and the short commit, which
-is what makes the far side able to catch the deploy that reports success and
-leaves the old process running: `/health` already answers with both, and a
-mismatch between what was shipped and what is serving has no other symptom —
-every test passes, and the fix simply is not there.
 
 ## Rollback
 
@@ -198,6 +175,12 @@ deployment.** Neither runs cells: they run on machines with a scout.
 `docker compose up -d --build` runs the admin + proxy in one container (see
 the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
 
+- Two settings are required, and the container refuses to start without
+  them (exit code 2, the reason on stderr): `TZ`, the controller's time zone —
+  every schedule runs by it, and a container would otherwise run in UTC
+  silently — and `LLAMA_TOPOLOGY_SERVER_IP`, the address agents and scouts
+  reach it at. `docker-compose.yml` asks for both; the image carries the zone
+  data (`tzdata`).
 - No systemd: the proxy is a **supervised child** of the admin
   (`caravan/admin/proxy_supervisor.py`) — respawned by a watchdog on crash,
   respawned in place when a routes/cabling save asks for a restart. Its output
@@ -205,6 +188,18 @@ the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
 - The legacy single-server unit and "Repair user service" are disabled with
   a clear 400 — models run on caravan-scout hosts (attach the Docker host
   itself with scout if it has the GPU).
+- The machine is asked through its scout (1.3.439–1.3.440, scout 2.24+):
+  powering the controller's machine, its GPU driver and its update, the list
+  of its cards, the monitor's GPU and busiest processes, the nvidia-smi and
+  btop snapshots — the same way as on the machine. Put a scout on the Docker
+  host (Model servers → Add scout); without one each of these says "there is
+  no scout on the controller's machine" (409 for an action) instead of failing
+  inside or reporting nothing as if it were a fact. The journal tail, the
+  controller's own, points at `docker logs`.
+  Listening ports are read from the host's own table (`/proc/net/tcp`), which
+  a container on the host's network sees as well.
+  `scripts/check_container_answers.py` holds every program the code runs to
+  such a decision.
 - All mutable state lives under the `/data` volume (`CARAVAN_DATA_DIR`) — the
   controller's own config script too (`config/start-server.sh`: the models
   directory and the defaults for new cells, the `controller-config` of a settings
@@ -213,6 +208,9 @@ the README quick start). What changes inside (`CARAVAN_CONTAINER=1`):
   `agent-proxies (child)`) and hides systemd diagnostics.
 - The version chip reads `CARAVAN_GIT_HEAD` (baked at build) because the
   image ships without `.git`.
+- The image carries the cell servers (`cells/`): the controller hands them to
+  the scouts (`/api/cell-assets`). `scripts/check_image_contents.py` keeps every
+  folder the running code reads in the image's COPY list.
 
 ## Request-log diagnostics (API)
 
@@ -258,6 +256,34 @@ Reading a `finished` row:
   connection (its own timeout) while waiting; the upstream itself was fine.
   Example: the classic `[Errno 32] Broken pipe` with `firstByteMs ≈ 33000` is
   an agent with a ~30 s client timeout that did not survive the queue.
+- `item.latency` (since 1.3.437) — where the time went, in milliseconds:
+  `prepMs` the caravan's own work before the upstream (without the queue),
+  `connectMs` opening the upstream connection (`0` when a kept provider
+  connection was taken, `connReused: true`), `headersMs` / `firstChunkMs` the
+  upstream's answer from the request sent, `cpuMs` the processor time of the
+  request. The route window's Details tab shows medians and the 90th
+  percentile per port; `GET /api/agent-proxy-latency?port=<port>&range=24h`
+  answers the same as JSON.
+
+### Load test of the proxy
+
+`scripts/bench_proxy.py` measures what a machine's processor carries before
+the caravan moves onto it: a fake provider, the real proxy in a process of its
+own, and N parallel token streams through it and straight to the provider.
+Nothing of the running caravan is touched — everything lives in a temporary
+directory on free ports.
+
+```sh
+python3 scripts/bench_proxy.py --kind subscription --streams 1,8,32 --requests 32 --events 200 --gap-ms 10
+```
+
+Per level of parallel streams it prints the stream's time straight and
+through the proxy (the difference is what the proxy adds), the first event,
+the journal's `prepMs` and `cpuMs`, the proxy process's processor time per
+request and the kept connections taken. `--kind subscription` translates a
+Responses stream (the subscription's path, the heaviest), `openai` relays a
+chat-completions stream as it is, `cell` goes to a local server without a
+pool. CI runs `--quick`.
 
 The proxy notices a vanished client at every phase and cancels the work: in
 the admission queue (keep-alive write fails), and after admission via a 2 s
@@ -285,8 +311,13 @@ seconds, up to ~20 s on huge prompts).
   copy fighting the unit) and kill it before restarting the service.
 - **Whisper/command cells** show `downloading N% / loading` in the cell UI —
   that is the health endpoint reporting model download progress, not a hang.
-- **UFW**: new proxy ports must be allowed (`8101:8199` range is open); a
-  route on an unopened port answers locally but not from the LAN.
+- **UFW**: the proxy range is opened ONCE, by the operator, with one rule —
+  `sudo ufw allow 23001:23999/tcp` (the range is `PROXY_PORTS`,
+  `CARAVAN_PROXY_BASE_PORT` + `CARAVAN_PROXY_PORT_SPAN`). The caravan never runs
+  ufw (`scripts/check_firewall_untouched.py`): it hands out ports only inside
+  the range and refuses a new port outside it. An old port outside it (8022)
+  keeps its own rule; delete that rule by hand when the port goes. A route on
+  an unopened port answers locally but not from the LAN.
 
 
 ## Публичное зеркало

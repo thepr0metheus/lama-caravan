@@ -575,10 +575,11 @@ def client_llama_purge_cache(body: dict) -> dict:
     return {"ok": result.get("ok", False), "hostId": host_id, "result": result}
 
 def normalize_client_gpus(raw):
-    """Sanitize the GPU inventory a client route agent reports in its heartbeat.
+    """Sanitize the GPU inventory a scout reports in its heartbeat.
 
-    Field names match gpu_state() (the controller's own GPUs) so the topology UI can
-    render client GPUs with the same card. Values are kept as short strings."""
+    The field names are the scout's (caravan_scout/machine.py there), and one
+    card renderer draws them on every machine's node — the controller's own
+    machine's too (gpu_state reads them). Values are kept as short strings."""
     if not isinstance(raw, list):
         return []
     fields = (
@@ -719,6 +720,9 @@ def host_from_report(payload):
         "ip": str(host.get("ip") or "").strip()[:80],
         "agentUrl": str(payload.get("agentUrl") or "").strip()[:240],
         "gpus": gpus,
+        # Why nvidia-smi named no card, in its words (scout 2.25+): "" when it
+        # named them, is not installed, or an older scout cannot say.
+        "gpuError": str(payload.get("gpuError") or "").strip()[:200],
         "computeApps": compute_apps,
         # Ollama, LM Studio on that machine (scout 2.12+). None when the scout
         # does not say — an older one cannot look, and [] would draw that as

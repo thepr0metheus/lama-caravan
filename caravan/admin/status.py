@@ -25,28 +25,29 @@ from caravan.admin.paths import ADMIN_SERVICE_NAME, AGENT_PROXY_SERVICE_NAME, IS
 from caravan.admin.state import admin_state
 from caravan.admin.systemd_ctl import logs, service_status, systemctl, user_service_diagnostics
 from caravan import __version__ as APP_VERSION
+from caravan.common.checkout import CheckoutCommit
 from caravan.common.errors import AppError
 from caravan.common.procs import run, run_in
 
 
 def project_git_info():
-    head = run_in(["git", "rev-parse", "--short", "HEAD"], timeout=3, cwd=PROJECT_ROOT)
+    # The commit by the rule every process of the caravan reads it with — git,
+    # else the commit an image build baked in (caravan/common/checkout.py).
+    source = CheckoutCommit(PROJECT_ROOT, short=True)
+    if source.baked:
+        # The Docker image ships without .git — the build bakes the commit in.
+        return {"branch": "docker", "head": source.commit, "dirtyCount": 0, "ok": True, "error": ""}
     branch = run_in(["git", "branch", "--show-current"], timeout=3, cwd=PROJECT_ROOT)
     dirty = run_in(["git", "status", "--porcelain"], timeout=3, cwd=PROJECT_ROOT)
-    if not head["ok"]:
-        # The Docker image ships without .git — the build bakes the commit in.
-        baked = os.environ.get("CARAVAN_GIT_HEAD", "").strip()
-        if baked:
-            return {"branch": "docker", "head": baked, "dirtyCount": 0, "ok": True, "error": ""}
     branch_name = branch["stdout"].strip()
     if not branch_name:
         branch_name = "detached"
     return {
         "branch": branch_name if branch["ok"] else "",
-        "head": head["stdout"].strip() if head["ok"] else "",
+        "head": source.commit,
         "dirtyCount": len([line for line in dirty["stdout"].splitlines() if line.strip()]) if dirty["ok"] else 0,
-        "ok": head["ok"] and branch["ok"],
-        "error": "" if head["ok"] and branch["ok"] else (head["stderr"] or branch["stderr"]),
+        "ok": source.from_git and branch["ok"],
+        "error": "" if source.from_git and branch["ok"] else (source.error or branch["stderr"]),
     }
 
 def _container_briefs():

@@ -1853,6 +1853,52 @@ def test_error_kind_in_the_journal():
           "и доска больше не скажет оператору, что ушёл его агент")
 
 
+def _journal_rows(event):
+    rows = []
+    for path in sorted(Path(os.environ["AGENT_PROXY_LOG_DIR"]).glob("*")):
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if row.get("event") == event:
+                rows.append(row)
+    return rows
+
+
+def test_latency_in_the_journal():
+    """Where each request's time went (caravan/proxy/request_clock.py), as the journal keeps it."""
+    print("время запроса в журнале:")
+    keys = {"prepMs", "connectMs", "connReused", "headersMs", "firstChunkMs", "cpuMs"}
+    post(P_OK)
+    ok = [r for r in _finished_events((f"r{P_OK}",)) if r.get("route") == f"r{P_OK}"][-1].get("item") or {}
+    lat = ok.get("latency") or {}
+    check(set(lat) == keys, f"запись времени — все шесть полей (получено {sorted(lat)})")
+    measured = {k: lat.get(k) for k in ("prepMs", "connectMs", "headersMs", "firstChunkMs", "cpuMs")}
+    check(all(isinstance(v, float) and v >= 0 for v in measured.values()),
+          f"ответивший апстрим — всё измерено, в миллисекундах (получено {measured})")
+    check(lat.get("connReused") is None, f"у ячейки пула нет — None, а не False (получено {lat.get('connReused')!r})")
+    check(lat["headersMs"] <= lat["firstChunkMs"],
+          f"заголовки не позже первых байт ({lat['headersMs']} ≤ {lat['firstChunkMs']})")
+    before = len(_journal_rows("finished"))
+    post(P_DEAD)
+    dead = {}
+    for _ in range(40):
+        rows = [r for r in _journal_rows("finished")[before:] if r.get("route") == f"r{P_DEAD}"]
+        if rows:
+            dead = rows[-1].get("item") or {}
+            break
+        time.sleep(0.05)
+    dlat = dead.get("latency") or {}
+    check(isinstance(dlat.get("prepMs"), float), f"неслушающий апстрим: своя работа измерена (получено {dlat.get('prepMs')!r})")
+    check(dlat.get("connectMs") is None and dlat.get("headersMs") is None,
+          f"а подключения и ответа не было — None, не 0 (получено {dlat.get('connectMs')!r}, {dlat.get('headersMs')!r})")
+    post(P_PAUSED)
+    blocked = [r for r in _journal_rows("blocked") if r.get("route") == f"r{P_PAUSED}"]
+    check(blocked and "latency" not in (blocked[-1].get("item") or {}),
+          "запрос, остановленный до апстрима, записи времени не несёт")
+
+
 for fn in (test_blocked_modes, test_unrouted, test_api_key, test_client_key_stays_with_the_caravan,
            test_forward, test_upstream_errors, test_upstream_down,
            test_error_kind_reaching_the_client, test_error_kind_in_the_journal,
@@ -1869,7 +1915,7 @@ for fn in (test_blocked_modes, test_unrouted, test_api_key, test_client_key_stay
            test_questions_go_to_the_exit_that_answers, test_reserve_answers_before_the_provider,
            test_error_inside_an_open_stream, test_client_vanishes_mid_response,
            test_client_vanishes_before_first_byte, test_keepalive_not_sent_to_cloud,
-           test_loading_model_retry_not_for_cloud):
+           test_loading_model_retry_not_for_cloud, test_latency_in_the_journal):
     fn()
 
 print()

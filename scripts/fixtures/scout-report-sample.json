@@ -159,6 +159,7 @@
         "version": ""
       }
     ],
+    "gpuError": "",
     "gpus": [
       {
         "driverStatus": "ok",
@@ -496,6 +497,7 @@
         "version": ""
       }
     ],
+    "gpuError": "",
     "gpus": [
       {
         "driverStatus": "ok",

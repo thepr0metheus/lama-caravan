@@ -80,8 +80,24 @@ class CloudSources:
     @staticmethod
     def common_models(lists):
         """Only models every supplied catalogue lists; a failed catalogue is
-        the caller's error, not an empty list to be discarded here."""
+        the caller's error, not an empty list to be discarded here.
+
+        A pool answers from whichever member it routes to, so the window it
+        names for a model is the smallest any member names — and none when a
+        member names none. Taken from the first member alone, a pool would
+        promise a window another member may not have: the larger direction,
+        the one that makes a client send more than is accepted."""
         if not lists:
             return []
         shared = set.intersection(*({m["id"] for m in rows} for rows in lists))
-        return [m for m in lists[0] if m["id"] in shared]
+        windows = [{m["id"]: m.get("contextLength") for m in rows} for rows in lists]
+        common = []
+        for model in lists[0]:
+            if model["id"] not in shared:
+                continue
+            named = [by_id[model["id"]] for by_id in windows]
+            entry = {k: v for k, v in model.items() if k != "contextLength"}
+            if all(isinstance(w, int) and w > 0 for w in named):
+                entry["contextLength"] = min(named)
+            common.append(entry)
+        return common

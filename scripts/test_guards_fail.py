@@ -58,6 +58,65 @@ def _missing_tool(output):
 # The breakage is chosen to be the failure the guard is FOR, not any old syntax
 # error: anything can be broken by deleting a brace.
 BREAKAGES = {
+    # Every program the controller runs needs a container decision, and a
+    # module running a machine program must ask first: a new program without a
+    # decision, and a module that stopped asking, must turn this red.
+    "check_container_answers": [
+        ([], "caravan/admin/host_power.py",
+         'ACTIONS = ("reboot", "poweroff")\n',
+         'ACTIONS = ("reboot", "poweroff")\n\n\ndef _disks():\n'
+         '    return subprocess.run(["lsblk", "-J"], capture_output=True)\n'),
+        ([], "caravan/admin/gpu_driver.py",
+         "FACTS_TIMEOUT = 90\n",
+         "FACTS_TIMEOUT = 90\n\n\ndef _cards():\n"
+         "    return run([\"nvidia-smi\", \"-L\"], timeout=5)\n"),
+    ],
+    # The image must carry what the running code reads: a folder the COPY list
+    # leaves out, or that .dockerignore drops, must turn this red.
+    "check_image_contents": [
+        ([], "Dockerfile", "COPY --chown=caravan:caravan cells/ cells/\n", ""),
+        ([], ".dockerignore", "docs/\n", "docs/\ncells/\n"),
+    ],
+    # The firewall is the operator's (one rule for the proxy range): a ufw call
+    # in either shape — an argv list, a command string — must turn this red.
+    "check_firewall_untouched": [
+        ([], "caravan/admin/proxies_config.py",
+         "from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE, CONTROLLER_HOST_ID, PROXY_PORTS\n",
+         "from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE, CONTROLLER_HOST_ID, PROXY_PORTS\n"
+         "_DOOR_ARGV = [\"sudo\", \"-n\", \"ufw\", \"allow\"]\n"),
+        ([], "caravan/admin/proxies_config.py",
+         "from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE, CONTROLLER_HOST_ID, PROXY_PORTS\n",
+         "from caravan.admin.paths import AGENT_PROXY_CONFIG_FILE, CONTROLLER_HOST_ID, PROXY_PORTS\n"
+         "_DOOR_SHELL = \"sudo ufw allow 23001\"\n"),
+    ],
+    # The deploy keeps the proxy running when none of ITS files changed — so the
+    # list of its files must cover everything it imports, the release number
+    # must stay a number, and the list itself must not shrink.
+    "check_proxy_sources": [
+        ([], "caravan/proxy/main.py",
+         "from caravan.proxy.paths import STATE_FILE\n",
+         "from caravan.proxy.paths import STATE_FILE\nfrom caravan.admin.paths import PROJECT_ROOT as _ADMIN_ROOT  # noqa: F401\n"),
+        ([], "scripts/proxy_restart.py",
+         'SOURCES = ("agent-proxies.py", "caravan/proxy/", "caravan/common/")',
+         'SOURCES = ("agent-proxies.py", "caravan/proxy/")'),
+        ([], "caravan/__init__.py",
+         '"""LAMA CARAVAN — fleet control plane for llama.cpp servers and AI agents."""\n',
+         '"""LAMA CARAVAN — fleet control plane for llama.cpp servers and AI agents."""\nRELEASED_ON = "2026-10-07"\n'),
+        # The same reach, hidden inside a function — imported only when called.
+        ([], "caravan/proxy/main.py",
+         "    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)\n",
+         "    STATE_FILE.parent.mkdir(parents=True, exist_ok=True)\n"
+         "    from caravan.admin.paths import PROJECT_ROOT as _ADMIN_ROOT  # noqa: F401\n"),
+        # A module named by a string, which no walk of imports can follow.
+        ([], "caravan/proxy/main.py",
+         "import threading\n", "import importlib\nimport threading\n"),
+        # The release number read by the proxy: then bumping it changes the proxy.
+        ([], "caravan/proxy/main.py",
+         "import threading\n", "import threading\nfrom caravan import __version__ as _RELEASE  # noqa: F401\n"),
+        # The walk starting nowhere near the proxy: it must say so, not pass.
+        ([], "agent-proxies.py",
+         "from caravan.proxy.main import main  # noqa: E402\n", "main = None  # noqa: E402\n"),
+    ],
     "check_subscription_resets": [
         ([], "caravan/proxy/cloud_auth.py", 'CLOUD_PROVIDER_AUTH = {',
          '_automatic_reset = SubscriptionResetDesk().consume("a", "credit", "key", True)\nCLOUD_PROVIDER_AUTH = {'),

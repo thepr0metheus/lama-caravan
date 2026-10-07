@@ -14,7 +14,9 @@ at five, +N), the fleet token. Known issues: legacy checks collapse into
 details, a how-to-fix hint appears only when there's a red/amber. Modals
 through the shared confirm: from/to fields and a path, `ui.pendingConfirm`
 does the POST; polling an llama.cpp update — running → again after 2s, done
-rc=0 → a toast and a re-read, rc≠0 → an error toast. The model garbage
+rc=0 → a toast and a re-read, rc≠0 → an error toast; the GPU driver install
+is polled on its own path (the scout of the controller's machine runs it),
+and a silent scout's words replace the log. The model garbage
 collector: the unused list sorted largest-first, "nothing to clean up",
 deletion only of what's selected and only after confirmation.
 
@@ -168,6 +170,19 @@ PINS = [
     ("vllm_poll_unreachable", 'globalThis.__fetchReply["/api/fleet/vllm/update-status?hostId=box-a"] = { ok: false, error: "box-a unreachable: timed out" };',
      'await (async () => { await m.pollVllmUpdate("box-a"); await settle(); return [F().llamaUpdateLog.textContent, polls()]; })()',
      '["box-a unreachable: timed out",[]]', "negative: скаут не ответил — его слова в логе, опрос не повторяется"),
+    # ── GPU driver install: the scout of the controller's machine runs it (1.3.439) ──
+    ("driver_poll_running", 'globalThis.__fetchReply["/api/gpu-driver/update-status"] = { running: true, tag: "driver:nvidia-driver-610-open", lines: ["Reading package lists..."] };',
+     'await (async () => { await m.pollDriverUpdate(); await settle(); return [calls().map((c) => c.path), F().driverUpdateLog.textContent, polls().length]; })()',
+     '[["/api/gpu-driver/update-status"],"Reading package lists...",1]',
+     "установка идёт — ход от скаута машины (свой путь, не общий job llama.cpp), повтор через 2 с"),
+    ("driver_poll_done_ok", 'globalThis.__fetchReply["/api/gpu-driver/update-status"] = { running: false, done: true, rc: 0, lines: ["done"] }; globalThis.__fetchReply["/api/gpu-driver"] = { running: "610.43.02", installed: null, newest: null, updateAvailable: false, auto: {} };',
+     'await (async () => { await m.pollDriverUpdate(); await settle(); return [toastText(), calls().map((c) => c.path), polls().length]; })()',
+     '["Driver installed — reboot to switch the kernel module",["/api/gpu-driver/update-status","/api/gpu-driver"],0]',
+     "установка кончилась — тост, панель драйвера перечитана, опросов больше нет"),
+    ("driver_poll_no_scout", 'globalThis.__fetchReply["/api/gpu-driver/update-status"] = { ok: false, error: "own-box unreachable: timed out" };',
+     'await (async () => { await m.pollDriverUpdate(); await settle(); return [F().driverUpdateLog.textContent, polls().length]; })()',
+     '["own-box unreachable: timed out",0]',
+     "negative: скаут не ответил — его слова в логе, а не «...»; опрос не повторяется"),
     # ── llama.cpp modals ──
     ("restore_build_modal", 'st.setState({ ...st.state, llamaCpp: { version: "version: 9947 (abc)\\nextra" } }); globalThis.__fetchReply["/api/llamacpp/update-status"] = { done: true, rc: 1, error: "build failed" };',
      'await (async () => { m.openRestoreBuildModal("b2", { version: "version: 9900 (def)" }); const a = [F().confirmTitle.textContent, F().confirmMeta.innerHTML.includes("<strong>b9947 (abc)</strong>"), F().confirmMeta.innerHTML.includes("<strong>b9900 (def)</strong>"), F().confirmPath.textContent, F().confirmOverlay.hidden]; await st.ui.pendingConfirm(); await settle(); return [...a, calls().map((c) => [c.path, c.body]), toastText(), polls()]; })()',

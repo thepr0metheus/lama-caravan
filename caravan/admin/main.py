@@ -11,6 +11,7 @@ from caravan.admin.paths import DATA_DIR, HOST, IS_CONTAINER, PORT, PROJECT_ROOT
 from caravan.admin.proxies_config import read_agent_proxy_payload, write_agent_proxy_payload
 from caravan.admin.router_dsl import recompute_cloud_fallback_eligibility
 from caravan.admin.routes import Handler
+from caravan.common.container_preflight import ContainerPreflight
 
 
 class _Server(ThreadingHTTPServer):
@@ -37,6 +38,9 @@ class _Server(ThreadingHTTPServer):
 
 
 def main():
+    # A container states its time zone and its address, or it does not start:
+    # it can guess neither, and both would go wrong without a word.
+    ContainerPreflight().enforce("lama-caravan")
     # Same directory systemd's WorkingDirectory points at; keeps every relative
     # path (var/, logs/, git commands) working when launched by hand.
     os.chdir(PROJECT_ROOT)

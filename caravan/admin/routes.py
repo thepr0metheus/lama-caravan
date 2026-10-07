@@ -30,7 +30,7 @@ from struct import calcsize, unpack
 from urllib.parse import urlparse
 
 
-from caravan.admin.gpu_driver import driver_status, driver_update, set_auto_settings
+from caravan.admin.gpu_driver import driver_status, driver_update, set_auto_settings, driver_update_status
 from caravan.admin.model_card import proxy_model_card
 from caravan.common.errors import AppError
 from caravan.common.flags import truthy
@@ -95,7 +95,6 @@ from caravan.admin.telemetry import (
     _gpu_history,
     _tps_history,
     command_cell_health,
-    firewall_port_access,
     probe_remote_port,
     remote_llama_health,
     remote_llama_modalities,
@@ -172,6 +171,7 @@ from caravan.admin.cloud_api import (
     usage_stats,
 )
 from caravan.admin.queue_thresholds import QUEUE_THRESHOLDS, compute_queue_thresholds
+from caravan.admin.proxy_latency import proxy_latency
 from caravan.admin.token_history import (
     load_token_history,
     record_token_history,
@@ -189,12 +189,10 @@ from caravan.admin.proxy_stats import (
 from caravan.admin.monitoring import (
     append_incidents_from_sample,
     cpu_snapshot,
-    gpu_compute_apps,
     runtime_api,
     collect_monitor_sample,
     correlate_activity,
     cpu_state,
-    gpu_state,
     incident_lock,
     load_incident_log,
     load_monitor_history,
@@ -405,9 +403,11 @@ def _get_static_subdir(h, parsed):
 def _get_api_monitor(h, parsed):
         """Terminal-style snapshot of the controller's machine: nvidia-smi or btop
 
-        `kind` — the last path segment, `nvidia-smi` or `btop`; any other value is a 404.
-        Answers `{kind, ok, output, time}`; `btop` adds `source` (`btop`, or `top` when btop
-        cannot draw) and, when it drew, an `html` rendering.
+        Taken by the scout on that machine (scout 2.24+ for btop). `kind` — the last path
+        segment, `nvidia-smi` or `btop`; any other value is a 404. Answers
+        `{kind, ok, output, time}`; `btop` adds `source` (`btop`, or `top` when btop cannot
+        draw) and, when it drew, an `html` rendering. Without a scout, or when it does not
+        answer, `ok` is false and `output` says why.
         """
         kind = parsed.path.rsplit("/", 1)[-1]
         h.send_json(monitor_snapshot(kind))
@@ -1063,17 +1063,52 @@ def _get_api_token_history(h, parsed):
         })
         return
 
+@_route(GET_ROUTES, '/api/agent-proxy-latency')
+def _get_api_agent_proxy_latency(h, parsed):
+        """The caravan's own time on one proxy port: medians and 90th percentiles
+
+        `port` is the proxy route's port (400 if it is not a number); `range` is `1h`, `12h` or
+        `24h`, anything else covers every day the journal keeps. Read from the finished records'
+        `latency`, measured since 1.3.437 — older requests are not counted. Answers `{latency}`
+        with `requests` and, as `{n, p50, p90}` in milliseconds or null when nothing was
+        measured: `prepMs` (the caravan's own work before the upstream, without the queue),
+        `connectMs` (opening the upstream connection, 0 when a kept one was taken), `headersMs`
+        and `firstChunkMs` (the upstream's answer, from the request sent) and `cpuMs` (processor
+        time of the request). `connReused` is `{n, reused}`: provider requests and how many of
+        them took a kept connection.
+        """
+        query = urllib.parse.parse_qs(parsed.query or "")
+        try:
+            port = int((query.get("port") or [""])[0].strip())
+        except ValueError:
+            raise AppError("invalid port", 400)
+        h.send_json({"latency": proxy_latency.summary(port, (query.get("range") or ["all"])[0].strip())})
+        return
+
 @_route(GET_ROUTES, '/api/gpu-driver')
 def _get_api_gpu_driver(h, parsed):
         """NVIDIA driver state of the controller's machine: running, installed, available
 
-        Answers `{ok, running, installed, available, updateAvailable, rebootRequired,
-        secureBoot, moduleRejected, ...}` from a copy kept for 2 minutes. `running` is the
-        version in the kernel and `installed` the newest driver package; `rebootRequired`
-        covers both a driver switch waiting for a reboot and the OS's own pending reboot.
-        `moduleRejected` means Secure Boot kept an installed driver from loading.
+        Read by the scout on that machine (`GET /api/host/driver` there, scout 2.24+) and
+        decided here. Answers `{ok, hostId, running, installed, available, updateAvailable,
+        rebootRequired, secureBoot, moduleRejected, ...}` from a copy kept for 2 minutes.
+        `running` is the version in the kernel and `installed` the newest driver package;
+        `rebootRequired` covers both a driver switch waiting for a reboot and the OS's own
+        pending reboot. `moduleRejected` means Secure Boot kept an installed driver from
+        loading. 409 when the machine has no scout, 502 when its scout does not answer.
         """
         h.send_json(driver_status())
+        return
+
+@_route(GET_ROUTES, '/api/gpu-driver/update-status')
+def _get_api_gpu_driver_update_status(h, parsed):
+        """The driver install job on the controller's machine, as its scout tells it
+
+        Answers the scout's job record `{running, done, rc, error, startedAt, tag, lines}` (the
+        last 200 lines), or `{ok: false, error}` when the machine has no scout or it does not
+        answer.
+        """
+        h.send_json(driver_update_status())
         return
 
 @_route(GET_ROUTES, '/api/agent-proxy-model-card')
@@ -1084,7 +1119,9 @@ def _get_api_agent_proxy_model_card(h, parsed):
         The controller asks the port itself, so the route's API key never leaves it (`keyed`
         says whether the port wants one); a port that does not answer still gives a 200
         answer with `ok: false`, `status` and `error`. The answer also carries `tookMs`, the
-        parsed `entries` (id, window sizes, aliases) and the `raw` body.
+        parsed `entries` (id, window sizes, aliases), the `raw` body and `windowLinks`: every
+        path on which the port states its window, as `{kind, url}` — `list` (/v1/models) always,
+        `retrieve` (/v1/models/<id>) on a cloud port, `props` (/props, /v1/props) on a cell's.
         """
         query = urllib.parse.parse_qs(parsed.query or "")
         h.send_json(proxy_model_card((query.get("port") or [""])[0]))
@@ -2002,12 +2039,13 @@ def _post_api_api_pricing(h, parsed, body):
 def _post_api_agent_proxies_config(h, parsed, body):
         """Save the full list of proxy routes, and optionally the routers
 
-        `routes` is the whole list: a route left out is removed and its firewall port closed
-        (best effort); `routers` replaces the kanban routers and is kept as it is when
-        omitted. The proxy service is started if it is down, never restarted; it re-reads
-        the file itself. Answers `{ok, config, monitor}` with the saved config; 400 for a
-        duplicate port or an invalid route (no `label`, a port outside 1024-65535), 500 when
-        the proxy service cannot be started.
+        `routes` is the whole list: a route left out is removed; `routers` replaces the
+        kanban routers and is kept as it is when omitted. The proxy service is started if it
+        is down, never restarted; it re-reads the file itself. Answers `{ok, config,
+        monitor}` with the saved config; 400 for a duplicate port, an invalid route (no
+        `label`, a port outside 1024-65535) or a new port outside the proxy range the
+        firewall lets in (23001-23999 by default), 500 when the proxy service cannot be
+        started.
         """
         result = save_agent_proxy_config(body.get("routes") or [], body.get("routers"))
         h.send_json({"ok": True, "config": result, "monitor": system_monitor_state()})
@@ -2051,8 +2089,8 @@ def _post_api_agent_proxies_route_delete(h, parsed, body):
         """Delete a proxy route (agent, bridge or app port) with its router wiring
 
         `port` is the route's port; `force` deletes it even while an agent is still assigned
-        to it. The router edges that start at the port go too, and its firewall port is
-        closed, best effort. Answers `{ok, result: {deleted, label}, topology}`; 404 when no
+        to it. The router edges that start at the port go too; the firewall is left as it is.
+        Answers `{ok, result: {deleted, label}, topology}`; 404 when no
         route has that port, 409 while an agent is assigned to it and `force` is not set,
         400 for a non-numeric port.
         """
@@ -2097,9 +2135,9 @@ def _post_api_cloud_bridge_port(h, parsed, body):
         """Open a port of its own for one cloud model, straight to that model
 
         `blockId` is the model block and `label` an optional name (default `bridge
-        <model>`). The port comes from the proxy range, is opened in the controller's
-        firewall (best effort) and puts the model on the kanban. Answers `{ok, route}`; 400
-        without `blockId`, 404 for an unknown block.
+        <model>`). The port comes from the proxy range, which the firewall lets in, and puts
+        the model on the kanban. Answers `{ok, route}`; 400 without `blockId`, 404 for an
+        unknown block, 500 when the proxy range has no free port left.
         """
         route = mint_bridge_port(body.get("blockId"), body.get("label"))
         h.send_json({"ok": True, "route": route})
@@ -2110,9 +2148,10 @@ def _post_api_app_port(h, parsed, body):
         """Mint an entry port with its own API key for an external app
 
         `name` is the port's label (required, cut to 80 characters). The port comes from the
-        proxy range, is opened in the controller's firewall (best effort) and feeds the
-        default router's graph, like agent traffic. Answers `{ok, route}` where `route.port`
-        is the port and `route.apiKey` the generated data-plane key; 400 without a `name`.
+        proxy range, which the firewall lets in, and feeds the default router's graph, like
+        agent traffic. Answers `{ok, route}` where `route.port` is the port and
+        `route.apiKey` the generated data-plane key; 400 without a `name`, 500 when the proxy
+        range has no free port left.
         """
         from caravan.admin.proxies_config import mint_app_port
         route = mint_app_port(body.get("name"))
@@ -2671,7 +2710,7 @@ def _post_api_agent_port(h, parsed, body):
         is `primary` (default) or `fallback`; `port` picks the number, else the next free
         one in the proxy range comes (a fallback takes the neighbour of the primary's port
         when that is free). Answers `{ok, route, result, topology}`; 400 for a missing id or
-        a port out of range, 409 for a taken port. A client or agent the operator's record
+        a port outside the proxy range the firewall lets in, 409 for a taken port. A client or agent the operator's record
         lacks answers 404 only after the port has already been created.
         """
         from caravan.admin.proxies_config import mint_agent_port
@@ -2812,10 +2851,11 @@ def _post_api_host_reboot(h, parsed, body):
         """Reboot a machine: the controller's own, or a fleet host through its scout
 
         `hostId` names the machine; the reserved id `controller` is the controller's own
-        machine, rebooted with `sudo systemctl`. Cells are not stopped first, and the answer
-        `{ok, hostId, action, result, at}` comes before the machine goes down. 404 for a
-        machine no scout has reported for, 500 when sudo refuses, 502 when the scout is
-        unreachable.
+        machine, rebooted by the scout on it like any other. Cells are not stopped first,
+        and the answer `{ok, hostId, action, result, at}` comes before the machine goes
+        down. 404 for a machine no scout has reported for, 409 when the controller's machine
+        has no scout, 502 when the scout refuses (in its words, e.g. sudo asking for a
+        password) or does not answer.
         """
         # Power-cycling a host is confirmed in the UI and logged here: it drops
         # every cell on that machine, so "who asked" matters after the fact.
@@ -2829,10 +2869,11 @@ def _post_api_host_poweroff(h, parsed, body):
         """Power a machine off; nothing on the board can switch it back on
 
         `hostId` names the machine; the reserved id `controller` is the controller's own
-        machine, powered off with `sudo systemctl`, and any other goes through its scout.
-        The answer `{ok, hostId, action, result, at}` comes before the machine goes down.
-        404 for a machine no scout has reported for, 500 when sudo refuses, 502 when the
-        scout is unreachable.
+        machine, powered off by the scout on it like any other. The answer
+        `{ok, hostId, action, result, at}` comes before the machine goes down. 404 for a
+        machine no scout has reported for, 409 when the controller's machine has no scout,
+        502 when the scout refuses (in its words, e.g. sudo asking for a password) or does
+        not answer.
         """
         # Its own route rather than a flag on the one above. Poweroff cannot be
         # undone from this board — nothing here can switch a machine on — so it
@@ -3067,12 +3108,13 @@ def _post_api_topology_agent_route_remove(h, parsed, body):
 def _post_api_gpu_driver_update(h, parsed, body):
         """Install a GPU driver package on the controller's machine as a background job
 
-        `package` must be a name such as `nvidia-driver-610-open` that apt offers (400 for
-        another shape, 404 for one apt does not list). Under Secure Boot the matching signed
-        kernel modules are installed with it when apt has them, and the running driver
-        changes only after a reboot. Answers the job's state and log, the same shared job
-        `GET /api/llamacpp/update-status` follows; 409 while another build or install job
-        runs.
+        The scout on that machine installs it (`POST /api/host/driver/install` there, scout
+        2.24+). `package` must be a name such as `nvidia-driver-610-open` (400 for another
+        shape, before anything leaves). Under Secure Boot the matching signed kernel modules
+        are installed with it, and the running driver changes only after a reboot. Answers
+        the job's state, which `GET /api/gpu-driver/update-status` follows. 409 when the
+        machine has no scout; 502 with the scout's words when it refuses — a package apt
+        does not list, an install already running — or does not answer.
         """
         h.send_json(driver_update((body or {}).get("package")))
         return

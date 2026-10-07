@@ -277,6 +277,27 @@ def main():
     finally:
         models_mod.read_gguf_metadata_cached, models_mod.extract_runtime_meta = real_read, real_extract
 
+    print("port_question_reaches — what a question to the port reaches (proxy, board and Model card read it):")
+    from caravan.proxy.graph import answer_port_question, port_question_reaches
+    for resolved, expected, why in (
+        ({"upstreamType": "llama"}, "llama", "a cell"),
+        ({}, "llama", "no type stored: a cell, as for every route without one"),
+        ({"upstreamType": "engine"}, "engine", "an engine next to the cells"),
+        ({"upstreamType": "cloud"}, "cloud", "a cloud bridge"),
+        ({"upstreamType": "llama", "unrouted": "unassigned"}, "",
+         "an unrouted port reaches nothing — it answers 503, whatever type is stored"),
+        ({"unrouted": "router missing"}, "", "unrouted with no type stored — nothing either"),
+        ({"upstreamType": "cloud", "unrouted": "x"}, "cloud",
+         "as-is: a cloud route keeps its cloud — the graph never marks one unrouted"),
+    ):
+        got = port_question_reaches(resolved)
+        check(got == expected, f"{resolved!r} → {expected!r}: {why} (got {got!r})")
+    route = {"port": 1, "upstreamType": "cloud", "providerId": "b"}
+    asked = answer_port_question(route, {"routers": []})
+    asked["upstreamType"] = "llama"
+    check(route["upstreamType"] == "cloud",
+          "answer_port_question works on a copy: the caller's route is never written through")
+
     if _fail:
         print(f"FAILED ({len(_fail)}):")
         for msg in _fail:

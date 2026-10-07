@@ -747,7 +747,8 @@ export function topologyRouteDetailHtml() {
         <div class="topology-detail-lines">
           ${lines.length ? lines.map((line) => `<div>${escapeHtml(line)}</div>`).join("") : `<div class="muted">No request details yet.</div>`}
         </div>
-        ${topologyRouteTokenHistoryHtml()}`}</div>
+        ${topologyRouteTokenHistoryHtml()}
+        ${topologyRouteDetail.port ? `<div data-route-latency-host>${routeLatencyHtml(topologyRouteDetail.latency)}</div>` : ""}`}</div>
       </div>
     </div>
   `;
@@ -777,6 +778,16 @@ function cardRow(label, value, extra = "") {
     + `<span class="mc-val">${escapeHtml(String(value))}${extra}</span></div>`;
 }
 
+// Every question that carries this port's window gets a link: the model list,
+// and — by what the port reaches — retrieve-model (a cloud port) or llama.cpp's
+// /props (a cell's). The controller names them (`windowLinks`, by the proxy's
+// own rule); each tooltip says which question its link asks.
+export const MODEL_CARD_LINK_TIPS = {
+  list: "routeModelCardHint",
+  retrieve: "routeModelCardRetrieveHint",
+  props: "routeModelCardPropsHint",
+};
+
 export function routeModelCardHtml() {
   const detail = topologyRouteDetail || {};
   const port = detail.port;
@@ -788,13 +799,19 @@ export function routeModelCardHtml() {
   // that's exactly the address a client on the network would use.
   const url = card?.data?.url
     || `${globalThis.location?.protocol || "http:"}//${globalThis.location?.hostname || "127.0.0.1"}:${port}/v1/models`;
-  // A link, not just a label: the address is stated so it can be visited. A
+  // Links, not just labels: each address is stated so it can be visited. A
   // keyed port will give the browser a 401 — the tooltip says so, because
-  // the key stays on the controller and never reaches the page.
-  const urlTip = t("routeModelCardHint") + (card?.data?.keyed ? ` · ${t("routeModelCardKeyed")}` : "");
+  // the key stays on the controller and never reaches the page. Until the
+  // controller has answered, only the list is known.
+  const links = card?.data?.windowLinks?.length ? card.data.windowLinks : [{ kind: "list", url }];
+  const keyed = card?.data?.keyed ? ` · ${t("routeModelCardKeyed")}` : "";
+  const linkHtml = (link) => {
+    const tip = MODEL_CARD_LINK_TIPS[link.kind] ? t(MODEL_CARD_LINK_TIPS[link.kind]) : "";
+    return `<a class="mc-url" href="${escapeHtml(link.url)}" target="_blank" rel="noopener noreferrer"
+        data-t="route-model-card-link" title="${escapeHtml(tip + keyed)}">GET ${escapeHtml(link.url)}</a>`;
+  };
   const head = `<div class="mc-head">
-      <a class="mc-url" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer"
-        title="${escapeHtml(urlTip)}">GET ${escapeHtml(url)}</a>
+      <div class="mc-urls">${links.map(linkHtml).join("")}</div>
       <button type="button" class="topology-detail-action" data-route-model-card-refresh="1"
         title="${escapeHtml(t("routeModelCardRefresh"))}">⟳</button>
     </div>`;
@@ -939,6 +956,75 @@ export function drawRouteTokenHistory() {
       meta.textContent = `${derived ? t("topologyTokenHistoryDerived", { count: String(derived) }) + " · " : ""}${samples.length} ${t("topologyTokenHistoryRuns")} · avg prompt ${formatTps(avg((s) => s.promptTps))} / gen ${formatTps(avg((s) => s.evalTps))} t/s`;
     }
   }
+}
+
+// The caravan's own time on this port, over the range of the token history
+// above it (GET /api/agent-proxy-latency). Its own work, the connection and
+// the processor are the caravan's; the model's first bytes are the model's
+// and the network's, on a row of their own so the two never read as one.
+const ROUTE_LATENCY_ROWS = [
+  ["prepMs", "routeLatencyPrep", "routeLatencyPrepTip"],
+  ["connectMs", "routeLatencyConnect", "routeLatencyConnectTip"],
+  ["cpuMs", "routeLatencyCpu", "routeLatencyCpuTip"],
+  ["firstChunkMs", "routeLatencyModel", "routeLatencyModelTip"],
+];
+
+// Tenths below 10 ms, where the caravan's own work lives; whole ms up to a
+// second; seconds above. The bounds are where the rounded figure would change
+// its form, so 999.6 is "1.0 s", never "1000 ms".
+export function formatLatencyMs(ms) {
+  const value = Number(ms);
+  if (value >= 999.5) return `${(value / 1000).toFixed(1)} s`;
+  if (value >= 9.95) return `${Math.round(value)} ms`;
+  return `${value.toFixed(1)} ms`;
+}
+
+// `latency` is undefined while it loads, {error} when it did not, else the
+// endpoint's summary. A measurement this port has no sample of says so.
+export function routeLatencyHtml(latency) {
+  const block = (stateName, head, body) => `<div class="topology-route-latency" data-t="route-latency" data-t-state="${stateName}">`
+    + `<div class="topology-route-latency-head"><strong>${escapeHtml(t("routeLatencyTitle"))}</strong>${head}</div>${body}</div>`;
+  const note = (text) => `<div class="topology-muted">${escapeHtml(text)}</div>`;
+  if (latency === undefined) return block("loading", "", note("…"));
+  if (!latency || latency.error) return block("failed", "", note(t("routeLatencyFailed", { error: String(latency?.error || "") })));
+  if (!latency.requests) return block("empty", "", note(t("routeLatencyEmpty")));
+  const rows = ROUTE_LATENCY_ROWS.map(([key, label, tip]) => {
+    const spread = latency[key];
+    let value = spread
+      ? t("routeLatencySpread", { p50: formatLatencyMs(spread.p50), p90: formatLatencyMs(spread.p90) })
+      : t("routeLatencyNotMeasured");
+    if (key === "connectMs" && latency.connReused) {
+      value += ` · ${t("routeLatencyReused", { reused: String(latency.connReused.reused), n: String(latency.connReused.n) })}`;
+    }
+    return `<div class="topology-route-latency-row" data-t="route-latency-row" data-t-id="${key}" title="${escapeHtml(t(tip))}">`
+      + `<span>${escapeHtml(t(label))}</span><span>${escapeHtml(value)}</span></div>`;
+  }).join("");
+  return block("ready", ` <span class="topology-muted">· ${escapeHtml(t("routeLatencyRequests", { count: String(latency.requests) }))}</span>`, rows);
+}
+
+export function drawRouteLatency() {
+  const host = document.querySelector("[data-route-latency-host]");
+  if (host && topologyRouteDetail) host.innerHTML = routeLatencyHtml(topologyRouteDetail.latency);
+}
+
+export async function loadRouteLatency() {
+  const detail = topologyRouteDetail;
+  if (!detail?.port) return;
+  const range = detail.range || "all";
+  detail.latency = undefined;
+  drawRouteLatency();
+  let latency;
+  try {
+    const res = await api(`/api/agent-proxy-latency?port=${encodeURIComponent(detail.port)}&range=${encodeURIComponent(range)}`);
+    latency = res.latency || null;
+  } catch (err) {
+    latency = { error: String(err?.message || err) };
+  }
+  // A window closed, reopened elsewhere or switched to another range since
+  // the question was asked keeps its own answer.
+  if (topologyRouteDetail !== detail || (detail.range || "all") !== range) return;
+  detail.latency = latency;
+  drawRouteLatency();
 }
 
 export function correlatedProxyActivity(proxy) {
@@ -1518,9 +1604,10 @@ export function routeContextLineHtml(client, agent, role, route) {
       data-route-ctx="1" ${address} data-t="route-context" title="${escapeHtml(limitTip + (limitInForce ? inForceTip : ""))}"
       >${escapeHtml(t("routeCtxLimit", { value: own > 0 ? String(own) : "—" }))}</button>
     <span class="route-ctx-model-pill${model > 0 ? " set" : ""}${prefer ? " on" : ""}${modelInForce ? " in-force" : ""}"
-      ><span class="route-ctx-model" data-t="route-context-model"
-        title="${escapeHtml(routeModelWindowTip(proxy?.modelWindowSource, model) + (modelInForce ? inForceTip : ""))}"
-        >${escapeHtml(t("routeCtxModel", { value: model > 0 ? String(model) : "—" }))}</span
+      ><button type="button" class="route-ctx-model" data-route-model-card="1" data-t="route-context-model"
+        title="${escapeHtml(routeModelWindowTip(proxy?.modelWindowSource, model) + (modelInForce ? inForceTip : "")
+          + ` · ${t("routeCtxModelOpen")}`)}"
+        >${escapeHtml(t("routeCtxModel", { value: model > 0 ? String(model) : "—" }))}</button
       ><label class="route-ctx-prefer" data-route-ctx-prefer-label="1" title="${escapeHtml(t("routeCtxPreferTip"))}"
         ><input type="checkbox" data-route-ctx-prefer="1" ${address}${prefer ? " checked" : ""}
         data-t="route-context-prefer">${escapeHtml(t("routeCtxPrefer"))}</label></span>

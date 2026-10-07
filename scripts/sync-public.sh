@@ -59,8 +59,11 @@ EXCLUDE_RE='^(AGENTS\.md|docs/related-projects\.md|docs/oop-rewrite\.md|docs/cli
 # Anything matching this in the public tree stops the sync. Machine names and
 # addresses are the operator's, not the project's; "Revoice" is a private
 # project's name; capital "Skynet" is prose, while lowercase `skynet:` is the
-# controller's id in stored data and must survive.
-LEAK_RE='192\.168|/home/skynet|/home/foreman|/Users/mac|[Rr]evoice|corbels|@gmail|Skynet|forgejo'
+# controller's id in stored data and must survive. The prose name in Russian,
+# the machines' own hostnames and the home network's domain are the operator's
+# too: one reached a CHANGELOG entry and one a fixture, and the scan saw
+# neither (2026-10-07).
+LEAK_RE='192\.168|/home/skynet|/home/foreman|/Users/mac|[Rr]evoice|corbels|@gmail|Skynet|forgejo|Скайнет|skynet-pc|foreman-pc|lan\.home\.arpa'
 FLEET_RE='\b(cerberus|mason|mimir|foreman|crab|tyche|hephaestus|themis|talos|atlas)\b'
 # Turkish "atlasın" ("to skip") is a word, not a machine.
 FLEET_ALLOW='atlasın'

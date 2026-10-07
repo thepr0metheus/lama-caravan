@@ -461,12 +461,18 @@ export async function pollDriverUpdate() {
   clearTimeout(_driverPollTimer);
   let job;
   try {
-    job = await api("/api/llamacpp/update-status");   // one shared job, one log
+    // The install runs on the controller's machine, by its scout (scout 2.24+).
+    job = await api("/api/gpu-driver/update-status");
   } catch (err) {
     toast(err.message);
     return;
   }
   const el = $("driverUpdateLog");
+  // No scout, or it did not answer: its words, not a log of "..." that never moves.
+  if (job.ok === false) {
+    if (el) el.textContent = job.error || "";
+    return;
+  }
   if (el) {
     el.textContent = (job.lines || []).join("\n") || "...";
     el.scrollTop = el.scrollHeight;

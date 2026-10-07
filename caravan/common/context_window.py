@@ -28,6 +28,7 @@ again (OpenRouter says ``context_length``, Anthropic ``max_input_tokens``,
 api.openai.com says nothing). Hence two vocabularies, not one: a live server is
 asked what it serves, a catalogue is asked what it declares.
 """
+from urllib.parse import quote
 
 # A live server's own model card.
 SERVED_KEYS = ("max_model_len",)
@@ -38,6 +39,10 @@ SERVED_NESTED = (("meta", "n_ctx"),)
 # A client that knows llama.cpp reads its window here, not in /v1/models.
 PROPS_SERVED_KEYS = ("n_ctx",)
 PROPS_SERVED_NESTED = (("default_generation_settings", "n_ctx"),)
+
+# The llama.cpp paths that state the served window. A cell's port rewrites
+# them to its own figure (caravan/proxy/handler.py, _publish_props_window).
+PROPS_PATHS = frozenset({"/props", "/v1/props"})
 
 # A provider catalogue entry. `max_model_len` appears in both because a
 # self-hosted OpenAI-compatible server can be registered as a cloud account.
@@ -182,3 +187,30 @@ def block_window(declared, reported, prefer_reported=False):
     if prefer_reported and reported is not None:
         return reported
     return declared
+
+
+def window_paths(upstream_type, model_ids=()):
+    """Where a PORT states its window: [(question, path)], by what its plain request reaches.
+
+    Every port answers the model list, /v1/models ("list"). A cloud port also
+    answers OpenAI's retrieve-model, /v1/models/<id> ("retrieve"), from the
+    same entry. A cell's port also rewrites llama.cpp's /props and /v1/props
+    ("props") — a cell that is not llama.cpp answers those 404, and the port
+    passes that on. An engine serves no /props and a cloud port answers it 404
+    itself (CLOUD_ABSENT_PATHS), so neither gets them. A port that reaches
+    nothing ("") gets the list alone: that is the answer that says why.
+
+    The proxy answers by these rules (caravan/proxy/handler.py); the Model card
+    turns them into links, so an operator can ask the port a client's own
+    questions instead of trusting the board's figure for what it says.
+    """
+    paths = [("list", "/v1/models")]
+    if upstream_type == "cloud":
+        # The id as a client puts it in the path: `openai/gpt-4o` stays one
+        # path, because the port takes the whole rest of the path as the id,
+        # decoded; what a path cannot carry, a space among it, is escaped.
+        paths += [("retrieve", f"/v1/models/{quote(str(model_id), safe='/:@')}")
+                  for model_id in model_ids if model_id]
+    elif upstream_type == "llama":
+        paths += [("props", path) for path in sorted(PROPS_PATHS)]
+    return paths

@@ -1344,7 +1344,7 @@ select.cv-pin { width: 100%; }
    hairline, the switch (🔼) that lets that figure win above the limit. Glyphs
    instead of words so that the three pills fit one row; the tooltips carry the
    words. The read-only figures have a dashed frame, so that only the limit
-   looks pressable; a known figure gets a solid frame like every other set
+   looks like a setting; a known figure gets a solid frame like every other set
    chip, and the advertised one is the accent: it is the number the client
    will act on. Selectors are deliberately three deep: the global `button`
    sets a 34px finger-target min-height, `.topology-agent
@@ -1380,8 +1380,19 @@ select.cv-pin { width: 100%; }
   border-color: var(--fg-dim, #555); }
 .topology-agent-route > .route-ctx-line > .route-ctx-chip:hover { border-color: var(--accent, #7aa2f7);
   color: var(--accent, #7aa2f7); }
+/* 🪟 is a question, not a setting: a click opens the route window on its
+   Model card — what the port answers a client now, beside the figure the board
+   computed. So it keeps the pill's read-only frame and lights up only under
+   the pointer. Every property of the global `button` is reset here, or this
+   10px figure grows to a 34px finger target. */
 .topology-agent-route > .route-ctx-line > .route-ctx-model-pill > .route-ctx-model {
-  font: inherit; font-size: 10px; color: inherit; }
+  font: inherit; font-size: 10px; line-height: inherit; color: inherit; min-height: 0; margin: 0;
+  padding: 0; border: 0; border-radius: 2px; background: none; cursor: pointer; letter-spacing: 0;
+  text-transform: none; }
+.topology-agent-route > .route-ctx-line > .route-ctx-model-pill > .route-ctx-model:hover {
+  color: var(--accent, #7aa2f7); }
+.topology-agent-route > .route-ctx-line > .route-ctx-model-pill > .route-ctx-model:focus-visible {
+  outline: 1px solid var(--accent, #7aa2f7); outline-offset: 1px; }
 .topology-agent-route > .route-ctx-line > .route-ctx-model-pill > .route-ctx-prefer {
   display: inline-flex; align-items: center; gap: 4px; margin-left: 6px; padding-left: 6px;
   border-left: 1px dashed var(--border, #333); color: var(--muted, #888); cursor: pointer;

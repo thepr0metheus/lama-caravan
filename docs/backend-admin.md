@@ -36,6 +36,8 @@ place, never reassigned.
 | `fetch` | urllib HTTP helpers. `fetch_json` returns `{ok:False, error}` on failure, `fetch_text` returns an `"ERROR: …"` string; `post_json` is the one that raises. | `fetch_json`, `fetch_text`, `post_json` |
 | `jsonx` | JSON encoding for responders. `json_bytes` tries `allow_nan=False` first; only on `ValueError` does it walk the tree replacing inf/nan with `None` (browser `JSON.parse` rejects them). | `json_bytes` |
 | `model_artifacts` | Which folders are models in their own right — a whisper HF cache, a safetensors checkpoint. Outermost only: a snapshot directory inside a cache matches the rule too, but naming it as well would let one move carry half a model off. `folder_weight` counts what a COPY weighs — real files once, links never (a cache holds every blob under a link as well). The probe child in `model_stores.py` imports nothing of ours, so it carries this module's own source text: the models disk and a library are walked by the same lines. | `artifact_kind`, `artifact_dirs`, `folder_weight`, `hidden`, `relative` |
+| `checkout` | Which commit a checkout's code is, by one rule for every process: `git rev-parse` of the checkout, else the commit an image build baked into `CARAVAN_GIT_HEAD`, else `""` — never a guessed number. The admin's `/health` and version chip read it (`project_git_info`), and so does the proxy's start record. | `CheckoutCommit` (`commit`, `from_git`, `baked`, `error`) |
+| `container_preflight` | What a container must be told before it starts. In a container (`CARAVAN_CONTAINER=1`) the controller and the proxy refuse to start, with exit code 2 and the reason, unless `TZ` names a time zone (by name AND by effect: the C library's offset must equal the zone's, or the image has no zone data) and, for the controller, `LLAMA_TOPOLOGY_SERVER_IP` is an address the fleet reaches (not loopback, not `0.0.0.0`). Natively nothing is asked: the machine knows both. The one place that reads `CARAVAN_CONTAINER` (`paths.IS_CONTAINER` comes from it). | `ContainerPreflight` (`enforce`, `problems`, `in_container`) |
 | `ttl_cache` | `(timestamp, value)` TTL cache with an internal lock. `get()` returns the `MISS` sentinel so falsy values are cacheable. No single-flight by design: concurrent misses may both fetch, same as the pre-refactor call sites. | `TtlCache`, `MISS` |
 
 ## `paths.py`
@@ -50,13 +52,17 @@ settings import; on the data volume in a container), the shared JSON files (`age
 `agent-proxy-state.json`, `cloud-providers.json`, `token-history.json`), per-user state
 (`admin.json`, monitor history, incident log), secrets (`provider-secrets.json` — outside the repo,
 0600), and tunables (monitor interval/retention, token-history caps,
-`SERVER_CELL_BASE_PORT`, default 22001 via `CARAVAN_CELL_BASE_PORT`). NOTE: `PORT` was once inside the cell numbering
+`SERVER_CELL_BASE_PORT`, default 22001 via `CARAVAN_CELL_BASE_PORT`). `PROXY_PORTS` (`ProxyPortRange`,
+23001–23999 from `CARAVAN_PROXY_BASE_PORT` and `CARAVAN_PROXY_PORT_SPAN`) is the block of proxy ports the
+machine's firewall lets in with ONE rule the operator makes once; the caravan never runs ufw, so every
+port it hands out lies inside the block. `validate_port_ranges` refuses, at startup, a proxy range
+that overlaps the cells or the controller's port or reaches 30000. NOTE: `PORT` was once inside the cell numbering
 that starts at `SERVER_CELL_BASE_PORT`, so `used_server_cell_ports()` adds it to
 the taken set — otherwise a cell could be assigned the controller's own port.
 (`var/server-cells`, the controller's own cells' launch files, went with those cells in step 6.9;
 so did `client-labels.json`, the monitor's labels for the clients of the controller's own server.)
-Owns: — (constants only; the single source of path truth).
-Key functions: — (no functions; import the constants).
+Owns: — (constants; the single source of path truth).
+Key names: the constants; `ProxyPortRange` / `PROXY_PORTS`, `validate_port_ranges`, `is_controller_host`.
 
 ## `state.py`
 
@@ -272,13 +278,46 @@ proxy daemon runs after a routes save (`ensure_agent_proxy_running` — `start`,
 unit; a supervised child in the container). It is not bounced: the daemon re-reads its file every
 ~2 s, and a restart cut every request in flight on every port. Then the
 legacy single service (`llamacpp-current.service`: status, journal tail, repair), and who listens
-on a port. `user_service_diagnostics` produces the bus/service/HTTP checklist shown in the UI. The
+on a port (`listening_pid`, a face over `listening_ports.py`). `user_service_diagnostics` produces the bus/service/HTTP checklist shown in the UI. The
 per-port cell units (`lama-cell@<port>.service`) and their template went with the controller's own
 cells in step 6.9: its machine's cells run through that machine's scout.
 Owns: —.
 Key functions: `systemctl`, `ensure_agent_proxy_running`, `service_status`, `listening_pid`,
 `user_service_diagnostics`, `logs` (journal tail), `read_cmdline`, `repair_user_service`
 (daemon-reload + restart).
+
+## `machine_scout.py`
+
+`MachineScout` — the scout on the controller's own machine, which does there what the controller
+once did itself: powering the machine (`host_power.py`, the reserved id `controller`), its GPU
+driver (`gpu_driver.py`: the scout reads the facts — `GET /api/host/driver` — and runs the install;
+the controller decides what to offer, the two reboot reasons and the watcher's schedule), the
+monitor's GPU reading (the scout's second-by-second telemetry), the list of its cards (`gpu_state`:
+the scout's last report, `host()`, with `gpuError` — nvidia-smi's words when it named no card,
+scout 2.25+), the busiest processes and the nvidia-smi and btop snapshots (`monitoring.py`; a btop
+frame is still drawn here). One way natively and in a container: a controller in a container has
+no machine to ask, and the controller runs no machine program of its own any more — the journal
+tail and the user-service repair, its own, ask `IS_CONTAINER` (`systemd_ctl.py`);
+`scripts/check_container_answers.py` holds every program the code runs to a decision. `ControllerMachine` names the
+scout by the machine's name. A machine with no scout says so (`NO_SCOUT`: 409 for an action, the
+reason in the panel for a reading); a scout that refuses or does not answer says that in its own
+words (`caravan/service/scout.py`). After a read of a path fails, that path is not asked again for
+`FAIL_PAUSE` (10 s) — the monitor reads every second — per path, since an older scout lacks some
+paths and answers the others. Needs scout 2.24+ for the driver, the processes and btop.
+Owns: the per-path failure pause.
+Key names: `MachineScout` (`host_id`, `host`, `scout`, `read`, `post`, `NO_SCOUT`), `machine_scout`.
+
+## `listening_ports.py`
+
+Which local TCP ports are listening, and whose, read once from the kernel's own table
+(`/proc/net/tcp` and `tcp6`) instead of `ss -ltnp` run per port: the scan of the cell range ran
+`ss` a thousand times, and the container image has no `ss`, so there every port read as free.
+A container on the host's network reads the host's table. The owner is found the way `ss` finds
+it, by the socket's inode among the open files of the processes this user may see; anyone else's
+socket is busy with an unknown owner, `(0, "?")`. Where there is no table (not Linux), `known` is
+False and the cell-range scan reports the machine as not scanned rather than clean.
+Owns: —.
+Key names: `ListeningPorts` (`known`, `busy`, `owner`, `ports`).
 
 ## `cell_words.py`
 
@@ -462,10 +501,12 @@ migrate the legacy pre-rename schema (`switchboards`/`sb:default` → routers) i
 `sync_router_outputs` auto-derives every router's outputs: one `srv:<port>` per live local llama
 server + one `cb:<blockId>` per cloud block **with a port of its own** (`cloud_ports.py`; with a one-time migration from legacy
 `cloud:<accountId>` outputs), keeping `rules.default` pointed at a local server.
-`save_agent_proxy_config` validates + dedupes routes by port, writes, opens the firewall door of a
-port that appeared and closes the door of one that went (`port_door.py`), and makes sure the proxy
-runs — it never restarts it: the daemon re-reads the file live, and a restart cut every request in
-flight. `set_routers` and the policy setters write the same way.
+`save_agent_proxy_config` validates + dedupes routes by port, refuses a NEW port outside the proxy
+range the firewall lets in (`PROXY_PORTS` in `paths.py`, 400 before anything is written; a port
+already in the file keeps working), writes, and makes sure the proxy runs — it never restarts it:
+the daemon re-reads the file live, and a restart cut every request in flight. The caravan never
+runs ufw: the operator opens the range once (`check_firewall_untouched.py`). The allocators
+(`_next_agent_port`, `next_free_proxy_port`) stop at the range's ceiling with a 500 that names it. `set_routers` and the policy setters write the same way.
 Owns: `agent-proxies.json` and its `.bak-graph-*` autobackups; `DEFAULT_AGENT_PROXY_ROUTES`.
 Key functions: `read_agent_proxy_payload`, `write_agent_proxy_payload`, `load_agent_proxy_config`,
 `save_agent_proxy_config`, `normalize_routers` (default router always exists, orphan routes
@@ -538,12 +579,28 @@ Owns: — (reader only).
 Key functions: `agent_proxy_sample`, `summarize_proxy_item`, `proxy_usage_tokens`,
 `list_agent_proxy_log_dates`, `load_agent_proxy_logs`, `proxy_daily_stats`.
 
+## `proxy_latency.py`
+
+The caravan's own time per proxy port, read back from the proxy's journal for the route window
+(`GET /api/agent-proxy-latency`). Each finished record carries `latency` since 1.3.437
+(`caravan/proxy/request_clock.py`); `ProxyLatencyDigest.summary(port, range)` answers the median
+and the 90th percentile (nearest rank) of `prepMs`, `connectMs`, `headersMs`, `firstChunkMs` and
+`cpuMs`, each with its count and `null` when nothing was measured, and `connReused` as `{n,
+reused}` over the provider requests. A day file is read once per process, today's only past the
+bytes already read and only up to its last whole line — the proxy may be mid-write; a file that
+shrank is read again, a removed one forgotten. Only the samples are kept. Requests from before
+1.3.437 have no `latency` and are not counted: they were not measured, and zero would draw a
+caravan faster than it is.
+Owns: the per-day sample cache, `proxy_latency` (the process's one digest).
+Key functions: `ProxyLatencyDigest.summary`.
+
 ## `monitoring.py`
 
 The local system monitor. `monitor_sampler_loop` — a daemon thread started by `main()` — collects
-one sample per second (`MONITOR_SAMPLE_INTERVAL`): CPU from `/proc/stat` deltas, loadavg, GPU
-(`nvidia-smi`), the proxy state file and config (recording token history as a side effect), memory,
-disk/net rates, and top processes; `correlate_activity` then groups the proxy's active and recent
+one sample per second (`MONITOR_SAMPLE_INTERVAL`): CPU from `/proc/stat` deltas, loadavg, GPU (the
+last sample of the machine's scout — `gpu_sample` maps it to the names the charts draw), the proxy
+state file and config (recording token history as a side effect), memory, disk/net rates, and the
+busiest processes (listed by the scout); `correlate_activity` then groups the proxy's active and recent
 requests by route and counts the local and cloud ones in flight. (Until step 6.9 the sample also
 carried the controller's own single server — its connected clients via `ss`, its slots and journal,
 its token counters — and `correlate_activity` matched requests to its busy slots and, by time, to
@@ -551,8 +608,9 @@ its journal timings, whichever server had served them.) `append_incidents_from_s
 upstream_timeout / slow first byte ≥30s / slow request ≥120s, each with a cause) and appends deduped
 records to `incident-log.jsonl` (30-day retention). The sample ring is trimmed to the configurable
 retention and persisted to `monitor-history.json` at most every 10s, reloaded on startup. Also hosts
-the dashboard hardware state and on-demand `monitor_snapshot` (nvidia-smi, or a btop
-frame rendered via `terminal.py` with a `top` fallback).
+the dashboard hardware state (`gpu_state`: the cards its scout last reported, with the reason when
+there are none) and on-demand `monitor_snapshot` (taken by the scout: nvidia-smi, or a btop frame
+rendered here via `terminal.py` with the scout's `top` as the fallback).
 Owns: `monitor_history` deque + `monitor_lock`, the rebound `monitor_last_cpu/_disk/_net/ _persist`,
 `incident_lock` + `incident_logged_keys`, `monitor-history.json`, `incident-log.jsonl`.
 Key functions: `monitor_sampler_loop`, `collect_monitor_sample`, `system_monitor_state` (the
@@ -614,7 +672,11 @@ Live calls against the provider APIs. `test_account_key` probes the preset test 
 rejected; 404/405 counts as validated); `set_account_key` stores a key only after it passes.
 `fetch_account_models` handles OpenAI- and Ollama-shaped listings with an OAuth pre-refresh;
 `fetch_subscription_models`/`fetch_subscription_usage` talk to the ChatGPT backend for subscription
-accounts (each limit carries `windowSeconds`, the length the reserve is keyed by); `fetch_account_costs` and `fetch_openrouter_limits` read spend/credit endpoints;
+accounts (each limit carries `windowSeconds`, the length the reserve is keyed by). Both model fetchers
+narrow an entry through `_catalogue_entry`: id, name, and `contextLength` only when the provider names
+a window (`declared_window`) — the subscription's `context_window`, not its `max_context_window`. A
+pool's catalogue (`CloudSources.common_models`) keeps the smallest window its members name, and none
+when one names none. `fetch_account_costs` and `fetch_openrouter_limits` read spend/credit endpoints;
 `auto_create_blocks` creates one block per fetched model. `usage_stats` is the statistics panel: a
 single pass over the last N days of proxy event logs' `finished` events — cloud requests priced from
 LiteLLM pricing (manual `apiPricing` overrides win), local requests counted in tokens plus a "would
@@ -720,8 +782,7 @@ Key functions: `fetch_model_pricing`.
 ## `telemetry.py`
 
 Remote-node probes and the in-memory telemetry rings behind topology cards. Probes, each behind its
-own `TtlCache`: `firewall_port_access` (ufw view of who may reach a controller port, 30s),
-`probe_remote_port` (TCP connect, 15s), `remote_llama_health` (`/health` → ok / loading — llama.cpp
+own `TtlCache`: `probe_remote_port` (TCP connect, 15s), `remote_llama_health` (`/health` → ok / loading — llama.cpp
 answers 503 while loading into VRAM — / down, 3s), `remote_llama_modalities` (`/props`, the
 authoritative vision/audio source, 300s), and `command_cell_health` (HEALTH_PATH JSON with
 download/load progress bytes, or a bare TCP probe when unset). A 401 or 403 on a health path is
@@ -730,8 +791,8 @@ proxy's requests meet as well — not the `ok` any answer below 500 used to be (
 `_gpu_history` (mem/util/power per `node:gpuIndex`), `_cpu_history` (load/RAM per node),
 `_tps_history` (prompt/gen t/s per `node:port`) — are appended on every topology build, same-second
 samples collapsed, 600s retention / 300 rows kept / 150 emitted, all guarded by `_history_lock`.
-Owns: the four probe caches, the three history rings, `_history_lock`.
-Key functions: `firewall_port_access`, `probe_remote_port`, `remote_llama_health`,
+Owns: the three probe caches, the three history rings, `_history_lock`.
+Key functions: `probe_remote_port`, `remote_llama_health`,
 `command_cell_health`, `remote_llama_modalities`, the `_record_*_history` feeders used by topology.
 
 ## `cell_assets.py`
@@ -898,15 +959,18 @@ Owns: — (aggregates; writes only via `proxies_config`/`state`).
 Key functions: `topology_state`, `topology_server`, `topology_nodes`,
 `normalize_topology_assignment`, `apply_topology_assignments`.
 
-## `port_door.py`
+## `model_card.py`
 
-`ProxyPortDoor` — the controller's ufw door for a port the proxy listens on: `open` (`ufw allow`)
-and `close` (`ufw delete allow`), through `sudo -n`, best effort and silent without the sudo rule,
-inert in the container. `save_agent_proxy_config` calls it for the ports it adds and removes, so a
-bridge, an app port or an agent port is opened with its route and closed when the route goes —
-before, three mints each carried their own copy of the opening and nothing ever closed a port.
-Owns: —.
-Key names: `ProxyPortDoor`, `PORT_DOOR`.
+What a port answers a client on `GET /v1/models`, asked on the operator's behalf
+(`GET /api/agent-proxy-model-card?port=`). The controller asks with the route's key, and the key
+never reaches the page. The answer is parsed (`entries`: every window name found, the one a client
+reads first, the running server's `meta.n_ctx`, the trained window) and kept raw; a port that does
+not answer is an answer too (`ok: false`, `status`, `error`). `windowLinks` lists every path on
+which the port states its window: `window_paths` from `caravan/common/context_window.py`, by what
+the port's question reaches (`answer_port_question` and `port_question_reaches` from
+`caravan/proxy/graph.py`, the resolution the proxy answers by). Retrieve-model links use the ids
+the port itself just named, so a port that did not answer gets none.
+Key functions: `proxy_model_card`.
 
 ## `proxy_ops.py`
 

@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 from caravan.common.context_window import (  # noqa: E402
     block_window, effective_window, props_served_window, route_window_inputs, served_window, trained_window,
+    window_paths,
 )
 
 _fail = []
@@ -63,6 +64,24 @@ INPUTS = [
     (None, (None, False), "не словарь — то же, что пустой"),
 ]
 
+LIST = ("list", "/v1/models")
+PROPS = [("props", "/props"), ("props", "/v1/props")]
+# (what the port's question reaches, ids the port named, expected, why)
+WINDOW_PATHS = [
+    ("llama", (), [LIST, *PROPS], "порт ячейки: список и оба пути /props llama.cpp"),
+    ("llama", ("m",), [LIST, *PROPS], "id порту ячейки не нужен: retrieve-model там отвечает сама ячейка"),
+    ("cloud", ("gpt-6-luna",), [LIST, ("retrieve", "/v1/models/gpt-6-luna")],
+     "облачный порт: список и retrieve-model того же id"),
+    ("cloud", ("openai/gpt-4o",), [LIST, ("retrieve", "/v1/models/openai/gpt-4o")],
+     "id со слешем — один путь: порт берёт весь остаток пути как id, раскодировав его"),
+    ("cloud", ("a b",), [LIST, ("retrieve", "/v1/models/a%20b")], "пробел кодируется, как его пошлёт клиент"),
+    ("cloud", (), [LIST], "облако без названного id — только список: id не выдумываем"),
+    ("cloud", ("", None), [LIST], "пустые id пропускаются"),
+    ("engine", ("qwen3:30b",), [LIST], "движок: /props нет, retrieve-model — его собственный"),
+    ("", ("m",), [LIST], "порт никуда не ведёт — только список: его ответ скажет почему"),
+    ("other", (), [LIST], "незнакомый тип — только список, без догадки"),
+]
+
 
 def main():
     print("effective_window(limit, model, prefer_model):")
@@ -101,12 +120,16 @@ def main():
           "negative: нет числа, не словарь, ноль — отсутствие, а не окно")
     check(props_served_window({"default_generation_settings": {"n_ctx_train": 131072}}) is None,
           "negative: обученное число окном из /props не становится")
+    print("window_paths(reaches, ids) — где порт сообщает окно:")
+    for reaches, ids, expected, why in WINDOW_PATHS:
+        got = window_paths(reaches, ids)
+        check(got == expected, f"({reaches!r}, {ids!r}): {why} (got {got!r})")
     if _fail:
         print(f"FAILED ({len(_fail)}):")
         for msg in _fail:
             print("  - " + msg)
         sys.exit(1)
-    print(f"OK: {len(EFFECTIVE) + len(BLOCK) + len(INPUTS) + 11} пинов зелёные")
+    print(f"OK: {len(EFFECTIVE) + len(BLOCK) + len(INPUTS) + len(WINDOW_PATHS) + 11} пинов зелёные")
 
 
 if __name__ == "__main__":

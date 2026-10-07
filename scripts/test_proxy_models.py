@@ -136,6 +136,7 @@ P_OWN_AUTO = free_port()
 P_OWN_BELOW = free_port()      # limit below the served window
 P_OWN_PREFER = free_port()     # limit below, switch on: the served window wins
 P_PREFER_NOMODEL = free_port() # switch on, but the block reports no window
+P_NAMED_SPACE = free_port()    # a cloud port announcing a name with a space in it
 
 
 def _route(port, **extra):
@@ -176,6 +177,9 @@ CONFIG = {
         _route(P_OWN_PREFER, contextLength=2048, contextAuto=True),
         _route(P_PREFER_NOMODEL, upstreamType="cloud", providerId="blk:cached",
                contextLength=32768, contextAuto=True),
+        # A name a path cannot carry as it is: a client sends the space as %20.
+        _route(P_NAMED_SPACE, upstreamType="cloud", providerId="blk:declared",
+               modelName="main model", contextLength=32768),
     ],
     "routers": [{
         "id": "router:default",
@@ -480,6 +484,28 @@ def test_retrieve_model_on_cloud():
               f"{label}: same source as /v1/models — owned_by from the account (got {body.get('owned_by')!r})")
 
 
+def test_retrieve_model_decoded_id():
+    """2026-10-06: a cloud port listed `bridge gpt-4.1-mini-2025-04-14` in
+    /v1/models and answered 404 to retrieve-model of that very id — the path
+    arrives escaped (%20) and was compared raw."""
+    print("GET /v1/models/<id> compares the id decoded:")
+    status, body = get_models(P_NAMED_SPACE)
+    check(status == 200 and (body.get("data") or [{}])[0].get("id") == "main model",
+          f"the list names the model with its space (got {status} {(body.get('data') or [{}])[0].get('id')!r})")
+    status, one = _req(P_NAMED_SPACE, "GET", "/v1/models/main%20model")
+    check(status == 200 and one.get("id") == "main model" and one.get("context_length") == 32768,
+          f"positive: the same id, escaped as a client sends it -> the model and its window (got {status} {one})")
+    status, one = _req(P_CLOUD_DECLARED, "GET", "/v1/models/declared%2Dmodel")
+    check(status == 200 and one.get("id") == "declared-model",
+          f"positive: an escaped plain character is the same id (got {status})")
+    status, one = _req(P_CLOUD_DECLARED, "GET", "/v1/models/declared-model")
+    check(status == 200 and one.get("id") == "declared-model", f"an id with nothing to escape is unchanged (got {status})")
+    status, _one = _req(P_NAMED_SPACE, "GET", "/v1/models/main+model")
+    check(status == 404, f"negative: a + in a path is a plus, not a space -> 404 (got {status})")
+    status, _one = _req(P_NAMED_SPACE, "GET", "/v1/models/main%20models")
+    check(status == 404, f"negative: decoding does not widen the match — another id is still 404 (got {status})")
+
+
 def test_probe_paths_keyed():
     print("a route with an apiKey:")
     status, _body = _req(P_KEYED, "GET", "/v1/models/anything")
@@ -727,10 +753,46 @@ def test_props_window():
           "as-is: /slots не трогаем — окно клиент читает в /props, решение оператора 2026-09-28")
 
 
-for fn in (test_own_context_window, test_props_window, test_open, test_dead_upstream, test_unassigned, test_modes, test_cloud,
+# ── 12. every path the window rule lists states the port's window ───────────
+# caravan/common/context_window.window_paths names them for the Model card's
+# links; the proxy answers by its own code. One table of readers for both, so
+# a path the rule lists and the port does not rewrite turns this red.
+WINDOW_READERS = {
+    "list": lambda doc: ((doc.get("data") or [{}])[0]).get("context_length"),
+    "retrieve": lambda doc: doc.get("context_length"),
+    "props": lambda doc: (doc.get("default_generation_settings") or {}).get("n_ctx"),
+}
+
+
+def test_window_paths_state_the_window():
+    print("каждый путь из window_paths отвечает окном порта:")
+    from caravan.common.context_window import PROPS_PATHS, window_paths
+    from caravan.proxy import handler
+    from caravan.proxy.graph import answer_port_question, port_question_reaches
+    check(handler.PROPS_PATHS is PROPS_PATHS, "прокси берёт пути /props из словаря окна — своей копии нет")
+    routes = {r["port"]: r for r in CONFIG["routes"]}
+    for port, window, why in ((P_OWN_BELOW, 2048, "порт ячейки, предел 2048 ниже 4096"),
+                              (P_OWN_CLOUD, 32768, "облачный порт, предел 32768 ниже блока 200000"),
+                              (P_NAMED_SPACE, 32768, "облачный порт с именем через пробел — ссылка с %20")):
+        reaches = port_question_reaches(answer_port_question(routes[port], CONFIG))
+        _status, listed = get_models(port)
+        paths = window_paths(reaches, [e.get("id") for e in listed.get("data") or []])
+        check(len(paths) > 1, f"{why}: путей больше одного — есть что сверять (got {paths})")
+        for kind, path in paths:
+            status, doc = _req(port, "GET", path)
+            got = WINDOW_READERS[kind](doc) if isinstance(doc, dict) else None
+            check(status == 200 and got == window, f"{why}: GET {path} ({kind}) → {window} (got {status} {got})")
+    status, doc = _req(P_OWN_BELOW, "GET", "/v1/models/tiny")
+    check(status == 200 and WINDOW_READERS["retrieve"](doc) is None,
+          f"negative: порт ячейки не пишет окно в retrieve-model — правило его и не называет (got {status})")
+    status, _doc = _req(P_OWN_CLOUD, "GET", "/props")
+    check(status == 404, f"negative: облачный порт отвечает на /props 404 — правило его и не называет (got {status})")
+
+
+for fn in (test_own_context_window, test_props_window, test_window_paths_state_the_window, test_open, test_dead_upstream, test_unassigned, test_modes, test_cloud,
            test_api_key, test_routed_to_cloud, test_promotion_shapes, test_cloud_context,
            test_probe_paths_llama, test_probe_paths_cloud, test_retrieve_model_on_cloud,
-           test_probe_paths_keyed, test_health_on_cloud):
+           test_retrieve_model_decoded_id, test_probe_paths_keyed, test_health_on_cloud):
     fn()
 
 print()

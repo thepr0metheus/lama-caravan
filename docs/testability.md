@@ -1,8 +1,11 @@
 # Testability contract
 
-The E2E suite (`lama-caravan-playwright`) drives this UI from outside, through a
-browser, as a user does. That only works if a few things about the page are
-promises rather than accidents. This document is the list of promises.
+An E2E suite drives this UI from outside, through a browser, as a user does.
+That only works if a few things about the page are promises rather than
+accidents. This document is the list of promises.
+
+The previous suite, `lama-caravan-playwright`, was removed on 2026-10-07. New
+tests will be written from scratch against this same contract.
 
 ## `data-t` is public API
 
@@ -227,7 +230,7 @@ sign-in form already does this.
 
 ## The names, as they stand
 
-Generated from the source, not from memory — 370 values. Regenerate with
+Generated from the source, not from memory — 373 values. Regenerate with
 `python3 scripts/testability_names.py`; `--check` fails when this list and the
 source disagree. Forty-six of them are composed at runtime (`…-picker`,
 `…-runner-tab`, `cell-source-stale`) and a plain grep will not find them —
@@ -244,7 +247,7 @@ that is why there is a script and not a one-liner.
 
 **cloud** — `cloud-context-reported`
 
-**route** — `route-caller`, `route-context`, `route-context-line`, `route-context-model`, `route-context-prefer`, `route-detail-delete`, `route-detail-edit`, `route-detail-tab`, `route-model`, `route-model-lock`, `route-state`, `route-wait`
+**route** — `route-caller`, `route-context`, `route-context-line`, `route-context-model`, `route-context-prefer`, `route-detail-delete`, `route-detail-edit`, `route-detail-tab`, `route-latency`, `route-latency-row`, `route-model`, `route-model-card-link`, `route-model-lock`, `route-state`, `route-wait`
 
 **sub-usage** — `sub-usage-banner`
 **usage** — `usage-reserve`

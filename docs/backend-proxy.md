@@ -31,6 +31,8 @@ paths ← runtime ← {config, events, cloud_auth, translate, summarize}
 
 `graph` sits below `state` because `state.sync_agents_state` calls
 `apply_router` to resolve each route's effective upstream URL.
+`request_clock` and `upstream_pool` are stdlib-only leaves that only `handler`
+imports.
 
 ## Request lifecycle
 
@@ -159,6 +161,11 @@ What happens to one `POST /v1/chat/completions` arriving on a proxy port:
      `resets_at` up to the window's reset — and takes the way a provider's
      429 takes: the exit's verdict, a 🛟 backup, the journal row
      (`errorKind: usage_reserve`).
+   - *The connection.* A provider's comes from `upstream_pool`: a kept one
+     from an earlier request when one is open and quiet, else a new one. A
+     cell's is opened for the request. A kept connection the provider closed
+     in the instant before the request gets the request again on a fresh
+     connection, once (`upstream_reconnect` in the journal).
    - Either way the connection is put in `active_controls` via
      `register_active_control` so a stop request can sever it mid-flight. A
      llama upstream answering 503 with "Loading model" is retried every 3s for
@@ -185,8 +192,10 @@ What happens to one `POST /v1/chat/completions` arriving on a proxy port:
    HTTP status.
 
 7. **Bookkeeping.** The `finally` block always runs: unregister the control
-   handle, close the upstream, assemble the result row (status, duration,
-   bytes, first-byte latency, queue info, usage tokens for the spend meter,
+   handle, close the upstream (a provider's connection is kept instead when
+   the relay ended cleanly, see `upstream_pool.py`), assemble the result row
+   (status, duration, bytes, first-byte latency, queue info, where the time
+   went as `latency` (`request_clock.py`), usage tokens for the spend meter,
    llama `timings` for per-consumer TPS history, provider/model attribution,
    the governing queue node's `stickySlotSec` if any). `finish_active` moves
    the row from `active` to `recent` (last 20 kept), sets the upstream group's
@@ -306,15 +315,19 @@ exit that answers (`discovery_exit`): the exit whose last word was an answer
 wins over a silent one, and a silent one over a failing one, however old
 those words are. Of two failing exits, the one that answered more recently
 wins (`lastOkAt`). With both answering, main wins. `PORT_QUESTION_CTX` is that
-question's ctx. The proxy's `/v1/models` resolves with it, and so does the
-board's advertised window (`admin/topology.py`), so the two cannot disagree.
+question's ctx. `answer_port_question(route, config)` applies it, and
+`port_question_reaches(resolved)` names what the question reaches: `cloud`,
+`llama`, `engine`, or `""` for an unrouted port. Three readers call these two:
+the proxy's `/v1/models`, the board's advertised window (`admin/topology.py`)
+and the Model card's window links (`admin/model_card.py`), so none of them can
+resolve a port differently.
 
 - Owns: node evaluation, output picking, the queue-node spec
   (`_queue_spec_from_node`), fallback-inherits-primary input resolution,
   per-input `clientTimeoutSeconds` overrides.
 - Key functions: `resolve_graph`, `apply_router`, `apply_router_spill`,
-  `pick_router_output`, `_queue_spec_from_node`; constants
-  `PLAIN_REQUEST_CTX`, `PORT_QUESTION_CTX`.
+  `answer_port_question`, `port_question_reaches`, `pick_router_output`,
+  `_queue_spec_from_node`; constants `PLAIN_REQUEST_CTX`, `PORT_QUESTION_CTX`.
 
 ## caravan/proxy/state.py
 
@@ -461,6 +474,61 @@ every function that rebinds it in this module.
   `stop_requested`, `stop_requested_for_route`, `stop_request_watcher`,
   `keepalive_sse_bytes`, `remove_pending_request`.
 
+## caravan/proxy/request_clock.py
+
+Where one request's time went. `durationMs` and `firstByteMs` mix the
+caravan's own work with the model's and the network's; `RequestClock` splits
+them, and the result row carries its `as_dict()` as `latency`:
+
+| Field | What |
+|---|---|
+| `prepMs` | the caravan's own work before its first upstream attempt: routing, translating the body, the journal. The queue wait is not in it (`queue.queuedMs`) |
+| `connectMs` | opening the upstream connection (TCP, and TLS for a provider); `0` when a kept connection was taken |
+| `connReused` | whether it was a kept one; `null` for a cell, where nothing is kept |
+| `headersMs`, `firstChunkMs` | from the request sent to the answer's headers and to its first body bytes |
+| `cpuMs` | processor time of the request's thread, the whole request |
+
+Connect, headers and first chunk belong to the leg that answered. A mark that
+never happened stays `null`: a request the caravan answered itself has no
+connect time. A request refused before an upstream (blocked, gone while
+queued) carries no `latency` at all. `TimedResponse` wraps the upstream answer
+to note its first body bytes: the subscription translator yields a made-up
+first chunk before it reads the provider, so the row's `firstByteMs` says when
+the client got something, not when the provider answered. Both clocks are
+parameters (`scripts/test_request_clock.py`).
+
+- Owns: the marks of one request.
+- Key names: `RequestClock`, `TimedResponse`.
+
+## caravan/proxy/upstream_pool.py
+
+Connections to cloud providers kept between requests. Each request used to
+open its own and close it after one answer: a TCP and a TLS handshake every
+time, about 52 ms from the controller's machine to OpenAI and 91–122 ms from
+the NAS (measured 2026-10-07). A cell is not pooled: its connection costs a
+fraction of a millisecond, and the proxy cancels a cell's generation by
+tearing its socket down.
+
+`UpstreamPool.take` hands out a kept connection to the same scheme, host and
+port when one is open and quiet, else a new one. A connection comes back
+(`release` → `give_back`) only after a clean relay — the client still there,
+no stop from the board reached it, the idle heartbeat has stopped — and only
+when its answer was read to the end and neither side asked to close it. A
+stream's closing bytes are drained on a thread of their own, for at most
+`drain_sec` (1 s) and `drain_bytes` (64 KiB), so a client never waits for
+them. A kept connection is dropped instead of handed out when it sat idle
+longer than `idle_sec` (60 s; Cloudflare, in front of chatgpt.com and
+api.openai.com, closes an idle connection after 400 s, measured 2026-10-07) or
+when the provider closed it meanwhile — its socket turns readable. At most
+`per_host` (8) idle connections are kept per provider; idle ones are swept on
+every take and give back. `STALE_ERRORS` are the failures of a kept
+connection the provider closed under a request: the handler sends the
+request again on a fresh connection, once.
+
+- Owns: the idle connections, `upstream_pool` (the process's one pool).
+- Key names: `UpstreamPool.take`, `reopen`, `release`, `give_back`,
+  `is_stale`, `idle_count`.
+
 ## caravan/proxy/handler.py
 
 `ProxyHandler(BaseHTTPRequestHandler)` — the per-port request handler whose
@@ -488,9 +556,15 @@ answers. A cell's `GET /props` (and `/v1/props`) is relayed with the port's
 window where llama.cpp states its own (`default_generation_settings.n_ctx`,
 top-level `n_ctx` on older builds): the same `effective_window(limit, served)`
 that `/v1/models` publishes, so a client reading either sees one figure
-(`_publish_props_window`; the fields are named in
-`caravan/common/context_window.py`). Without a limit the cell's number is
-relayed as it is. `output_probe.py` runs its first pass as soon as the proxy
+(`_publish_props_window`; the fields and the two paths, `PROPS_PATHS`, are
+named in `caravan/common/context_window.py`). Without a limit the cell's number
+is relayed as it is. `window_paths` there lists every path on which a port
+states its window, by what the port reaches; `scripts/test_proxy_models.py`
+asks each listed path on a real proxy and expects the port's figure. A cloud
+port answers OpenAI's retrieve-model, `GET /v1/models/<id>`, from the entry
+its list answers with (`_cloud_model_entry`), and compares the id DECODED
+(`unquote`; a `+` stays a plus): a client sends a space as `%20`, and the raw
+path once answered 404 to the very id the list had named. `output_probe.py` runs its first pass as soon as the proxy
 starts, then every 30 seconds.
 
 - Owns: the request lifecycle, per-request phase transitions
@@ -517,13 +591,20 @@ its writers in this module). Each pass also calls `sync_agents_state` +
 
 ## caravan/proxy/main.py
 
-The entry point: ensure the state directory exists, start the
-`stop_request_watcher` thread, bind the current config's ports via
-`reconcile_listeners`, start the `listener_watcher` thread, then park the main
-thread. All work happens on daemon threads.
+The entry point: ensure the state directory exists, record which code this
+process runs, start the `stop_request_watcher` thread, bind the current
+config's ports via `reconcile_listeners`, start the `listener_watcher` thread,
+then park the main thread. All work happens on daemon threads.
 
-- Owns: thread startup order.
-- Key functions: `main`.
+The record is `StartRecord` (`caravan/proxy/started.py`): the commit the
+process started from and its pid, written into `agent-proxy-state.json` as
+`sourceCommit` and `pid` before the first state write. `scripts/deploy.sh`
+reads it on the controller and restarts the proxy only when the code it runs
+changed (`scripts/proxy_restart.py`); a record whose pid is not the unit's
+MainPID belongs to a dead process and does not count.
+
+- Owns: thread startup order, the start record.
+- Key functions: `main`; `StartRecord.at_start`, `StartRecord.read`.
 
 ## Invariants for contributors
 

@@ -92,8 +92,10 @@ def register_active_control(request_id, route_label, conn):
         }
 
 def unregister_active_control(request_id):
+    """Remove the request's control and return it: a stopReason set on it means
+    a stop may be closing its connection right now (close_active_request)."""
     with active_controls_lock:
-        active_controls.pop(str(request_id), None)
+        return active_controls.pop(str(request_id), None)
 
 def close_active_request(request_id, reason="stopped"):
     control = None

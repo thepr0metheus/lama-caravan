@@ -10,12 +10,12 @@ import threading
 import time
 import uuid as _uuid
 from http.server import BaseHTTPRequestHandler
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from caravan.common.request_kind import is_inference_request
 from caravan.common.context_window import (
-    PROPS_SERVED_KEYS, PROPS_SERVED_NESTED, effective_window, props_served_window, route_window_inputs,
-    served_window,
+    PROPS_PATHS, PROPS_SERVED_KEYS, PROPS_SERVED_NESTED, effective_window, props_served_window,
+    route_window_inputs, served_window,
 )
 from caravan.proxy.cloud_auth import (
     CLOUD_PROVIDER_AUTH,
@@ -25,12 +25,13 @@ from caravan.proxy.cloud_auth import (
     load_provider_secret,
 )
 from caravan.proxy.config import current_config, live_route_for_port
-from caravan.proxy.graph import PORT_QUESTION_CTX, apply_router, apply_router_spill
+from caravan.proxy.graph import answer_port_question, apply_router, apply_router_spill, port_question_reaches
 from caravan.proxy.events import write_proxy_event
 from caravan.proxy.output_health import output_health
 from caravan.proxy.subscription_usage import ReserveRefusal, reserve_gate, subscription_usage
 from caravan.proxy.subscription_pool import subscription_pools
 from caravan.proxy.paths import BODY_CAPTURE_LIMIT, DEFAULT_POLICY, HOP_HEADERS, STREAM_DONE_MARKER
+from caravan.proxy.request_clock import RequestClock, TimedResponse
 from caravan.proxy.queue_admission import (
     ProxyClientDisconnected,
     ProxyCloudError,
@@ -53,6 +54,7 @@ from caravan.proxy.summarize import (
     response_summary,
     stream_summary_from_line,
 )
+from caravan.proxy.upstream_pool import upstream_pool
 from caravan.proxy.translate import (
     _anthropic_to_completions_json,
     _chat_to_anthropic_body,
@@ -170,10 +172,6 @@ def _publish_context_window(body, route):
     if not touched:
         return body
     return json.dumps(payload).encode("utf-8")
-
-
-# The llama.cpp paths that state the served window (caravan/common/context_window.py).
-PROPS_PATHS = frozenset({"/props", "/v1/props"})
 
 
 def _publish_props_window(body, route):
@@ -396,6 +394,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         started = time.time()
         length = int(self.headers.get("Content-Length", "0") or "0")
         body = self.rfile.read(length) if length else None
+        # Where this request's time goes, the caravan's own apart from the
+        # model's (caravan/proxy/request_clock.py); it starts once the body is in.
+        clock = RequestClock()
         client = self.client_address[0] if self.client_address else ""
         parsed = urlsplit(self.path)
         path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
@@ -497,6 +498,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             except Exception:
                 return True
 
+        clock.queue_entered()
         try:
             if route_is_cloud:
                 cloud_mode = str(route.get("mode") or "open").lower()
@@ -601,6 +603,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
             finish_active(str(route["port"]), request_id, result)
             write_proxy_event("blocked", route_label=route["label"], request_id=request_id, item=result, status=status)
             return
+        clock.admitted()
         if queue_node_ids:
             queue["nodeIds"] = queue_node_ids
         update_active(str(route["port"]), request_id, {"phase": "received", "queue": queue})
@@ -617,6 +620,11 @@ class ProxyHandler(BaseHTTPRequestHandler):
         stream = {"events": 0, "deltaTextChars": 0, "finishReasons": [], "usage": {}, "done": False}
         last_state_write = 0
         conn = None
+        upstream = None
+        pooled = False
+        # Set where the relay ends without an exception: only then may a
+        # provider's connection be kept for the next request.
+        _relayed = False
         # ── Idle SSE heartbeat during forwarding ────────────────────────────────
         # The queue keepalive only covers the QUEUE wait. Once admitted, a slow upstream
         # (big-context prompt-processing / near-idle generation) can go many seconds with
@@ -742,6 +750,10 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 _conn_exc = None
                 upstream = None
                 reserve_refusal = None
+                # A provider's connection comes from the pool and may be a kept
+                # one; a cell's is opened per request (caravan/proxy/upstream_pool.py).
+                pooled = False
+                conn_reused = None
                 is_cloud = route_is_cloud or cloud_fallback_provider_id is not None
                 is_subscription = False
                 is_anthropic = False
@@ -787,10 +799,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             reserve_refusal = ReserveRefusal(_reserve_hit)
                     use_tls = base.scheme != "http"
                     cloud_port = base.port or (443 if use_tls else 80)
-                    if use_tls:
-                        conn = http.client.HTTPSConnection(base.hostname, cloud_port, timeout=600)
-                    else:
-                        conn = http.client.HTTPConnection(base.hostname, cloud_port, timeout=600)
+                    conn, conn_reused = upstream_pool.take(use_tls, base.hostname, cloud_port, timeout=600)
+                    pooled = True
                     register_active_control(request_id, route["label"], conn)
                     headers = {
                         key2: value for key2, value in self.headers.items()
@@ -802,7 +812,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         )
                     }
                     headers["Host"] = base.netloc
-                    headers["Connection"] = "close"
+                    # No "Connection: close": the provider keeps the connection
+                    # open after its answer, and the pool hands it to the next request.
                     headers["X-Agent-Proxy"] = route["label"]
                     headers["X-Agent-Proxy-Request-Id"] = request_id
                     if is_subscription:
@@ -927,12 +938,30 @@ class ProxyHandler(BaseHTTPRequestHandler):
                             # Read below exactly as the provider's own 429 would be.
                             upstream = reserve_refusal
                         else:
+                            clock.leg_started()
+                            if conn.sock is None:
+                                _connect_began = clock.now()
+                                conn.connect()
+                                clock.connected(_connect_began, reused=False if pooled else None)
+                            else:
+                                clock.connected(None, reused=True)
                             conn.request(self.command, send_path, body=send_body, headers=headers)
+                            clock.sent()
                             # Grab the raw socket now — getresponse() detaches conn.sock on
                             # Connection: close responses, and the abort path needs it.
                             _up_sock[0] = conn.sock
-                            upstream = conn.getresponse()
+                            upstream = clock.answered(conn.getresponse())
                     except (ConnectionError, OSError, http.client.HTTPException) as exc:
+                        if conn_reused and upstream_pool.is_stale(exc) and not _client_gone[0]:
+                            # A kept connection the provider closed while it sat
+                            # idle: nothing was answered, so the request goes again
+                            # on a fresh connection — once, the fresh one is not kept.
+                            write_proxy_event("upstream_reconnect", route_label=route["label"],
+                                              request_id=request_id, error=str(exc)[:200])
+                            conn = upstream_pool.reopen(conn, timeout=600)
+                            conn_reused = False
+                            register_active_control(request_id, route["label"], conn)
+                            continue
                         # A client's question that finds the exit's socket closed is
                         # not replayed, but what it found is noted: the rest of the
                         # client's questions go to the exit that answers
@@ -1338,7 +1367,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 # drained to EOF without an exception — still a dead client.
                 raise ConnectionResetError("client disconnected during upstream wait")
             self.close_connection = True
-            conn.close()
+            _relayed = True
         except Exception as exc:
             _hb_stop.set()   # stop heartbeat before writing the error frame
             stop_reason = active_control_stop_reason(request_id)
@@ -1390,12 +1419,21 @@ class ProxyHandler(BaseHTTPRequestHandler):
             _hb_stop.set()   # stop the idle SSE heartbeat thread
             if _hb_thread is not None:
                 _hb_thread.join(timeout=1.0)   # ensure it never writes to a closing socket
-            unregister_active_control(request_id)
-            try:
-                if conn:
+            _control = unregister_active_control(request_id)
+            # A provider's connection is kept only after a clean relay that
+            # nothing else can still reach: the heartbeat, which tears the
+            # socket down when the client vanishes, has stopped, and no stop
+            # from the board got to it before the control was removed. (A
+            # vanished client needs no check of its own: whoever marks it
+            # closes the connection, and a closed one is never kept.)
+            _keep = (conn is not None and pooled and _relayed
+                     and not (_control or {}).get("stopReason")
+                     and (_hb_thread is None or not _hb_thread.is_alive()))
+            if conn is not None and not _keep:
+                try:
                     conn.close()
-            except Exception:
-                pass
+                except Exception:
+                    pass
             result = {
                 "id": request_id,
                 "method": self.command,
@@ -1416,6 +1454,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 "firstByteMs": first_byte_ms,
                 "request": req_summary,
                 "queue": queue,
+                "latency": clock.as_dict(),
                 "priority": int(route.get("priority") or 0),
                 "response": response,
                 "stream": stream if stream["events"] else {},
@@ -1487,6 +1526,8 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 result["chain"] = _chain[:900]
             finish_active(str(route["port"]), request_id, result)
             write_proxy_event("finished", route_label=route["label"], request_id=request_id, item=result, status=status, error=error, errorKind=error_kind)
+            if _keep:
+                upstream_pool.release(conn, upstream.raw if isinstance(upstream, TimedResponse) else None)
 
     def _send_bytes(self, status, body, ctype="application/json"):
         """One complete reply: status, type, length, and Connection: close.
@@ -1545,9 +1586,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         # GET carries no model, no token count and is neither audio nor
         # embeddings, and it is never replayed — so a backup node answers it
         # from the exit that answers (output_health.discovery_exit).
-        route = apply_router(route, current_config(), ctx=dict(PORT_QUESTION_CTX))
-        upstream_type = str(route.get("upstreamType") or "llama")
-        if route.get("unrouted") and upstream_type != "cloud":
+        route = answer_port_question(route, current_config())
+        upstream_type = port_question_reaches(route)
+        if not upstream_type:
             reason = route["unrouted"]
             self._send_bytes(503, json.dumps({"error": {
                 "message": f"proxy {route.get('label') or ''} is not routed to a router output ({reason})",
@@ -1591,7 +1632,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
         /health fall through to the cloud leg on exactly those ports.
         """
         route = live_route_for_port(self.server.route.get("port")) or self.server.route
-        route = apply_router(route, current_config(), ctx=dict(PORT_QUESTION_CTX))
+        route = answer_port_question(route, current_config())
         return str(route.get("upstreamType") or "llama"), route
 
     def _send_cloud_absent(self, path):
@@ -1622,9 +1663,12 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 # OpenAI's retrieve-model. Answered from the same source as
                 # /v1/models, so the two cannot disagree; an id this port does
                 # not serve is a 404, which is the honest answer and the one
-                # the spec gives.
+                # the spec gives. The id is compared DECODED: a client escapes
+                # what a path cannot carry (a space travels as %20), and the
+                # raw path answered 404 to the very id the list had just named.
+                # `unquote`, not `unquote_plus`: a `+` in a path is a plus.
                 entry = _cloud_model_entry(route)
-                if entry["id"] == path[len("/v1/models/"):]:
+                if entry["id"] == unquote(path[len("/v1/models/"):]):
                     self._send_bytes(200, json.dumps(entry).encode("utf-8"))
                 else:
                     self._send_cloud_absent(path)

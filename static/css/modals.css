@@ -531,6 +531,34 @@ button.topology-detail-action.danger:focus {
   border-radius: 6px;
 }
 
+/* The caravan's own time on the port, under the token history: label left,
+   figures right, one row per measurement. */
+.topology-route-latency {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.topology-route-latency-head strong {
+  font-size: 12px;
+  color: color-mix(in srgb, var(--text) 85%, var(--muted));
+}
+
+.topology-route-latency-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.topology-route-latency-row > span:last-child {
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--text) 85%, var(--muted));
+}
+
 .model-line {
   display: flex;
   align-items: center;
@@ -2057,6 +2085,9 @@ button.topology-detail-action.danger:focus {
 
 .topology-model-card { font-size: 12px; }
 .topology-model-card .mc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+/* One line per question that carries the window: the list, then retrieve-model
+   or /props. Stacked, so that each address can be read and copied whole. */
+.topology-model-card .mc-urls { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
 .topology-model-card .mc-url { font-size: 11px; color: var(--accent); word-break: break-all;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-decoration: none; }
 .topology-model-card .mc-url:hover { text-decoration: underline; }

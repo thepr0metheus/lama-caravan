@@ -26,6 +26,7 @@ from caravan.admin.proxy_stats import (
 from caravan.admin.state import admin_state, save_admin_state
 from caravan.admin.terminal import terminal_frame_to_html, terminal_frame_to_text
 from caravan.admin.token_history import record_token_history
+from caravan.admin.machine_scout import machine_scout
 from caravan.common.errors import AppError
 from caravan.common.request_kind import is_discovery_probe
 from caravan.common.fsio import atomic_write_text
@@ -34,27 +35,35 @@ from caravan.common.procs import run
 
 
 def monitor_snapshot(kind):
+    """A terminal snapshot of the controller's machine, taken by its scout.
+
+    The controller ran nvidia-smi and btop on its own machine; in a container
+    there is neither, and the processes it could see were its own. The scout
+    on the machine takes the snapshot (caravan/admin/machine_scout.py); a
+    btop frame is still drawn here, by the same terminal renderer.
+    """
     if kind == "nvidia-smi":
-        result = run(["nvidia-smi"], timeout=5)
-        output = result["stdout"] if result["ok"] else (result["stderr"] or result["stdout"])
-        return {"kind": kind, "ok": result["ok"], "output": output.strip(), "time": int(time.time())}
+        answer = machine_scout.read("/api/monitor/nvidia-smi", timeout=8)
+        return {"kind": kind, "ok": bool(answer.get("ok")),
+                "output": str(answer.get("output") or answer.get("error") or "").strip(),
+                "time": int(answer.get("time") or time.time()), "source": answer.get("source") or kind}
 
     if kind == "btop":
         rows = 40
         cols = 120
-        btop_cmd = f"stty cols {cols} rows {rows}; TERM=xterm-256color btop -p 0 -u 1000 --utf-force"
-        result = run(["timeout", "-k", "1s", "2s", "script", "-q", "-c", btop_cmd, "/dev/null"], timeout=6)
-        raw = result["stdout"] + result["stderr"]
+        answer = machine_scout.read("/api/monitor/btop", timeout=12)
+        if answer.get("error") and not answer.get("frame") and not answer.get("top"):
+            return {"kind": kind, "ok": False, "output": answer["error"], "time": int(time.time())}
+        raw = str(answer.get("frame") or "")
         output = terminal_frame_to_text(raw, rows=rows, cols=cols)
         output = "\n".join(line for line in output.splitlines() if "Session terminated" not in line and "killing shell" not in line)
         html = terminal_frame_to_html(raw, rows=rows, cols=cols)
         html = "\n".join(line for line in html.splitlines() if "Session terminated" not in line and "killing shell" not in line)
-        if output and "Failed to get size of terminal" not in output and "Terminal size too small" not in output:
+        if output.strip() and "Failed to get size of terminal" not in output and "Terminal size too small" not in output:
             return {"kind": kind, "ok": True, "output": output, "html": html, "time": int(time.time()), "source": "btop"}
-        fallback = run(["bash", "-lc", "COLUMNS=150 top -b -n 1 -w 150 | head -45"], timeout=5)
-        fallback_output = fallback["stdout"] if fallback["ok"] else (fallback["stderr"] or fallback["stdout"])
+        top = str(answer.get("top") or "").strip()
         note = "btop snapshot unavailable; showing top fallback.\n\n"
-        return {"kind": kind, "ok": fallback["ok"], "output": note + fallback_output.strip(), "time": int(time.time()), "source": "top"}
+        return {"kind": kind, "ok": bool(top), "output": note + top, "time": int(time.time()), "source": "top"}
 
     raise AppError("Unknown monitor", 404)
 
@@ -449,57 +458,38 @@ def rate_delta(previous, current, elapsed, keys):
         for key in keys
     }
 
-def _nvidia_failure(result):
-    """Why nvidia-smi produced no data, in its own words, or "".
-
-    nvidia-smi exits with code ZERO and prints the trouble to stdout — right
-    where a line of numbers is expected: "Failed to initialize NVML:
-    Driver/library version mismatch" after a driver update, before a reboot.
-    The `ok` check lets this through, parsing the line silently yields
-    nothing, and the board says "no GPU" — absence drawn as normal
-    (docs/why.md): the card is there, it can't be asked, and the reason is
-    known.
-    """
-    text = ((result.get("stdout") or "") + "\n" + (result.get("stderr") or "")).strip()
-    for line in text.splitlines():
-        line = line.strip()
-        # A data line is comma-separated numbers; everything else is the complaint.
-        if line and "," not in line:
-            return line[:200]
-    return (result.get("stderr") or "").strip()[:200] if not result.get("ok") else ""
-
-
 def gpu_sample():
-    result = run([
-        "nvidia-smi",
-        "--query-gpu=utilization.gpu,utilization.memory,memory.used,memory.total,temperature.gpu,power.draw",
-        "--format=csv,noheader,nounits",
-    ], timeout=3)
-    if not result["ok"]:
-        # nvidia-smi's complaint can land in EITHER of the two streams (NVML's
-        # goes to stdout), so both are read — an empty stderr here used to
-        # mean an empty reason and "no GPU" in its place.
-        return {"ok": False, "error": _nvidia_failure(result) or result["stderr"].strip()}
-    line = result["stdout"].splitlines()[0] if result["stdout"].splitlines() else ""
-    parts = [part.strip() for part in line.split(",")]
-    if len(parts) < 6:
-        return {"ok": False, "error": _nvidia_failure(result) or "nvidia-smi returned no GPU row"}
-    def number(index):
-        try:
-            return float(parts[index])
-        except Exception:
-            return 0
-    used = number(2)
-    total = number(3)
+    """The first card of the controller's machine this second, as its scout samples it.
+
+    Read from the scout's own second-by-second telemetry: asking marks the
+    machine watched, so the scout samples it every second while this asks.
+    A value the scout could not read stays 0, as nvidia-smi's did here.
+    """
+    answer = machine_scout.read(f"/api/telemetry?since={int(time.time()) - 15}", timeout=1)
+    samples = answer.get("samples") if isinstance(answer, dict) else None
+    if not isinstance(samples, list):
+        return {"ok": False, "error": (answer or {}).get("error") or "the scout sent no samples"}
+    if not samples:
+        return {"ok": False, "error": "the scout on the controller's machine has no sample yet"}
+    gpus = samples[-1].get("gpus") or []
+    if not gpus:
+        return {"ok": False, "error": "no GPU on the controller's machine"}
+    card = gpus[0]
+
+    def number(key):
+        value = card.get(key)
+        return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0
+
+    used = number("memUsedMiB")
+    total = number("memTotalMiB")
     return {
         "ok": True,
-        "utilPct": number(0),
-        "memoryUtilPct": number(1),
+        "utilPct": number("utilPct"),
         "memoryUsedMiB": used,
         "memoryTotalMiB": total,
         "memoryPct": round(100 * used / total, 1) if total else 0,
-        "temperatureC": number(4),
-        "powerW": number(5),
+        "temperatureC": number("tempC"),
+        "powerW": number("powerW"),
     }
 
 def memory_sample():
@@ -512,29 +502,14 @@ def memory_sample():
     return memory
 
 def top_processes():
-    result = run(["ps", "-eo", "pid,comm,user,%cpu,%mem,rss", "--sort=-%cpu"], timeout=3)
-    if not result["ok"]:
-        # macOS ps has no --sort; -r sorts by cpu
-        result = run(["ps", "-eo", "pid,comm,user,%cpu,%mem,rss", "-r"], timeout=3)
-    rows = []
-    if not result["ok"]:
-        return rows
-    for line in result["stdout"].splitlines()[1:8]:
-        parts = line.split(None, 5)
-        if len(parts) < 6:
-            continue
-        try:
-            rows.append({
-                "pid": int(parts[0]),
-                "name": parts[1],
-                "user": parts[2],
-                "cpuPct": float(parts[3]),
-                "memPct": float(parts[4]),
-                "rssMiB": round(int(parts[5]) / 1024, 1),
-            })
-        except Exception:
-            continue
-    return rows
+    """The busiest processes of the controller's machine, as its scout lists them.
+
+    A container sees only its own processes, so the machine's scout names
+    them. [] when they cannot be had — the panel shows that as "no data".
+    """
+    answer = machine_scout.read("/api/host/processes", timeout=2)
+    rows = answer.get("processes") if isinstance(answer, dict) else None
+    return list(rows) if isinstance(rows, list) else []
 
 def trim_monitor_history():
     cutoff = time.time() - monitor_retention_seconds()
@@ -714,91 +689,25 @@ def runtime_api(config):
     metrics = parse_llamacpp_metrics(metrics_text)
     return {"health": health, "props": props, "models": models, "metrics": metrics}
 
-def pcie_bandwidth_gbs(gen, width):
-    per_lane = {
-        1: 0.250,
-        2: 0.500,
-        3: 0.985,
-        4: 1.969,
-        5: 3.938,
-        6: 7.877,
-    }
-    try:
-        return round(per_lane.get(int(gen), 0) * int(width), 1)
-    except Exception:
-        return 0
-
-def known_gpu_memory_bandwidth_gbs(name):
-    normalized = name.lower()
-    if "rtx 3090 ti" in normalized:
-        return 1008
-    if "rtx 3090" in normalized:
-        return 936
-    if "rtx 4090" in normalized:
-        return 1008
-    return 0
-
-def gpu_compute_apps():
-    """Controller pid -> gpu_uuid map (per-process GPU memory), to bind a local
-    llama-server PID to the GPU(s) it occupies. Returns [{gpuUuid,pid,usedMiB}]."""
-    result = run([
-        "nvidia-smi",
-        "--query-compute-apps=gpu_uuid,pid,used_memory",
-        "--format=csv,noheader,nounits",
-    ], timeout=5)
-    apps = []
-    if not result["ok"]:
-        return apps
-    for line in result["stdout"].splitlines():
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) < 3 or not parts[1].isdigit():
-            continue
-        apps.append({"gpuUuid": parts[0], "pid": int(parts[1]),
-                     "usedMiB": int(parts[2]) if parts[2].isdigit() else 0})
-    return apps
-
 def gpu_state():
-    result = run([
-        "nvidia-smi",
-        "--query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu,utilization.memory,temperature.gpu,power.draw,pci.bus_id,pcie.link.gen.gpucurrent,pcie.link.gen.max,pcie.link.width.current,pcie.link.width.max,clocks.current.memory,clocks.max.memory,uuid",
-        "--format=csv,noheader,nounits",
-    ], timeout=5)
-    if not result["ok"]:
-        return {"ok": False, "gpus": [], "error": _nvidia_failure(result) or result["stderr"]}
-    rows = []
-    for idx, line in enumerate(result["stdout"].splitlines()):
-        parts = [part.strip() for part in line.split(",")]
-        if len(parts) >= 15:
-            current_pcie = pcie_bandwidth_gbs(parts[9], parts[11])
-            max_pcie = pcie_bandwidth_gbs(parts[10], parts[12])
-            rows.append({
-                "index": idx,
-                "uuid": parts[15] if len(parts) > 15 else "",
-                "name": parts[0],
-                "memoryTotalMiB": parts[1],
-                "memoryUsedMiB": parts[2],
-                "memoryFreeMiB": parts[3],
-                "utilizationGpuPct": parts[4],
-                "utilizationMemoryPct": parts[5],
-                "temperatureC": parts[6],
-                "powerDrawW": parts[7],
-                "pciBusId": parts[8],
-                "pcieGenCurrent": parts[9],
-                "pcieGenMax": parts[10],
-                "pcieWidthCurrent": parts[11],
-                "pcieWidthMax": parts[12],
-                "pcieBandwidthCurrentGBs": current_pcie,
-                "pcieBandwidthMaxGBs": max_pcie,
-                "memoryClockMHz": parts[13],
-                "memoryClockMaxMHz": parts[14],
-                "memoryBandwidthGBs": known_gpu_memory_bandwidth_gbs(parts[0]),
-            })
-    if not rows:
-        # There are no cards, OR they can't be asked — different things, and
-        # the second one knows why. An empty list without a reason reads as
-        # "no GPUs at all".
-        return {"ok": False, "gpus": [], "error": _nvidia_failure(result)}
-    return {"ok": True, "gpus": rows}
+    """The cards of the controller's machine, as its scout reports them.
+
+    The controller ran nvidia-smi here for a list its machine's node already
+    drew from the scout's report — one list read twice, and in a container
+    not at all. Now it is the scout's report alone (topology.py draws the
+    node from it too). `error` says why the list is empty: nvidia-smi's own
+    words as the scout heard them (scout 2.25+) — "Driver/library version
+    mismatch" between a driver update and the reboot — or that the machine
+    has no scout. An empty list with no reason is a machine whose scout
+    found no card and did not say why.
+    """
+    host = machine_scout.host()
+    if not host:
+        return {"ok": False, "gpus": [], "error": machine_scout.NO_SCOUT}
+    gpus = [dict(card) for card in host.get("gpus") or [] if isinstance(card, dict)]
+    if gpus:
+        return {"ok": True, "gpus": gpus}
+    return {"ok": False, "gpus": [], "error": str(host.get("gpuError") or "")}
 
 def cpu_snapshot():
     first = Path("/proc/stat").read_text(encoding="utf-8").splitlines()[0].split()[1:]

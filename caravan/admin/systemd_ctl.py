@@ -2,7 +2,6 @@
 unit's status and repair, and who listens on a port. The controller's own cell
 units (lama-cell@) went with its cells in step 6.9."""
 import os
-import re
 from pathlib import Path
 
 from caravan.admin.paths import AGENT_PROXY_SERVICE_NAME, IS_CONTAINER, SERVICE_NAME
@@ -36,19 +35,13 @@ def ensure_agent_proxy_running(timeout=30):
         return {"ok": True, "code": 0, "stdout": "", "stderr": ""}
     return systemctl("start", AGENT_PROXY_SERVICE_NAME, timeout=timeout)
 
-def listening_pid(port):
+def listening_pid(port, proc="/proc"):
     """(pid, comm) of whoever LISTENs on the port; (0, "") when free. Only the
     caller's own processes reveal a pid without root — an unknown pid with a
-    known-busy port still comes back as (0, "?")."""
-    res = run(["ss", "-ltnp"], timeout=5)
-    want = str(int(port))
-    for line in (res.get("stdout") or "").splitlines():
-        parts = line.split()
-        if len(parts) >= 4 and parts[3].rsplit(":", 1)[-1] == want:
-            m = re.search(r"pid=(\d+)", line)
-            c = re.search(r'\("([^"]+)"', line)
-            return (int(m.group(1)) if m else 0, c.group(1) if c else "?")
-    return (0, "")
+    known-busy port still comes back as (0, "?"). Read from the kernel's own
+    table (caravan/admin/listening_ports.py), not from `ss`."""
+    from caravan.admin.listening_ports import ListeningPorts
+    return ListeningPorts(proc).owner(port)
 
 
 def service_status():
@@ -142,6 +135,8 @@ def read_cmdline(pid):
         return ""
 
 def logs():
+    if IS_CONTAINER:
+        return "The journal is unavailable in a container — docker logs <container> shows the controller's output"
     result = run(["journalctl", "--user", "-u", SERVICE_NAME, "-n", "160", "--no-pager"], timeout=8)
     return result["stdout"] if result["ok"] else result["stderr"]
 

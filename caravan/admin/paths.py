@@ -6,6 +6,8 @@ module may derive paths from its own __file__ (they'd point into caravan/).
 import os
 from pathlib import Path
 
+from caravan.common.container_preflight import ContainerPreflight
+
 # caravan/admin/paths.py -> parents[2] == repo root (where app.py lives).
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -15,7 +17,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # (state/, config/, logs/, secrets/, models/, server-backups/, settings-backups/).
 # Each per-file env var still wins over the rebased default. The proxy daemon
 # applies the same rebase in caravan/proxy/paths.py — keep the layouts in sync.
-IS_CONTAINER = os.environ.get("CARAVAN_CONTAINER", "").strip() == "1"
+IS_CONTAINER = ContainerPreflight.in_container()
 DATA_DIR = Path(os.environ.get("CARAVAN_DATA_DIR")).expanduser() \
     if os.environ.get("CARAVAN_DATA_DIR", "").strip() else None
 
@@ -121,8 +123,8 @@ TOPOLOGY_SERVER_IP = os.environ.get("LLAMA_TOPOLOGY_SERVER_IP", "127.0.0.1")
 # llama-server's own default, 8000 vLLM, 8888 Jupyter, 8123 Home Assistant…).
 # 22001–22999 is clean of popular app defaults (Syncthing's 22000 sits just
 # below the base), and the proxy block rides directly above it — one mental
-# block, one firewall rule (22001:23999), both safely under the k8s NodePort
-# window (30000+) and every ephemeral floor. The neighbours were rejected for
+# block, both safely under the k8s NodePort window (30000+) and every
+# ephemeral floor. The neighbours were rejected for
 # cause: 24007 GlusterFS, 25565 Minecraft, 26257 CockroachDB, 27xxx Steam and
 # MongoDB. The +14000 cell offset preserves the trailing digits in full —
 # cell 8010 became 22010 — so logs stay readable across the move; a future
@@ -137,6 +139,35 @@ SERVER_CELL_PORT_SPAN = int(os.environ.get("CARAVAN_CELL_PORT_SPAN", "998"))
 SERVER_CELL_UPPER_PORT = SERVER_CELL_BASE_PORT + SERVER_CELL_PORT_SPAN
 AGENT_PROXY_BASE_PORT = int(os.environ.get(
     "CARAVAN_PROXY_BASE_PORT", str(SERVER_CELL_BASE_PORT + 1000)))
+AGENT_PROXY_PORT_SPAN = int(os.environ.get("CARAVAN_PROXY_PORT_SPAN", "998"))
+AGENT_PROXY_UPPER_PORT = AGENT_PROXY_BASE_PORT + AGENT_PROXY_PORT_SPAN
+
+
+class ProxyPortRange:
+    """The block of ports the proxy listens in — 23001–23999 by default.
+
+    The machine's firewall lets the block in with ONE rule, made once by the
+    operator (`ufw allow 23001:23999/tcp`); the caravan never runs ufw. The
+    controller used to open and close each port itself, which needed sudo and
+    could not work in a container. So the block is a promise: every port the
+    caravan hands out lies inside it, and a new port outside it is refused —
+    it would bind, listen and stay unreachable, and nothing would say why.
+    """
+
+    def __init__(self, base=AGENT_PROXY_BASE_PORT, upper=AGENT_PROXY_UPPER_PORT):
+        self.base, self.upper = int(base), int(upper)
+
+    def holds(self, port):
+        try:
+            return self.base <= int(port) <= self.upper
+        except (TypeError, ValueError):
+            return False
+
+    def __str__(self):
+        return f"{self.base}–{self.upper}"
+
+
+PROXY_PORTS = ProxyPortRange()
 
 
 def validate_port_ranges():
@@ -161,6 +192,20 @@ def validate_port_ranges():
         problems.append(
             f"proxy base {AGENT_PROXY_BASE_PORT} sits inside the cell range "
             f"{SERVER_CELL_BASE_PORT}-{SERVER_CELL_UPPER_PORT}; give proxies their own block")
+    if AGENT_PROXY_PORT_SPAN < 10:
+        problems.append(f"proxy span {AGENT_PROXY_PORT_SPAN} leaves fewer than 10 ports")
+    if AGENT_PROXY_UPPER_PORT >= 30000:
+        problems.append(
+            f"proxy range ceiling {AGENT_PROXY_UPPER_PORT} reaches into the k8s NodePort / "
+            "ephemeral neighbourhood (>=30000); listeners there lose bind races")
+    if AGENT_PROXY_BASE_PORT <= SERVER_CELL_BASE_PORT <= AGENT_PROXY_UPPER_PORT:
+        problems.append(
+            f"cell base {SERVER_CELL_BASE_PORT} sits inside the proxy range "
+            f"{AGENT_PROXY_BASE_PORT}-{AGENT_PROXY_UPPER_PORT}; give cells their own block")
+    if AGENT_PROXY_BASE_PORT <= PORT <= AGENT_PROXY_UPPER_PORT:
+        problems.append(
+            f"controller port {PORT} sits INSIDE the proxy range "
+            f"{AGENT_PROXY_BASE_PORT}-{AGENT_PROXY_UPPER_PORT} — the allocator would hand it out")
     if problems:
         raise SystemExit("port range misconfiguration:\n  - " + "\n  - ".join(problems))
 _BENCH_CACHE_DIR = Path(_default("state/bench-cache", PROJECT_ROOT / ".bench_cache"))

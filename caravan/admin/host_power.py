@@ -17,20 +17,23 @@ relaxing the rule — so the asymmetry is kept everywhere it can be:
   answers 404 instead of guessing which of the two was meant.
 - the UI confirms poweroff by making the operator type the host's name, the same
   gate model deletion uses, and says in the dialog that the board cannot undo it.
-- the controller acts on itself via systemctl; a client is asked through its
-  scout, which owns process control on that host anyway.
+- every machine is asked through its scout, which owns process control on
+  that host anyway — the controller's own machine too: the controller does
+  nothing on its machine itself (caravan/admin/machine_scout.py), and a
+  machine without a scout says so.
 - every call is logged with the action and the host before anything happens.
 
 Cells are not stopped first: systemd takes them down with the machine, and on a
 reboot autostart brings back whatever should come back.
 
-Both commands need passwordless sudo (or a root-run agent). When that is missing
-the call fails loudly with the sudo error rather than pretending it worked.
+The scout needs passwordless sudo for both commands (or runs as root). When
+that is missing it fails loudly with the sudo error rather than pretending it
+worked.
 """
-import subprocess
 import time
 
-from caravan.admin.fleet_clients import _scout_headers, post_json
+from caravan.admin.fleet_clients import _scout_headers
+from caravan.admin.machine_scout import machine_scout
 from caravan.admin.paths import is_controller_host
 from caravan.admin.state import topology as topo
 from caravan.common.errors import AppError
@@ -39,47 +42,27 @@ from caravan.service.scout import Scout
 ACTIONS = ("reboot", "poweroff")
 
 
-def _local(action: str) -> dict:
-    """Act on this machine. Returns before the box goes down, by design —
-    systemctl detaches, and waiting for the reply would just time out."""
-    try:
-        res = subprocess.run(["sudo", "-n", "systemctl", action],
-                             capture_output=True, text=True, timeout=10)
-    except subprocess.TimeoutExpired:
-        # It began and took the shell with it — that is success here.
-        return {"ok": True, "detail": f"{action} issued"}
-    except Exception as exc:  # noqa: BLE001
-        raise AppError(f"{action} failed: {exc}", 500)
-    if res.returncode != 0:
-        err = (res.stderr or res.stdout or "").strip() or f"exit {res.returncode}"
-        # The usual cause is no passwordless sudo. Say that, don't just echo.
-        hint = (f" — passwordless sudo for `systemctl {action}` is required; add a "
-                "sudoers rule for the caravan user") if "password" in err.lower() else ""
-        raise AppError(f"{action} refused: {err}{hint}", 500)
-    return {"ok": True, "detail": f"{action} issued"}
-
-
 def host_power(body: dict, action: str = "reboot") -> dict:
-    """Reboot or power off the named host: the controller directly, a client via
-    its scout. `action` comes from the ROUTE, never from the body — the caller
-    cannot ask for the irreversible one by getting a field wrong."""
+    """Reboot or power off the named host through its scout — the controller's
+    own machine through the scout on it. `action` comes from the ROUTE, never
+    from the body — the caller cannot ask for the irreversible one by getting a
+    field wrong."""
     if action not in ACTIONS:
         raise AppError(f"unknown action: {action}", 400)
     host_id = str(body.get("hostId") or "").strip()
     if not host_id:
         raise AppError("hostId is required", 400)
     if is_controller_host(host_id):
-        return {"ok": True, "hostId": host_id, "action": action,
-                "result": _local(action), "at": int(time.time())}
+        # The controller's old name for its own machine: that machine's scout.
+        host_id = machine_scout.host_id()
+        if not host_id:
+            raise AppError(machine_scout.NO_SCOUT, 409)
 
-    agent_url = Scout.for_host(host_id, topo).agent_url
-    try:
-        # Short timeout on purpose: the scout answers before rebooting, and a
-        # box that is already going down must not hold the board's request open.
-        result = post_json(f"{agent_url}/api/host/{action}", {}, timeout=8,
-                           headers=_scout_headers())
-    except Exception as exc:  # noqa: BLE001
-        raise AppError(f"client unreachable: {exc}", 502)
+    # Short timeout on purpose: the scout answers before rebooting, and a box
+    # that is already going down must not hold the board's request open. A
+    # refusal (sudo without a password, say) comes back in the scout's words:
+    # this was the last call that named an answering host "unreachable".
+    result = Scout.for_host(host_id, topo, headers=_scout_headers()).post(f"/api/host/{action}", {}, timeout=8)
     return {"ok": bool(result.get("ok", True)), "hostId": host_id, "action": action,
             "result": result, "at": int(time.time())}
 

@@ -66,6 +66,23 @@ def set_account_key(account_id, key):
     save_provider_secrets(secrets)
     return {"ok": True, "test": result, "last4": key[-4:]}
 
+def _catalogue_entry(model_id, name, raw):
+    """One provider model as a catalogue keeps it: id, name, and its context
+    window only when the provider named one.
+
+    OpenRouter names the window context_length on every model, Anthropic
+    max_input_tokens, the ChatGPT subscription's codex/models context_window;
+    api.openai.com and Ollama report none. Which field counts is
+    declared_window's to say (caravan/common/context_window.py). A window the
+    provider did not name stays absent, never 0: a client reads 0 as a limit.
+    """
+    entry = {"id": model_id, "name": name or model_id}
+    window = declared_window(raw)
+    if window is not None:
+        entry["contextLength"] = window
+    return entry
+
+
 def fetch_account_models(account_id):
     """Fetch models via GET /models for any OpenAI-compatible account."""
     account = CloudSources(load_cloud_data()).source(account_id)
@@ -106,14 +123,7 @@ def fetch_account_models(account_id):
             continue
         mid = m.get("id") or m.get("name") or m.get("model") or ""
         if mid:
-            entry = {"id": mid, "name": m.get("name") or mid}
-            # OpenRouter names it context_length on every model, Anthropic
-            # max_input_tokens; api.openai.com and Ollama report none. Kept only
-            # when the provider actually said it — see caravan/common/context_window.
-            window = declared_window(m)
-            if window is not None:
-                entry["contextLength"] = window
-            models.append(entry)
+            models.append(_catalogue_entry(mid, m.get("name"), m))
     return sorted(models, key=lambda m: m["id"].lower())
 
 def fetch_account_costs(account_id, days=30):
@@ -557,8 +567,13 @@ def fetch_subscription_models(account_id):
         except Exception as e:
             raise AppError(f"failed to fetch models: {e}", 502)
     data = model_catalog.guarded_call(f"{account_id}:models", _do)
+    # Each model names two numbers: context_window, the window a request gets,
+    # and max_context_window, the most it can be raised to (2026-10-06: 272000
+    # and 872000 on every model). The catalogue keeps the first — the smaller,
+    # the side a client cannot overrun. Until 1.3.432 it kept neither, and a
+    # block's "provider's window" switch had nothing to show for a subscription.
     models = [
-        {"id": m["slug"], "name": m.get("display_name") or m["slug"]}
+        _catalogue_entry(m["slug"], m.get("display_name"), m)
         for m in data.get("models", [])
         if m.get("visibility") != "hide" and m.get("supported_in_api")
     ]

@@ -1,4 +1,5 @@
-# The image carries only the code: app.py, agent-proxies.py, caravan/, static/.
+# The image carries only the code: app.py, agent-proxies.py, caravan/, static/, cells/
+# (scripts/check_image_contents.py keeps that list in step with the code).
 # Everything else — and especially live deployment state — stays out.
 .git
 .gitignore

@@ -108,7 +108,7 @@ def set_exclusions(body: dict) -> dict:
             "exclusions": list_exclusions()}
 
 
-def scan_foreign_listeners() -> dict:
+def scan_foreign_listeners(listening=None) -> dict:
     """Ports inside the cell range that are LISTENING but are not ours.
 
     "Not ours" means: not a cell slot, not a proxy/bridge route, not the
@@ -121,20 +121,24 @@ def scan_foreign_listeners() -> dict:
     clean host must not look the same.
     """
     from caravan.admin.server_cells import used_server_cell_ports
-    from caravan.admin.systemd_ctl import listening_pid
+    from caravan.admin.listening_ports import ListeningPorts
     from caravan.admin.paths import CONTROLLER_HOST_ID
 
     ours = used_server_cell_ports() | _caravan_owned_ports()
     hosts = []
 
-    found = []
-    for port in range(SERVER_CELL_BASE_PORT, SCAN_UPPER + 1):
-        if port in ours:
-            continue
-        pid, comm = listening_pid(port)
-        if pid or comm:
-            found.append({"port": port, "proc": comm or "?", "pid": pid or 0})
-    hosts.append({"hostId": CONTROLLER_HOST_ID, "ok": True, "ports": found})
+    # One read of the kernel's table answers every port of the range.
+    listening = listening or ListeningPorts()
+    if listening.known:
+        found = []
+        for port in listening.ports():
+            if SERVER_CELL_BASE_PORT <= port <= SCAN_UPPER and port not in ours:
+                pid, comm = listening.owner(port)
+                found.append({"port": port, "proc": comm or "?", "pid": pid or 0})
+        hosts.append({"hostId": CONTROLLER_HOST_ID, "ok": True, "ports": found})
+    else:
+        hosts.append({"hostId": CONTROLLER_HOST_ID, "ok": False, "ports": [],
+                      "error": "this machine has no table of listening ports (/proc/net/tcp)"})
 
     for entry in _client_scans(ours):
         hosts.append(entry)

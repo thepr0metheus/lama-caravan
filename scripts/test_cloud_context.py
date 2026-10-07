@@ -294,7 +294,89 @@ def test_board_state_carries_window():
           f"{saved.get('contextAuto')})")
 
 
-for fn in (test_block_shape, test_context_auto_migration, test_block_switch_shape, test_provider_window_source, test_upsert_preserves, test_catalog_cache, test_narrowing, test_board_state_carries_window):
+def test_subscription_catalogue():
+    """The REAL subscription fetch against a fake codex/models answer.
+
+    The ChatGPT subscription names each model's window as context_window, next
+    to max_context_window, the most it can be raised to. Until 1.3.432 the fetch
+    kept only slug and display_name, so a subscription block's "provider's
+    window" switch had nothing to show. Only the network, the login and the
+    client version are stood in; the narrowing is the real one.
+    """
+    print("fetch_subscription_models against a fake codex/models answer:")
+    from unittest import mock
+    from caravan.admin import cloud_api
+
+    answer = {"models": [
+        {"slug": "model-x", "display_name": "Model X", "visibility": "list", "supported_in_api": True,
+         "context_window": 200000, "max_context_window": 800000, "auto_compact_token_limit": None},
+        {"slug": "model-y", "display_name": "Model Y", "visibility": "list", "supported_in_api": True},
+        {"slug": "model-hidden", "visibility": "hide", "supported_in_api": True, "context_window": 1000},
+        {"slug": "model-no-api", "visibility": "list", "supported_in_api": False, "context_window": 1000},
+    ]}
+    asked = []
+
+    class _Reply:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self):
+            return json.dumps(answer).encode("utf-8")
+
+    def _urlopen(req, timeout=None):
+        asked.append(req.full_url)
+        return _Reply()
+
+    cloud.save_cloud_data({"accounts": [{"id": "sub", "type": "openai-subscription", "authMode": "oauth"}],
+                           "blocks": []})
+    model_catalog.record_ok("sub:models")
+    with mock.patch.dict(os.environ, {"CARAVAN_CODEX_CLIENT_VERSION": "9.9.9"}), \
+            mock.patch.object(cloud_api, "_subscription_auth_headers", return_value=("token", "account")), \
+            mock.patch.object(cloud_api.urllib.request, "urlopen", _urlopen):
+        got = cloud_api.fetch_subscription_models("sub")
+    by_id = {m["id"]: m for m in got}
+    check(asked == ["https://chatgpt.com/backend-api/codex/models?client_version=9.9.9"],
+          f"one request to codex/models (got {asked})")
+    check(sorted(by_id) == ["model-x", "model-y"],
+          f"hidden and not-in-API models stay out, as before (got {sorted(by_id)})")
+    check(by_id["model-x"].get("contextLength") == 200000,
+          f"context_window is kept (got {by_id['model-x'].get('contextLength')})")
+    check(by_id["model-x"].get("contextLength") != 800000,
+          "negative: max_context_window, the most it can be raised to, is not taken for the window")
+    check(sorted(by_id["model-x"]) == ["contextLength", "id", "name"] and by_id["model-x"]["name"] == "Model X",
+          f"the entry is id, name and window (got {by_id['model-x']})")
+    check("contextLength" not in by_id["model-y"],
+          "negative: a model that names no window gets none (ABSENT, never 0)")
+
+
+def test_pool_window():
+    """A pool answers from whichever member it routes to: its window for a model
+    is the smallest any member names, and none when a member names none."""
+    print("a pool's catalogue (CloudSources.common_models):")
+    from caravan.common.cloud_sources import CloudSources
+
+    first = [{"id": "m", "name": "M", "contextLength": 272000}, {"id": "only-first", "name": "F"}]
+    second = [{"id": "m", "name": "M", "contextLength": 200000}]
+    got = CloudSources.common_models([first, second])
+    check(got == [{"id": "m", "name": "M", "contextLength": 200000}],
+          f"only shared models, with the smaller window (got {got})")
+    got = CloudSources.common_models([second, first])
+    check(got == [{"id": "m", "name": "M", "contextLength": 200000}],
+          f"the order of the members does not change the window (got {got})")
+    silent = [{"id": "m", "name": "M"}]
+    got = CloudSources.common_models([first, silent])
+    check(got == [{"id": "m", "name": "M"}],
+          f"negative: a member that names no window leaves the pool without one (got {got})")
+    got = CloudSources.common_models([first])
+    check(got == first, f"a pool of one keeps its member's catalogue as it is (got {got})")
+    check(first[0]["contextLength"] == 272000, "the members' own catalogues are not changed")
+    check(CloudSources.common_models([]) == [], "no catalogue, no models")
+
+
+for fn in (test_block_shape, test_context_auto_migration, test_block_switch_shape, test_provider_window_source, test_upsert_preserves, test_catalog_cache, test_narrowing, test_board_state_carries_window, test_subscription_catalogue, test_pool_window):
     fn()
 
 print()

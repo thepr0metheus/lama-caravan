@@ -341,10 +341,9 @@ def test_a_routes_save_keeps_the_proxy_running():
     from caravan.common.errors import AppError
     print("сохранение маршрутов не перезапускает прокси:")
     asked, written = [], []
-    saved = pc.load_agent_proxy_config, pc.write_agent_proxy_payload, sc.systemctl, sc.IS_CONTAINER, pc.PORT_DOOR
+    saved = pc.load_agent_proxy_config, pc.write_agent_proxy_payload, sc.systemctl, sc.IS_CONTAINER
     pc.load_agent_proxy_config = lambda: {"routes": [], "policy": {}, "routers": [], "stopRequests": []}
     pc.write_agent_proxy_payload = lambda payload: written.append(payload)
-    pc.PORT_DOOR = _DoorLog()   # never the machine's real firewall from a test
     sc.IS_CONTAINER = False
 
     def systemctl(*args, **kw):
@@ -364,68 +363,100 @@ def test_a_routes_save_keeps_the_proxy_running():
             err = (e.status, str(e))
         check(err == (500, "unit not found"), f"negative: прокси не запустить — сохранение так и говорит (got {err})")
     finally:
-        pc.load_agent_proxy_config, pc.write_agent_proxy_payload, sc.systemctl, sc.IS_CONTAINER, pc.PORT_DOOR = saved
+        pc.load_agent_proxy_config, pc.write_agent_proxy_payload, sc.systemctl, sc.IS_CONTAINER = saved
 
 
-class _DoorLog:
-    """Stands in for PORT_DOOR: writes down what the firewall would be asked."""
+def test_new_ports_stay_in_the_opened_range():
+    """The firewall is the operator's: one rule lets the proxy range in (23001–23999).
 
-    def __init__(self):
-        self.calls = []
-
-    def open(self, port):
-        self.calls.append(("open", port))
-
-    def close(self, port):
-        self.calls.append(("close", port))
-
-
-def test_the_port_door_follows_the_route():
-    """A route's port opens with the route and closes when it goes.
-
-    Three mints opened ufw and nothing closed it, so every port ever handed
-    out stayed open. The save now compares the ports before and after.
+    The controller opened and closed each port itself with sudo ufw — which
+    needed a sudoers rule, did nothing in a container and swallowed a refusal.
+    Now the caravan never touches the firewall, so a port it accepts must lie
+    inside the range the rule lets in. A new port outside it is refused before
+    anything is written; a port already in the file (8022, from before the
+    range) keeps working as it is.
     """
     import caravan.admin.proxies_config as pc
     import caravan.admin.systemd_ctl as sc
-    from caravan.admin.port_door import ProxyPortDoor
-    print("дверь порта в ufw идёт за маршрутом:")
-    ran = []
-    door = ProxyPortDoor(run=lambda argv, timeout: ran.append(argv), in_container=False)
-    door.open(23004)
-    door.close("23004")
-    check(ran == [["sudo", "-n", "ufw", "allow", "23004"], ["sudo", "-n", "ufw", "delete", "allow", "23004"]],
-          f"открыть — allow, закрыть — delete allow, без пароля (sudo -n) (got {ran})")
-    ProxyPortDoor(run=lambda argv, timeout: ran.append(argv), in_container=True).open(23004)
-    check(len(ran) == 2, "negative: в контейнере ufw нет — дверь ничего не трогает")
+    from caravan.admin.paths import PROXY_PORTS, ProxyPortRange
+    from caravan.common.errors import AppError
+    print("новые порты — только в диапазоне, который открыт в файрволе:")
+    for port, inside, why in ((23000, False, "ниже базы"), (23001, True, "сама база"), (23999, True, "потолок"),
+                              (24000, False, "выше потолка"), (8022, False, "старый порт до диапазона"),
+                              ("x", False, "не число"), (None, False, "ничего")):
+        check(PROXY_PORTS.holds(port) is inside, f"{port!r} → {inside}: {why}")
+    check(str(PROXY_PORTS) == "23001–23999", f"диапазон читается так же, как правило файрвола (got {PROXY_PORTS})")
+    check(ProxyPortRange(23001, 23005).holds(23006) is False, "диапазон кончается там, где сказано")
 
-    def refusing(argv, timeout):
-        raise OSError("no sudo rule")
-    try:
-        ProxyPortDoor(run=refusing, in_container=False).close(23004)
-        quiet = True
-    except Exception:
-        quiet = False
-    check(quiet, "as-is: без правила sudo — молча, как было: маршрут работает и без двери")
-
-    log = _DoorLog()
-    stored = [{"port": 23001, "label": "a"}, {"port": 23002, "label": "b"}]
-    saved = pc.load_agent_proxy_config, pc.write_agent_proxy_payload, pc.PORT_DOOR, sc.systemctl, sc.IS_CONTAINER
+    stored = [{"port": 23001, "label": "a"}, {"port": 8022, "label": "legacy"}]
+    written = []
+    saved = pc.load_agent_proxy_config, pc.write_agent_proxy_payload, sc.systemctl, sc.IS_CONTAINER
     pc.load_agent_proxy_config = lambda: {"routes": [dict(r) for r in stored], "policy": {}, "routers": [],
                                           "stopRequests": []}
-    pc.write_agent_proxy_payload = lambda payload: None
-    pc.PORT_DOOR = log
+    pc.write_agent_proxy_payload = lambda payload: written.append(payload)
     sc.systemctl = lambda *a, **kw: {"ok": True, "stderr": ""}
     sc.IS_CONTAINER = False
+
+    def refusal(routes):
+        try:
+            pc.save_agent_proxy_config(routes)
+        except AppError as e:
+            return e.status, str(e)
+        return None
+
     try:
-        pc.save_agent_proxy_config([{"port": 23002, "label": "b"}, {"port": 23005, "label": "c"}])
-        check(log.calls == [("open", 23005), ("close", 23001)],
-              f"defect-history: новый маршрут открыл свой порт, ушедший — закрыл (раньше не закрывал никто) (got {log.calls})")
-        log.calls.clear()
-        pc.save_agent_proxy_config([{"port": 23001, "label": "a2"}, {"port": 23002, "label": "b"}])
-        check(log.calls == [], f"negative: порты те же — к ufw не обращаемся (got {log.calls})")
+        check(refusal([*stored, {"port": 23005, "label": "new inside"}]) is None and len(written) == 1,
+              "positive: новый порт внутри диапазона сохраняется")
+        written.clear()
+        got = refusal([*stored, {"port": 24000, "label": "new outside"}])
+        check(got is not None and got[0] == 400 and "24000" in got[1] and "23001–23999" in got[1] and not written,
+              f"negative: новый порт вне диапазона — отказ 400 с номером и диапазоном, файл не тронут "
+              f"(got {got}, записей {len(written)})")
+        check(refusal([{"port": 23001, "label": "a2"}, {"port": 8022, "label": "legacy renamed"}]) is None
+              and len(written) == 1,
+              "as-is: старый порт вне диапазона, уже записанный, живёт как жил — у него своё правило файрвола")
+        written.clear()
+        got = refusal([{"port": 23001, "label": "a"}, {"port": 8023, "label": "legacy moved"}])
+        check(got is not None and got[0] == 400 and not written,
+              f"negative: перенос старого порта на другой номер вне диапазона — это новый порт, отказ (got {got})")
     finally:
-        pc.load_agent_proxy_config, pc.write_agent_proxy_payload, pc.PORT_DOOR, sc.systemctl, sc.IS_CONTAINER = saved
+        pc.load_agent_proxy_config, pc.write_agent_proxy_payload, sc.systemctl, sc.IS_CONTAINER = saved
+
+
+def test_allocators_stop_at_the_range_ceiling():
+    """The next free port never comes from above the range the firewall lets in."""
+    import caravan.admin.proxies_config as pc
+    from caravan.admin.paths import PROXY_PORTS
+    from caravan.common.errors import AppError
+    print("выдача портов не выходит за потолок диапазона:")
+    upper = PROXY_PORTS.upper
+    _saved = pc._all_taken_ports, pc.port_is_listening
+    pc._all_taken_ports = lambda routes=None: set()
+
+    def answer(call):
+        try:
+            return call()
+        except AppError as e:
+            return (e.status, str(e))
+
+    try:
+        pc.port_is_listening = lambda port: port < upper - 2
+        check(answer(lambda: pc._next_agent_port(set())) == upper - 2,
+              f"positive: последняя пара под потолком — {upper - 2} и {upper - 1}")
+        pc.port_is_listening = lambda port: port < upper - 1
+        got = answer(lambda: pc._next_agent_port(set()))
+        check(isinstance(got, tuple) and got[0] == 500 and "23001–23999" in got[1],
+              f"negative: пары под потолком нет — отказ с диапазоном, а не порт {upper + 1} за потолком (got {got})")
+        pc.port_is_listening = lambda port: port < upper
+        check(answer(lambda: pc.next_free_proxy_port([])) == upper, f"positive: мост берёт сам потолок {upper}")
+        # Everything inside is taken and the port above the ceiling is free:
+        # the only reason to refuse is the ceiling itself.
+        pc.port_is_listening = lambda port: port <= upper
+        got = answer(lambda: pc.next_free_proxy_port([]))
+        check(isinstance(got, tuple) and got[0] == 500 and "23001–23999" in got[1],
+              f"negative: диапазон кончился, а {upper + 1} свободен — всё равно отказ, а не порт за потолком (got {got})")
+    finally:
+        pc._all_taken_ports, pc.port_is_listening = _saved
 
 
 def test_bind_writes_the_role_it_was_given():
@@ -1401,8 +1432,10 @@ def test_a_machine_node_is_a_host():
         hosts = [{"id": "m", "name": "M", "ip": "10.0.0.9", "state": "stale", "ageSeconds": 900, "gpus": [],
                   "hostname": "M-Box.lan"},
                  {"id": "n", "name": "N", "state": "online", "ageSeconds": 0, "scoutVersion": "2.0.0",
-                  "hostname": "n-box"}]
-        nodes = {n["id"]: n for n in T.topology_nodes({}, {"id": "controller", "name": "Ctl"}, hosts)}
+                  "hostname": "n-box", "gpus": [],
+                  "gpuError": "Failed to initialize NVML: Driver/library version mismatch"}]
+        nodes = {n["id"]: n for n in T.topology_nodes({}, {"id": "controller", "name": "Ctl",
+                                                           "gpuError": "the controller's own reading"}, hosts)}
     finally:
         for k, v in saved.items():
             setattr(T, k, v)
@@ -1419,6 +1452,11 @@ def test_a_machine_node_is_a_host():
     check((nodes["m"].get("controllerMachine"), nodes["n"].get("controllerMachine")) == (True, False),
           "машина, на которой работает контроллер (имя хоста из отчёта скаута), помечена — её узел несёт "
           "панель Server stats; negative: чужая машина — нет")
+    check(nodes["n"].get("gpuError") == "Failed to initialize NVML: Driver/library version mismatch",
+          "почему карт нет — словами nvidia-smi от скаута этой машины (скаут 2.25), и у чужой машины тоже: "
+          "раньше причину знала только машина контроллера")
+    check(nodes["m"].get("gpuError") == "",
+          "negative: скаут причины не назвал — пусто; своё чтение контроллера на узел не попадает")
 
 
 for fn in (test_the_pull_keeps_the_scout_version, test_bind_refuses_an_agent_the_record_does_not_have, test_a_cell_of_an_unknown_machine_has_no_address, test_metrics_read_the_boards_liveness, test_a_machine_node_is_a_host,
@@ -1437,7 +1475,8 @@ for fn in (test_the_pull_keeps_the_scout_version, test_bind_refuses_an_agent_the
            test_manual_client_id_rules, test_report_changes_only_the_machine, test_new_port_comes_from_the_agent_base,
            test_bind_writes_the_role_it_was_given, test_normalizer_rebuilds_the_row,            test_delete_is_explicit, test_staleness_is_a_display_state,
            test_machines_stand_by_address, test_next_app_port_is_the_mints_own,
-           test_a_routes_save_keeps_the_proxy_running, test_the_port_door_follows_the_route):
+           test_a_routes_save_keeps_the_proxy_running, test_new_ports_stay_in_the_opened_range,
+           test_allocators_stop_at_the_range_ceiling):
     fn()
 
 print()

@@ -152,6 +152,10 @@ jobs:
           python3 scripts/test_models_list.py
           python3 scripts/test_models_dir_served.py
           python3 scripts/test_proxy_forward.py
+          python3 scripts/test_request_clock.py
+          python3 scripts/test_upstream_pool.py
+          python3 scripts/test_proxy_latency.py
+          python3 scripts/bench_proxy.py --quick
           python3 scripts/test_api_body.py
           python3 scripts/test_js_model_meta.py
           python3 scripts/test_js_usage_stats.py
@@ -204,6 +208,15 @@ jobs:
           python3 scripts/test_js_topology_render.py
           python3 scripts/test_js_model_list.py
           python3 scripts/check_proxy_response_paths.py
+          python3 scripts/check_proxy_sources.py
+          python3 scripts/check_firewall_untouched.py
+          python3 scripts/check_image_contents.py
+          python3 scripts/test_container_preflight.py
+          python3 scripts/test_listening_ports.py
+          python3 scripts/check_container_answers.py
+          python3 scripts/test_container_answers.py
+          python3 scripts/test_machine_scout.py
+          python3 scripts/test_proxy_restart.py
           python3 scripts/check_ci_coverage.py
           python3 scripts/check_command_mirrors.py
           python3 scripts/test_settings_bundle.py
